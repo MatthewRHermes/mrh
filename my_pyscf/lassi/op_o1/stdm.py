@@ -166,6 +166,7 @@ class LSTDM (object):
         exc['1c1d'] = np.empty ((0,6), dtype=int)
         exc['1s'] = np.empty ((0,4), dtype=int)
         exc['1s1c'] = np.empty ((0,5), dtype=int)
+        exc['1s1c_T'] = np.empty ((0,5), dtype=int)
         exc['2c'] = np.empty ((0,7), dtype=int)
         nfrags = hopping_index.shape[0]
 
@@ -255,6 +256,13 @@ class LSTDM (object):
         # Two-electron interaction: k(a)j(b) -> i(a)k(b) ("1s1c")
         idx = idx_2e & (nspin_index==3) & (ncharge_index==2) & (np.amin(spin_index,axis=0)==-2)
         if nfrags > 2: exc['1s1c'] = np.vstack (
+            list (np.where (idx)) + [findf[-1][idx], findf[1][idx], findf[0][idx]]
+        ).T
+
+        # Two-electron interaction: k(b)j(a) -> i(b)k(a) ("1s1c_T")
+        # This will only be used when we are unable to restrict ourselves to the lower triangle
+        idx = idx_2e & (nspin_index==3) & (ncharge_index==2) & (np.amax(spin_index,axis=0)==2)
+        if nfrags > 2: exc['1s1c_T'] = np.vstack (
             list (np.where (idx)) + [findf[-1][idx], findf[1][idx], findf[0][idx]]
         ).T
 
@@ -814,8 +822,11 @@ class LSTDM (object):
         self.dt_2c, self.dw_2c = self.dt_2c + dt, self.dw_2c + dw
         self._put_D2_(bra, ket, d2, i, j, k, l)
 
+    def _fn_row_has_spin (self, _crunch_fn):
+        return _crunch_fn.__name__ in ('_crunch_1c_', '_crunch_1c1d_', '_crunch_2c_')
+
     def _crunch_env_(self, _crunch_fn, *row):
-        if _crunch_fn.__name__ in ('_crunch_1c_', '_crunch_1c1d_', '_crunch_2c_'):
+        if self._fn_row_has_spin (_crunch_fn):
             inv = row[2:-1]
         else:
             inv = row[2:]

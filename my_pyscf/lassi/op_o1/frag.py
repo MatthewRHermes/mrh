@@ -234,6 +234,16 @@ class FragTDMInt (object):
     def get_1_sp (self, i, j):
         return self.try_get_1 (self._sm, j, i).conj ().T
 
+    def get_smp (self, i, j, s):
+        if s==0: return self.get_sm (i, j)
+        elif s==1: return self.get_sp (i, j)
+        else: raise RuntimeError
+
+    def get_1_smp (self, i, j, s):
+        if s==0: return self.get_1_sm (i, j)
+        elif s==1: return self.get_1_sp (i, j)
+        else: raise RuntimeError
+
     # 1-density intermediate
 
     def get_dm1 (self, i, j):

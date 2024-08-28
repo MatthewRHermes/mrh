@@ -33,6 +33,18 @@ class ContractHamCI (stdm.LSTDM):
 
     get_ham_2q = hams2ovlp.HamS2Ovlp.get_ham_2q
 
+    # Handling for 1s1c: need to do both a'.sm.b and b'.sp.a explicitly
+    def make_exc_tables (self, hopping_index):
+        exc = super ().make_exc_tables (hopping_index)
+        exc_1s1c  = np.pad (exc['1s1c'],   ((0,0),(0,1)), constant_values=0)
+        exc_1s1cT = np.pad (exc['1s1c_T'], ((0,0),(0,1)), constant_values=1)
+        exc['1s1c'] = np.append (exc_1s1c, exc_1s1cT, axis=0)
+        return exc
+
+    def _fn_row_has_spin (self, _crunch_fn):
+        return _crunch_fn.__name__ in ('_crunch_1c_', '_crunch_1c1d_', '_crunch_1s1c_',
+                                       '_crunch_2c_')
+
     def _init_vecs (self):
         hci_fr_pabq = []
         nfrags, nroots, nbra = self.nfrags, self.nroots, self.nbra
@@ -137,7 +149,35 @@ class ContractHamCI (stdm.LSTDM):
         hci_f_ab, iad, skip = self._get_vecs_(bra, ket, i, j, k)
         if skip: return
         iad, jad, kad = iad
-        raise NotImplementedError
+        fac = 1
+        nelec_f_bra = self.nelec_rf[self.rootaddr[bra]]
+        nelec_f_ket = self.nelec_rf[self.rootaddr[ket]]
+        fac *= fermion_des_shuffle (nelec_f_bra, (i, j, k), i)
+        fac *= fermion_des_shuffle (nelec_f_ket, (i, j, k), j)
+        h2j = self.get_ham_2q (i,j,k,k)
+        h2k = self.get_ham_2q (i,k,k,j)
+        p_i = self.ints[i].get_1_p (bra, ket, s1)
+        h_j = self.ints[j].get_1_h (bra, ket, s1)
+        if iad or jad:
+            d1s_k = self.ints[k].get_1_dm1 (bra, ket)
+            d1_kk = d1s_kk.sum (0)
+            h1_ij  = np.tensordot (h2j, d1_kk, axes=2)
+            h1_ij -= np.tensordot (d1s_kk[s1], h2k, axes=((1,2),(2,1)))
+            if iad:
+                h_ = np.dot (h1_ij, h_j)
+                hci_f_ab[i] += fac * self.ints[i].contract_h10 (s1, h_, None, ket)
+            if jad:
+                h_ = np.dot (p_i, h1_ij)
+                hci_f_ab[j] += fac * self.ints[j].contract_h01 (s1, h_, None, ket)
+        if kad:
+            h2j = np.tensordot (p_i, h2j, axes=1)
+            h2j = np.tensordot (h_j, h2j, axes=1)
+            h_ = h2j # opposite-spin; Coulomb effect only
+            hci_f_ab[k] += fac * self.ints[k].contract_h11 (2-(2*s1), h_, ket)
+            h2k = np.tensordot (p_i, h2k, axes=1)
+            h2k = np.tensordot (h2k, h_j, axes=1)
+            h_ -= h2k.T # same-spin; Coulomb and exchange
+            hci_f_ab[k] += fac * self.ints[k].contract_h11 (2*s1, h_, ket)
         dt, dw = logger.process_clock () - t0, logger.perf_counter () - w0
         self.dt_1c1d, self.dw_1c1d = self.dt_1c1d + dt, self.dw_1c1d + dw
         self._put_vecs_(bra, ket, hci_f_ab, i,j,k)
@@ -171,7 +211,7 @@ class ContractHamCI (stdm.LSTDM):
         self._put_vecs_(bra, ket, hci_f_ab, i,j)
         return
 
-    def _crunch_1s1c_(self, bra, ket, i, j, k):
+    def _crunch_1s1c_(self, bra, ket, i, j, k, s1):
         '''Compute the reduced density matrix elements of a spin-charge unit hop; i.e.,
 
         <bra|i'(a)k'(b)j(b)k(a)|ket>
@@ -187,7 +227,28 @@ class ContractHamCI (stdm.LSTDM):
         hci_f_ab, iad, skip = self._get_vecs_(bra, ket, i, j, k)
         if skip: return
         iad, jad, kad = iad
-        raise NotImplementedError
+        s11 = s1
+        s12 = 1-s1
+        s2 = 2-s1
+        fac = -1 # a'bb'a -> a'ab'b signi
+        fac *= fermion_des_shuffle (nelec_f_bra, (i, j, k), i)
+        fac *= fermion_des_shuffle (nelec_f_ket, (i, j, k), j)
+        h2 = self.get_ham_2q (i,k,k,j)
+        p_i = self.ints[i].get_1_p (bra, ket, s11)
+        h_j = self.ints[j].get_1_h (bra, ket, s12)
+        if iad or jad:
+            s_k = self.ints[k].get_1_smp (bra, ket, s1)
+            h1_ij = np.tensordot (h2, s_k, axes=((2,1),(0,1)))
+            if iad:
+                h_ = np.dot (h1_ij, h_j)
+                hci_f_ab[i] += fac * self.ints[i].contract_h10 (s11, h_, None, ket)
+            if jad:
+                h_ = np.dot (p_i, h1_ij)
+                hci_f_ab[j] += fac * self.ints[j].contract_h01 (s12, h_, None, ket)
+        if kad:
+            h_ = np.tensordot (h2, h_j, axes=1)
+            h_ = np.tensordot (h2, p_i, axes=1).T
+            hci_f_ab[k] += fac * self.ints[k].contract_h11 (s2, h_, ket)
         dt, dw = logger.process_clock () - t0, logger.perf_counter () - w0
         self.dt_1s1c, self.dw_1s1c = self.dt_1s1c + dt, self.dw_1s1c + dw
         self._put_vecs_(bra, ket, hci_f_ab, i,j,k)

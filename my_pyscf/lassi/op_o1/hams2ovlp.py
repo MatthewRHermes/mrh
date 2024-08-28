@@ -123,7 +123,7 @@ class HamS2Ovlp (stdm.LSTDM):
         return arr
 
     def _crunch_env_(self, _crunch_fn, *row):
-        if _crunch_fn.__name__ in ('_crunch_1c_', '_crunch_1c1d_', '_crunch_2c_'):
+        if self._fn_row_has_spin (_crunch_fn):
             inv = row[2:-1]
         else:
             inv = row[2:]

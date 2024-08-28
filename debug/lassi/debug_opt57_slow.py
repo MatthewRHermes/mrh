@@ -210,7 +210,7 @@ class KnownValues(unittest.TestCase):
         nj = np.cumsum (lroots_prod)
         ni = nj - lroots_prod
         ndim = nj[-1]
-        for opt in range (1):
+        for opt in range (2):
             ham = op[opt].ham (las, h1, h2, ci_fr, nelec)[0]
             hket_fr_pabq = op[opt].contract_ham_ci (las, h1, h2, ci_fr, nelec, ci_fr, nelec)
             for f, (ci_r, hket_r_pabq) in enumerate (zip (ci_fr, hket_fr_pabq)):
