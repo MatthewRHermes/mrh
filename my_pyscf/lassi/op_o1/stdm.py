@@ -253,6 +253,13 @@ class LSTDM (object):
             ispin[idx]]
         ).T
 
+        # Two-electron interaction: ij -> kk ("coalesce")
+        idx = idx_2e & (ncharge_index == 3) & (np.amax (charge_index, axis=0) == 2)
+        if nfrags > 2: exc_coalesce = np.vstack (
+            list (np.where (idx)) + [findf[-1][idx], findf[0][idx], findf[-1][idx], findf[1][idx],
+            ispin[idx]]
+        ).T
+
         # Two-electron interaction: k(a)j(b) -> i(a)k(b) ("1s1c")
         idx = idx_2e & (nspin_index==3) & (ncharge_index==2) & (np.amin(spin_index,axis=0)==-2)
         if nfrags > 2: exc['1s1c'] = np.vstack (
@@ -262,7 +269,7 @@ class LSTDM (object):
         # Two-electron interaction: k(b)j(a) -> i(b)k(a) ("1s1c_T")
         # This will only be used when we are unable to restrict ourselves to the lower triangle
         idx = idx_2e & (nspin_index==3) & (ncharge_index==2) & (np.amax(spin_index,axis=0)==2)
-        if nfrags > 2: exc['1s1c_T'] = np.vstack (
+        if nfrags > 2: exc_1s1cT = np.vstack (
             list (np.where (idx)) + [findf[-2][idx], findf[0][idx], findf[-1][idx]]
         ).T
 
@@ -289,6 +296,13 @@ class LSTDM (object):
             ispin[idx]]
         ).T
 
+        if self.all_interactions_full_square and nfrags > 2:
+            exc['1s1c'] = np.append (
+                np.pad (exc['1s1c'], ((0,0),(0,1)), constant_values=0),
+                np.pad (exc_1s1cT,   ((0,0),(0,1)), constant_values=1),
+                axis=0)
+            exc_split = np.append (exc_split, exc_coalesce, axis=0)
+
         # Combine "split", "pair", and "scatter" into "2c"
         if nfrags > 1: exc['2c'] = exc_pair
         if nfrags > 2: exc['2c'] = np.vstack ((exc['2c'], exc_split))
@@ -296,15 +310,14 @@ class LSTDM (object):
 
         return exc
 
+    all_interactions_full_square = False
     interaction_has_spin = ('_1c_', '_1c1d_', '_2c_')
 
     def mask_exc_table_(self, exc, lbl, mask_bra_space=None, mask_ket_space=None):
-        # Part 1: restrict to the caller-specified rectangle OR its transpose
-        idx1  = mask_exc_table (exc, col=0, mask_space=mask_bra_space)
-        idx1 &= mask_exc_table (exc, col=1, mask_space=mask_ket_space)
-        #idx2  = mask_exc_table (exc, col=1, mask_space=mask_bra_space)
-        #idx2 &= mask_exc_table (exc, col=0, mask_space=mask_ket_space)
-        exc = exc[idx1]#|idx2]
+        # Part 1: restrict to the caller-specified rectangle
+        idx  = mask_exc_table (exc, col=0, mask_space=mask_bra_space)
+        idx &= mask_exc_table (exc, col=1, mask_space=mask_ket_space)
+        exc = exc[idx]
         # Part 2: identify interactions which are equivalent except for the overlap
         # factor of spectator fragments. Reduce the exc table only to the unique
         # interactions and populate self.nonuniq_exc with the corresponding

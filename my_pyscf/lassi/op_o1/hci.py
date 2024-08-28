@@ -34,13 +34,7 @@ class ContractHamCI (stdm.LSTDM):
     get_ham_2q = hams2ovlp.HamS2Ovlp.get_ham_2q
 
     # Handling for 1s1c: need to do both a'.sm.b and b'.sp.a explicitly
-    def make_exc_tables (self, hopping_index):
-        exc = super ().make_exc_tables (hopping_index)
-        exc_1s1c  = np.pad (exc['1s1c'],   ((0,0),(0,1)), constant_values=0)
-        exc_1s1cT = np.pad (exc['1s1c_T'], ((0,0),(0,1)), constant_values=1)
-        exc['1s1c'] = np.append (exc_1s1c, exc_1s1cT, axis=0)
-        return exc
-
+    all_interactions_full_square = True
     interaction_has_spin = ('_1c_', '_1c1d_', '_1s1c_', '_2c_')
 
     def _init_vecs (self):
@@ -292,8 +286,8 @@ class ContractHamCI (stdm.LSTDM):
         s12 = s2 % 2
         nelec_f_bra = self.nelec_rf[self.rootaddr[bra]]
         nelec_f_ket = self.nelec_rf[self.rootaddr[ket]]
-        # TODO: debug this for 3- and 4-fragment interactions
-        fac = 1 / (1 + int (s11==s12))
+        # TODO: debug this for 4-fragment interactions
+        fac = 1 / (1 + int (s11==s12 and i==k and j==l))
         h_iklj = self.get_ham_2q (i,j,k,l).transpose (0,2,3,1) # Dirac order
         if s11==s12 and i!=k and j!=l: # exchange
             h_iklj -= self.get_ham_2q (i,l,k,j).transpose (0,2,1,3)
@@ -319,19 +313,19 @@ class ContractHamCI (stdm.LSTDM):
             if iad: hci_f_ab[i] += fac * self.ints[i].contract_h20 (s2lt, h20_ik, ket)
         else:
             if iad:
-                h10_i = np.tensordot (h20_ik, self.ints[k].get_1_p (bra, ket, s12), axes=1)
+                h10_i = np.dot (h20_ik, self.ints[k].get_1_p (bra, ket, s12))
                 hci_f_ab[i] += fac * self.ints[i].contract_h10 (s11, h10_i, None, ket)
             if kad:
-                h10_k = np.tensordot (self.ints[i].get_1_p (bra, ket, s11), h20_ik, axes=1)
+                h10_k = np.dot (self.ints[i].get_1_p (bra, ket, s11), h20_ik)
                 hci_f_ab[k] += fac * self.ints[k].contract_h10 (s12, h10_k, None, ket)
         if j == l:
             if jad: hci_f_ab[j] += fac * self.ints[j].contract_h02 (s2lt, h02_lj, ket)
         else:
             if jad:
-                h01_j = np.tensordot (h02_jl, self.ints[l].get_1_h (bra, ket, s12), axes=1)
+                h01_j = np.dot (self.ints[l].get_1_h (bra, ket, s12), h02_lj)
                 hci_f_ab[j] += fac * self.ints[j].contract_h01 (s11, h01_j, None, ket)
             if lad:
-                h01_l = np.tensordot (self.ints[j].get_1_h (bra, ket, s11), h02_jl, axes=1)
+                h01_l = np.dot (h02_lj, self.ints[j].get_1_h (bra, ket, s11))
                 hci_f_ab[l] += fac * self.ints[l].contract_h01 (s12, h01_l, None, ket)
         dt, dw = logger.process_clock () - t0, logger.perf_counter () - w0
         self.dt_2c, self.dw_2c = self.dt_2c + dt, self.dw_2c + dw

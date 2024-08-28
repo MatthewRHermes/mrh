@@ -233,7 +233,9 @@ class KnownValues(unittest.TestCase):
                         #if opt>0 and not spaces[r].is_single_excitation_of (spaces[s]): continue
                         #elif opt==1: print (r,s, round (lib.fp (hket_pq_s)-lib.fp (hket_ref_s),3))
                         with self.subTest (opt=opt, frag=f, bra_space=r, ket_space=s,
-                                           intyp=interactions[interidx[r,s]]):
+                                           intyp=interactions[interidx[r,s]],
+                                           dneleca=nelec[:,r,0]-nelec[:,s,0],
+                                           dnelecb=nelec[:,r,1]-nelec[:,s,1]):
                             self.assertAlmostEqual (lib.fp (hket_pq_s), lib.fp (hket_ref_s), 8)
 
 
