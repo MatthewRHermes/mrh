@@ -23,7 +23,6 @@ class ContractHamCI (stdm.LSTDM):
     def __init__(self, ints, nlas, hopping_index, lroots, h1, h2, nbra=1,
                  log=None, max_memory=2000, dtype=np.float64):
         nfrags, _, nroots, _ = hopping_index.shape
-        if nfrags > 2: raise NotImplementedError
         nket = nroots - nbra
         hams2ovlp.HamS2Ovlp.__init__(self, ints, nlas, hopping_index, lroots, h1, h2,
                                         mask_bra_space = list (range (nket, nroots)),

@@ -30,8 +30,10 @@ from mrh.my_pyscf.lassi.lassi import roots_make_rdm12s, make_stdm12s, ham_2q
 from mrh.my_pyscf.lassi.citools import get_lroots, get_rootaddr_fragaddr
 from mrh.my_pyscf.lassi import op_o0
 from mrh.my_pyscf.lassi import op_o1
-from mrh.my_pyscf.lassi import op_o2
-import itertools
+from mrh.my_pyscf.lassi.spaces import SingleLASRootspace
+from mrh.my_pyscf.lassi.op_o1.utilities import lst_hopping_index
+
+op = (op_o0, op_o1)
 
 def setUpModule ():
     global mol, mf, las, nstates, nelec_frs, si, orbsym, wfnsym
@@ -168,38 +170,73 @@ class KnownValues(unittest.TestCase):
     #        with self.subTest(matrix=lbl):
     #            self.assertAlmostEqual (lib.fp (mat), fp, 9)
 
-    def test_rdm12s (self):
-        t0, w0 = lib.logger.process_clock (), lib.logger.perf_counter ()
-        d12_o0 = op_o0.roots_make_rdm12s (las, las.ci, nelec_frs, si, orbsym=orbsym, wfnsym=wfnsym)
-        t1, w1 = lib.logger.process_clock (), lib.logger.perf_counter ()
-        #d12_o1 = op_o1.roots_make_rdm12s (las, las.ci, nelec_frs, si, orbsym=orbsym, wfnsym=wfnsym)
-        t2, w2 = lib.logger.process_clock (), lib.logger.perf_counter ()
-        d12_o2 = op_o2.roots_make_rdm12s (las, las.ci, nelec_frs, si, orbsym=orbsym, wfnsym=wfnsym)
-        t3, w3 = lib.logger.process_clock (), lib.logger.perf_counter ()
-        #print (t1-t0, t2-t1, t3-t2)
-        #print (w1-w0, w2-w1, w3-w2)
-        for r in range (2):
-            for i in range (nstates):
-                #with self.subTest (rank=r+1, root=i, opt=1):
-                #    self.assertAlmostEqual (lib.fp (d12_o0[r][i]),
-                #        lib.fp (d12_o1[r][i]), 9)
-                with self.subTest (rank=r+1, root=i, opt=2):
-                    pass
-                    #self.assertAlmostEqual (lib.fp (d12_o0[r][i]),
-                    #    lib.fp (d12_o2[r][i]), 9)
-        n0 = [0,4,6]
-        n1 = [4,6,10]
-        for i, j, k, l in itertools.combinations_with_replacement (range (3), 4):
-            i0, i1 = n0[i], n1[i]
-            j0, j1 = n0[j], n1[j]
-            k0, k1 = n0[k], n1[k]
-            l0, l1 = n0[l], n1[l]
-            for s1,s2 in itertools.product (range (2), repeat=2):
-                with self.subTest ('rdm2s', idx=(i,j,k,l), spin=(s1,s2)):
-                    self.assertAlmostEqual (
-                        lib.fp (d12_o0[1][:,s1,i0:i1,j0:j1,s2,k0:k1,l0:l1]),
-                        lib.fp (d12_o2[1][:,s1,i0:i1,j0:j1,s2,k0:k1,l0:l1])
-                    )
+    #def test_rdm12s (self):
+    #    t0, w0 = lib.logger.process_clock (), lib.logger.perf_counter ()
+    #    d12_o0 = op_o0.roots_make_rdm12s (las, las.ci, nelec_frs, si, orbsym=orbsym, wfnsym=wfnsym)
+    #    t1, w1 = lib.logger.process_clock (), lib.logger.perf_counter ()
+    #    d12_o1 = op_o1.roots_make_rdm12s (las, las.ci, nelec_frs, si, orbsym=orbsym, wfnsym=wfnsym)
+    #    t2, w2 = lib.logger.process_clock (), lib.logger.perf_counter ()
+    #    #print (t1-t0, t2-t1, t3-t2)
+    #    #print (w1-w0, w2-w1, w3-w2)
+    #    for r in range (2):
+    #        for i in range (nstates):
+    #            with self.subTest (rank=r+1, root=i, opt=1):
+    #                self.assertAlmostEqual (lib.fp (d12_o0[r][i]),
+    #                    lib.fp (d12_o1[r][i]), 9)
+
+    def test_contract_hlas_ci (self):
+        hopping_index, zerop_index, onep_index = lst_hopping_index (nelec_frs)
+        symm_index = np.all (hopping_index.sum (0) == 0, axis=0)
+        twop_index = symm_index & (np.abs (hopping_index).sum ((0,1)) == 4)
+        twoc_index = twop_index & (np.abs (hopping_index.sum (1)).sum (0) == 4)
+        ocos_index = twop_index & (np.abs (hopping_index.sum (1)).sum (0) == 2)
+        ones_index = twop_index & (np.abs (hopping_index.sum (1)).sum (0) == 0)
+        twoc2_index = twoc_index & (np.count_nonzero (hopping_index.sum (1), axis=0) == 2)
+        twoc3_index = twoc_index & (np.count_nonzero (hopping_index.sum (1), axis=0) == 3)
+        twoc4_index = twoc_index & (np.count_nonzero (hopping_index.sum (1), axis=0) == 4)
+        interactions = ['null', '1c', '1s', '1c1s', '2c_2', '2c_3', '2c_4']
+        interidx = (onep_index.astype (int) + 2*ones_index.astype (int)
+                    + 3*ocos_index.astype (int) + 4*twoc2_index.astype (int)
+                    + 5*twoc3_index.astype (int) + 6*twoc4_index.astype (int))
+
+        h0, h1, h2 = ham_2q (las, las.mo_coeff)
+        nelec = nelec_frs
+        ci_fr = las.ci
+
+        spaces = [SingleLASRootspace (las, m, s, c, 0) for c,m,s,w in zip (*get_space_info (las))]
+
+        lroots = get_lroots (ci_fr)
+        lroots_prod = np.prod (lroots, axis=0)
+        nj = np.cumsum (lroots_prod)
+        ni = nj - lroots_prod
+        ndim = nj[-1]
+        for opt in range (1):
+            ham = op[opt].ham (las, h1, h2, ci_fr, nelec)[0]
+            hket_fr_pabq = op[opt].contract_ham_ci (las, h1, h2, ci_fr, nelec, ci_fr, nelec)
+            for f, (ci_r, hket_r_pabq) in enumerate (zip (ci_fr, hket_fr_pabq)):
+                current_order = list (range (las.nfrags-1, -1, -1)) + [las.nfrags]
+                current_order.insert (0, current_order.pop (f))
+                for r, (ci, hket_pabq) in enumerate (zip (ci_r, hket_r_pabq)):
+                    if ci.ndim < 3: ci = ci[None,:,:]
+                    proper_shape = np.append (lroots[:,r], ndim)
+                    current_shape = proper_shape[current_order]
+                    to_proper_order = list (np.argsort (current_order))
+                    hket_pq = lib.einsum ('rab,pabq->rpq', ci.conj (), hket_pabq)
+                    hket_pq = hket_pq.reshape (current_shape)
+                    hket_pq = hket_pq.transpose (*to_proper_order)
+                    hket_pq = hket_pq.reshape ((lroots_prod[r], ndim))
+                    hket_ref = ham[ni[r]:nj[r]]
+                    for s, (k, l) in enumerate (zip (ni, nj)):
+                        hket_pq_s = hket_pq[:,k:l]
+                        hket_ref_s = hket_ref[:,k:l]
+                        # TODO: opt>0 for things other than single excitation
+                        #if opt>0 and not spaces[r].is_single_excitation_of (spaces[s]): continue
+                        #elif opt==1: print (r,s, round (lib.fp (hket_pq_s)-lib.fp (hket_ref_s),3))
+                        with self.subTest (opt=opt, frag=f, bra_space=r, ket_space=s,
+                                           intyp=interactions[interidx[r,s]]):
+                            self.assertAlmostEqual (lib.fp (hket_pq_s), lib.fp (hket_ref_s), 8)
+
+
 
 if __name__ == "__main__":
     print("Full Tests for LASSI matrix elements of 57-space (91-state) manifold")
