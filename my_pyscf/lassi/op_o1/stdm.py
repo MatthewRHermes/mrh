@@ -263,7 +263,7 @@ class LSTDM (object):
         # This will only be used when we are unable to restrict ourselves to the lower triangle
         idx = idx_2e & (nspin_index==3) & (ncharge_index==2) & (np.amax(spin_index,axis=0)==2)
         if nfrags > 2: exc['1s1c_T'] = np.vstack (
-            list (np.where (idx)) + [findf[-1][idx], findf[1][idx], findf[0][idx]]
+            list (np.where (idx)) + [findf[-2][idx], findf[0][idx], findf[-1][idx]]
         ).T
 
         # Symmetric two-electron interactions: lower triangle only
@@ -296,19 +296,22 @@ class LSTDM (object):
 
         return exc
 
+    interaction_has_spin = ('_1c_', '_1c1d_', '_2c_')
+
     def mask_exc_table_(self, exc, lbl, mask_bra_space=None, mask_ket_space=None):
         # Part 1: restrict to the caller-specified rectangle OR its transpose
         idx1  = mask_exc_table (exc, col=0, mask_space=mask_bra_space)
         idx1 &= mask_exc_table (exc, col=1, mask_space=mask_ket_space)
-        idx2  = mask_exc_table (exc, col=1, mask_space=mask_bra_space)
-        idx2 &= mask_exc_table (exc, col=0, mask_space=mask_ket_space)
-        exc = exc[idx1|idx2]
+        #idx2  = mask_exc_table (exc, col=1, mask_space=mask_bra_space)
+        #idx2 &= mask_exc_table (exc, col=0, mask_space=mask_ket_space)
+        exc = exc[idx1]#|idx2]
         # Part 2: identify interactions which are equivalent except for the overlap
         # factor of spectator fragments. Reduce the exc table only to the unique
         # interactions and populate self.nonuniq_exc with the corresponding
         # nonunique images.
         if lbl=='null': return exc
-        excp = exc[:,:-1] if lbl in ('1c', '1c1d', '2c') else exc
+        ulblu = '_' + lbl + '_'
+        excp = exc[:,:-1] if ulblu in self.interaction_has_spin else exc
         fprint = []
         for row in excp:
             frow = []
@@ -823,7 +826,7 @@ class LSTDM (object):
         self._put_D2_(bra, ket, d2, i, j, k, l)
 
     def _fn_row_has_spin (self, _crunch_fn):
-        return _crunch_fn.__name__ in ('_crunch_1c_', '_crunch_1c1d_', '_crunch_2c_')
+        return any ((i in _crunch_fn.__name__ for i in self.interaction_has_spin))
 
     def _crunch_env_(self, _crunch_fn, *row):
         if self._fn_row_has_spin (_crunch_fn):
