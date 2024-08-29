@@ -20,11 +20,12 @@ from pyscf import lib, gto, scf, mcscf, ao2mo
 from mrh.my_pyscf.mcscf.lasscf_o0 import LASSCF
 from mrh.my_pyscf.lassi import LASSI, LASSIrq, LASSIrqCT
 from mrh.my_pyscf.lassi.lassi import root_make_rdm12s, make_stdm12s
-from mrh.my_pyscf.lassi.spaces import all_single_excitations, SingleLASRootspace
+from mrh.my_pyscf.lassi.spaces import all_single_excitations
 from mrh.my_pyscf.mcscf.lasci import get_space_info
 from mrh.my_pyscf.lassi import op_o0, op_o1, lassis
 from mrh.my_pyscf.lassi.op_o1 import get_fdm1_maker
 from mrh.my_pyscf.lassi.sitools import make_sdm1
+from mrh.tests.lassi.addons import case_contract_hlas_ci
 
 def setUpModule ():
     global mol, mf, lsi, las, mc, op
@@ -114,40 +115,7 @@ class KnownValues(unittest.TestCase):
     def test_contract_hlas_ci (self):
         e_roots, si, las = lsi.e_roots, lsi.si, lsi._las
         h0, h1, h2 = lsi.ham_2q ()
-        nelec = lsi.get_nelec_frs ()
-        ci_fr = las.ci
-        ham = (si * (e_roots[None,:]-h0)) @ si.conj ().T
-        ndim = len (e_roots)        
-
-        spaces = [SingleLASRootspace (las, m, s, c, 0) for c,m,s,w in zip (*get_space_info (las))]
-
-        lroots = lsi.get_lroots ()
-        lroots_prod = np.prod (lroots, axis=0)
-        nj = np.cumsum (lroots_prod)
-        ni = nj - lroots_prod
-        for opt in range (2):
-            hket_fr_pabq = op[opt].contract_ham_ci (las, h1, h2, ci_fr, nelec, ci_fr, nelec)
-            for f, (ci_r, hket_r_pabq) in enumerate (zip (ci_fr, hket_fr_pabq)):
-                current_order = list (range (las.nfrags-1, -1, -1)) + [las.nfrags]
-                current_order.insert (0, current_order.pop (f))
-                for r, (ci, hket_pabq) in enumerate (zip (ci_r, hket_r_pabq)):
-                    if ci.ndim < 3: ci = ci[None,:,:]
-                    proper_shape = np.append (lroots[:,r], ndim)
-                    current_shape = proper_shape[current_order]
-                    to_proper_order = list (np.argsort (current_order))
-                    hket_pq = lib.einsum ('rab,pabq->rpq', ci.conj (), hket_pabq)
-                    hket_pq = hket_pq.reshape (current_shape)
-                    hket_pq = hket_pq.transpose (*to_proper_order)
-                    hket_pq = hket_pq.reshape ((lroots_prod[r], ndim))
-                    hket_ref = ham[ni[r]:nj[r]]
-                    for s, (k, l) in enumerate (zip (ni, nj)):
-                        hket_pq_s = hket_pq[:,k:l]
-                        hket_ref_s = hket_ref[:,k:l]
-                        # TODO: opt>0 for things other than single excitation
-                        #if opt>0 and not spaces[r].is_single_excitation_of (spaces[s]): continue
-                        #elif opt==1: print (r,s, round (lib.fp (hket_pq_s)-lib.fp (hket_ref_s),3))
-                        with self.subTest (opt=opt, frag=f, bra_space=r, ket_space=s):
-                            self.assertAlmostEqual (lib.fp (hket_pq_s), lib.fp (hket_ref_s), 8)
+        case_contract_hlas_ci (self, las, h0, h1, h2, las.ci, lsi.get_nelec_frs ())
 
     def test_lassis (self):
         for opt in (0,1):
