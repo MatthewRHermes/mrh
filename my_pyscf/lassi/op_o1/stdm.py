@@ -141,6 +141,10 @@ class LSTDM (object):
         self.dt_g, self.dw_g = 0.0, 0.0
         self.dt_s, self.dw_s = 0.0, 0.0
 
+    # This needs to be changed in hci constant-part subclass
+    def fermion_frag_shuffle (self, iroot, frags):
+        return fermion_frag_shuffle (self.nelec_rf[iroot], frags)
+
     def make_exc_tables (self, hopping_index):
         ''' Generate excitation tables. The nth column of each array is the (n+1)th argument of the
         corresponding _crunch_*_ member function below. The first two columns are always the bra
@@ -393,8 +397,8 @@ class LSTDM (object):
         uniq_frags = list (set (inv))
         bra, ket = self.rootaddr[bra], self.rootaddr[ket]
         wgt *= self.spin_shuffle[bra] * self.spin_shuffle[ket]
-        wgt *= fermion_frag_shuffle (self.nelec_rf[bra], uniq_frags)
-        wgt *= fermion_frag_shuffle (self.nelec_rf[ket], uniq_frags)
+        wgt *= self.fermion_frag_shuffle (bra, uniq_frags)
+        wgt *= self.fermion_frag_shuffle (ket, uniq_frags)
         return wgt
 
     def _get_addr_range (self, raddr, *inv, _profile=True):
@@ -518,8 +522,8 @@ class LSTDM (object):
         '''
         inv = list (set (inv))
         fac = self.spin_shuffle[rbra] * self.spin_shuffle[rket]
-        fac *= fermion_frag_shuffle (self.nelec_rf[rbra], inv)
-        fac *= fermion_frag_shuffle (self.nelec_rf[rket], inv)
+        fac *= self.fermion_frag_shuffle (rbra, inv)
+        fac *= self.fermion_frag_shuffle (rket, inv)
         spec = np.ones (self.nfrags, dtype=bool)
         for i in inv: spec[i] = False
         spec = np.where (spec)[0]

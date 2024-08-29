@@ -489,7 +489,7 @@ def gen_contract_ham_ci_const (ifrag, nbra, las, h1, h2, ci, nelec_frs, soc=0, o
     # index down to omit fragment
     idx = np.ones (nfrags, dtype=bool)
     idx[ifrag] = False
-    nelec_frs = nelec_frs[idx]
+    nelec_frs_j = nelec_frs[idx]
     ci_jfrag = [c for i,c in enumerate (ci) if i != ifrag]
     j = sum (nlas[:ifrag+1])
     i = j - nlas[ifrag]
@@ -500,25 +500,27 @@ def gen_contract_ham_ci_const (ifrag, nbra, las, h1, h2, ci, nelec_frs, soc=0, o
     else:
         h1 = h1[np.ix_(ix,ix)]
     h2 = h2[np.ix_(ix,ix,ix,ix)]
-    nlas = nlas[idx]
+    nlas_j = nlas[idx]
 
-    # First pass: single-fragment intermediates
-    hopping_index, ints, lroots = frag.make_ints (las, ci_jfrag, nelec_frs, nlas=nlas)
-    nstates = np.sum (np.prod (lroots, axis=0))
-        
-    # Memory check
-    current_memory = lib.current_memory ()[0]
-    required_memory = dtype.itemsize*nstates*nstates*3/1e6
-    if current_memory + required_memory > max_memory:
-        raise MemoryError ("current: {}; required: {}; max: {}".format (
-            current_memory, required_memory, max_memory))
+    # Fix sign convention for omitted fragment
+    nelec_rf = nelec_frs.sum (-1).T
+    class HamS2Ovlp (hams2ovlp.HamS2Ovlp):
+        def __init__(self, *args, **kwargs):
+            super().__init__(*args, **kwargs)
+            self.spin_shuffle = [fermion_spin_shuffle (nelec_frs[:,i,0], nelec_frs[:,i,1])
+                                 for i in range (nroots)]
+        def fermion_frag_shuffle (self, iroot, frags):
+            frags = [f if f<ifrag else f+1 for f in frags]
+            return fermion_frag_shuffle (nelec_rf[iroot], frags)
 
-    # Second pass: upper-triangle
-    outerprod = hams2ovlp.HamS2Ovlp (ints, nlas, hopping_index, lroots, h1, h2, dtype=dtype,
-                                     mask_bra_space = list (range (nket, nroots)),
-                                     mask_ket_space = list (range (nket)),
-                                     max_memory=max_memory, log=log)
+    # Get the intermediate object, rather than just the ham matrix, so that I can use the members
+    # of the intermediate to keep track of the difference between the full-system indices and the
+    # nfrag-1--system indices
+    with lib.temporary_env (las, ncas_sub=nlas_j):
+        outerprod = hams2ovlp.ham (las, h1, h2, ci_jfrag, nelec_frs_j, _HamS2Ovlp_class=HamS2Ovlp, 
+                                   _do_kernel=False)
     ham = outerprod.kernel ()[0]
+
     for ibra in range (nket, nroots):
         i, j = outerprod.offs_lroots[ibra]
         nelec_i = nelec_i_rs[ibra]

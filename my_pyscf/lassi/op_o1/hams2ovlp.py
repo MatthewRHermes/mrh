@@ -397,7 +397,7 @@ class HamS2Ovlp (stdm.LSTDM):
         self.dt_2c, self.dw_2c = self.dt_2c + dt, self.dw_2c + dw
         return ham, s2, (l, j, i, k)
 
-def ham (las, h1, h2, ci, nelec_frs, _HamS2Ovlp_class=HamS2Ovlp, **kwargs):
+def ham (las, h1, h2, ci, nelec_frs, _HamS2Ovlp_class=HamS2Ovlp, _do_kernel=True, **kwargs):
     ''' Build Hamiltonian, spin-squared, and overlap matrices in LAS product state basis
 
     Args:
@@ -411,6 +411,13 @@ def ham (las, h1, h2, ci, nelec_frs, _HamS2Ovlp_class=HamS2Ovlp, **kwargs):
         nelec_frs : ndarray of shape (nfrags,nroots,2)
             Number of electrons of each spin in each rootspace in each
             fragment
+
+    Kwargs:
+        _HamS2Ovlp_class : class
+            The main intermediate class
+        _do_kernel : logical
+            If false, return the main intermediate object before running kernel, instead of the
+            operator matrices
         
     Returns: 
         ham : ndarray of shape (nroots,nroots)
@@ -441,6 +448,7 @@ def ham (las, h1, h2, ci, nelec_frs, _HamS2Ovlp_class=HamS2Ovlp, **kwargs):
     outerprod = _HamS2Ovlp_class (ints, nlas, hopping_index, lroots, h1, h2, dtype=dtype,
                                      max_memory=max_memory, log=log)
     lib.logger.timer (las, 'LASSI Hamiltonian second intermediate indexing setup', *t0)
+    if not _do_kernel: return outerprod
     ham, s2, ovlp, t0 = outerprod.kernel ()
     lib.logger.timer (las, 'LASSI Hamiltonian second intermediate crunching', *t0)
     if las.verbose >= lib.logger.TIMER_LEVEL:

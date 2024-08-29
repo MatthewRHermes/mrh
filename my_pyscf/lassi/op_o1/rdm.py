@@ -223,8 +223,8 @@ class LRRDM (stdm.LSTDM):
         siket = self.get_frag_transposed_sivec (rket, *inv)
         inv = list (set (inv))
         fac = self.spin_shuffle[rbra] * self.spin_shuffle[rket]
-        fac *= fermion_frag_shuffle (self.nelec_rf[rbra], inv)
-        fac *= fermion_frag_shuffle (self.nelec_rf[rket], inv)
+        fac *= self.fermion_frag_shuffle (rbra, inv)
+        fac *= self.fermion_frag_shuffle (rket, inv)
         spec = np.ones (self.nfrags, dtype=bool)
         for i in inv: spec[i] = False
         spec = np.where (spec)[0]
