@@ -23,6 +23,7 @@ from mrh.tests.lasscf.c2h4n4_struct import structure as struct
 from mrh.my_pyscf.mcscf.lasscf_o0 import LASSCF
 from mrh.my_pyscf.lassi.lassi import roots_make_rdm12s, root_make_rdm12s, make_stdm12s, ham_2q
 from mrh.my_pyscf.lassi import LASSI
+from mrh.tests.lassi.addons import case_contract_hlas_ci
 topdir = os.path.abspath (os.path.join (__file__, '..'))
 
 def setUpModule ():
@@ -183,6 +184,13 @@ class KnownValues(unittest.TestCase):
                 lsis = LASSIS (las1).run (opt=opt)
                 self.assertAlmostEqual (lsis.e_roots[0], -295.5210783894406, 7)
                 self.assertTrue (lsis.converged)
+
+    def test_contract_hlas_ci (self):
+        las, nelec_frs = lsi._las, lsi.get_nelec_frs ()
+        h0, h1, h2 = lsi.ham_2q ()
+        ci = [c[:4] for c in las.ci] # No SOC yet
+        nelec_frs = nelec_frs[:,:4,:] # No SOC yet
+        case_contract_hlas_ci (self, las, h0, h1, h2, ci, nelec_frs)
 
 if __name__ == "__main__":
     print("Full Tests for SA-LASSI of c2h4n4 molecule")
