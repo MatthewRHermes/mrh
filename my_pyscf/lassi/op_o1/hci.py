@@ -450,7 +450,8 @@ def contract_ham_ci (las, h1, h2, ci_fr_ket, nelec_frs_ket, ci_fr_bra, nelec_frs
     nelec_frs = np.append (nelec_frs_ket, nelec_frs_bra, axis=1)
 
     # First pass: single-fragment intermediates
-    hopping_index, ints, lroots = frag.make_ints (las, ci, nelec_frs, screen_linequiv=False)
+    hopping_index, ints, lroots = frag.make_ints (las, ci, nelec_frs, nlas=nlas,
+                                                  screen_linequiv=False)
 
     # Second pass: upper-triangle
     t0 = (lib.logger.process_clock (), lib.logger.perf_counter ())
@@ -516,9 +517,8 @@ def gen_contract_ham_ci_const (ifrag, nbra, las, h1, h2, ci, nelec_frs, soc=0, o
     # Get the intermediate object, rather than just the ham matrix, so that I can use the members
     # of the intermediate to keep track of the difference between the full-system indices and the
     # nfrag-1--system indices
-    with lib.temporary_env (las, ncas_sub=nlas_j):
-        outerprod = hams2ovlp.ham (las, h1, h2, ci_jfrag, nelec_frs_j, _HamS2Ovlp_class=HamS2Ovlp, 
-                                   _do_kernel=False)
+    outerprod = hams2ovlp.ham (las, h1, h2, ci_jfrag, nelec_frs_j, nlas=nlas_j,
+                               _HamS2Ovlp_class=HamS2Ovlp, _do_kernel=False)
     ham = outerprod.kernel ()[0]
 
     for ibra in range (nket, nroots):

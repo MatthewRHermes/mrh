@@ -1001,8 +1001,17 @@ def make_stdm12s (las, ci, nelec_frs, **kwargs):
     dtype = ci[0][0].dtype
     max_memory = getattr (las, 'max_memory', las.mol.max_memory)
 
+    # Handle possible SOC
+    nelec_rs = [tuple (x) for x in nelec_frs.sum (0)]
+    spin_pure = len (set (nelec_rs))
+    if not spin_pure: # Engage the ``spinless mapping''
+        ci = ci_map2spinless (ci, nlas, nelec_frs)
+        nlas = [2*x for x in nlas]
+        nelec_frs[:,:,0] += nelec_frs[:,:,1]
+        nelec_frs[:,:,1] = 0
+
     # First pass: single-fragment intermediates
-    hopping_index, ints, lroots = frag.make_ints (las, ci, nelec_frs)
+    hopping_index, ints, lroots = frag.make_ints (las, ci, nelec_frs, nlas=nlas)
     nstates = np.sum (np.prod (lroots, axis=0))
 
     # Memory check
@@ -1025,6 +1034,19 @@ def make_stdm12s (las, ci, nelec_frs, **kwargs):
     # Put tdm1s in PySCF convention: [p,q] -> q'p
     tdm1s = tdm1s.transpose (0,2,4,3,1)
     tdm2s = tdm2s.reshape (nstates,nstates,2,2,ncas,ncas,ncas,ncas).transpose (0,2,4,5,3,6,7,1)
+
+    # Clean up the ``spinless mapping''
+    if not spin_pure:
+        tdm1s = tdm1s[:,0,:,:,:]
+        n = sum (nlas) // 2
+        tdm2s_ = np.zeros ((nroots, nroots, 2, n, n, 2, n, n),
+                           dtype=tdm2s.dtype).transpose (0,2,3,4,5,6,7,1)
+        tdm2s_[:,0,:,:,0,:,:,:] = tdm2s[:,0,:n,:n,0,:n,:n,:]
+        tdm2s_[:,0,:,:,1,:,:,:] = tdm2s[:,0,:n,:n,0,n:,n:,:]
+        tdm2s_[:,1,:,:,0,:,:,:] = tdm2s[:,0,n:,n:,0,:n,:n,:]
+        tdm2s_[:,1,:,:,1,:,:,:] = tdm2s[:,0,n:,n:,0,n:,n:,:]
+        tdm2s = tdm2s_
+
     return tdm1s, tdm2s
 
 

@@ -583,7 +583,7 @@ def get_fdm1_maker (las, ci, nelec_frs, si, **kwargs):
     dtype = ci[0][0].dtype 
         
     # First pass: single-fragment intermediates
-    hopping_index, ints, lroots = frag.make_ints (las, ci, nelec_frs)
+    hopping_index, ints, lroots = frag.make_ints (las, ci, nelec_frs, nlas=nlas)
     nstates = np.sum (np.prod (lroots, axis=0))
         
     # Second pass: upper-triangle
@@ -624,10 +624,20 @@ def roots_make_rdm12s (las, ci, nelec_frs, si, **kwargs):
     ncas = las.ncas
     nroots_si = si.shape[-1]
     max_memory = getattr (las, 'max_memory', las.mol.max_memory)
-    dtype = ci[0][0].dtype
+    dtype = si.dtype
+
+    # Handle possible SOC
+    nelec_rs = [tuple (x) for x in nelec_frs.sum (0)]
+    spin_pure = len (set (nelec_rs))
+    if not spin_pure: # Engage the ``spinless mapping''
+        ci = ci_map2spinless (ci, nlas, nelec_frs)
+        nlas = [2*x for x in nlas]
+        nelec_frs[:,:,0] += nelec_frs[:,:,1]
+        nelec_frs[:,:,1] = 0
 
     # First pass: single-fragment intermediates
-    hopping_index, ints, lroots = frag.make_ints (las, ci, nelec_frs, _FragTDMInt_class=FragTDMInt)
+    hopping_index, ints, lroots = frag.make_ints (las, ci, nelec_frs, nlas=nlas,
+                                                  _FragTDMInt_class=FragTDMInt)
     nstates = np.sum (np.prod (lroots, axis=0))
     
     # Memory check
@@ -650,6 +660,19 @@ def roots_make_rdm12s (las, ci, nelec_frs, si, **kwargs):
     # Put rdm1s in PySCF convention: [p,q] -> q'p
     rdm1s = rdm1s.transpose (0,1,3,2)
     rdm2s = rdm2s.reshape (nroots_si, 2, 2, ncas, ncas, ncas, ncas).transpose (0,1,3,4,2,5,6)
+
+    # Clean up the ``spinless mapping''
+    if not spin_pure:
+        rdm1s = rdm1s[0,:,:]
+        # TODO: 2e- SOC
+        n = sum (nlas) // 2
+        rdm2s_ = np.zeros ((2, n, n, 2, n, n), dtype=rdm2s.dtype)
+        rdm2s_[0,:,:,0,:,:] = rdm2s[0,:n,:n,0,:n,:n]
+        rdm2s_[0,:,:,1,:,:] = rdm2s[0,:n,:n,0,n:,n:]
+        rdm2s_[1,:,:,0,:,:] = rdm2s[0,n:,n:,0,:n,:n]
+        rdm2s_[1,:,:,1,:,:] = rdm2s[0,n:,n:,0,n:,n:]
+        rdm2s = rdm2s_
+
     return rdm1s, rdm2s
 
 

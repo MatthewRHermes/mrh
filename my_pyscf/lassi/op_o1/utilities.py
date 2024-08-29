@@ -1,5 +1,6 @@
 import numpy as np
 from mrh.my_pyscf.lassi.citools import umat_dot_1frag_
+from mrh.my_pyscf.lassi.op_o0 import civec_spinless_repr
 
 def fermion_spin_shuffle (na_list, nb_list):
     ''' Compute the sign factor corresponding to the convention
@@ -139,5 +140,26 @@ def split_contig_array (arrlen, nthreads):
     assert (blkstart[-1] == arrlen), '{}'.format (blklen)
     blkstart -= blklen
     return blkstart, blklen
+
+def ci_map2spinless (ci0_fr, norb_f, nelec_frs):
+    nfrags, nroots = nelec_frs.shape[:2]
+
+    # Only transform unique CI vectors
+    ci_ptrs = np.asarray ([[c.__array_interface__['data'][0] for c in ci_r] for ci_r in ci0_fr])
+    _, idx, inv = np.unique (ci_ptrs, return_index=True, return_inverse=True)
+    inv = inv.reshape (ci_ptrs.shape)
+    ci1 = []
+    for ix in idx:
+        i, j = divmod (ix, nroots)
+        if isinstance (ci0_fr[i][j], (list,tuple)) or ci0_fr[i][j].ndim>2:
+            ci0 = ci0_fr[i][j]
+        else:
+            ci0 = [ci0_fr[i][j],]
+        nelec = [nelec_frs[i][j],]*len(ci0)
+        ci1.append (civec_spinless_repr (ci0, norb_f[i], nelec))
+
+    return [[ci1[inv[i,j]] for j in range (nroots)] for i in range (nfrags)]
+
+
 
 

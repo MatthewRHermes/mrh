@@ -397,7 +397,8 @@ class HamS2Ovlp (stdm.LSTDM):
         self.dt_2c, self.dw_2c = self.dt_2c + dt, self.dw_2c + dw
         return ham, s2, (l, j, i, k)
 
-def ham (las, h1, h2, ci, nelec_frs, _HamS2Ovlp_class=HamS2Ovlp, _do_kernel=True, **kwargs):
+def ham (las, h1, h2, ci, nelec_frs, soc=0, nlas=None, _HamS2Ovlp_class=HamS2Ovlp, _do_kernel=True,
+         **kwargs):
     ''' Build Hamiltonian, spin-squared, and overlap matrices in LAS product state basis
 
     Args:
@@ -413,6 +414,10 @@ def ham (las, h1, h2, ci, nelec_frs, _HamS2Ovlp_class=HamS2Ovlp, _do_kernel=True
             fragment
 
     Kwargs:
+        soc : integer
+            Order of spin-orbit coupling included in the Hamiltonian
+        nlas : sequence of length (nfrags)
+            Number of orbitals in each fragment
         _HamS2Ovlp_class : class
             The main intermediate class
         _do_kernel : logical
@@ -428,12 +433,32 @@ def ham (las, h1, h2, ci, nelec_frs, _HamS2Ovlp_class=HamS2Ovlp, _do_kernel=True
             Overlap matrix of LAS product states 
     '''     
     log = lib.logger.new_logger (las, las.verbose) 
-    nlas = las.ncas_sub
+    if nlas is None: nlas = las.ncas_sub
     max_memory = getattr (las, 'max_memory', las.mol.max_memory)
-    dtype = ci[0][0].dtype
+    dtype = h1.dtype
+    if soc>1: raise NotImplementedError ("Spin-orbit coupling of second order")
+
+    # Handle possible SOC
+    n = sum (nlas)
+    nelec_rs = [tuple (x) for x in nelec_frs.sum (0)]
+    spin_pure = len (set (nelec_rs))
+    if soc and spin_pure: # In this scenario, the off-diagonal sector of h1 is pointless
+        h1 = np.stack ([h1[:n,:n], h1[n:,n:]], axis=0)
+    if not spin_pure: # Engage the ``spinless mapping''
+        if not soc: h1 = linalg.block_diag (h1, h1)
+        h2_ = np.zeros ([2*n,]*4, dtype=h2.dtype)
+        h2_[:n,:n,:n,:n] = h2[:]
+        h2_[:n,:n,n:,n:] = h2[:]
+        h2_[n:,n:,:n,:n] = h2[:]
+        h2_[n:,n:,n:,n:] = h2[:]
+        h2 = h2_
+        ci = ci_map2spinless (ci, nlas, nelec_frs)
+        nlas = [2*x for x in nlas]
+        nelec_frs[:,:,0] += nelec_frs[:,:,1]
+        nelec_frs[:,:,1] = 0
         
     # First pass: single-fragment intermediates
-    hopping_index, ints, lroots = frag.make_ints (las, ci, nelec_frs)
+    hopping_index, ints, lroots = frag.make_ints (las, ci, nelec_frs, nlas=nlas)
     nstates = np.sum (np.prod (lroots, axis=0))
         
     # Memory check
