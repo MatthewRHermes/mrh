@@ -441,7 +441,7 @@ def ham (las, h1, h2, ci, nelec_frs, soc=0, nlas=None, _HamS2Ovlp_class=HamS2Ovl
     # Handle possible SOC
     n = sum (nlas)
     nelec_rs = [tuple (x) for x in nelec_frs.sum (0)]
-    spin_pure = len (set (nelec_rs))
+    spin_pure = len (set (nelec_rs)) == 1
     if soc and spin_pure: # In this scenario, the off-diagonal sector of h1 is pointless
         h1 = np.stack ([h1[:n,:n], h1[n:,n:]], axis=0)
     if not spin_pure: # Engage the ``spinless mapping''

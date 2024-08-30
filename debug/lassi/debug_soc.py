@@ -197,7 +197,6 @@ class KnownValues (unittest.TestCase):
             esf_test = las.e_states - e0
             self.assertAlmostEqual (lib.fp (esf_test), lib.fp (esf_ref), 6)
         for opt in (0,1):
-            if opt==1: continue # TODO
             with lib.light_speed (10):
                 e_roots, si = las.lassi (opt=opt, soc=True, break_symmetry=True)
                 h0, h1, h2 = ham_2q (las, las.mo_coeff, soc=True)
@@ -249,22 +248,22 @@ class KnownValues (unittest.TestCase):
             self.assertAlmostEqual (lib.fp (lsi2._las.e_states), 154.09610921621356, 8)
         with self.subTest (opt=0, deltaE='SO'):
             self.assertAlmostEqual (lib.fp (lsi2.e_roots), 154.09559506105586, 8)
-        #with self.subTest (opt=1, deltaE='SO'):
-        #    lsi = lassi.LASSI (lsi2._las, soc=True, break_symmetry=True, opt=1)
-        #    lsi.kernel (opt=1)
-        #    self.assertAlmostEqual (lib.fp (lsi.e_roots), 154.09559506105586, 8)
+        with self.subTest (opt=1, deltaE='SO'):
+            lsi = lassi.LASSI (lsi2._las, soc=True, break_symmetry=True, opt=1)
+            lsi.kernel (opt=1)
+            self.assertAlmostEqual (lib.fp (lsi.e_roots), 154.09559506105586, 8)
 
     def test_soc_stdm12s_slow_o0 (self):
         case_soc_stdm12s_slow (self, opt=0)
 
-    #def test_soc_stdm12s_slow_o1 (self):
-    #    case_soc_stdm12s_slow (self, opt=1)
+    def test_soc_stdm12s_slow_o1 (self):
+        case_soc_stdm12s_slow (self, opt=1)
 
     def test_soc_rdm12s_slow_o0 (self):
         case_soc_rdm12s_slow (self, opt=0)
 
-    #def test_soc_rdm12s_slow_o0 (self):
-    #    case_soc_rdm12s_slow (self, opt=1)
+    def test_soc_rdm12s_slow_o0 (self):
+        case_soc_rdm12s_slow (self, opt=1)
 
 if __name__ == "__main__":
     print("Full Tests for SOC")

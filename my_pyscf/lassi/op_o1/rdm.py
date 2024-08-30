@@ -628,12 +628,13 @@ def roots_make_rdm12s (las, ci, nelec_frs, si, **kwargs):
 
     # Handle possible SOC
     nelec_rs = [tuple (x) for x in nelec_frs.sum (0)]
-    spin_pure = len (set (nelec_rs))
+    spin_pure = len (set (nelec_rs)) == 1
     if not spin_pure: # Engage the ``spinless mapping''
         ci = ci_map2spinless (ci, nlas, nelec_frs)
         nlas = [2*x for x in nlas]
         nelec_frs[:,:,0] += nelec_frs[:,:,1]
         nelec_frs[:,:,1] = 0
+        ncas = ncas * 2
 
     # First pass: single-fragment intermediates
     hopping_index, ints, lroots = frag.make_ints (las, ci, nelec_frs, nlas=nlas,
@@ -663,14 +664,14 @@ def roots_make_rdm12s (las, ci, nelec_frs, si, **kwargs):
 
     # Clean up the ``spinless mapping''
     if not spin_pure:
-        rdm1s = rdm1s[0,:,:]
+        rdm1s = rdm1s[:,0,:,:]
         # TODO: 2e- SOC
-        n = sum (nlas) // 2
-        rdm2s_ = np.zeros ((2, n, n, 2, n, n), dtype=rdm2s.dtype)
-        rdm2s_[0,:,:,0,:,:] = rdm2s[0,:n,:n,0,:n,:n]
-        rdm2s_[0,:,:,1,:,:] = rdm2s[0,:n,:n,0,n:,n:]
-        rdm2s_[1,:,:,0,:,:] = rdm2s[0,n:,n:,0,:n,:n]
-        rdm2s_[1,:,:,1,:,:] = rdm2s[0,n:,n:,0,n:,n:]
+        n = ncas // 2
+        rdm2s_ = np.zeros ((nroots_si, 2, n, n, 2, n, n), dtype=rdm2s.dtype)
+        rdm2s_[:,0,:,:,0,:,:] = rdm2s[:,0,:n,:n,0,:n,:n]
+        rdm2s_[:,0,:,:,1,:,:] = rdm2s[:,0,:n,:n,0,n:,n:]
+        rdm2s_[:,1,:,:,0,:,:] = rdm2s[:,0,n:,n:,0,:n,:n]
+        rdm2s_[:,1,:,:,1,:,:] = rdm2s[:,0,n:,n:,0,n:,n:]
         rdm2s = rdm2s_
 
     return rdm1s, rdm2s

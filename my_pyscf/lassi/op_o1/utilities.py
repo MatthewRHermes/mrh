@@ -155,7 +155,7 @@ def ci_map2spinless (ci0_fr, norb_f, nelec_frs):
             ci0 = ci0_fr[i][j]
         else:
             ci0 = [ci0_fr[i][j],]
-        nelec = [nelec_frs[i][j],]*len(ci0)
+        nelec = [tuple (nelec_frs[i][j]),]*len(ci0)
         ci1.append (civec_spinless_repr (ci0, norb_f[i], nelec))
 
     return [[ci1[inv[i,j]] for j in range (nroots)] for i in range (nfrags)]

@@ -1003,12 +1003,13 @@ def make_stdm12s (las, ci, nelec_frs, **kwargs):
 
     # Handle possible SOC
     nelec_rs = [tuple (x) for x in nelec_frs.sum (0)]
-    spin_pure = len (set (nelec_rs))
+    spin_pure = len (set (nelec_rs)) == 1
     if not spin_pure: # Engage the ``spinless mapping''
         ci = ci_map2spinless (ci, nlas, nelec_frs)
         nlas = [2*x for x in nlas]
         nelec_frs[:,:,0] += nelec_frs[:,:,1]
         nelec_frs[:,:,1] = 0
+        ncas = ncas * 2
 
     # First pass: single-fragment intermediates
     hopping_index, ints, lroots = frag.make_ints (las, ci, nelec_frs, nlas=nlas)
@@ -1038,7 +1039,7 @@ def make_stdm12s (las, ci, nelec_frs, **kwargs):
     # Clean up the ``spinless mapping''
     if not spin_pure:
         tdm1s = tdm1s[:,0,:,:,:]
-        n = sum (nlas) // 2
+        n = ncas // 2
         tdm2s_ = np.zeros ((nroots, nroots, 2, n, n, 2, n, n),
                            dtype=tdm2s.dtype).transpose (0,2,3,4,5,6,7,1)
         tdm2s_[:,0,:,:,0,:,:,:] = tdm2s[:,0,:n,:n,0,:n,:n,:]
