@@ -1,7 +1,9 @@
 import numpy as np
+from scipy import linalg
 from pyscf import lib
 from pyscf.lib import logger
 from itertools import product
+from mrh.my_pyscf.fci.csf import unpack_h1e_ab
 from mrh.my_pyscf.lassi.op_o1 import frag, stdm
 from mrh.my_pyscf.lassi.op_o1.utilities import *
 
@@ -444,14 +446,15 @@ def ham (las, h1, h2, ci, nelec_frs, soc=0, nlas=None, _HamS2Ovlp_class=HamS2Ovl
     spin_pure = len (set (nelec_rs)) == 1
     if soc and spin_pure: # In this scenario, the off-diagonal sector of h1 is pointless
         h1 = np.stack ([h1[:n,:n], h1[n:,n:]], axis=0)
-    if not spin_pure: # Engage the ``spinless mapping''
-        if not soc: h1 = linalg.block_diag (h1, h1)
+    elif soc: # Engage the ``spinless mapping''
+        ix = np.argsort (spin_shuffle_idx (nlas))
+        h1 = h1[np.ix_(ix,ix)]
         h2_ = np.zeros ([2*n,]*4, dtype=h2.dtype)
         h2_[:n,:n,:n,:n] = h2[:]
         h2_[:n,:n,n:,n:] = h2[:]
         h2_[n:,n:,:n,:n] = h2[:]
         h2_[n:,n:,n:,n:] = h2[:]
-        h2 = h2_
+        h2 = h2_[np.ix_(ix,ix,ix,ix)]
         ci = ci_map2spinless (ci, nlas, nelec_frs)
         nlas = [2*x for x in nlas]
         nelec_frs[:,:,0] += nelec_frs[:,:,1]

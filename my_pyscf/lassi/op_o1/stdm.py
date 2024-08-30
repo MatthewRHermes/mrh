@@ -126,6 +126,16 @@ class LSTDM (object):
         self._norb_c = c_int (self.norb)
         self._orbidx = np.ones (self.norb, dtype=bool)
 
+        # C fns
+        if self.dtype==np.float64:
+            self._put_SD1_c_fn = liblassi.LASSIRDMdputSD1
+            self._put_SD2_c_fn = liblassi.LASSIRDMdputSD2
+        elif self.dtype==np.complex128:
+            self._put_SD1_c_fn = liblassi.LASSIRDMzputSD1
+            self._put_SD2_c_fn = liblassi.LASSIRDMzputSD2
+        else:
+            raise NotImplementedError (self.dtype)
+
     def init_profiling (self):
         self.dt_1d, self.dw_1d = 0.0, 0.0
         self.dt_2d, self.dw_2d = 0.0, 0.0
@@ -564,7 +574,7 @@ class LSTDM (object):
         #idx = self._orbidx
         #idx = np.ix_([True,]*2,idx,idx)
         #for b, k, w in zip (bra, ket, wgt):
-        fn = liblassi.LASSIRDMdputSD1
+        fn = self._put_SD1_c_fn
         c_one = c_int (1)
         for b, k, w in zip (bra, ket, wgt):
             D1w = D1 * w
@@ -588,7 +598,7 @@ class LSTDM (object):
         #idx = np.ix_([True,]*4,idx,idx,idx,idx)
         #for b, k, w in zip (bra, ket, wgt):
         #    self.tdm2s[b,k][idx] += np.multiply.outer (w, D2)
-        fn = liblassi.LASSIRDMdputSD2
+        fn = self._put_SD2_c_fn
         c_one = c_int (1)
         for b, k, w in zip (bra, ket, wgt):
             D2w = D2 * w
@@ -997,7 +1007,7 @@ def make_stdm12s (las, ci, nelec_frs, **kwargs):
     log = lib.logger.new_logger (las, las.verbose)
     nlas = las.ncas_sub
     ncas = las.ncas
-    nroots = nelec_frs.shape[1]
+    nfrags, nroots = nelec_frs.shape[:2]
     dtype = ci[0][0].dtype
     max_memory = getattr (las, 'max_memory', las.mol.max_memory)
 
@@ -1006,6 +1016,7 @@ def make_stdm12s (las, ci, nelec_frs, **kwargs):
     spin_pure = len (set (nelec_rs)) == 1
     if not spin_pure: # Engage the ``spinless mapping''
         ci = ci_map2spinless (ci, nlas, nelec_frs)
+        ix = spin_shuffle_idx (nlas)
         nlas = [2*x for x in nlas]
         nelec_frs[:,:,0] += nelec_frs[:,:,1]
         nelec_frs[:,:,1] = 0
@@ -1032,21 +1043,25 @@ def make_stdm12s (las, ci, nelec_frs, **kwargs):
     if las.verbose >= lib.logger.TIMER_LEVEL:
         lib.logger.info (las, 'LAS-state TDM12s crunching profile:\n%s', outerprod.sprint_profile ())
 
-    # Put tdm1s in PySCF convention: [p,q] -> q'p
-    tdm1s = tdm1s.transpose (0,2,4,3,1)
-    tdm2s = tdm2s.reshape (nstates,nstates,2,2,ncas,ncas,ncas,ncas).transpose (0,2,4,5,3,6,7,1)
 
     # Clean up the ``spinless mapping''
     if not spin_pure:
-        tdm1s = tdm1s[:,0,:,:,:]
-        n = ncas // 2
-        tdm2s_ = np.zeros ((nroots, nroots, 2, n, n, 2, n, n),
-                           dtype=tdm2s.dtype).transpose (0,2,3,4,5,6,7,1)
-        tdm2s_[:,0,:,:,0,:,:,:] = tdm2s[:,0,:n,:n,0,:n,:n,:]
-        tdm2s_[:,0,:,:,1,:,:,:] = tdm2s[:,0,:n,:n,0,n:,n:,:]
-        tdm2s_[:,1,:,:,0,:,:,:] = tdm2s[:,0,n:,n:,0,:n,:n,:]
-        tdm2s_[:,1,:,:,1,:,:,:] = tdm2s[:,0,n:,n:,0,n:,n:,:]
+        kx = [True,]*2
+        jx = [True,]*nroots
+        tdm1s = tdm1s[np.ix_(jx,jx,kx,ix,ix)]
+        tdm2s = tdm2s[np.ix_(jx,jx,kx*2,ix,ix,ix,ix)]
+        n = ncas = ncas // 2
+        tdm2s_ = np.zeros ((nroots, nroots, 2, 2, n, n, n, n), dtype=tdm2s.dtype)
+        tdm2s_[:,:,0,0,:,:,:,:] = tdm2s[:,:,0,:n,:n,:n,:n]
+        tdm2s_[:,:,0,1,:,:,:,:] = tdm2s[:,:,0,:n,:n,n:,n:]
+        tdm2s_[:,:,1,0,:,:,:,:] = tdm2s[:,:,0,n:,n:,:n,:n]
+        tdm2s_[:,:,1,1,:,:,:,:] = tdm2s[:,:,0,n:,n:,n:,n:]
         tdm2s = tdm2s_
+
+    # Put tdm1s in PySCF convention: [p,q] -> q'p
+    if spin_pure: tdm1s = tdm1s.transpose (0,2,4,3,1)
+    else: tdm1s = tdm1s[:,:,0,:,:].transpose (0,3,2,1)
+    tdm2s = tdm2s.reshape (nstates,nstates,2,2,ncas,ncas,ncas,ncas).transpose (0,2,4,5,3,6,7,1)
 
     return tdm1s, tdm2s
 

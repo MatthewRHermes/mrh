@@ -142,6 +142,7 @@ def split_contig_array (arrlen, nthreads):
     return blkstart, blklen
 
 def ci_map2spinless (ci0_fr, norb_f, nelec_frs):
+    ''' Map CI vectors to the spinless representation, preserving references to save memory '''
     nfrags, nroots = nelec_frs.shape[:2]
 
     # Only transform unique CI vectors
@@ -160,6 +161,26 @@ def ci_map2spinless (ci0_fr, norb_f, nelec_frs):
 
     return [[ci1[inv[i,j]] for j in range (nroots)] for i in range (nfrags)]
 
+def spin_shuffle_idx (norb_f):
+    '''Obtain the index vector to take an orbital-basis array from fragment-major to spin-major
+    order
+
+    Args:
+        norb_f : sequence of int
+            Number of spatial orbitals in each fragment
+
+    Returns:
+        idx : list of int
+            Indices of spinorbitals in fragment-major order rearranged to spin-major order
+    '''
+    norb_f = np.asarray (norb_f)
+    off = np.cumsum (norb_f)
+    idxa = []
+    idxb = []
+    for i,j in zip (off, norb_f):
+        idxa.extend (list (range (2*(i-j),2*i-j)))
+        idxb.extend (list (range (2*i-j,2*i)))
+    return idxa + idxb
 
 
 
