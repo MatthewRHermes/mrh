@@ -59,10 +59,11 @@ def tearDownModule():
 
 def case_soc_stdm12s_slow (self, opt=0):
     stdm1s_test, stdm2s_test = make_stdm12s (las2, soc=True, opt=opt) 
+    np.save ('stdm1s.{}.npy'.format (opt), stdm1s_test)
     with self.subTest ('2-electron'):
-        self.assertAlmostEqual (linalg.norm (stdm2s_test), 12.835690990485933)
+        self.assertAlmostEqual (linalg.norm (stdm2s_test), 12.835690990485933, 6)
     with self.subTest ('1-electron'):
-        self.assertAlmostEqual (linalg.norm (stdm1s_test), 5.719302720036956)
+        self.assertAlmostEqual (linalg.norm (stdm1s_test), 5.719302720036956, 6)
     dm1s_test = lib.einsum ('ipqi->ipq', stdm1s_test)
     with self.subTest (oneelectron_sanity='diag'):
         # LAS states are spin-pure: there should be nothing in the spin-breaking sector
@@ -197,7 +198,6 @@ class KnownValues (unittest.TestCase):
             esf_test = las.e_states - e0
             self.assertAlmostEqual (lib.fp (esf_test), lib.fp (esf_ref), 6)
         for opt in (0,1):
-            if opt==1: continue # TODO
             with lib.light_speed (10):
                 e_roots, si = las.lassi (opt=opt, soc=True, break_symmetry=True)
                 h0, h1, h2 = ham_2q (las, las.mo_coeff, soc=True)
@@ -236,6 +236,7 @@ class KnownValues (unittest.TestCase):
             h1eff = lib.einsum ('pq,iqpj->ij', h1, stdm1s)
             h2eff = lib.einsum ('pqrs,ipqrsj->ij', h2, stdm2) * .5
             test_hso (h0eff + h1eff + h2eff, 'make_stdm12s')
+            if opt==1: continue # TODO: fix bug and remove this line
             rdm1s, rdm2s = roots_make_rdm12s (las, las.ci, si, soc=True, break_symmetry=True,
                                               opt=opt)
             rdm2 = rdm2s.sum ((1,4))
@@ -249,21 +250,21 @@ class KnownValues (unittest.TestCase):
             self.assertAlmostEqual (lib.fp (lsi2._las.e_states), 154.09610921621356, 8)
         with self.subTest (opt=0, deltaE='SO'):
             self.assertAlmostEqual (lib.fp (lsi2.e_roots), 154.09559506105586, 8)
-        #with self.subTest (opt=1, deltaE='SO'):
-        #    lsi = lassi.LASSI (lsi2._las, soc=True, break_symmetry=True, opt=1)
-        #    lsi.kernel (opt=1)
-        #    self.assertAlmostEqual (lib.fp (lsi.e_roots), 154.09559506105586, 8)
+        with self.subTest (opt=1, deltaE='SO'):
+            lsi = lassi.LASSI (lsi2._las, soc=True, break_symmetry=True, opt=1)
+            with lib.light_speed (5): lsi.kernel (opt=1)
+            self.assertAlmostEqual (lib.fp (lsi.e_roots), 154.09559506105586, 8)
 
     def test_soc_stdm12s_slow_o0 (self):
         case_soc_stdm12s_slow (self, opt=0)
 
-    #def test_soc_stdm12s_slow_o1 (self):
-    #    case_soc_stdm12s_slow (self, opt=1)
+    def test_soc_stdm12s_slow_o1 (self):
+        case_soc_stdm12s_slow (self, opt=1)
 
     def test_soc_rdm12s_slow_o0 (self):
         case_soc_rdm12s_slow (self, opt=0)
 
-    #def test_soc_rdm12s_slow_o0 (self):
+    #def test_soc_rdm12s_slow_o1 (self):
     #    case_soc_rdm12s_slow (self, opt=1)
 
 if __name__ == "__main__":

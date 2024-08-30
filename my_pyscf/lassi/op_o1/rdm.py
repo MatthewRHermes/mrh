@@ -241,7 +241,7 @@ class LRRDM (stdm.LSTDM):
         o = o[idx]
         b, k = np.where (idx)
         # Numpy pads array dimension to the left
-        sibra = sibra[:,:,b] * o
+        sibra = sibra[:,:,b].conj () * o
         siket = siket[:,:,k]
         fdm = np.stack ([np.dot (b, k.T) for b, k in zip (sibra, siket)], axis=0)
         return fdm
@@ -625,6 +625,8 @@ def roots_make_rdm12s (las, ci, nelec_frs, si, **kwargs):
     nroots_si = si.shape[-1]
     max_memory = getattr (las, 'max_memory', las.mol.max_memory)
     dtype = si.dtype
+    if np.iscomplexobj (si):
+        raise RuntimeError ("Known bug here with complex SI vectors")
 
     # Handle possible SOC
     nelec_rs = [tuple (x) for x in nelec_frs.sum (0)]
