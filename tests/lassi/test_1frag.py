@@ -11,6 +11,7 @@ from mrh.my_pyscf.lassi.sitools import make_sdm1
 from mrh.my_pyscf.lassi.lassi import roots_make_rdm12s
 from mrh.my_pyscf.lassi.op_o1 import get_fdm1_maker
 from mrh.my_pyscf.lassi import op_o0, op_o1
+from mrh.tests.lassi.addons import case_contract_hlas_ci
 
 op = (op_o0, op_o1)
 
@@ -88,40 +89,7 @@ class KnownValues(unittest.TestCase):
     def test_contract_hlas_ci (self):
         e_roots, si, las = lsi.e_roots, lsi.si, lsi._las
         h0, h1, h2 = lsi.ham_2q ()
-        nelec = lsi.get_nelec_frs ()
-        print ("huh?", nelec)
-        ci_fr = las.ci
-        ham = (si * (e_roots[None,:]-h0)) @ si.conj ().T
-        ndim = len (e_roots)
-
-        lroots = lsi.get_lroots ()
-        lroots_prod = np.prod (lroots, axis=0)
-        nj = np.cumsum (lroots_prod)
-        ni = nj - lroots_prod
-        for opt in range (2):
-            hket_fr_pabq = op[opt].contract_ham_ci (las, h1, h2, ci_fr, nelec, ci_fr, nelec)
-            for f, (ci_r, hket_r_pabq) in enumerate (zip (ci_fr, hket_fr_pabq)):
-                current_order = list (range (las.nfrags-1, -1, -1)) + [las.nfrags]
-                current_order.insert (0, current_order.pop (f))
-                for r, (ci, hket_pabq) in enumerate (zip (ci_r, hket_r_pabq)):
-                    if ci.ndim < 3: ci = ci[None,:,:]
-                    proper_shape = np.append (lroots[:,r], ndim)
-                    current_shape = proper_shape[current_order]
-                    to_proper_order = list (np.argsort (current_order))
-                    hket_pq = lib.einsum ('rab,pabq->rpq', ci.conj (), hket_pabq)
-                    hket_pq = hket_pq.reshape (current_shape)
-                    hket_pq = hket_pq.transpose (*to_proper_order)
-                    hket_pq = hket_pq.reshape ((lroots_prod[r], ndim))
-                    hket_ref = ham[ni[r]:nj[r]]
-                    for s, (k, l) in enumerate (zip (ni, nj)):
-                        hket_pq_s = hket_pq[:,k:l]
-                        hket_ref_s = hket_ref[:,k:l]
-                        with self.subTest (opt=opt, frag=f, bra_space=r, ket_space=s):
-                            print (opt, f, r, s)
-                            print (hket_pq_s)
-                            print (hket_ref_s)
-                            self.assertAlmostEqual (lib.fp (hket_pq_s), lib.fp (hket_ref_s), 8)
-
+        case_contract_hlas_ci (self, las, h0, h1, h2, las.ci, lsi.get_nelec_frs ())
 
 if __name__ == "__main__":
     print("Full Tests for LASSI single-fragment edge case")

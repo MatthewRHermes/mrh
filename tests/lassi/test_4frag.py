@@ -32,6 +32,7 @@ from mrh.my_pyscf.lassi import op_o1
 from mrh.my_pyscf.lassi import LASSIS
 from mrh.my_pyscf.lassi.op_o1 import get_fdm1_maker
 from mrh.my_pyscf.lassi.sitools import make_sdm1
+from mrh.tests.lassi.addons import case_contract_hlas_ci
 
 def setUpModule ():
     global mol, mf, las, nroots, nelec_frs, si
@@ -185,6 +186,10 @@ class KnownValues(unittest.TestCase):
                     fdm1 = make_fdm1 (iroot, ifrag)
                     sdm1 = make_sdm1 (las, iroot, ifrag, si=si)
                     self.assertAlmostEqual (lib.fp (fdm1), lib.fp (sdm1), 7)
+
+    def test_contract_hlas_ci (self):
+        h0, h1, h2 = ham_2q (las, las.mo_coeff)
+        case_contract_hlas_ci (self, las, h0, h1, h2, las.ci, nelec_frs)        
 
 
 if __name__ == "__main__":
