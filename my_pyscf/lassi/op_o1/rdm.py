@@ -223,8 +223,8 @@ class LRRDM (stdm.LSTDM):
         siket = self.get_frag_transposed_sivec (rket, *inv)
         inv = list (set (inv))
         fac = self.spin_shuffle[rbra] * self.spin_shuffle[rket]
-        fac *= fermion_frag_shuffle (self.nelec_rf[rbra], inv)
-        fac *= fermion_frag_shuffle (self.nelec_rf[rket], inv)
+        fac *= self.fermion_frag_shuffle (rbra, inv)
+        fac *= self.fermion_frag_shuffle (rket, inv)
         spec = np.ones (self.nfrags, dtype=bool)
         for i in inv: spec[i] = False
         spec = np.where (spec)[0]
@@ -241,7 +241,7 @@ class LRRDM (stdm.LSTDM):
         o = o[idx]
         b, k = np.where (idx)
         # Numpy pads array dimension to the left
-        sibra = sibra[:,:,b] * o
+        sibra = sibra[:,:,b].conj () * o
         siket = siket[:,:,k]
         fdm = np.stack ([np.dot (b, k.T) for b, k in zip (sibra, siket)], axis=0)
         return fdm
@@ -501,7 +501,7 @@ class LRRDM (stdm.LSTDM):
 
     def _put_D1_(self):
         t0, w0 = logger.process_clock (), logger.perf_counter ()
-        fn = liblassi.LASSIRDMdputSD1
+        fn = self._put_SD1_c_fn
         fn (self._rdm1s_c, self._d1buf_c,
             self._si_c_ncol, self._norb_c, self._nsrc_c,
             self._dblk_idx, self._sblk_idx, self._lblk, self._nblk)
@@ -510,7 +510,7 @@ class LRRDM (stdm.LSTDM):
 
     def _put_D2_(self):
         t0, w0 = logger.process_clock (), logger.perf_counter ()
-        fn = liblassi.LASSIRDMdputSD2
+        fn = self._put_SD2_c_fn
         fn (self._rdm2s_c, self._d2buf_c,
             self._si_c_ncol, self._norb_c, self._nsrc_c, self._pdest,
             self._dblk_idx, self._sblk_idx, self._lblk, self._nblk)
@@ -518,7 +518,7 @@ class LRRDM (stdm.LSTDM):
         self.dt_p, self.dw_p = self.dt_p + dt, self.dw_p + dw
 
     def _crunch_env_(self, _crunch_fn, *row):
-        if _crunch_fn.__name__ in ('_crunch_1c_', '_crunch_1c1d_', '_crunch_2c_'):
+        if self._fn_row_has_spin (_crunch_fn):
             inv = row[2:-1]
         else:
             inv = row[2:]
@@ -583,7 +583,7 @@ def get_fdm1_maker (las, ci, nelec_frs, si, **kwargs):
     dtype = ci[0][0].dtype 
         
     # First pass: single-fragment intermediates
-    hopping_index, ints, lroots = frag.make_ints (las, ci, nelec_frs)
+    hopping_index, ints, lroots = frag.make_ints (las, ci, nelec_frs, nlas=nlas)
     nstates = np.sum (np.prod (lroots, axis=0))
         
     # Second pass: upper-triangle
@@ -624,10 +624,24 @@ def roots_make_rdm12s (las, ci, nelec_frs, si, **kwargs):
     ncas = las.ncas
     nroots_si = si.shape[-1]
     max_memory = getattr (las, 'max_memory', las.mol.max_memory)
-    dtype = ci[0][0].dtype
+    dtype = si.dtype
+    if np.iscomplexobj (si):
+        raise RuntimeError ("Known bug here with complex SI vectors")
+
+    # Handle possible SOC
+    nelec_rs = [tuple (x) for x in nelec_frs.sum (0)]
+    spin_pure = len (set (nelec_rs)) == 1
+    if not spin_pure: # Engage the ``spinless mapping''
+        ci = ci_map2spinless (ci, nlas, nelec_frs)
+        ix = spin_shuffle_idx (nlas)
+        nlas = [2*x for x in nlas]
+        nelec_frs[:,:,0] += nelec_frs[:,:,1]
+        nelec_frs[:,:,1] = 0
+        ncas = ncas * 2
 
     # First pass: single-fragment intermediates
-    hopping_index, ints, lroots = frag.make_ints (las, ci, nelec_frs, _FragTDMInt_class=FragTDMInt)
+    hopping_index, ints, lroots = frag.make_ints (las, ci, nelec_frs, nlas=nlas,
+                                                  _FragTDMInt_class=FragTDMInt)
     nstates = np.sum (np.prod (lroots, axis=0))
     
     # Memory check
@@ -647,9 +661,26 @@ def roots_make_rdm12s (las, ci, nelec_frs, si, **kwargs):
     if las.verbose >= lib.logger.TIMER_LEVEL:
         lib.logger.info (las, 'LASSI root RDM12s crunching profile:\n%s', outerprod.sprint_profile ())
 
+    # Clean up the ``spinless mapping''
+    if not spin_pure:
+        # TODO: 2e- SOC
+        kx = [True,]*2
+        jx = [True,]*nroots_si
+        rdm1s = rdm1s[np.ix_(jx,kx,ix,ix)]
+        rdm2s = rdm2s[np.ix_(jx,kx*2,ix,ix,ix,ix)]
+        n = ncas = ncas // 2
+        rdm2s_ = np.zeros ((nroots_si, 2, 2, n, n, n, n), dtype=rdm2s.dtype)
+        rdm2s_[:,0,0,:,:,:,:] = rdm2s[:,0,:n,:n,:n,:n]
+        rdm2s_[:,0,1,:,:,:,:] = rdm2s[:,0,:n,:n,n:,n:]
+        rdm2s_[:,1,0,:,:,:,:] = rdm2s[:,0,n:,n:,:n,:n]
+        rdm2s_[:,1,1,:,:,:,:] = rdm2s[:,0,n:,n:,n:,n:]
+        rdm2s = rdm2s_
+
     # Put rdm1s in PySCF convention: [p,q] -> q'p
-    rdm1s = rdm1s.transpose (0,1,3,2)
+    if spin_pure: rdm1s = rdm1s.transpose (0,1,3,2)
+    else: rdm1s = rdm1s[:,0].transpose (0,2,1)
     rdm2s = rdm2s.reshape (nroots_si, 2, 2, ncas, ncas, ncas, ncas).transpose (0,1,3,4,2,5,6)
+
     return rdm1s, rdm2s
 
 

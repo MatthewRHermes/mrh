@@ -23,7 +23,6 @@ class ContractHamCI (stdm.LSTDM):
     def __init__(self, ints, nlas, hopping_index, lroots, h1, h2, nbra=1,
                  log=None, max_memory=2000, dtype=np.float64):
         nfrags, _, nroots, _ = hopping_index.shape
-        if nfrags > 2: raise NotImplementedError
         nket = nroots - nbra
         hams2ovlp.HamS2Ovlp.__init__(self, ints, nlas, hopping_index, lroots, h1, h2,
                                         mask_bra_space = list (range (nket, nroots)),
@@ -33,6 +32,10 @@ class ContractHamCI (stdm.LSTDM):
         self.hci_fr_pabq = self._init_vecs ()
 
     get_ham_2q = hams2ovlp.HamS2Ovlp.get_ham_2q
+
+    # Handling for 1s1c: need to do both a'.sm.b and b'.sp.a explicitly
+    all_interactions_full_square = True
+    interaction_has_spin = ('_1c_', '_1c1d_', '_1s1c_', '_2c_')
 
     def _init_vecs (self):
         hci_fr_pabq = []
@@ -73,17 +76,19 @@ class ContractHamCI (stdm.LSTDM):
         hci_f_ab, iad, skip = self._get_vecs_(bra, ket, i, j)
         if skip: return
         iad, jad = iad
-        def _perm (k, l, h2_kkll, h2_kllk):
+        def _perm (k, l):
+            h2_kkll = self.get_ham_2q (k,k,l,l)
+            h2_kllk = self.get_ham_2q (k,l,l,k)
             d1s_ll = self.ints[l].get_1_dm1 (bra, ket)
             d1_ll = d1s_ll.sum (0)
             vj = np.tensordot (h2_kkll, d1_ll, axes=2)
-            vk = np.tensordot (d1s_ll, h2_kllk.transpose (2,1,0,3), axes=2)
-            h_11 = vj[None,:,:] - vk
-            return self.ints[k].contract_h00 (0, h_11, None, ket)
-        h2j = self.get_ham_2q (i,i,j,j)
-        h2k = self.get_ham_2q (i,j,j,i)
-        if iad: hci_f_ab[i] += _perm (i, j, h2j, h2k)
-        if jad: hci_f_ab[j] += _perm (j, i, h2j.transpose (2,3,0,1), h2k.transpose (2,3,0,1))
+            vk = np.tensordot (d1s_ll, h2_kllk, axes=((1,2),(2,1)))
+            # NOTE: you cannot use contract_h00 here b/c d1s_ll is nonsymmetric
+            hket  = self.ints[k].contract_h11 (0, vj-vk[0], ket)
+            hket += self.ints[k].contract_h11 (3, vj-vk[1], ket)
+            return hket
+        if jad: hci_f_ab[j] += _perm (j,i)
+        if iad: hci_f_ab[i] += _perm (i,j)
         dt, dw = logger.process_clock () - t0, logger.perf_counter () - w0
         self.dt_2d, self.dw_2d = self.dt_2d + dt, self.dw_2d + dw
         self._put_vecs_(bra, ket, hci_f_ab, i, j)
@@ -136,7 +141,35 @@ class ContractHamCI (stdm.LSTDM):
         hci_f_ab, iad, skip = self._get_vecs_(bra, ket, i, j, k)
         if skip: return
         iad, jad, kad = iad
-        raise NotImplementedError
+        fac = 1
+        nelec_f_bra = self.nelec_rf[self.rootaddr[bra]]
+        nelec_f_ket = self.nelec_rf[self.rootaddr[ket]]
+        fac *= fermion_des_shuffle (nelec_f_bra, (i, j, k), i)
+        fac *= fermion_des_shuffle (nelec_f_ket, (i, j, k), j)
+        h2j = self.get_ham_2q (i,j,k,k)
+        h2k = self.get_ham_2q (i,k,k,j)
+        p_i = self.ints[i].get_1_p (bra, ket, s1)
+        h_j = self.ints[j].get_1_h (bra, ket, s1)
+        if iad or jad:
+            d1s_kk = self.ints[k].get_1_dm1 (bra, ket)
+            d1_kk = d1s_kk.sum (0)
+            h1_ij  = np.tensordot (h2j, d1_kk, axes=2)
+            h1_ij -= np.tensordot (d1s_kk[s1], h2k, axes=((0,1),(2,1)))
+            if iad:
+                h_ = np.dot (h1_ij, h_j)
+                hci_f_ab[i] += fac * self.ints[i].contract_h10 (s1, h_, None, ket)
+            if jad:
+                h_ = np.dot (p_i, h1_ij)
+                hci_f_ab[j] += fac * self.ints[j].contract_h01 (s1, h_, None, ket)
+        if kad:
+            h2j = np.tensordot (p_i, h2j, axes=1)
+            h2j = np.tensordot (h_j, h2j, axes=1)
+            h_ = h2j # opposite-spin; Coulomb effect only
+            hci_f_ab[k] += fac * self.ints[k].contract_h11 (3*(1-s1), h_, ket)
+            h2k = np.tensordot (p_i, h2k, axes=1)
+            h2k = np.tensordot (h2k, h_j, axes=1)
+            h_ -= h2k.T # same-spin; Coulomb and exchange
+            hci_f_ab[k] += fac * self.ints[k].contract_h11 (3*s1, h_, ket)
         dt, dw = logger.process_clock () - t0, logger.perf_counter () - w0
         self.dt_1c1d, self.dw_1c1d = self.dt_1c1d + dt, self.dw_1c1d + dw
         self._put_vecs_(bra, ket, hci_f_ab, i,j,k)
@@ -161,16 +194,16 @@ class ContractHamCI (stdm.LSTDM):
         h2_ijji = self.get_ham_2q (i,j,j,i)
         if iad:
             h1 = lib.einsum ('psrq,rs->pq', h2_ijji, self.ints[j].get_1_sm (bra, ket))
-            hci_f_ab[i] -= self.ints[i].contract_h11 (0, h1, ket)
+            hci_f_ab[i] -= self.ints[i].contract_h11 (1, h1, ket)
         if jad:
             h1 = lib.einsum ('psrq,pq->rs', h2_ijji, self.ints[i].get_1_sp (bra, ket))
-            hci_f_ab[j] -= self.ints[j].contract_h11 (1, h1, ket)
+            hci_f_ab[j] -= self.ints[j].contract_h11 (2, h1, ket)
         dt, dw = logger.process_clock () - t0, logger.perf_counter () - w0
         self.dt_1s, self.dw_1s = self.dt_1s + dt, self.dw_1s + dw
         self._put_vecs_(bra, ket, hci_f_ab, i,j)
         return
 
-    def _crunch_1s1c_(self, bra, ket, i, j, k):
+    def _crunch_1s1c_(self, bra, ket, i, j, k, s1):
         '''Compute the reduced density matrix elements of a spin-charge unit hop; i.e.,
 
         <bra|i'(a)k'(b)j(b)k(a)|ket>
@@ -186,7 +219,30 @@ class ContractHamCI (stdm.LSTDM):
         hci_f_ab, iad, skip = self._get_vecs_(bra, ket, i, j, k)
         if skip: return
         iad, jad, kad = iad
-        raise NotImplementedError
+        s11 = s1
+        s12 = 1-s1
+        s2 = 2-s1
+        nelec_f_bra = self.nelec_rf[self.rootaddr[bra]]
+        nelec_f_ket = self.nelec_rf[self.rootaddr[ket]]
+        fac = -1 # a'bb'a -> a'ab'b signi
+        fac *= fermion_des_shuffle (nelec_f_bra, (i, j, k), i)
+        fac *= fermion_des_shuffle (nelec_f_ket, (i, j, k), j)
+        h2 = self.get_ham_2q (i,k,k,j)
+        p_i = self.ints[i].get_1_p (bra, ket, s11)
+        h_j = self.ints[j].get_1_h (bra, ket, s12)
+        if iad or jad:
+            s_k = self.ints[k].get_1_smp (bra, ket, s1)
+            h1_ij = np.tensordot (h2, s_k, axes=((2,1),(0,1)))
+            if iad:
+                h_ = np.dot (h1_ij, h_j)
+                hci_f_ab[i] += fac * self.ints[i].contract_h10 (s11, h_, None, ket)
+            if jad:
+                h_ = np.dot (p_i, h1_ij)
+                hci_f_ab[j] += fac * self.ints[j].contract_h01 (s12, h_, None, ket)
+        if kad:
+            h_ = np.tensordot (h2, h_j, axes=1)
+            h_ = np.tensordot (p_i, h_, axes=1).T
+            hci_f_ab[k] += fac * self.ints[k].contract_h11 (s2, h_, ket)
         dt, dw = logger.process_clock () - t0, logger.perf_counter () - w0
         self.dt_1s1c, self.dw_1s1c = self.dt_1s1c + dt, self.dw_1s1c + dw
         self._put_vecs_(bra, ket, hci_f_ab, i,j,k)
@@ -230,7 +286,8 @@ class ContractHamCI (stdm.LSTDM):
         s12 = s2 % 2
         nelec_f_bra = self.nelec_rf[self.rootaddr[bra]]
         nelec_f_ket = self.nelec_rf[self.rootaddr[ket]]
-        fac = 1
+        # TODO: debug this for 4-fragment interactions
+        fac = 1 / (1 + int (s11==s12 and i==k and j==l))
         h_iklj = self.get_ham_2q (i,j,k,l).transpose (0,2,3,1) # Dirac order
         if s11==s12 and i!=k and j!=l: # exchange
             h_iklj -= self.get_ham_2q (i,l,k,j).transpose (0,2,1,3)
@@ -256,19 +313,19 @@ class ContractHamCI (stdm.LSTDM):
             if iad: hci_f_ab[i] += fac * self.ints[i].contract_h20 (s2lt, h20_ik, ket)
         else:
             if iad:
-                h10_i = np.tensordot (h20_ik, self.ints[k].get_1_p (bra, ket, s12), axes=1)
+                h10_i = np.dot (h20_ik, self.ints[k].get_1_p (bra, ket, s12))
                 hci_f_ab[i] += fac * self.ints[i].contract_h10 (s11, h10_i, None, ket)
             if kad:
-                h10_k = np.tensordot (self.ints[i].get_1_p (bra, ket, s11), h20_ik, axes=1)
+                h10_k = np.dot (self.ints[i].get_1_p (bra, ket, s11), h20_ik)
                 hci_f_ab[k] += fac * self.ints[k].contract_h10 (s12, h10_k, None, ket)
         if j == l:
             if jad: hci_f_ab[j] += fac * self.ints[j].contract_h02 (s2lt, h02_lj, ket)
         else:
             if jad:
-                h01_j = np.tensordot (h02_jl, self.ints[l].get_1_h (bra, ket, s12), axes=1)
+                h01_j = np.dot (self.ints[l].get_1_h (bra, ket, s12), h02_lj)
                 hci_f_ab[j] += fac * self.ints[j].contract_h01 (s11, h01_j, None, ket)
             if lad:
-                h01_l = np.tensordot (self.ints[j].get_1_h (bra, ket, s11), h02_jl, axes=1)
+                h01_l = np.dot (h02_lj, self.ints[j].get_1_h (bra, ket, s11))
                 hci_f_ab[l] += fac * self.ints[l].contract_h01 (s12, h01_l, None, ket)
         dt, dw = logger.process_clock () - t0, logger.perf_counter () - w0
         self.dt_2c, self.dw_2c = self.dt_2c + dt, self.dw_2c + dw
@@ -393,7 +450,8 @@ def contract_ham_ci (las, h1, h2, ci_fr_ket, nelec_frs_ket, ci_fr_bra, nelec_frs
     nelec_frs = np.append (nelec_frs_ket, nelec_frs_bra, axis=1)
 
     # First pass: single-fragment intermediates
-    hopping_index, ints, lroots = frag.make_ints (las, ci, nelec_frs, screen_linequiv=False)
+    hopping_index, ints, lroots = frag.make_ints (las, ci, nelec_frs, nlas=nlas,
+                                                  screen_linequiv=False)
 
     # Second pass: upper-triangle
     t0 = (lib.logger.process_clock (), lib.logger.perf_counter ())
@@ -432,7 +490,7 @@ def gen_contract_ham_ci_const (ifrag, nbra, las, h1, h2, ci, nelec_frs, soc=0, o
     # index down to omit fragment
     idx = np.ones (nfrags, dtype=bool)
     idx[ifrag] = False
-    nelec_frs = nelec_frs[idx]
+    nelec_frs_j = nelec_frs[idx]
     ci_jfrag = [c for i,c in enumerate (ci) if i != ifrag]
     j = sum (nlas[:ifrag+1])
     i = j - nlas[ifrag]
@@ -443,25 +501,26 @@ def gen_contract_ham_ci_const (ifrag, nbra, las, h1, h2, ci, nelec_frs, soc=0, o
     else:
         h1 = h1[np.ix_(ix,ix)]
     h2 = h2[np.ix_(ix,ix,ix,ix)]
-    nlas = nlas[idx]
+    nlas_j = nlas[idx]
 
-    # First pass: single-fragment intermediates
-    hopping_index, ints, lroots = frag.make_ints (las, ci_jfrag, nelec_frs, nlas=nlas)
-    nstates = np.sum (np.prod (lroots, axis=0))
-        
-    # Memory check
-    current_memory = lib.current_memory ()[0]
-    required_memory = dtype.itemsize*nstates*nstates*3/1e6
-    if current_memory + required_memory > max_memory:
-        raise MemoryError ("current: {}; required: {}; max: {}".format (
-            current_memory, required_memory, max_memory))
+    # Fix sign convention for omitted fragment
+    nelec_rf = nelec_frs.sum (-1).T
+    class HamS2Ovlp (hams2ovlp.HamS2Ovlp):
+        def __init__(self, *args, **kwargs):
+            super().__init__(*args, **kwargs)
+            self.spin_shuffle = [fermion_spin_shuffle (nelec_frs[:,i,0], nelec_frs[:,i,1])
+                                 for i in range (nroots)]
+        def fermion_frag_shuffle (self, iroot, frags):
+            frags = [f if f<ifrag else f+1 for f in frags]
+            return fermion_frag_shuffle (nelec_rf[iroot], frags)
 
-    # Second pass: upper-triangle
-    outerprod = hams2ovlp.HamS2Ovlp (ints, nlas, hopping_index, lroots, h1, h2, dtype=dtype,
-                                     mask_bra_space = list (range (nket, nroots)),
-                                     mask_ket_space = list (range (nket)),
-                                     max_memory=max_memory, log=log)
+    # Get the intermediate object, rather than just the ham matrix, so that I can use the members
+    # of the intermediate to keep track of the difference between the full-system indices and the
+    # nfrag-1--system indices
+    outerprod = hams2ovlp.ham (las, h1, h2, ci_jfrag, nelec_frs_j, nlas=nlas_j,
+                               _HamS2Ovlp_class=HamS2Ovlp, _do_kernel=False)
     ham = outerprod.kernel ()[0]
+
     for ibra in range (nket, nroots):
         i, j = outerprod.offs_lroots[ibra]
         nelec_i = nelec_i_rs[ibra]

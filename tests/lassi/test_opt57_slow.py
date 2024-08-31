@@ -30,6 +30,9 @@ from mrh.my_pyscf.lassi.lassi import roots_make_rdm12s, make_stdm12s, ham_2q
 from mrh.my_pyscf.lassi.citools import get_lroots, get_rootaddr_fragaddr
 from mrh.my_pyscf.lassi import op_o0
 from mrh.my_pyscf.lassi import op_o1
+from mrh.tests.lassi.addons import case_contract_hlas_ci
+
+op = (op_o0, op_o1)
 
 def setUpModule ():
     global mol, mf, las, nstates, nelec_frs, si, orbsym, wfnsym
@@ -179,6 +182,12 @@ class KnownValues(unittest.TestCase):
                 with self.subTest (rank=r+1, root=i, opt=1):
                     self.assertAlmostEqual (lib.fp (d12_o0[r][i]),
                         lib.fp (d12_o1[r][i]), 9)
+
+    def test_contract_hlas_ci (self):
+        h0, h1, h2 = ham_2q (las, las.mo_coeff)
+        case_contract_hlas_ci (self, las, h0, h1, h2, las.ci, nelec_frs)
+
+
 
 if __name__ == "__main__":
     print("Full Tests for LASSI matrix elements of 57-space (91-state) manifold")

@@ -236,7 +236,6 @@ class KnownValues (unittest.TestCase):
             h1eff = lib.einsum ('pq,iqpj->ij', h1, stdm1s)
             h2eff = lib.einsum ('pqrs,ipqrsj->ij', h2, stdm2) * .5
             test_hso (h0eff + h1eff + h2eff, 'make_stdm12s')
-            if opt==1: continue # TODO: fix bug and remove this line
             rdm1s, rdm2s = roots_make_rdm12s (las, las.ci, si, soc=True, break_symmetry=True,
                                               opt=opt)
             rdm2 = rdm2s.sum ((1,4))
@@ -264,8 +263,8 @@ class KnownValues (unittest.TestCase):
     def test_soc_rdm12s_slow_o0 (self):
         case_soc_rdm12s_slow (self, opt=0)
 
-    #def test_soc_rdm12s_slow_o1 (self):
-    #    case_soc_rdm12s_slow (self, opt=1)
+    def test_soc_rdm12s_slow_o1 (self):
+        case_soc_rdm12s_slow (self, opt=1)
 
 if __name__ == "__main__":
     print("Full Tests for SOC")
