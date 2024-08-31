@@ -1,9 +1,11 @@
 from pyscf import ao2mo, lib
 from pyscf.mcscf.addons import StateAverageMCSCFSolver
+from pyscf.mcpdft import _dms
 import numpy as np
 from mrh.my_pyscf.lassi import lassi
 import h5py
 import tempfile
+from pyscf.mcpdft.otfnal import transfnal, get_transfnal
 
 try:
     from pyscf.mcpdft.mcpdft import _PDFT, _mcscf_env
@@ -34,6 +36,88 @@ def make_casdm2s(filename, i):
         rdm2s = np.array(rdm2s)
     return rdm2s
 
+def _get_e_decomp(mc, ot, mo_coeff, state=0, **kwargs):
+    '''Energy decomposition analysis for LAS. Directly can't use
+    the function defined in the Pyscf-forge.'''
+    h = mc._scf.get_hcore()
+    h1, h0 = mc.h1e_for_cas()
+    h2 = ao2mo.restore(1, mc.get_h2eff(), mc.ncas)
+    casdm1s = mc.make_one_casdm1s(state=state)
+    casdm1 = casdm1s[0] + casdm1s[1]
+    casdm2 = mc.make_one_casdm2(state=state)
+    dm1s = _dms.casdm1s_to_dm1s(mc, casdm1s, mo_coeff=mo_coeff)
+    dm1 = dm1s[0] + dm1s[1]
+    j = mc._scf.get_j(dm=dm1)
+    e_1e = np.dot(h.ravel(), dm1.ravel())
+    e_nuc = mc._scf.energy_nuc()
+    e_coul = np.dot(j.ravel(), dm1.ravel()) / 2
+    e_mcscf = h0 + np.dot(h1.ravel(), casdm1.ravel()) + (np.dot(h2.ravel(), casdm2.ravel()) * 0.5)
+    e_otxc = [fnal.energy_ot(casdm1s, casdm2, mo_coeff, mc.ncore, max_memory=mc.max_memory) for fnal in ot]
+    e_ncwfn = e_mcscf - e_nuc - e_1e - e_coul
+    return e_1e, e_coul, e_otxc, e_ncwfn
+
+def get_energy_decomposition(mc, mo_coeff=None, ci=None, ot=None, otxc=None,
+                             grids_level=None, grids_attr=None,
+                             split_x_c=None, verbose=None):
+    '''
+    I have to include this function to adopt the _get_e_decomp.
+    '''
+    if verbose is None: verbose = mc.verbose
+    log = lib.logger.new_logger(mc, verbose)
+    if mo_coeff is None: mo_coeff = mc.mo_coeff
+    if ci is None: ci = mc.ci
+    if grids_attr is None: grids_attr = {}
+    if grids_level is not None: grids_attr['level'] = grids_level
+    if len(grids_attr) or (otxc is not None):
+        old_ot = ot if (ot is not None) else mc.otfnal
+        old_grids = old_ot.grids
+        if otxc is None: otxc = old_ot.otxc
+        new_ot = get_transfnal(mc.mol, otxc)
+        new_ot.grids.__dict__.update(old_grids.__dict__)
+        new_ot.grids.__dict__.update(**grids_attr)
+        ot = new_ot
+    if ot is None: ot = mc.otfnal
+    if split_x_c is None:
+        split_x_c = True
+        log.warn('Currently, split_x_c in get_energy_decomposition defaults to '
+                 'True.\nThis default will change to False in the near future.')
+    hyb_x, hyb_c = ot._numint.hybrid_coeff(ot.otxc)
+    if hyb_x > 1e-10 or hyb_c > 1e-10:
+        raise NotImplementedError("Decomp for hybrid PDFT fnals")
+    if not isinstance(ot, transfnal):
+        raise NotImplementedError("Decomp for non-translated PDFT fnals")
+
+    if split_x_c:
+        ot = list(ot.split_x_c())
+    else:
+        ot = [ot, ]
+    e_nuc = mc._scf.energy_nuc()
+    h = mc.get_hcore()
+    nroots = getattr(mc.fcisolver, 'nroots', 1)
+
+    if not isinstance(nroots, list):
+        nroots = list(range(nroots))
+
+    if isinstance(nroots, list) and len(nroots) > 1:
+        e_1e = []
+        e_coul = []
+        e_otxc = []
+        e_ncwfn = []
+        nelec_root = [mc.nelecas, ] * len(nroots)
+        for state in nroots:
+            row = _get_e_decomp(mc, ot, mo_coeff, state=state)
+            e_1e.append(row[0])
+            e_coul.append(row[1])
+            e_otxc.append(row[2])
+            e_ncwfn.append(row[3])
+        e_otxc = [[e[i] for e in e_otxc] for i in range(len(e_otxc[0]))]
+    else:
+        e_1e, e_coul, e_otxc, e_ncwfn = _get_e_decomp(mc, ot, mo_coeff, state=nroots[0])
+    if split_x_c:
+        e_otx, e_otc = e_otxc
+        return e_nuc, e_1e, e_coul, e_otx, e_otc, e_ncwfn
+    else:
+        return e_nuc, e_1e, e_coul, e_otxc[0], e_ncwfn
 
 class _LASPDFT(_PDFT):
     'MC-PDFT energy for a LASSCF wavefunction'
@@ -157,6 +241,12 @@ def get_mcpdft_child_class(mc, ot, DoLASSI=False, states=None, **kwargs):
                 log.warn("Analyze function is not yet defined for LAS-PDFT. Turning on the analyze function of LASSI")
                 from mrh.my_pyscf.lassi.sitools import analyze
                 return analyze(self, self.si, state=state, **kwargs)
+
+            def get_energy_decomposition(self, mo_coeff=None, ci=None, ot=None, otxc=None, grids_level=None,
+                                         grids_attr=None, split_x_c=None, verbose=None):
+                return get_energy_decomposition(self, mo_coeff=mo_coeff, ci=ci, ot=ot, otxc=otxc,
+                                                         grids_level=grids_level, grids_attr=grids_attr,
+                                                         split_x_c=split_x_c, verbose=verbose)
         else:
             _mc_class.DoLASSI = False
             if mc.ci is not None:
@@ -165,7 +255,10 @@ def get_mcpdft_child_class(mc, ot, DoLASSI=False, states=None, **kwargs):
                 mc.fcisolver.nroots = 1
             
             def analyze(self):
-                raise NotImplementedError ('Analyze function is not yet defined for LAS-PDFT')
+                raise NotImplementedError ('Analyze function is not yet implemented for LAS-PDFT')
+
+            def get_energy_decomposition(self, **kwargs):
+                raise NotImplementedError('EDA is not yet implemented for LAS-PDFT')
 
         if states is not None: _mc_class.states = states
 
@@ -203,6 +296,11 @@ def get_mcpdft_child_class(mc, ot, DoLASSI=False, states=None, **kwargs):
 
                         rdm1s, rdm2s = lassi.root_make_rdm12s(self, self.ci, self.si,
                                                               state=self.states[i:j])
+
+                        if len(self.states[i:j]) == 1:
+                            rdm1s = [rdm1s]
+                            rdm2s = [rdm2s]
+
                         for k in range(i, j):
                             stateno = self.states[k]
                             rdm1s_dname = f'rdm1s_{stateno}'
@@ -241,6 +339,7 @@ def get_mcpdft_child_class(mc, ot, DoLASSI=False, states=None, **kwargs):
                         self.states = list(range(len(self.e_roots)))
                     else:
                         self.fcisolver.nroots = self.states
+
                     self._store_rdms()
                 else:
                     self.e_mcscf, self.e_cas, self.ci, self.mo_coeff, self.mo_energy = \
