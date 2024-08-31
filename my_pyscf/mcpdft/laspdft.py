@@ -84,7 +84,7 @@ class _LASPDFT(_PDFT):
                                      logger_tag='MC-PDFT state {}'.format(ix))
                      for ix in range(nroots)]
 
-        self.e_ot = [e_ot for e_tot, e_ot in epdft]
+        self.e_ot = np.array([e_ot for e_tot, e_ot in epdft])
 
         if isinstance(self, StateAverageMCSCFSolver):
             e_states = [e_tot for e_tot, e_ot in epdft]
@@ -99,7 +99,7 @@ class _LASPDFT(_PDFT):
             self.e_tot = np.dot(e_states, self.weights)
             e_states = self.e_states
         elif (len(nroots) > 1 if isinstance(nroots, list) else nroots > 1):
-            self.e_tot = [e_tot for e_tot, e_ot in epdft]
+            self.e_tot = np.array([e_tot for e_tot, e_ot in epdft])
             e_states = self.e_tot
         else:  # nroots==1 not StateAverage class
             self.e_tot, self.e_ot = epdft[0]
@@ -136,6 +136,9 @@ def get_mcpdft_child_class(mc, ot, DoLASSI=False, states=None, **kwargs):
             return _LASPDFT.compute_pdft_energy_(self, mo_coeff=mo_coeff, ci=ci, ot=ot, otxc=otxc,
                                                  grids_level=grids_level, grids_attr=grids_attr, **kwargs)
 
+        def get_energy_decomposition(self, **kwargs):
+            raise NotImplementedError ('EDA is not yet defined for LAS-PDFT')
+
         def multi_state(self, **kwargs):
             """
             In future will have to change this to consider the modal space selection, weights...
@@ -149,12 +152,20 @@ def get_mcpdft_child_class(mc, ot, DoLASSI=False, states=None, **kwargs):
             _mc_class.DoLASSI = True
             _mc_class.rdmstmpfile = tempfile.NamedTemporaryFile(dir=lib.param.TMPDIR)
 
+            def analyze(self, state=0, **kwargs):
+                log = lib.logger.new_logger(self, self.verbose)
+                log.warn("Analyze function is not yet defined for LAS-PDFT. Turning on the analyze function of LASSI")
+                from mrh.my_pyscf.lassi.sitools import analyze
+                return analyze(self, self.si, state=state, **kwargs)
         else:
             _mc_class.DoLASSI = False
             if mc.ci is not None:
                 mc.fcisolver.nroots = mc.nroots
             else:
                 mc.fcisolver.nroots = 1
+            
+            def analyze(self):
+                raise NotImplementedError ('Analyze function is not yet defined for LAS-PDFT')
 
         if states is not None: _mc_class.states = states
 
@@ -215,12 +226,13 @@ def get_mcpdft_child_class(mc, ot, DoLASSI=False, states=None, **kwargs):
 
         # TODO: compatibility with MC-PDFT checkpoint dumping
         dump_chk = mc.__class__.dump_chk
-
+        
         # TODO: in pyscf-forge/pyscf/mcpdft/mcpdft.py::optimize_mcscf_, generalize the number
         # of return arguments. Then the redefinition below will be unnecessary. 
         def optimize_mcscf_(self, mo_coeff=None, ci0=None, **kwargs):
             '''Optimize the MC-SCF wave function underlying an MC-PDFT calculation.
             Has the same calling signature as the parent kernel method. '''
+            
             with _mcscf_env(self):
                 if self.DoLASSI:
                     self.statlis = [x for x in range(len(self.e_roots))]  # LASSI-LPDFT
@@ -234,9 +246,11 @@ def get_mcpdft_child_class(mc, ot, DoLASSI=False, states=None, **kwargs):
                     self.e_mcscf, self.e_cas, self.ci, self.mo_coeff, self.mo_energy = \
                         self._mc_class.kernel(self, mo_coeff, ci0=ci0, **kwargs)[:-2]
                     self.fcisolver.nroots = self.nroots
+            
+            if self.DoLASSI:
+                 self.e_mcscf = self.e_roots[self.states] # To be consistent with PySCF
 
     pdft = PDFT(mc._scf, mc.ncas_sub, mc.nelecas_sub, my_ot=ot, **kwargs)
-
     _keys = pdft._keys.copy()
     pdft.__dict__.update(mc.__dict__)
     pdft._keys = pdft._keys.union(_keys)
