@@ -625,8 +625,8 @@ def roots_make_rdm12s (las, ci, nelec_frs, si, **kwargs):
     nroots_si = si.shape[-1]
     max_memory = getattr (las, 'max_memory', las.mol.max_memory)
     dtype = si.dtype
-    if np.iscomplexobj (si):
-        raise RuntimeError ("Known bug here with complex SI vectors")
+    #if np.iscomplexobj (si):
+    #    raise RuntimeError ("Known bug here with complex SI vectors")
 
     # Handle possible SOC
     nelec_rs = [tuple (x) for x in nelec_frs.sum (0)]

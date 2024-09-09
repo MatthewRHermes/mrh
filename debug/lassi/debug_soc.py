@@ -258,13 +258,26 @@ class KnownValues (unittest.TestCase):
         case_soc_stdm12s_slow (self, opt=0)
 
     def test_soc_stdm12s_slow_o1 (self):
-        case_soc_stdm12s_slow (self, opt=1)
+        #case_soc_stdm12s_slow (self, opt=1)
+        d_test = make_stdm12s (las2, soc=True, opt=1)
+        d_ref = make_stdm12s (las2, soc=True, opt=0)
+        for i,j in itertools.product (range (len (d_test[0])), repeat=2): 
+            for r in range (2):
+                with self.subTest (rank=r+1, element=(i,j)):
+                    self.assertAlmostEqual (lib.fp (d_test[r][i,...,j]),
+                                            lib.fp (d_ref[r][i,...,j]), 8)
 
     def test_soc_rdm12s_slow_o0 (self):
         case_soc_rdm12s_slow (self, opt=0)
 
     def test_soc_rdm12s_slow_o1 (self):
-        case_soc_rdm12s_slow (self, opt=1)
+        #case_soc_rdm12s_slow (self, opt=1)
+        d_test = roots_make_rdm12s (las2, las2.ci, lsi2.si, opt=1)
+        d_ref = roots_make_rdm12s (las2, las2.ci, lsi2.si, opt=0)
+        for i in range (len (d_test[0])):
+            for r in range (2):
+                with self.subTest (state=i, rank=r+1):
+                    self.assertAlmostEqual (lib.fp (d_test[r][i]), lib.fp (d_ref[r][i]), 8)
 
 if __name__ == "__main__":
     print("Full Tests for SOC")
