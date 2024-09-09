@@ -309,13 +309,13 @@ class FragTDMInt (object):
             isequal = False
             if ci[i] is ci[j]: isequal = True
             elif np.all (ci[i]==ci[j]): isequal = True
-            elif np.all (np.abs (ci[i]-ci[j]) < 1e-8): isequal=True
+            elif np.all (np.abs (ci[i]-ci[j]) < 1e-16): isequal=True
             else:
                 ci_i = ci[i].reshape (lroots[i],-1)
                 ci_j = ci[j].reshape (lroots[j],-1)
                 ovlp = ci_i.conj () @ ci_j.T
                 isequal = np.allclose (ovlp.diagonal (), 1,
-                                       rtol=1e-10, atol=1e-10)
+                                       rtol=1e-16, atol=1e-16)
                                        # need extremely high precision on this one
                 if screen_linequiv and (not isequal):
                     u, svals, vh = linalg.svd (ovlp)

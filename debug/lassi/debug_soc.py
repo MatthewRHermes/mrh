@@ -41,6 +41,7 @@ def setUpModule():
     las2.state_average_(weights=[1,0,0,0,0],
                             spins=[[0,0],[2,0],[-2,0],[0,2],[0,-2]],
                             smults=[[1,1],[3,1],[3,1],[1,3],[1,3]])
+
     # NOTE: Be careful about state selection. You have to select states that can actually be coupled
     # by a 1-body SOC operator. For instance, spins=[0,0] and spins=[2,2] would need at least a 2-body
     # operator to couple.
@@ -59,7 +60,6 @@ def tearDownModule():
 
 def case_soc_stdm12s_slow (self, opt=0):
     stdm1s_test, stdm2s_test = make_stdm12s (las2, soc=True, opt=opt) 
-    np.save ('stdm1s.{}.npy'.format (opt), stdm1s_test)
     with self.subTest ('2-electron'):
         self.assertAlmostEqual (linalg.norm (stdm2s_test), 12.835690990485933, 6)
     with self.subTest ('1-electron'):
@@ -259,7 +259,7 @@ class KnownValues (unittest.TestCase):
 
     def test_soc_stdm12s_slow_o1 (self):
         #case_soc_stdm12s_slow (self, opt=1)
-        d_test = make_stdm12s (las2, soc=True, opt=1)
+        d_test = make_stdm12s (las2, soc=True, opt=1, screen_linequiv=False)
         d_ref = make_stdm12s (las2, soc=True, opt=0)
         for i,j in itertools.product (range (len (d_test[0])), repeat=2): 
             for r in range (2):
@@ -272,7 +272,7 @@ class KnownValues (unittest.TestCase):
 
     def test_soc_rdm12s_slow_o1 (self):
         #case_soc_rdm12s_slow (self, opt=1)
-        d_test = roots_make_rdm12s (las2, las2.ci, lsi2.si, opt=1)
+        d_test = roots_make_rdm12s (las2, las2.ci, lsi2.si, opt=1, screen_linequiv=False)
         d_ref = roots_make_rdm12s (las2, las2.ci, lsi2.si, opt=0)
         for i in range (len (d_test[0])):
             for r in range (2):

@@ -600,7 +600,7 @@ def get_fdm1_maker (las, ci, nelec_frs, si, **kwargs):
         return fdm
     return make_fdm1
 
-def roots_make_rdm12s (las, ci, nelec_frs, si, **kwargs):
+def roots_make_rdm12s (las, ci, nelec_frs, si, screen_linequiv=True, **kwargs):
     ''' Build spin-separated LASSI 1- and 2-body reduced density matrices
 
     Args:
@@ -644,7 +644,8 @@ def roots_make_rdm12s (las, ci, nelec_frs, si, **kwargs):
 
     # First pass: single-fragment intermediates
     hopping_index, ints, lroots = frag.make_ints (las, ci, nelec_frs, nlas=nlas,
-                                                  _FragTDMInt_class=FragTDMInt)
+                                                  _FragTDMInt_class=FragTDMInt,
+                                                  screen_linequiv=screen_linequiv)
     nstates = np.sum (np.prod (lroots, axis=0))
     
     # Memory check
