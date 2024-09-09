@@ -438,6 +438,7 @@ def ham (las, h1, h2, ci, nelec_frs, soc=0, nlas=None, _HamS2Ovlp_class=HamS2Ovl
     if nlas is None: nlas = las.ncas_sub
     max_memory = getattr (las, 'max_memory', las.mol.max_memory)
     dtype = h1.dtype
+    nfrags, nroots = nelec_frs.shape[:2]
     if soc>1: raise NotImplementedError ("Spin-orbit coupling of second order")
 
     # Handle possible SOC
@@ -457,6 +458,8 @@ def ham (las, h1, h2, ci, nelec_frs, soc=0, nlas=None, _HamS2Ovlp_class=HamS2Ovl
         h2 = h2_[np.ix_(ix,ix,ix,ix)]
         ci = ci_map2spinless (ci, nlas, nelec_frs)
         nlas = [2*x for x in nlas]
+        spin_shuffle_fac = [fermion_spin_shuffle (nelec_frs[:,i,0], nelec_frs[:,i,1])
+                            for i in range (nroots)]
         nelec_frs[:,:,0] += nelec_frs[:,:,1]
         nelec_frs[:,:,1] = 0
         
@@ -475,12 +478,15 @@ def ham (las, h1, h2, ci, nelec_frs, soc=0, nlas=None, _HamS2Ovlp_class=HamS2Ovl
     t0 = (lib.logger.process_clock (), lib.logger.perf_counter ())
     outerprod = _HamS2Ovlp_class (ints, nlas, hopping_index, lroots, h1, h2, dtype=dtype,
                                      max_memory=max_memory, log=log)
+    if soc and not spin_pure:
+        outerprod.spin_shuffle = spin_shuffle_fac
     lib.logger.timer (las, 'LASSI Hamiltonian second intermediate indexing setup', *t0)
     if not _do_kernel: return outerprod
     ham, s2, ovlp, t0 = outerprod.kernel ()
     lib.logger.timer (las, 'LASSI Hamiltonian second intermediate crunching', *t0)
     if las.verbose >= lib.logger.TIMER_LEVEL:
         lib.logger.info (las, 'LASSI Hamiltonian crunching profile:\n%s', outerprod.sprint_profile ())
+
     return ham, s2, ovlp
 
 

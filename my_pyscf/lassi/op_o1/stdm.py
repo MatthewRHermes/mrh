@@ -1017,6 +1017,8 @@ def make_stdm12s (las, ci, nelec_frs, **kwargs):
     if not spin_pure: # Engage the ``spinless mapping''
         ci = ci_map2spinless (ci, nlas, nelec_frs)
         ix = spin_shuffle_idx (nlas)
+        spin_shuffle_fac = [fermion_spin_shuffle (nelec_frs[:,i,0], nelec_frs[:,i,1])
+                            for i in range (nroots)]
         nlas = [2*x for x in nlas]
         nelec_frs[:,:,0] += nelec_frs[:,:,1]
         nelec_frs[:,:,1] = 0
@@ -1037,6 +1039,8 @@ def make_stdm12s (las, ci, nelec_frs, **kwargs):
     t0 = (lib.logger.process_clock (), lib.logger.perf_counter ())
     outerprod = LSTDM (ints, nlas, hopping_index, lroots, dtype=dtype,
                            max_memory=max_memory, log=log)
+    if not spin_pure:
+        outerprod.spin_shuffle = spin_shuffle_fac
     lib.logger.timer (las, 'LAS-state TDM12s second intermediate indexing setup', *t0)
     tdm1s, tdm2s, t0 = outerprod.kernel ()
     lib.logger.timer (las, 'LAS-state TDM12s second intermediate crunching', *t0)
@@ -1047,16 +1051,22 @@ def make_stdm12s (las, ci, nelec_frs, **kwargs):
     # Clean up the ``spinless mapping''
     if not spin_pure:
         kx = [True,]*2
-        jx = [True,]*nroots
+        jx = [True,]*nstates
         tdm1s = tdm1s[np.ix_(jx,jx,kx,ix,ix)]
         tdm2s = tdm2s[np.ix_(jx,jx,kx*2,ix,ix,ix,ix)]
         n = ncas = ncas // 2
-        tdm2s_ = np.zeros ((nroots, nroots, 2, 2, n, n, n, n), dtype=tdm2s.dtype)
+        tdm2s_ = np.zeros ((nstates, nstates, 2, 2, n, n, n, n), dtype=tdm2s.dtype)
         tdm2s_[:,:,0,0,:,:,:,:] = tdm2s[:,:,0,:n,:n,:n,:n]
         tdm2s_[:,:,0,1,:,:,:,:] = tdm2s[:,:,0,:n,:n,n:,n:]
         tdm2s_[:,:,1,0,:,:,:,:] = tdm2s[:,:,0,n:,n:,:n,:n]
         tdm2s_[:,:,1,1,:,:,:,:] = tdm2s[:,:,0,n:,n:,n:,n:]
         tdm2s = tdm2s_
+        if spin_pure: # Need this if you want to always do "spinless mapping" for testing
+            tdm1s_ = np.zeros ((nstates, nstates, 2, n, n), dtype=tdm1s.dtype)
+            tdm1s_[:,:,0,:,:] = tdm1s[:,:,0,:n,:n]
+            tdm1s_[:,:,1,:,:] = tdm1s[:,:,0,n:,n:]
+            tdm1s = tdm1s_
+
 
     # Put tdm1s in PySCF convention: [p,q] -> q'p
     if spin_pure: tdm1s = tdm1s.transpose (0,2,4,3,1)

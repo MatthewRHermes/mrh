@@ -625,6 +625,7 @@ def roots_make_rdm12s (las, ci, nelec_frs, si, **kwargs):
     nroots_si = si.shape[-1]
     max_memory = getattr (las, 'max_memory', las.mol.max_memory)
     dtype = si.dtype
+    nfrags, nroots = nelec_frs.shape[:2]
     #if np.iscomplexobj (si):
     #    raise RuntimeError ("Known bug here with complex SI vectors")
 
@@ -635,6 +636,8 @@ def roots_make_rdm12s (las, ci, nelec_frs, si, **kwargs):
         ci = ci_map2spinless (ci, nlas, nelec_frs)
         ix = spin_shuffle_idx (nlas)
         nlas = [2*x for x in nlas]
+        spin_shuffle_fac = [fermion_spin_shuffle (nelec_frs[:,i,0], nelec_frs[:,i,1])
+                            for i in range (nroots)]
         nelec_frs[:,:,0] += nelec_frs[:,:,1]
         nelec_frs[:,:,1] = 0
         ncas = ncas * 2
@@ -655,6 +658,8 @@ def roots_make_rdm12s (las, ci, nelec_frs, si, **kwargs):
     t0 = (lib.logger.process_clock (), lib.logger.perf_counter ())
     outerprod = LRRDM (ints, nlas, hopping_index, lroots, si, dtype=dtype,
                           max_memory=max_memory, log=log)
+    if not spin_pure:
+        outerprod.spin_shuffle = spin_shuffle_fac
     lib.logger.timer (las, 'LASSI root RDM12s second intermediate indexing setup', *t0)
     rdm1s, rdm2s, t0 = outerprod.kernel ()
     lib.logger.timer (las, 'LASSI root RDM12s second intermediate crunching', *t0)
