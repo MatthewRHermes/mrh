@@ -6,7 +6,7 @@ from mrh.my_pyscf.lassi.spaces import all_single_excitations
 from mrh.my_pyscf.mcscf.lasci import get_space_info
 
 class KnownValues(unittest.TestCase):
-    def test_ethene_casci_limit (self):
+    def test_casci_limit (self):
         xyz='''H 0 0 0
                H 1 0 0
                H 3 0 0

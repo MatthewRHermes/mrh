@@ -81,14 +81,14 @@ def get_energy_decomposition(mc, mo_coeff=None, ci=None, ot=None, otxc=None,
     if isinstance(nroots, list) and len(nroots) > 1:
         e_1e, e_coul, e_otxc, e_ncwfn = [], [], [], []
         for state in nroots:
-            row = _get_e_decomp(mc, ot, mo_coeff, state)
+            row = _get_e_decomp(mc, mo_coeff=mo_coeff,ci=mc.ci,ot=ot,state=state)
             e_1e.append(row[0])
             e_coul.append(row[1])
             e_otxc.append(row[2])
             e_ncwfn.append(row[3])
         e_otxc = [[e[i] for e in e_otxc] for i in range(len(e_otxc[0]))]
     else:
-        e_1e, e_coul, e_otxc, e_ncwfn = _get_e_decomp(mc, ot, mo_coeff, state=nroots[0])
+        e_1e, e_coul, e_otxc, e_ncwfn = _get_e_decomp(mc,mo_coeff=mo_coeff,ci=mc.ci,ot=ot,state=nroots[0])
     if split_x_c:
         e_otx, e_otc = e_otxc
         return e_nuc, e_1e, e_coul, e_otx, e_otc, e_ncwfn
