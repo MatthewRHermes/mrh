@@ -14,7 +14,11 @@ from mrh.my_pyscf import lassi
 import itertools
 
 def setUpModule():
-    global mol1, mf1, mol2, mf2, las2, lsi2
+    global mol1, mf1, mol2, mf2, las2, lsi2, oldvars
+    oldvars = {}
+    from mrh.my_pyscf.lassi.op_o1 import frag
+    oldvars['SCREEN_THRESH'] = frag.SCREEN_THRESH
+    frag.SCREEN_THRESH = 1e-16
     mol1 = gto.M (atom="""
         O  0.000000  0.000000  0.000000
         H  0.758602  0.000000  0.504284
@@ -53,10 +57,12 @@ def setUpModule():
         lsi2.kernel (opt=0)
 
 def tearDownModule():
-    global mol1, mf1, mol2, mf2, las2, lsi2
+    global mol1, mf1, mol2, mf2, las2, lsi2, oldvars
+    from mrh.my_pyscf.lassi.op_o1 import frag
+    for key, val in oldvars.items (): setattr (frag, key, val)
     mol1.stdout.close()
     mol2.stdout.close()
-    del mol1, mf1, mol2, mf2, las2, lsi2
+    del mol1, mf1, mol2, mf2, las2, lsi2, oldvars
 
 def case_soc_stdm12s_slow (self, opt=0):
     stdm1s_test, stdm2s_test = make_stdm12s (las2, soc=True, opt=opt) 
@@ -259,7 +265,7 @@ class KnownValues (unittest.TestCase):
 
     def test_soc_stdm12s_slow_o1 (self):
         #case_soc_stdm12s_slow (self, opt=1)
-        d_test = make_stdm12s (las2, soc=True, opt=1, screen_linequiv=False)
+        d_test = make_stdm12s (las2, soc=True, opt=1)
         d_ref = make_stdm12s (las2, soc=True, opt=0)
         for i,j in itertools.product (range (len (d_test[0])), repeat=2): 
             for r in range (2):
@@ -272,7 +278,7 @@ class KnownValues (unittest.TestCase):
 
     def test_soc_rdm12s_slow_o1 (self):
         #case_soc_rdm12s_slow (self, opt=1)
-        d_test = roots_make_rdm12s (las2, las2.ci, lsi2.si, opt=1, screen_linequiv=False)
+        d_test = roots_make_rdm12s (las2, las2.ci, lsi2.si, opt=1)
         d_ref = roots_make_rdm12s (las2, las2.ci, lsi2.si, opt=0)
         for i in range (len (d_test[0])):
             for r in range (2):
@@ -282,3 +288,4 @@ class KnownValues (unittest.TestCase):
 if __name__ == "__main__":
     print("Full Tests for SOC")
     unittest.main()
+

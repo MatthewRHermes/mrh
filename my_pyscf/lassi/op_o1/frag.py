@@ -8,6 +8,10 @@ from pyscf.fci import cistring
 from itertools import product, combinations
 from mrh.my_pyscf.lassi.citools import get_lroots, get_rootaddr_fragaddr
 from mrh.my_pyscf.lassi.op_o1.utilities import *
+from pyscf import __config__
+
+SCREEN_THRESH = getattr (__config__, 'lassi_frag_screen_thresh', 1e-10)
+DO_SCREEN_LINEQUIV = getattr (__config__, 'lassi_frag_do_screen_linequiv', True)
 
 class FragTDMInt (object):
     ''' Fragment-local LAS state transition density matrix intermediate
@@ -83,7 +87,8 @@ class FragTDMInt (object):
     '''
 
     def __init__(self, ci, hopping_index, zerop_index, onep_index, norb, nroots, nelec_rs,
-                 rootaddr, fragaddr, idx_frag, dtype=np.float64, screen_linequiv=True):
+                 rootaddr, fragaddr, idx_frag, dtype=np.float64,
+                 screen_linequiv=DO_SCREEN_LINEQUIV):
         # TODO: if it actually helps, cache the "linkstr" arrays
         self.ci = ci
         self.hopping_index = hopping_index
@@ -309,19 +314,21 @@ class FragTDMInt (object):
             isequal = False
             if ci[i] is ci[j]: isequal = True
             elif np.all (ci[i]==ci[j]): isequal = True
-            elif np.all (np.abs (ci[i]-ci[j]) < 1e-16): isequal=True
+            elif np.all (np.abs (ci[i]-ci[j]) < SCREEN_THRESH): isequal=True
             else:
                 ci_i = ci[i].reshape (lroots[i],-1)
                 ci_j = ci[j].reshape (lroots[j],-1)
                 ovlp = ci_i.conj () @ ci_j.T
-                isequal = np.allclose (ovlp.diagonal (), 1,
-                                       rtol=1e-16, atol=1e-16)
-                                       # need extremely high precision on this one
+                isequal = np.all (np.abs (ovlp - np.eye (lroots[i])) < SCREEN_THRESH)
+                                  # need extremely high precision on this one
                 if screen_linequiv and (not isequal):
-                    u, svals, vh = linalg.svd (ovlp)
-                    assert (len (svals) == lroots[i])
-                    isequal = np.allclose (svals, 1, rtol=1e-8, atol=1e-8)
-                    if isequal: self.umat_root[j] = u @ vh
+                    err1 = abs ((np.trace (ovlp @ ovlp.conj ().T) / lroots[i]) - 1.0)
+                    err2 = abs ((np.trace (ovlp.conj ().T @ ovlp) / lroots[i]) - 1.0)
+                    isequal = (err1 < SCREEN_THRESH) and (err2 < SCREEN_THRESH)
+                    if isequal: 
+                        u, svals, vh = linalg.svd (ovlp)
+                        assert (len (svals) == lroots[i])
+                        self.umat_root[j] = u @ vh
             if isequal:
                 self.root_unique[j] = False
                 self.unique_root[j] = i
@@ -580,7 +587,8 @@ class FragTDMInt (object):
                 hci += h_11[p,q] * cre_op (qci, norb, nelecq, p)
         return hci
 
-def make_ints (las, ci, nelec_frs, screen_linequiv=True, nlas=None, _FragTDMInt_class=FragTDMInt):
+def make_ints (las, ci, nelec_frs, screen_linequiv=DO_SCREEN_LINEQUIV, nlas=None,
+               _FragTDMInt_class=FragTDMInt):
     ''' Build fragment-local intermediates (`FragTDMInt`) for LASSI o1
 
     Args:

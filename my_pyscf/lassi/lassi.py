@@ -438,8 +438,7 @@ def _eig_block (las, e0, h1, h2, ci_blk, nelec_blk, rootsym, soc, orbsym, wfnsym
         else: raise (err) from None
     return e, c, s2_blk
 
-def make_stdm12s (las, ci=None, orbsym=None, soc=False, break_symmetry=False, screen_linequiv=True,
-                  opt=1):
+def make_stdm12s (las, ci=None, orbsym=None, soc=False, break_symmetry=False, opt=1):
     ''' Evaluate <I|p'q|J> and <I|p'r'sq|J> where |I>, |J> are LAS states.
 
         Args:
@@ -506,8 +505,7 @@ def make_stdm12s (las, ci=None, orbsym=None, soc=False, break_symmetry=False, sc
             d1s, d2s = op_o0.make_stdm12s (las1, ci_blk, nelec_blk, orbsym=orbsym, wfnsym=wfnsym)
             t0 = lib.logger.timer (las, 'LASSI make_stdm12s rootsym {} CI algorithm'.format (
                 sym), *t0)
-            d1s_test, d2s_test = op_o1.make_stdm12s (las1, ci_blk, nelec_blk,
-                                                     screen_linequiv=screen_linequiv)
+            d1s_test, d2s_test = op_o1.make_stdm12s (las1, ci_blk, nelec_blk)
             t0 = lib.logger.timer (las, 'LASSI make_stdm12s rootsym {} TDM algorithm'.format (
                 sym), *t0)
             lib.logger.debug (las,
@@ -525,8 +523,7 @@ def make_stdm12s (las, ci=None, orbsym=None, soc=False, break_symmetry=False, sc
         else:
             if not o0_memcheck: lib.logger.debug (
                 las, 'Insufficient memory to test against o0 LASSI algorithm')
-            d1s, d2s = op[opt].make_stdm12s (las1, ci_blk, nelec_blk, orbsym=orbsym, wfnsym=wfnsym,
-                                             screen_linequiv=screen_linequiv)
+            d1s, d2s = op[opt].make_stdm12s (las1, ci_blk, nelec_blk, orbsym=orbsym, wfnsym=wfnsym)
             t0 = lib.logger.timer (las, 'LASSI make_stdm12s rootsym {}'.format (sym), *t0)
         idx_allprods.append (list(np.where(idx_prod)[0]))
         nprods += len (idx_allprods[-1])
@@ -551,7 +548,7 @@ def make_stdm12s (las, ci=None, orbsym=None, soc=False, break_symmetry=False, sc
     return stdm1s, stdm2s
 
 def roots_make_rdm12s (las, ci, si, orbsym=None, soc=None, break_symmetry=None, rootsym=None,
-                       screen_linequiv=True, opt=1):
+                       opt=1):
     '''Evaluate 1- and 2-electron reduced density matrices of LASSI states
 
         Args:
@@ -631,8 +628,7 @@ def roots_make_rdm12s (las, ci, si, orbsym=None, soc=None, break_symmetry=None, 
                                                 wfnsym=wfnsym)
             t0 = lib.logger.timer (las, 'LASSI make_rdm12s rootsym {} CI algorithm'.format (sym),
                                    *t0)
-            d1s_test, d2s_test = op[opt].roots_make_rdm12s (las1, ci_blk, nelec_blk, si_blk,
-                                                            screen_linequiv=screen_linequiv)
+            d1s_test, d2s_test = op[opt].roots_make_rdm12s (las1, ci_blk, nelec_blk, si_blk)
             t0 = lib.logger.timer (las, 'LASSI make_rdm12s rootsym {} TDM algorithm'.format (sym),
                                    *t0)
             lib.logger.debug (las,
@@ -651,7 +647,7 @@ def roots_make_rdm12s (las, ci, si, orbsym=None, soc=None, break_symmetry=None, 
             if not o0_memcheck: lib.logger.debug (las,
                 'Insufficient memory to test against o0 LASSI algorithm')
             d1s, d2s = op[opt].roots_make_rdm12s (las1, ci_blk, nelec_blk, si_blk, orbsym=orbsym,
-                                                  wfnsym=wfnsym, screen_linequiv=screen_linequiv)
+                                                  wfnsym=wfnsym)
             t0 = lib.logger.timer (las, 'LASSI make_rdm12s rootsym {}'.format (sym), *t0)
         idx_int = np.where (idx_si)[0]
         for (i,a) in enumerate (idx_int):
@@ -662,7 +658,7 @@ def roots_make_rdm12s (las, ci, si, orbsym=None, soc=None, break_symmetry=None, 
     return rdm1s, rdm2s
 
 def root_make_rdm12s (las, ci, si, state=0, orbsym=None, soc=None, break_symmetry=None,
-                      rootsym=None, screen_linequiv=True, opt=1):
+                      rootsym=None, opt=1):
     '''Evaluate 1- and 2-electron reduced density matrices of one single LASSI state
 
         Args:
@@ -707,8 +703,7 @@ def root_make_rdm12s (las, ci, si, state=0, orbsym=None, soc=None, break_symmetr
         rootsym = getattr (si, 'rootsym', getattr (las, 'rootsym', None))
     rootsym = [rootsym[s] for s in states]
     rdm1s, rdm2s = roots_make_rdm12s (las, ci, si_column, orbsym=orbsym, soc=soc,
-                                      break_symmetry=break_symmetry, rootsym=rootsym,
-                                      screen_linequiv=screen_linequiv, opt=opt)
+                                      break_symmetry=break_symmetry, rootsym=rootsym, opt=opt)
     if len (states) == 1:
         rdm1s, rdm2s = rdm1s[0], rdm2s[0]
     return rdm1s, rdm2s

@@ -627,7 +627,7 @@ def contract_ham_ci (las, h1, h2, ci_fr_ket, nelec_frs_ket, ci_fr_bra, nelec_frs
             hket_fr_pabq[ifrag][ibra] = np.stack (hket_fr_pabq[ifrag][ibra], axis=-1)
     return hket_fr_pabq
 
-def make_stdm12s (las, ci_fr, nelec_frs, orbsym=None, wfnsym=None, **kwargs):
+def make_stdm12s (las, ci_fr, nelec_frs, orbsym=None, wfnsym=None):
     '''Build LAS state interaction transition density matrices
 
     Args:
@@ -827,7 +827,7 @@ def root_make_rdm12s (las, ci_fr, nelec_frs, si, ix, orbsym=None, wfnsym=None):
 
     return rdm1s, rdm2s
 
-def roots_make_rdm12s (las, ci_fr, nelec_frs, si, orbsym=None, wfnsym=None, **kwargs):
+def roots_make_rdm12s (las, ci_fr, nelec_frs, si, orbsym=None, wfnsym=None):
     '''Build LAS state interaction reduced density matrices for final
     LASSI eigenstates.
 

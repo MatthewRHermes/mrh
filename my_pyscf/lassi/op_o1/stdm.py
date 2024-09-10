@@ -987,7 +987,7 @@ class LSTDM (object):
         profile += '\n' + fmt_str.format ('putS', self.dt_s, self.dw_s)
         return profile
 
-def make_stdm12s (las, ci, nelec_frs, screen_linequiv=True, **kwargs):
+def make_stdm12s (las, ci, nelec_frs, **kwargs):
     ''' Build spin-separated LAS product-state 1- and 2-body transition density matrices
 
     Args:
@@ -1025,8 +1025,7 @@ def make_stdm12s (las, ci, nelec_frs, screen_linequiv=True, **kwargs):
         ncas = ncas * 2
 
     # First pass: single-fragment intermediates
-    hopping_index, ints, lroots = frag.make_ints (las, ci, nelec_frs, nlas=nlas,
-                                                  screen_linequiv=screen_linequiv)
+    hopping_index, ints, lroots = frag.make_ints (las, ci, nelec_frs, nlas=nlas)
     nstates = np.sum (np.prod (lroots, axis=0))
 
     # Memory check
