@@ -176,9 +176,9 @@ class HamS2Ovlp (stdm.LSTDM):
         '''Compute a single-fragment density fluctuation, for both the 1- and 2-RDMs.'''
         t0, w0 = logger.process_clock (), logger.perf_counter ()
         inti = self.ints[i]
-        d1s = inti.get_dm1 (bra, ket)
+        d1s = inti.get_dm1 (bra, ket).transpose (0,1,2,4,3)
         d2s = inti.get_dm2 (bra, ket)
-        d2 = d2s.sum (2)
+        d2 = d2s.sum (2).transpose (0,1,3,2,5,4)
         ham  = np.tensordot (d1s, self.get_ham_2q (i,i), axes=3)
         ham += np.tensordot (d2, self.get_ham_2q (i,i,i,i), axes=4) * .5
         s2 = 3 * np.trace (d1s, axis1=-2, axis2=-1).sum (-1) / 4
@@ -199,16 +199,16 @@ class HamS2Ovlp (stdm.LSTDM):
         d1s_ii = self.ints[i].get_dm1 (bra, ket)
         d1s_jj = self.ints[j].get_dm1 (bra, ket)
         h_ = self.get_ham_2q (j,j,i,i)
-        h_ = np.tensordot (d1s_ii.sum (2), h_, axes=((-2,-1),(-2,-1)))
-        h_ = np.tensordot (d1s_jj.sum (2), h_, axes=((-2,-1),(-2,-1)))
+        h_ = np.tensordot (d1s_ii.sum (2), h_, axes=((-1,-2),(-2,-1)))
+        h_ = np.tensordot (d1s_jj.sum (2), h_, axes=((-1,-2),(-2,-1)))
         ham = h_
         hs_ = self.get_ham_2q (j,i,i,j).transpose (0,3,2,1)
-        hs_ = np.tensordot (d1s_ii, hs_, axes=((-2,-1),(-2,-1)))
+        hs_ = np.tensordot (d1s_ii, hs_, axes=((-1,-2),(-2,-1)))
         hs_ = hs_.transpose (2,0,1,3,4)
         d1s_ii = d1s_ii.transpose (2,0,1,3,4)
         d1s_jj = d1s_jj.transpose (2,0,1,3,4)
         for h_, d1_jj in zip (hs_, d1s_jj):
-            ham -= np.tensordot (d1_jj, h_, axes=((-2,-1),(-2,-1)))
+            ham -= np.tensordot (d1_jj, h_, axes=((-1,-2),(-2,-1)))
         mi = np.trace (d1s_ii, axis1=-2, axis2=-1)
         mi = (mi[0] - mi[1])
         mj = np.trace (d1s_jj, axis1=-2, axis2=-1)
@@ -271,12 +271,12 @@ class HamS2Ovlp (stdm.LSTDM):
         h_ = self.get_ham_2q (k,k,j,i) # BEWARE CONJ
         h_ = np.tensordot (p_i, h_, axes=((-1),(-1)))
         h_ = np.tensordot (h_j, h_, axes=((-1),(-1)))
-        ham = np.tensordot (d1_k, h_, axes=((-2,-1),(-2,-1)))
+        ham = np.tensordot (d1_k, h_, axes=((-1,-2),(-2,-1)))
         d1_k = d1s_k[:,:,s1]
         h_ = self.get_ham_2q (j,k,k,i).transpose (1,2,0,3) # BEWARE CONJ
         h_ = np.tensordot (p_i, h_, axes=((-1),(-1)))
         h_ = np.tensordot (h_j, h_, axes=((-1),(-1)))
-        ham -= np.tensordot (d1_k, h_, axes=((-2,-1),(-2,-1)))
+        ham -= np.tensordot (d1_k, h_, axes=((-1,-2),(-2,-1)))
         ham *= fac
         s2 = None
         dt, dw = logger.process_clock () - t0, logger.perf_counter () - w0

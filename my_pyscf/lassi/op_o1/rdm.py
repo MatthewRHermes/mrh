@@ -683,7 +683,7 @@ def roots_make_rdm12s (las, ci, nelec_frs, si, **kwargs):
 
     # Put rdm1s in PySCF convention: [p,q] -> q'p
     if spin_pure: rdm1s = rdm1s.transpose (0,1,3,2)
-    else: rdm1s = rdm1s[:,0].transpose (0,2,1)
+    else: rdm1s = rdm1s[:,0].transpose (0,2,1).conj ()
     rdm2s = rdm2s.reshape (nroots_si, 2, 2, ncas, ncas, ncas, ncas).transpose (0,1,3,4,2,5,6)
 
     return rdm1s, rdm2s
