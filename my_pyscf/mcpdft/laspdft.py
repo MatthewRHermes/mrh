@@ -1,11 +1,11 @@
 from pyscf import ao2mo, lib
 from pyscf.mcscf.addons import StateAverageMCSCFSolver
-from pyscf.mcpdft import _dms
 import numpy as np
 from mrh.my_pyscf.lassi import lassi
 import h5py
 import tempfile
 from pyscf.mcpdft.otfnal import transfnal, get_transfnal
+from pyscf.mcpdft.mcpdft import _get_e_decomp
 
 try:
     from pyscf.mcpdft.mcpdft import _PDFT, _mcscf_env
@@ -36,32 +36,13 @@ def make_casdm2s(filename, i):
         rdm2s = np.array(rdm2s)
     return rdm2s
 
-def _get_e_decomp(mc, ot, mo_coeff, state=0, **kwargs):
-    '''Energy decomposition analysis for LAS. Directly can't use
-    the function defined in the Pyscf-forge.'''
-    h = mc._scf.get_hcore()
-    h1, h0 = mc.h1e_for_cas()
-    h2 = ao2mo.restore(1, mc.get_h2eff(), mc.ncas)
-    casdm1s = mc.make_one_casdm1s(state=state)
-    casdm1 = casdm1s[0] + casdm1s[1]
-    casdm2 = mc.make_one_casdm2(state=state)
-    dm1s = _dms.casdm1s_to_dm1s(mc, casdm1s, mo_coeff=mo_coeff)
-    dm1 = dm1s[0] + dm1s[1]
-    j = mc._scf.get_j(dm=dm1)
-    e_1e = np.dot(h.ravel(), dm1.ravel())
-    e_nuc = mc._scf.energy_nuc()
-    e_coul = np.dot(j.ravel(), dm1.ravel()) / 2
-    e_mcscf = h0 + np.dot(h1.ravel(), casdm1.ravel()) + (np.dot(h2.ravel(), casdm2.ravel()) * 0.5)
-    e_otxc = [fnal.energy_ot(casdm1s, casdm2, mo_coeff, mc.ncore, max_memory=mc.max_memory) for fnal in ot]
-    e_ncwfn = e_mcscf - e_nuc - e_1e - e_coul
-    return e_1e, e_coul, e_otxc, e_ncwfn
 
 def get_energy_decomposition(mc, mo_coeff=None, ci=None, ot=None, otxc=None,
                              grids_level=None, grids_attr=None,
                              split_x_c=None, verbose=None):
-    '''
-    I have to include this function to adopt the _get_e_decomp.
-    '''
+    """
+    I have to include this function to do the EDA for selected roots only.
+    """
     if verbose is None: verbose = mc.verbose
     log = lib.logger.new_logger(mc, verbose)
     if mo_coeff is None: mo_coeff = mc.mo_coeff
@@ -92,20 +73,15 @@ def get_energy_decomposition(mc, mo_coeff=None, ci=None, ot=None, otxc=None,
     else:
         ot = [ot, ]
     e_nuc = mc._scf.energy_nuc()
-    h = mc.get_hcore()
-    nroots = getattr(mc.fcisolver, 'nroots', 1)
 
+    nroots = getattr(mc.fcisolver, 'nroots', 1)
     if not isinstance(nroots, list):
         nroots = list(range(nroots))
 
     if isinstance(nroots, list) and len(nroots) > 1:
-        e_1e = []
-        e_coul = []
-        e_otxc = []
-        e_ncwfn = []
-        nelec_root = [mc.nelecas, ] * len(nroots)
+        e_1e, e_coul, e_otxc, e_ncwfn = [], [], [], []
         for state in nroots:
-            row = _get_e_decomp(mc, ot, mo_coeff, state=state)
+            row = _get_e_decomp(mc, ot, mo_coeff, state)
             e_1e.append(row[0])
             e_coul.append(row[1])
             e_otxc.append(row[2])
@@ -118,6 +94,7 @@ def get_energy_decomposition(mc, mo_coeff=None, ci=None, ot=None, otxc=None,
         return e_nuc, e_1e, e_coul, e_otx, e_otc, e_ncwfn
     else:
         return e_nuc, e_1e, e_coul, e_otxc[0], e_ncwfn
+
 
 class _LASPDFT(_PDFT):
     'MC-PDFT energy for a LASSCF wavefunction'
@@ -221,7 +198,7 @@ def get_mcpdft_child_class(mc, ot, DoLASSI=False, states=None, **kwargs):
                                                  grids_level=grids_level, grids_attr=grids_attr, **kwargs)
 
         def get_energy_decomposition(self, **kwargs):
-            raise NotImplementedError ('EDA is not yet defined for LAS-PDFT')
+            raise NotImplementedError('EDA is not yet defined for LAS-PDFT')
 
         def multi_state(self, **kwargs):
             """
@@ -245,17 +222,17 @@ def get_mcpdft_child_class(mc, ot, DoLASSI=False, states=None, **kwargs):
             def get_energy_decomposition(self, mo_coeff=None, ci=None, ot=None, otxc=None, grids_level=None,
                                          grids_attr=None, split_x_c=None, verbose=None):
                 return get_energy_decomposition(self, mo_coeff=mo_coeff, ci=ci, ot=ot, otxc=otxc,
-                                                         grids_level=grids_level, grids_attr=grids_attr,
-                                                         split_x_c=split_x_c, verbose=verbose)
+                                                grids_level=grids_level, grids_attr=grids_attr,
+                                                split_x_c=split_x_c, verbose=verbose)
         else:
             _mc_class.DoLASSI = False
             if mc.ci is not None:
                 mc.fcisolver.nroots = mc.nroots
             else:
                 mc.fcisolver.nroots = 1
-            
+
             def analyze(self):
-                raise NotImplementedError ('Analyze function is not yet implemented for LAS-PDFT')
+                raise NotImplementedError('Analyze function is not yet implemented for LAS-PDFT')
 
             def get_energy_decomposition(self, **kwargs):
                 raise NotImplementedError('EDA is not yet implemented for LAS-PDFT')
@@ -324,13 +301,13 @@ def get_mcpdft_child_class(mc, ot, DoLASSI=False, states=None, **kwargs):
 
         # TODO: compatibility with MC-PDFT checkpoint dumping
         dump_chk = mc.__class__.dump_chk
-        
+
         # TODO: in pyscf-forge/pyscf/mcpdft/mcpdft.py::optimize_mcscf_, generalize the number
         # of return arguments. Then the redefinition below will be unnecessary. 
         def optimize_mcscf_(self, mo_coeff=None, ci0=None, **kwargs):
             '''Optimize the MC-SCF wave function underlying an MC-PDFT calculation.
             Has the same calling signature as the parent kernel method. '''
-            
+
             with _mcscf_env(self):
                 if self.DoLASSI:
                     self.statlis = [x for x in range(len(self.e_roots))]  # LASSI-LPDFT
@@ -345,9 +322,9 @@ def get_mcpdft_child_class(mc, ot, DoLASSI=False, states=None, **kwargs):
                     self.e_mcscf, self.e_cas, self.ci, self.mo_coeff, self.mo_energy = \
                         self._mc_class.kernel(self, mo_coeff, ci0=ci0, **kwargs)[:-2]
                     self.fcisolver.nroots = self.nroots
-            
+
             if self.DoLASSI:
-                 self.e_mcscf = self.e_roots[self.states] # To be consistent with PySCF
+                self.e_mcscf = self.e_roots[self.states]  # To be consistent with PySCF
 
     pdft = PDFT(mc._scf, mc.ncas_sub, mc.nelecas_sub, my_ot=ot, **kwargs)
     _keys = pdft._keys.copy()
