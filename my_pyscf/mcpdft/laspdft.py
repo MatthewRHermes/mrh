@@ -75,10 +75,10 @@ def get_energy_decomposition(mc, mo_coeff=None, ci=None, ot=None, otxc=None,
     e_nuc = mc._scf.energy_nuc()
 
     nroots = getattr(mc.fcisolver, 'nroots', 1)
-    if not isinstance(nroots, list):
+    if not lib.issequence (nroots):
         nroots = list(range(nroots))
 
-    if isinstance(nroots, list) and len(nroots) > 1:
+    if lib.issequence (nroots) and len(nroots) > 1:
         e_1e, e_coul, e_otxc, e_ncwfn = [], [], [], []
         for state in nroots:
             row = _get_e_decomp(mc, mo_coeff=mo_coeff,ci=mc.ci,ot=ot,state=state)
