@@ -4,6 +4,8 @@ import numpy as np
 from mrh.my_pyscf.lassi import lassi
 import h5py
 import tempfile
+from pyscf.mcpdft.otfnal import transfnal, get_transfnal
+from pyscf.mcpdft.mcpdft import _get_e_decomp
 
 try:
     from pyscf.mcpdft.mcpdft import _PDFT, _mcscf_env
@@ -59,53 +61,6 @@ class _LASPDFT(_PDFT):
                              max_memory=self.max_memory)
         return eri
 
-    def compute_pdft_energy_(self, mo_coeff=None, ci=None, ot=None, otxc=None,
-                             grids_level=None, grids_attr=None, **kwargs):
-        '''Compute the MC-PDFT energy(ies) (and update stored data)
-        with the MC-SCF wave function fixed. '''
-        '''
-        Instead of finding the energies of all the states, this can allow
-        to take state number for which you want to add the PDFT corrections
-        '''
-        if mo_coeff is not None: self.mo_coeff = mo_coeff
-        if ci is not None: self.ci = ci
-        if ot is not None: self.otfnal = ot
-        if otxc is not None: self.otxc = otxc
-        if grids_attr is None: grids_attr = {}
-        if grids_level is not None: grids_attr['level'] = grids_level
-        if len(grids_attr): self.grids.__dict__.update(**grids_attr)
-        nroots = getattr(self.fcisolver, 'nroots', 1)
-        if isinstance(nroots, list):
-            epdft = [self.energy_tot(mo_coeff=self.mo_coeff, ci=self.ci, state=ix,
-                                     logger_tag='MC-PDFT state {}'.format(ix))
-                     for ix in nroots]
-        else:
-            epdft = [self.energy_tot(mo_coeff=self.mo_coeff, ci=self.ci, state=ix,
-                                     logger_tag='MC-PDFT state {}'.format(ix))
-                     for ix in range(nroots)]
-
-        self.e_ot = [e_ot for e_tot, e_ot in epdft]
-
-        if isinstance(self, StateAverageMCSCFSolver):
-            e_states = [e_tot for e_tot, e_ot in epdft]
-            try:
-                self.e_states = e_states
-            except AttributeError as e:
-                self.fcisolver.e_states = e_states
-                assert (self.e_states is e_states), str(e)
-            # TODO: redesign this. MC-SCF e_states is stapled to
-            # fcisolver.e_states, but I don't want MS-PDFT to be
-            # because that makes no sense
-            self.e_tot = np.dot(e_states, self.weights)
-            e_states = self.e_states
-        elif (len(nroots) > 1 if isinstance(nroots, list) else nroots > 1):
-            self.e_tot = [e_tot for e_tot, e_ot in epdft]
-            e_states = self.e_tot
-        else:  # nroots==1 not StateAverage class
-            self.e_tot, self.e_ot = epdft[0]
-            e_states = [self.e_tot]
-        return self.e_tot, self.e_ot, e_states
-
     def multi_state(self, method='Lin'):
         if method.upper() == "LIN":
             from mrh.my_pyscf.mcpdft._lpdft import linear_multi_state
@@ -130,11 +85,12 @@ def get_mcpdft_child_class(mc, ot, DoLASSI=False, states=None, **kwargs):
                 return mc.__class__.get_h2eff(self, mo_coeff=mo_coeff)
             else:
                 return _LASPDFT.get_h2eff(self, mo_coeff=mo_coeff)
-
+        
+        # Have to pass this due to dump_chk, which won't work for LAS.
         def compute_pdft_energy_(self, mo_coeff=None, ci=None, ot=None, otxc=None,
-                                 grids_level=None, grids_attr=None, states=states, **kwargs):
+                                 grids_level=None, grids_attr=None, dunp_chk=False, **kwargs):
             return _LASPDFT.compute_pdft_energy_(self, mo_coeff=mo_coeff, ci=ci, ot=ot, otxc=otxc,
-                                                 grids_level=grids_level, grids_attr=grids_attr, **kwargs)
+                    grids_level=grids_level, grids_attr=grids_attr, dump_chk=False, **kwargs)
 
         def multi_state(self, **kwargs):
             """
@@ -149,12 +105,24 @@ def get_mcpdft_child_class(mc, ot, DoLASSI=False, states=None, **kwargs):
             _mc_class.DoLASSI = True
             _mc_class.rdmstmpfile = tempfile.NamedTemporaryFile(dir=lib.param.TMPDIR)
 
+            def analyze(self, state=0, **kwargs):
+                log = lib.logger.new_logger(self, self.verbose)
+                log.warn("Analyze function is not yet defined for LAS-PDFT. Turning on the analyze function of LASSI")
+                from mrh.my_pyscf.lassi.sitools import analyze
+                return analyze(self, self.si, state=state, **kwargs)
+
         else:
             _mc_class.DoLASSI = False
             if mc.ci is not None:
                 mc.fcisolver.nroots = mc.nroots
             else:
                 mc.fcisolver.nroots = 1
+
+            def analyze(self):
+                raise NotImplementedError('Analyze function is not yet implemented for LAS-PDFT')
+
+            def get_energy_decomposition(self, **kwargs):
+                raise NotImplementedError('EDA is not yet implemented for LAS-PDFT')
 
         if states is not None: _mc_class.states = states
 
@@ -192,6 +160,11 @@ def get_mcpdft_child_class(mc, ot, DoLASSI=False, states=None, **kwargs):
 
                         rdm1s, rdm2s = lassi.root_make_rdm12s(self, self.ci, self.si,
                                                               state=self.states[i:j])
+
+                        if len(self.states[i:j]) == 1:
+                            rdm1s = [rdm1s]
+                            rdm2s = [rdm2s]
+
                         for k in range(i, j):
                             stateno = self.states[k]
                             rdm1s_dname = f'rdm1s_{stateno}'
@@ -203,11 +176,11 @@ def get_mcpdft_child_class(mc, ot, DoLASSI=False, states=None, **kwargs):
 
             def make_one_casdm1s(self, ci=None, state=0, **kwargs):
                 rdmstmpfile = self.rdmstmpfile
-                return make_casdm1s(rdmstmpfile, state)
+                return make_casdm1s(rdmstmpfile, self.states[state])
 
             def make_one_casdm2(self, ci=None, state=0, **kwargs):
                 rdmstmpfile = self.rdmstmpfile
-                return make_casdm2s(rdmstmpfile, state).sum((0, 3))
+                return make_casdm2s(rdmstmpfile, self.states[state]).sum((0, 3))
 
         else:
             make_one_casdm1s = mc.__class__.state_make_casdm1s
@@ -221,22 +194,26 @@ def get_mcpdft_child_class(mc, ot, DoLASSI=False, states=None, **kwargs):
         def optimize_mcscf_(self, mo_coeff=None, ci0=None, **kwargs):
             '''Optimize the MC-SCF wave function underlying an MC-PDFT calculation.
             Has the same calling signature as the parent kernel method. '''
+
             with _mcscf_env(self):
                 if self.DoLASSI:
                     self.statlis = [x for x in range(len(self.e_roots))]  # LASSI-LPDFT
                     if self.states is None:
-                        self.fcisolver.nroots = len(self.e_roots)
                         self.states = list(range(len(self.e_roots)))
+                        self.fcisolver.nroots = len(self.e_roots)
                     else:
-                        self.fcisolver.nroots = self.states
+                        self.fcisolver.nroots = len(self.states)
+
                     self._store_rdms()
                 else:
                     self.e_mcscf, self.e_cas, self.ci, self.mo_coeff, self.mo_energy = \
                         self._mc_class.kernel(self, mo_coeff, ci0=ci0, **kwargs)[:-2]
                     self.fcisolver.nroots = self.nroots
 
-    pdft = PDFT(mc._scf, mc.ncas_sub, mc.nelecas_sub, my_ot=ot, **kwargs)
+            if self.DoLASSI:
+                self.e_mcscf = self.e_roots[self.states]  # To be consistent with PySCF
 
+    pdft = PDFT(mc._scf, mc.ncas_sub, mc.nelecas_sub, my_ot=ot, **kwargs)
     _keys = pdft._keys.copy()
     pdft.__dict__.update(mc.__dict__)
     pdft._keys = pdft._keys.union(_keys)
