@@ -276,7 +276,7 @@ class HamS2Ovlp (stdm.LSTDM):
         h_ = self.get_ham_2q (j,k,k,i).transpose (1,2,0,3) # BEWARE CONJ
         h_ = np.tensordot (p_i, h_, axes=((-1),(-1)))
         h_ = np.tensordot (h_j, h_, axes=((-1),(-1)))
-        ham -= np.tensordot (d1_k, h_, axes=((-1,-2),(-2,-1)))
+        ham -= np.tensordot (d1_k, h_, axes=((-2,-1),(-2,-1)))
         ham *= fac
         s2 = None
         dt, dw = logger.process_clock () - t0, logger.perf_counter () - w0

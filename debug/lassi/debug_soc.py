@@ -140,15 +140,17 @@ def case_soc_rdm12s_slow (self, opt=0):
         self.assertAlmostEqual (lib.fp (rdm1s_test), lib.fp (rdm1s_ref), 10)
     with self.subTest (sanity='dm2s'):
         self.assertAlmostEqual (lib.fp (rdm2s_test), lib.fp (rdm2s_ref), 10)
-    # Stationary test has the issue that the 2nd and third states are degenerate.
+    # Stationary test has the issue of two doubly-degenerate manifolds: 1,2 and 4,5.
     # Therefore their RDMs actually vary randomly. Average the second and third RDMs
     # together to deal with this.
     rdm1s_test[1:3] = rdm1s_test[1:3].sum (0) / 2
     rdm2s_test[1:3] = rdm2s_test[1:3].sum (0) / 2
+    rdm1s_test[4:6] = rdm1s_test[4:6].sum (0) / 2
+    rdm2s_test[4:6] = rdm2s_test[4:6].sum (0) / 2
     with self.subTest ('2-electron'):
-        self.assertAlmostEqual (linalg.norm (rdm2s_test), 13.767204017387787)
+        self.assertAlmostEqual (linalg.norm (rdm2s_test), 13.584509751113796)
     with self.subTest ('1-electron'):
-        self.assertAlmostEqual (linalg.norm (rdm1s_test), 5.299117089455725)
+        self.assertAlmostEqual (linalg.norm (rdm1s_test), 5.298727485035966)
     with lib.light_speed (5):
         e0, h1, h2 = ham_2q (las2, las2.mo_coeff, soc=True)
     rdm2_test = rdm2s_test.sum ((1,4))
@@ -246,8 +248,6 @@ class KnownValues (unittest.TestCase):
             test_hso (h0eff + h1eff + h2eff, 'make_stdm12s')
             rdm1s, rdm2s = roots_make_rdm12s (las, las.ci, si, soc=True, break_symmetry=True,
                                               opt=opt)
-            np.save ('rdm1s_o{}_1frag.npy'.format (opt), rdm1s)
-            np.save ('rdm2s_o{}_1frag.npy'.format (opt), rdm2s)
             rdm2 = rdm2s.sum ((1,4))
             e1eff = lib.einsum ('pq,iqp->i', h1, rdm1s)
             e2eff = lib.einsum ('pqrs,ipqrs->i', h2, rdm2) * .5
@@ -289,11 +289,7 @@ class KnownValues (unittest.TestCase):
     def test_soc_rdm12s_slow_o1 (self):
         #case_soc_rdm12s_slow (self, opt=1)
         d_test = roots_make_rdm12s (las2, las2.ci, lsi2.si, opt=1)
-        np.save ('rdm1s_o1_2frag.npy', d_test[0])
-        np.save ('rdm2s_o1_2frag.npy', d_test[1])
         d_ref = roots_make_rdm12s (las2, las2.ci, lsi2.si, opt=0)
-        np.save ('rdm1s_o0_2frag.npy', d_ref[0])
-        np.save ('rdm2s_o0_2frag.npy', d_ref[1])
         for i in range (len (d_test[0])):
             for r in range (2):
                 with self.subTest (state=i, rank=r+1):
