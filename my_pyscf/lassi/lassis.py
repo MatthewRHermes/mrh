@@ -164,11 +164,14 @@ def single_excitations_ci (lsi, las2, las1, ncharge=1, sa_heff=True, deactivate_
             if sa_heff: weights[:] = 1.0 / len (weights)
             else: weights[0] = 1.0
             psexc.set_excited_fragment_(k, (neleca[k],nelecb[k]), smults[k], weights=weights)
-        ci0 = lsi.ci_charge_hops.get (key, None)
+        ifrag, afrag, spin = key
+        # Going into psexc.kernel, they have to be in lexical order
+        ci0 = [lsi.ci_charge_hops[ifrag][afrag][spin][int (afrag<ifrag)],
+               lsi.ci_charge_hops[ifrag][afrag][spin][int (ifrag<afrag)]]
         conv, e_roots[i], ci1 = psexc.kernel (h1, h2, ecore=h0, ci0=ci0,
                                               max_cycle_macro=lsi.max_cycle_macro,
                                               conv_tol_self=lsi.conv_tol_self)
-        lsi.ci_charge_hops[key] = [ci1[ifrag] for ifrag in psexc.excited_frags]
+        lsi.ci_charge_hops[ifrag][afrag][spin] = [ci1[ifrag],ci1[afrag]] 
         if len (psref)>1:
             for k in np.where (~excfrags)[0]: ci1[k] = ci1[k][0]
         spaces[i].ci = ci1
@@ -248,9 +251,9 @@ def all_spin_flips (lsi, las, nspin=1, ham_2q=None):
                       ifrag, nelec, norb, smult-2)
             smults1_i.extend ([smult-2,]*(smult-2))
             spins1_i.extend (list (range (smult-3, -(smult-3)-1, -2)))
-            ci0 = lsi.ci_spin_flips.get ((ifrag,'d'), None)
+            ci0 = lsi.ci_spin_flips[ifrag][0]
             ci1_i_down = cisolve (smult-2, ndn0[ifrag], ci0)
-            lsi.ci_spin_flips[(ifrag,'d')] = ci1_i_down[0]
+            lsi.ci_spin_flips[ifrag][0] = ci1_i_down[0]
             ci1_i.extend (ci1_i_down)
         min_npair = max (0, nelec-norb)
         max_smult = (nelec - 2*min_npair) + 1
@@ -259,9 +262,9 @@ def all_spin_flips (lsi, las, nspin=1, ham_2q=None):
                       ifrag, nelec, norb, smult+2)
             smults1_i.extend ([smult+2,]*(smult+2))
             spins1_i.extend (list (range (smult+1, -(smult+1)-1, -2)))
-            ci0 = lsi.ci_spin_flips.get ((ifrag,'u'), None)
+            ci0 = lsi.ci_spin_flips[ifrag][1]
             ci1_i_up = cisolve (smult+2, nup0[ifrag], ci0)
-            lsi.ci_spin_flips[(ifrag,'u')] = ci1_i_up[0]
+            lsi.ci_spin_flips[ifrag][1] = ci1_i_up[0]
             ci1_i.extend (ci1_i_up)
         smults1.append (smults1_i)
         spins1.append (spins1_i)
@@ -463,12 +466,13 @@ class LASSIS (LASSI):
             _las : instance of class `LASCINoSymm`
                 The encapsulated LASSCF wave function. The CI vectors of the reference state are,
                 i.e., _las.get_single_state_las (state=0).ci.
-            ci_spin_flips : dict
-                Keys are (i,s) with integer i and string s = 'u' or 'd'. Values are the spin-up
-                (s='u') or spin-down (s='d') CI vectors of the ith fragment.
-            ci_charge_hops: dict
-                Keys are hash strings for particular charge-hop rootspaces, and values are the CI
-                vectors of the involved fragments.
+            ci_spin_flips : doubly nested list of ndarrays
+                Element [i][s] are the spin-flip CI vectors of the ith fragment in the direction
+                s = 0,1 = -,+.
+            ci_charge_hops: quadruply nested list of ndarrays
+                Element [i][a][s][p] are charge-hop CI vectors for an electron hopping from the
+                ith to the ath fragment for spin case s = 0,1,2,3 = --,-+,+-,++, and fragment
+                p = 0,1 = i,a.
         '''
         self.ncharge = ncharge
         self.nspin = nspin
@@ -479,8 +483,10 @@ class LASSIS (LASSI):
         LASSI.__init__(self, las, opt=opt, **kwargs)
         self.max_cycle_macro = 50
         self.conv_tol_self = 1e-6
-        self.ci_spin_flips = {}
-        self.ci_charge_hops = {}
+        self.ci_spin_flips = [[None for s in range (2)] for i in range (self.nfrags)]
+        self.ci_charge_hops = [[[[None,None] for s in range (4)]
+                                for a in range (self.nfrags)]
+                               for i in range (self.nfrags)]
         if las.nroots>1:
             logger.warn (self, ("Only the first LASSCF state is used by LASSIS! "
                                 "Other states are discarded!"))
