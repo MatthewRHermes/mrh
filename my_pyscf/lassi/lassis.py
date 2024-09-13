@@ -165,15 +165,8 @@ def single_excitations_ci (lsi, las2, las1, ncharge=1, sa_heff=True, deactivate_
                                               max_cycle_macro=lsi.max_cycle_macro,
                                               conv_tol_self=lsi.conv_tol_self)
         lsi.ci_charge_hops[hash (spaces[i])] = [ci1[ifrag] for ifrag in psexc.excited_frags]
-        spin_shuffle_ref = all ([spaces[j].is_spin_shuffle_of (spaces[0])
-                                 for j in range (1,las1.nroots)])
-        for k in np.where (~excfrags)[0]:
-            # ci vector shape issues
-            if len (psref)==1:
-                ci1[k] = np.asarray (ci1[k])
-            elif spin_shuffle_ref:
-                # NOTE: This logic fails if the user does spin_shuffle -> lasci -> LASSIS
-                ci1[k] = np.asarray (ci1[k][0])
+        if len (psref)>1:
+            for k in np.where (~excfrags)[0]: ci1[k] = ci1[k][0]
         spaces[i].ci = ci1
         if not conv: log.warn ("CI vectors for charge-separated rootspace %d not converged", i)
         converged = converged and conv
