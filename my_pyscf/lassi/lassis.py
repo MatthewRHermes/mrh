@@ -116,6 +116,7 @@ def single_excitations_ci (lsi, las2, las1, ncharge=1, sa_heff=True, deactivate_
                 [spi.is_spin_shuffle_of (spj) for spj in spaces[:i]]
               )]
     log.info ("LASSIS electron hop spaces: %d-%d", las1.nroots, len (spaces)-1)
+    keys = set ()
     for i in range (las1.nroots, len (spaces)):
         # compute lroots
         psref_ix = [j for j, space in enumerate (spaces[:las1.nroots])
@@ -137,11 +138,14 @@ def single_excitations_ci (lsi, las2, las1, ncharge=1, sa_heff=True, deactivate_
         log.info ("is connected to reference spaces:")
         for j in psref_ix:
             log.info ('%d by %s', j, spaces[i].single_excitation_description_string (spaces[j]))
+            key = spaces[i].single_excitation_key (spaces[j])
         if len (psref) > nref_pure:
             log.info ("as well as spin-excited spaces:")
             for space in psref[nref_pure:]:
                 space.table_printlog ()
                 log.info ('by %s', spaces[i].single_excitation_description_string (space))
+        assert (key not in keys), 'Problem enumerating model states! Talk to Matt about it!'
+        keys.add (key)
         # throat-clearing into ExcitationPSFCISolver
         ciref = [[] for j in range (nfrags)]
         for k in range (nfrags):
@@ -160,11 +164,11 @@ def single_excitations_ci (lsi, las2, las1, ncharge=1, sa_heff=True, deactivate_
             if sa_heff: weights[:] = 1.0 / len (weights)
             else: weights[0] = 1.0
             psexc.set_excited_fragment_(k, (neleca[k],nelecb[k]), smults[k], weights=weights)
-        ci0 = lsi.ci_charge_hops.get (hash (spaces[i]), None)
+        ci0 = lsi.ci_charge_hops.get (key, None)
         conv, e_roots[i], ci1 = psexc.kernel (h1, h2, ecore=h0, ci0=ci0,
                                               max_cycle_macro=lsi.max_cycle_macro,
                                               conv_tol_self=lsi.conv_tol_self)
-        lsi.ci_charge_hops[hash (spaces[i])] = [ci1[ifrag] for ifrag in psexc.excited_frags]
+        lsi.ci_charge_hops[key] = [ci1[ifrag] for ifrag in psexc.excited_frags]
         if len (psref)>1:
             for k in np.where (~excfrags)[0]: ci1[k] = ci1[k][0]
         spaces[i].ci = ci1

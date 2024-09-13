@@ -243,6 +243,11 @@ class SingleLASRootspace (object):
         lroots_s = min (other.nelecu[src_frag], other.nholed[dest_frag])
         return src_frag, dest_frag, e_spin, src_ds, dest_ds, lroots_s
 
+    def single_excitation_key (self, other):
+        i, a, _, si, sa, _ = self.describe_single_excitation (other)
+        spin = (2 * int (si=='u')) + int (sa=='u')
+        return i, a, spin
+
     def set_entmap_(self, ref):
         idx = np.where (self.excited_fragments (ref))[0]
         idx = tuple (set (idx))
