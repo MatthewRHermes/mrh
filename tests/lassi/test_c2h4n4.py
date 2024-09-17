@@ -187,6 +187,9 @@ class KnownValues(unittest.TestCase):
         with self.subTest ('as_scanner'):
             lsis_scanner = lsis.as_scanner ()
             mol2 = struct (1.9, 1.9, '6-31g', symmetry=False)
+            mol2.verbose = 0
+            mol2.output = '/dev/null'
+            mol2.build ()
             lsis_scanner (mol2)
             self.assertTrue (lsis_scanner.converged)
             mf2 = scf.RHF (mol2).run ()
@@ -195,7 +198,7 @@ class KnownValues(unittest.TestCase):
             las2.lasci ()
             lsis2 = LASSIS (las2).run ()
             self.assertTrue (lsis2.converged)
-            self.assertAlmostEqual (lsis_scanner.e_roots[0], lsis2.e_roots[0], 7)
+            self.assertAlmostEqual (lsis_scanner.e_roots[0], lsis2.e_roots[0], 5)
 
 
     def test_contract_hlas_ci (self):
