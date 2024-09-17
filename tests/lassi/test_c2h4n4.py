@@ -195,7 +195,7 @@ class KnownValues(unittest.TestCase):
             las2.lasci ()
             lsis2 = LASSIS (las2).run ()
             self.assertTrue (lsis2.converged)
-            self.assertAlmostEqual (lib.fp (lsis_scanner.e_roots), lib.fp (lsis2.e_roots), 7)
+            self.assertAlmostEqual (lsis_scanner.e_roots[0], lsis2.e_roots[0], 7)
 
 
     def test_contract_hlas_ci (self):
