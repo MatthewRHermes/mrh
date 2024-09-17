@@ -184,6 +184,19 @@ class KnownValues(unittest.TestCase):
                 lsis = LASSIS (las1).run (opt=opt)
                 self.assertAlmostEqual (lsis.e_roots[0], -295.5210783894406, 7)
                 self.assertTrue (lsis.converged)
+        with self.subTest ('as_scanner'):
+            lsis_scanner = lsis.as_scanner ()
+            mol2 = struct (1.9, 1.9, '6-31g', symmetry=False)
+            lsis_scanner (mol2)
+            self.assertTrue (lsis_scanner.converged)
+            mf2 = scf.RHF (mol2).run ()
+            las2 = LASSCF (mf2, (5,5), ((3,2),(2,3)), spin_sub=(2,2))
+            las2.mo_coeff = lsis_scanner.mo_coeff
+            las2.lasci ()
+            lsis2 = LASSIS (las2).run ()
+            self.assertTrue (lsis2.converged)
+            self.assertAlmostEqual (lib.fp (lsis_scanner.e_roots), lib.fp (lsis2.e_roots), 7)
+
 
     def test_contract_hlas_ci (self):
         las, nelec_frs = lsi._las, lsi.get_nelec_frs ()
