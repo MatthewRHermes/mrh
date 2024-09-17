@@ -487,9 +487,14 @@ class LASSIS (LASSI):
         self.ci_charge_hops = [[[[None,None] for s in range (4)]
                                 for a in range (self.nfrags)]
                                for i in range (self.nfrags)]
+        self._cached_ham_2q = None
         if las.nroots>1:
             logger.warn (self, ("Only the first LASSCF state is used by LASSIS! "
                                 "Other states are discarded!"))
+
+    def ham_2q (self, *args, **kwargs):
+        if self._cached_ham_2q is not None: return self._cached_ham_2q
+        return super().ham_2q (*args, **kwargs)
 
     def kernel (self, ncharge=None, nspin=None, sa_heff=None, deactivate_vrv=None,
                 crash_locmin=None, **kwargs):
@@ -497,7 +502,7 @@ class LASSIS (LASSI):
         log = logger.new_logger (self, self.verbose)
         h0, h1, h2 = self.ham_2q ()
         t1 = log.timer ("LASSIS integral transformation", *t0)
-        with lib.temporary_env (self, ham_2q=lambda *args, **kwargs: (h0, h1, h2)):
+        with lib.temporary_env (self, _cached_ham_2q=(h0,h1,h2)):
             self.converged = self.prepare_states_(ncharge=ncharge, nspin=nspin,
                                                   sa_heff=sa_heff, deactivate_vrv=deactivate_vrv,
                                                   crash_locmin=crash_locmin)
