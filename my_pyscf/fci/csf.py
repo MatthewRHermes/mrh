@@ -530,7 +530,7 @@ class CSFFCISolver: # parent class
         return pspace (self, h1e, eri, norb, nelec, self.transformer, hdiag_det=hdiag_det,
             hdiag_csf=hdiag_csf, npsp=npsp, max_memory=max_memory)
 
-    def log_transformer_cache (self, tverbose=lib.logger.INFO, **kwargs):
+    def log_transformer_cache (self, tverbose=0, **kwargs):
         if len (kwargs):
             self.__dict__.update (kwargs)
             self.check_transformer_cache ()
@@ -538,8 +538,11 @@ class CSFFCISolver: # parent class
             return
         log = lib.logger.new_logger (self, self.verbose)
         printer = (lambda *args, **kwargs: None, log.error, log.warn, log.note, log.info,
-                   log.debug, log.debug1, log.debug2, log.debug3, log.debug4)[tverbose]
+                   log.debug, log.debug1, log.debug2, log.debug3, log.debug4, print)[tverbose]
         self.transformer.print_config (printer)
+
+    def print_transformer_cache (self, **kwargs):
+        return self.log_transformer_cache (10, **kwargs)
 
 class FCISolver (CSFFCISolver, direct_spin1.FCISolver):
     r''' get_init_guess uses csfstring.py and csdstring.py to construct a spin-symmetry-adapted initial guess, and the Davidson algorithm is carried
