@@ -112,6 +112,26 @@ def contract_sladder(fcivec, norb, nelec, op=-1):
 def contract_sdown (ci, norb, nelec): return contract_sladder (ci, norb, nelec, op=-1)
 def contract_sup (ci, norb, nelec): return contract_sladder (ci, norb, nelec, op=1)
 
+def mdown (ci0, norb, nelec, smult):
+    if ci0.ndim == 3:
+        return np.stack ([mdown (c, norb, nelec, smult) for c in ci0], axis=0)
+    neleca, nelecb = _unpack_nelec (nelec)
+    ci1 = ci0
+    neleca1 = (neleca + nelecb + smult - 1) // 2
+    nelecb1 = (neleca + nelecb - smult + 1) // 2
+    for i in range (((smult-1)-(neleca-nelecb))//2):
+        ci1 = contract_sdown (ci1, norb, (neleca1-i,nelecb1+i))
+    return ci1
+
+def mup (ci0, norb, nelec, smult):
+    if ci0.ndim == 3:
+        return np.stack ([mup (c, norb, nelec, smult) for c in ci0], axis=0)
+    neleca, nelecb = _unpack_nelec (nelec)
+    ci1 = ci0
+    for i in range (((smult-1)-(neleca-nelecb))//2):
+        ci1 = contract_sup (ci1, norb, (neleca+i,nelecb-i))
+    return ci1
+
 if __name__ == '__main__':
     import sys
     import time

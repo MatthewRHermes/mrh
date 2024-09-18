@@ -7,7 +7,7 @@ from pyscf.lib import logger
 from pyscf.lo.orth import vec_lowdin
 from mrh.my_pyscf.fci import csf_solver
 from mrh.my_pyscf.fci.csfstring import CSFTransformer
-from mrh.my_pyscf.fci.spin_op import contract_sdown, contract_sup
+from mrh.my_pyscf.fci.spin_op import contract_sdown, contract_sup, mdown, mup
 from mrh.my_pyscf.mcscf.lasci import get_space_info
 from mrh.my_pyscf.mcscf.productstate import ProductStateFCISolver
 from mrh.my_pyscf.lassi.excitations import ExcitationPSFCISolver
@@ -156,6 +156,7 @@ def single_excitations_ci (lsi, las2, las1, ncharge=1, sa_heff=True, deactivate_
                                        stdout=mol.stdout, verbose=mol.verbose,
                                        crash_locmin=crash_locmin, opt=lsi.opt)
         psexc._deactivate_vrv = deactivate_vrv
+        norb = spaces[i].nlas
         neleca = spaces[i].neleca
         nelecb = spaces[i].nelecb
         smults = spaces[i].smults
@@ -166,12 +167,19 @@ def single_excitations_ci (lsi, las2, las1, ncharge=1, sa_heff=True, deactivate_
             psexc.set_excited_fragment_(k, (neleca[k],nelecb[k]), smults[k], weights=weights)
         ifrag, afrag, spin = key
         # Going into psexc.kernel, they have to be in lexical order
-        ci0 = [lsi.ci_charge_hops[ifrag][afrag][spin][int (afrag<ifrag)],
-               lsi.ci_charge_hops[ifrag][afrag][spin][int (ifrag<afrag)]]
+        ci0 = lsi.ci_charge_hops[ifrag][afrag][spin]
+        if ci0[0] is not None:
+            ci0[0] = mdown (ci0[0], norb[ifrag], (neleca[ifrag],nelecb[ifrag]), smults[ifrag])
+        if ci0[1] is not None:
+            ci0[1] = mdown (ci0[1], norb[afrag], (neleca[afrag],nelecb[afrag]), smults[afrag])
+        ci0 = [ci0[int (afrag<ifrag)], ci0[int (ifrag<afrag)]]
         conv, e_roots[i], ci1 = psexc.kernel (h1, h2, ecore=h0, ci0=ci0,
                                               max_cycle_macro=lsi.max_cycle_macro,
                                               conv_tol_self=lsi.conv_tol_self)
-        lsi.ci_charge_hops[ifrag][afrag][spin] = [ci1[ifrag],ci1[afrag]] 
+        lsi.ci_charge_hops[ifrag][afrag][spin] = [
+            mup (ci1[ifrag], norb[ifrag], (neleca[ifrag],nelecb[ifrag]), smults[ifrag]),
+            mup (ci1[afrag], norb[afrag], (neleca[afrag],nelecb[afrag]), smults[afrag])
+        ]
         if len (psref)>1:
             for k in np.where (~excfrags)[0]: ci1[k] = ci1[k][0]
         spaces[i].ci = ci1
