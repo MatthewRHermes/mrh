@@ -530,6 +530,17 @@ class CSFFCISolver: # parent class
         return pspace (self, h1e, eri, norb, nelec, self.transformer, hdiag_det=hdiag_det,
             hdiag_csf=hdiag_csf, npsp=npsp, max_memory=max_memory)
 
+    def log_transformer_cache (self, tverbose=lib.logger.INFO, **kwargs):
+        if len (kwargs):
+            self.__dict__.update (kwargs)
+            self.check_transformer_cache ()
+        if self.transformer is None:
+            return
+        log = lib.logger.new_logger (self, self.verbose)
+        printer = (lambda *args, **kwargs: None, log.error, log.warn, log.note, log.info,
+                   log.debug, log.debug1, log.debug2, log.debug3, log.debug4)[tverbose]
+        self.transformer.print_config (printer)
+
 class FCISolver (CSFFCISolver, direct_spin1.FCISolver):
     r''' get_init_guess uses csfstring.py and csdstring.py to construct a spin-symmetry-adapted initial guess, and the Davidson algorithm is carried
     out in the CSF basis. However, the ci attribute is put in the determinant basis at the end of it all, and "ci0" is also assumed
@@ -541,8 +552,6 @@ class FCISolver (CSFFCISolver, direct_spin1.FCISolver):
         self.check_transformer_cache ()
         return get_init_guess (norb, nelec, nroots, hdiag_csf, self.transformer)
 
-
-
     def kernel(self, h1e, eri, norb, nelec, ci0=None, **kwargs):
         self.norb = norb
         self.nelec = nelec
@@ -550,6 +559,7 @@ class FCISolver (CSFFCISolver, direct_spin1.FCISolver):
             self.smult = kwargs['smult']
             kwargs.pop ('smult')
         self.check_transformer_cache ()
+        self.log_transformer_cache (lib.logger.DEBUG)
         e, c = kernel (self, h1e, eri, norb, nelec, smult=self.smult,
             idx_sym=None, ci0=ci0, transformer=self.transformer, **kwargs)
         self.eci, self.ci = e, c
@@ -562,4 +572,3 @@ class FCISolver (CSFFCISolver, direct_spin1.FCISolver):
             self.transformer = CSFTransformer (self.norb, neleca, nelecb, self.smult)
         else:
             self.transformer._update_spin_cache (self.norb, neleca, nelecb, self.smult)
-
