@@ -84,9 +84,9 @@ def make_hdiag_csf (h1e, eri, norb, nelec, transformer, hdiag_det=None, max_memo
     hdiag_csf_check = np.ones (ncsf_all, dtype=np.bool_)
     for npair in range (min_npair, max_npair+1):
         ipair = npair - min_npair
-        nconf = npair_econf_size[ipair]
-        ndet = npair_sdet_size[ipair]
-        ncsf = npair_csf_size[ipair]
+        nconf = int (npair_econf_size[ipair])
+        ndet = int (npair_sdet_size[ipair])
+        ncsf = int (npair_csf_size[ipair])
         if ncsf == 0:
             continue
         csd_offset = npair_csd_offset[ipair]
@@ -98,7 +98,7 @@ def make_hdiag_csf (h1e, eri, norb, nelec, transformer, hdiag_det=None, max_memo
         # calculation.
         mem_remaining = max_memory - lib.current_memory ()[0]
         safety_factor = 1.2
-        nfloats = nconf*ndet*ndet + det_addr.size 
+        nfloats = nconf*ndet*ndet + det_addr.size
         mem_floats = nfloats * np.dtype (float).itemsize / 1e6
         mem_ints = det_addr.dtype.itemsize * det_addr.size * 3 / 1e6
         mem = safety_factor * (mem_floats + mem_ints)
@@ -286,7 +286,7 @@ def pspace (fci, h1e, eri, norb, nelec, transformer, hdiag_det=None, hdiag_csf=N
     strb = cistring.addrs2str(norb, nelecb, addrb)
     npsp_det = len(det_addr)
     safety_factor = 1.2
-    nfloats_h0 = (npsp_det+npsp)**2
+    nfloats_h0 = (npsp_det+npsp)**2.0
     mem_h0 = safety_factor * nfloats_h0 * np.dtype (float).itemsize / 1e6
     # Issue #54: PySCF wants "max_memory" on entrance to FCI to be "remaining memory". However,
     # the earlier lines of this function consume some memory, so that's difficult to implement
