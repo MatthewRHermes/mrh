@@ -619,6 +619,12 @@ def filter_spaces (las, max_charges=None, min_charges=None, max_smults=None, min
     return las.state_average (weights=weights, charges=charges[idx], spins=spins[idx],
                               smults=smults[idx], wfnsyms=wfnsyms[idx])
 
+def list_spaces (las):
+    from mrh.my_pyscf.mcscf.lasci import get_space_info
+    spaces = [SingleLASRootspace (las, m, s, c, las.weights[ix], ci=[c[ix] for c in las.ci])
+              for ix, (c, m, s, w) in enumerate (zip (*get_space_info (las)))]
+    return spaces
+
 if __name__=='__main__':
     from mrh.tests.lasscf.c2h4n4_struct import structure as struct
     from mrh.my_pyscf.mcscf.lasscf_o0 import LASSCF
