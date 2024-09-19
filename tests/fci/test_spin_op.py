@@ -1,7 +1,7 @@
 import numpy as np
 import unittest
 from scipy import linalg
-from mrh.my_pyscf.fci.spin_op import contract_sdown, contract_sup
+from mrh.my_pyscf.fci.spin_op import contract_sdown, contract_sup, mdown, mup
 from pyscf.fci.direct_spin1 import contract_2e
 from pyscf.fci.spin_op import spin_square0
 from pyscf.fci import cistring
@@ -61,6 +61,23 @@ class KnownValues(unittest.TestCase):
                     self.assertAlmostEqual (cc_test, 1.0, 9)
                     self.assertAlmostEqual (smult_test, smult, 9)
                     self.assertAlmostEqual (chc_test, chc_ref, 9)
+
+    def test_mdown_mup (self):
+        for norb, nelec_tot in product ((6,7), repeat=2):
+            nelec = (min (norb, nelec_tot), nelec_tot - min(norb, nelec_tot))
+            smult = nelec[0]-nelec[1]+1
+            cishape = [cistring.num_strings (norb, ne) for ne in nelec]
+            ci = np.random.rand (*cishape)
+            ci /= linalg.norm (ci)
+            s = (smult-1)/2
+            for itype, ci0 in enumerate ((ci, [ci,], ci[None,:,:])):
+                nelec1 = nelec
+                for ms in np.arange (s,-s,-1):
+                    with self.subTest (itype=itype, norb=norb, nelec_tot=nelec_tot, ms=ms):
+                        ci1 = mup (mdown (ci0, norb, nelec1, smult), norb, nelec1, smult)
+                        ovlp = np.ravel (ci0).dot (np.ravel (ci1))
+                        self.assertAlmostEqual (ovlp, 1.0, 9)
+                        nelec1 = (nelec1[0]-1,nelec1[1]+1)
 
 if __name__ == "__main__":
     print("Full Tests for fci.spin_op")
