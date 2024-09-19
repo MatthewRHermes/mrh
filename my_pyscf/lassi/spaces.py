@@ -6,7 +6,7 @@ from pyscf.lib import logger
 from pyscf.lo.orth import vec_lowdin
 from pyscf import symm, __config__
 from mrh.my_pyscf.fci import csf_solver
-from mrh.my_pyscf.fci.spin_op import contract_sdown, contract_sup
+from mrh.my_pyscf.fci.spin_op import contract_sdown, contract_sup, mdown, mup
 from mrh.my_pyscf.fci.csfstring import CSFTransformer
 from mrh.my_pyscf.fci.csfstring import ImpossibleSpinError
 from mrh.my_pyscf.mcscf.productstate import ImpureProductStateFCISolver
@@ -106,6 +106,25 @@ class SingleLASRootspace (object):
         assert (a_ncsf)
         return SingleLASRootspace (self.las, spins, smults, charges, 0, nlas=self.nlas,
                                nelelas=self.nelelas, stdout=self.stdout, verbose=self.verbose)
+
+    def get_single_any_m (self, i, a, dsi, dsa, ci_i=None, ci_a=None):
+        mi, ma = self.spins[i], self.spins[a]
+        si, sa = self.smults[i]+dsi, self.smults[a]+dsa
+        if self.neleca[i] and self.nholea[a] and abs (mi-1) < si and abs (ma+1) < sa:
+            sp = self.get_single (i, a, 0, dsi, dsa)
+        elif self.nelecb[i] and self.nholeb[a] and abs (mi+1) < si and abs (ma+1) < sa:
+            sp = self.get_single (i, a, 1, dsi, dsa)
+        else:
+            raise ImpossibleSpinError ((
+                "Can't figure out legal excitation (norb={}, neleca={}, nelecb={}, smults={}, "
+                "i = {}, a = {}, dsi = {}, dsa = {}").format (self.nlas, self.neleca, self.nelecb,
+                self.smults, i, a, dsi, dsa)
+            )
+        if self.has_ci () and ci_i is not None and ci_a is not None:
+            sp.ci[i] = mdown (ci_i, sp.nlas[i], (sp.neleca[i],sp.nelecb[i]), sp.smults[i])
+            sp.ci[a] = mdown (ci_a, sp.nlas[a], (sp.neleca[a],sp.nelecb[a]), sp.smults[a])
+            sp.ci = [x for x in self.ci]
+        return sp
 
     def get_valid_smult_change (self, i, dneleca, dnelecb):
         assert ((abs (dneleca) + abs (dnelecb)) == 1), 'Function only implemented for +-1 e-'
