@@ -33,7 +33,7 @@ def prepare_model_states (lsi, ci_ref, ci_sf, ci_ch):
     # Write in ci_ref
     space0 = list_spaces (las)[0]
     for i in range (las.nfrags):
-        nelec, smult = (space0.neleca[i], space0.nelecb[i]), smult=space0.smults[i]
+        nelec, smult = (space0.neleca[i], space0.nelecb[i]), space0.smults[i]
         las.ci[i][0] = space0.ci[i] = mdown (ci_ref[i], las.ncas_sub[0], nelec, smult)
     # Make spin flip objects
     spin_flips = []
@@ -60,13 +60,13 @@ def prepare_model_states (lsi, ci_ref, ci_sf, ci_ch):
         for s in range (4):
             ci_i, ci_a = ci_ch[i][a][s]
             if ci_i is None or ci_a is None: continue
-            dsi = -2 + (s//2)*4
-            dsa = -2 + (s%2)*4
+            dsi = -1 + (s//2)*2
+            dsa = -1 + (s%2)*2
             spaces2.append (space0.get_single_any_m (i, a, dsi, dsa, ci_i=ci_i, ci_a=ci_a))
     if lsi.nfrags > 3:
-        spaces2 = charge_excitation_products (lsi, spaces2, nroots_ref=1) 
+        spaces2 = charge_excitation_products (lsi, spaces2, nroots_ref=1)
     if has_spin:
-        spaces3 = spin_flip_products (las1, spaces2, spin_flips, nroots_ref=nroots_ref)
+        spaces3 = spin_flip_products (las, spaces2, spin_flips, nroots_ref=1)
     else:
         spaces3 = spaces2
     weights = [space.weight for space in spaces3]
@@ -74,11 +74,11 @@ def prepare_model_states (lsi, ci_ref, ci_sf, ci_ch):
     spins = [space.spins for space in spaces3]
     smults = [space.smults for space in spaces3]
     ci3 = [[space.ci[ifrag] for space in spaces3] for ifrag in range (lsi.nfrags)]
-    las3 = las1.state_average (weights=weights, charges=charges, spins=spins, smults=smults, assert_no_dupes=False)
+    las3 = las.state_average (weights=weights, charges=charges, spins=spins, smults=smults, assert_no_dupes=False)
     las3.ci = ci3
     las3.lasci (_dry_run=True)
     log.timer ("LASSIS model space preparation", *t0)
-    return converged, las3
+    return las3
 
 def prepare_states (lsi, ncharge=1, nspin=0, sa_heff=True, deactivate_vrv=False, crash_locmin=False):
     # TODO: make states_energy_elec capable of handling lroots and address inconsistency
@@ -434,7 +434,7 @@ def _spin_shuffle_ci_(spaces, spin_flips, nroots_ref, nroots_refc):
             assert (space.ci[jfrag] is None)
             space.ci[ifrag] = ci_i[space.spins[ifrag]]
             space.ci[jfrag] = ci_j[space.spins[jfrag]]
-        assert (space.has_ci ())
+        assert (space.has_ci ()), '{} {} {} {}'.format (space.charges, space.smults, space.spins, charges0)
     return spaces
 
 def spin_flip_products (las, spaces, spin_flips, nroots_ref=1):
@@ -582,6 +582,15 @@ class LASSIS (LASSI):
         log.timer ("LASSIS", *t0)
         return self.e_roots, self.si
 
+    def get_ci_ref (self):
+        las = self._las.get_single_state_las (state=0)
+        space0 = list_spaces (las)[0]
+        ci_ref = []
+        for i in range (self.nfrags):
+            ci_ref.append (mup (space0.ci[i], space0.nlas[i], (space0.neleca[i], space0.nelecb[i]),
+                                space0.smults[i]))
+        return ci_ref
+
     def prepare_states_(self, ncharge=None, nspin=None, sa_heff=None, deactivate_vrv=None,
                         crash_locmin=None, **kwargs):
         if ncharge is None: ncharge = self.ncharge
@@ -593,6 +602,10 @@ class LASSIS (LASSI):
         self.converged, las = self.prepare_states (ncharge=ncharge, nspin=nspin,
                                                    sa_heff=sa_heff, deactivate_vrv=deactivate_vrv,
                                                    crash_locmin=crash_locmin)
+        ci_ref = self.get_ci_ref ()
+        ci_sf = self.ci_spin_flips
+        ci_ch = self.ci_charge_hops
+        las = self.prepare_model_states (ci_ref, ci_sf, ci_ch)
         #self.__dict__.update(las.__dict__) # Unsafe
         self.fciboxes = las.fciboxes
         self.ci = las.ci
@@ -607,4 +620,5 @@ class LASSIS (LASSI):
     eig = LASSI.kernel
     as_scanner = as_scanner
     prepare_states = prepare_states
+    prepare_model_states = prepare_model_states
 
