@@ -37,19 +37,16 @@ def prepare_model_states (lsi, ci_ref, ci_sf, ci_ch):
         las.ci[i][0] = space0.ci[i] = mdown (ci_ref[i], las.ncas_sub[0], nelec, smult)
     # Make spin flip objects
     spin_flips = []
-    has_spin = False
     for i in range (las.nfrags):
         smult = space0.smults[i]
         ci1 = []
         spins1 = []
         smults1 = []
         if ci_sf[i][0] is not None:
-            has_spin = True
             smults1.append (smult-2)
             spins1.append (smult-3)
             ci1.append (ci_sf[i][0])
         if ci_sf[i][1] is not None:
-            has_spin = True
             smults1.append (smult+2)
             spins1.append (smult+1)
             ci1.append (ci_sf[i][1])
@@ -65,10 +62,7 @@ def prepare_model_states (lsi, ci_ref, ci_sf, ci_ch):
             spaces2.append (space0.get_single_any_m (i, a, dsi, dsa, ci_i=ci_i, ci_a=ci_a))
     if lsi.nfrags > 3:
         spaces2 = charge_excitation_products (lsi, spaces2, nroots_ref=1)
-    if has_spin:
-        spaces3 = spin_flip_products (las, spaces2, spin_flips, nroots_ref=1)
-    else:
-        spaces3 = spaces2
+    spaces3 = spin_flip_products (las, spaces2, spin_flips, nroots_ref=1)
     weights = [space.weight for space in spaces3]
     charges = [space.charges for space in spaces3]
     spins = [space.spins for space in spaces3]
