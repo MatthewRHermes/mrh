@@ -104,4 +104,20 @@ def case_lassis_fbf_2_model_state (ks, lsi):
     with ks.subTest ('comprehensive covering'):
         ks.assertTrue (np.all (seen_fr==1))
 
+def case_lassis_fbfdm (ks, lsi):
+    dens, fbf_sf, fbf_ch = lsi.make_fbfdm ()
+    for i,s in itertools.product (range (lsi.nfrags), range(2)):
+        if fbf_sf[i][s] is None: continue
+        ddens = np.trace (fbf_sf[i][s])
+        ks.assertTrue (ddens>=0)
+        ks.assertTrue (dens[i]>=0)
+        dens[i] += ddens
+    for i,a,s in itertools.product (range (lsi.nfrags), range (lsi.nfrags), range(4)):
+        if fbf_ch[i][a][s] is None: continue
+        ddens = np.trace (np.trace (fbf_ch[i][a][s]))
+        ks.assertTrue (ddens>=0)
+        dens[i] += ddens
+        dens[a] += ddens
+    for i in range (lsi.nfrags):
+        ks.assertAlmostEqual (dens[i],1.0,5)
 

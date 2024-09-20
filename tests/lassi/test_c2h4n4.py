@@ -24,6 +24,7 @@ from mrh.my_pyscf.mcscf.lasscf_o0 import LASSCF
 from mrh.my_pyscf.lassi.lassi import roots_make_rdm12s, root_make_rdm12s, make_stdm12s, ham_2q
 from mrh.my_pyscf.lassi import LASSI
 from mrh.tests.lassi.addons import case_contract_hlas_ci, case_lassis_fbf_2_model_state
+from mrh.tests.lassi.addons import case_lassis_fbfdm
 topdir = os.path.abspath (os.path.join (__file__, '..'))
 
 def setUpModule ():
@@ -167,6 +168,7 @@ class KnownValues(unittest.TestCase):
                 las1.lasci ()
                 lsis = LASSIS (las1).run (opt=opt, max_cycle_macro=1)
                 case_lassis_fbf_2_model_state (self, lsis)
+                case_lassis_fbfdm (self, lsis)
 
     def test_lassis_slow (self):
         from mrh.my_pyscf.lassi.lassis import LASSIS
@@ -186,6 +188,7 @@ class KnownValues(unittest.TestCase):
                 self.assertAlmostEqual (lsis.e_roots[0], -295.5210783894406, 7)
                 self.assertTrue (lsis.converged)
                 case_lassis_fbf_2_model_state (self, lsis)
+                case_lassis_fbfdm (self, lsis)
         with self.subTest ('as_scanner'):
             lsis_scanner = lsis.as_scanner ()
             mol2 = struct (1.9, 1.9, '6-31g', symmetry=False)

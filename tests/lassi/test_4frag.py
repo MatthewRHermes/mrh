@@ -33,6 +33,7 @@ from mrh.my_pyscf.lassi import LASSIS
 from mrh.my_pyscf.lassi.op_o1 import get_fdm1_maker
 from mrh.my_pyscf.lassi.sitools import make_sdm1
 from mrh.tests.lassi.addons import case_contract_hlas_ci, case_lassis_fbf_2_model_state
+from mrh.tests.lassi.addons import case_lassis_fbfdm
 
 def setUpModule ():
     global mol, mf, las, nroots, nelec_frs, si
@@ -171,6 +172,7 @@ class KnownValues(unittest.TestCase):
         self.assertTrue (lsi.converged)
         self.assertAlmostEqual (lsi.e_roots[0], -1.867291372401379, 6)
         case_lassis_fbf_2_model_state (self, lsi)
+        case_lassis_fbfdm (self, lsi)
 
     def test_lassis_slow (self):
         las0 = las.get_single_state_las (state=0)
@@ -180,6 +182,7 @@ class KnownValues(unittest.TestCase):
         self.assertTrue (lsi.converged)
         self.assertAlmostEqual (lsi.e_roots[0], -304.5372586630968, 3)
         case_lassis_fbf_2_model_state (self, lsi)
+        #case_lassis_fbfdm (self, lsi)
 
     def test_fdm1 (self):
         make_fdm1 = get_fdm1_maker (las, las.ci, nelec_frs, si)

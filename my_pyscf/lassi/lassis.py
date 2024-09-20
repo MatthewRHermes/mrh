@@ -189,20 +189,23 @@ def single_excitations_ci (lsi, las2, las1, ci_ch, ncharge=1, sa_heff=True, deac
         norb_i, norb_a, smult_i, smult_a = norb[ifrag], norb[afrag], smults[ifrag], smults[afrag]
         nelec_i, nelec_a = (neleca[ifrag],nelecb[ifrag]), (neleca[afrag],nelecb[afrag])
         # Going into psexc.kernel, they have to be in lexical order
-        ci0 = ci_ch[ifrag][afrag][spin]
-        if ci0[0] is not None: ci0[0] = mdown (ci0[0], norb_i, nelec_i, smult_i)
-        if ci0[1] is not None: ci0[1] = mdown (ci0[1], norb_a, nelec_a, smult_a)
+        ci0 = ci_ch_ias = ci_ch[ifrag][afrag][spin]
+        if ci0[0] is not None: 
+            ci0[0] = mdown (ci0[0], norb_i, nelec_i, smult_i)
+            if lroots[ifrag,i] == 1 and ci0[0].ndim==3: ci0[0] = ci0[0][0]
+        if ci0[1] is not None:
+            ci0[1] = mdown (ci0[1], norb_a, nelec_a, smult_a)
+            if lroots[afrag,i] == 1 and ci0[1].ndim==3: ci0[1] = ci0[1][0]
         ci0 = [ci0[int (afrag<ifrag)], ci0[int (ifrag<afrag)]]
         conv, e_roots[i], ci1 = psexc.kernel (h1, h2, ecore=h0, ci0=ci0,
                                               max_cycle_macro=lsi.max_cycle_macro,
                                               conv_tol_self=lsi.conv_tol_self)
-        # Double-check the format of this
-        assert (ci1[ifrag].shape[0] == lroots[ifrag,i])
-        assert (ci1[afrag].shape[0] == lroots[afrag,i])
-        ci_ch[ifrag][afrag][spin] = [
-            mup (ci1[ifrag], norb_i, nelec_i, smult_i),
-            mup (ci1[afrag], norb_a, nelec_a, smult_a)
-        ]
+        ci_ch_ias[0] = mup (ci1[ifrag], norb_i, nelec_i, smult_i)
+        if lroots[ifrag,i]==1 and ci_ch_ias[0].ndim == 2:
+            ci_ch_ias[0] = ci_ch_ias[0][None,:,:]
+        ci_ch_ias[1] = mup (ci1[afrag], norb_a, nelec_a, smult_a)
+        if lroots[afrag,i]==1 and ci_ch_ias[1].ndim == 2:
+            ci_ch_ias[1] = ci_ch_ias[1][None,:,:]
         if len (psref)>1:
             for k in np.where (~excfrags)[0]: ci1[k] = ci1[k][0]
         spaces[i].ci = ci1
@@ -696,13 +699,15 @@ class LASSIS (LASSI):
         idx = idx[idx2]
         return idx, nelec_frs[ifrag][idx,:], nelec_frs[afrag][idx,:]
 
-    def make_fbfdm (self, si, state=0):
-        from mrh.my_pyscf.lassi.sitools import decompose_sivec_by_rootspace, _make_sdm1
+    def make_fbfdm (self, si=None, state=0):
+        # These densities don't always sum to 1. Is that bc of product-space overlap of nfrags>3?
+        from mrh.my_pyscf.lassi.sitools import decompose_sivec_by_rootspace, _make_sdm1, _make_sdm2
+        if si is None: si = self.si
         states = np.atleast_1d (state)
         nstates = len (states)
-        space_weights, state_coeffs = decompose_sivec_by_rootspace (self, si[:,states])
+        space_weights, state_coeffs = decompose_sivec_by_rootspace (self, si[:,states])[:2]
 
-        fbfdm_ref = np.array (self.nfrags, dtype=float)
+        fbfdm_ref = np.zeros (self.nfrags, dtype=float)
         for i in range (self.nfrags):
             idx = self.get_ref_fbf_rootspaces (i)[0]
             fbfdm_ref[i] = space_weights[idx,:].sum ()
@@ -716,7 +721,7 @@ class LASSIS (LASSI):
             dm = np.zeros ((lr,lr), dtype=si.dtype)
             idx = self.get_sf_fbf_rootspaces (i,s)[0]
             for ix in idx:
-                ddm = _make_sdm1 (state_coeffs[ix], lroots[ix], i)
+                ddm = _make_sdm1 (state_coeffs[ix], lroots[:,ix], i)
                 dm += np.tensordot (space_weights[ix], ddm, axes=1)
             fbfdm_sf[i][s] = dm / nstates
 
@@ -726,12 +731,12 @@ class LASSIS (LASSI):
             i_present = self.ci_charge_hops[i][a][s][0] is not None
             a_present = self.ci_charge_hops[i][a][s][1] is not None
             if not (i_present and a_present): continue
-            idx = self.get_sf_fbf_rootspaces (i,a,s)[0]
+            idx = self.get_ch_fbf_rootspaces (i,a,s)[0]
             lri = self.ci_charge_hops[i][a][s][0].shape[0]
             lra = self.ci_charge_hops[i][a][s][1].shape[0]
             dm = np.zeros ((lri,lri,lra,lra), dtype=si.dtype)
-                for ix in idx:
-                ddm = _make_sdm2 (state_coeffs[ix], lroots[ix], i, a)
+            for ix in idx:
+                ddm = _make_sdm2 (state_coeffs[ix], lroots[:,ix], i, a)
                 dm += np.tensordot (space_weights[ix], ddm, axes=1)
             fbfdm_ch[i][a][s] = dm / nstates
 
