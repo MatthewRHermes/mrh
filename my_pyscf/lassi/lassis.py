@@ -202,9 +202,9 @@ def single_excitations_ci (lsi, las2, las1, ci_ch, ncharge=1, sa_heff=True, deac
         if len (psref)>1:
             for k in np.where (~excfrags)[0]: ci1[k] = ci1[k][0]
         spaces[i].ci = ci1
-        if not conv: log.warn ("CI vectors for charge-separated rootspace %d not converged", i)
+        if not conv: log.warn ("CI vectors for charge-separated rootspace %s not converged",keystr)
         converged = converged and conv
-        t0 = log.timer ("Space {} excitations".format (i), *t0)
+        t0 = log.timer ("Electron hop {}".format (keystr), *t0)
     return converged, ci_ch
 
 class SpinFlips (object):
