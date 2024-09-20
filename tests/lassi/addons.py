@@ -1,10 +1,12 @@
 import numpy as np
+import itertools
 from pyscf import lib
 from mrh.my_pyscf.mcscf.lasci import get_space_info
 from mrh.my_pyscf.lassi.citools import get_lroots
 from mrh.my_pyscf.lassi.spaces import SingleLASRootspace
 from mrh.my_pyscf.lassi.op_o1.utilities import lst_hopping_index
 from mrh.my_pyscf.lassi import op_o0, op_o1
+from mrh.my_pyscf.fci.spin_op import mup
 
 op = (op_o0, op_o1)
 
@@ -60,5 +62,46 @@ def case_contract_hlas_ci (ks, las, h0, h1, h2, ci_fr, nelec_frs):
                                        dnelecb=nelec[:,r,1]-nelec[:,s,1]):
                         ks.assertAlmostEqual (lib.fp (hket_pq_s), lib.fp (hket_ref_s), 8)
 
+def case_lassis_fbf_2_model_state (ks, lsi):
+    seen_fr = np.zeros ((lsi.nfrags,lsi.nroots), dtype=int)
+    nlas = lsi.ncas_sub
+    smult_fr = lsi.get_smult_fr ()
+    with ks.subTest ('get_ref_fbf_rootspaces'):
+        ci_ref = lsi.get_ci_ref ()
+        for i in range (lsi.nfrags):
+            idx, nelec_rs = lsi.get_ref_fbf_rootspaces (i)
+            seen_fr[i,idx] += 1
+            ci_ref_fp = lib.fp (ci_ref[i]) 
+            for j, ne in zip (idx, nelec_rs):
+                ci_test_fp = lib.fp (mup (lsi.ci[i][j], nlas[i], ne, smult_fr[i][j]))
+                ks.assertAlmostEqual (ci_test_fp, ci_ref_fp, 9)
+    with ks.subTest ('get_sf_fbf_rootspaces'):
+        for i in range (lsi.nfrags):
+            for s in range (2):
+                idx, nelec_rs = lsi.get_sf_fbf_rootspaces (i, s)
+                seen_fr[i,idx] += 1
+                ci_ref = lsi.ci_spin_flips[i][s]
+                ci_ref_fp = lib.fp (ci_ref) if ci_ref is not None else 0
+                for j, ne in zip (idx, nelec_rs):
+                    ci_test_fp = lib.fp (mup (lsi.ci[i][j], nlas[i], ne, smult_fr[i][j]))
+                    ks.assertAlmostEqual (ci_test_fp, ci_ref_fp, 9)
+    with ks.subTest ('get_ch_fbf_rootspaces'):
+        for i,a in itertools.product (range (lsi.nfrags), repeat=2):
+            for s in range (4):
+                idx, nelec_i_rs, nelec_a_rs = lsi.get_ch_fbf_rootspaces (i,a,s)
+                seen_fr[i,idx] += 1
+                seen_fr[a,idx] += 1
+                ci_ref = lsi.ci_charge_hops[i][a][s][0]
+                ci_ref_fp = lib.fp (ci_ref) if ci_ref is not None else 0
+                for j, ne in zip (idx, nelec_i_rs):
+                    ci_test_fp = lib.fp (mup (lsi.ci[i][j], nlas[i], ne, smult_fr[i][j]))
+                    ks.assertAlmostEqual (ci_test_fp, ci_ref_fp, 9)
+                ci_ref = lsi.ci_charge_hops[i][a][s][1]
+                ci_ref_fp = lib.fp (ci_ref) if ci_ref is not None else 0
+                for b, ne in zip (idx, nelec_a_rs):
+                    ci_test_fp = lib.fp (mup (lsi.ci[a][b], nlas[a], ne, smult_fr[a][b]))
+                    ks.assertAlmostEqual (ci_test_fp, ci_ref_fp, 9)
+    with ks.subTest ('comprehensive covering'):
+        ks.assertTrue (np.all (seen_fr==1))
 
 

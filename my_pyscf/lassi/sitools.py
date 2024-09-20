@@ -63,6 +63,38 @@ def _make_sdm1 (sivec, lroots, site):
     sivec = sivec.transpose (*idx).reshape (-1, lroots[site],nroots)
     return lib.einsum ('api,aqi->ipq', sivec.conj(), sivec)
 
+def _make_sdm2 (sivec, lroots, site1, site2):
+    '''Compute the 2-site reduced density matrix(es) for (a) wave function(s) of type
+
+    |Psi> = sum_n sivec[n] |n0n1n2n3....>
+
+    where nK < lroots[K] are nonnegative integes
+
+    Args:
+        sivec: ndarray of shape (np.prod (lroots), nroots)
+            coefficients of the wave function(s) with site quantum numbers
+            increasing from |00000...> in column-major order
+        lroots: ndarray of shape (nsites)
+            number of states on each site in the product-state basis
+        site1: integer
+            first site index for which to compute the density matrix
+        site2: integer
+            second site index for which to compute the density matrix
+
+    Returns:
+        sdm2: ndarray of shape (nroots,lroots[site1],lroots[site2],lroots[site1],lroots[site2])
+            Two-site reduced density matrix
+    '''
+    nsites = len (lroots)
+    nroots, err = divmod (sivec.size, np.prod (lroots))
+    if err: raise ValueError ("sivec.size % prod(lroots) = {}".format (err))
+    sivec = np.asfortranarray (sivec)
+    sivec = sivec.reshape (list(lroots)+[nroots,], order='F')
+    sivec = np.moveaxis (sivec, (site1,site2), (-3,-2))
+    sivec = sivec.reshape (-1,lroots[site1],lroots[site2],nroots)
+    return lib.einsum ('apqi,arsi->iprqs', sivec.conj(), sivec)
+
+
 def make_sdm1 (lsi, iroot, ifrag, ci=None, si=None):
     if ci is None: ci = lsi.ci
     if si is None: si = lsi.si

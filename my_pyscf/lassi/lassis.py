@@ -66,11 +66,12 @@ def prepare_model_states (lsi, ci_ref, ci_sf, ci_ch):
     spins = [space.spins for space in spaces]
     smults = [space.smults for space in spaces]
     ci = [[space.ci[ifrag] for space in spaces] for ifrag in range (lsi.nfrags)]
+    entmaps = [space.entmap for space in spaces]
     las = las.state_average (weights=weights, charges=charges, spins=spins, smults=smults, assert_no_dupes=False)
     las.ci = ci
     las.lasci (_dry_run=True)
     log.timer ("LASSIS model space preparation", *t0)
-    return las
+    return las, entmaps
 
 def prepare_fbf (lsi, ci_ref, ci_sf, ci_ch, ncharge=1, nspin=0, sa_heff=True,
                  deactivate_vrv=False, crash_locmin=False):
@@ -195,6 +196,9 @@ def single_excitations_ci (lsi, las2, las1, ci_ch, ncharge=1, sa_heff=True, deac
         conv, e_roots[i], ci1 = psexc.kernel (h1, h2, ecore=h0, ci0=ci0,
                                               max_cycle_macro=lsi.max_cycle_macro,
                                               conv_tol_self=lsi.conv_tol_self)
+        # Double-check the format of this
+        assert (ci1[ifrag].shape[0] == lroots[ifrag,i])
+        assert (ci1[afrag].shape[0] == lroots[afrag,i])
         ci_ch[ifrag][afrag][spin] = [
             mup (ci1[ifrag], norb_i, nelec_i, smult_i),
             mup (ci1[afrag], norb_a, nelec_a, smult_a)
@@ -420,7 +424,7 @@ def spin_flip_products (las, spaces, spin_flips, nroots_ref=1):
     nfrags = spaces[0].nfrag
     spaces = _spin_shuffle (spaces)
     spaces = _spin_shuffle_ci_(spaces, spin_flips, nroots_ref, nspaces)
-    log.info ("LASSIS spin-excitation spaces: %d-%d", nspaces, len (spaces)-1)
+    log.debug ("LASSIS spin-excitation spaces: %d-%d", nspaces, len (spaces)-1)
     for i, space in enumerate (spaces[nspaces:]):
         if np.any (space.nelec != spaces[0].nelec):
             log.debug ("Spin/charge-excitation space %d:", i+nspaces)
@@ -518,6 +522,8 @@ class LASSIS (LASSI):
                 Element [i][a][s][p] are charge-hop CI vectors for an electron hopping from the
                 ith to the ath fragment for spin case s = 0,1,2,3 = --,-+,+-,++, and fragment
                 p = 0,1 = i,a.
+            entmaps: list of length nroots of tuple of tuples
+                Tracks which fragments are entangled to one another in each rootspace
         '''
         self.ncharge = ncharge
         self.nspin = nspin
@@ -593,7 +599,7 @@ class LASSIS (LASSI):
         self.ci_spin_flips = ci_sf
         self.ci_charge_hops = ci_ch
 
-        las = self.prepare_model_states (ci_ref, ci_sf, ci_ch)
+        las, self.entmaps = self.prepare_model_states (ci_ref, ci_sf, ci_ch)
         #self.__dict__.update(las.__dict__) # Unsafe
         self.fciboxes = las.fciboxes
         self.ci = las.ci
@@ -609,4 +615,126 @@ class LASSIS (LASSI):
     as_scanner = as_scanner
     prepare_fbf = prepare_fbf
     prepare_model_states = prepare_model_states
+
+    def get_ref_fbf_rootspaces (self, ifrag):
+        '''Identify which rootspaces correspond to the reference wave function for a given
+        fragment.
+
+        Args:
+            ifrag : integer
+
+        Returns:
+            idx : ndarray of integer
+                Indices of the corresponding rootspaces
+            nelec_rs : ndarray of shape (len (idx), 2)
+                neleca,nelecb in the corresponding rootspaces for the purpose of mdowning
+        '''
+        ref_space = list_spaces (self._las.get_single_state_las (state=0))[0]
+        nelec = ref_space.nelec[ifrag]
+        smult = ref_space.smults[ifrag]
+        nelec_rs = self.get_nelec_frs ()[ifrag]
+        smult_r = self.get_smult_fr ()[ifrag]
+        idx = (nelec_rs.sum (1) == nelec) & (smult_r == smult)
+        idx = np.where (idx)[0]
+        return idx, nelec_rs[idx,:]
+
+    def get_sf_fbf_rootspaces (self, ifrag, spin):
+        '''Identify which rootspaces correspond to a spin-flip up or down for a given fragment.
+
+        Args:
+            ifrag : integer
+            spin : integer
+                0,1 -> -,+
+
+        Returns:
+            idx : ndarray of integer
+                Indices of the corresponding rootspaces
+            nelec_rs : ndarray of shape (len (idx), 2)
+                neleca,nelecb in the corresponding rootspaces for the purpose of mdowning
+        '''
+        ref_space = list_spaces (self._las.get_single_state_las (state=0))[0]
+        nelec = ref_space.nelec[ifrag]
+        smult = ref_space.smults[ifrag] - 2 + 4*spin
+        nelec_rs = self.get_nelec_frs ()[ifrag]
+        smult_r = self.get_smult_fr ()[ifrag]
+        idx = (nelec_rs.sum (1) == nelec) & (smult_r == smult)
+        idx = np.where (idx)[0]
+        return idx, nelec_rs[idx,:]
+        
+    def get_ch_fbf_rootspaces (self, ifrag, afrag, spin):
+        '''Identify which rootspaces correspond to a given charge hop.
+
+        Args:
+            ifrag : integer
+                Source fragment
+            afrag : integer
+                Destination fragment
+            spin : integer
+                0,1,2,3 -> --,-+,+-,++
+
+        Returns:
+            idx : ndarray of integer
+                Indices of the corresponding rootspaces
+            nelec_i_rs : ndarray of shape (len (idx), 2)
+                neleca,nelecb of the source fragment in the corresponding rootspaces for the
+                purpose of mdowning
+            nelec_a_rs : ndarray of shape (len (idx), 2)
+                neleca,nelecb of the dest fragment in the corresponding rootspaces for the
+                purpose of mdowning
+        '''
+        ref_space = list_spaces (self._las.get_single_state_las (state=0))[0]
+        nelec_i = ref_space.nelec[ifrag] - 1
+        nelec_a = ref_space.nelec[afrag] + 1
+        smult_i = ref_space.smults[ifrag] - 1 + 2*(spin//2)
+        smult_a = ref_space.smults[afrag] - 1 + 2*(spin%2)
+        nelec_frs = self.get_nelec_frs ()
+        smult_fr = self.get_smult_fr ()
+        idx  = (nelec_frs[ifrag].sum (1) == nelec_i) & (smult_fr[ifrag] == smult_i)
+        idx &= (nelec_frs[afrag].sum (1) == nelec_a) & (smult_fr[afrag] == smult_a)
+        idx = np.where (idx)[0]
+        idx2 = np.asarray ([tuple(set((ifrag,afrag))) in self.entmaps[i] for i in idx], dtype=bool)
+        idx = idx[idx2]
+        return idx, nelec_frs[ifrag][idx,:], nelec_frs[afrag][idx,:]
+
+    def make_fbfdm (self, si, state=0):
+        from mrh.my_pyscf.lassi.sitools import decompose_sivec_by_rootspace, _make_sdm1
+        states = np.atleast_1d (state)
+        nstates = len (states)
+        space_weights, state_coeffs = decompose_sivec_by_rootspace (self, si[:,states])
+
+        fbfdm_ref = np.array (self.nfrags, dtype=float)
+        for i in range (self.nfrags):
+            idx = self.get_ref_fbf_rootspaces (i)[0]
+            fbfdm_ref[i] = space_weights[idx,:].sum ()
+        fbfdm_ref /= nstates
+
+        lroots = self.get_lroots ()
+        fbfdm_sf = [[None for s in range (2)] for i in range (self.nfrags)]
+        for i,s in itertools.product (range (self.nfrags), range (2)):
+            if self.ci_spin_flips[i][s] is None: continue
+            lr = self.ci_spin_flips[i][s].shape[0]
+            dm = np.zeros ((lr,lr), dtype=si.dtype)
+            idx = self.get_sf_fbf_rootspaces (i,s)[0]
+            for ix in idx:
+                ddm = _make_sdm1 (state_coeffs[ix], lroots[ix], i)
+                dm += np.tensordot (space_weights[ix], ddm, axes=1)
+            fbfdm_sf[i][s] = dm / nstates
+
+        fbfdm_ch = [[[None for s in range (4)] for a in range (self.nfrags)]
+                    for i in range (self.nfrags)]
+        for i,a,s in itertools.product (range (self.nfrags), range (self.nfrags), range (4)):
+            i_present = self.ci_charge_hops[i][a][s][0] is not None
+            a_present = self.ci_charge_hops[i][a][s][1] is not None
+            if not (i_present and a_present): continue
+            idx = self.get_sf_fbf_rootspaces (i,a,s)[0]
+            lri = self.ci_charge_hops[i][a][s][0].shape[0]
+            lra = self.ci_charge_hops[i][a][s][1].shape[0]
+            dm = np.zeros ((lri,lri,lra,lra), dtype=si.dtype)
+                for ix in idx:
+                ddm = _make_sdm2 (state_coeffs[ix], lroots[ix], i, a)
+                dm += np.tensordot (space_weights[ix], ddm, axes=1)
+            fbfdm_ch[i][a][s] = dm / nstates
+
+        return fbfdm_ref, fbfdm_sf, fbfdm_ch
+
 
