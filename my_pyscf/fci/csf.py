@@ -6,6 +6,7 @@ from pyscf import lib, ao2mo, __config__
 from pyscf.fci import direct_spin1, cistring, direct_uhf
 from pyscf.fci.direct_spin1 import _unpack, _unpack_nelec, _get_init_guess, kernel_ms1
 from pyscf.lib.numpy_helper import tag_array
+from mrh.my_pyscf.lib.logger import select_log_printer
 from mrh.my_pyscf.fci.csdstring import get_csdaddrs_shape 
 from mrh.my_pyscf.fci.csfstring import count_all_csfs, get_spin_evecs
 from mrh.my_pyscf.fci.csfstring import get_csfvec_shape
@@ -537,8 +538,7 @@ class CSFFCISolver: # parent class
         if self.transformer is None:
             return
         log = lib.logger.new_logger (self, self.verbose)
-        printer = (lambda *args, **kwargs: None, log.error, log.warn, log.note, log.info,
-                   log.debug, log.debug1, log.debug2, log.debug3, log.debug4, print)[tverbose]
+        printer = select_log_printer (log, tverbose=tverbose)
         self.transformer.print_config (printer)
 
     def print_transformer_cache (self, **kwargs):

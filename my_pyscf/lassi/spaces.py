@@ -5,6 +5,7 @@ from pyscf.fci import cistring
 from pyscf.lib import logger
 from pyscf.lo.orth import vec_lowdin
 from pyscf import symm, __config__
+from mrh.my_pyscf.lib.logger import select_log_printer
 from mrh.my_pyscf.fci import csf_solver
 from mrh.my_pyscf.fci.spin_op import contract_sdown, contract_sup, mdown, mup
 from mrh.my_pyscf.fci.csfstring import CSFTransformer
@@ -339,16 +340,17 @@ class SingleLASRootspace (object):
             lroots.append (c.shape[0])
         return lroots
 
-    def table_printlog (self, lroots=None):
+    def table_printlog (self, lroots=None, tverbose=logger.INFO):
         if lroots is None: lroots = self.get_lroots ()
         log = logger.new_logger (self, self.verbose)
+        printer = select_log_printer (log, tverbose=tverbose)
         fmt_str = " {:4s}  {:>11s}  {:>4s}  {:>3s}"
         header = fmt_str.format ("Frag", "Nelec,Norb", "2S+1", "Ir")
         fmt_str = " {:4d}  {:>11s}  {:>4d}  {:>3s}"
         if lroots is not None:
             header += '  Nroots'
             fmt_str += '  {:>6d}'
-        log.info (header)
+        printer (header)
         for ifrag in range (self.nfrag):
             na, nb = self.neleca[ifrag], self.nelecb[ifrag]
             sm, no = self.smults[ifrag], self.nlas[ifrag]
@@ -357,7 +359,7 @@ class SingleLASRootspace (object):
             irname = symm.irrep_id2name (self.las.mol.groupname, irid)
             row = [ifrag, nelec_norb, sm, irname]
             if lroots is not None: row += [lroots[ifrag]]
-            log.info (fmt_str.format (*row))
+            printer (fmt_str.format (*row))
 
     def single_fragment_spin_change (self, ifrag, new_smult, new_spin, ci=None):
         smults1 = self.smults.copy ()
@@ -524,6 +526,8 @@ def spin_shuffle (las, verbose=None, equal_weights=False):
     return las.state_average (weights=weights, charges=charges, spins=spins, smults=smults)
 
 def _spin_shuffle (ref_spaces, equal_weights=False):
+    '''The same as spin_shuffle, but the inputs and outputs are space lists rather than LASSCF
+    instances and no logging is done.'''
     seen = set (ref_spaces)
     all_spaces = [space for space in ref_spaces]
     for ref_space in ref_spaces:
