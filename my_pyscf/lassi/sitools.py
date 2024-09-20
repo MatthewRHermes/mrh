@@ -2,7 +2,7 @@ import numpy as np
 from pyscf import lib, symm
 from scipy import linalg
 from mrh.my_pyscf.mcscf.lasci import get_space_info
-from mrh.my_pyscf.lassi.citools import get_lroots, get_rootaddr_fragaddr
+from mrh.my_pyscf.lassi.citools import get_lroots, get_rootaddr_fragaddr, umat_dot_1frag_
 from mrh.my_pyscf.lassi.lassi import root_make_rdm12s, LASSI, ham_2q
 from mrh.my_pyscf.lassi.op_o1.utilities import fermion_spin_shuffle
 
@@ -94,6 +94,22 @@ def _make_sdm2 (sivec, lroots, site1, site2):
     sivec = sivec.reshape (-1,lroots[site1],lroots[site2],nroots)
     return lib.einsum ('apqi,arsi->iprqs', sivec.conj(), sivec)
 
+def _trans_sdm2 (sivec_bra, lroots_bra, sivec_ket, lroots_ket, ovlp, site1, site2):
+    nsites = len (lroots)
+    for isite, s0 in enumerate (ovlp):
+        # TODO: the function below has to be modified for a non-square umat
+        # s0 might have to be transposed
+        sivec_ket = umat_dot_1frag_(sivec_ket, s0, lroots_ket[:,None], isite, 0, axis=0)
+    lroots = lroots_bra
+    sivec_bra = np.asfortranarray (sivec_bra)
+    sivec_bra = sivec_bra.reshape (list(lroots)+[nroots,], order='F')
+    sivec_bra = np.moveaxis (sivec_bra, (site1,site2), (-3,-2))
+    sivec_bra = sivec_bra.reshape (-1,lroots[site1],lroots[site2],nroots)
+    sivec_ket = np.asfortranarray (sivec_ket)
+    sivec_ket = sivec_ket.reshape (list(lroots)+[nroots,], order='F')
+    sivec_ket = np.moveaxis (sivec_ket, (site1,site2), (-3,-2))
+    sivec_ket = sivec_ket.reshape (-1,lroots[site1],lroots[site2],nroots)
+    return lib.einsum ('apqi,arsi->iprqs', sivec_bra.conj(), sivec_ket)
 
 def make_sdm1 (lsi, iroot, ifrag, ci=None, si=None):
     if ci is None: ci = lsi.ci

@@ -701,6 +701,7 @@ class LASSIS (LASSI):
 
     def make_fbfdm (self, si=None, state=0):
         # These densities don't always sum to 1. Is that bc of product-space overlap of nfrags>3?
+        # TODO: double-check that the individual fbf bases are orthonormal
         from mrh.my_pyscf.lassi.sitools import decompose_sivec_by_rootspace, _make_sdm1, _make_sdm2
         if si is None: si = self.si
         states = np.atleast_1d (state)
@@ -739,6 +740,60 @@ class LASSIS (LASSI):
                 ddm = _make_sdm2 (state_coeffs[ix], lroots[:,ix], i, a)
                 dm += np.tensordot (space_weights[ix], ddm, axes=1)
             fbfdm_ch[i][a][s] = dm / nstates
+
+        #nelec_fr = self.get_nelec_frs ().sum (-1)
+        #smult_fr = self.get_smult_fr ()
+        #for i,a,b,s in itertools.product (range (self.nfrags), range (self.nfrags),
+        #                                  range (self.nfrags), range (4)):
+        #    i1_present = self.ci_charge_hops[i][a][s][0] is not None
+        #    a_present = self.ci_charge_hops[i][a][s][1] is not None
+        #    i2_present = self.ci_charge_hops[i][b][s][0] is not None
+        #    b_present = self.ci_charge_hops[i][b][s][1] is not None
+        #    if not (i1_present and a_present and i2_present and b_present): continue
+        #    idx = self.get_ch_fbf_rootspaces (i,a,s)[0]
+        #    jdx = self.get_ch_fbf_rootspaces (i,b,s)[0]
+        #    lri = self.ci_charge_hops[i][a][s][0].shape[0]
+        #    lra = self.ci_charge_hops[i][a][s][1].shape[0]
+        #    dm = np.zeros ((lri,lri,lra,lra), dtype=si.dtype)
+        #    for ix, jx in itertools.product (idx,jdx):
+        #        if np.any (nelec_fr[:,ix]!=nelec_fr[:,jx]): continue
+        #        if np.any (smult_fr[:,ix]!=smult_fr[:,jx]): continue
+        #        ovlp = []
+        #        for f in range (self.nfrags):
+        #            ci_i = self.ci[f][ix].reshape (lroots[f,ix],-1)
+        #            ci_j = self.ci[f][jx].reshape (lroots[f,jx],-1)
+        #            ovlp.append (ci_i.conj () @ ci_j.T)
+        #        ddm = _trans_sdm2 (state_coeffs[ix], lroots[:,ix], state_coeffs[jx], lroots[:,jx],
+        #                           ovlp, i, a)
+        #        wgt = np.sqrt (space_weights[ix]*space_weights[jx])
+        #        dm += np.tensordot (wgt, ddm, axes=1)
+        #    fbfdm_ch[i][a][s] += dm / nstates
+        #for i,j,b,s in itertools.product (range (self.nfrags), range (self.nfrags),
+        #                                  range (self.nfrags), range (4)):
+        #    i_present = self.ci_charge_hops[i][a][s][0] is not None
+        #    a1_present = self.ci_charge_hops[i][a][s][1] is not None
+        #    j_present = self.ci_charge_hops[j][a][s][0] is not None
+        #    a2_present = self.ci_charge_hops[j][a][s][1] is not None
+        #    if not (i_present and a1_present and j_present and a2_present): continue
+        #    idx = self.get_ch_fbf_rootspaces (i,a,s)[0]
+        #    jdx = self.get_ch_fbf_rootspaces (j,a,s)[0]
+        #    lri = self.ci_charge_hops[i][a][s][0].shape[0]
+        #    lra = self.ci_charge_hops[i][a][s][1].shape[0]
+        #    dm = np.zeros ((lri,lri,lra,lra), dtype=si.dtype)
+        #    for ix, jx in itertools.product (idx,jdx):
+        #        if np.any (nelec_fr[:,ix]!=nelec_fr[:,jx]): continue
+        #        if np.any (smult_fr[:,ix]!=smult_fr[:,jx]): continue
+        #        ovlp = []
+        #        for f in range (self.nfrags):
+        #            ci_i = self.ci[f][ix].reshape (lroots[f,ix],-1)
+        #            ci_j = self.ci[f][jx].reshape (lroots[f,jx],-1)
+        #            ovlp.append (ci_i.conj () @ ci_j.T)
+        #        ddm = _trans_sdm2 (state_coeffs[ix], lroots[:,ix], state_coeffs[jx], lroots[:,jx],
+        #                           ovlp, i, a)
+        #        wgt = np.sqrt (space_weights[ix]*space_weights[jx])
+        #        dm += np.tensordot (wgt, ddm, axes=1)
+        #    fbfdm_ch[i][a][s] += dm / nstates
+    
 
         return fbfdm_ref, fbfdm_sf, fbfdm_ch
 
