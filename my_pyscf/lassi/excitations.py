@@ -754,6 +754,14 @@ def vrv_fcisolver (fciobj, e0, e_q, v_qpab, max_cycle_e0=MAX_CYCLE_E0, conv_tol_
                 return csf_addr, h0 + dh0
         else:
             raise NotImplementedError ("Non-CSF version of excitation solver")
+            #def make_hdiag (self, *args, **kwargs):
+            #    hdiag = fciobj_class.make_hdiag (self, *args, **kwargs)
+            #    dhdiag = make_hdiag_det_vrv (self)
+            #    return hdiag + dhdiag
+            #def pspace (self, h1e, eri, norb, nelec, **kwargs):
+            #    det_addr, h0 = fciobj_class.pspace (self, h1e, eri, norb, nelec, **kwargs)
+            #    dh0 = pspace_det_vrv (self, norb, nelec, det_addr)
+            #    return det_addr, h0 + dh0
     new_fciobj = FCISolver (fciobj, v_qpab, e_q, e0, max_cycle_e0=max_cycle_e0,
                             conv_tol_e0=conv_tol_e0, crash_locmin=crash_locmin)
     if weights is not None: new_fciobj = state_average_fcisolver (new_fciobj, weights=weights)
