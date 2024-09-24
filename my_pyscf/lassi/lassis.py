@@ -580,7 +580,7 @@ class LASSIS (LASSI):
         space0 = list_spaces (las)[0]
         for i in range (las.nfrags):
             nelec, smult = (space0.neleca[i], space0.nelecb[i]), space0.smults[i]
-            las.ci[i][0] = space0.ci[i] = mdown (ci_ref[i], las.ncas_sub[0], nelec, smult)
+            las.ci[i][0] = space0.ci[i] = mdown (ci_ref[i], las.ncas_sub[i], nelec, smult)
         return las
 
     def prepare_states_(self, ncharge=None, nspin=None, sa_heff=None, deactivate_vrv=None,
