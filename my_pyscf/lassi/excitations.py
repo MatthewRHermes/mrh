@@ -717,7 +717,7 @@ def pspace_csf_vrv (fciobj, csf_addr, transformer=None, v_qpab=None, denom_q=Non
     p = v_qpab.shape[1]
     q = np.count_nonzero (idx)
     if (not q) or (not p): return np.zeros ((ncsf, ncsf), dtype=v_qpab.dtype)
-    v_qpab, denom_q = v_qpab[idx].reshape (q*p,ndeta,ndetb).transpose (1,0,2), denom_q[idx]
+    v_qpab, denom_q = v_qpab[idx].reshape (q*p,ndeta,ndetb).transpose (1,2,0), denom_q[idx]
     v_rqp = transformer.vec_det2csf (v_qpab, order='F', normalize=False)
     v_rqp = v_rqp[csf_addr].reshape (ncsf, q, p)
     denom_q = denom_q + 1j*fciobj.imag_shift
