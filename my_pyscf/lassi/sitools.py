@@ -2,7 +2,7 @@ import numpy as np
 from pyscf import lib, symm
 from scipy import linalg
 from mrh.my_pyscf.mcscf.lasci import get_space_info
-from mrh.my_pyscf.lassi.citools import get_lroots, get_rootaddr_fragaddr, umat_dot_1frag_
+from mrh.my_pyscf.lassi.citools import get_lroots, get_rootaddr_fragaddr, umat_dot_1frag_, _umat_dot_1frag
 from mrh.my_pyscf.lassi.lassi import root_make_rdm12s, LASSI, ham_2q
 from mrh.my_pyscf.lassi.op_o1.utilities import fermion_spin_shuffle
 
@@ -63,6 +63,30 @@ def _make_sdm1 (sivec, lroots, site):
     sivec = sivec.transpose (*idx).reshape (-1, lroots[site],nroots)
     return lib.einsum ('api,aqi->ipq', sivec.conj(), sivec)
 
+def _trans_sdm1 (sivec_bra, lroots_bra, sivec_ket, lroots_ket, ovlp, site):
+    nsites = len (lroots_bra)
+    nroots_bra, err = divmod (sivec_bra.size, np.prod (lroots_bra))
+    if err: raise ValueError ("sivec_bra.size % prod(lroots_bra) = {}".format (err))
+    nroots_ket, err = divmod (sivec_ket.size, np.prod (lroots_ket))
+    if err: raise ValueError ("sivec_ket.size % prod(lroots_ket) = {}".format (err))
+    assert (nroots_bra==nroots_ket)
+    nroots = nroots_bra
+    for isite, s0 in enumerate (ovlp):
+        if isite==site: continue
+        # TODO: the function below has to be modified for a non-square umat
+        # s0 might have to be transposed
+        sivec_ket = _umat_dot_1frag (sivec_ket, s0.T, lroots_ket, isite)
+        lroots_ket[isite] = lroots_bra[isite]
+    sivec_bra = np.asfortranarray (sivec_bra)
+    sivec_bra = sivec_bra.reshape (list(lroots_bra)+[nroots,], order='F')
+    sivec_bra = np.moveaxis (sivec_bra, site, -2)
+    sivec_bra = sivec_bra.reshape (-1,lroots_bra[site],nroots)
+    sivec_ket = np.asfortranarray (sivec_ket)
+    sivec_ket = sivec_ket.reshape (list(lroots_ket)+[nroots,], order='F')
+    sivec_ket = np.moveaxis (sivec_ket, site, -2)
+    sivec_ket = sivec_ket.reshape (-1,lroots_ket[site],nroots)
+    return lib.einsum ('api,aqi->ipq', sivec_bra.conj(), sivec_ket)
+
 def _make_sdm2 (sivec, lroots, site1, site2):
     '''Compute the 2-site reduced density matrix(es) for (a) wave function(s) of type
 
@@ -94,22 +118,6 @@ def _make_sdm2 (sivec, lroots, site1, site2):
     sivec = sivec.reshape (-1,lroots[site1],lroots[site2],nroots)
     return lib.einsum ('apqi,arsi->iprqs', sivec.conj(), sivec)
 
-def _trans_sdm2 (sivec_bra, lroots_bra, sivec_ket, lroots_ket, ovlp, site1, site2):
-    nsites = len (lroots)
-    for isite, s0 in enumerate (ovlp):
-        # TODO: the function below has to be modified for a non-square umat
-        # s0 might have to be transposed
-        sivec_ket = umat_dot_1frag_(sivec_ket, s0, lroots_ket[:,None], isite, 0, axis=0)
-    lroots = lroots_bra
-    sivec_bra = np.asfortranarray (sivec_bra)
-    sivec_bra = sivec_bra.reshape (list(lroots)+[nroots,], order='F')
-    sivec_bra = np.moveaxis (sivec_bra, (site1,site2), (-3,-2))
-    sivec_bra = sivec_bra.reshape (-1,lroots[site1],lroots[site2],nroots)
-    sivec_ket = np.asfortranarray (sivec_ket)
-    sivec_ket = sivec_ket.reshape (list(lroots)+[nroots,], order='F')
-    sivec_ket = np.moveaxis (sivec_ket, (site1,site2), (-3,-2))
-    sivec_ket = sivec_ket.reshape (-1,lroots[site1],lroots[site2],nroots)
-    return lib.einsum ('apqi,arsi->iprqs', sivec_bra.conj(), sivec_ket)
 
 def make_sdm1 (lsi, iroot, ifrag, ci=None, si=None):
     if ci is None: ci = lsi.ci

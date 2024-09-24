@@ -699,102 +699,156 @@ class LASSIS (LASSI):
         idx = idx[idx2]
         return idx, nelec_frs[ifrag][idx,:], nelec_frs[afrag][idx,:]
 
-    def make_fbfdm (self, si=None, state=0):
-        # These densities don't always sum to 1. Is that bc of product-space overlap of nfrags>3?
-        # TODO: double-check that the individual fbf bases are orthonormal
-        from mrh.my_pyscf.lassi.sitools import decompose_sivec_by_rootspace, _make_sdm1, _make_sdm2
+    def get_fbf_idx (self, ifrag, ci_sf=None, ci_ch=None):
+        if ci_sf is None: ci_sf = self.ci_spin_flips
+        if ci_ch is None: ci_ch = self.ci_charge_hops
+    
+        idx_ref = np.array ([0,1])
+        i = 1
+        ci_sf = ci_sf[ifrag]
+        idx_sf = -np.ones ((2,2), dtype=int)
+        for s, ci in enumerate (ci_sf):
+            j = i
+            if ci is not None:
+                j = i + len (ci)
+            idx_sf[s,:] = [i,j]
+            i = j
+
+        idx_ch = -np.ones ((2,self.nfrags,4,2), dtype=int)
+        for afrag, ci_ch_a in enumerate (ci_ch[ifrag]):
+            for s, ci in enumerate (ci_ch_a):
+                j = i
+                if ci[0] is not None:
+                    j = i + len (ci[0])
+                idx_ch[0,afrag,s,:] = [i,j]
+                i = j
+        afrag = ifrag
+        for jfrag, ci_ch_j in enumerate (ci_ch):
+            for s, ci in enumerate (ci_ch_j[afrag]):
+                j = i
+                if ci[1] is not None:
+                    j = i + len (ci[1])
+                idx_ch[1,jfrag,s,:] = [i,j]
+                i = j
+
+        return idx_ref, idx_sf, idx_ch
+
+    def get_fbf_ovlp (self, ifrag, ci_ref=None, ci_sf=None, ci_ch=None):
+        if ci_ref is None: ci_ref = self.get_ci_ref ()
+        if ci_sf is None: ci_sf = self.ci_spin_flips
+        if ci_ch is None: ci_ch = self.ci_charge_hops
+        idx_ref, idx_sf, idx_ch = self.get_fbf_idx (ifrag, ci_sf=ci_sf, ci_ch=ci_ch)
+        nstates = idx_ch[-1,-1,-1,-1]
+        ovlp = np.zeros ((nstates, nstates), dtype=ci_ref[ifrag].dtype)
+        i, j = idx_ref
+        ovlp[i:j,i:j] = np.dot (ci_ref[ifrag].conj ().flat, ci_ref[ifrag].flat)
+        for (i,j), ci in zip (idx_sf, ci_sf[ifrag]):
+            if j==i: continue
+            c = ci.reshape (j-i,-1)
+            ovlp[i:j,i:j] = np.dot (c.conj (), c.T)
+        for afrag, idx_ch_a in enumerate (idx_ch[0]):
+            for s1, (i,j) in enumerate (idx_ch_a):
+                if j==i: continue
+                c1 = ci_ch[ifrag][afrag][s1][0].reshape (j-i,-1)
+                ovlp[i:j,i:j] = np.dot (c1.conj (), c1.T)
+                for bfrag, idx_ch_b in enumerate (idx_ch[0]):
+                    for s2, (k,l) in enumerate (idx_ch_b):
+                        if k==l: continue
+                        if ((s1//2)!=(s2//2)): continue
+                        c2 = ci_ch[ifrag][bfrag][s2][0].reshape (l-k,-1)
+                        ovlp[i:j,k:l] = np.dot (c1.conj (), c2.T)
+        afrag = ifrag
+        for ifrag, idx_ch_i in enumerate (idx_ch[1]):
+            for s1, (i,j) in enumerate (idx_ch_i):
+                if j==i: continue
+                c1 = ci_ch[ifrag][afrag][s1][1].reshape (j-i,-1)
+                ovlp[i:j,i:j] = np.dot (c1.conj (), c1.T)
+                for jfrag, idx_ch_j in enumerate (idx_ch[1]):
+                    for s2, (k,l) in enumerate (idx_ch_j):
+                        if k==l: continue
+                        if ((s1%2)!=(s2%2)): continue
+                        c2 = ci_ch[jfrag][afrag][s2][1].reshape (l-k,-1)
+                        ovlp[i:j,k:l] = np.dot (c1.conj (), c2.T)
+        return ovlp
+            
+    def make_fbfdm1 (self, pfrag, si=None, state=0):
+        from mrh.my_pyscf.lassi.sitools import decompose_sivec_by_rootspace, _make_sdm1, _trans_sdm1
         if si is None: si = self.si
         states = np.atleast_1d (state)
         nstates = len (states)
         space_weights, state_coeffs = decompose_sivec_by_rootspace (self, si[:,states])[:2]
 
-        fbfdm_ref = np.zeros (self.nfrags, dtype=float)
-        for i in range (self.nfrags):
-            idx = self.get_ref_fbf_rootspaces (i)[0]
-            fbfdm_ref[i] = space_weights[idx,:].sum ()
-        fbfdm_ref /= nstates
-
         lroots = self.get_lroots ()
-        fbfdm_sf = [[None for s in range (2)] for i in range (self.nfrags)]
-        for i,s in itertools.product (range (self.nfrags), range (2)):
-            if self.ci_spin_flips[i][s] is None: continue
-            lr = self.ci_spin_flips[i][s].shape[0]
-            dm = np.zeros ((lr,lr), dtype=si.dtype)
-            idx = self.get_sf_fbf_rootspaces (i,s)[0]
-            for ix in idx:
-                ddm = _make_sdm1 (state_coeffs[ix], lroots[:,ix], i)
-                dm += np.tensordot (space_weights[ix], ddm, axes=1)
-            fbfdm_sf[i][s] = dm / nstates
+        nelec_rfs = self.get_nelec_frs ().transpose (1,0,2)
+        smult_rf = self.get_smult_fr ().T
+        def my_make_sdm1 (ix,jx):
+            if np.any (nelec_rfs[ix]!=nelec_rfs[jx]): return 0
+            if np.any (smult_rf[ix]!=smult_rf[jx]): return 0
+            ovlp = []
+            for f in range (self.nfrags):
+                ci_i = self.ci[f][ix].reshape (lroots[f,ix],-1)
+                ci_j = self.ci[f][jx].reshape (lroots[f,jx],-1)
+                ovlp.append (ci_i.conj () @ ci_j.T)
+            wgt = np.sqrt (space_weights[ix]*space_weights[jx]) 
+            ddm = _trans_sdm1 (state_coeffs[ix], lroots[:,ix], 
+                               state_coeffs[jx], lroots[:,jx],
+                               ovlp, pfrag)
+            return np.tensordot (wgt, ddm, axes=1) / nstates
 
-        fbfdm_ch = [[[None for s in range (4)] for a in range (self.nfrags)]
-                    for i in range (self.nfrags)]
-        for i,a,s in itertools.product (range (self.nfrags), range (self.nfrags), range (4)):
-            i_present = self.ci_charge_hops[i][a][s][0] is not None
-            a_present = self.ci_charge_hops[i][a][s][1] is not None
-            if not (i_present and a_present): continue
-            idx = self.get_ch_fbf_rootspaces (i,a,s)[0]
-            lri = self.ci_charge_hops[i][a][s][0].shape[0]
-            lra = self.ci_charge_hops[i][a][s][1].shape[0]
-            dm = np.zeros ((lri,lri,lra,lra), dtype=si.dtype)
-            for ix in idx:
-                ddm = _make_sdm2 (state_coeffs[ix], lroots[:,ix], i, a)
-                dm += np.tensordot (space_weights[ix], ddm, axes=1)
-            fbfdm_ch[i][a][s] = dm / nstates
 
-        #nelec_fr = self.get_nelec_frs ().sum (-1)
-        #smult_fr = self.get_smult_fr ()
-        #for i,a,b,s in itertools.product (range (self.nfrags), range (self.nfrags),
-        #                                  range (self.nfrags), range (4)):
-        #    i1_present = self.ci_charge_hops[i][a][s][0] is not None
-        #    a_present = self.ci_charge_hops[i][a][s][1] is not None
-        #    i2_present = self.ci_charge_hops[i][b][s][0] is not None
-        #    b_present = self.ci_charge_hops[i][b][s][1] is not None
-        #    if not (i1_present and a_present and i2_present and b_present): continue
-        #    idx = self.get_ch_fbf_rootspaces (i,a,s)[0]
-        #    jdx = self.get_ch_fbf_rootspaces (i,b,s)[0]
-        #    lri = self.ci_charge_hops[i][a][s][0].shape[0]
-        #    lra = self.ci_charge_hops[i][a][s][1].shape[0]
-        #    dm = np.zeros ((lri,lri,lra,lra), dtype=si.dtype)
-        #    for ix, jx in itertools.product (idx,jdx):
-        #        if np.any (nelec_fr[:,ix]!=nelec_fr[:,jx]): continue
-        #        if np.any (smult_fr[:,ix]!=smult_fr[:,jx]): continue
-        #        ovlp = []
-        #        for f in range (self.nfrags):
-        #            ci_i = self.ci[f][ix].reshape (lroots[f,ix],-1)
-        #            ci_j = self.ci[f][jx].reshape (lroots[f,jx],-1)
-        #            ovlp.append (ci_i.conj () @ ci_j.T)
-        #        ddm = _trans_sdm2 (state_coeffs[ix], lroots[:,ix], state_coeffs[jx], lroots[:,jx],
-        #                           ovlp, i, a)
-        #        wgt = np.sqrt (space_weights[ix]*space_weights[jx])
-        #        dm += np.tensordot (wgt, ddm, axes=1)
-        #    fbfdm_ch[i][a][s] += dm / nstates
-        #for i,j,b,s in itertools.product (range (self.nfrags), range (self.nfrags),
-        #                                  range (self.nfrags), range (4)):
-        #    i_present = self.ci_charge_hops[i][a][s][0] is not None
-        #    a1_present = self.ci_charge_hops[i][a][s][1] is not None
-        #    j_present = self.ci_charge_hops[j][a][s][0] is not None
-        #    a2_present = self.ci_charge_hops[j][a][s][1] is not None
-        #    if not (i_present and a1_present and j_present and a2_present): continue
-        #    idx = self.get_ch_fbf_rootspaces (i,a,s)[0]
-        #    jdx = self.get_ch_fbf_rootspaces (j,a,s)[0]
-        #    lri = self.ci_charge_hops[i][a][s][0].shape[0]
-        #    lra = self.ci_charge_hops[i][a][s][1].shape[0]
-        #    dm = np.zeros ((lri,lri,lra,lra), dtype=si.dtype)
-        #    for ix, jx in itertools.product (idx,jdx):
-        #        if np.any (nelec_fr[:,ix]!=nelec_fr[:,jx]): continue
-        #        if np.any (smult_fr[:,ix]!=smult_fr[:,jx]): continue
-        #        ovlp = []
-        #        for f in range (self.nfrags):
-        #            ci_i = self.ci[f][ix].reshape (lroots[f,ix],-1)
-        #            ci_j = self.ci[f][jx].reshape (lroots[f,jx],-1)
-        #            ovlp.append (ci_i.conj () @ ci_j.T)
-        #        ddm = _trans_sdm2 (state_coeffs[ix], lroots[:,ix], state_coeffs[jx], lroots[:,jx],
-        #                           ovlp, i, a)
-        #        wgt = np.sqrt (space_weights[ix]*space_weights[jx])
-        #        dm += np.tensordot (wgt, ddm, axes=1)
-        #    fbfdm_ch[i][a][s] += dm / nstates
-    
+        fbf_idx = self.get_fbf_idx (pfrag)
+        nbas = fbf_idx[-1][-1,-1,-1,-1]
+        fbfdm1 = np.zeros ((nbas,nbas), dtype=si.dtype)
 
-        return fbfdm_ref, fbfdm_sf, fbfdm_ch
+        idx = self.get_ref_fbf_rootspaces (pfrag)[0]
+        i, j = fbf_idx[0]
+        for ix, jx in itertools.product (idx, repeat=2):
+            fbfdm1[i:j,i:j] += my_make_sdm1 (ix,jx)
+
+        for s in range (2):
+            if self.ci_spin_flips[pfrag][s] is None: continue
+            idx = self.get_sf_fbf_rootspaces (pfrag,s)[0]
+            i, j = fbf_idx[1][s]
+            for ix, jx in itertools.product (idx, repeat=2):
+                fbfdm1[i:j,i:j] += my_make_sdm1 (ix, jx)
+
+        ifrag = pfrag
+        for s in range (4):
+            for afrag in range (self.nfrags):
+                i_present = self.ci_charge_hops[ifrag][afrag][s][0] is not None
+                a_present = self.ci_charge_hops[ifrag][afrag][s][1] is not None
+                if not (i_present and a_present): continue
+                idx = self.get_ch_fbf_rootspaces (ifrag,afrag,s)[0]
+                i, j = fbf_idx[2][0,afrag,s]
+                for ix, jx in itertools.product (idx, repeat=2):
+                    fbfdm1[i:j,i:j] += my_make_sdm1 (ix, jx)
+                for bfrag in range (self.nfrags):
+                    if bfrag==afrag: continue
+                    b_present = self.ci_charge_hops[ifrag][bfrag][s][1] is not None
+                    if not b_present: continue
+                    jdx = self.get_ch_fbf_rootspaces (ifrag,bfrag,s)[0]
+                    k, l = fbf_idx[2][0,bfrag,s]
+                    for ix, jx in itertools.product (idx, jdx):
+                        fbfdm1[i:j,k:l] += my_make_sdm1 (ix, jx)
+        afrag = pfrag
+        for s in range (4):
+            for ifrag in range (self.nfrags):
+                i_present = self.ci_charge_hops[ifrag][afrag][s][0] is not None
+                a_present = self.ci_charge_hops[ifrag][afrag][s][1] is not None
+                if not (i_present and a_present): continue
+                idx = self.get_ch_fbf_rootspaces (ifrag,afrag,s)[0]
+                i, j = fbf_idx[2][1,ifrag,s]
+                for ix, jx in itertools.product (idx, repeat=2):
+                    fbfdm1[i:j,i:j] += my_make_sdm1 (ix, jx)
+                for jfrag in range (self.nfrags):
+                    if jfrag==ifrag: continue
+                    j_present = self.ci_charge_hops[jfrag][afrag][s][1] is not None
+                    if not j_present: continue
+                    jdx = self.get_ch_fbf_rootspaces (jfrag,afrag,s)[0]
+                    k, l = fbf_idx[2][1,jfrag,s]
+                    for ix, jx in itertools.product (idx, jdx):
+                        fbfdm1[i:j,k:l] += my_make_sdm1 (ix, jx)
+
+        return fbfdm1
 
 
