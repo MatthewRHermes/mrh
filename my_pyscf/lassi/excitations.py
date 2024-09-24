@@ -711,19 +711,21 @@ def pspace_csf_vrv (fciobj, csf_addr, transformer=None, v_qpab=None, denom_q=Non
     if v_qpab is None: v_qpab = fciobj.v_qpab
     if denom_q is None: denom_q = fciobj.denom_q 
     if v_qpab is None: return 0
+    ncsf = len (csf_addr)
     q, p, ndeta, ndetb = v_qpab.shape
     idx = np.abs (denom_q) > 1e-16
     p = v_qpab.shape[1]
     q = np.count_nonzero (idx)
-    if (not q) or (not p): return np.zeros ((len(csf_addr),len(csf_addr)), dtype=v_qpab.dtype)
-    v_qpab, denom_q = v_qpab[idx].reshape (q*p,ndeta,ndetb), denom_q[idx]
-    v_qpr = transformer.vec_det2csf (v_qpab, normalize=False)
-    v_qpr = v_qpr[:,csf_addr].reshape (q,p,len(csf_addr))
+    if (not q) or (not p): return np.zeros ((ncsf, ncsf), dtype=v_qpab.dtype)
+    v_qpab, denom_q = v_qpab[idx].reshape (q*p,ndeta,ndetb).transpose (1,0,2), denom_q[idx]
+    v_rqp = transformer.vec_det2csf (v_qpab, order='F', normalize=False)
+    v_rqp = v_rqp[csf_addr].reshape (ncsf, q, p)
     denom_q = denom_q + 1j*fciobj.imag_shift
     denom_fac_q = np.real (1.0 / denom_q)
-    rv_qpr = (v_qpr.conj () * denom_fac_q[:,None,None])
-    h0 = np.tensordot (rv_qpr, v_qpr, axes=((0,1),(0,1)))
-    assert (h0.shape == (len(csf_addr),len(csf_addr)))
+    rv_rqp = (v_rqp.conj () * denom_fac_q[None,:,None])
+    rv_rx, v_rx = rv_rqp.reshape (ncsf, q*p), v_rqp.reshape (ncsf, q*p)
+    h0 = np.dot (rv_rx, v_rx.T)
+    assert (h0.shape == (ncsf, ncsf))
     return h0
 
 def vrv_fcisolver (fciobj, e0, e_q, v_qpab, max_cycle_e0=MAX_CYCLE_E0, conv_tol_e0=CONV_TOL_E0,
