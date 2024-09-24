@@ -506,8 +506,6 @@ class VRVDressedFCISolver (object):
         self.max_cycle_e0 = max_cycle_e0
         self.conv_tol_e0 = conv_tol_e0
         self.crash_locmin = crash_locmin
-        self.davidson_only = self.base.davidson_only = True
-        # TODO: Relaxing this ^ requires accounting for pspace, precond, and/or hdiag
     def contract_2e(self, eri, fcivec, norb, nelec, link_index=None, v_qpab=None, denom_q=None,
                     **kwargs):
         ci0 = self.undressed_contract_2e (eri, fcivec, norb, nelec, link_index, **kwargs)
