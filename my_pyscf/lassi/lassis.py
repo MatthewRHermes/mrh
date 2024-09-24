@@ -288,7 +288,7 @@ def all_spin_flips (lsi, las, ci_sf, nspin=1, ham_2q=None):
             ci_list = solver.kernel (h1_i, h2_i, norb, (neleca,nelecb), ci0=ci0, nroots=nroots)[1]
             if nroots==1: ci_list = [ci_list,]
             ci_arr = np.array (ci_list)
-            return solver.converged, ci_arr
+            return np.all (solver.converged), ci_arr
         smults1_i = []
         spins1_i = []
         ci1_i = []
