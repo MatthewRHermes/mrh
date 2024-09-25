@@ -1,4 +1,5 @@
 import numpy as np
+from scipy import linalg
 import itertools
 from pyscf import lib
 from mrh.my_pyscf.mcscf.lasci import get_space_info
@@ -7,7 +8,8 @@ from mrh.my_pyscf.lassi.spaces import SingleLASRootspace
 from mrh.my_pyscf.lassi.op_o1.utilities import lst_hopping_index
 from mrh.my_pyscf.lassi import op_o0, op_o1
 from mrh.my_pyscf.fci.spin_op import mup
-
+from mrh.my_pyscf.lassi.lassi import LINDEP_THRESH
+from pyscf.scf.addons import canonical_orth_
 op = (op_o0, op_o1)
 
 def case_contract_hlas_ci (ks, las, h0, h1, h2, ci_fr, nelec_frs):
@@ -105,19 +107,21 @@ def case_lassis_fbf_2_model_state (ks, lsi):
         ks.assertTrue (np.all (seen_fr==1))
 
 def case_lassis_fbfdm (ks, lsi):
-    dens, fbf_sf, fbf_ch = lsi.make_fbfdm ()
-    for i,s in itertools.product (range (lsi.nfrags), range(2)):
-        if fbf_sf[i][s] is None: continue
-        ddens = np.trace (fbf_sf[i][s])
-        ks.assertTrue (ddens>=0)
-        ks.assertTrue (dens[i]>=0)
-        dens[i] += ddens
-    for i,a,s in itertools.product (range (lsi.nfrags), range (lsi.nfrags), range(4)):
-        if fbf_ch[i][a][s] is None: continue
-        ddens = np.trace (np.trace (fbf_ch[i][a][s]))
-        ks.assertTrue (ddens>=0)
-        dens[i] += ddens
-        dens[a] += ddens
-    for i in range (lsi.nfrags):
-        ks.assertAlmostEqual (dens[i],1.0,5)
+    for ifrag in range (lsi.nfrags):
+        ovlp = lsi.get_fbf_ovlp (ifrag)
+        dm1 = lsi.make_fbfdm1 (ifrag)
+        with ks.subTest ('hermiticity', ifrag=ifrag):
+            ks.assertAlmostEqual (lib.fp (ovlp), lib.fp (ovlp.T), 9)
+            ks.assertAlmostEqual (lib.fp (dm1), lib.fp (dm1.T), 9)
+        with ks.subTest ('positive-semidefiniteness', ifrag=ifrag):
+            evals, evecs = linalg.eigh (ovlp)
+            ks.assertTrue (evals[0]>-1e-4)
+            evals, evecs = linalg.eigh (dm1)
+            ks.assertTrue (evals[0]>-1e-4)
+        with ks.subTest ('normalization', ifrag=ifrag):
+            x = canonical_orth_(ovlp, thr=LINDEP_THRESH)
+            xdx = x.conj ().T @ dm1 @ x
+            ks.assertAlmostEqual ((dm1*ovlp).sum (), 1.0, 9)
+
+
 

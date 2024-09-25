@@ -301,8 +301,8 @@ class SingleLASRootspace (object):
 
     def single_excitation_description_string (self, other):
         src, dest, e_spin, src_ds, dest_ds, lroots_s = self.describe_single_excitation (other)
-        fmt_str = '{:d}({:s}) --{:s}--> {:d}({:s}) ({:d} lroots)'
-        return fmt_str.format (src, src_ds, e_spin, dest, dest_ds, lroots_s)
+        fmt_str = '{:d}({:s}) --{:s}--> {:d}({:s})'
+        return fmt_str.format (src, src_ds, e_spin, dest, dest_ds)
 
     def compute_single_excitation_lroots (self, ref):
         if isinstance (ref, (list, tuple)):
