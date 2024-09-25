@@ -279,15 +279,15 @@ def all_spin_flips (lsi, las, ci_sf, nspin=1, ham_2q=None):
         lasdm1s = casdm1s[:,i:j,i:j]
         h1_i = (f1[:,i:j,i:j] - np.tensordot (h2_i, lasdm1s.sum (0))[None,:,:]
                 + np.tensordot (lasdm1s, h2_i, axes=((1,2),(2,1))))
-        def cisolve (sm, nroots, ci0):
-            neleca = (nelec + (sm-1)) // 2
-            nelecb = (nelec - (sm-1)) // 2
+        def cisolve (sm, m2, nroots, ci0):
+            neleca = (nelec + m2) // 2
+            nelecb = (nelec - m2) // 2
             solver = csf_solver (las.mol, smult=sm).set (nelec=(neleca,nelecb), norb=norb)
             solver.check_transformer_cache ()
             nroots = min (nroots, solver.transformer.ncsf)
             ci_list = solver.kernel (h1_i, h2_i, norb, (neleca,nelecb), ci0=ci0, nroots=nroots)[1]
             if nroots==1: ci_list = [ci_list,]
-            ci_arr = np.array (ci_list)
+            ci_arr = np.array ([mup (c, norb, (neleca,nelecb), sm) for c in ci_list])
             return np.all (solver.converged), ci_arr
         smults1_i = []
         spins1_i = []
@@ -298,7 +298,8 @@ def all_spin_flips (lsi, las, ci_sf, nspin=1, ham_2q=None):
             smults1_i.append (smult-2)
             spins1_i.append (smult-3)
             ci0 = ci_sf[ifrag][0]
-            conv, ci1_i_down = cisolve (smult-2, ndn0[ifrag], ci0)
+            m2 = np.sign (spin) * (abs (spin) - 2) if abs (spin) > 1 else spin
+            conv, ci1_i_down = cisolve (smult-2, m2, ndn0[ifrag], ci0)
             if not conv: log.warn ("CI vectors for spin-lowering of fragment %i not converged",
                                    ifrag)
             converged = converged & conv
@@ -312,7 +313,8 @@ def all_spin_flips (lsi, las, ci_sf, nspin=1, ham_2q=None):
             smults1_i.append (smult+2)
             spins1_i.append (smult+1)
             ci0 = ci_sf[ifrag][1]
-            conv, ci1_i_up = cisolve (smult+2, nup0[ifrag], ci0)
+            m2 = np.sign (spin) * (abs (spin) + 2)
+            conv, ci1_i_up = cisolve (smult+2, m2, nup0[ifrag], ci0)
             if not conv: log.warn ("CI vectors for spin-raising of fragment %i not converged",
                                    ifrag)
             converged = converged & conv
