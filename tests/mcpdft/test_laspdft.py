@@ -6,6 +6,15 @@ from mrh.my_pyscf import mcpdft
 import unittest
 
 class KnownValues(unittest.TestCase):
+    @classmethod
+    def setUpClass(cls):
+        cls.original_grids = dft.radi.ATOM_SPECIFIC_TREUTLER_GRIDS
+        dft.radi.ATOM_SPECIFIC_TREUTLER_GRIDS = False
+
+    @classmethod
+    def tearDownClass(cls):
+        dft.radi.ATOM_SPECIFIC_TREUTLER_GRIDS = cls.original_grids
+
     def test_h4 (self):
         mol = gto.M()
         mol.atom='''H -5.10574 2.01997 0.00000;
