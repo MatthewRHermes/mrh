@@ -5,7 +5,7 @@ from pyscf.fci import cistring
 from pyscf.fci.direct_spin1 import _unpack_nelec
 from pyscf.mcscf.addons import StateAverageFCISolver
 from mrh.my_pyscf.mcscf.productstate import ProductStateFCISolver, ImpureProductStateFCISolver, state_average_fcisolver
-from mrh.my_pyscf.fci import csf_solver
+from mrh.my_pyscf.fci import csf_solver, CSFFCISolver
 from mrh.my_pyscf.lassi import op_o0, op_o1
 from mrh.my_pyscf.lassi.citools import get_lroots
 from pyscf import lib
@@ -506,8 +506,6 @@ class VRVDressedFCISolver (object):
         self.max_cycle_e0 = max_cycle_e0
         self.conv_tol_e0 = conv_tol_e0
         self.crash_locmin = crash_locmin
-        self.davidson_only = self.base.davidson_only = True
-        # TODO: Relaxing this ^ requires accounting for pspace, precond, and/or hdiag
     def contract_2e(self, eri, fcivec, norb, nelec, link_index=None, v_qpab=None, denom_q=None,
                     **kwargs):
         ci0 = self.undressed_contract_2e (eri, fcivec, norb, nelec, link_index, **kwargs)
@@ -649,6 +647,85 @@ class VRVDressedFCISolver (object):
     def undressed_contract_2e (self, *args, **kwargs):
         return self._undressed_class.contract_2e (self, *args, **kwargs)
 
+def make_hdiag_det_vrv (fciobj, v_qpab=None, denom_q=None):
+    # Untested!
+    if v_qpab is None: v_qpab = fciobj.v_qpab
+    if denom_q is None: denom_q = fciobj.denom_q 
+    if v_qpab is None: return 0
+    q, p, ndeta, ndetb = v_qpab.shape
+    idx = np.abs (denom_q) > 1e-16
+    p = v_qpab.shape[1]
+    q = np.count_nonzero (idx)
+    if (not q) or (not p): return np.zeros_like (v_qpab).sum ((0,1))
+    v_qpab, denom_q = v_qpab[idx], denom_q[idx]
+    denom_q = denom_q + 1j*fciobj.imag_shift
+    denom_fac_q = np.real (1.0 / denom_q)
+    rv_qp = (v_qpab.conj () * denom_fac_q[:,None,None,None])
+    hdiag = (rv_qp * v_qpab).sum ((0,1))
+    return hdiag
+
+def make_hdiag_csf_vrv (fciobj, transformer=None, v_qpab=None, denom_q=None):
+    if transformer is None: transformer = fciobj.transformer
+    if v_qpab is None: v_qpab = fciobj.v_qpab
+    if denom_q is None: denom_q = fciobj.denom_q 
+    if v_qpab is None: return 0
+    q, p, ndeta, ndetb = v_qpab.shape
+    idx = np.abs (denom_q) > 1e-16
+    p = v_qpab.shape[1]
+    q = np.count_nonzero (idx)
+    if (not q) or (not p): return np.zeros (transformer.ncsf, dtype=v_qpab.dtype)
+    v_qpab, denom_q = v_qpab[idx].reshape (q*p,ndeta,ndetb), denom_q[idx]
+    v_qpr = transformer.vec_det2csf (v_qpab, normalize=False).reshape (q,p,transformer.ncsf)
+    denom_q = denom_q + 1j*fciobj.imag_shift
+    denom_fac_q = np.real (1.0 / denom_q)
+    rv_qp = (v_qpr.conj () * denom_fac_q[:,None,None])
+    hdiag = (rv_qp * v_qpr).sum ((0,1))
+    return hdiag
+
+def pspace_det_vrv (fciobj, norb, nelec, det_addr, v_qpab=None, denom_q=None):
+    # Untested!
+    if v_qpab is None: v_qpab = fciobj.v_qpab
+    if denom_q is None: denom_q = fciobj.denom_q 
+    if v_qpab is None: return 0
+    q, p, ndeta, ndetb = v_qpab.shape
+    idx = np.abs (denom_q) > 1e-16
+    p = v_qpab.shape[1]
+    q = np.count_nonzero (idx)
+    if (not q) or (not p): return np.zeros ((len(det_addr),len(det_addr)), dtype=v_qpab.dtype)
+    neleca, nelecb = _unpack_nelec (nelec)
+    ndeta = cistring.num_strings (norb, neleca)
+    ndetb = cistring.num_strings (norb, nelecb)
+    addra, addrb = divmod (det_addr, ndetb)
+    jdx = np.ix_(idx,[True,]*p,addra,addrb)
+    v_qpab, denom_q = v_qpab[jdx].reshape (q,p,len(det_addr)), denom_q[idx]
+    denom_q = denom_q + 1j*fciobj.imag_shift
+    denom_fac_q = np.real (1.0 / denom_q)
+    rv_qpab = (v_qpab.conj () * denom_fac_q[:,None,None])
+    h0 = np.tensordot (rv_qpab, v_qpab, axes=((0,1),(0,1)))
+    return h0
+
+def pspace_csf_vrv (fciobj, csf_addr, transformer=None, v_qpab=None, denom_q=None):
+    if transformer is None: transformer = fciobj.transformer
+    if v_qpab is None: v_qpab = fciobj.v_qpab
+    if denom_q is None: denom_q = fciobj.denom_q 
+    if v_qpab is None: return 0
+    ncsf = len (csf_addr)
+    q, p, ndeta, ndetb = v_qpab.shape
+    idx = np.abs (denom_q) > 1e-16
+    p = v_qpab.shape[1]
+    q = np.count_nonzero (idx)
+    if (not q) or (not p): return np.zeros ((ncsf, ncsf), dtype=v_qpab.dtype)
+    v_qpab, denom_q = v_qpab[idx].reshape (q*p,ndeta,ndetb).transpose (1,2,0), denom_q[idx]
+    v_rqp = transformer.vec_det2csf (v_qpab, order='F', normalize=False)
+    v_rqp = v_rqp[csf_addr].reshape (ncsf, q, p)
+    denom_q = denom_q + 1j*fciobj.imag_shift
+    denom_fac_q = np.real (1.0 / denom_q)
+    rv_rqp = (v_rqp.conj () * denom_fac_q[None,:,None])
+    rv_rx, v_rx = rv_rqp.reshape (ncsf, q*p), v_rqp.reshape (ncsf, q*p)
+    h0 = np.dot (rv_rx, v_rx.T)
+    assert (h0.shape == (ncsf, ncsf))
+    return h0
+
 def vrv_fcisolver (fciobj, e0, e_q, v_qpab, max_cycle_e0=MAX_CYCLE_E0, conv_tol_e0=CONV_TOL_E0,
                    crash_locmin=False):
     if isinstance (fciobj, VRVDressedFCISolver):
@@ -666,7 +743,25 @@ def vrv_fcisolver (fciobj, e0, e_q, v_qpab, max_cycle_e0=MAX_CYCLE_E0, conv_tol_
         fciobj_class = fciobj.__class__
         weights = None
     class FCISolver (VRVDressedFCISolver, fciobj_class):
-        pass
+        if isinstance (fciobj, CSFFCISolver):
+            def make_hdiag_csf (self, *args, **kwargs):
+                hdiag_csf = fciobj_class.make_hdiag_csf (self, *args, **kwargs)
+                dhdiag_csf = make_hdiag_csf_vrv (self)
+                return hdiag_csf + dhdiag_csf
+            def pspace (self, *args, **kwargs):
+                csf_addr, h0 = fciobj_class.pspace (self, *args, **kwargs)
+                dh0 = pspace_csf_vrv (self, csf_addr)
+                return csf_addr, h0 + dh0
+        else:
+            raise NotImplementedError ("Non-CSF version of excitation solver")
+            #def make_hdiag (self, *args, **kwargs):
+            #    hdiag = fciobj_class.make_hdiag (self, *args, **kwargs)
+            #    dhdiag = make_hdiag_det_vrv (self)
+            #    return hdiag + dhdiag
+            #def pspace (self, h1e, eri, norb, nelec, **kwargs):
+            #    det_addr, h0 = fciobj_class.pspace (self, h1e, eri, norb, nelec, **kwargs)
+            #    dh0 = pspace_det_vrv (self, norb, nelec, det_addr)
+            #    return det_addr, h0 + dh0
     new_fciobj = FCISolver (fciobj, v_qpab, e_q, e0, max_cycle_e0=max_cycle_e0,
                             conv_tol_e0=conv_tol_e0, crash_locmin=crash_locmin)
     if weights is not None: new_fciobj = state_average_fcisolver (new_fciobj, weights=weights)
