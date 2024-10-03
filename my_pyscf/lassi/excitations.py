@@ -483,6 +483,8 @@ class VRVDressedFCISolver (object):
         denom_q: ndarray of shape (nq,)
             Contains E-e_q with the current guess E solution of the self-consistent
             eigenproblem
+        q_qab: ndarray of shape (nq, ndeta, ndetb)
+            Intermediate used to project orthogonal to previous vectors (req'd due to nonlinear H)
         max_cycle_e0: integer
             Maximum number of cycles allowed to attempt to converge the self-consistent
             eigenproblem
@@ -503,13 +505,29 @@ class VRVDressedFCISolver (object):
         self.imag_shift = IMAG_SHIFT
         self.e_q = my_eq
         self.v_qpab = my_vrv
+        self.q_qab = None
         self.max_cycle_e0 = max_cycle_e0
         self.conv_tol_e0 = conv_tol_e0
         self.crash_locmin = crash_locmin
+    def project_2e (self, ci):
+        if self.q_qab is None or self.q_qab.shape[0]==0: return ci
+        ovlp = np.tensordot (self.q_qab.conj (), ci, axes=((-2,-1),(-2,-1)))
+        qci = ci - np.tensordot (ovlp, self.q_qab, axes=((0),(0)))
+        return qci
+    def get_projectors (self, h1e, eri, norb, nelec, link_index=None):
+        h2eff = self.absorb_h1e (h1e, eri, norb, nelec, 0.5)
+        if self.q_qab is None or self.q_qab.shape[0]==0: return self.q_qab, None, None
+        hq_qab = np.stack ([self.contract_2e (h2eff, c, norb, nelec, link_index=link_index,
+                                              project_q=False)
+                            for c in self.q_qab], axis=0)
+        ham_q = np.tensordot (self.q_qab.conj (), hq_qab, axes=((-2,-1),(-2,-1)))
+        return self.q_qab, hq_qab, ham_q
     def contract_2e(self, eri, fcivec, norb, nelec, link_index=None, v_qpab=None, denom_q=None,
-                    **kwargs):
+                    project_q=True, **kwargs):
+        if project_q: fcivec = self.project_2e (fcivec)
         ci0 = self.undressed_contract_2e (eri, fcivec, norb, nelec, link_index, **kwargs)
         ci0 += self.contract_vrv (fcivec, v_qpab=v_qpab, denom_q=denom_q)
+        if project_q: ci0 = self.project_2e (ci0)
         return ci0
     def contract_vrv (self, ket, v_qpab=None, denom_q=None):
         if v_qpab is None: v_qpab = self.v_qpab
@@ -745,13 +763,25 @@ def vrv_fcisolver (fciobj, e0, e_q, v_qpab, max_cycle_e0=MAX_CYCLE_E0, conv_tol_
     class FCISolver (VRVDressedFCISolver, fciobj_class):
         if isinstance (fciobj, CSFFCISolver):
             def make_hdiag_csf (self, *args, **kwargs):
+                h1e, eri, norb, nelec = args[:4]
+                link_index = kwargs.get ('link_index', None)
+                q_qab, hq_qab, ham_q = self.get_projectors (
+                    h1e, eri, norb, nelec, link_index=link_index
+                )
                 hdiag_csf = fciobj_class.make_hdiag_csf (self, *args, **kwargs)
                 dhdiag_csf = make_hdiag_csf_vrv (self)
                 return hdiag_csf + dhdiag_csf
             def pspace (self, *args, **kwargs):
+                h1e, eri, norb, nelec = args[:4]
+                link_index = kwargs.get ('link_index', None)
                 csf_addr, h0 = fciobj_class.pspace (self, *args, **kwargs)
                 dh0 = pspace_csf_vrv (self, csf_addr)
                 return csf_addr, h0 + dh0
+            def get_projectors_csf (self, h1e, eri, norb, nelec, link_index=None):
+                q_qab, hq_qab, ham_q = self.get_projectors (
+                    h1e, eri, norb, nelec, link_index=link_index
+                )
+                
         else:
             raise NotImplementedError ("Non-CSF version of excitation solver")
             #def make_hdiag (self, *args, **kwargs):
