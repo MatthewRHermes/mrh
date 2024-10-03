@@ -157,6 +157,8 @@ def select_single_excitation_from_spin_manifold (lsi, space0, manifold):
     offset = np.amax (sorter)
     sorter[ifrag] += offset
     sorter[afrag] += offset
+    if sorter[ifrag] == sorter[afrag]: 
+        sorter[afrag] += 1
     idx = np.argsort (sorter, kind='stable')
     dspins = dspins[:,idx]
     dimsize = dspins.shape[0] * np.amax (dspins, axis=0)
