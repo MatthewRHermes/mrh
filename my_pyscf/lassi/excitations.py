@@ -438,7 +438,7 @@ class ExcitationPSFCISolver (ProductStateFCISolver):
         self._e_q = []
         self._si_q = []
 
-def vrvsolver_single_kernel (fciobj, h1e, h2e, norb, nelec, ecore=0, ci0=None, orbsym=None,
+def vrvsolver_kernel (fciobj, h1e, h2e, norb, nelec, ecore=0, ci0=None, orbsym=None,
                              **kwargs):
     log = lib.logger.new_logger (fciobj, fciobj.verbose)
     max_cycle_e0 = fciobj.max_cycle_e0
@@ -477,47 +477,6 @@ def vrvsolver_single_kernel (fciobj, h1e, h2e, norb, nelec, ecore=0, ci0=None, o
             break
     fciobj.test_locmin (e0, ci1, norb, nelec, ecore, h1e, h2e)
     fciobj.converged = (converged and np.all (fciobj.converged))
-    return e, ci1
-
-class single_root_env:
-    def __init__(self, fciobj, i, ci0, ci1):
-        self.fciobj = fciobj
-        self.i = i
-        self.ci0 = ci0
-        self.ci1 = ci1
-        self.old_nroots = fciobj.nroots
-        self.old_v_qpab = fciobj.v_qpab
-        self.old_q_qab = fciobj.q_qab
-    def __enter__(self):
-        i = self.i
-        self.fciobj.nroots = 1
-        self.fciobj.v_qpab = self.old_v_qpab[:,i:i+1,:,:]
-        ci0 = self.ci0[i]
-        ci1 = np.asarray (self.ci1[:i])
-        if i>0:
-            self.fciobj.q_qab = ci1
-            ci0 = self.fciobj.project_2e (ci0)
-            ci0 /= linalg.norm (ci0)
-        return ci0
-    def __exit__(self, type, value, traceback):
-        self.fciobj.nroots = self.old_nroots
-        self.fciobj.v_qpab = self.old_v_qpab
-        self.fciobj.q_qab = self.old_q_qab
-
-def vrvsolver_loop_kernel (fciobj, h1e, h2e, norb, nelec, ecore=0, ci0=None, orbsym=None,
-                           nroots=None, **kwargs):
-    e = []
-    ci1 = []
-    conv = []
-    
-    for i in range (fciobj.nroots):
-        with single_root_env (fciobj, i, ci0, ci1) as ci0_i:
-            ei, ci1i = vrvsolver_single_kernel (fciobj, h1e, h2e, norb, nelec, ecore=ecore,
-                                                ci0=ci0_i, orbsym=orbsym, nroots=1, **kwargs)
-            e.append (ei)
-            ci1.append (ci1i)
-            conv.append (fciobj.converged)
-    fciobj.converged = all (conv)
     return e, ci1
 
 class VRVDressedFCISolver (object):
@@ -719,8 +678,7 @@ class VRVDressedFCISolver (object):
         return self._undressed_class.kernel (self, *args, **kwargs)
     def undressed_contract_2e (self, *args, **kwargs):
         return self._undressed_class.contract_2e (self, *args, **kwargs)
-
-    kernel = vrvsolver_loop_kernel
+    kernel = vrvsolver_kernel
 
 def make_hdiag_det_vrv (fciobj, v_qpab=None, denom_q=None):
     # Untested!
