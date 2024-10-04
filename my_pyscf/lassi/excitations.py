@@ -444,6 +444,87 @@ class ExcitationPSFCISolver (ProductStateFCISolver):
         self._e_q = []
         self._si_q = []
 
+def vrvsolver_single_kernel (fciobj, h1e, h2e, norb, nelec, ecore=0, ci0=None, orbsym=None,
+                             **kwargs):
+    log = lib.logger.new_logger (fciobj, fciobj.verbose)
+    max_cycle_e0 = fciobj.max_cycle_e0
+    conv_tol_e0 = fciobj.conv_tol_e0
+    e0_last = 0
+    converged = False
+    ket = ci0[0] if fciobj.nroots>1 else ci0
+    e0 = fciobj.solve_e0 (ecore, h1e, h2e, norb, nelec, ket)
+    ci1 = ci0
+    fciobj.denom_q = e0 - fciobj.e_q
+    log.debug ("Self-energy singularities in VRVSolver: {}".format (fciobj.e_q))
+    log.debug ("e0 = %.8g", e0)
+    log.debug ("Denominators in VRVSolver: {}".format (fciobj.denom_q))
+    fciobj.test_locmin (e0, ci1, norb, nelec, ecore, h1e, h2e, warntag='Saddle-point initial guess')
+    h2eff = fciobj.absorb_h1e (h1e, h2e, norb, nelec, 0.5)
+    for it in range (max_cycle_e0):
+        e, ci1 = fciobj.undressed_kernel (
+            h1e, h2e, norb, nelec, ecore=ecore, ci0=ci1, orbsym=orbsym, **kwargs
+        )
+        # Subtract the vrv energy so that agreement between different fragments can
+        # be checked in the impure-state case
+        if isinstance (e, (list,tuple,np.ndarray)):
+            for i in range (len (e)):
+                hci = fciobj.undressed_contract_2e (h2eff, ci1[i], norb, nelec)
+                e[i] = ecore + np.dot (ci1[i].ravel (), hci.ravel ())
+        else:
+            hci = fciobj.undressed_contract_2e (h2eff, ci1, norb, nelec)
+            e = ecore + np.dot (ci1.ravel (), hci.ravel ())
+        e0_last = e0
+        e0 = fciobj.solve_e0 (ecore, h1e, h2e, norb, nelec, ket)
+        fciobj.denom_q = e0 - fciobj.e_q
+        log.debug ("e0 = %.8g", e0)
+        log.debug ("Denominators in VRVSolver: {}".format (fciobj.denom_q))
+        if abs(e0-e0_last)<conv_tol_e0:
+            converged = True
+            break
+    fciobj.test_locmin (e0, ci1, norb, nelec, ecore, h1e, h2e)
+    fciobj.converged = (converged and np.all (fciobj.converged))
+    return e, ci1
+
+class single_root_env:
+    def __init__(self, fciobj, i, ci0, ci1):
+        self.fciobj = fciobj
+        self.i = i
+        self.ci0 = ci0
+        self.ci1 = ci1
+        self.old_nroots = fciobj.nroots
+        self.old_v_qpab = fciobj.v_qpab
+        self.old_q_qab = fciobj.q_qab
+    def __enter__(self):
+        i = self.i
+        self.fciobj.nroots = 1
+        self.fciobj.v_qpab = self.old_v_qpab[:,i:i+1,...]
+        ci0 = self.ci0[i]
+        ci1 = np.asarray (self.ci1[:i])
+        if i>0:
+            self.fciobj.q_qab = ci1
+            ci0 = self.fciobj.project_2e (ci0)
+            ci0 /= linalg.norm (ci0)
+        return ci0
+    def __exit__(self, type, value, traceback):
+        self.fciobj.nroots = self.old_nroots
+        self.fciobj.v_qpab = self.old_v_qpab
+        self.fciobj.q_qab = self.old_q_qab
+
+def vrvsolver_loop_kernel (fciobj, h1e, h2e, norb, nelec, ecore=0, ci0=None, orbsym=None,
+                           **kwargs):
+    e = []
+    ci1 = []
+    conv = []
+    for i in range (nroots):
+        with single_root_env (fciobj, i, ci0, ci1) as ci0_i:
+            ei, ci1i = vrvsolver_single_kernel (fciobj, h1e, h2e, norb, nelec, ecore=ecore,
+                                                ci0=ci0_i, orbsym=orbsym, **kwargs)
+            e.append (ei)
+            ci1.append (ci1i)
+            conv.append (fciobj.converged)
+    fciobj.converged = all (conv)
+    return e, ci1
+
 class VRVDressedFCISolver (object):
     '''Minimize the energy of a wave function of the form
 
@@ -523,6 +604,7 @@ class VRVDressedFCISolver (object):
         ham_q = np.tensordot (self.q_qab.conj (), hq_qab, axes=((-2,-1),(-2,-1)))
         return self.q_qab, hq_qab, ham_q
     def project_hdiag (self, q_qr, hq_qr, ham_q):
+        if q_qr is None: return 0
         hdiag_shape = q_qr.shape[1:]
         nq = q_qr.shape[0]
         q_qr = q_qr.reshape (nq, -1)
@@ -531,6 +613,7 @@ class VRVDressedFCISolver (object):
         hdiag -= (q_qr.conj () * hq_qr + q_qr * hq_qr.conj ())
         return hdiag.sum (0).reshape (hdiag_shape)
     def project_pspace (self, addr, q_qr, hq_qr, ham_q):
+        if q_qr is None: return 0
         nq = q_qr.shape[0]
         q_qr = q_qr.reshape (nq, -1)[:,addr]
         hq_qr = hq_qr.reshape (nq, -1)[:,addr]
@@ -637,49 +720,12 @@ class VRVDressedFCISolver (object):
         else:
             ci = ci[0]
         return e0[0], ci
-    def kernel (self, h1e, h2e, norb, nelec, ecore=0, ci0=None, orbsym=None, **kwargs):
-        log = lib.logger.new_logger (self, self.verbose)
-        max_cycle_e0 = self.max_cycle_e0
-        conv_tol_e0 = self.conv_tol_e0
-        e0_last = 0
-        converged = False
-        ket = ci0[0] if self.nroots>1 else ci0
-        e0 = self.solve_e0 (ecore, h1e, h2e, norb, nelec, ket)
-        ci1 = ci0
-        self.denom_q = e0 - self.e_q
-        log.debug ("Self-energy singularities in VRVSolver: {}".format (self.e_q))
-        log.debug ("e0 = %.8g", e0)
-        log.debug ("Denominators in VRVSolver: {}".format (self.denom_q))
-        self.test_locmin (e0, ci1, norb, nelec, ecore, h1e, h2e, warntag='Saddle-point initial guess')
-        h2eff = self.absorb_h1e (h1e, h2e, norb, nelec, 0.5)
-        for it in range (max_cycle_e0):
-            e, ci1 = self.undressed_kernel (
-                h1e, h2e, norb, nelec, ecore=ecore, ci0=ci1, orbsym=orbsym, **kwargs
-            )
-            # Subtract the vrv energy so that agreement between different fragments can
-            # be checked in the impure-state case
-            if isinstance (e, (list,tuple,np.ndarray)):
-                for i in range (len (e)):
-                    hci = self.undressed_contract_2e (h2eff, ci1[i], norb, nelec)
-                    e[i] = ecore + np.dot (ci1[i].ravel (), hci.ravel ())
-            else:
-                hci = self.undressed_contract_2e (h2eff, ci1, norb, nelec)
-                e = ecore + np.dot (ci1.ravel (), hci.ravel ())
-            e0_last = e0
-            e0 = self.solve_e0 (ecore, h1e, h2e, norb, nelec, ket)
-            self.denom_q = e0 - self.e_q
-            log.debug ("e0 = %.8g", e0)
-            log.debug ("Denominators in VRVSolver: {}".format (self.denom_q))
-            if abs(e0-e0_last)<conv_tol_e0:
-                converged = True
-                break
-        self.test_locmin (e0, ci1, norb, nelec, ecore, h1e, h2e)
-        self.converged = (converged and np.all (self.converged))
-        return e, ci1
     def undressed_kernel (self, *args, **kwargs):
         return self._undressed_class.kernel (self, *args, **kwargs)
     def undressed_contract_2e (self, *args, **kwargs):
         return self._undressed_class.contract_2e (self, *args, **kwargs)
+    kernel = vrvsolver_single_kernel
+
 
 def make_hdiag_det_vrv (fciobj, v_qpab=None, denom_q=None):
     # Untested!
@@ -781,12 +827,9 @@ def vrv_fcisolver (fciobj, e0, e_q, v_qpab, max_cycle_e0=MAX_CYCLE_E0, conv_tol_
             def make_hdiag_csf (self, *args, **kwargs):
                 h1e, eri, norb, nelec = args[:4]
                 link_index = kwargs.get ('link_index', None)
-                q_qab, hq_qab, ham_q = self.get_projectors (
+                q_qr, hq_qr, ham_q = self.get_projectors (
                     h1e, eri, norb, nelec, link_index=link_index
                 )
-                t = self.transformer
-                q_qr = t.vec_det2csf (q_qab)
-                hq_qr = t.vec_det2csf (hq_qab, normalize=False)
                 hdiag_csf = fciobj_class.make_hdiag_csf (self, *args, **kwargs)
                 dhdiag_csf = make_hdiag_csf_vrv (self)
                 qhdiag_csf = self.project_hdiag (q_qr, hq_qr, ham_q)
@@ -794,16 +837,22 @@ def vrv_fcisolver (fciobj, e0, e_q, v_qpab, max_cycle_e0=MAX_CYCLE_E0, conv_tol_
             def pspace (self, *args, **kwargs):
                 h1e, eri, norb, nelec = args[:4]
                 link_index = kwargs.get ('link_index', None)
-                q_qab, hq_qab, ham_q = self.get_projectors (
+                q_qr, hq_qr, ham_q = self.get_projectors (
                     h1e, eri, norb, nelec, link_index=link_index
                 )
+                csf_addr, h0 = fciobj_class.pspace (self, *args, **kwargs)
+                dh0 = pspace_csf_vrv (self, csf_addr)
+                qh0 = self.project_pspace (csf_addr, q_qr, hq_qr, ham_q)
+                return csf_addr, h0 + dh0 + qh0
+            def get_projectors (self, h1e, eri, norb, nelec, link_index=None):
+                q_qab, hq_qab, ham_q = VRVDressedFCISolver.get_projectors (
+                    self, h1e, eri, norb, nelec, link_index=link_index
+                )
+                if q_qab is None: return q_qab, hq_qab, ham_q
                 t = self.transformer
                 q_qr = t.vec_det2csf (q_qab)
                 hq_qr = t.vec_det2csf (hq_qab, normalize=False)
-                csf_addr, h0 = fciobj_class.pspace (self, *args, **kwargs)
-                dh0 = pspace_csf_vrv (self, csf_addr)
-                qh0 = self.project_pspace (addr, q_qr, hq_qr, ham_q)
-                return csf_addr, h0 + dh0 + qh0
+                return q_qr, hq_qr, ham_q
         else:
             raise NotImplementedError ("Non-CSF version of excitation solver")
             def make_hdiag (self, *args, **kwargs):
@@ -816,7 +865,7 @@ def vrv_fcisolver (fciobj, e0, e_q, v_qpab, max_cycle_e0=MAX_CYCLE_E0, conv_tol_
                 dhdiag = make_hdiag_det_vrv (self)
                 qhdiag = self.project_hdiag (q_qab, hq_qab, ham_q)
                 return hdiag + dhdiag + qhdiag
-            def pspace (self, h1e, eri, norb, nelec, **kwargs):
+            def pspace (self, *args, **kwargs):
                 h1e, eri, norb, nelec = args[:4]
                 link_index = kwargs.get ('link_index', None)
                 q_qab, hq_qab, ham_q = self.get_projectors (
