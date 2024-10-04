@@ -522,6 +522,22 @@ class VRVDressedFCISolver (object):
                             for c in self.q_qab], axis=0)
         ham_q = np.tensordot (self.q_qab.conj (), hq_qab, axes=((-2,-1),(-2,-1)))
         return self.q_qab, hq_qab, ham_q
+    def project_hdiag (self, q_qr, hq_qr, ham_q):
+        hdiag_shape = q_qr.shape[1:]
+        nq = q_qr.shape[0]
+        q_qr = q_qr.reshape (nq, -1)
+        hq_qr = hq_qr.reshape (nq, -1)
+        hdiag = (np.dot (ham_q, q_qr) * q_qr.conj ())
+        hdiag -= (q_qr.conj () * hq_qr + q_qr * hq_qr.conj ())
+        return hdiag.sum (0).reshape (hdiag_shape)
+    def project_pspace (self, addr, q_qr, hq_qr, ham_q):
+        nq = q_qr.shape[0]
+        q_qr = q_qr.reshape (nq, -1)[:,addr]
+        hq_qr = hq_qr.reshape (nq, -1)[:,addr]
+        h0 = np.dot (q_qr.conj ().T, np.dot (ham_q, q_qr))
+        h0 -= np.dot (q_qr.conj ().T, hq_qr)
+        h0 -= np.dot (hq_qr.conj ().T, q_qr)
+        return h0
     def contract_2e(self, eri, fcivec, norb, nelec, link_index=None, v_qpab=None, denom_q=None,
                     project_q=True, **kwargs):
         if project_q: fcivec = self.project_2e (fcivec)
@@ -768,30 +784,48 @@ def vrv_fcisolver (fciobj, e0, e_q, v_qpab, max_cycle_e0=MAX_CYCLE_E0, conv_tol_
                 q_qab, hq_qab, ham_q = self.get_projectors (
                     h1e, eri, norb, nelec, link_index=link_index
                 )
+                t = self.transformer
+                q_qr = t.vec_det2csf (q_qab)
+                hq_qr = t.vec_det2csf (hq_qab, normalize=False)
                 hdiag_csf = fciobj_class.make_hdiag_csf (self, *args, **kwargs)
                 dhdiag_csf = make_hdiag_csf_vrv (self)
-                return hdiag_csf + dhdiag_csf
+                qhdiag_csf = self.project_hdiag (q_qr, hq_qr, ham_q)
+                return hdiag_csf + dhdiag_csf + qhdiag_csf
             def pspace (self, *args, **kwargs):
                 h1e, eri, norb, nelec = args[:4]
                 link_index = kwargs.get ('link_index', None)
-                csf_addr, h0 = fciobj_class.pspace (self, *args, **kwargs)
-                dh0 = pspace_csf_vrv (self, csf_addr)
-                return csf_addr, h0 + dh0
-            def get_projectors_csf (self, h1e, eri, norb, nelec, link_index=None):
                 q_qab, hq_qab, ham_q = self.get_projectors (
                     h1e, eri, norb, nelec, link_index=link_index
                 )
-                
+                t = self.transformer
+                q_qr = t.vec_det2csf (q_qab)
+                hq_qr = t.vec_det2csf (hq_qab, normalize=False)
+                csf_addr, h0 = fciobj_class.pspace (self, *args, **kwargs)
+                dh0 = pspace_csf_vrv (self, csf_addr)
+                qh0 = self.project_pspace (addr, q_qr, hq_qr, ham_q)
+                return csf_addr, h0 + dh0 + qh0
         else:
             raise NotImplementedError ("Non-CSF version of excitation solver")
-            #def make_hdiag (self, *args, **kwargs):
-            #    hdiag = fciobj_class.make_hdiag (self, *args, **kwargs)
-            #    dhdiag = make_hdiag_det_vrv (self)
-            #    return hdiag + dhdiag
-            #def pspace (self, h1e, eri, norb, nelec, **kwargs):
-            #    det_addr, h0 = fciobj_class.pspace (self, h1e, eri, norb, nelec, **kwargs)
-            #    dh0 = pspace_det_vrv (self, norb, nelec, det_addr)
-            #    return det_addr, h0 + dh0
+            def make_hdiag (self, *args, **kwargs):
+                h1e, eri, norb, nelec = args[:4]
+                link_index = kwargs.get ('link_index', None)
+                q_qab, hq_qab, ham_q = self.get_projectors (
+                    h1e, eri, norb, nelec, link_index=link_index
+                )
+                hdiag = fciobj_class.make_hdiag (self, *args, **kwargs)
+                dhdiag = make_hdiag_det_vrv (self)
+                qhdiag = self.project_hdiag (q_qab, hq_qab, ham_q)
+                return hdiag + dhdiag + qhdiag
+            def pspace (self, h1e, eri, norb, nelec, **kwargs):
+                h1e, eri, norb, nelec = args[:4]
+                link_index = kwargs.get ('link_index', None)
+                q_qab, hq_qab, ham_q = self.get_projectors (
+                    h1e, eri, norb, nelec, link_index=link_index
+                )
+                det_addr, h0 = fciobj_class.pspace (self, h1e, eri, norb, nelec, **kwargs)
+                dh0 = pspace_det_vrv (self, norb, nelec, det_addr)
+                qh0 = self.project_pspace (det_addr, q_qab, hq_qab, ham_q)
+                return det_addr, h0 + dh0 + qh0
     new_fciobj = FCISolver (fciobj, v_qpab, e_q, e0, max_cycle_e0=max_cycle_e0,
                             conv_tol_e0=conv_tol_e0, crash_locmin=crash_locmin)
     if weights is not None: new_fciobj = state_average_fcisolver (new_fciobj, weights=weights)
