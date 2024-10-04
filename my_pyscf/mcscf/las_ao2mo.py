@@ -47,32 +47,34 @@ def get_h2eff_df (las, mo_coeff):
     t0 = (lib.logger.process_clock (), lib.logger.perf_counter ())
     for cderi in las.with_df.loop (blksize=blksize):
         t1 = lib.logger.timer (las, 'Sparsedf', *t0)
-        if DEBUG and gpu:
-            bPmn = sparsedf_array (cderi)
-            mo_cas_gpu=mo_cas.copy() #you need to do this because mo_cas is not contiguous in memory. Unfortunately I do not have a better solution.
-            bmuP2 = bPmn.contract1 (mo_cas)
-            bmuP1 = np.zeros((nao,ncas,blksize), dtype=np.float64)
-            libgpu.libgpu_h2eff_df_contract1(gpu, cderi, nao, nmo, ncas, naux, blksize, mo_cas_gpu, bmuP1)
-            if np.allclose(bmuP1,bmuP2): 
-                print("contract1 check passed!")
-            else: 
-                print("contract1 bug,  max error: ",np.max((bmuP1- bmuP2)*(bmuP1-bmuP2)));
-                exit()
-        elif gpu:
-            bmuP1 = np.zeros((nao,ncas,blksize), dtype=np.float64)
-            mo_cas_gpu=mo_cas.copy()
-            libgpu.libgpu_h2eff_df_contract1(gpu, cderi, nao, nmo, ncas, naux, blksize, mo_cas_gpu, bmuP1)
-            t1 = lib.logger.timer (las, 'contract1 gpu', *t1)
-        else:
-            bPmn = sparsedf_array (cderi)
-            bmuP1 = bPmn.contract1 (mo_cas)
-            #bmuP1 = np.einsum('Pmn,nu->muP',unpack_tril(bPmn),mo_cas)
-            t1 = lib.logger.timer (las, 'contract1', *t1)
-            log.debug2 ("LAS DF ERI bPmn shape = %s; shares memory? %s %s; C_CONTIGUOUS? %s",
-                      str (bPmn.shape), str (np.shares_memory (bPmn, cderi)),
-                      str (np.may_share_memory (bPmn, cderi)),
-                      str (bPmn.flags['C_CONTIGUOUS']))
-        if mem_enough_int and not gpu: bmuP.append (bmuP1)
+        #if DEBUG and gpu:
+        #    bPmn = sparsedf_array (cderi)
+        #    mo_cas_gpu=mo_cas.copy() #you need to do this because mo_cas is not contiguous in memory. Unfortunately I do not have a better solution.
+        #    bmuP2 = bPmn.contract1 (mo_cas)
+        #    bmuP1 = np.zeros((nao,ncas,blksize), dtype=np.float64)
+        #    libgpu.libgpu_h2eff_df_contract1(gpu, cderi, nao, nmo, ncas, naux, blksize, mo_cas_gpu, bmuP1)
+        #    if np.allclose(bmuP1,bmuP2): 
+        #        print("contract1 check passed!")
+        #    else: 
+        #        print("contract1 bug,  max error: ",np.max((bmuP1- bmuP2)*(bmuP1-bmuP2)));
+        #        exit()
+        #elif gpu:
+        #    bmuP1 = np.zeros((nao,ncas,blksize), dtype=np.float64)
+        #    mo_cas_gpu=mo_cas.copy()
+        #    print("using slow branch")
+        #    libgpu.libgpu_h2eff_df_contract1(gpu, cderi, nao, nmo, ncas, naux, blksize, mo_cas_gpu, bmuP1)
+        #    t1 = lib.logger.timer (las, 'contract1 gpu', *t1)
+        #else:
+        bPmn = sparsedf_array (cderi)
+        bmuP1 = bPmn.contract1 (mo_cas)
+        #bmuP1 = np.einsum('Pmn,nu->muP',unpack_tril(bPmn),mo_cas)
+        t1 = lib.logger.timer (las, 'contract1', *t1)
+        log.debug2 ("LAS DF ERI bPmn shape = %s; shares memory? %s %s; C_CONTIGUOUS? %s",
+                 str (bPmn.shape), str (np.shares_memory (bPmn, cderi)),
+                 str (np.may_share_memory (bPmn, cderi)),
+                 str (bPmn.flags['C_CONTIGUOUS']))
+        #if mem_enough_int and not gpu: bmuP.append (bmuP1)
+        if mem_enough_int : bmuP.append (bmuP1)
         buvP = np.tensordot (mo_cas.conjugate (), bmuP1, axes=((0),(0)))
         eri1 = np.tensordot (bmuP1, buvP, axes=((2),(2)))
         eri1 = np.tensordot (mo_coeff.conjugate (), eri1, axes=((0),(0)))
@@ -95,42 +97,42 @@ def get_h2eff_gpu (las,mo_coeff):
     ncore, ncas = las.ncore, las.ncas
     nocc = ncore + ncas
     mo_cas = mo_coeff[:,ncore:nocc]
-    if gpu: libgpu.libgpu_push_mo_coeff(gpu,mo_coeff.copy(),mo_coeff.size)
+    libgpu.libgpu_push_mo_coeff(gpu,mo_coeff.copy(),mo_coeff.size)
     naux = las.with_df.get_naoaux ()
-    if gpu: blksize = las.with_df.blockdim
-    else:
-        mem_eris = 8*(nao+nmo)*ncas*ncas*ncas / 1e6
-        mem_eris += 8*lib.num_threads ()*nao*nmo / 1e6 
-        mem_av = las.max_memory - lib.current_memory ()[0] - mem_eris
-        mem_int = 16*naux*ncas*nao / 1e6
-        mem_enough_int = mem_av > mem_int
-        if mem_enough_int:
-            mem_av -= mem_int
-            bmuP = []
-            log.debug ("LAS DF ERI including intermediate cache")
-        else:
-            log.debug ("LAS DF ERI not including intermediate cache")
-        safety_factor = 1.1
-        mem_per_aux = nao*ncas # bmuP
-        mem_per_aux += ncas*ncas # buvP
-        mem_per_aux += nao*lib.num_threads () # wrk in contract1
-        if not isinstance (getattr (las.with_df, '_cderi', None), np.ndarray):
-            mem_per_aux += 3*nao*(nao+1)//2 # cderi / bPmn
-        else:
-            mem_per_aux += nao*(nao+1) # see note above
-        mem_per_aux *= safety_factor * 8 / 1e6
-        mem_per_aux = max (1, mem_per_aux)
-        #blksize = max (1, min (naux, int (mem_av / mem_per_aux)))
-        blksize=las.with_df.blockdim
-        log.debug2 ("LAS DF ERI blksize = %d, mem_av = %d MB, mem_per_aux = %d MB", blksize, mem_av, mem_per_aux)
-        log.debug2 ("LAS DF ERI naux = %d, nao = %d, nmo = %d", naux, nao, nmo)
-    assert (blksize>1)
+    blksize = las.with_df.blockdim
+    #else:
+    #    mem_eris = 8*(nao+nmo)*ncas*ncas*ncas / 1e6
+    #    mem_eris += 8*lib.num_threads ()*nao*nmo / 1e6 
+    #    mem_av = las.max_memory - lib.current_memory ()[0] - mem_eris
+    #    mem_int = 16*naux*ncas*nao / 1e6
+    #    mem_enough_int = mem_av > mem_int
+    #    if mem_enough_int:
+    #        mem_av -= mem_int
+    #        bmuP = []
+    #        log.debug ("LAS DF ERI including intermediate cache")
+    #    else:
+    #        log.debug ("LAS DF ERI not including intermediate cache")
+    #    safety_factor = 1.1
+    #    mem_per_aux = nao*ncas # bmuP
+    #    mem_per_aux += ncas*ncas # buvP
+    #    mem_per_aux += nao*lib.num_threads () # wrk in contract1
+    #    if not isinstance (getattr (las.with_df, '_cderi', None), np.ndarray):
+    #        mem_per_aux += 3*nao*(nao+1)//2 # cderi / bPmn
+    #    else:
+    #        mem_per_aux += nao*(nao+1) # see note above
+    #    mem_per_aux *= safety_factor * 8 / 1e6
+    #    mem_per_aux = max (1, mem_per_aux)
+    #    #blksize = max (1, min (naux, int (mem_av / mem_per_aux)))
+    #    blksize=las.with_df.blockdim
+    #    log.debug2 ("LAS DF ERI blksize = %d, mem_av = %d MB, mem_per_aux = %d MB", blksize, mem_av, mem_per_aux)
+    #    log.debug2 ("LAS DF ERI naux = %d, nao = %d, nmo = %d", naux, nao, nmo)
+    #assert (blksize>1)
     eri = 0
     t0 = (lib.logger.process_clock (), lib.logger.perf_counter ())
+    eri1 = np.empty((nmo, int(ncas*ncas*(ncas+1)/2)),dtype='d')
     for cderi in las.with_df.loop (blksize=blksize):
         t1 = lib.logger.timer (las, 'Sparsedf', *t0)
         naux = cderi.shape[0]
-        eri1 = np.empty((nmo, int(ncas*ncas*(ncas+1)/2)),dtype='d')
         if DEBUG and gpu:
             libgpu.libgpu_get_h2eff_df(gpu, cderi, nao, nmo, ncas, naux, ncore,eri1, count, id(las.with_df))
             bPmu = np.einsum('Pmn,nu->Pmu',lib.unpack_tril(cderi),mo_cas)
@@ -142,7 +144,7 @@ def get_h2eff_gpu (las,mo_coeff):
             eri2 = lib.pack_tril (eri2.reshape (nmo*ncas, ncas, ncas)).reshape (nmo, -1)
             if np.allclose(eri1,eri2): print("h2eff is working")
             else: print("h2eff not working"); exit()
-        elif gpu: libgpu.libgpu_get_h2eff_df(gpu, cderi, nao, nmo, ncas, naux, ncore,eri1, count, id(las.with_df)); print("finished h2eff loop")
+        elif gpu: libgpu.libgpu_get_h2eff_df(gpu, cderi, nao, nmo, ncas, naux, ncore,eri1, count, id(las.with_df)); 
         else: 
             bPmn = sparsedf_array (cderi)
             bmuP1 = bPmn.contract1 (mo_cas)
@@ -154,7 +156,7 @@ def get_h2eff_gpu (las,mo_coeff):
         t1 = lib.logger.timer (las, 'contract1 gpu', *t1)
         count+=1
         eri +=eri1
-        eri1= None
+    eri1= None
     return eri
 
 

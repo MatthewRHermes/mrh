@@ -541,6 +541,7 @@ def _init_df_(h_op):
     if isinstance (h_op.las, _DFLASCI):
         h_op.with_df = h_op.las.with_df
         if gpu:
+           print('passing bPpj construction in gpu branch')
            pass
         elif h_op.bPpj is None:
             h_op.bPpj = np.ascontiguousarray (
@@ -1393,12 +1394,12 @@ class LASCI_HessianOperator (sparse_linalg.LinearOperator):
         return h2eff_sub 
       
     def _update_h2eff_sub_debug(self, mo1, umat, h2eff_sub):
+        # This code is outlining the algorithm taken in the GPU branch.
         ncore, ncas, nocc, nmo = self.ncore, self.ncas, self.nocc, self.nmo
         ucas = umat[ncore:nocc, ncore:nocc]
         h2eff_sub = h2eff_sub.reshape (nmo*ncas, ncas*(ncas+1)//2)
         h2eff_sub = lib.numpy_helper.unpack_tril (h2eff_sub)
         h2eff_sub = h2eff_sub.reshape (nmo, ncas, ncas, ncas)
-        print(h2eff_sub)
         h2eff_sub = np.tensordot (h2eff_sub, ucas, axes=((2),(0))) # qbab
         h2eff_sub = np.tensordot (h2eff_sub, ucas, axes=((2),(0))) # qbbb
         h2eff_sub=h2eff_sub.transpose((2,3,1,0))#new  #gpu code does qbab and qbbb lines first, and then does the next four lines because batching is easier.

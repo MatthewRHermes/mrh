@@ -1964,11 +1964,9 @@ class LASCINoSymm (casci.CASCI):
         dmb = linalg.block_diag (*[dm[1] for dm in casdm1s_sub])
         casdm1s = np.stack ([dma, dmb], axis=0)
         if gpu or not (isinstance (self, _DFLASCI)):
-            print("following gpu route") 
             dm1s = np.dot (mo_cas, np.dot (casdm1s, moH_cas)).transpose (1,0,2)
             if not _full: dm1s = dm1s[0]+dm1s[1]
             return self.get_veff (dm1s = dm1s, spin_sep=_full)
-        print("following cpu route") 
         casdm1 = casdm1s.sum (0)
         dm1 = np.dot (mo_cas, np.dot (casdm1, moH_cas))
         bPmn = sparsedf_array (self.with_df._cderi)

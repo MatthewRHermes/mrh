@@ -1019,7 +1019,7 @@ def get_pair_lasci (las, frags, inherit_df=False):
         imf = imf.density_fit ()
     ncas_sub = [las.ncas_sub[i] for i in frags]
     nelecas_sub = [las.nelecas_sub[i] for i in frags]
-    ilas = ImpurityLASCI (imf, ncas_sub, nelecas_sub)
+    ilas = ImpurityLASCI (imf, ncas_sub, nelecas_sub, use_gpu=las.use_gpu)
     if inherit_df and isinstance (las, _DFLASCI):
         ilas = lasci.density_fit (ilas, with_df=imf.with_df)
     charges, spins, smults, wfnsyms = lasci.get_space_info (las)
