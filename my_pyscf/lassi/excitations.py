@@ -383,8 +383,7 @@ class ExcitationPSFCISolver (ProductStateFCISolver):
 
         Returns:
             hci_f_pabq: list of ndarray
-                Contains H|q>, projected onto <p| for all but one fragment, for each fragment.
-                Vectors are multiplied by the sqrt of the weight of p.'''
+                Contains H|q>, projected onto <p| for all but one fragment, for each fragment.'''
         # TODO: point group symmetry
         t0 = lib.logger.process_clock (), lib.logger.perf_counter ()
         excited_frags = [ifrag for ifrag in self.excited_frags]
@@ -411,12 +410,7 @@ class ExcitationPSFCISolver (ProductStateFCISolver):
             weights = np.multiply.outer (w, weights)
         hci_f_pabq = []
         for ifrag, hc in enumerate (hci_fr_pabq):
-            # column-major order
-            w = weights.sum (-ifrag-1).ravel ()
-            assert (np.count_nonzero (w<0)==0)
-            idx = w > 0
-            hc = hc[0][idx] * np.sqrt (w[idx])[:,None,None,None]
-            hci_f_pabq.append (hc)
+            hci_f_pabq.append (hc[0])
         t1 = self.log.timer ('op_ham_pq_ref', *t0)
         return hci_f_pabq
 
@@ -497,7 +491,7 @@ class single_root_env:
     def __enter__(self):
         i = self.i
         self.fciobj.nroots = 1
-        self.fciobj.v_qpab = self.old_v_qpab[:,i:i+1,...]
+        self.fciobj.v_qpab = self.old_v_qpab[:,i:i+1,:,:]
         ci0 = self.ci0[i]
         ci1 = np.asarray (self.ci1[:i])
         if i>0:
@@ -511,14 +505,15 @@ class single_root_env:
         self.fciobj.q_qab = self.old_q_qab
 
 def vrvsolver_loop_kernel (fciobj, h1e, h2e, norb, nelec, ecore=0, ci0=None, orbsym=None,
-                           **kwargs):
+                           nroots=None, **kwargs):
     e = []
     ci1 = []
     conv = []
-    for i in range (nroots):
+    
+    for i in range (fciobj.nroots):
         with single_root_env (fciobj, i, ci0, ci1) as ci0_i:
             ei, ci1i = vrvsolver_single_kernel (fciobj, h1e, h2e, norb, nelec, ecore=ecore,
-                                                ci0=ci0_i, orbsym=orbsym, **kwargs)
+                                                ci0=ci0_i, orbsym=orbsym, nroots=1, **kwargs)
             e.append (ei)
             ci1.append (ci1i)
             conv.append (fciobj.converged)
@@ -724,8 +719,8 @@ class VRVDressedFCISolver (object):
         return self._undressed_class.kernel (self, *args, **kwargs)
     def undressed_contract_2e (self, *args, **kwargs):
         return self._undressed_class.contract_2e (self, *args, **kwargs)
-    kernel = vrvsolver_single_kernel
 
+    kernel = vrvsolver_loop_kernel
 
 def make_hdiag_det_vrv (fciobj, v_qpab=None, denom_q=None):
     # Untested!
@@ -877,7 +872,6 @@ def vrv_fcisolver (fciobj, e0, e_q, v_qpab, max_cycle_e0=MAX_CYCLE_E0, conv_tol_
                 return det_addr, h0 + dh0 + qh0
     new_fciobj = FCISolver (fciobj, v_qpab, e_q, e0, max_cycle_e0=max_cycle_e0,
                             conv_tol_e0=conv_tol_e0, crash_locmin=crash_locmin)
-    if weights is not None: new_fciobj = state_average_fcisolver (new_fciobj, weights=weights)
     return new_fciobj
 
 
