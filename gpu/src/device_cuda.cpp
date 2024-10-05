@@ -1308,10 +1308,6 @@ void Device::df_ao2mo_pass1 (int naux, int nmo, int nao, int ncore, int ncas,
 			    &beta,d_buf, nao, nao*nao,naux);
   _CUDA_CHECK_ERRORS();
   
-#ifdef _DEBUG_DEVICE
-  printf("LIBGPU ::  -- calling cublasDgemmStrideBatched() in ao2mo_fdrv \n");
-#endif
-  
   //bufpp = np.einsum('jk,ikl->ijl',mo_coeff.T,buf),i=naux,j=nao,l=nao
   
   double * d_bufpp = dd->d_buf2;//set memory for the entire bufpp array, no pushing needed 
@@ -1319,16 +1315,24 @@ void Device::df_ao2mo_pass1 (int naux, int nmo, int nao, int ncore, int ncas,
 			    &alpha, dd->d_mo_coeff, nao, 0, d_buf, nao, nao*nao, 
 			    &beta, d_bufpp, nao, nao*nao,naux);
   _CUDA_CHECK_ERRORS();
+#if 1
+  int _size_bufpa = naux*nmo*ncas;
+  if(_size_bufpa > dd->size_bufpa) {
+    dd->size_bufpa = _size_bufpa;
+    
+    if(dd->d_bufpa) pm->dev_free_async(dd->d_bufpa, dd->stream);
+    dd->d_bufpa = (double *) pm->dev_malloc_async(dd->size_bufpa * sizeof(double), dd->stream);
+  }
+  double * d_bufpa = dd->d_bufpa;
+#else
   double * d_bufpa = (double *) pm->dev_malloc (naux*nmo*ncas*sizeof(double));
+#endif
+
   {dim3 block_size(1,1,1);
   dim3 grid_size (_TILE(naux, block_size.x), _TILE(nmo, block_size.y), ncas);
   get_bufpa<<<grid_size, block_size, 0, dd->stream>>>(d_bufpp, d_bufpa, naux, nmo, ncore, ncas);}
 
   pm->dev_pull_async(d_bufpa, bufpa, naux*nmo*ncas*sizeof(double), dd->stream);
-
-
-  //pm->dev_pull_async(d_bufpp, bufpp_t, _size_eri_unpacked * sizeof(double), dd->stream);
-
 
   double * d_fxpp = dd->d_buf1;
   // fxpp[str(k)] =bufpp.transpose(1,2,0);
@@ -1338,14 +1342,22 @@ void Device::df_ao2mo_pass1 (int naux, int nmo, int nao, int ncore, int ncas,
   transpose_120<<<grid_size, block_size, 0, dd->stream>>>(d_bufpp, d_fxpp, naux, nmo, nmo);}
 
   pm->dev_pull_async(d_fxpp, bufpp_t, _size_eri_unpacked*sizeof(double), dd->stream);
- 
-    double * d_bufd = (double *) pm->dev_malloc_async(naux*nmo*sizeof(double),dd->stream);
-  {
-  //dim3 block_size (_UNPACK_BLOCK_SIZE, _UNPACK_BLOCK_SIZE,1);
-  dim3 block_size (1,1,1);
-  dim3 grid_size (_TILE(naux, block_size.x),_TILE(nmo, block_size.y),1) ;
-  get_bufd<<<grid_size, block_size, 0, dd->stream>>>(d_bufpp, d_bufd, naux, nmo);
+  //bufd work
+#if 1
+  int _size_bufd = naux*nmo;
+  if(_size_bufd > dd->size_bufd) {
+    dd->size_bufd = _size_bufd;
+    
+    if(dd->d_bufd) pm->dev_free_async(dd->d_bufd, dd->stream);
+    dd->d_bufd = (double *) pm->dev_malloc_async(dd->size_bufd * sizeof(double), dd->stream);
   }
+  double * d_bufd = dd->d_bufd;
+#else
+    double * d_bufd = (double *) pm->dev_malloc_async(naux*nmo*sizeof(double),dd->stream);
+#endif
+  {dim3 block_size (1,1,1);
+  dim3 grid_size (_TILE(naux, block_size.x),_TILE(nmo, block_size.y),1) ;
+  get_bufd<<<grid_size, block_size, 0, dd->stream>>>(d_bufpp, d_bufd, naux, nmo);}
   // self.j_pc += numpy.einsum('ki,kj->ij', bufd, bufd[:,:ncore])
 if (count<num_devices){
 cublasDgemm(dd->handle,CUBLAS_OP_N, CUBLAS_OP_T, 
