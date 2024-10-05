@@ -73,8 +73,10 @@ Device::Device()
     device_data[i].size_umat = 0;
     device_data[i].size_h2eff = 0;
     device_data[i].size_mo_coeff = 0;
-    device_data[i].size_j_pc=0;
-    device_data[i].size_k_pc=0;
+    device_data[i].size_j_pc = 0;
+    device_data[i].size_k_pc = 0;
+    device_data[i].size_bufd = 0;
+    device_data[i].size_bufpa = 0;
     
     device_data[i].d_rho = nullptr;
     device_data[i].d_vj = nullptr;
@@ -92,8 +94,11 @@ Device::Device()
     
     device_data[i].d_pumap_ptr = nullptr;
     
-    device_data[i].d_j_pc=nullptr;
-    device_data[i].d_k_pc=nullptr;
+    device_data[i].d_j_pc = nullptr;
+    device_data[i].d_k_pc = nullptr;
+    device_data[i].d_bufd = nullptr;
+    device_data[i].d_bufpa = nullptr;
+
 #if defined (_USE_GPU)
     device_data[i].handle = nullptr;
     device_data[i].stream = nullptr;

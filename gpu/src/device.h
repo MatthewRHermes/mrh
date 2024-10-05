@@ -202,6 +202,8 @@ private:
     int size_j_pc;
     int size_k_cp;
     int size_k_pc;
+    int size_bufd;
+    int size_bufpa;
 
     double * d_rho;
     double * d_vj;
@@ -218,6 +220,8 @@ private:
     double * d_mo_coeff;
     double * d_j_pc;
     double * d_k_pc;
+    double * d_bufd;
+    double * d_bufpa;
 
     std::vector<int> type_pumap;
     std::vector<int> size_pumap;
