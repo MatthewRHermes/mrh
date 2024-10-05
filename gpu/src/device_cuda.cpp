@@ -1235,8 +1235,6 @@ void Device::df_ao2mo_pass1 (int naux, int nmo, int nao, int ncore, int ncas,
 				  py::array_t<double> _bufpp_t, py::array_t<double> _bufpa, py::array_t<double> _eri1,
 				  int count, size_t addr_dfobj)
 {
-#if 0
-#else
   const int device_id = count % num_devices;
   pm->dev_set_device(device_id);
   my_device_data * dd = &(device_data[device_id]);
@@ -1296,17 +1294,9 @@ void Device::df_ao2mo_pass1 (int naux, int nmo, int nao, int ncore, int ncas,
   
   int * my_d_tril_map_ptr = dd_fetch_pumap(dd, nao);
   
-  {
-    dim3 block_size(_UNPACK_BLOCK_SIZE, _UNPACK_BLOCK_SIZE, 1);
-    //dim3 block_size(1,1,1);//_UNPACK_BLOCK_SIZE, _UNPACK_BLOCK_SIZE, 1);
+  { dim3 block_size(_UNPACK_BLOCK_SIZE, _UNPACK_BLOCK_SIZE, 1);
     dim3 grid_size(_TILE(naux,block_size.x), _TILE(nao*nao, block_size.y), 1);
-    _getjk_unpack_buf2<<<grid_size,block_size,0,dd->stream>>>(d_eri_unpacked, d_eri, my_d_tril_map_ptr, naux, nao, nao_pair);
-  }
-
-#ifdef _DEBUG_DEVICE
-  printf("Finished unpacking\n");
-  printf("LIBGPU ::  -- calling cublasDgemmStrideBatched() in ao2mo_fdrv\n");
-#endif
+    _getjk_unpack_buf2<<<grid_size,block_size,0,dd->stream>>>(d_eri_unpacked, d_eri, my_d_tril_map_ptr, naux, nao, nao_pair); }
   
   //bufpp = mo.T @ eri @ mo
   //buf = np.einsum('ijk,kl->ijl',eri_unpacked,mo_coeff),i=naux,j=nao,l=nao
@@ -1329,10 +1319,16 @@ void Device::df_ao2mo_pass1 (int naux, int nmo, int nao, int ncore, int ncas,
 			    &alpha, dd->d_mo_coeff, nao, 0, d_buf, nao, nao*nao, 
 			    &beta, d_bufpp, nao, nao*nao,naux);
   _CUDA_CHECK_ERRORS();
+  double * d_bufpa = (double *) pm->dev_malloc (naux*nmo*ncas*sizeof(double));
+  {dim3 block_size(1,1,1);
+  dim3 grid_size (_TILE(naux, block_size.x), _TILE(nmo, block_size.y), ncas);
+  get_bufpa<<<grid_size, block_size, 0, dd->stream>>>(d_bufpp, d_bufpa, naux, nmo, ncore, ncas);}
 
-  pm->dev_pull_async(d_bufpp, bufpp_t, _size_eri_unpacked * sizeof(double), dd->stream);
+  pm->dev_pull_async(d_bufpa, bufpa, naux*nmo*ncas*sizeof(double), dd->stream);
 
-  pm->dev_stream_wait(dd->stream);
+
+  //pm->dev_pull_async(d_bufpp, bufpp_t, _size_eri_unpacked * sizeof(double), dd->stream);
+
 
   double * d_fxpp = dd->d_buf1;
   // fxpp[str(k)] =bufpp.transpose(1,2,0);
@@ -1343,15 +1339,7 @@ void Device::df_ao2mo_pass1 (int naux, int nmo, int nao, int ncore, int ncas,
 
   pm->dev_pull_async(d_fxpp, bufpp_t, _size_eri_unpacked*sizeof(double), dd->stream);
  
-  double * d_bufpa = (double *) pm->dev_malloc (naux*nmo*ncas*sizeof(double));
-  {dim3 block_size(1,1,1);
-  dim3 grid_size (_TILE(naux, block_size.x), _TILE(nmo, block_size.y), ncas);
-  get_bufpa<<<grid_size, block_size, 0, dd->stream>>>(d_bufpp, d_bufpa, naux, nmo, ncore, ncas);}
-
-  pm->dev_pull_async(d_bufpa, bufpa, naux*nmo*ncas*sizeof(double), dd->stream);
-  pm->dev_free(d_bufpa);
-
-  double * d_bufd = (double *) pm->dev_malloc_async(naux*nmo*sizeof(double),dd->stream);
+    double * d_bufd = (double *) pm->dev_malloc_async(naux*nmo*sizeof(double),dd->stream);
   {
   //dim3 block_size (_UNPACK_BLOCK_SIZE, _UNPACK_BLOCK_SIZE,1);
   dim3 block_size (1,1,1);
@@ -1399,19 +1387,19 @@ else
                              &alpha,
                              dd->d_k_pc, 1, 1,
                              nmo*ncore); }
-  pm->dev_free(d_bufd);
 
 #ifdef _DEBUG_DEVICE
   printf("LIBGPU :: Leaving Device::df_ao2mo_pass1_fdrv()\n"); 
   cudaMemGetInfo(&freeMem, &totalMem);
   printf("Ending ao2mo fdrv Free memory %lu bytes, total memory %lu bytes\n",freeMem,totalMem);
 #endif
+  pm->dev_free(d_bufd);
+  pm->dev_free_async(d_bufpa, dd->stream);
   pm->dev_stream_wait(dd->stream);
   
 #ifdef _SIMPLE_TIMER
   double t1 = omp_get_wtime();
   t_array[5] += t1 - t0;
-#endif
 #endif
 }
 
