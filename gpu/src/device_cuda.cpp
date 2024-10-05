@@ -1341,6 +1341,26 @@ void Device::df_ao2mo_pass1 (int naux, int nmo, int nao, int ncore, int ncas,
   dim3 grid_size (_TILE(naux, block_size.x),nmo,nmo) ;
   transpose_120<<<grid_size, block_size, 0, dd->stream>>>(d_bufpp, d_fxpp, naux, nmo, nmo);}
 
+if (count<num_devices)
+{ cublasDgemmStridedBatched(dd->handle, CUBLAS_OP_N, CUBLAS_OP_T, 
+                             1, 1, naux, 
+                             &alpha,
+                             d_fxpp, 1, naux,
+                             d_fxpp, 1, naux, 
+                             &beta,
+                             dd->d_k_pc, 1, 1,
+                             nmo*ncore); 
+}
+else
+{ cublasDgemmStridedBatched(dd->handle, CUBLAS_OP_N, CUBLAS_OP_T, 
+                             1, 1, naux, 
+                             &alpha,
+                             d_fxpp, 1, naux,
+                             d_fxpp, 1, naux, 
+                             &alpha,
+                             dd->d_k_pc, 1, 1,
+                             nmo*ncore); }
+
   pm->dev_pull_async(d_fxpp, bufpp_t, _size_eri_unpacked*sizeof(double), dd->stream);
   //bufd work
 #if 1
@@ -1380,34 +1400,15 @@ cublasDgemm(dd->handle,CUBLAS_OP_N, CUBLAS_OP_T,
   // k_pc += k_cp.T
   //double * d_k_pc  = (double *) pm->dev_malloc(nmo*nmo*sizeof(double));
 
-if (count<num_devices)
-{ cublasDgemmStridedBatched(dd->handle, CUBLAS_OP_N, CUBLAS_OP_T, 
-                             1, 1, naux, 
-                             &alpha,
-                             d_fxpp, 1, naux,
-                             d_fxpp, 1, naux, 
-                             &beta,
-                             dd->d_k_pc, 1, 1,
-                             nmo*ncore); 
-}
-else
-{ cublasDgemmStridedBatched(dd->handle, CUBLAS_OP_N, CUBLAS_OP_T, 
-                             1, 1, naux, 
-                             &alpha,
-                             d_fxpp, 1, naux,
-                             d_fxpp, 1, naux, 
-                             &alpha,
-                             dd->d_k_pc, 1, 1,
-                             nmo*ncore); }
 
 #ifdef _DEBUG_DEVICE
   printf("LIBGPU :: Leaving Device::df_ao2mo_pass1_fdrv()\n"); 
   cudaMemGetInfo(&freeMem, &totalMem);
   printf("Ending ao2mo fdrv Free memory %lu bytes, total memory %lu bytes\n",freeMem,totalMem);
 #endif
-  pm->dev_free(d_bufd);
-  pm->dev_free_async(d_bufpa, dd->stream);
-  pm->dev_stream_wait(dd->stream);
+  //pm->dev_free(d_bufd);
+  //pm->dev_free_async(d_bufpa, dd->stream);
+  //pm->dev_stream_wait(dd->stream);
   
 #ifdef _SIMPLE_TIMER
   double t1 = omp_get_wtime();
