@@ -63,7 +63,7 @@ class ProductStateFCISolver (StateAverageNMixFCISolver, lib.StreamObject):
             # Issue #86: see above, same problem
             self._debug_csfs (log, ci0, ci1, norb_f, nelec_f, grad)
         energy_elec = self.energy_elec (h1, h2, ci1, norb_f, nelec_f,
-            ecore=ecore, **kwargs)
+            ecore=ecore, efinal=e, **kwargs)
         return converged, energy_elec, ci1
 
     def get_init_guess (self, ci0, norb_f, nelec_f, h1, h2):

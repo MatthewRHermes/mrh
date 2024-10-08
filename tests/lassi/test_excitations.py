@@ -129,10 +129,8 @@ class KnownValues(unittest.TestCase):
             for iroot in range (1, 5): #lsi._las.nroots):
               with self.subTest (opt=opt, rootspace=iroot):
                 for i in range (2):
-                    weights = np.zeros (lroots[i,iroot])
-                    weights[0] = 1
                     psexc.set_excited_fragment_(1+i, (neleca[iroot,i], nelecb[iroot,i]),
-                                                smults[iroot,i], weights=weights)
+                                                smults[iroot,i])
                 conv, energy_tot, ci1 = psexc.kernel (h1, h2, ecore=h0, _add_vrv_energy=True, davidson_only=True)
                 self.assertTrue (conv)
                 e_roots1, si1 = lassi_ref (ci1, iroot)
@@ -144,10 +142,8 @@ class KnownValues(unittest.TestCase):
             psexc._deactivate_vrv = True # spoof the no-coupling limit
             for iroot in range (1, lsi._las.nroots):
                 for i in range (2):
-                    weights = np.zeros (lroots[i,iroot])
-                    weights[0] = 1
                     psexc.set_excited_fragment_(1+i, (neleca[iroot,i], nelecb[iroot,i]),
-                                                smults[iroot,i], weights=weights)
+                                                smults[iroot,i])
                 conv, energy_tot, ci1 = psexc.kernel (h1, h2, ecore=h0, _add_vrv_energy=True)
                 with self.subTest ('no-coupling limit', opt=opt, rootspace=iroot):
                     self.assertTrue (conv)
