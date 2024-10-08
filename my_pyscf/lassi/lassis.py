@@ -215,7 +215,7 @@ def single_excitations_ci (lsi, las2, las1, ci_ch, ncharge=1, sa_heff=True, deac
         psref = [space for space in psref if spaces[i].is_single_excitation_of (space)]
         if auto_singles:
             lr = spaces[i].compute_single_excitation_lroots (psref)
-            lroots[:,i][excfrags] = np.minimum (lroots[:,i][excfrags], lr)
+            lroots[:,i][excfrags] = lr = np.amin (np.minimum (lroots[:,i][excfrags], lr))
         lroots[:,i][~excfrags] = 1
         # logging after setup
         spref0 = spaces[psref_ix[0]]
