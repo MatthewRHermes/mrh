@@ -135,7 +135,8 @@ class _vrvloop_env (object):
                 solver.q_qab = np.asarray (ci[:iroot])
             else:
                 solver.q_qab = None
-        return [c[iroot] for c in self.ci1]
+        ci0_i = [c[iroot:iroot+1] for c in self.ci1]
+        return ci0_i
     def __exit__(self, type, value, traceback):
         self.fciobj.revert_vrvsolvers_()
 
@@ -271,7 +272,7 @@ class ExcitationPSFCISolver (ProductStateFCISolver):
             idx = self.get_excited_orb_idx ()
             orbsym = [orbsym[iorb] for iorb in range (norb_tot) if idx[iorb]]
         # TODO: point group symmetry; I probably also have to do something to wfnsym
-        ci0, vrvsolvers, e_q, si_q = self.prepare_vrvsolvers_(h0, h1, h2, ci0=ci0)
+        ci0, vrvsolvers, e_q, si_q = self.prepare_vrvsolvers_(h0, h1, h2, ci0=ci0, nroots=nroots)
         ci1 = ci0
         e = []
         converged = []
@@ -441,11 +442,11 @@ class ExcitationPSFCISolver (ProductStateFCISolver):
     def sort_ci0 (self, ham_pq, ci0):
         return sort_ci0 (self, ham_pq, ci0)[:2]
 
-    def prepare_vrvsolvers_(self, h0, h1, h2, ci0=None):
-        do_sort_ci0 = (ci0 is None)
+    def prepare_vrvsolvers_(self, h0, h1, h2, ci0=None, nroots=None):
+        do_sort_ci0 = False# (ci0 is None)
         norb_f = np.asarray ([self.norb_ref[ifrag] for ifrag in self.excited_frags])
         nelec_f = np.asarray ([self.nelec_ref[ifrag] for ifrag in self.excited_frags])
-        ci0 = self.get_init_guess (ci0, norb_f, nelec_f, h1, h2)
+        ci0 = self.get_init_guess (ci0, norb_f, nelec_f, h1, h2, nroots=nroots)
         ham_pq = self.get_ham_pq (h0, h1, h2, ci0)
         p = np.prod (get_lroots (ci0))
         h_qq = ham_pq[p:,p:]
@@ -563,9 +564,10 @@ class VRVDressedFCISolver (object):
         self.crash_locmin = crash_locmin
     def project_2e (self, ci):
         if self.q_qab is None or self.q_qab.shape[0]==0: return ci
-        ovlp = np.tensordot (self.q_qab.conj (), ci, axes=((-2,-1),(-2,-1)))
-        qci = ci - np.tensordot (ovlp, self.q_qab, axes=((0),(0)))
-        return qci
+        nq = self.q_qab.shape[0]
+        ovlp = np.dot (self.q_qab.conj ().reshape (nq,-1), ci.flat)
+        qci = ci - np.tensordot (ovlp, self.q_qab, axes=((0),(0))).reshape (ci.shape)
+        return qci.reshape (ci.shape)
     def get_projectors (self, h1e, eri, norb, nelec, link_index=None):
         h2eff = self.absorb_h1e (h1e, eri, norb, nelec, 0.5)
         if self.q_qab is None or self.q_qab.shape[0]==0: return self.q_qab, None, None

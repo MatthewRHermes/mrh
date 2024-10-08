@@ -131,11 +131,13 @@ class KnownValues(unittest.TestCase):
                 for i in range (2):
                     psexc.set_excited_fragment_(1+i, (neleca[iroot,i], nelecb[iroot,i]),
                                                 smults[iroot,i])
-                conv, energy_tot, ci1 = psexc.kernel (h1, h2, ecore=h0, davidson_only=True)
+                conv, energy_tot, ci1 = psexc.kernel (h1, h2, ecore=h0, davidson_only=True,
+                                                      nroots=np.amin(lroots[:,iroot]))
                 self.assertTrue (conv)
                 e_roots1, si1 = lassi_ref (ci1, iroot)
-                idx_match = np.argmin (np.abs (e_roots1-energy_tot))
-                self.assertAlmostEqual (energy_tot, e_roots1[idx_match], 6)
+                idx_match = np.argmin (np.abs (e_roots1-energy_tot[0]))
+                print (lroots[:,iroot], energy_tot)
+                self.assertAlmostEqual (energy_tot[0], e_roots1[idx_match], 6)
                 self.assertEqual (idx_match, 0) # local minimum problems
             # In the no-coupling limit, the Excitation solver should give the same result as the normal
             # ImpureProductStateFCISolver
