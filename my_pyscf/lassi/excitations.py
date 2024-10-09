@@ -30,7 +30,7 @@ def lowest_refovlp_eigval (ham_pq, ovlp_thresh=LOWEST_REFOVLP_EIGVAL_THRESH):
     idx_choice = np.argmin (e_valid)
     return e_valid[idx_choice]
 
-def sort_ci0 (obj, ham_pq, ci0):
+def sort_ci0 (obj, ham, ci0):
     '''Prepare guess CI vectors, guess energy, and Q-space Hamiltonian eigenvalues
     and eigenvectors. Sort ci0 so that the ENV |00...0> is the state with the
     minimum guess energy for the downfolded eigenproblem
@@ -41,7 +41,7 @@ def sort_ci0 (obj, ham_pq, ci0):
     sorted: this arrangement only for the initial guess.
 
     Args:
-        ham_pq: ndarray of shape (p+q,p+q)
+        ham: ndarray of shape (p+q,p+q)
             Hamiltonian matrix in model-space basis. In the p-space, ENVs ascend in
             column-major order: |00...0>, |10...0>, |20...0>, ... |0100...0>, |1100...0>, ...
         ci0: list of ndarray
@@ -52,70 +52,44 @@ def sort_ci0 (obj, ham_pq, ci0):
             Resorted on each fragment so that |00...0> has the lowest downfolded
             guess energy
         e0_p: float
-            Downfolded guess energy of |00...0>
-        ham_pq: ndarray of shape (p+q,p+q)
-            Copy of the input matrix sorted so that |00...0> is the first basis state and
-            individual fragment states "i" are sorted in ascending order of the energy of
-            |00...0i00...0>.'''
+            Downfolded guess energy of |00...0>'''
     # Find lowest-energy ENV, including VRV contributions
     log = lib.logger.new_logger (obj, obj.verbose)
     lroots = get_lroots (ci0)
+    nfrag = len (lroots)
     p = np.prod (lroots)
-    h_pp = ham_pq[:p,:p]
-    h_pq = ham_pq[:p,p:]
-    h_qq = ham_pq[p:,p:]
-    q = ham_pq.shape[-1] - p
-    e_q, si_q = linalg.eigh (h_qq)
-    def project_1p (ip):
-        idx = np.ones (len (ham_pq), dtype=bool)
-        idx[:p] = False
-        idx[ip] = True
-        return ham_pq[idx,:][:,idx]
-    e_p = np.array ([lowest_refovlp_eigval (project_1p (i)) for i in range (p)])
-    idxmin = np.argmin (e_p)
-    e0_p = e_p[idxmin]
-    h_pq = np.dot (h_pq, si_q)
-                
-    # ENV index to address
-    idx = idxmin
-    addr = []
-    for ifrag, lroot in enumerate (lroots):
-        idx, j = divmod (idx, lroot)
-        addr.append (j)
+    assert (nfrag==2)
+    assert (lroots[0]==lroots[1])
 
-    # Sort against this reference state
-    nfrag = len (addr)
-    e_p_arr = e_p.reshape (*lroots[::-1]).T
-    h_pp = h_pp.reshape (*(list(lroots[::-1])*2))
-    h_pq = ham_pq[:p,p:].reshape (*(list(lroots[::-1])+[q,]))
-    ci1 = [c.copy () for c in ci0]
-    for ifrag in range (nfrag):
-        if lroots[ifrag]<2: continue
-        e_p_slice = e_p_arr
-        for jfrag in range (ifrag):
-            e_p_slice = e_p_slice[addr[jfrag]]
-        for jfrag in range (ifrag+1,nfrag):
-            e_p_slice = e_p_slice[:,addr[jfrag]]
-        sort_idx = np.argsort (e_p_slice)
-        assert (sort_idx[0] == addr[ifrag])
-        ci1[ifrag] = np.stack ([ci1[ifrag][i] for i in sort_idx], axis=0)
-        dimorder = list(range(h_pp.ndim))
-        dimorder.insert (0, dimorder.pop (nfrag-(1+ifrag)))
-        dimorder.insert (1, dimorder.pop (2*nfrag-(1+ifrag)))
-        h_pp = h_pp.transpose (*dimorder)
-        h_pp = h_pp[sort_idx,...][:,sort_idx,...]
-        dimorder = np.argsort (dimorder)
-        h_pp = h_pp.transpose (*dimorder)
-        dimorder = list(range(h_pq.ndim))
-        dimorder.insert (0, dimorder.pop (nfrag-(1+ifrag)))
-        h_pq = h_pq.transpose (*dimorder)
-        h_pq = h_pq[sort_idx,...]
-        dimorder = np.argsort (dimorder)
-        h_pq = h_pq.transpose (*dimorder)
-    h_pp = h_pp.reshape (p, p)
-    h_pq = h_pq.reshape (p, q)
-    ham_pq = np.block ([[h_pp, h_pq],[h_pq.conj ().T, h_qq]])
-    return ci1, e0_p, ham_pq
+    # Schmidt basis
+    evals, evecs = linalg.eigh (ham)
+    schmidt_vec = evecs[:p,0].reshape (lroots[1],lroots[0])
+    u, svals, vh = linalg.svd (schmidt_vec)
+    v = vh.conj ().T
+    uh = u.conj ().T
+    ci1 = [np.tensordot (vh, ci0[0], axes=1),
+           np.tensordot (uh, ci0[1], axes=1)]
+    ham_rows = ham[:p,:].reshape (lroots[1],lroots[0],-1)
+    ham_rows = np.dot (uh, np.dot (vh, ham_rows))
+    ham[:p,:] = ham_rows.reshape (p,-1)
+    ham_cols = ham[:,:p].reshape (-1,lroots[1],lroots[0])
+    ham_cols = np.tensordot (ham_cols, u, axes=((1),(0)))
+    ham_cols = np.dot (ham_cols.transpose (0,2,1), v)
+    ham[:,:p] = ham_cols.reshape (-1,p)
+
+    # Sort by downfolded energy
+    def project_1p (ip):
+        idx = np.ones (len (ham), dtype=bool)
+        idx[:p] = False
+        idx[ip*(lroots[0]+1)] = True
+        return ham[idx,:][:,idx]
+    e_p = np.array ([lowest_refovlp_eigval (project_1p (i)) for i in range (lroots[0])])
+    idx = np.argsort (e_p)
+    ci1[0] = ci1[0][idx]
+    ci1[1] = ci1[1][idx]
+    e0_p = e_p[idx][0]
+    
+    return ci1, e0_p
 
 class _vrvloop_env (object):
     def __init__(self, fciobj, iroot, ci0, ci1, vrvsolvers, e_q, si_q):
@@ -464,7 +438,7 @@ class ExcitationPSFCISolver (ProductStateFCISolver):
         return sort_ci0 (self, ham_pq, ci0)[:2]
 
     def prepare_vrvsolvers_(self, h0, h1, h2, ci0=None, nroots=None):
-        do_sort_ci0 = False# (ci0 is None)
+        do_sort_ci0 = (ci0 is None)
         norb_f = np.asarray ([self.norb_ref[ifrag] for ifrag in self.excited_frags])
         nelec_f = np.asarray ([self.nelec_ref[ifrag] for ifrag in self.excited_frags])
         ci0 = self.get_init_guess (ci0, norb_f, nelec_f, h1, h2, nroots=nroots)
