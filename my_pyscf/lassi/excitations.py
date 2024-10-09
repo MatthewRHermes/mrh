@@ -1,6 +1,7 @@
 import copy
 import numpy as np
 from scipy import linalg
+from pyscf.scf.addons import canonical_orth_
 from pyscf.fci import cistring
 from pyscf.fci.direct_spin1 import _unpack_nelec
 from pyscf.mcscf.addons import StateAverageFCISolver
@@ -117,12 +118,13 @@ def sort_ci0 (obj, ham_pq, ci0):
     return ci1, e0_p, ham_pq
 
 class _vrvloop_env (object):
-    def __init__(self, fciobj, iroot, ci1, vrvsolvers, e_q, si_q):
+    def __init__(self, fciobj, iroot, ci0, ci1, vrvsolvers, e_q, si_q):
         self.fciobj = fciobj
         self.vrvsolvers = vrvsolvers
         self.e_q = e_q
         self.si_q = si_q
         self.iroot = iroot
+        self.ci0 = ci0
         self.ci1 = ci1
     def __enter__(self):
         iroot = self.iroot
@@ -130,12 +132,25 @@ class _vrvloop_env (object):
         self.fciobj._e_q = self.e_q
         self.fciobj._si_q = self.si_q
         assert (len (self.fciobj.fcisolvers) == len (self.ci1))
-        for solver, ci in zip (self.fciobj.fcisolvers, self.ci1):
+        ci0_i = []
+        for solver, ci0, ci1 in zip (self.fciobj.fcisolvers, self.ci0, self.ci1):
             if iroot>0:
-                solver.q_qab = np.asarray (ci[:iroot])
+                solver.q_qab = np.asarray (ci1[:iroot])
+                c1 = solver.q_qab.reshape (iroot,-1)
+                c0 = ci0.reshape (-1,c1.shape[1])
+                c0_iroot = c0[iroot:iroot+1].copy ()
+                # Project away from c1 and orthonormalize
+                ovlp = c1.conj () @ c0.T
+                c0 = c0 - ovlp.T @ c1
+                c0 = canonical_orth_(c0.conj () @ c0.T).T @ c0
+                # Identify vector closest to original c0[iroot]
+                ovlp = c0_iroot.conj () @ c0.T
+                evals, evecs = linalg.eigh (-ovlp.conj ().T @ ovlp)
+                c0 = np.dot (evecs[0], c0)
+                ci0_i.append ([c0])
             else:
                 solver.q_qab = None
-        ci0_i = [c[iroot:iroot+1] for c in self.ci1]
+                ci0_i.append (ci1[iroot:iroot+1])
         return ci0_i
     def __exit__(self, type, value, traceback):
         self.fciobj.revert_vrvsolvers_()
@@ -273,11 +288,11 @@ class ExcitationPSFCISolver (ProductStateFCISolver):
             orbsym = [orbsym[iorb] for iorb in range (norb_tot) if idx[iorb]]
         # TODO: point group symmetry; I probably also have to do something to wfnsym
         ci0, vrvsolvers, e_q, si_q = self.prepare_vrvsolvers_(h0, h1, h2, ci0=ci0, nroots=nroots)
-        ci1 = ci0
+        ci1 = [c.copy () for c in ci0]
         e = []
         converged = []
         for iroot in range (nroots):
-            with _vrvloop_env (self, iroot, ci1, vrvsolvers, e_q, si_q) as ci0_i:
+            with _vrvloop_env (self, iroot, ci0, ci1, vrvsolvers, e_q, si_q) as ci0_i:
                 conv_i, e_i, ci1_i = ProductStateFCISolver.kernel (
                     self, h1, h2, norb_f, nelec_f, ecore=h0, ci0=ci0_i, orbsym=orbsym,
                     conv_tol_grad=conv_tol_grad, conv_tol_self=conv_tol_self,
@@ -291,7 +306,13 @@ class ExcitationPSFCISolver (ProductStateFCISolver):
         converged = all (converged)
         ci1_all = [c for c in self.ci_ref]
         for ifrag, c in zip (self.excited_frags, ci1):
-            ci1_all[ifrag] = np.asarray (c)
+            c = np.asarray (c)
+            cf = c.reshape (nroots,-1)
+            ovlperr = cf.conj () @ cf.T - np.eye (nroots)
+            assert (np.amax (np.abs (ovlperr) < 1e-8)), '{} {} {}'.format (
+                nroots, np.asarray (c).shape, np.amax (np.abs (ovlperr))
+            )
+            ci1_all[ifrag] = c
         energy_elec = e[0] if nroots==1 else e
         return converged, energy_elec, ci1_all
 
