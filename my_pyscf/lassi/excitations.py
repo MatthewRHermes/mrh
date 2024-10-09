@@ -92,40 +92,43 @@ def sort_ci0 (obj, ham, ci0):
     return ci1, e0_p
 
 class _vrvloop_env (object):
-    def __init__(self, fciobj, iroot, ci0, ci1, vrvsolvers, e_q, si_q):
+    def __init__(self, fciobj, ci0, ci1, iroot, nroots, h0, h1, h2):
         self.fciobj = fciobj
-        self.vrvsolvers = vrvsolvers
-        self.e_q = e_q
-        self.si_q = si_q
         self.iroot = iroot
+        self.nroots = nroots
         self.ci0 = ci0
         self.ci1 = ci1
+        self.h0 = h0
+        self.h1 = h1
+        self.h2 = h2
     def __enter__(self):
         iroot = self.iroot
-        self.fciobj.fcisolvers = self.vrvsolvers
-        self.fciobj._e_q = self.e_q
-        self.fciobj._si_q = self.si_q
-        assert (len (self.fciobj.fcisolvers) == len (self.ci1))
         ci0_i = []
-        for solver, ci0, ci1 in zip (self.fciobj.fcisolvers, self.ci0, self.ci1):
+        q_qab_i = []
+        for ci0, ci1 in zip (self.ci0, self.ci1):
             if iroot>0:
-                solver.q_qab = np.asarray (ci1[:iroot])
-                c1 = solver.q_qab.reshape (iroot,-1)
+                q_qab = np.asarray (ci1[:iroot])
+                c1 = q_qab.reshape (iroot,-1)
                 c0 = ci0.reshape (-1,c1.shape[1])
-                c0_iroot = c0[iroot:iroot+1].copy ()
                 # Project away from c1 and orthonormalize
                 ovlp = c1.conj () @ c0.T
                 c0 = c0 - ovlp.T @ c1
                 c0 = canonical_orth_(c0.conj () @ c0.T).T @ c0
-                # Identify vector closest to original c0[iroot]
-                ovlp = c0_iroot.conj () @ c0.T
-                evals, evecs = linalg.eigh (-ovlp.conj ().T @ ovlp)
-                c0 = np.dot (evecs[0], c0)
-                ci0_i.append ([c0])
+                ci0_i.append (c0)
             else:
-                solver.q_qab = None
-                ci0_i.append (ci1[iroot:iroot+1])
-        return ci0_i
+                q_qab = None
+                ci0_i.append (ci1[iroot:])
+            q_qab_i.append (q_qab)
+        ci0, vrvsolvers, e_q, si_q = self.fciobj.prepare_vrvsolvers_(
+            self.h0, self.h1, self.h2, ci0=ci0_i, nroots=self.nroots-iroot
+        )
+        self.fciobj.fcisolvers = vrvsolvers
+        self.fciobj._e_q = e_q
+        self.fciobj._si_q = si_q
+        assert (len (self.fciobj.fcisolvers) == len (self.ci1))
+        for solver, q_qab in zip (self.fciobj.fcisolvers, q_qab_i):
+            solver.q_qab = q_qab
+        return [c[0:1] for c in ci0]
     def __exit__(self, type, value, traceback):
         self.fciobj.revert_vrvsolvers_()
 
@@ -261,12 +264,12 @@ class ExcitationPSFCISolver (ProductStateFCISolver):
             idx = self.get_excited_orb_idx ()
             orbsym = [orbsym[iorb] for iorb in range (norb_tot) if idx[iorb]]
         # TODO: point group symmetry; I probably also have to do something to wfnsym
-        ci0, vrvsolvers, e_q, si_q = self.prepare_vrvsolvers_(h0, h1, h2, ci0=ci0, nroots=nroots)
+        ci0 = self.get_init_guess (ci0, norb_f, nelec_f, h1, h2, nroots=nroots)
         ci1 = [c.copy () for c in ci0]
         e = []
         converged = []
         for iroot in range (nroots):
-            with _vrvloop_env (self, iroot, ci0, ci1, vrvsolvers, e_q, si_q) as ci0_i:
+            with _vrvloop_env (self, ci0, ci1, iroot, nroots, h0, h1, h2) as ci0_i:
                 conv_i, e_i, ci1_i = ProductStateFCISolver.kernel (
                     self, h1, h2, norb_f, nelec_f, ecore=h0, ci0=ci0_i, orbsym=orbsym,
                     conv_tol_grad=conv_tol_grad, conv_tol_self=conv_tol_self,
@@ -438,7 +441,6 @@ class ExcitationPSFCISolver (ProductStateFCISolver):
         return sort_ci0 (self, ham_pq, ci0)[:2]
 
     def prepare_vrvsolvers_(self, h0, h1, h2, ci0=None, nroots=None):
-        do_sort_ci0 = (ci0 is None)
         norb_f = np.asarray ([self.norb_ref[ifrag] for ifrag in self.excited_frags])
         nelec_f = np.asarray ([self.nelec_ref[ifrag] for ifrag in self.excited_frags])
         ci0 = self.get_init_guess (ci0, norb_f, nelec_f, h1, h2, nroots=nroots)
@@ -446,8 +448,7 @@ class ExcitationPSFCISolver (ProductStateFCISolver):
         p = np.prod (get_lroots (ci0))
         h_qq = ham_pq[p:,p:]
         e_q, si_q = linalg.eigh (h_qq)
-        ci0_sorted, e0 = self.sort_ci0 (ham_pq, ci0)
-        if do_sort_ci0: ci0 = ci0_sorted
+        ci0, e0 = self.sort_ci0 (ham_pq, ci0)
         vrvsolvers = []
         for ix, solver in enumerate (self.fcisolvers):
             vrvsolvers.append (vrv_fcisolver (solver, e0, e_q, None, max_cycle_e0=MAX_CYCLE_E0,
