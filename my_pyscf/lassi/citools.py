@@ -101,12 +101,16 @@ def umat_dot_1frag_(target, umat, lroots, ifrag, iroot, axis=0):
 def _umat_dot_1frag (target, umat, lroots, ifrag):
     # Remember: COLUMN-MAJOR ORDER!!
     iifrag = len (lroots) - ifrag - 1
-    old_shape = target.shape
+    old_shape1 = target.shape
     new_shape = lroots[::-1]
     nrow = np.prod (new_shape[:iifrag]).astype (int)
-    ncol = lroots[ifrag]
-    nstack = (np.prod (new_shape[iifrag:]) * np.prod (old_shape[1:])).astype (int) // ncol
-    new_shape = (nrow, ncol, nstack)
+    ncol1 = lroots[ifrag]
+    assert (ncol1==umat.shape[0])
+    ncol2 = umat.shape[1]
+    nstack = (np.prod (new_shape[iifrag:]) * np.prod (old_shape1[1:])).astype (int) // ncol1
+    new_shape = (nrow, ncol1, nstack)
     target = target.reshape (*new_shape).transpose (1,0,2)
     target = np.tensordot (umat.T, target, axes=1).transpose (1,0,2)
-    return target.reshape (*old_shape)
+    old_shape2 = list (old_shape1)
+    old_shape2[0] = old_shape2[0] * ncol2 // ncol1
+    return target.reshape (*old_shape2)

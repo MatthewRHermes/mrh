@@ -16,7 +16,7 @@
 # trying to test the API here; we need tight convergence and grids
 # to reproduce well when OMP is on.
 import numpy as np
-from pyscf import gto, scf, mcscf, lib, fci, df, mcpdft
+from pyscf import gto, scf, mcscf, lib, fci, df, mcpdft, dft
 from pyscf.fci.addons import fix_spin_
 import unittest
 
@@ -49,16 +49,19 @@ def auto_setup (xyz='Li 0 0 0\nH 1.5 0 0', fnal='tPBE'):
     return nosym, sym, mcp
 
 def setUpModule():
-    global mol_nosym, mf_nosym, mc_nosym, mol_sym, mf_sym, mc_sym, mcp
-    nosym, sym, mcp = auto_setup ()
+    global mol_nosym, mf_nosym, mc_nosym, mol_sym, mf_sym, mc_sym, mcp, original_grids
+    original_grids = dft.radi.ATOM_SPECIFIC_TREUTLER_GRIDS
+    dft.radi.ATOM_SPECIFIC_TREUTLER_GRIDS = False
+    nosym, sym, mcp = auto_setup()
     mol_nosym, mf_nosym, mc_nosym = nosym
     mol_sym, mf_sym, mc_sym = sym
 
 def tearDownModule():
-    global mol_nosym, mf_nosym, mc_nosym, mol_sym, mf_sym, mc_sym, mcp
-    mol_nosym.stdout.close ()
-    mol_sym.stdout.close ()
-    del mol_nosym, mf_nosym, mc_nosym, mol_sym, mf_sym, mc_sym, mcp
+    global mol_nosym, mf_nosym, mc_nosym, mol_sym, mf_sym, mc_sym, mcp, original_grids
+    dft.radi.ATOM_SPECIFIC_TREUTLER_GRIDS = original_grids
+    mol_nosym.stdout.close()
+    mol_sym.stdout.close()
+    del mol_nosym, mf_nosym, mc_nosym, mol_sym, mf_sym, mc_sym, mcp, original_grids
 
 class KnownValues(unittest.TestCase):
 

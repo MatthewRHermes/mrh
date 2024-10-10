@@ -7,6 +7,7 @@
 #include <stdio.h>
 #include <omp.h>
 #include <time.h>
+#include <complex.h>
 #include "../fblas.h"
 
 #ifndef MINMAX
@@ -40,37 +41,285 @@
         self.dt_s, self.dw_s = self.dt_s + dt, self.dw_s + dw
 */
 
-void LASSIRDMdputSD (double * SDsum, double * SDterm, int SDlen,
-                     double * sivec, int sivec_nbas, int sivec_nroots,
-                     long * bra, long * ket, double * wgt, int nelem)
+void LASSIRDMdgetwgtfac (double * fac, double * wgt, double * sivec,
+                         int nbas, int nroots,
+                         long * bra, long * ket, int nelem)
 {
-    const unsigned int i_one = 1;
+/* Evaluate fac = np.dot (si[bra,:]*si[ket,:], wgt) with multiple threads
 
-    double fac = 0;
-    double * sicol = sivec;
-    double * SDtarget = SDsum;
+   Input:
+        wgt : array of shape (nelem); contains overlap & permutation factors
+        sivec : array of shape (nroots,nbas); contains SI vector coefficients
+        bra : array of shape (nelem); identifies SI rows
+        ket : array of shape (nelem); identifies SI rows
 
-    for (int iroot = 0; iroot < sivec_nroots; iroot++){
-        sicol = sivec + (iroot*sivec_nbas);
-        SDtarget = SDsum + (iroot*SDlen);
-
-        fac = 0;
-
-        #pragma omp parallel for schedule(static) reduction(+:fac)
-        for (int ielem = 0; ielem < nelem; ielem++){
-            fac += sicol[bra[ielem]] * sicol[ket[ielem]] * wgt[ielem];
-        }
-
-        //daxpy_(&SDlen, &fac, SDterm, &i_one, SDtarget, &i_one);
-        #pragma omp parallel
-        {
-            int nblk = omp_get_num_threads ();
-            nblk = (SDlen+nblk-1) / nblk;
-            int toff = nblk * omp_get_thread_num ();
-            nblk = MIN (SDlen, toff+nblk);
-            nblk = nblk - toff;
-            daxpy_(&nblk, &fac, SDterm+toff, &i_one, SDtarget+toff, &i_one);
+   Output:
+        fac : array of shape (nroots)
+*/
+#pragma omp parallel
+{
+    double * sicol;
+    long bra_i, ket_i;
+    double * my_fac = malloc (nroots*sizeof(double));
+    for (int iroot = 0; iroot < nroots; iroot++){ my_fac[iroot] = 0; }
+    #pragma omp for schedule(static)
+    for (int ielem = 0; ielem < nelem; ielem++){
+        for (int iroot = 0; iroot < nroots; iroot++){
+            sicol = sivec + (iroot*nbas);
+            bra_i = bra[ielem];
+            ket_i = ket[ielem];
+            my_fac[iroot] += sicol[bra_i] * sicol[ket_i] * wgt[ielem];
         }
     }
+    #pragma omp critical
+    {
+        for (int iroot=0; iroot < nroots; iroot++){
+            fac[iroot] += my_fac[iroot];
+        }
+    }
+    free (my_fac);
+}
+}
 
+void LASSIRDMdsumSD (double * SDdest, double * fac, double * SDsrc,
+                     int nroots, int nelem_dest)
+{
+/* Evaluate SDdest = np.multiply.outer (fac, SDsrc) with multiple threads.
+
+   Input:
+        fac : array of shape (nroots)
+        SDsrc : array of shape (nelem_dest)
+
+   Output:
+        SDdest : array of shape (nroots,nelem_dest)
+*/
+const unsigned int i_one = 1;
+#pragma omp parallel
+{
+    int nt = omp_get_num_threads ();
+    int it = omp_get_thread_num ();
+    int nel0 = nelem_dest / nt;
+    int nel1 = nelem_dest % nt;
+    int tstart = (nel0*it) + MIN(nel1,it);
+    int tlen = it<nel1 ? nel0+1 : nel0;
+    double * mySDsrc = SDsrc+tstart;
+    double * mySDdest = SDdest+tstart;
+    for (int iroot = 0; iroot < nroots; iroot++){
+        daxpy_(&(tlen), fac+iroot,
+               mySDsrc, &i_one,
+               mySDdest+iroot*nelem_dest, &i_one);
+    }
+}
+}
+
+void LASSIRDMdputSD1 (double * SDdest, double * SDsrc,
+                      int nroots, int ndest, int nsrc,
+                      int * SDdest_idx, int * SDsrc_idx, int * SDlen,
+                      int nidx)
+{
+/* Add to segmented elements of RDM1s arrays from a contiguous source array
+
+   Input:
+        SDsrc : array of shape (nroots,2,nsrc*nsrc)
+        SDdest_idx : array of shape (nidx)
+            beginnings of contiguous blocks in the minor dimension of SDdest
+        SDsrc_idx : array of shape (nidx)
+            beginnings of contiguous blocks in the minor dimension of SDsrc
+        SDlen : array of shape (nidx); lengths of contiguous blocks
+
+   Input/Output:
+        SDdest : array of shape (nroots,2,ndest*ndest)
+            Elements of SDsrc corresponding to SDdest_idx are added
+*/
+const unsigned int i_one = 1;
+const double d_one = 1.0;
+const int npdest = ndest*ndest;
+const int npsrc = nsrc*nsrc;
+const int nblk = nroots*2*nidx;
+const int lroot = 2*nidx;
+const int SDsrc_size = nroots*2*npsrc;
+const int SDdest_size = nroots*2*npdest;
+#pragma omp parallel
+{
+    int iroot, ispin, iidx, j;
+    int sidx, didx;
+    #pragma omp for 
+    for (int i = 0; i < nblk; i++){
+        iroot = i/lroot;
+        j = i%lroot;
+        ispin = j/nidx;
+        iidx = j%nidx;
+        assert (iroot < nroots);
+        assert (ispin < 2);
+        assert (iidx < nidx);
+        sidx = (iroot*2 + ispin)*npsrc + SDsrc_idx[iidx];
+        didx = (iroot*2 + ispin)*npdest + SDdest_idx[iidx];
+        assert (sidx < SDsrc_size);
+        assert (didx < SDdest_size);
+        daxpy_(SDlen+iidx, &d_one, SDsrc+sidx, &i_one, SDdest+didx, &i_one);
+    }
+}
+}
+
+void LASSIRDMdputSD2 (double * SDdest, double * SDsrc,
+                      int nroots, int ndest, int nsrc, int * pdest,
+                      int * SDdest_idx, int * SDsrc_idx, int * SDlen,
+                      int nidx)
+{
+/* Add to segmented elements of RDM2s arrays from a contiguous source array
+
+   Input:
+        SDsrc : array of shape (nroots,4,nsrc*nsrc,nsrc*nsrc)
+        pdest : array of shape (nsrc,nsrc)
+            Indices of all addressed elements in the second-minor dimension of SDdest
+        SDdest_idx : array of shape (nidx)
+            beginnings of contiguous blocks in the minor dimension of SDdest
+        SDsrc_idx : array of shape (nidx)
+            beginnings of contiguous blocks in the minor dimension of SDsrc
+        SDlen : array of shape (nidx); lengths of contiguous blocks
+
+   Input/Output:
+        SDdest : array of shape (nroots,2,ndest*ndest,ndest*ndest)
+            Elements of SDsrc corresponding to SDdest_idx are added
+*/
+const unsigned int i_one = 1;
+const double d_one = 1.0;
+const int npdest = ndest*ndest;
+const int npsrc = nsrc*nsrc;
+const long ntdest = npdest*npdest;
+const long ntsrc = npsrc*npsrc;
+const int nblk = nroots*4*npsrc*nidx;
+const int lroot = 4*npsrc*nidx;
+const int lspin = npsrc*nidx;
+const long SDsrc_size = nroots*4*ntsrc;
+const long SDdest_size = nroots*4*ntdest;
+#pragma omp parallel
+{
+    int ipdest, iroot, ispin, iidx, j;
+    long sidx, didx;
+    #pragma omp for 
+    for (int i = 0; i < nblk; i++){
+        iroot = i/lroot;
+        j = i%lroot;
+        ispin = j/lspin;
+        j = j%lspin;
+        ipdest = j/nidx;
+        iidx = j%nidx;
+        assert (iroot < nroots);
+        assert (ispin < 4);
+        assert (ipdest < npsrc);
+        assert (iidx < nidx);
+        sidx = ((long) (iroot*4 + ispin))*ntsrc + ((long) ipdest*npsrc + SDsrc_idx[iidx]);
+        didx = ((long) (iroot*4 + ispin))*ntdest + ((long) pdest[ipdest]*npdest + SDdest_idx[iidx]);
+        assert (sidx < SDsrc_size);
+        assert (didx < SDdest_size);
+        daxpy_(SDlen+iidx, &d_one, SDsrc+sidx, &i_one, SDdest+didx, &i_one);
+    }
+}
+}
+
+void LASSIRDMzputSD1 (double complex * SDdest, double complex * SDsrc,
+                      int nroots, int ndest, int nsrc,
+                      int * SDdest_idx, int * SDsrc_idx, int * SDlen,
+                      int nidx)
+{
+/* Add to segmented elements of RDM1s arrays from a contiguous source array
+
+   Input:
+        SDsrc : array of shape (nroots,2,nsrc*nsrc)
+        SDdest_idx : array of shape (nidx)
+            beginnings of contiguous blocks in the minor dimension of SDdest
+        SDsrc_idx : array of shape (nidx)
+            beginnings of contiguous blocks in the minor dimension of SDsrc
+        SDlen : array of shape (nidx); lengths of contiguous blocks
+
+   Input/Output:
+        SDdest : array of shape (nroots,2,ndest*ndest)
+            Elements of SDsrc corresponding to SDdest_idx are added
+*/
+const unsigned int i_one = 1;
+const double complex d_one = 1.0;
+const int npdest = ndest*ndest;
+const int npsrc = nsrc*nsrc;
+const int nblk = nroots*2*nidx;
+const int lroot = 2*nidx;
+const int SDsrc_size = nroots*2*npsrc;
+const int SDdest_size = nroots*2*npdest;
+#pragma omp parallel
+{
+    int iroot, ispin, iidx, j;
+    int sidx, didx;
+    #pragma omp for 
+    for (int i = 0; i < nblk; i++){
+        iroot = i/lroot;
+        j = i%lroot;
+        ispin = j/nidx;
+        iidx = j%nidx;
+        assert (iroot < nroots);
+        assert (ispin < 2);
+        assert (iidx < nidx);
+        sidx = (iroot*2 + ispin)*npsrc + SDsrc_idx[iidx];
+        didx = (iroot*2 + ispin)*npdest + SDdest_idx[iidx];
+        assert (sidx < SDsrc_size);
+        assert (didx < SDdest_size);
+        zaxpy_(SDlen+iidx, &d_one, SDsrc+sidx, &i_one, SDdest+didx, &i_one);
+    }
+}
+}
+
+void LASSIRDMzputSD2 (double complex * SDdest, double complex * SDsrc,
+                      int nroots, int ndest, int nsrc, int * pdest,
+                      int * SDdest_idx, int * SDsrc_idx, int * SDlen,
+                      int nidx)
+{
+/* Add to segmented elements of RDM2s arrays from a contiguous source array
+
+   Input:
+        SDsrc : array of shape (nroots,4,nsrc*nsrc,nsrc*nsrc)
+        pdest : array of shape (nsrc,nsrc)
+            Indices of all addressed elements in the second-minor dimension of SDdest
+        SDdest_idx : array of shape (nidx)
+            beginnings of contiguous blocks in the minor dimension of SDdest
+        SDsrc_idx : array of shape (nidx)
+            beginnings of contiguous blocks in the minor dimension of SDsrc
+        SDlen : array of shape (nidx); lengths of contiguous blocks
+
+   Input/Output:
+        SDdest : array of shape (nroots,2,ndest*ndest,ndest*ndest)
+            Elements of SDsrc corresponding to SDdest_idx are added
+*/
+const unsigned int i_one = 1;
+const double complex d_one = 1.0;
+const int npdest = ndest*ndest;
+const int npsrc = nsrc*nsrc;
+const long ntdest = npdest*npdest;
+const long ntsrc = npsrc*npsrc;
+const int nblk = nroots*4*npsrc*nidx;
+const int lroot = 4*npsrc*nidx;
+const int lspin = npsrc*nidx;
+const long SDsrc_size = nroots*4*ntsrc;
+const long SDdest_size = nroots*4*ntdest;
+#pragma omp parallel
+{
+    int ipdest, iroot, ispin, iidx, j;
+    long sidx, didx;
+    #pragma omp for 
+    for (int i = 0; i < nblk; i++){
+        iroot = i/lroot;
+        j = i%lroot;
+        ispin = j/lspin;
+        j = j%lspin;
+        ipdest = j/nidx;
+        iidx = j%nidx;
+        assert (iroot < nroots);
+        assert (ispin < 4);
+        assert (ipdest < npsrc);
+        assert (iidx < nidx);
+        sidx = ((long) (iroot*4 + ispin))*ntsrc + ((long) ipdest*npsrc + SDsrc_idx[iidx]);
+        didx = ((long) (iroot*4 + ispin))*ntdest + ((long) pdest[ipdest]*npdest + SDdest_idx[iidx]);
+        assert (sidx < SDsrc_size);
+        assert (didx < SDdest_size);
+        zaxpy_(SDlen+iidx, &d_one, SDsrc+sidx, &i_one, SDdest+didx, &i_one);
+    }
+}
 }

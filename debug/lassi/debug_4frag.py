@@ -18,7 +18,7 @@ import unittest
 import numpy as np
 from scipy import linalg
 from copy import deepcopy
-from itertools import product
+from itertools import product, combinations_with_replacement
 from pyscf import lib, gto, scf, dft, fci, mcscf, df
 from pyscf.tools import molden
 from pyscf.fci import cistring
@@ -29,14 +29,13 @@ from mrh.my_pyscf.lassi.lassi import root_make_rdm12s, roots_make_rdm12s
 from mrh.my_pyscf.lassi.lassi import make_stdm12s, ham_2q, las_symm_tuple
 from mrh.my_pyscf.lassi import op_o0
 from mrh.my_pyscf.lassi import op_o1
+from mrh.my_pyscf.lassi import op_o2
 from mrh.my_pyscf.lassi import LASSIS
-from mrh.my_pyscf.lassi.op_o1 import get_fdm1_maker
+from mrh.my_pyscf.lassi.op_o2 import get_fdm1_maker
 from mrh.my_pyscf.lassi.sitools import make_sdm1
-from mrh.tests.lassi.addons import case_contract_hlas_ci, case_lassis_fbf_2_model_state
-from mrh.tests.lassi.addons import case_lassis_fbfdm
 
 def setUpModule ():
-    global mol, mf, las, nroots, nelec_frs, si
+    global mol, mf, las, nroots, nelec_frs, si, lroots
     # State list contains a couple of different 4-frag interactions
     states  = {'charges': [[0,0,0,0],[1,1,-1,-1],[2,-1,-1,0],[1,0,0,-1],[1,1,-1,-1],[2,-1,-1,0],[1,0,0,-1]],
                'spins':   [[0,0,0,0],[1,1,-1,-1],[0,1,-1,0], [1,0,0,-1],[-1,-1,1,1],[0,-1,1,0], [-1,0,0,1]],
@@ -74,6 +73,7 @@ def setUpModule ():
     las.mo_coeff = las.localize_init_guess (frags, mf.mo_coeff)
     las.ci = las.get_init_guess_ci (las.mo_coeff, las.get_h2eff (las.mo_coeff))
     lroots = np.minimum (2, las.get_ugg ().ncsf_sub)
+    lroots[:] = 1
     nelec_frs = np.array (
         [[_unpack_nelec (fcibox._get_nelec (solver, nelecas)) for solver in fcibox.fcisolvers]
          for fcibox, nelecas in zip (las.fciboxes, las.nelecas_sub)]
@@ -107,95 +107,111 @@ def setUpModule ():
     si = lib.tag_array (si, rootsym=las_symm_tuple (las)[0])
 
 def tearDownModule():
-    global mol, mf, las, nroots, nelec_frs, si
+    global mol, mf, las, nroots, nelec_frs, si, lroots
     mol.stdout.close ()
-    del mol, mf, las, nroots, nelec_frs, si
+    del mol, mf, las, nroots, nelec_frs, si, lroots
 
 class KnownValues(unittest.TestCase):
-    def test_stdm12s (self):
-        d12_o0 = make_stdm12s (las, opt=0)
-        d12_o1 = make_stdm12s (las, opt=1)
-        for r in range (2):
-            for i, j in product (range (si.shape[0]), repeat=2):
-                with self.subTest (rank=r+1, bra=i, ket=j):
-                    self.assertAlmostEqual (lib.fp (d12_o0[r][i,...,j]),
-                        lib.fp (d12_o1[r][i,...,j]), 9)
+    #def test_stdm12s (self):
+    #    d12_o0 = make_stdm12s (las, opt=0)
+    #    d12_o1 = make_stdm12s (las, opt=1)
+    #    for r in range (2):
+    #        for i, j in product (range (si.shape[0]), repeat=2):
+    #            with self.subTest (rank=r+1, bra=i, ket=j):
+    #                self.assertAlmostEqual (lib.fp (d12_o0[r][i,...,j]),
+    #                    lib.fp (d12_o1[r][i,...,j]), 9)
 
     def test_ham_s2_ovlp (self):
+        nprods = np.prod (lroots, axis=0)
+        loff1 = np.cumsum (nprods)
+        loff0 = loff1 - nprods
         h1, h2 = ham_2q (las, las.mo_coeff, veff_c=None, h2eff_sub=None)[1:]
+        h1[:] = 0
         lbls = ('ham','s2','ovlp')
         mats_o0 = op_o0.ham (las, h1, h2, las.ci, nelec_frs)#, orbsym=orbsym, wfnsym=wfnsym)
+        np.save ('ham_test.npy', mats_o0[0])
         fps_o0 = [lib.fp (mat) for mat in mats_o0]
         mats_o1 = op_o1.ham (las, h1, h2, las.ci, nelec_frs)#, orbsym=orbsym, wfnsym=wfnsym)
         for lbl, mat, fp in zip (lbls, mats_o1, fps_o0):
             with self.subTest(opt=1, matrix=lbl):
                 self.assertAlmostEqual (lib.fp (mat), fp, 9)
+        mats_o2 = op_o2.ham (las, h1, h2, las.ci, nelec_frs)#, orbsym=orbsym, wfnsym=wfnsym)
+        np.save ('ham_ref.npy', mats_o2[0])
+        for lbl, mt, mr in zip (lbls, mats_o2, mats_o0):
+            for i, j in combinations_with_replacement (range (nroots), 2):
+                p, q = loff0[i], loff1[i]
+                r, s = loff0[j], loff1[j]
+                mtfp = lib.fp (mt[p:q,r:s])
+                mrfp = lib.fp (mr[p:q,r:s])
+                with self.subTest((i,j), opt=2, matrix=lbl):
+                    self.assertAlmostEqual (mtfp, mrfp, 9)
 
-    def test_rdm12s (self):
-        d12_o0 = op_o0.roots_make_rdm12s (las, las.ci, nelec_frs, si)#, orbsym=orbsym, wfnsym=wfnsym)
-        d12_o1 = op_o1.roots_make_rdm12s (las, las.ci, nelec_frs, si)#, orbsym=orbsym, wfnsym=wfnsym)
-        for r in range (2):
-            for i in range (nroots):
-                with self.subTest (rank=r+1, root=i, opt=1):
-                    self.assertAlmostEqual (lib.fp (d12_o0[r][i]),
-                        lib.fp (d12_o1[r][i]), 9)
-                with self.subTest ('single matrix constructor', opt=0, rank=r+1, root=i):
-                    d12_o0_test = root_make_rdm12s (las, las.ci, si, state=i, soc=False,
-                                                    break_symmetry=False, opt=0)[r]
-                    self.assertAlmostEqual (lib.fp (d12_o0_test), lib.fp (d12_o0[r][i]), 9)
-                with self.subTest ('single matrix constructor', opt=1, rank=r+1, root=i):
-                    d12_o1_test = root_make_rdm12s (las, las.ci, si, state=i, soc=False,
-                                                    break_symmetry=False, opt=1)[r]
-                    self.assertAlmostEqual (lib.fp (d12_o1_test), lib.fp (d12_o0[r][i]), 9)
+    #def test_rdm12s (self):
+    #    d12_o0 = op_o0.roots_make_rdm12s (las, las.ci, nelec_frs, si)#, orbsym=orbsym, wfnsym=wfnsym)
+    #    d12_o1 = op_o1.roots_make_rdm12s (las, las.ci, nelec_frs, si)#, orbsym=orbsym, wfnsym=wfnsym)
+    #    d12_o2 = op_o2.roots_make_rdm12s (las, las.ci, nelec_frs, si)#, orbsym=orbsym, wfnsym=wfnsym)
+    #    for r in range (2):
+    #        for i in range (nroots):
+    #            with self.subTest (rank=r+1, root=i, opt=1):
+    #                self.assertAlmostEqual (lib.fp (d12_o0[r][i]),
+    #                    lib.fp (d12_o1[r][i]), 9)
+    #            with self.subTest (rank=r+1, root=i, opt=2):
+    #                self.assertAlmostEqual (lib.fp (d12_o0[r][i]),
+    #                    lib.fp (d12_o2[r][i]), 9)
+    #            with self.subTest ('single matrix constructor', opt=0, rank=r+1, root=i):
+    #                d12_o0_test = root_make_rdm12s (las, las.ci, si, state=i, soc=False,
+    #                                                break_symmetry=False, opt=0)[r]
+    #                self.assertAlmostEqual (lib.fp (d12_o0_test), lib.fp (d12_o0[r][i]), 9)
+    #            with self.subTest ('single matrix constructor', opt=1, rank=r+1, root=i):
+    #                d12_o1_test = root_make_rdm12s (las, las.ci, si, state=i, soc=False,
+    #                                                break_symmetry=False, opt=1)[r]
+    #                self.assertAlmostEqual (lib.fp (d12_o1_test), lib.fp (d12_o0[r][i]), 9)
+    #            # I don't need to test o2 with this separately because the index-down is
+    #            # entirely within the o1 parent function
+    #            #with self.subTest ('single matrix constructor', opt=2, rank=r+1, root=i):
+    #            #    d12_o2_test = root_make_rdm12s (las, las.ci, si, state=i, soc=False,
+    #            #                                    break_symmetry=False, opt=1)[r]
+    #            #    self.assertAlmostEqual (lib.fp (d12_o2_test), lib.fp (d12_o0[r][i]), 9)
 
-    def test_lassis (self):
-        las0 = las.get_single_state_las (state=0)
-        for ifrag in range (len (las0.ci)):
-            las0.ci[ifrag][0] = las0.ci[ifrag][0][0]
-        lsi = LASSIS (las0)
-        lsi.prepare_states_()
-        self.assertTrue (lsi.converged)
-        case_lassis_fbf_2_model_state (self, lsi)
+    #def test_lassis (self):
+    #    las0 = las.get_single_state_las (state=0)
+    #    for ifrag in range (len (las0.ci)):
+    #        las0.ci[ifrag][0] = las0.ci[ifrag][0][0]
+    #    lsi = LASSIS (las0)
+    #    lsi.prepare_states_()
+    #    self.assertTrue (lsi.converged)
 
-    def test_lassis_1111 (self):
-        xyz='''H 0 0 0
-        H 3 0 0
-        H 6 0 0
-        H 9 0 0'''
-        mol1 = gto.M (atom=xyz, basis='sto3g', symmetry=False, verbose=0, output='/dev/null')
-        mf1 = scf.RHF (mol1).run ()
+    #def test_lassis_1111 (self):
+    #    xyz='''H 0 0 0
+    #    H 3 0 0
+    #    H 6 0 0
+    #    H 9 0 0'''
+    #    mol1 = gto.M (atom=xyz, basis='sto3g', symmetry=False, verbose=0, output='/dev/null')
+    #    mf1 = scf.RHF (mol1).run ()
 
-        las1 = LASSCF (mf1, (1,1,1,1), ((0,1),(1,0),(0,1),(1,0)))
-        mo_coeff = las1.localize_init_guess ([[0,],[1,],[2,],[3,]])
-        las1.lasci_(mo_coeff)
-        lsi = LASSIS (las1).run ()
-        self.assertTrue (lsi.converged)
-        self.assertAlmostEqual (lsi.e_roots[0], -1.867291372401379, 6)
-        case_lassis_fbf_2_model_state (self, lsi)
-        case_lassis_fbfdm (self, lsi)
+    #    las1 = LASSCF (mf1, (1,1,1,1), ((0,1),(1,0),(0,1),(1,0)))
+    #    mo_coeff = las1.localize_init_guess ([[0,],[1,],[2,],[3,]])
+    #    las1.lasci_(mo_coeff)
+    #    lsi = LASSIS (las1).run ()
+    #    self.assertTrue (lsi.converged)
+    #    self.assertAlmostEqual (lsi.e_roots[0], -1.867291372401379, 6)
 
-    def test_lassis_slow (self):
-        las0 = las.get_single_state_las (state=0)
-        for ifrag in range (len (las0.ci)):
-            las0.ci[ifrag][0] = las0.ci[ifrag][0][0]
-        lsi = LASSIS (las0).run ()
-        self.assertTrue (lsi.converged)
-        self.assertAlmostEqual (lsi.e_roots[0], -304.5372586630968, 3)
-        case_lassis_fbf_2_model_state (self, lsi)
-        #case_lassis_fbfdm (self, lsi)
+    #def test_lassis_slow (self):
+    #    las0 = las.get_single_state_las (state=0)
+    #    for ifrag in range (len (las0.ci)):
+    #        las0.ci[ifrag][0] = las0.ci[ifrag][0][0]
+    #    lsi = LASSIS (las0).run ()
+    #    self.assertTrue (lsi.converged)
+    #    self.assertAlmostEqual (lsi.e_roots[0], -304.5372586630968, 3)
 
-    def test_fdm1 (self):
-        make_fdm1 = get_fdm1_maker (las, las.ci, nelec_frs, si)
-        for iroot in range (nroots):
-            for ifrag in range (4):
-                with self.subTest (iroot=iroot, ifrag=ifrag):
-                    fdm1 = make_fdm1 (iroot, ifrag)
-                    sdm1 = make_sdm1 (las, iroot, ifrag, si=si)
-                    self.assertAlmostEqual (lib.fp (fdm1), lib.fp (sdm1), 7)
-
-    def test_contract_hlas_ci (self):
-        h0, h1, h2 = ham_2q (las, las.mo_coeff)
-        case_contract_hlas_ci (self, las, h0, h1, h2, las.ci, nelec_frs)        
+    #def test_fdm1 (self):
+    #    make_fdm1 = get_fdm1_maker (las, las.ci, nelec_frs, si)
+    #    for iroot in range (nroots):
+    #        for ifrag in range (4):
+    #            with self.subTest (iroot=iroot, ifrag=ifrag):
+    #                fdm1 = make_fdm1 (iroot, ifrag)
+    #                sdm1 = make_sdm1 (las, iroot, ifrag, si=si)
+    #                self.assertAlmostEqual (lib.fp (fdm1), lib.fp (sdm1), 7)
 
 
 if __name__ == "__main__":
