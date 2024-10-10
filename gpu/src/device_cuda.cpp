@@ -290,10 +290,10 @@ void Device::pull_ints_ao2mo(py::array_t<double> _fxpp, py::array_t<double> _buf
 {
     py::buffer_info info_fxpp = _fxpp.request(); //3D array (nmo*nmo*naoaux)
     double * fxpp = static_cast<double*>(info_fxpp.ptr);
-    std::memcpy(fxpp, pin_fxpp, size_fxpp);
+    std::memcpy(fxpp, pin_fxpp, size_fxpp*sizeof(double));
     py::buffer_info info_bufpa = _bufpa.request(); //3D array (naoaux*nmo*ncas)
     double * bufpa = static_cast<double*>(info_bufpa.ptr);
-    std::memcpy(bufpa, pin_bufpa, size_bufpa);
+    std::memcpy(bufpa, pin_bufpa, size_bufpa*sizeof(double));
 }
 
 /* ---------------------------------------------------------------------- */
@@ -1540,7 +1540,6 @@ void Device::df_ao2mo_pass1_v2 (int blksize, int nmo, int nao, int ncore, int nc
 #else
   double * bufpa = &(pin_bufpa[count*blksize*nmo*ncas]);
 #endif
-  printf("starting bufpa pull\n");
   pm->dev_pull_async(d_bufpa, bufpa, naux*nmo*ncas*sizeof(double), dd->stream);
 
   double * d_fxpp = dd->d_buf1;
@@ -1577,7 +1576,6 @@ else
 #endif
 
 
-  printf("starting fxpp pull\n");
   pm->dev_pull_async(d_fxpp, fxpp, naux*nmo*nmo *sizeof(double), dd->stream);
   //bufd work
 #if 1
