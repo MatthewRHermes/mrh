@@ -74,11 +74,9 @@ class DF(df.DF):
         return self
     def ao2mo(self, mo_coeffs,
               compact=getattr(__config__, 'df_df_DF_ao2mo_compact', True)):
-        print("Inside gpu4pyscf/df/df.py::ao2mo()")#  self= ", hex(id(self)))
         if isinstance(mo_coeffs, numpy.ndarray) and mo_coeffs.ndim == 2:
             mo_coeffs = (mo_coeffs,) * 4
         ijmosym, nij_pair, moij, ijslice = _conc_mos(mo_coeffs[0], mo_coeffs[1], compact)
-        print(ijslice)
         klmosym, nkl_pair, mokl, klslice = _conc_mos(mo_coeffs[2], mo_coeffs[3], compact)
         mo_eri = numpy.zeros((nij_pair,nkl_pair))
         sym = (iden_coeffs(mo_coeffs[0], mo_coeffs[2]) and
@@ -87,7 +85,6 @@ class DF(df.DF):
         for eri1 in self.loop():
             Lij = _ao2mo.nr_e2(eri1, moij, ijslice, aosym='s2', mosym=ijmosym, out=Lij)
             if sym:
-                #print("Here")
                 Lkl = Lij
             else:
                 Lkl = _ao2mo.nr_e2(eri1, mokl, klslice, aosym='s2', mosym=klmosym, out=Lkl)

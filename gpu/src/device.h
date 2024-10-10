@@ -76,11 +76,18 @@ public :
   void set_update_dfobj_(int);
   void get_dfobj_status(size_t, py::array_t<int>);
  
+  void init_jk_ao2mo (int, int);
+
   void df_ao2mo_pass1_fdrv (int, int, int, int,
 			    py::array_t<double>, py::array_t<double>,
 			    py::array_t<double>,
 			    int, size_t);
   
+  void df_ao2mo_pass1 (int, int, int, int, int,
+			    py::array_t<double>, py::array_t<double>,py::array_t<double>,
+			    int, size_t);
+  void pull_jk_ao2mo (py::array_t<double>,py::array_t<double>,int, int);
+
   void orbital_response(py::array_t<double>,
 			py::array_t<double>, py::array_t<double>, py::array_t<double>,
 			py::array_t<double>, py::array_t<double>, py::array_t<double>,
@@ -132,7 +139,15 @@ private:
 
   double * buf_vj;
   double * buf_vk;
-  
+  // ao2mo
+  int size_buf_k_pc;
+  int size_buf_j_pc;
+  int size_k_pc;
+  int size_j_pc;
+
+  double * buf_j_pc; 
+  double * buf_k_pc; 
+
   // eri caching on device
 
   bool use_eri_cache;
@@ -184,6 +199,11 @@ private:
     int size_umat;
     int size_h2eff;
     int size_mo_coeff; 
+    int size_j_pc;
+    int size_k_cp;
+    int size_k_pc;
+    int size_bufd;
+    int size_bufpa;
 
     double * d_rho;
     double * d_vj;
@@ -198,6 +218,10 @@ private:
     double * d_umat;
     double * d_h2eff;
     double * d_mo_coeff;
+    double * d_j_pc;
+    double * d_k_pc;
+    double * d_bufd;
+    double * d_bufpa;
 
     std::vector<int> type_pumap;
     std::vector<int> size_pumap;

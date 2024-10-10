@@ -40,6 +40,13 @@ Device::Device()
   buf_vj = nullptr;
   buf_vk = nullptr;
   
+  //ao2mo
+  size_buf_j_pc = 0;
+  size_buf_k_pc = 0;
+
+  buf_j_pc = nullptr;
+  buf_k_pc = nullptr;
+
 #if defined(_USE_GPU)
   use_eri_cache = true;
 #endif
@@ -66,6 +73,10 @@ Device::Device()
     device_data[i].size_umat = 0;
     device_data[i].size_h2eff = 0;
     device_data[i].size_mo_coeff = 0;
+    device_data[i].size_j_pc = 0;
+    device_data[i].size_k_pc = 0;
+    device_data[i].size_bufd = 0;
+    device_data[i].size_bufpa = 0;
     
     device_data[i].d_rho = nullptr;
     device_data[i].d_vj = nullptr;
@@ -83,6 +94,11 @@ Device::Device()
     
     device_data[i].d_pumap_ptr = nullptr;
     
+    device_data[i].d_j_pc = nullptr;
+    device_data[i].d_k_pc = nullptr;
+    device_data[i].d_bufd = nullptr;
+    device_data[i].d_bufpa = nullptr;
+
 #if defined (_USE_GPU)
     device_data[i].handle = nullptr;
     device_data[i].stream = nullptr;
@@ -130,6 +146,9 @@ Device::~Device()
   
   pm->dev_free_host(buf_fdrv);
   
+  pm->dev_free_host(buf_j_pc);
+  pm->dev_free_host(buf_k_pc);
+  
 #ifdef _SIMPLE_TIMER
   double total = 0.0;
   for(int i=0; i<_NUM_SIMPLE_TIMER; ++i) total += t_array[i];
@@ -152,8 +171,8 @@ Device::~Device()
   printf("\nLIBGPU :: SIMPLE_TIMER :: _update_h2eff\n");
   printf("LIBGPU :: SIMPLE_TIMER :: i= %i  name= update_h2eff_sub() time= %f s\n",6,t_array[6]);
 
-  printf("\nLIBGPU :: SIMPLE_TIMER :: _contract1 \n");
-  printf("LIBGPU :: SIMPLE_TIMER :: i= %i  name= h2eff_contract1() time= %f s\n",7,t_array[7]);
+  printf("\nLIBGPU :: SIMPLE_TIMER :: _h2eff_df \n");
+  printf("LIBGPU :: SIMPLE_TIMER :: i= %i  name= h2eff_df() time= %f s\n",7,t_array[7]);
  
   printf("\nLIBGPU :: SIMPLE_TIMER :: transfer_mo_coeff \n");
   printf("LIBGPU :: SIMPLE_TIMER :: i= %i  name= transfer_mo_coeff() time= %f s\n",8,t_array[8]);
@@ -196,7 +215,8 @@ Device::~Device()
     pm->dev_free(dd->d_eri1);
     pm->dev_free(dd->d_h2eff);
     pm->dev_free(dd->d_mo_coeff);
-    
+    pm->dev_free(dd->d_j_pc);
+    pm->dev_free(dd->d_k_pc);
     for(int i=0; i<dd->size_pumap.size(); ++i) {
       pm->dev_free_host(dd->pumap[i]);
       pm->dev_free(dd->d_pumap[i]);

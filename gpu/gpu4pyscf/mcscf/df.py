@@ -324,10 +324,17 @@ class _ERIS:
         self.ppaa = self.feri.create_dataset('ppaa', (nmo,nmo,ncas,ncas), 'f8')
         self.papa = self.feri.create_dataset('papa', (nmo,ncas,nmo,ncas), 'f8')
         self.j_pc = numpy.zeros((nmo,ncore))
+        self.k_pc = numpy.zeros((nmo,ncore))
         k_cp = numpy.zeros((ncore,nmo))
+        gpu=casscf.mol.use_gpu#print(bufpp)
+        if DEBUG and gpu:
+            k_cp2 = numpy.zeros((ncore,nmo))
+            self.j_pc2 = numpy.zeros((nmo,ncore))
+            self.k_pc2 = numpy.zeros((nmo,ncore))
 
         mo = numpy.asarray(mo, order='F')
-        fxpp = lib.H5TmpFile()
+        #fxpp = lib.H5TmpFile()
+        fxpp = numpy.empty ((nmo, nmo, naoaux))
 
 #        blksize = max(4, int(min(with_df.blockdim, (max_memory*.95e6/8-naoaux*nmo*ncas)/3/nmo**2)))
         blksize = with_df.blockdim
@@ -340,16 +347,18 @@ class _ERIS:
         fxpp_keys = []
         b0 = 0
         t1 = t0 = (logger.process_clock(), logger.perf_counter())
-        gpu=casscf.mol.use_gpu#print(bufpp)
         if gpu: 
             libgpu.libgpu_push_mo_coeff(gpu, mo, nao*nmo)
+            libgpu.libgpu_init_jk_ao2mo(gpu, ncore, nmo) 
         count = 0
+        #for k in range(0):
         for k, eri1 in enumerate(with_df.loop(blksize)):
             naux = eri1.shape[0]
-            bufpp = bufs1[:naux]
             if DEBUG and gpu:
+                bufpp = numpy.empty((nmo, nmo, naux)) # using the fxpp
                 bufpp2 = numpy.empty((naux,nmo,nmo))#bufs1[:naux]
-                libgpu.libgpu_df_ao2mo_pass1_fdrv(gpu,naux,nmo,nao,blksize,bufpp,mo,eri1,count,id(with_df))
+                bufpa_slice = numpy.empty((naux, nmo, ncas))
+                libgpu.libgpu_df_ao2mo_pass1(gpu,naux,nmo,nao,ncore,ncas,bufpp,bufpa_slice,eri1,k,id(with_df))
                 fdrv(ftrans, fmmm,
                  bufpp2.ctypes.data_as(ctypes.c_void_p),
                  eri1.ctypes.data_as(ctypes.c_void_p),
@@ -357,18 +366,30 @@ class _ERIS:
                  ctypes.c_int(naux), ctypes.c_int(nao),
                  (ctypes.c_int*4)(0, nmo, 0, nmo),
                  ctypes.c_void_p(0), ctypes.c_int(0))
-                #print('bufpp')
-                #print(bufpp)
-                #print('bufpp2')
-                #print(bufpp2)
-                if (numpy.allclose(bufpp,bufpp2,atol=1e-13)):print("ao2mo fdrv check passed!");pass
-                else:print("ao2mo fdrv bug");print(np.max((bufpp-bufpp2)*(bufpp-bufpp2)));exit()          
+                fxpp_keys.append([k, b0, b0+naux])
+                fxpp[:,:,b0:b0+naux] = bufpp  # bufpp is already transposed in GPU kernel
+                bufpa[b0:b0+naux] = bufpa_slice
+                if (numpy.allclose(bufpp2[:,:,ncore:nocc],bufpa_slice)): print("bufpa works")
+                else: print("bufpa does not work")
+                bufd = numpy.einsum('kii->ki', bufpp2)
+                self.j_pc2 += numpy.einsum('ki,kj->ij', bufd, bufd[:,:ncore])
+                k_cp2 += numpy.einsum('kij,kij->ij', bufpp2[:,:ncore], bufpp2[:,:ncore])
+                if (numpy.allclose(bufpp,bufpp2.transpose(1,2,0),atol=1e-13)):print("ao2mo fdrv check passed!");pass
+                else:
+                    print("this one ao2mo fdrv bug");print(numpy.max((bufpp-bufpp2)*(bufpp-bufpp2)));
+                    exit()
 
             else:
                 if gpu:
-                    libgpu.libgpu_df_ao2mo_pass1_fdrv(gpu,naux,nmo,nao,blksize,bufpp,mo, eri1,count,id(with_df))
-                    t0 = log.timer('density fitting ao2mo pass1_loop gpu', *t0)
+                    bufpp = numpy.empty((nmo, nmo, naux))
+                    bufpa_slice = numpy.empty((naux, nmo, ncas))
+                    libgpu.libgpu_df_ao2mo_pass1(gpu,naux,nmo,nao,ncore,ncas,bufpp,bufpa_slice,eri1,k,id(with_df))
+                    fxpp_keys.append([k, b0, b0+naux])
+                    fxpp[:,:,b0:b0+naux] = bufpp #bufpp is already transposed in GPU kernel
+                    bufpa[b0:b0+naux] = bufpa_slice
+                    b0 += naux
                 else:
+                    bufpp = bufs1[:naux]
                     fdrv(ftrans, fmmm,
                      bufpp.ctypes.data_as(ctypes.c_void_p),
                      eri1.ctypes.data_as(ctypes.c_void_p),
@@ -377,23 +398,74 @@ class _ERIS:
                      (ctypes.c_int*4)(0, nmo, 0, nmo),
                      ctypes.c_void_p(0), ctypes.c_int(0))
                     t0 = log.timer('density fitting ao2mo pass1_loop cpu', *t0)
+                    fxpp_keys.append([k, b0, b0+naux])
+                    fxpp[:,:,b0:b0+naux] = bufpp.transpose(1,2,0)  
+                    bufpa[b0:b0+naux] = bufpp[:,:,ncore:nocc]
+                    bufd = numpy.einsum('kii->ki', bufpp)
+                    self.j_pc += numpy.einsum('ki,kj->ij', bufd, bufd[:,:ncore])
+                    k_cp += numpy.einsum('kij,kij->ij', bufpp[:,:ncore], bufpp[:,:ncore])
+                    b0 += naux
+                    t0 = log.timer('rest of the calculation', *t0)
+         
+        if gpu: 
+            libgpu.libgpu_pull_jk_ao2mo (gpu, self.j_pc, k_cp, nmo, ncore)
+            #self.k_pc = k_cp.T.copy()
 
-            fxpp_keys.append([str(k), b0, b0+naux])
-            fxpp[str(k)] = bufpp.transpose(1,2,0)
-            bufpa[b0:b0+naux] = bufpp[:,:,ncore:nocc]
-            bufd = numpy.einsum('kii->ki', bufpp)
-            self.j_pc += numpy.einsum('ki,kj->ij', bufd, bufd[:,:ncore])
-            k_cp += numpy.einsum('kij,kij->ij', bufpp[:,:ncore], bufpp[:,:ncore])
-            #print(k,blksize,eri1.shape,bufpp.transpose(1,2,0).shape,mo.shape,self.j_pc.shape,k_cp.shape)
-            b0 += naux
-            t0 = log.timer('rest of the calculation', *t0)
-            #t1 = log.timer_debug1('j_pc and k_pc', *t1)
-            count += 1
-            
+                #Commented 10-04-24 in favor of accelerated code above 
+        #for k, eri1 in enumerate(with_df.loop(blksize)):
+        #    naux = eri1.shape[0]
+        #    bufpp = bufs1[:naux]
+        #    if DEBUG and gpu:
+        #        bufpp = bufs1[:naux]
+        #        bufpp2 = numpy.empty((naux,nmo,nmo))#bufs1[:naux]
+        #        libgpu.libgpu_df_ao2mo_pass1_fdrv(gpu,naux,nmo,nao,blksize,bufpp,mo,eri1,count,id(with_df))
+        #        fdrv(ftrans, fmmm,
+        #         bufpp2.ctypes.data_as(ctypes.c_void_p),
+        #         eri1.ctypes.data_as(ctypes.c_void_p),
+        #         mo.ctypes.data_as(ctypes.c_void_p),
+        #         ctypes.c_int(naux), ctypes.c_int(nao),
+        #         (ctypes.c_int*4)(0, nmo, 0, nmo),
+        #         ctypes.c_void_p(0), ctypes.c_int(0))
+        #        if (numpy.allclose(bufpp,bufpp2,atol=1e-13)):print("ao2mo fdrv check passed!");pass
+        #        else:print("ao2mo fdrv bug");print(np.max((bufpp-bufpp2)*(bufpp-bufpp2)));exit()          
+
+        #   else:
+        #       if gpu:
+        #            bufpp = bufs1[:naux]
+        #            libgpu.libgpu_df_ao2mo_pass1_fdrv(gpu,naux,nmo,nao,blksize,bufpp,mo, eri1,count,id(with_df))
+        #            t0 = log.timer('density fitting ao2mo pass1_loop gpu', *t0)
+        #        else:
+        #            bufpp = bufs1[:naux]
+        #            fdrv(ftrans, fmmm,
+        #             bufpp.ctypes.data_as(ctypes.c_void_p),
+        #             eri1.ctypes.data_as(ctypes.c_void_p),
+        #             mo.ctypes.data_as(ctypes.c_void_p),
+        #             ctypes.c_int(naux), ctypes.c_int(nao),
+        #             (ctypes.c_int*4)(0, nmo, 0, nmo),
+        #             ctypes.c_void_p(0), ctypes.c_int(0))
+        #            t0 = log.timer('density fitting ao2mo pass1_loop cpu', *t0)
+
+        #    #fxpp_keys.append([str(k), b0, b0+naux])
+        #    #fxpp[str(k)] = bufpp.transpose(1,2,0)
+        #    fxpp_keys.append([k, b0, b0+naux])
+        #    fxpp[:,:,b0:b0+naux] = bufpp.transpose(1,2,0)
+        #    bufpa[b0:b0+naux] = bufpp[:,:,ncore:nocc]
+        #    bufd = numpy.einsum('kii->ki', bufpp)
+        #    self.j_pc += numpy.einsum('ki,kj->ij', bufd, bufd[:,:ncore])
+        #    k_cp += numpy.einsum('kij,kij->ij', bufpp[:,:ncore], bufpp[:,:ncore])
+        #    b0 += naux
+        #    t0 = log.timer('rest of the calculation', *t0)
+        #    count += 1
         self.k_pc = k_cp.T.copy()
+        if DEBUG and gpu:
+            self.k_pc2 = k_cp2.T.copy()
+            if numpy.allclose(self.j_pc, self.j_pc2): print("J_pc works")
+            else: print("J_pc doesn't work", numpy.max(self.j_pc-self.j_pc2));exit()
+            if numpy.allclose(self.k_pc, self.k_pc2): print("K_pc works")
+            else: print("K_pc doesn't work", numpy.max(self.k_pc-self.k_pc2));exit()
+   
         bufs1 = bufpp = None
         t1 = log.timer('density fitting ao2mo pass1', *t1)
-        #print(fxpp)
         mem_now = lib.current_memory()[0]
         nblk = int(max(8, min(nmo, ((max_memory-mem_now)*1e6/8-bufpa.size)/(ncas**2*nmo))))
         bufs1 = numpy.empty((nblk,ncas,nmo,ncas))
@@ -419,7 +491,8 @@ class _ERIS:
             buf = bufs1[:nrow]
             tmp = bufs2[:nrow].reshape(-1,ncas**2)
             for key, col0, col1 in fxpp_keys:
-                buf[:nrow,:,col0:col1] = fxpp[key][p0:p1]
+                #buf[:nrow,:,col0:col1] = fxpp[key][p0:p1]
+                buf[:nrow,:,col0:col1] = fxpp[:,:,col0:col1][p0:p1]
             lib.dot(buf.reshape(-1,naoaux), bufaa, 1, tmp)
             self.ppaa[p0:p1] = tmp.reshape(p1-p0,nmo,ncas,ncas)
         bufs1 = bufs2 = buf = None
@@ -430,7 +503,8 @@ class _ERIS:
         dm_core = numpy.dot(mo[:,:ncore], mo[:,:ncore].T)
         vj, vk = casscf.get_jk(mol, dm_core)
         self.vhf_c = reduce(numpy.dot, (mo.T, vj*2-vk, mo))
-        fxpp.close()
+        #fxpp.close()
+        fxpp=None
         t0 = log.timer('density fitting ao2mo', *t0)
     def __del__(self):
         self.feri.close()
