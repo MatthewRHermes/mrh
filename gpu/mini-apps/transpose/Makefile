@@ -70,6 +70,7 @@ clean:
 	rm -f *.o *.mod *~ $(EXE)
 	rm -f $(INSTALL)/$(EXE)
 	rm -rf $(EXE).dSYM
+	rm -f pm*.cpp
 #
 # -- Remove *.o, *~, and executable from the directory
 realclean:
