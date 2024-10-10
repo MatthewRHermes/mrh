@@ -32,7 +32,6 @@ extern "C"
 			     int, int, size_t);
   
   void libgpu_pull_get_jk(void *, py::array_t<double>, py::array_t<double>, int, int, int);
-  
   void libgpu_set_update_dfobj_(void *, int);
   void libgpu_get_dfobj_status(void *, size_t, py::array_t<int>);
   
@@ -49,10 +48,17 @@ extern "C"
   void libgpu_df_ao2mo_pass1(void * ,
                              int, int, int, int, int,
                              py::array_t<double>, py::array_t<double>,py::array_t<double>, int, size_t);
+  void libgpu_df_ao2mo_pass1_v2(void * ,
+                             int, int, int, int, int, int,
+                             py::array_t<double>, int, size_t);
   void libgpu_init_jk_ao2mo(void *, 
                             int, int);
+  void libgpu_init_ints_ao2mo(void *, 
+                            int, int, int);
   void libgpu_pull_jk_ao2mo(void *, 
                             py::array_t<double>, py::array_t<double>,int, int);
+  void libgpu_pull_ints_ao2mo(void *, 
+                            py::array_t<double>, py::array_t<double>,int, int, int);
   
   void libgpu_orbital_response(void *,
 			       py::array_t<double>,
@@ -94,9 +100,12 @@ PYBIND11_MODULE(libgpu, m) {
 
   m.def("libgpu_push_mo_coeff", &libgpu_push_mo_coeff, "pyscf/mcscf/df.py::_ERIS.__init__() part 0.1");
   m.def("libgpu_init_jk_ao2mo", &libgpu_init_jk_ao2mo, "pyscf/mcscf/df.py::_ERIS.__init__() part 0.2");
-  m.def("libgpu_df_ao2mo_pass1_fdrv", &libgpu_df_ao2mo_pass1_fdrv, "pyscf/mcscf/df.py::_ERIS.__init__() part 0.3");
-  m.def("libgpu_df_ao2mo_pass1", &libgpu_df_ao2mo_pass1, "pyscf/mcscf/df.py::_ERIS.__init__() part 1.0");
-  m.def("libgpu_pull_jk_ao2mo", &libgpu_pull_jk_ao2mo, "pyscf/mcscf/df.py::_ERIS.__init__() part 0.4");
+  m.def("libgpu_init_ints_ao2mo", &libgpu_init_ints_ao2mo, "pyscf/mcscf/df.py::_ERIS.__init__() part 0.3");
+  m.def("libgpu_df_ao2mo_pass1_fdrv", &libgpu_df_ao2mo_pass1_fdrv, "pyscf/mcscf/df.py::_ERIS.__init__() part 0.4");
+  m.def("libgpu_df_ao2mo_pass1", &libgpu_df_ao2mo_pass1, "pyscf/mcscf/df.py::_ERIS.__init__() 1.0");
+  m.def("libgpu_df_ao2mo_pass1_v2", &libgpu_df_ao2mo_pass1_v2, "pyscf/mcscf/df.py::_ERIS.__init__() 2.0");
+  m.def("libgpu_pull_jk_ao2mo", &libgpu_pull_jk_ao2mo, "pyscf/mcscf/df.py::_ERIS.__init__() part 0.5");
+  m.def("libgpu_pull_ints_ao2mo", &libgpu_pull_ints_ao2mo, "pyscf/mcscf/df.py::_ERIS.__init__() part 0.6");
   m.def("libgpu_update_h2eff_sub", &libgpu_update_h2eff_sub, "my_pyscf/mcscf/lasci_sync.py::_update_h2_eff()");
   m.def("libgpu_h2eff_df_contract1", &libgpu_h2eff_df_contract1, "my_pyscf/df/sparse_df.py::contract1");
   m.def("libgpu_get_h2eff_df", &libgpu_get_h2eff_df, "my_pyscf/mcscf/las_ao2mo.py::get_h2eff_df");

@@ -78,6 +78,8 @@ public :
  
   void init_jk_ao2mo (int, int);
 
+  void init_ints_ao2mo (int, int, int);
+
   void df_ao2mo_pass1_fdrv (int, int, int, int,
 			    py::array_t<double>, py::array_t<double>,
 			    py::array_t<double>,
@@ -86,7 +88,13 @@ public :
   void df_ao2mo_pass1 (int, int, int, int, int,
 			    py::array_t<double>, py::array_t<double>,py::array_t<double>,
 			    int, size_t);
+
+  void df_ao2mo_pass1_v2 (int, int, int, int, int, int,
+			    py::array_t<double>,
+			    int, size_t);
+
   void pull_jk_ao2mo (py::array_t<double>,py::array_t<double>,int, int);
+  void pull_ints_ao2mo (py::array_t<double>,py::array_t<double>,int, int, int);
 
   void orbital_response(py::array_t<double>,
 			py::array_t<double>, py::array_t<double>, py::array_t<double>,
@@ -142,11 +150,15 @@ private:
   // ao2mo
   int size_buf_k_pc;
   int size_buf_j_pc;
+  int size_fxpp;
+  int size_bufpa;
   int size_k_pc;
   int size_j_pc;
 
   double * buf_j_pc; 
   double * buf_k_pc; 
+  double * pin_fxpp;
+  double * pin_bufpa;
 
   // eri caching on device
 
