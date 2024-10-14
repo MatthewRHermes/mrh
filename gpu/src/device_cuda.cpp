@@ -290,9 +290,11 @@ void Device::pull_ints_ao2mo(py::array_t<double> _fxpp, py::array_t<double> _buf
 {
     py::buffer_info info_fxpp = _fxpp.request(); //3D array (nmo*nmo*naoaux)
     double * fxpp = static_cast<double*>(info_fxpp.ptr);
+    printf("size_fxpp %i\n", size_fxpp);
     std::memcpy(fxpp, pin_fxpp, size_fxpp*sizeof(double));
     py::buffer_info info_bufpa = _bufpa.request(); //3D array (naoaux*nmo*ncas)
     double * bufpa = static_cast<double*>(info_bufpa.ptr);
+    printf("size_bufpa %i\n", size_bufpa);
     std::memcpy(bufpa, pin_bufpa, size_bufpa*sizeof(double));
 }
 
@@ -1445,6 +1447,7 @@ void Device::df_ao2mo_pass1_v2 (int blksize, int nmo, int nao, int ncore, int nc
   const int device_id = count % num_devices;
   pm->dev_set_device(device_id);
   my_device_data * dd = &(device_data[device_id]);
+  printf(" naux %i blksize %i\n", naux, blksize);
 #ifdef _DEBUG_DEVICE
   printf("LIBGPU:: Inside Device::df_ao2mo_pass1_fdrv()\n");
   printf("LIBGPU:: dfobj= %#012x  count= %i  combined= %#012x %p update_dfobj= %i\n",addr_dfobj,count,addr_dfobj+count,addr_dfobj+count,update_dfobj);
