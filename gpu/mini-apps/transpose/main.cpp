@@ -34,13 +34,15 @@
   typedef double real_t;
 #endif
 
+using namespace PM_NS;
+
+extern void init_pm(class PM *);
 extern void transpose(real_t *, real_t *, const int, const int);
 extern void copy_naive_gpu(real_t *, real_t *, const int, const int);
 extern void transpose_naive_gpu(real_t *, real_t *, const int, const int);
-extern void transpose_gpu(real_t *, real_t *, const int, const int);
-extern void transpose_gpu_2(real_t *, real_t *, const int, const int);
-
-using namespace PM_NS;
+extern void transpose_gpu_v1(real_t *, real_t *, const int, const int);
+extern void transpose_gpu_v2(real_t *, real_t *, const int, const int);
+extern void transpose_gpu_v3(real_t *, real_t *, const int, const int);
 
 // ----------------------------------------------------------------
 
@@ -109,6 +111,8 @@ int main( int argc, char* argv[] )
   // ----------------------------------------------------------------
 
   class PM * pm = new PM();
+
+  init_pm(pm);
   
   int num_devices = pm->dev_num_devices();
 
@@ -116,10 +120,13 @@ int main( int argc, char* argv[] )
     printf("# of devices= %i\n",num_devices);
     pm->dev_properties(num_devices);
   }
-
+  
   // Device ID
 
   int device_id = me % num_devices;
+
+  pm->dev_set_device(device_id);
+  
   for(int i=0; i<nranks; ++i) {
     if(i == me) {
       printf("Rank %i running on GPU %i!\n",me,device_id);
@@ -159,12 +166,12 @@ int main( int argc, char* argv[] )
   //  print_matrix(r, _NUM_COLS, _NUM_ROWS, "Reference r");
 
   // Create device buffers and transfer data to device
-
+  
   real_t * d_a = (real_t *) pm->dev_malloc(_NUM_ROWS * _NUM_COLS * sizeof(real_t));
   real_t * d_b = (real_t *) pm->dev_malloc(_NUM_ROWS * _NUM_COLS * sizeof(real_t));
-
-  for(int i=0; i<_NUM_ROWS*_NUM_COLS; ++i) b[i] = -1.0;
   
+  for(int i=0; i<_NUM_ROWS*_NUM_COLS; ++i) b[i] = -1.0;
+ 
   pm->dev_push(d_a, a, _NUM_ROWS * _NUM_COLS * sizeof(real_t));
 
   // ----------------------------------------------------------------
@@ -172,25 +179,27 @@ int main( int argc, char* argv[] )
   // Execute kernel
 
   copy_naive_gpu(d_b, d_a, _NUM_ROWS, _NUM_COLS);
-  cudaDeviceSynchronize();
+  pm->dev_barrier();
+  
   t0 = MPI_Wtime();
   for(int i=0; i<_NUM_ITERATIONS_GPU; ++i)
     copy_naive_gpu(d_b, d_a, _NUM_ROWS, _NUM_COLS);
-  cudaDeviceSynchronize();
+  pm->dev_barrier();
   t = MPI_Wtime() - t0;
 
   print_summary(t, _NUM_ROWS, _NUM_COLS, _NUM_ITERATIONS_GPU, "_copy_naive_gpu");
-
+  
   // ----------------------------------------------------------------
   
   // Execute kernel
 
   transpose_naive_gpu(d_b, d_a, _NUM_ROWS, _NUM_COLS);
-  cudaDeviceSynchronize();
+  pm->dev_barrier();
+  
   t0 = MPI_Wtime();
   for(int i=0; i<_NUM_ITERATIONS_GPU; ++i)
     transpose_naive_gpu(d_b, d_a, _NUM_ROWS, _NUM_COLS);
-  cudaDeviceSynchronize();
+  pm->dev_barrier();
   t = MPI_Wtime() - t0;
   
   // Transfer data from device
@@ -201,18 +210,19 @@ int main( int argc, char* argv[] )
   
   check_result(r, b, _NUM_ROWS*_NUM_COLS, "transpose_naive_gpu");
 
-  //print_matrix(b, _NUM_COLS, _NUM_ROWS, "Transposed b from naive_gpu");
-
+  //  print_matrix(b, _NUM_COLS, _NUM_ROWS, "Transposed b from naive_gpu");
+  
   // ----------------------------------------------------------------
   
   // Execute kernel
 
-  transpose_gpu(d_b, d_a, _NUM_ROWS, _NUM_COLS);
-  cudaDeviceSynchronize();
+  transpose_gpu_v1(d_b, d_a, _NUM_ROWS, _NUM_COLS);
+  pm->dev_barrier();
+  
   t0 = MPI_Wtime();
   for(int i=0; i<_NUM_ITERATIONS_GPU; ++i)
-    transpose_gpu(d_b, d_a, _NUM_ROWS, _NUM_COLS);
-  cudaDeviceSynchronize();
+    transpose_gpu_v1(d_b, d_a, _NUM_ROWS, _NUM_COLS);
+  pm->dev_barrier();
   t = MPI_Wtime() - t0;
   
   // Transfer data from device
@@ -229,12 +239,13 @@ int main( int argc, char* argv[] )
   
   // Execute kernel
 
-  transpose_gpu_2(d_b, d_a, _NUM_ROWS, _NUM_COLS);
-  cudaDeviceSynchronize();
+  transpose_gpu_v2(d_b, d_a, _NUM_ROWS, _NUM_COLS);
+  pm->dev_barrier();
+  
   t0 = MPI_Wtime();
   for(int i=0; i<_NUM_ITERATIONS_GPU; ++i)
-    transpose_gpu_2(d_b, d_a, _NUM_ROWS, _NUM_COLS);
-  cudaDeviceSynchronize();
+    transpose_gpu_v2(d_b, d_a, _NUM_ROWS, _NUM_COLS);
+  pm->dev_barrier();
   t = MPI_Wtime() - t0;
   
   // Transfer data from device
@@ -246,6 +257,8 @@ int main( int argc, char* argv[] )
   check_result(r, b, _NUM_ROWS*_NUM_COLS, "transpose_gpu_2");
 
   //  print_matrix(b, _NUM_COLS, _NUM_ROWS, "Transposed b from transpose_gpu_2");
+  
+  // ----------------------------------------------------------------
   
   // Clean up
 

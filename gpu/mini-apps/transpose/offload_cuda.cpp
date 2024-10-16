@@ -1,8 +1,12 @@
+#if defined(_GPU_CUDA)
+
 #include <stdio.h>
 #include <stdlib.h>
 #include <math.h>
 #include <iostream>
 #include <cassert>
+
+#include "pm.h"
 
 #define _TRANSPOSE_BLOCK_SIZE 16
 #define _TRANSPOSE_NUM_ROWS 16
@@ -15,6 +19,10 @@
   typedef double real_t;
 #endif
 
+using namespace PM_NS;
+
+class PM * pm_ = nullptr;
+
 // ----------------------------------------------------------------
 // GPU Kernels
 // ----------------------------------------------------------------
@@ -22,7 +30,7 @@
 //https://github.com/NVIDIA-developer-blog/code-samples/blob/master/series/cuda-cpp/transpose/transpose.cu
 // modified to support nonsquare matrices
 
-__global__ void _transpose_gpu(real_t * out, real_t * in, const int nrow, const int ncol)
+__global__ void _transpose_gpu_v1(real_t * out, real_t * in, const int nrow, const int ncol)
 {
   __shared__ real_t cache[_TRANSPOSE_BLOCK_SIZE][_TRANSPOSE_BLOCK_SIZE];
   
@@ -57,7 +65,7 @@ __global__ void _transpose_gpu(real_t * out, real_t * in, const int nrow, const 
 
 // ----------------------------------------------------------------
 
-__global__ void _transpose_gpu_2(real_t * out, real_t * in, const int nrow, const int ncol)
+__global__ void _transpose_gpu_v2(real_t * out, real_t * in, const int nrow, const int ncol)
 {
   __shared__ real_t cache[_TRANSPOSE_BLOCK_SIZE][_TRANSPOSE_BLOCK_SIZE+1];
   
@@ -128,6 +136,11 @@ __global__ void _copy_naive_gpu(real_t * out, real_t * in, const int nrow, const
 // Host-side functions
 // ----------------------------------------------------------------
 
+void init_pm(class PM * pm)
+{
+  pm_ = pm;
+}
+
 void copy_naive_gpu(real_t * b, real_t * a, const int num_rows, const int num_cols)
 {
   dim3 grid_size(num_rows, 1, 1);
@@ -148,7 +161,7 @@ void transpose_naive_gpu(real_t * b, real_t * a, const int num_rows, const int n
 
 // ----------------------------------------------------------------
 
-void transpose_gpu(real_t * b, real_t * a, const int num_rows, const int num_cols)
+void transpose_gpu_v1(real_t * b, real_t * a, const int num_rows, const int num_cols)
 {
   dim3 grid_size(_TILE(num_rows, _TRANSPOSE_BLOCK_SIZE), _TILE(num_cols, _TRANSPOSE_BLOCK_SIZE), 1);
   dim3 block_size(_TRANSPOSE_BLOCK_SIZE, _TRANSPOSE_NUM_ROWS, 1);
@@ -156,12 +169,12 @@ void transpose_gpu(real_t * b, real_t * a, const int num_rows, const int num_col
   //  printf("\ngrid_size= %i %i %i\n", _TILE(_NUM_ROWS, _TRANSPOSE_BLOCK_SIZE), _TILE(_NUM_COLS, _TRANSPOSE_BLOCK_SIZE), 1);
   //  printf("block_size= %i %i %i\n",_TRANSPOSE_BLOCK_SIZE, _TRANSPOSE_NUM_ROWS, 1);
   
-  _transpose_gpu<<<grid_size, block_size>>>(b, a, num_rows, num_cols);
+  _transpose_gpu_v1<<<grid_size, block_size>>>(b, a, num_rows, num_cols);
 }
 
 // ----------------------------------------------------------------
 
-void transpose_gpu_2(real_t * b, real_t * a, const int num_rows, const int num_cols)
+void transpose_gpu_v2(real_t * b, real_t * a, const int num_rows, const int num_cols)
 {
   dim3 grid_size(_TILE(num_rows, _TRANSPOSE_BLOCK_SIZE), _TILE(num_cols, _TRANSPOSE_BLOCK_SIZE), 1);
   dim3 block_size(_TRANSPOSE_BLOCK_SIZE, _TRANSPOSE_NUM_ROWS, 1);
@@ -169,7 +182,9 @@ void transpose_gpu_2(real_t * b, real_t * a, const int num_rows, const int num_c
   //  printf("\ngrid_size= %i %i %i\n", _TILE(_NUM_ROWS, _TRANSPOSE_BLOCK_SIZE), _TILE(_NUM_COLS, _TRANSPOSE_BLOCK_SIZE), 1);
   //  printf("block_size= %i %i %i\n",_TRANSPOSE_BLOCK_SIZE, _TRANSPOSE_NUM_ROWS, 1);
   
-  _transpose_gpu_2<<<grid_size, block_size>>>(b, a, num_rows, num_cols);
+  _transpose_gpu_v2<<<grid_size, block_size>>>(b, a, num_rows, num_cols);
 }
 
 // ----------------------------------------------------------------
+
+#endif

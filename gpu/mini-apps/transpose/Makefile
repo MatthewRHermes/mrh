@@ -39,9 +39,6 @@ FOBJ = $(FSRC:.F90=.o)
 #$(info MOD is [${MOD}])
 #$(info FOBJ is [${FOBJ}])
 
-# -- only copy source files; headers referenced with compiler flag
-$(shell cp ../../src/pm*.cpp ./)
-
 #
 # -- target : 	Dependencies
 # --		Rule to create target
@@ -52,6 +49,9 @@ $(EXE):	$(COBJ) $(FOBJ) $(MOD)
 install: $(EXE)
 	cp $(EXE) $(INSTALL)
 #	cp $(MOD) $(FOBJ) $(INSTALL)/include
+
+pm:
+	cp ../../src/pm*.cpp ./
 
 ####################################################################
 
@@ -70,7 +70,6 @@ clean:
 	rm -f *.o *.mod *~ $(EXE)
 	rm -f $(INSTALL)/$(EXE)
 	rm -rf $(EXE).dSYM
-	rm -f pm*.cpp
 #
 # -- Remove *.o, *~, and executable from the directory
 realclean:
@@ -78,7 +77,7 @@ realclean:
 	rm -f $(INSTALL)/$(EXE)
 	rm -rf $(EXE).dSYM
 	rm -f *.optrpt
-	rm -f pm*.h pm*.cpp
+	rm -f pm*.cpp
 
 #
 # -- Simple dependencies

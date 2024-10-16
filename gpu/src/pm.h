@@ -12,6 +12,8 @@
 
 #if defined(_GPU_CUDA)
 #include "pm_cuda.h"
+#elif defined(_GPU_SYCL_CUDA)
+#include "pm_sycl.h"
 #elif defined(_GPU_OPENMP)
 #include "pm_openmp.h"
 #endif
