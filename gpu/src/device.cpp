@@ -43,9 +43,13 @@ Device::Device()
   //ao2mo
   size_buf_j_pc = 0;
   size_buf_k_pc = 0;
+  size_fxpp = 0;
+  size_bufpa = 0;
 
   buf_j_pc = nullptr;
   buf_k_pc = nullptr;
+  pin_fxpp = nullptr;
+  pin_bufpa = nullptr;
 
 #if defined(_USE_GPU)
   use_eri_cache = true;
@@ -148,7 +152,10 @@ Device::~Device()
   
   pm->dev_free_host(buf_j_pc);
   pm->dev_free_host(buf_k_pc);
-  
+  pm->dev_free_host(pin_fxpp);
+  pm->dev_free_host(pin_bufpa);
+
+
 #ifdef _SIMPLE_TIMER
   double total = 0.0;
   for(int i=0; i<_NUM_SIMPLE_TIMER; ++i) total += t_array[i];

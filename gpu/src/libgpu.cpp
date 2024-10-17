@@ -144,6 +144,14 @@ void libgpu_init_jk_ao2mo(void * ptr,
   dev->init_jk_ao2mo(ncore, nmo);
 }
 /* ---------------------------------------------------------------------- */
+void libgpu_init_ints_ao2mo(void * ptr, 
+                          int naoaux, int nmo, int ncas)
+{
+  Device * dev = (Device *) ptr;
+  dev->init_ints_ao2mo(naoaux, nmo, ncas);
+}
+/* ---------------------------------------------------------------------- */
+
 
 void libgpu_df_ao2mo_pass1_fdrv(void * ptr,
 				int naux, int nmo, int nao, int blksize,
@@ -156,7 +164,6 @@ void libgpu_df_ao2mo_pass1_fdrv(void * ptr,
 }
 
 /* ---------------------------------------------------------------------- */
-
 void libgpu_df_ao2mo_pass1(void * ptr,
 				int naux, int nmo, int nao, int ncore, int ncas,
 				py::array_t<double> bufpp_t, py::array_t<double> bufpa,py::array_t<double> eri1,
@@ -166,6 +173,16 @@ void libgpu_df_ao2mo_pass1(void * ptr,
   dev->df_ao2mo_pass1(naux, nmo, nao, ncore, ncas, bufpp_t, bufpa,eri1, count, addr_dfobj);
 }
 /* ---------------------------------------------------------------------- */
+
+void libgpu_df_ao2mo_pass1_v2(void * ptr,
+				int blksize, int nmo, int nao, int ncore, int ncas, int naux,
+				py::array_t<double> eri1,
+				int count, size_t addr_dfobj)
+{ 
+  Device * dev = (Device *) ptr;
+  dev->df_ao2mo_pass1_v2(blksize, nmo, nao, ncore, ncas, naux, eri1, count, addr_dfobj);
+}
+/* ---------------------------------------------------------------------- */
 void libgpu_pull_jk_ao2mo(void * ptr, 
                           py::array_t<double> j_pc, py::array_t<double> k_pc, int nmo, int ncore)
 {
@@ -173,8 +190,13 @@ void libgpu_pull_jk_ao2mo(void * ptr,
   dev->pull_jk_ao2mo(j_pc, k_pc, nmo, ncore);
 }
 /* ---------------------------------------------------------------------- */
-
-
+void libgpu_pull_ints_ao2mo(void * ptr, 
+                          py::array_t<double> fxpp, py::array_t<double> bufpa, int naoaux, int nmo, int ncas)
+{
+  Device * dev = (Device *) ptr;
+  dev->pull_ints_ao2mo(fxpp, bufpa, naoaux, nmo, ncas);
+}
+/* ---------------------------------------------------------------------- */
 void libgpu_orbital_response(void * ptr,
 			     py::array_t<double> f1_prime,
 			     py::array_t<double> ppaa, py::array_t<double> papa, py::array_t<double> eri_paaa,

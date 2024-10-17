@@ -209,16 +209,26 @@ void Device::init_jk_ao2mo(int ncore, int nmo)
     if(buf_k_pc) pm->dev_free_host(buf_k_pc);
     buf_k_pc = (double *) pm->dev_malloc_host(_size_buf_k_pc*sizeof(double));
     }
-
-#ifdef _DEBUG_AO2MO2
-  printf("Initializing buf_jk_pc on Host\n");
-#endif
+}
+/* ---------------------------------------------------------------------- */
+void Device::init_ints_ao2mo(int naoaux, int nmo, int ncas)
+{
+    int _size_fxpp = naoaux*nmo*nmo;
+    if (_size_fxpp > size_fxpp){
+        size_fxpp = _size_fxpp;
+        if (pin_fxpp) pm->dev_free_host(pin_fxpp);
+        pin_fxpp = (double *) pm->dev_malloc_host(_size_fxpp*sizeof(double));
+    }
+    int _size_bufpa = naoaux*nmo*ncas;
+    if (_size_bufpa > size_bufpa){
+        size_bufpa = _size_bufpa;
+        if (pin_bufpa) pm->dev_free_host(pin_bufpa);
+        pin_bufpa = (double *) pm->dev_malloc_host(_size_bufpa*sizeof(double));
+    }
 }
 /* ---------------------------------------------------------------------- */
 void Device::pull_jk_ao2mo(py::array_t<double> _j_pc, py::array_t<double> _k_pc, int nmo, int ncore)
 {
-#if 0
-#else
 #ifdef _SIMPLE_TIMER
   double t0 = omp_get_wtime();
 #endif
@@ -274,9 +284,22 @@ void Device::pull_jk_ao2mo(py::array_t<double> _j_pc, py::array_t<double> _k_pc,
       for(int j=0; j<ncore*nmo; ++j) k_pc[j] += tmp[j];
     }
   }
-#endif
 }
 /* ---------------------------------------------------------------------- */
+void Device::pull_ints_ao2mo(py::array_t<double> _fxpp, py::array_t<double> _bufpa, int naoaux, int nmo, int ncas)
+{
+    py::buffer_info info_fxpp = _fxpp.request(); //3D array (nmo*nmo*naoaux)
+    double * fxpp = static_cast<double*>(info_fxpp.ptr);
+    printf("size_fxpp %i\n", size_fxpp);
+    std::memcpy(fxpp, pin_fxpp, size_fxpp*sizeof(double));
+    py::buffer_info info_bufpa = _bufpa.request(); //3D array (naoaux*nmo*ncas)
+    double * bufpa = static_cast<double*>(info_bufpa.ptr);
+    printf("size_bufpa %i\n", size_bufpa);
+    std::memcpy(bufpa, pin_bufpa, size_bufpa*sizeof(double));
+}
+
+/* ---------------------------------------------------------------------- */
+
 
 double * Device::dd_fetch_eri(my_device_data * dd, double * eri1, int naux, int nao_pair, size_t addr_dfobj, int count)
 {
@@ -1470,6 +1493,198 @@ cublasDgemm(dd->handle,CUBLAS_OP_N, CUBLAS_OP_T,
 }
 
 /* ---------------------------------------------------------------------- */
+void Device::df_ao2mo_pass1_v2 (int blksize, int nmo, int nao, int ncore, int ncas, int naux, 
+				  py::array_t<double> _eri1,
+				  int count, size_t addr_dfobj)
+{
+  const int device_id = count % num_devices;
+  pm->dev_set_device(device_id);
+  my_device_data * dd = &(device_data[device_id]);
+  printf(" naux %i blksize %i\n", naux, blksize);
+#ifdef _DEBUG_DEVICE
+  printf("LIBGPU:: Inside Device::df_ao2mo_pass1_fdrv()\n");
+  printf("LIBGPU:: dfobj= %#012x  count= %i  combined= %#012x %p update_dfobj= %i\n",addr_dfobj,count,addr_dfobj+count,addr_dfobj+count,update_dfobj);
+#endif
+#ifdef _SIMPLE_TIMER
+  double t0 = omp_get_wtime();
+#endif
+  py::buffer_info info_eri1 = _eri1.request(); // 2D array (naux, nao_pair) nao_pair= nao*(nao+1)/2
+  const int nao_pair = nao*(nao+1)/2;
+  double * eri = static_cast<double*>(info_eri1.ptr);
+  
+  int _size_eri = naux * nao_pair;
+  int _size_eri_unpacked = naux * nao * nao; 
+  
+#ifdef _DEBUG_DEVICE
+  size_t freeMem;size_t totalMem;
+  freeMem=0;totalMem=0;
+  cudaMemGetInfo(&freeMem, &totalMem);
+  printf("Starting ao2mo fdrv Free memory %lu bytes, total memory %lu bytes\n",freeMem,totalMem);
+#endif
+
+  if(_size_eri_unpacked > dd->size_buf) {
+    dd->size_buf = _size_eri_unpacked;
+    
+    if(dd->d_buf1) pm->dev_free_async(dd->d_buf1, dd->stream);
+    if(dd->d_buf2) pm->dev_free_async(dd->d_buf2, dd->stream);
+    
+    dd->d_buf1 = (double *) pm->dev_malloc_async(dd->size_buf * sizeof(double), dd->stream);// use for (eri@mo)
+    dd->d_buf2 = (double *) pm->dev_malloc_async(dd->size_buf * sizeof(double), dd->stream);//use for eri_unpacked, then for bufpp_t
+  }
+  
+  double * d_buf = dd->d_buf1; //for eri*mo_coeff (don't pull or push) 
+  double * d_eri_unpacked = dd->d_buf2; //set memory for the entire eri array on GPU
+  
+  //unpack 2D eri of size naux * nao(nao+1)/2 to a full naux*nao*nao 3D matrix
+  
+  double * d_eri;
+  
+  if(use_eri_cache) {
+    d_eri = dd_fetch_eri(dd, eri, naux, nao_pair, addr_dfobj, count);
+  } else {
+    if(_size_eri > dd->size_eri1) {
+      dd->size_eri1 = _size_eri;
+      if(dd->d_eri1) pm->dev_free_async(dd->d_eri1, dd->stream);
+      dd->d_eri1 = (double *) pm->dev_malloc_async(_size_eri * sizeof(double), dd->stream);
+    }
+    
+    pm->dev_push(d_eri, eri, _size_eri * sizeof(double));
+  }
+  
+  int * my_d_tril_map_ptr = dd_fetch_pumap(dd, nao);
+  
+  { dim3 block_size(_UNPACK_BLOCK_SIZE, _UNPACK_BLOCK_SIZE, 1);
+    dim3 grid_size(_TILE(naux,block_size.x), _TILE(nao*nao, block_size.y), 1);
+    _getjk_unpack_buf2<<<grid_size,block_size,0,dd->stream>>>(d_eri_unpacked, d_eri, my_d_tril_map_ptr, naux, nao, nao_pair); }
+  
+  //bufpp = mo.T @ eri @ mo
+  //buf = np.einsum('ijk,kl->ijl',eri_unpacked,mo_coeff),i=naux,j=nao,l=nao
+  double alpha = 1.0;
+  double beta = 0.0;
+  cublasDgemmStridedBatched(dd->handle, 
+			    CUBLAS_OP_N, CUBLAS_OP_N,nao, nao, nao, 
+			    &alpha,d_eri_unpacked, nao, nao*nao, dd->d_mo_coeff, nao, 0, 
+			    &beta,d_buf, nao, nao*nao,naux);
+  _CUDA_CHECK_ERRORS();
+  
+  //bufpp = np.einsum('jk,ikl->ijl',mo_coeff.T,buf),i=naux,j=nao,l=nao
+  
+  double * d_bufpp = dd->d_buf2;//set memory for the entire bufpp array, no pushing needed 
+  cublasDgemmStridedBatched(dd->handle, CUBLAS_OP_T, CUBLAS_OP_N, nao, nao, nao, 
+			    &alpha, dd->d_mo_coeff, nao, 0, d_buf, nao, nao*nao, 
+			    &beta, d_bufpp, nao, nao*nao,naux);
+  _CUDA_CHECK_ERRORS();
+#if 1
+  int _size_bufpa = naux*nmo*ncas;
+  if(_size_bufpa > dd->size_bufpa) {
+    dd->size_bufpa = _size_bufpa;
+    
+    if(dd->d_bufpa) pm->dev_free_async(dd->d_bufpa, dd->stream);
+    dd->d_bufpa = (double *) pm->dev_malloc_async(dd->size_bufpa * sizeof(double), dd->stream);
+  }
+  double * d_bufpa = dd->d_bufpa;
+#else
+  double * d_bufpa = (double *) pm->dev_malloc (naux*nmo*ncas*sizeof(double));
+#endif
+
+  { dim3 block_size(1,1,1);
+    dim3 grid_size (_TILE(naux, block_size.x), _TILE(nmo, block_size.y), ncas);
+    get_bufpa<<<grid_size, block_size, 0, dd->stream>>>(d_bufpp, d_bufpa, naux, nmo, ncore, ncas);}
+#if 0
+  py::buffer_info info_bufpa = _bufpa.request(); // 3D array (naux,nmo,ncas)
+  double * bufpa = static_cast<double*>(info_bufpa.ptr);
+#else
+  double * bufpa = &(pin_bufpa[count*blksize*nmo*ncas]);
+#endif
+  pm->dev_pull_async(d_bufpa, bufpa, naux*nmo*ncas*sizeof(double), dd->stream);
+
+  double * d_fxpp = dd->d_buf1;
+  // fxpp[str(k)] =bufpp.transpose(1,2,0);
+  { dim3 block_size (1, 1,1);
+    dim3 grid_size (_TILE(naux, block_size.x),nmo,nmo) ;
+    transpose_120<<<grid_size, block_size, 0, dd->stream>>>(d_bufpp, d_fxpp, naux, nmo, nmo);}
+
+// calculate j_pc
+  // k_cp += numpy.einsum('kij,kij->ij', bufpp[:,:ncore], bufpp[:,:ncore])
+if (count<num_devices)
+    { cublasDgemmStridedBatched(dd->handle, CUBLAS_OP_N, CUBLAS_OP_T, 
+                             1, 1, naux, 
+                             &alpha,
+                             d_fxpp, 1, naux,
+                             d_fxpp, 1, naux, 
+                             &beta,
+                             dd->d_k_pc, 1, 1,
+                             nmo*ncore); }
+else
+    { cublasDgemmStridedBatched(dd->handle, CUBLAS_OP_N, CUBLAS_OP_T, 
+                             1, 1, naux, 
+                             &alpha,
+                             d_fxpp, 1, naux,
+                             d_fxpp, 1, naux, 
+                             &alpha,
+                             dd->d_k_pc, 1, 1,
+                             nmo*ncore); }
+#if 0
+  py::buffer_info info_fxpp = _fxpp.request(); // 3D array (nmo,nmo, naux)
+  double * fxpp = static_cast<double*>(info_fxpp.ptr);
+#else
+  double * fxpp = &(pin_fxpp[count*blksize*nmo*nmo]);
+#endif
+
+
+  pm->dev_pull_async(d_fxpp, fxpp, naux*nmo*nmo *sizeof(double), dd->stream);
+  //bufd work
+#if 1
+  int _size_bufd = naux*nmo;
+  if(_size_bufd > dd->size_bufd) {
+    dd->size_bufd = _size_bufd;
+    
+    if(dd->d_bufd) pm->dev_free_async(dd->d_bufd, dd->stream);
+    dd->d_bufd = (double *) pm->dev_malloc_async(dd->size_bufd * sizeof(double), dd->stream);
+  }
+  double * d_bufd = dd->d_bufd;
+#else
+    double * d_bufd = (double *) pm->dev_malloc_async(naux*nmo*sizeof(double),dd->stream);
+#endif
+  {dim3 block_size (1,1,1);
+  dim3 grid_size (_TILE(naux, block_size.x),_TILE(nmo, block_size.y),1) ;
+  get_bufd<<<grid_size, block_size, 0, dd->stream>>>(d_bufpp, d_bufd, naux, nmo);}
+// calculate j_pc
+  // self.j_pc += numpy.einsum('ki,kj->ij', bufd, bufd[:,:ncore])
+if (count<num_devices){
+    cublasDgemm(dd->handle,CUBLAS_OP_N, CUBLAS_OP_T, 
+               ncore, nmo, naux,
+               &alpha, 
+               d_bufd, nmo, 
+               d_bufd, nmo, 
+               &beta,
+               dd->d_j_pc, ncore);}
+else {
+    cublasDgemm(dd->handle,CUBLAS_OP_N, CUBLAS_OP_T, 
+               ncore, nmo, naux,
+               &alpha, 
+               d_bufd, nmo, 
+               d_bufd, nmo, 
+               &alpha,
+               dd->d_j_pc, ncore);  }
+
+#ifdef _DEBUG_DEVICE
+  printf("LIBGPU :: Leaving Device::df_ao2mo_pass1_fdrv()\n"); 
+  cudaMemGetInfo(&freeMem, &totalMem);
+  printf("Ending ao2mo fdrv Free memory %lu bytes, total memory %lu bytes\n",freeMem,totalMem);
+#endif
+  //pm->dev_free(d_bufd);
+  //pm->dev_free_async(d_bufpa, dd->stream);
+  //pm->dev_stream_wait(dd->stream);
+  
+#ifdef _SIMPLE_TIMER
+  double t1 = omp_get_wtime();
+  t_array[5] += t1 - t0;
+#endif
+}
+
+/* ---------------------------------------------------------------------- */
+
 
 
 void Device::df_ao2mo_pass1_fdrv (int naux, int nmo, int nao, int blksize, 

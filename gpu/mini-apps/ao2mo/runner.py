@@ -10,7 +10,7 @@ from mrh.my_pyscf.mcscf.lasscf_async import LASSCF
 from pyscf.mcscf import avas	
 if gpu_run:gpu = libgpu.libgpu_init()
 lib.logger.TIMER_LEVEL=lib.logger.INFO
-nfrags=2;basis='631g';
+nfrags=2;basis='sto3g';
 if N:
     atom='''Li 0.0 0.0 0.0;
     Li 0.0 0.0 1.0'''
@@ -56,7 +56,63 @@ def init_eri_gpu_v0 (mo, casscf, with_df):
     if gpu: 
         libgpu.libgpu_pull_jk_ao2mo (gpu, j_pc, k_cp, nmo, ncore)
     k_pc = k_cp.T.copy()
-    return fxpp, j_pc, k_pc
+    print("finishing v0")
+    return fxpp,bufpa,j_pc, k_pc
      
+def init_eri_gpu_v1 (mo, casscf, with_df):
+    nao, nmo = mo.shape
+    ncore = casscf.ncore
+    ncas = casscf.ncas
+    nocc = ncore + ncas
+    naoaux = with_df.get_naoaux()
+    mo = numpy.asarray(mo, order='F')
+    fxpp = numpy.empty ((nmo, nmo, naoaux))
+    blksize = with_df.blockdim
+    bufpa = numpy.empty((naoaux,nmo,ncas))
+    fxpp_keys = []
+    b0 = 0
+    j_pc = numpy.zeros((nmo,ncore))
+    k_pc = numpy.zeros((nmo,ncore))
+    k_cp = numpy.zeros((ncore,nmo))
 
-init_eri_gpu_v0 (mf.mo_coeff, mc, with_df)
+    print(naoaux*nmo*nmo)
+    print(naoaux*nmo*ncas)
+    if gpu:
+        arg = numpy.array([-1, -1, -1, -1], dtype=numpy.int32)
+        libgpu.libgpu_get_dfobj_status(gpu, id(with_df), arg)
+        if arg[2] > -1: load_eri = False
+    libgpu.libgpu_push_mo_coeff(gpu, mo, nao*nmo)
+    libgpu.libgpu_init_jk_ao2mo(gpu, ncore, nmo) # initializes j_pc and k_pc to be pulled
+    libgpu.libgpu_init_ints_ao2mo(gpu, naoaux, nmo, ncas) #initializes fxpp and bufpa on pinned memory
+    count = 0
+    for k, eri1 in enumerate(with_df.loop(blksize)):
+        naux = eri1.shape[0]
+        fxpp_keys.append([k, b0, b0+naux])
+        b0+=naux
+    #for k, eri1 in enumerate(with_df.loop(blksize)): 
+    #for count in range(arg[2]):
+    for count in range(k+1):
+        arg = numpy.array([-1, -1, count, -1], dtype = numpy.int32)
+        libgpu.libgpu_get_dfobj_status(gpu, id(with_df),arg)
+        naux = arg[0]
+        print(naux)
+    #    naux = eri1.shape[0]
+        libgpu.libgpu_df_ao2mo_pass1_v2(gpu,blksize,nmo,nao,ncore,ncas,naux,eri1,count,id(with_df)) # includes pulling fxpp and bufpa
+        #libgpu.libgpu_df_ao2mo_pass1_v2(gpu,blksize,nmo,nao,ncore,ncas,naux,eri1,count,id(with_df)) # includes pulling fxpp and bufpa
+    libgpu.libgpu_pull_jk_ao2mo (gpu, j_pc, k_cp, nmo, ncore)
+    print(naoaux*nmo*nmo)
+    print(naoaux*nmo*ncas)
+    libgpu.libgpu_pull_ints_ao2mo(gpu, fxpp, bufpa, naoaux, nmo, ncas)
+    k_pc = k_cp.T.copy()
+    print("finishing v1")
+    return fxpp,bufpa, j_pc, k_pc
+ 
+fxpp, bufpa, j_pc, k_pc = init_eri_gpu_v0 (mf.mo_coeff, mc, with_df)
+fxpp2, bufpa2, j_pc2, k_pc2 = init_eri_gpu_v1 (mf.mo_coeff, mc, with_df)
+print("fxpp check", numpy.allclose(fxpp,fxpp2))
+print(numpy.max(fxpp-fxpp2))
+#print(fxpp-fxpp2)
+#print(fxpp2)
+print("bufpa check", numpy.allclose(bufpa, bufpa2))
+print("j_pc check", numpy.allclose(j_pc, j_pc2))
+print("k_pc check", numpy.allclose(k_pc, k_pc2))
