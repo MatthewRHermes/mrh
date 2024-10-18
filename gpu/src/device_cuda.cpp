@@ -286,12 +286,32 @@ void Device::pull_jk_ao2mo(py::array_t<double> _j_pc, py::array_t<double> _k_pc,
   }
 }
 /* ---------------------------------------------------------------------- */
-void Device::pull_ints_ao2mo(py::array_t<double> _fxpp, py::array_t<double> _bufpa, int naoaux, int nmo, int ncas)
+void Device::pull_ints_ao2mo(py::array_t<double> _fxpp, py::array_t<double> _bufpa, int blksize, int naoaux, int nmo, int ncas)
 {
     py::buffer_info info_fxpp = _fxpp.request(); //3D array (nmo*nmo*naoaux)
     double * fxpp = static_cast<double*>(info_fxpp.ptr);
     printf("size_fxpp %i\n", size_fxpp);
-    std::memcpy(fxpp, pin_fxpp, size_fxpp*sizeof(double));
+    
+    int count = 0;
+    int k = 0;
+
+    // naive version to start; we can make this faster
+    while(k < naoaux) {
+      int size_vector = (naoaux-k > blksize) ? blksize : naoaux-k; // transfer whole blksize or last subset?
+      
+      printf("k= %i  size_vector= %i\n",k,size_vector);
+      for (int i=0; i<nmo; ++i)
+	for (int j=0; j<nmo; ++j) {
+	  int indx_in = count * nmo * nmo * blksize + i * nmo * size_vector + j * size_vector;
+	  int indx_out = i * nmo * naoaux + j * naoaux + k;
+	  
+	  std::memcpy(&(fxpp[indx_out]), &(pin_fxpp[indx_in]), size_vector*sizeof(double));
+	}
+      
+      k += blksize;
+      count++;
+    }
+    
     py::buffer_info info_bufpa = _bufpa.request(); //3D array (naoaux*nmo*ncas)
     double * bufpa = static_cast<double*>(info_bufpa.ptr);
     printf("size_bufpa %i\n", size_bufpa);

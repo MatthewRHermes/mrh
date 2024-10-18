@@ -102,7 +102,7 @@ def init_eri_gpu_v1 (mo, casscf, with_df):
     libgpu.libgpu_pull_jk_ao2mo (gpu, j_pc, k_cp, nmo, ncore)
     print(naoaux*nmo*nmo)
     print(naoaux*nmo*ncas)
-    libgpu.libgpu_pull_ints_ao2mo(gpu, fxpp, bufpa, naoaux, nmo, ncas)
+    libgpu.libgpu_pull_ints_ao2mo(gpu, fxpp, bufpa, blksize, naoaux, nmo, ncas)
     k_pc = k_cp.T.copy()
     print("finishing v1")
     return fxpp,bufpa, j_pc, k_pc
