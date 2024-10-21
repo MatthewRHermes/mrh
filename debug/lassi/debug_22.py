@@ -18,23 +18,25 @@ import numpy as np
 from scipy import linalg
 from pyscf import lib, gto, scf, mcscf, ao2mo
 from mrh.my_pyscf.mcscf.lasscf_o0 import LASSCF
-from mrh.my_pyscf.lassi import LASSI
+from mrh.my_pyscf.lassi import LASSI, LASSIrq, LASSIrqCT
 from mrh.my_pyscf.lassi.lassi import root_make_rdm12s, make_stdm12s
 from mrh.my_pyscf.lassi.spaces import all_single_excitations, SingleLASRootspace
 from mrh.my_pyscf.mcscf.lasci import get_space_info
 from mrh.my_pyscf.lassi import op_o0, op_o1, lassis
+from mrh.my_pyscf.lassi.op_o1 import get_fdm1_maker
+from mrh.my_pyscf.lassi.sitools import make_sdm1
 
 def setUpModule ():
-    global mol, mf, lsi, las, op
+    global mol, mf, lsi, las, mc, op
     xyz='''H 0 0 0
     H 1 0 0
     H 3 0 0
     H 4 0 0'''
-    mol = gto.M (atom=xyz, basis='sto3g', symmetry=False, verbose=5, output='debug_22.log')
+    mol = gto.M (atom=xyz, basis='sto3g', symmetry=False, verbose=0, output='/dev/null')
     mf = scf.RHF (mol).run ()
 
     # Random Hamiltonian
-    rng = np.random.default_rng ()#424)
+    rng = np.random.default_rng (424)
     mf._eri = rng.random (mf._eri.shape)
     hcore = rng.random ((4,4))
     hcore = hcore + hcore.T
@@ -49,18 +51,22 @@ def setUpModule ():
     lroots = 4 - smults
     idx = (charges!=0) & (lroots==3)
     lroots[idx] = 1
+    #lroots[:] = 1
     las1.conv_tol_grad = las.conv_tol_self = 9e99
-    las1.lasci ()#lroots=lroots.T)
+    las1.lasci (lroots=lroots.T)
     las1.dump_spaces ()
     lsi = LASSI (las1)
     lsi.kernel (opt=0)
 
+    # CASCI limit
+    mc = mcscf.CASCI (mf, 4, 4).run ()
+
     op = (op_o0, op_o1)
 
 def tearDownModule():
-    global mol, mf, lsi, las, op
+    global mol, mf, lsi, las, mc, op
     mol.stdout.close ()
-    del mol, mf, lsi, las, op
+    del mol, mf, lsi, las, mc, op
 
 class KnownValues(unittest.TestCase):
 
@@ -73,7 +79,6 @@ class KnownValues(unittest.TestCase):
 
     #def test_casci_limit (self):
     #    # CASCI limit
-    #    mc = mcscf.CASCI (mf, 4, 4).run ()
     #    casdm1, casdm2 = mc.fcisolver.make_rdm12 (mc.ci, mc.ncas, mc.nelecas)
 
     #    # LASSI in the CASCI limit
@@ -89,19 +94,29 @@ class KnownValues(unittest.TestCase):
     #                self.assertAlmostEqual (lib.fp (lasdm1), lib.fp (casdm1), 8)
     #            with self.subTest ("casdm2"):
     #                self.assertAlmostEqual (lib.fp (lasdm2), lib.fp (casdm2), 8)
-    #            stdm1s = make_stdm12s (las, opt=opt)[0][9:13,:,:,:,9:13] # second rootspace
-    #            with self.subTest("state indexing"):
-    #                # column-major ordering for state excitation quantum numbers:
-    #                # earlier fragments advance faster than later fragments
-    #                self.assertAlmostEqual (lib.fp (stdm1s[0,:,:2,:2,0]),
-    #                                        lib.fp (stdm1s[2,:,:2,:2,2]))
-    #                self.assertAlmostEqual (lib.fp (stdm1s[0,:,2:,2:,0]),
-    #                                        lib.fp (stdm1s[1,:,2:,2:,1]))
+    #            if opt<2:
+    #                stdm1s = make_stdm12s (las, opt=opt)[0][9:13,:,:,:,9:13] # second rootspace
+    #                with self.subTest("state indexing"):
+    #                    # column-major ordering for state excitation quantum numbers:
+    #                    # earlier fragments advance faster than later fragments
+    #                    self.assertAlmostEqual (lib.fp (stdm1s[0,:,:2,:2,0]),
+    #                                            lib.fp (stdm1s[2,:,:2,:2,2]))
+    #                    self.assertAlmostEqual (lib.fp (stdm1s[0,:,2:,2:,0]),
+    #                                            lib.fp (stdm1s[1,:,2:,2:,1]))
+
+    #def test_lassirq (self):
+    #    lsi1 = LASSIrq (las, 2, 3).run ()
+    #    self.assertAlmostEqual (lsi1.e_roots[0], mc.e_tot, 8)
+
+    #def test_lassirqct (self):
+    #    lsi1 = LASSIrqCT (las, 2, 3).run ()
+    #    self.assertAlmostEqual (lsi1.e_roots[0], -4.2879945248402445, 8)
 
     def test_contract_hlas_ci (self):
         e_roots, si, las = lsi.e_roots, lsi.si, lsi._las
         h0, h1, h2 = lsi.ham_2q ()
         nelec = lsi.get_nelec_frs ()
+        smults = get_space_info (las)[2]
         ci_fr = las.ci
         ham = (si * (e_roots[None,:]-h0)) @ si.conj ().T
         ndim = len (e_roots)        
@@ -112,12 +127,8 @@ class KnownValues(unittest.TestCase):
         lroots_prod = np.prod (lroots, axis=0)
         nj = np.cumsum (lroots_prod)
         ni = nj - lroots_prod
-        # TODO: opt = 1 version
-        # The single excitation sector is currently failing: 2-electron component incorrect
-        # It passes, however, if all ERIs are set to the same number, which suggests that I
-        # am indexing the ERIs incorrectly in op_o1.
         for opt in range (2):
-            #if opt==1: continue
+            ham = op[opt].ham (las, h1, h2, ci_fr, nelec)[0]
             hket_fr_pabq = op[opt].contract_ham_ci (las, h1, h2, ci_fr, nelec, ci_fr, nelec)
             for f, (ci_r, hket_r_pabq) in enumerate (zip (ci_fr, hket_fr_pabq)):
                 current_order = list (range (las.nfrags-1, -1, -1)) + [las.nfrags]
@@ -135,21 +146,31 @@ class KnownValues(unittest.TestCase):
                     for s, (k, l) in enumerate (zip (ni, nj)):
                         hket_pq_s = hket_pq[:,k:l]
                         hket_ref_s = hket_ref[:,k:l]
-                        # TODO: opt=1 for things other than single excitation
-                        if opt==1 and not spaces[r].is_single_excitation_of (spaces[s]): continue
+                        # TODO: opt>0 for things other than single excitation
                         #elif opt==1: print (r,s, round (lib.fp (hket_pq_s)-lib.fp (hket_ref_s),3))
                         with self.subTest (opt=opt, frag=f, bra_space=r, ket_space=s):
                             self.assertAlmostEqual (lib.fp (hket_pq_s), lib.fp (hket_ref_s), 8)
 
-    def test_lassis (self):
-        lsis = lassis.LASSIS (las).run ()
-        e_upper = las.e_states[0]
-        e_lower = lsi.e_roots[0]
-        #self.assertLessEqual (e_lower, lsis.e_roots[0])
-        #self.assertLessEqual (lsis.e_roots[0], e_upper)
-        #self.assertEqual (len (lsis.e_roots), 20)
-        # Reference depends on rng seed obviously b/c this is not casci limit
-        #self.assertAlmostEqual (lsis.e_roots[0], -4.134472877702426, 8)
+    #def test_lassis (self):
+    #    for opt in (0,1):
+    #        with self.subTest (opt=opt):
+    #            lsis = lassis.LASSIS (las).run (opt=opt)
+    #            e_upper = las.e_states[0]
+    #            e_lower = lsi.e_roots[0]
+    #            self.assertLessEqual (e_lower, lsis.e_roots[0])
+    #            self.assertLessEqual (lsis.e_roots[0], e_upper)
+    #            self.assertEqual (len (lsis.e_roots), 20)
+    #            # Reference depends on rng seed obviously b/c this is not casci limit
+    #            self.assertAlmostEqual (lsis.e_roots[0], -4.134472877702426, 8)
+
+    #def test_fdm1 (self):
+    #    make_fdm1 = get_fdm1_maker (lsi, lsi.ci, lsi.get_nelec_frs (), lsi.si)
+    #    for iroot in range (lsi.nroots):
+    #        for ifrag in range (lsi.nfrags):
+    #            with self.subTest (iroot=iroot, ifrag=ifrag):
+    #                fdm1 = make_fdm1 (iroot, ifrag)
+    #                sdm1 = make_sdm1 (lsi, iroot, ifrag)
+    #                self.assertAlmostEqual (lib.fp (fdm1), lib.fp (sdm1), 7)
 
 if __name__ == "__main__":
     print("Full Tests for LASSI of random 2,2 system")

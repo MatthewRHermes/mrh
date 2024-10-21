@@ -363,7 +363,7 @@ def _eig_block (las, e0, h1, h2, ci_blk, nelec_blk, rootsym, soc, orbsym, wfnsym
         if soc:
             h1_sf = (h1[0:las.ncas,0:las.ncas]
                      - h1[las.ncas:2*las.ncas,las.ncas:2*las.ncas]).real/2
-        ham_blk, s2_blk, ovlp_blk = op_o1.ham (las, h1_sf, h2, ci_blk, nelec_blk, orbsym=orbsym,
+        ham_blk, s2_blk, ovlp_blk = op[opt].ham (las, h1_sf, h2, ci_blk, nelec_blk, orbsym=orbsym,
                                                wfnsym=wfnsym)
         t0 = lib.logger.timer (las, 'LASSI diagonalizer rootsym {} TDM algorithm'.format (
             rootsym), *t0)
@@ -600,15 +600,17 @@ def roots_make_rdm12s (las, ci, si, orbsym=None, soc=None, break_symmetry=None, 
     # Initialize matrices
     norb = las.ncas
     nroots = si.shape[1]
-    if soc:
-        rdm1s = np.zeros ((nroots, 2*norb, 2*norb),
-            dtype=si.dtype)
-    else:
-        rdm1s = np.zeros ((nroots, 2, norb, norb),
-            dtype=si.dtype)
-    # TODO: 2e- SOC
-    rdm2s = np.zeros ((nroots, 2, norb, norb, 2, norb, norb),
-        dtype=si.dtype)
+    rdm1s = [None for i in range (nroots)]
+    rdm2s = [None for i in range (nroots)]
+    #if soc:
+    #    rdm1s = np.zeros ((nroots, 2*norb, 2*norb),
+    #        dtype=si.dtype)
+    #else:
+    #    rdm1s = np.zeros ((nroots, 2, norb, norb),
+    #        dtype=si.dtype)
+    ## TODO: 2e- SOC
+    #rdm2s = np.zeros ((nroots, 2, norb, norb, 2, norb, norb),
+    #    dtype=si.dtype)
 
     # Loop over symmetry blocks
     statesym = las_symm_tuple (las, break_spin=soc, break_symmetry=break_symmetry, verbose=0)[0]
@@ -626,7 +628,7 @@ def roots_make_rdm12s (las, ci, si, orbsym=None, soc=None, break_symmetry=None, 
                                                 wfnsym=wfnsym)
             t0 = lib.logger.timer (las, 'LASSI make_rdm12s rootsym {} CI algorithm'.format (sym),
                                    *t0)
-            d1s_test, d2s_test = op_o1.roots_make_rdm12s (las1, ci_blk, nelec_blk, si_blk)
+            d1s_test, d2s_test = op[opt].roots_make_rdm12s (las1, ci_blk, nelec_blk, si_blk)
             t0 = lib.logger.timer (las, 'LASSI make_rdm12s rootsym {} TDM algorithm'.format (sym),
                                    *t0)
             lib.logger.debug (las,
@@ -638,7 +640,7 @@ def roots_make_rdm12s (las, ci, si, orbsym=None, soc=None, break_symmetry=None, 
             errvec = np.concatenate ([(d1s-d1s_test).ravel (), (d2s-d2s_test).ravel ()])
             if np.amax (np.abs (errvec)) > 1e-8 and soc == False: # tmp until SOC in for op_o1
                 raise LASSIOop01DisagreementError ("LASSI mixed-state RDMs", errvec)
-            if opt == 1:
+            if opt > 0:
                 d1s = d1s_test
                 d2s = d2s_test
         else:
@@ -651,6 +653,8 @@ def roots_make_rdm12s (las, ci, si, orbsym=None, soc=None, break_symmetry=None, 
         for (i,a) in enumerate (idx_int):
             rdm1s[a] = d1s[i]
             rdm2s[a] = d2s[i]
+    rdm1s = np.stack (rdm1s, axis=0)
+    rdm2s = np.stack (rdm2s, axis=0)
     return rdm1s, rdm2s
 
 def root_make_rdm12s (las, ci, si, state=0, orbsym=None, soc=None, break_symmetry=None,

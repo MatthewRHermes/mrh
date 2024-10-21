@@ -209,6 +209,16 @@ class CSFTransformer (lib.StreamObject):
         if self.wfnsym is None or self._orbsym is None: return self.econf_csf_mask.size
         return (np.count_nonzero (self.confsym[self.econf_csf_mask] == self.wfnsym))
 
+    def print_config (self, printer=print):
+        printer ('***** CSFTransformer configuration *****')
+        printer ('norb = {}'.format (self.norb))
+        printer ('neleca, nelecb = {}, {}'.format (self.neleca, self.nelecb))
+        printer ('smult = {}'.format (self.smult))
+        printer ('orbsym = {}'.format (self.orbsym))
+        printer ('wfnsym = {}'.format (self.wfnsym))
+        printer ('ndeta, ndetb = {}, {}'.format (self.ndeta, self.ndetb))
+        printer ('ncsf = {}'.format (self.ncsf))
+
 def unpack_sym_ci (ci, idx, vec_on_cols=False):
     if idx is None: return ci
     tot_len = idx.size

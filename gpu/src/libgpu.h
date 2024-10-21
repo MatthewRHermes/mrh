@@ -58,7 +58,7 @@ extern "C"
   void libgpu_pull_jk_ao2mo(void *, 
                             py::array_t<double>, py::array_t<double>,int, int);
   void libgpu_pull_ints_ao2mo(void *, 
-                            py::array_t<double>, py::array_t<double>,int, int, int);
+			      py::array_t<double>, py::array_t<double>, int, int, int, int);
   
   void libgpu_orbital_response(void *,
 			       py::array_t<double>,

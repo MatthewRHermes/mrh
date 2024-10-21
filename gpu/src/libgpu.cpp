@@ -191,10 +191,10 @@ void libgpu_pull_jk_ao2mo(void * ptr,
 }
 /* ---------------------------------------------------------------------- */
 void libgpu_pull_ints_ao2mo(void * ptr, 
-                          py::array_t<double> fxpp, py::array_t<double> bufpa, int naoaux, int nmo, int ncas)
+			    py::array_t<double> fxpp, py::array_t<double> bufpa, int blksize, int naoaux, int nmo, int ncas)
 {
   Device * dev = (Device *) ptr;
-  dev->pull_ints_ao2mo(fxpp, bufpa, naoaux, nmo, ncas);
+  dev->pull_ints_ao2mo(fxpp, bufpa, blksize, naoaux, nmo, ncas);
 }
 /* ---------------------------------------------------------------------- */
 void libgpu_orbital_response(void * ptr,

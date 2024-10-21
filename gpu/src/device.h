@@ -94,7 +94,7 @@ public :
 			    int, size_t);
 
   void pull_jk_ao2mo (py::array_t<double>,py::array_t<double>,int, int);
-  void pull_ints_ao2mo (py::array_t<double>,py::array_t<double>,int, int, int);
+  void pull_ints_ao2mo (py::array_t<double>,py::array_t<double>, int, int, int, int);
 
   void orbital_response(py::array_t<double>,
 			py::array_t<double>, py::array_t<double>, py::array_t<double>,

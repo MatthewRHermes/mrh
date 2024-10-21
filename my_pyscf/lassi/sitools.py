@@ -2,9 +2,9 @@ import numpy as np
 from pyscf import lib, symm
 from scipy import linalg
 from mrh.my_pyscf.mcscf.lasci import get_space_info
-from mrh.my_pyscf.lassi.citools import get_lroots, get_rootaddr_fragaddr
+from mrh.my_pyscf.lassi.citools import get_lroots, get_rootaddr_fragaddr, umat_dot_1frag_, _umat_dot_1frag
 from mrh.my_pyscf.lassi.lassi import root_make_rdm12s, LASSI, ham_2q
-from mrh.my_pyscf.lassi.op_o1 import fermion_spin_shuffle
+from mrh.my_pyscf.lassi.op_o1.utilities import fermion_spin_shuffle
 
 def decompose_sivec_by_rootspace (las, si, ci=None):
     '''Decompose a set of LASSI vectors as
@@ -32,7 +32,7 @@ def decompose_sivec_by_rootspace (las, si, ci=None):
         state_coeffs[-1][:,idx] /= space_coeffs[space][idx]
     return space_coeffs**2, state_coeffs, idx_space
 
-def make_sdm1 (sivec, lroots, site):
+def _make_sdm1 (sivec, lroots, site):
     '''Compute the 1-site reduced density matrix(es) for (a) wave function(s) of type
 
     |Psi> = sum_n sivec[n] |n0n1n2n3....>
@@ -62,7 +62,74 @@ def make_sdm1 (sivec, lroots, site):
     if site>0: idx = list(range(site)) + idx
     sivec = sivec.transpose (*idx).reshape (-1, lroots[site],nroots)
     return lib.einsum ('api,aqi->ipq', sivec.conj(), sivec)
-    
+
+def _trans_sdm1 (sivec_bra, lroots_bra, sivec_ket, lroots_ket, ovlp, site):
+    nsites = len (lroots_bra)
+    nroots_bra, err = divmod (sivec_bra.size, np.prod (lroots_bra))
+    if err: raise ValueError ("sivec_bra.size % prod(lroots_bra) = {}".format (err))
+    nroots_ket, err = divmod (sivec_ket.size, np.prod (lroots_ket))
+    if err: raise ValueError ("sivec_ket.size % prod(lroots_ket) = {}".format (err))
+    assert (nroots_bra==nroots_ket)
+    nroots = nroots_bra
+    for isite, s0 in enumerate (ovlp):
+        if isite==site: continue
+        # TODO: the function below has to be modified for a non-square umat
+        # s0 might have to be transposed
+        sivec_ket = _umat_dot_1frag (sivec_ket, s0.T, lroots_ket, isite)
+        lroots_ket[isite] = lroots_bra[isite]
+    sivec_bra = np.asfortranarray (sivec_bra)
+    sivec_bra = sivec_bra.reshape (list(lroots_bra)+[nroots,], order='F')
+    sivec_bra = np.moveaxis (sivec_bra, site, -2)
+    sivec_bra = sivec_bra.reshape (-1,lroots_bra[site],nroots)
+    sivec_ket = np.asfortranarray (sivec_ket)
+    sivec_ket = sivec_ket.reshape (list(lroots_ket)+[nroots,], order='F')
+    sivec_ket = np.moveaxis (sivec_ket, site, -2)
+    sivec_ket = sivec_ket.reshape (-1,lroots_ket[site],nroots)
+    return lib.einsum ('api,aqi->ipq', sivec_bra.conj(), sivec_ket)
+
+def _make_sdm2 (sivec, lroots, site1, site2):
+    '''Compute the 2-site reduced density matrix(es) for (a) wave function(s) of type
+
+    |Psi> = sum_n sivec[n] |n0n1n2n3....>
+
+    where nK < lroots[K] are nonnegative integes
+
+    Args:
+        sivec: ndarray of shape (np.prod (lroots), nroots)
+            coefficients of the wave function(s) with site quantum numbers
+            increasing from |00000...> in column-major order
+        lroots: ndarray of shape (nsites)
+            number of states on each site in the product-state basis
+        site1: integer
+            first site index for which to compute the density matrix
+        site2: integer
+            second site index for which to compute the density matrix
+
+    Returns:
+        sdm2: ndarray of shape (nroots,lroots[site1],lroots[site2],lroots[site1],lroots[site2])
+            Two-site reduced density matrix
+    '''
+    nsites = len (lroots)
+    nroots, err = divmod (sivec.size, np.prod (lroots))
+    if err: raise ValueError ("sivec.size % prod(lroots) = {}".format (err))
+    sivec = np.asfortranarray (sivec)
+    sivec = sivec.reshape (list(lroots)+[nroots,], order='F')
+    sivec = np.moveaxis (sivec, (site1,site2), (-3,-2))
+    sivec = sivec.reshape (-1,lroots[site1],lroots[site2],nroots)
+    return lib.einsum ('apqi,arsi->iprqs', sivec.conj(), sivec)
+
+
+def make_sdm1 (lsi, iroot, ifrag, ci=None, si=None):
+    if ci is None: ci = lsi.ci
+    if si is None: si = lsi.si
+    lroots = get_lroots (ci).T[iroot]
+    space_weights, state_coeffs, idx_space = decompose_sivec_by_rootspace (
+        lsi, si
+    )
+    w = space_weights[iroot]
+    state_coeffs = state_coeffs[iroot]
+    return _make_sdm1 (state_coeffs, lroots, ifrag) * w[:,None,None]
+   
 def get_rootspace_central_moment (las, space_weights, n=1):
     '''Compute either the mean (if n==1) or the nth central moment
     of the quantum numbers that define the rootspaces of a LASSI
@@ -185,6 +252,7 @@ def analyze (las, si, ci=None, state=0, print_all_but=1e-8, lbasis='primitive', 
             Von Neumann entropy of each fragment, considering each rootspace separately
             If print_all_but >= 0, some rows may be omitted (set to -1)
     '''
+    analyze_moments (las, si, ci=ci, do_natorb=do_natorb)
     if 'prim' in lbasis.lower (): lbasis = 'primitive'
     elif 'schmidt' in lbasis.lower (): lbasis = 'Schmidt'
     else:
@@ -195,54 +263,13 @@ def analyze (las, si, ci=None, state=0, print_all_but=1e-8, lbasis='primitive', 
     ci0 = ci
     states = np.atleast_1d (state)
     nstates = len (states)
-
     log = lib.logger.new_logger (las, las.verbose)
-    if do_natorb:
-        log.info ("Natural-orbital analysis for state(s) %s", str (state))
-        casdm1s = root_make_rdm12s (las, ci, si, state=state)[0]
-        if nstates > 1:
-            casdm1s = casdm1s.sum (0) / nstates
-        casdm1 = casdm1s.sum (0)
-        if isinstance (las, LASSI):
-            no_coeff, no_ene, no_occ = las._las.canonicalize (natorb_casdm1=casdm1)[:3]
-        else:
-            no_coeff, no_ene, no_occ = las.canonicalize (natorb_casdm1=casdm1)[:3]
-
-    log.info ("Analyzing LASSI vectors for states = %s",str(state))
-    for st in states:
-        print_wfn_leading (las, state=st, ci=ci0, si=si) 
-
-    log.info ("Average quantum numbers:")
     space_weights, state_coeffs, idx_space = decompose_sivec_by_rootspace (
         las, si
     )
-    nelelas = np.array ([sum (n) for n in las.nelecas_sub])
-    c, m, smults = get_rootspace_central_moment (las, space_weights[:,states])
-    neleca = .5*(nelelas[None,:]-c+m)
-    nelecb = .5*(nelelas[None,:]-c-m)
-    for na, nb, s, st in zip (neleca, nelecb, smults, states):
-        log.info ("State %d:", st)
-        log.info ("Neleca = %s", str (na))
-        log.info ("Nelecb = %s", str (nb))
-        log.info ("Smult = %s", str (s))
-
-    def log_qn_spread (qn_table, weights):
-        qns = np.unique (qn_table)
-        fmt_str = '{:4d} ' + ' '.join (['{:10.3e}',]*las.nfrags)
-        for qn in qns:
-            row = [np.sum (weights[qn_table[:,ifrag]==qn]) for ifrag in range (las.nfrags)]
-            log.info (fmt_str.format (qn, *row))
-
-    c, m, s, w = get_space_info (las)
     avg_weights = space_weights[:,states].sum (1) / nstates
-    log.info ("Spread of charges:")
-    log_qn_spread (c, avg_weights)
-    log.info ("Spread of spin multiplicities:")
-    log_qn_spread (s, avg_weights)
-
-    log.info (("Analyzing rootspace fragment density matrices for LASSI "
-               "states %s averaged together"), str (states))
-    log.info ("Continue until 1-%e of wave function(s) accounted for", print_all_but)
+    c, m, s, w = get_space_info (las)
+    nelelas = np.array ([sum (n) for n in las.nelecas_sub])
     lroots = get_lroots (ci0).T
     running_weight = 1
     fmt_str = " {:4s}  {:>7s}  {:>4s}  {:>3s}  {:>6s}  {:11s}  {:>8s}"
@@ -261,7 +288,7 @@ def analyze (las, si, ci=None, state=0, print_all_but=1e-8, lbasis='primitive', 
         coeffs = state_coeffs[iroot].copy ().reshape (*addr_shape)
         ci_f = []
         for ifrag in range (las.nfrags):
-            sdm = make_sdm1 (state_coeffs[iroot][:,states], lroots[iroot], ifrag).sum (0) / nstates
+            sdm = _make_sdm1 (state_coeffs[iroot][:,states], lroots[iroot], ifrag).sum (0) / nstates
             dens = sdm.diagonal ()
             navg[iroot,ifrag] = np.dot (np.arange (len (dens)), dens)
             maxw[iroot,ifrag] = np.amax (dens)
@@ -312,6 +339,57 @@ def analyze (las, si, ci=None, state=0, print_all_but=1e-8, lbasis='primitive', 
         return ci1, si1, space_weights, navg, maxw, entr
     else:
         return ci1, si1
+
+def analyze_moments (las, si, ci=None, state=0, do_natorb=True):
+    '''The part of analyze that would be in common between LASSI and LASSIS'''
+    if ci is None: ci = las.ci
+    ci0 = ci
+    states = np.atleast_1d (state)
+    nstates = len (states)
+
+    log = lib.logger.new_logger (las, las.verbose)
+    if do_natorb:
+        log.info ("Natural-orbital analysis for state(s) %s", str (state))
+        casdm1s = root_make_rdm12s (las, ci, si, state=state)[0]
+        if nstates > 1:
+            casdm1s = casdm1s.sum (0) / nstates
+        casdm1 = casdm1s.sum (0)
+        if isinstance (las, LASSI):
+            no_coeff, no_ene, no_occ = las._las.canonicalize (natorb_casdm1=casdm1)[:3]
+        else:
+            no_coeff, no_ene, no_occ = las.canonicalize (natorb_casdm1=casdm1)[:3]
+
+    log.info ("Analyzing LASSI vectors for states = %s",str(state))
+    for st in states:
+        print_wfn_leading (las, state=st, ci=ci0, si=si) 
+
+    log.info ("Average quantum numbers:")
+    space_weights, state_coeffs, idx_space = decompose_sivec_by_rootspace (
+        las, si
+    )
+    nelelas = np.array ([sum (n) for n in las.nelecas_sub])
+    c, m, smults = get_rootspace_central_moment (las, space_weights[:,states])
+    neleca = .5*(nelelas[None,:]-c+m)
+    nelecb = .5*(nelelas[None,:]-c-m)
+    for na, nb, s, st in zip (neleca, nelecb, smults, states):
+        log.info ("State %d:", st)
+        log.info ("Neleca = %s", str (na))
+        log.info ("Nelecb = %s", str (nb))
+        log.info ("Smult = %s", str (s))
+
+    def log_qn_spread (qn_table, weights):
+        qns = np.unique (qn_table)
+        fmt_str = '{:4d} ' + ' '.join (['{:10.3e}',]*las.nfrags)
+        for qn in qns:
+            row = [np.sum (weights[qn_table[:,ifrag]==qn]) for ifrag in range (las.nfrags)]
+            log.info (fmt_str.format (qn, *row))
+
+    c, m, s, w = get_space_info (las)
+    avg_weights = space_weights[:,states].sum (1) / nstates
+    log.info ("Spread of charges:")
+    log_qn_spread (c, avg_weights)
+    log.info ("Spread of spin multiplicities:")
+    log_qn_spread (s, avg_weights)
 
 def print_wfn_leading (lsi, state=0, ci=None, si=None, ncoeffs=20):
     if si is None: si = lsi.si
@@ -435,7 +513,7 @@ def analyze_ham (las, si, e_roots, ci=None, state=0, soc=0, print_all_but=1e-8):
         h_pp = h_pq = h_qq = None 
 
         for ifrag in range (las.nfrags):
-            sdm = make_sdm1 (state_coeffs[iroot][:,states], lroots[iroot], ifrag).sum (0) / nstates
+            sdm = _make_sdm1 (state_coeffs[iroot][:,states], lroots[iroot], ifrag).sum (0) / nstates
             dens = sdm.diagonal ()
             navg = np.dot (np.arange (len (dens)), dens)
             maxw = np.amax (dens)
