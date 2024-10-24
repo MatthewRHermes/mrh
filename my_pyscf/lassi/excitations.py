@@ -91,7 +91,8 @@ def sort_ci0 (obj, ham, ci0):
     idx = np.argsort (e_p)
     ci1[0] = ci1[0][idx]
     ci1[1] = ci1[1][idx]
-    e0_p = e_p[idx][0]
+    e_p = e_p[idx]
+    e0_p = e_p[0]
     
     return ci1, e0_p
 
@@ -116,8 +117,15 @@ class _vrvloop_env (object):
                 c0 = ci0.reshape (-1,c1.shape[1])
                 # Project away from c1 and orthonormalize
                 ovlp = c1.conj () @ c0.T
-                c0 = c0 - ovlp.T @ c1
-                c0 = canonical_orth_(c0.conj () @ c0.T).T @ c0
+                t0 = c0 - ovlp.T @ c1
+                t0 = canonical_orth_(t0.conj () @ t0.T).T @ t0
+                # Try to align with original input
+                ovlp = c0[iroot:].conj () @ t0.T
+                u, svals, vh = linalg.svd (ovlp, full_matrices=True)
+                K = len (svals)
+                vh[:K] = u @ vh[:K]
+                t0 = vh @ t0
+                c0 = t0
                 ci0_i.append (c0)
             else:
                 q_qab = None
