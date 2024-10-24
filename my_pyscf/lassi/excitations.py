@@ -74,18 +74,19 @@ def sort_ci0 (obj, ham, ci0):
     p = np.prod (lroots)
     assert (nfrag==2)
     assert (lroots[0]==lroots[1])
+    lroots = lroots[0]
 
     # Schmidt basis
-    schmidt_vec = lowest_refovlp_eigvec (ham, p=p, ovlp_thresh=1e-3)[:p].reshape (lroots[1],lroots[0])
+    schmidt_vec = lowest_refovlp_eigvec (ham, p=p, ovlp_thresh=1e-3)[:p].reshape (lroots,lroots)
     u, svals, vh = linalg.svd (schmidt_vec)
     v = vh.conj ().T
     uh = u.conj ().T
     ci1 = [np.tensordot (vh, ci0[0], axes=1),
            np.tensordot (uh, ci0[1], axes=1)]
-    ham_rows = ham[:p,:].reshape (lroots[1],lroots[0],-1)
+    ham_rows = ham[:p,:].reshape (lroots,lroots,-1)
     ham_rows = np.dot (uh, np.dot (vh, ham_rows))
     ham[:p,:] = ham_rows.reshape (p,-1)
-    ham_cols = ham[:,:p].reshape (-1,lroots[1],lroots[0])
+    ham_cols = ham[:,:p].reshape (-1,lroots,lroots)
     ham_cols = np.tensordot (ham_cols, u, axes=((1),(0)))
     ham_cols = np.dot (ham_cols.transpose (0,2,1), v)
     ham[:,:p] = ham_cols.reshape (-1,p)
@@ -94,9 +95,9 @@ def sort_ci0 (obj, ham, ci0):
     def project_1p (ip):
         idx = np.ones (len (ham), dtype=bool)
         idx[:p] = False
-        idx[ip*(lroots[0]+1)] = True
+        idx[ip*(lroots+1)] = True
         return ham[idx,:][:,idx]
-    e_p = np.array ([lowest_refovlp_eigval (project_1p (i)) for i in range (lroots[0])])
+    e_p = np.array ([lowest_refovlp_eigval (project_1p (i)) for i in range (lroots)])
     idx = np.argsort (e_p)
     ci1[0] = ci1[0][idx]
     ci1[1] = ci1[1][idx]
@@ -119,7 +120,9 @@ class _vrvloop_env (object):
         iroot = self.iroot
         ci0_i = []
         q_qab_i = []
-        for ci0, ci1 in zip (self.ci0, self.ci1):
+        for ci0, ci1, solver in zip (self.ci0, self.ci1, self.fciobj.fcisolvers):
+            ndeta = solver.transformer.ndeta
+            ndetb = solver.transformer.ndetb
             if iroot>0:
                 q_qab = np.asarray (ci1[:iroot])
                 c1 = q_qab.reshape (iroot,-1)
@@ -135,7 +138,7 @@ class _vrvloop_env (object):
                 vh[:K] = u @ vh[:K]
                 t0 = vh @ t0
                 c0 = t0
-                ci0_i.append (c0)
+                ci0_i.append (c0.reshape (-1,ndeta,ndetb))
             else:
                 q_qab = None
                 ci0_i.append (ci1[iroot:])
@@ -465,15 +468,26 @@ class ExcitationPSFCISolver (ProductStateFCISolver):
     def sort_ci0 (self, ham_pq, ci0):
         return sort_ci0 (self, ham_pq, ci0)[:2]
 
+    def get_init_guess (self, ci0, norb_f, nelec_f, h1, h2, nroots=None):
+        ci1 = ProductStateFCISolver.get_init_guess (
+            self, ci0, norb_f, nelec_f, h1, h2, nroots=nroots
+        )
+        if ci0 is None:
+            ham_pq = self.get_ham_pq (0, h1, h2, ci1)
+            p = np.prod (get_lroots (ci1))
+            ci1, e0 = self.sort_ci0 (ham_pq, ci1)
+        return ci1
+
     def prepare_vrvsolvers_(self, h0, h1, h2, ci0=None, nroots=None):
         norb_f = np.asarray ([self.norb_ref[ifrag] for ifrag in self.excited_frags])
         nelec_f = np.asarray ([self.nelec_ref[ifrag] for ifrag in self.excited_frags])
-        ci0 = self.get_init_guess (ci0, norb_f, nelec_f, h1, h2, nroots=nroots)
         ham_pq = self.get_ham_pq (h0, h1, h2, ci0)
         p = np.prod (get_lroots (ci0))
         h_qq = ham_pq[p:,p:]
         e_q, si_q = linalg.eigh (h_qq)
-        ci0, e0 = self.sort_ci0 (ham_pq, ci0)
+        idx = np.ones (ham_pq.shape[0], dtype=bool)
+        idx[1:p] = False
+        e0 = lowest_refovlp_eigval (ham_pq[idx][:,idx])
         vrvsolvers = []
         for ix, solver in enumerate (self.fcisolvers):
             vrvsolvers.append (vrv_fcisolver (solver, e0, e_q, None, max_cycle_e0=MAX_CYCLE_E0,
