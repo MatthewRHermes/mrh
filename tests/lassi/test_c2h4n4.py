@@ -182,6 +182,14 @@ class KnownValues(unittest.TestCase):
         las1 = LASSCF (mf, (5,5), ((3,2),(2,3)), spin_sub=(2,2))
         mo_coeff = las1.localize_init_guess ((list (range (5)), list (range (5,10))))
         las1.kernel (mo_coeff)
+        with self.subTest ('stability'):
+            lsis = LASSIS (las1).run ()
+            self.assertTrue (lsis.converged)
+            e0 = lsis.e_roots[0]
+            lsis.run ()
+            self.assertTrue (lsis.converged)
+            e1 = lsis.e_roots[0]
+            self.assertAlmostEqual (e1, e0, 7)
         for opt in (0,1):
             with self.subTest (opt=opt):
                 lsis = LASSIS (las1).run (opt=opt)
