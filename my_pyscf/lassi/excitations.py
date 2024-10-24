@@ -23,16 +23,26 @@ IMAG_SHIFT = getattr (__config__, 'lassi_excitations_imag_shift', 1e-6)
 MAX_CYCLE_E0 = getattr (__config__, 'lassi_excitations_max_cycle_e0', 1)
 CONV_TOL_E0 = getattr (__config__, 'lassi_excitations_conv_tol_e0', 1e-8)
 
-def lowest_refovlp_eigval (ham_pq, ovlp_thresh=LOWEST_REFOVLP_EIGVAL_THRESH):
-    ''' Return the lowest eigenvalue of the matrix ham_pq, whose corresponding
-    eigenvector has nonzero overlap with the first basis function. '''
+def lowest_refovlp_eigpair (ham_pq, p=1, ovlp_thresh=LOWEST_REFOVLP_EIGVAL_THRESH):
+    ''' Identify the lowest-energy eigenpair for which the eigenvector has nonzero overlap with
+    the first p basis functions. '''
     e_all, u_all = linalg.eigh (ham_pq)
-    w = u_all[0,:].conj () * u_all[0,:]
+    w = (u_all[:p,:].conj () * u_all[:p,:]).sum (0) / p
     idx_valid = w > ovlp_thresh
     e_valid = e_all[idx_valid]
     u_valid = u_all[:,idx_valid]
     idx_choice = np.argmin (e_valid)
-    return e_valid[idx_choice]
+    return e_valid[idx_choice], u_valid[:,idx_choice]
+
+def lowest_refovlp_eigval (ham_pq, p=1, ovlp_thresh=LOWEST_REFOVLP_EIGVAL_THRESH):
+    ''' Return the lowest eigenvalue of the matrix ham_pq, whose corresponding
+    eigenvector has nonzero overlap with the first basis p basis functions. '''
+    return lowest_refovlp_eigpair (ham_pq, p=p, ovlp_thresh=ovlp_thresh)[0]
+
+def lowest_refovlp_eigvec (ham_pq, p=1, ovlp_thresh=LOWEST_REFOVLP_EIGVAL_THRESH):
+    ''' Return the eigenvector corresponding to the lowest eigenvalue of the matrix ham_pq
+    which has nonzero overlap with the first basis p basis functions. '''
+    return lowest_refovlp_eigpair (ham_pq, p=p, ovlp_thresh=ovlp_thresh)[1]
 
 def sort_ci0 (obj, ham, ci0):
     '''Prepare guess CI vectors, guess energy, and Q-space Hamiltonian eigenvalues
@@ -66,8 +76,7 @@ def sort_ci0 (obj, ham, ci0):
     assert (lroots[0]==lroots[1])
 
     # Schmidt basis
-    evals, evecs = linalg.eigh (ham)
-    schmidt_vec = evecs[:p,0].reshape (lroots[1],lroots[0])
+    schmidt_vec = lowest_refovlp_eigvec (ham, p=p, ovlp_thresh=1e-3)[:p].reshape (lroots[1],lroots[0])
     u, svals, vh = linalg.svd (schmidt_vec)
     v = vh.conj ().T
     uh = u.conj ().T
