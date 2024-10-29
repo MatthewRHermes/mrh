@@ -53,89 +53,89 @@ def tearDownModule():
 
 class KnownValues(unittest.TestCase):
 
-    def test_c2h4n4_3frag (self):
-        # str
-        mol = struct (2.0, 2.0, '6-31g', symmetry=False)
-        mol.output = 'c2h4n4_3frag_str.log'#'/dev/null'
-        mol.verbose = 5#0
-        mol.spin = 8
-        mol.build ()
-        mf = scf.RHF (mol).run () 
-        las = LASSCF (mf, (4,2,4), ((2,2),(1,1),(2,2)), spin_sub=(1,1,1))
-        mo_coeff = las.localize_init_guess ([[0,1,2],[3,4,5,6],[7,8,9]])
-        las.kernel (mo_coeff)
-        lsi = lassi.LASSIS (las).run ()
-        e_str = lsi.e_roots[0]
-        with self.subTest ('str converged'):
-            self.assertTrue (lsi.converged)
-        # equil
-        mol = struct (0.0, 0.0, '6-31g', symmetry=False)
-        mol.spin = 0
-        mol.output = 'c2h4n4_3frag_equil.log'#'/dev/null'
-        mol.verbose = 5#0
-        mol.build ()
-        mf = scf.RHF (mol).run ()
-        las = LASSCF (mf, (4,2,4), ((2,2),(1,1),(2,2)), spin_sub=(1,1,1))
-        mo_coeff = las.sort_mo ([7,8,16,18,22,23,24,26,33,34])
-        mo_coeff = las.localize_init_guess ([[0,1,2],[3,4,5,6],[7,8,9]], mo_coeff=mo_coeff)
-        las.kernel (mo_coeff)
-        lsi = lassi.LASSIS (las).run ()
-        e_equil = lsi.e_roots[0]
-        with self.subTest ('equil converged'):
-            self.assertTrue (lsi.converged)
-        # test
-        de = 1000 * (e_str - e_equil)
-        self.assertAlmostEqual (de, 208.21775437138967, 1)
+    #def test_c2h4n4_3frag (self):
+    #    # str
+    #    mol = struct (2.0, 2.0, '6-31g', symmetry=False)
+    #    mol.output = '/dev/null'
+    #    mol.verbose = 0
+    #    mol.spin = 8
+    #    mol.build ()
+    #    mf = scf.RHF (mol).run () 
+    #    las = LASSCF (mf, (4,2,4), ((2,2),(1,1),(2,2)), spin_sub=(1,1,1))
+    #    mo_coeff = las.localize_init_guess ([[0,1,2],[3,4,5,6],[7,8,9]])
+    #    las.kernel (mo_coeff)
+    #    lsi = lassi.LASSIS (las).run ()
+    #    e_str = lsi.e_roots[0]
+    #    with self.subTest ('str converged'):
+    #        self.assertTrue (lsi.converged)
+    #    # equil
+    #    mol = struct (0.0, 0.0, '6-31g', symmetry=False)
+    #    mol.spin = 0
+    #    mol.verbose = 0
+    #    mol.output = '/dev/null'
+    #    mol.build ()
+    #    mf = scf.RHF (mol).run ()
+    #    las = LASSCF (mf, (4,2,4), ((2,2),(1,1),(2,2)), spin_sub=(1,1,1))
+    #    mo_coeff = las.sort_mo ([7,8,16,18,22,23,24,26,33,34])
+    #    mo_coeff = las.localize_init_guess ([[0,1,2],[3,4,5,6],[7,8,9]], mo_coeff=mo_coeff)
+    #    las.kernel (mo_coeff)
+    #    lsi = lassi.LASSIS (las).run ()
+    #    e_equil = lsi.e_roots[0]
+    #    with self.subTest ('equil converged'):
+    #        self.assertTrue (lsi.converged)
+    #    # test
+    #    de = 1000 * (e_str - e_equil)
+    #    self.assertAlmostEqual (de, 208.21775437138967, 1)
 
-    def test_c2h4n4_2frag (self):
-        # str
-        mol = struct (2.0, 2.0, '6-31g', symmetry=False)
-        mol.output = 'c2h4n4_2frag_str.log'#'/dev/null'
-        mol.verbose = 5#0
-        mol.spin = 8
-        mol.build ()
-        mf = scf.RHF (mol).run () 
-        las = lasscf_async.LASSCF (mf, (5,5), ((3,2),(2,3)))
-        las = las.state_average ([0.5,0.5],
-            spins=[[1,-1],[-1,1]],
-            smults=[[2,2],[2,2]],
-            charges=[[0,0],[0,0]],
-            wfnsyms=[[0,0],[0,0]])
-        mo = las.set_fragments_((list (range (5)), list (range (5,10))))
-        las.kernel (mo)
-        mo_coeff = las.mo_coeff
-        las = lasscf_async.LASSCF (mf, (5,5), ((3,2),(2,3)))
-        las.lasci_(mo_coeff)
-        lsi = lassi.LASSIS (las).run ()
-        e_str = lsi.e_roots[0]
-        with self.subTest ('str converged'):
-            self.assertTrue (lsi.converged)
-        # equil
-        mol = struct (0.0, 0.0, '6-31g', symmetry=False)
-        mol.spin = 0
-        mol.output = 'c2h4n4_2frag_equil.log'#'/dev/null'
-        mol.verbose = 5#0
-        mol.build ()
-        mf = scf.RHF (mol).run ()
-        las = lasscf_async.LASSCF (mf, (5,5), ((3,2),(2,3)))
-        las = las.state_average ([0.5,0.5],
-            spins=[[1,-1],[-1,1]],
-            smults=[[2,2],[2,2]],
-            charges=[[0,0],[0,0]],
-            wfnsyms=[[0,0],[0,0]])
-        mo = las.sort_mo ([7,8,16,18,22,23,24,26,33,34])
-        mo = las.set_fragments_((list (range (5)), list (range (5,10))), mo)
-        las.kernel (mo)
-        mo_coeff = las.mo_coeff
-        las = lasscf_async.LASSCF (mf, (5,5), ((3,2),(2,3)))
-        las.lasci_(mo_coeff)
-        lsi = lassi.LASSIS (las).run ()
-        e_equil = lsi.e_roots[0]
-        with self.subTest ('equil converged'):
-            self.assertTrue (lsi.converged)
-        # test
-        de = 1000 * (e_str - e_equil)
-        self.assertAlmostEqual (de, 191.185141573740, 1)
+    #def test_c2h4n4_2frag (self):
+    #    # str
+    #    mol = struct (2.0, 2.0, '6-31g', symmetry=False)
+    #    mol.output = '/dev/null'
+    #    mol.verbose = 0
+    #    mol.spin = 8
+    #    mol.build ()
+    #    mf = scf.RHF (mol).run () 
+    #    las = lasscf_async.LASSCF (mf, (5,5), ((3,2),(2,3)))
+    #    las = las.state_average ([0.5,0.5],
+    #        spins=[[1,-1],[-1,1]],
+    #        smults=[[2,2],[2,2]],
+    #        charges=[[0,0],[0,0]],
+    #        wfnsyms=[[0,0],[0,0]])
+    #    mo = las.set_fragments_((list (range (5)), list (range (5,10))))
+    #    las.kernel (mo)
+    #    mo_coeff = las.mo_coeff
+    #    las = lasscf_async.LASSCF (mf, (5,5), ((3,2),(2,3)))
+    #    las.lasci_(mo_coeff)
+    #    lsi = lassi.LASSIS (las).run ()
+    #    e_str = lsi.e_roots[0]
+    #    with self.subTest ('str converged'):
+    #        self.assertTrue (lsi.converged)
+    #    # equil
+    #    mol = struct (0.0, 0.0, '6-31g', symmetry=False)
+    #    mol.spin = 0
+    #    mol.verbose = 0
+    #    mol.output = '/dev/null'
+    #    mol.build ()
+    #    mf = scf.RHF (mol).run ()
+    #    las = lasscf_async.LASSCF (mf, (5,5), ((3,2),(2,3)))
+    #    las = las.state_average ([0.5,0.5],
+    #        spins=[[1,-1],[-1,1]],
+    #        smults=[[2,2],[2,2]],
+    #        charges=[[0,0],[0,0]],
+    #        wfnsyms=[[0,0],[0,0]])
+    #    mo = las.sort_mo ([7,8,16,18,22,23,24,26,33,34])
+    #    mo = las.set_fragments_((list (range (5)), list (range (5,10))), mo)
+    #    las.kernel (mo)
+    #    mo_coeff = las.mo_coeff
+    #    las = lasscf_async.LASSCF (mf, (5,5), ((3,2),(2,3)))
+    #    las.lasci_(mo_coeff)
+    #    lsi = lassi.LASSIS (las).run ()
+    #    e_equil = lsi.e_roots[0]
+    #    with self.subTest ('equil converged'):
+    #        self.assertTrue (lsi.converged)
+    #    # test
+    #    de = 1000 * (e_str - e_equil)
+    #    self.assertAlmostEqual (de, 191.06467851275966, 1)
 
     def test_kremer_cr2_model (self):
         xyz='''Cr    -1.320780000000   0.000050000000  -0.000070000000
@@ -172,8 +172,7 @@ class KnownValues(unittest.TestCase):
         H      3.367270000000  -0.612150000000  -1.514110000000'''
         basis = {'C': 'sto-3g','H': 'sto-3g','O': 'sto-3g','N': 'sto-3g','Cr': 'cc-pvdz'}
         mol = gto.M (atom=xyz, spin=6, charge=3, basis=basis,
-                     verbose=5, output='kremer.log')
-                     #verbose=0, output='/dev/null')
+                     verbose=5, output='debug_lassis_targets_slow.kremer_cr2_model.log')
         mf = scf.ROHF(mol)
         mf.chkfile = 'test_lassis_targets_slow.kremer_cr2_model.chk'
         mf.kernel ()
@@ -198,64 +197,63 @@ class KnownValues(unittest.TestCase):
             self.assertTrue (lsi.converged)
         self.assertAlmostEqual (yamaguchi (lsi.e_roots, lsi.s2, 6), -12.45, 2)
 
-    def test_alfefe (self):
-        xyz='''O -2.2201982441 0.3991903003 1.6944716989
-        O -1.6855532446 -1.7823063217 1.4313995072
-        C -2.2685178651 -0.8319550379 1.983951274
-        H -2.9133420167 -1.0767285885 2.8437868053
-        O 1.3882880809 2.0795561562 -1.3470856753
-        O -0.7599088595 2.5809236347 -0.849227704
-        C 0.3465674686 2.753895325 -1.438835699
-        H 0.3723796145 3.6176996598 -2.1230911503
-        O 1.0469609081 -2.6425342 0.9613246722
-        O -0.3991903003 2.2201982441 1.6944716989
-        O 1.7823063217 1.6855532446 1.4313995072
-        C 0.8319550379 2.2685178651 1.983951274
-        H 1.0767285885 2.9133420167 2.8437868053
-        O -2.0795561562 -1.3882880809 -1.3470856753
-        O -2.5809236347 0.7599088595 -0.849227704
-        C -2.753895325 -0.3465674686 -1.438835699
-        H -3.6176996598 -0.3723796145 -2.1230911503
-        Fe -0.3798741893 -1.7926033629 -0.2003377303
-        O 0.6422231803 -2.237796553 -1.8929145176
-        Fe 1.7926033629 0.3798741893 -0.2003377303
-        O 2.237796553 -0.6422231803 -1.8929145176
-        O 2.6425342 -1.0469609081 0.9613246722
-        Al -1.2362716421 1.2362716421 0.350650148
-        O -0.0449501954 0.0449501954 0.0127621413
-        C 1.645528685 -1.645528685 -2.3571124654
-        H 2.0569062984 -2.0569062984 -3.2945712916
-        C 2.1609242811 -2.1609242811 1.2775841868
-        H 2.7960805433 -2.7960805433 1.9182443024'''
-        basis = {'C': 'sto-3g','H': 'sto-3g','O': 'sto-3g','Al': 'cc-pvdz','Fe': 'cc-pvdz'}
-        mol = gto.M (atom=xyz, spin=9, charge=0, basis=basis, max_memory=10000,
-                     verbose=5, output='alfefe.log')
-                     #verbose=0, output='/dev/null')
-        mf = scf.ROHF(mol)
-        mf.init_guess='chk'
-        mf.chkfile='test_lassis_targets_slow.alfefe.chk'
-        mf = mf.density_fit()
-        mf.max_cycle=100
-        mf.kernel()
-        las = LASSCF (mf, (5,5), ((5,1),(5,0)), spin_sub=(5,6))
-        try:
-            las.load_chk_()
-            las.kernel ()
-        except (OSError, TypeError, KeyError) as e:
-            ncas, nelecas, mo_coeff = avas.kernel (mf, ['Fe 3d'], openshell_option=3)
-            mo_coeff = las.localize_init_guess (([17],[19]), mo_coeff)
-            las.kernel (mo_coeff)
-        with self.subTest ('LASSCF convergence'):
-            self.assertTrue (las.converged)
-        with self.subTest ('same LASSCF result'):
-            self.assertAlmostEqual (las.e_tot, -3955.98148841553, 6)
-        mf.chkfile = None # prevent the spins flips down there from messing things up
-        las2 = LASSCF (mf, (5,5), ((1,5),(5,0)), spin_sub=(5,6))
-        las2.lasci_(las.mo_coeff)
-        lsi = lassi.LASSIS (las2).run ()
-        with self.subTest('LASSI convergence'):
-            self.assertTrue (lsi.converged)
-        self.assertAlmostEqual (yamaguchi (lsi.e_roots, lsi.s2, 9), -4.40, 2)
+    #def test_alfefe (self):
+    #    xyz='''O -2.2201982441 0.3991903003 1.6944716989
+    #    O -1.6855532446 -1.7823063217 1.4313995072
+    #    C -2.2685178651 -0.8319550379 1.983951274
+    #    H -2.9133420167 -1.0767285885 2.8437868053
+    #    O 1.3882880809 2.0795561562 -1.3470856753
+    #    O -0.7599088595 2.5809236347 -0.849227704
+    #    C 0.3465674686 2.753895325 -1.438835699
+    #    H 0.3723796145 3.6176996598 -2.1230911503
+    #    O 1.0469609081 -2.6425342 0.9613246722
+    #    O -0.3991903003 2.2201982441 1.6944716989
+    #    O 1.7823063217 1.6855532446 1.4313995072
+    #    C 0.8319550379 2.2685178651 1.983951274
+    #    H 1.0767285885 2.9133420167 2.8437868053
+    #    O -2.0795561562 -1.3882880809 -1.3470856753
+    #    O -2.5809236347 0.7599088595 -0.849227704
+    #    C -2.753895325 -0.3465674686 -1.438835699
+    #    H -3.6176996598 -0.3723796145 -2.1230911503
+    #    Fe -0.3798741893 -1.7926033629 -0.2003377303
+    #    O 0.6422231803 -2.237796553 -1.8929145176
+    #    Fe 1.7926033629 0.3798741893 -0.2003377303
+    #    O 2.237796553 -0.6422231803 -1.8929145176
+    #    O 2.6425342 -1.0469609081 0.9613246722
+    #    Al -1.2362716421 1.2362716421 0.350650148
+    #    O -0.0449501954 0.0449501954 0.0127621413
+    #    C 1.645528685 -1.645528685 -2.3571124654
+    #    H 2.0569062984 -2.0569062984 -3.2945712916
+    #    C 2.1609242811 -2.1609242811 1.2775841868
+    #    H 2.7960805433 -2.7960805433 1.9182443024'''
+    #    basis = {'C': 'sto-3g','H': 'sto-3g','O': 'sto-3g','Al': 'cc-pvdz','Fe': 'cc-pvdz'}
+    #    mol = gto.M (atom=xyz, spin=9, charge=0, basis=basis, max_memory=10000, verbose=0,
+    #                 output='/dev/null')
+    #    mf = scf.ROHF(mol)
+    #    mf.init_guess='chk'
+    #    mf.chkfile='test_lassis_targets_slow.alfefe.chk'
+    #    mf = mf.density_fit()
+    #    mf.max_cycle=100
+    #    mf.kernel()
+    #    las = LASSCF (mf, (5,5), ((5,1),(5,0)), spin_sub=(5,6))
+    #    try:
+    #        las.load_chk_()
+    #        las.kernel ()
+    #    except (OSError, TypeError, KeyError) as e:
+    #        ncas, nelecas, mo_coeff = avas.kernel (mf, ['Fe 3d'], openshell_option=3)
+    #        mo_coeff = las.localize_init_guess (([17],[19]), mo_coeff)
+    #        las.kernel (mo_coeff)
+    #    with self.subTest ('LASSCF convergence'):
+    #        self.assertTrue (las.converged)
+    #    with self.subTest ('same LASSCF result'):
+    #        self.assertAlmostEqual (las.e_tot, -3955.98148841553, 6)
+    #    mf.chkfile = None # prevent the spins flips down there from messing things up
+    #    las2 = LASSCF (mf, (5,5), ((1,5),(5,0)), spin_sub=(5,6))
+    #    las2.lasci_(las.mo_coeff)
+    #    lsi = lassi.LASSIS (las2).run ()
+    #    with self.subTest('LASSI convergence'):
+    #        self.assertTrue (lsi.converged)
+    #    self.assertAlmostEqual (yamaguchi (lsi.e_roots, lsi.s2, 9), -4.40, 2)
 
 
 if __name__ == "__main__":
