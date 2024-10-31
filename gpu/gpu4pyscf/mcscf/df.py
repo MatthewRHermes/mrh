@@ -336,7 +336,6 @@ class _ERIS:
         blksize = with_df.blockdim
 
         bufpa = numpy.empty((naoaux,nmo,ncas))
-        bufs1 = numpy.empty((blksize,nmo,nmo))
         fmmm = _ao2mo.libao2mo.AO2MOmmm_nr_s2_iltj
         fdrv = _ao2mo.libao2mo.AO2MOnr_e2_drv
         ftrans = _ao2mo.libao2mo.AO2MOtranse2_nr_s2
@@ -363,9 +362,9 @@ class _ERIS:
             libgpu.libgpu_pull_ints_ao2mo(gpu, fxpp, bufpa, blksize, naoaux, nmo, ncas)
             t0 = log.timer('pull_ao2mo', *t0)
         else:
+            bufs1 = numpy.empty((blksize,nmo,nmo))
             for k, eri in enumerate(with_df.loop(blksize)):
                 naux = eri1.shape[0]
-
                 bufpp = bufs1[:naux]
                 fdrv(ftrans, fmmm,
                  bufpp.ctypes.data_as(ctypes.c_void_p),
@@ -383,6 +382,7 @@ class _ERIS:
                 k_cp += numpy.einsum('kij,kij->ij', bufpp[:,:ncore], bufpp[:,:ncore])
                 b0 += naux
                 t0 = log.timer('rest of the calculation', *t0)
+            bufs1 = bufpp = None
 
         #
         #Commented 10-21-24 in favor of faster code
@@ -490,7 +490,6 @@ class _ERIS:
         #    count += 1
         self.k_pc = k_cp.T.copy()
            
-        bufs1 = bufpp = None
         t1 = log.timer('density fitting ao2mo pass1', *t1)
         mem_now = lib.current_memory()[0]
         nblk = int(max(8, min(nmo, ((max_memory-mem_now)*1e6/8-bufpa.size)/(ncas**2*nmo))))
