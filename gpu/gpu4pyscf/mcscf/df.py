@@ -367,23 +367,26 @@ class _ERIS:
             libgpu.libgpu_pull_ints_ao2mo(gpu, fxpp, bufpa, blksize, naoaux, nmo, ncas)
             t0 = log.timer('pull_ao2mo', *t0)
         else:
-            bufpp = bufs1[:naux]
-            fdrv(ftrans, fmmm,
-             bufpp.ctypes.data_as(ctypes.c_void_p),
-             eri1.ctypes.data_as(ctypes.c_void_p),
-             mo.ctypes.data_as(ctypes.c_void_p),
-             ctypes.c_int(naux), ctypes.c_int(nao),
-             (ctypes.c_int*4)(0, nmo, 0, nmo),
-             ctypes.c_void_p(0), ctypes.c_int(0))
-            t0 = log.timer('density fitting ao2mo pass1_loop cpu', *t0)
-            fxpp_keys.append([k, b0, b0+naux])
-            fxpp[:,:,b0:b0+naux] = bufpp.transpose(1,2,0)  
-            bufpa[b0:b0+naux] = bufpp[:,:,ncore:nocc]
-            bufd = numpy.einsum('kii->ki', bufpp)
-            self.j_pc += numpy.einsum('ki,kj->ij', bufd, bufd[:,:ncore])
-            k_cp += numpy.einsum('kij,kij->ij', bufpp[:,:ncore], bufpp[:,:ncore])
-            b0 += naux
-            t0 = log.timer('rest of the calculation', *t0)
+            for k, eri in enumerate(with_df.loop(blksize)):
+                naux = eri1.shape[0]
+
+                bufpp = bufs1[:naux]
+                fdrv(ftrans, fmmm,
+                 bufpp.ctypes.data_as(ctypes.c_void_p),
+                 eri1.ctypes.data_as(ctypes.c_void_p),
+                 mo.ctypes.data_as(ctypes.c_void_p),
+                 ctypes.c_int(naux), ctypes.c_int(nao),
+                 (ctypes.c_int*4)(0, nmo, 0, nmo),
+                 ctypes.c_void_p(0), ctypes.c_int(0))
+                t0 = log.timer('density fitting ao2mo pass1_loop cpu', *t0)
+                fxpp_keys.append([k, b0, b0+naux])
+                fxpp[:,:,b0:b0+naux] = bufpp.transpose(1,2,0)  
+                bufpa[b0:b0+naux] = bufpp[:,:,ncore:nocc]
+                bufd = numpy.einsum('kii->ki', bufpp)
+                self.j_pc += numpy.einsum('ki,kj->ij', bufd, bufd[:,:ncore])
+                k_cp += numpy.einsum('kij,kij->ij', bufpp[:,:ncore], bufpp[:,:ncore])
+                b0 += naux
+                t0 = log.timer('rest of the calculation', *t0)
 
         #
         #Commented 10-21-24 in favor of faster code
