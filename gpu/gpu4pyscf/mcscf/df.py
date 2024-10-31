@@ -327,11 +327,7 @@ class _ERIS:
         self.k_pc = numpy.zeros((nmo,ncore))
         k_cp = numpy.zeros((ncore,nmo))
         gpu=casscf.mol.use_gpu#print(bufpp)
-        if DEBUG and gpu:
-            k_cp2 = numpy.zeros((ncore,nmo))
-            self.j_pc2 = numpy.zeros((nmo,ncore))
-            self.k_pc2 = numpy.zeros((nmo,ncore))
-
+        
         mo = numpy.asarray(mo, order='F')
         #fxpp = lib.H5TmpFile()
         fxpp = numpy.empty ((nmo, nmo, naoaux))
@@ -493,13 +489,7 @@ class _ERIS:
         #    t0 = log.timer('rest of the calculation', *t0)
         #    count += 1
         self.k_pc = k_cp.T.copy()
-        if DEBUG and gpu:
-            self.k_pc2 = k_cp2.T.copy()
-            if numpy.allclose(self.j_pc, self.j_pc2): print("J_pc works")
-            else: print("J_pc doesn't work", numpy.max(self.j_pc-self.j_pc2));exit()
-            if numpy.allclose(self.k_pc, self.k_pc2): print("K_pc works")
-            else: print("K_pc doesn't work", numpy.max(self.k_pc-self.k_pc2));exit()
-   
+           
         bufs1 = bufpp = None
         t1 = log.timer('density fitting ao2mo pass1', *t1)
         mem_now = lib.current_memory()[0]
