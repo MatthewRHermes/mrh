@@ -443,51 +443,7 @@ class _ERIS:
         #            t0 = log.timer('rest of the calculation', *t0)
         # 
         
-               #Commented 10-04-24 in favor of accelerated code above 
-        #for k, eri1 in enumerate(with_df.loop(blksize)):
-        #    naux = eri1.shape[0]
-        #    bufpp = bufs1[:naux]
-        #    if DEBUG and gpu:
-        #        bufpp = bufs1[:naux]
-        #        bufpp2 = numpy.empty((naux,nmo,nmo))#bufs1[:naux]
-        #        libgpu.libgpu_df_ao2mo_pass1_fdrv(gpu,naux,nmo,nao,blksize,bufpp,mo,eri1,count,id(with_df))
-        #        fdrv(ftrans, fmmm,
-        #         bufpp2.ctypes.data_as(ctypes.c_void_p),
-        #         eri1.ctypes.data_as(ctypes.c_void_p),
-        #         mo.ctypes.data_as(ctypes.c_void_p),
-        #         ctypes.c_int(naux), ctypes.c_int(nao),
-        #         (ctypes.c_int*4)(0, nmo, 0, nmo),
-        #         ctypes.c_void_p(0), ctypes.c_int(0))
-        #        if (numpy.allclose(bufpp,bufpp2,atol=1e-13)):print("ao2mo fdrv check passed!");pass
-        #        else:print("ao2mo fdrv bug");print(np.max((bufpp-bufpp2)*(bufpp-bufpp2)));exit()          
-
-        #   else:
-        #       if gpu:
-        #            bufpp = bufs1[:naux]
-        #            libgpu.libgpu_df_ao2mo_pass1_fdrv(gpu,naux,nmo,nao,blksize,bufpp,mo, eri1,count,id(with_df))
-        #            t0 = log.timer('density fitting ao2mo pass1_loop gpu', *t0)
-        #        else:
-        #            bufpp = bufs1[:naux]
-        #            fdrv(ftrans, fmmm,
-        #             bufpp.ctypes.data_as(ctypes.c_void_p),
-        #             eri1.ctypes.data_as(ctypes.c_void_p),
-        #             mo.ctypes.data_as(ctypes.c_void_p),
-        #             ctypes.c_int(naux), ctypes.c_int(nao),
-        #             (ctypes.c_int*4)(0, nmo, 0, nmo),
-        #             ctypes.c_void_p(0), ctypes.c_int(0))
-        #            t0 = log.timer('density fitting ao2mo pass1_loop cpu', *t0)
-
-        #    #fxpp_keys.append([str(k), b0, b0+naux])
-        #    #fxpp[str(k)] = bufpp.transpose(1,2,0)
-        #    fxpp_keys.append([k, b0, b0+naux])
-        #    fxpp[:,:,b0:b0+naux] = bufpp.transpose(1,2,0)
-        #    bufpa[b0:b0+naux] = bufpp[:,:,ncore:nocc]
-        #    bufd = numpy.einsum('kii->ki', bufpp)
-        #    self.j_pc += numpy.einsum('ki,kj->ij', bufd, bufd[:,:ncore])
-        #    k_cp += numpy.einsum('kij,kij->ij', bufpp[:,:ncore], bufpp[:,:ncore])
-        #    b0 += naux
-        #    t0 = log.timer('rest of the calculation', *t0)
-        #    count += 1
+        
         self.k_pc = k_cp.T.copy()
            
         t1 = log.timer('density fitting ao2mo pass1', *t1)
