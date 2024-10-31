@@ -152,16 +152,6 @@ void libgpu_init_ints_ao2mo(void * ptr,
 }
 /* ---------------------------------------------------------------------- */
 
-void libgpu_df_ao2mo_pass1(void * ptr,
-				int naux, int nmo, int nao, int ncore, int ncas,
-				py::array_t<double> bufpp_t, py::array_t<double> bufpa,py::array_t<double> eri1,
-				int count, size_t addr_dfobj)
-{ 
-  Device * dev = (Device *) ptr;
-  dev->df_ao2mo_pass1(naux, nmo, nao, ncore, ncas, bufpp_t, bufpa,eri1, count, addr_dfobj);
-}
-/* ---------------------------------------------------------------------- */
-
 void libgpu_df_ao2mo_pass1_v2(void * ptr,
 				int blksize, int nmo, int nao, int ncore, int ncas, int naux,
 				py::array_t<double> eri1,
