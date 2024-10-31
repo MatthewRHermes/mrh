@@ -15,10 +15,10 @@
 #define _HESSOP_BLOCK_SIZE 32
 #define _DEFAULT_BLOCK_SIZE 32
 
-#define _DEBUG_DEVICE
+//#define _DEBUG_DEVICE
 //#define _DEBUG_H2EFF
 //#define _DEBUG_H2EFF2
-#define _DEBUG_H2EFF_DF
+//#define _DEBUG_H2EFF_DF
 #define _DEBUG_AO2MO
 #define _TILE(A,B) (A + B - 1) / B
 
@@ -172,13 +172,16 @@ void Device::push_mo_coeff(py::array_t<double> _mo_coeff, int _size_mo_coeff)
   
 #ifdef _SIMPLE_TIMER
   double t1 = omp_get_wtime();
-  t_array[8] += t1 - t0;
+  t_array[7] += t1 - t0;
 #endif
 }
 
 /* ---------------------------------------------------------------------- */
 void Device::init_jk_ao2mo(int ncore, int nmo)
 {
+#ifdef _SIMPLE_TIMER
+  double t0 = omp_get_wtime();
+#endif
   // host initializes on each device 
   for(int id=0; id<num_devices; ++id) {
     pm->dev_set_device(id);
@@ -209,10 +212,17 @@ void Device::init_jk_ao2mo(int ncore, int nmo)
     if(buf_k_pc) pm->dev_free_host(buf_k_pc);
     buf_k_pc = (double *) pm->dev_malloc_host(_size_buf_k_pc*sizeof(double));
     }
+#ifdef _SIMPLE_TIMER
+  double t1 = omp_get_wtime();
+  t_array[8] += t1 - t0;
+#endif
 }
 /* ---------------------------------------------------------------------- */
 void Device::init_ints_ao2mo(int naoaux, int nmo, int ncas)
 {
+#ifdef _SIMPLE_TIMER
+  double t0 = omp_get_wtime();
+#endif
     int _size_fxpp = naoaux*nmo*nmo;
     if (_size_fxpp > size_fxpp){
         size_fxpp = _size_fxpp;
@@ -225,6 +235,10 @@ void Device::init_ints_ao2mo(int naoaux, int nmo, int ncas)
         if (pin_bufpa) pm->dev_free_host(pin_bufpa);
         pin_bufpa = (double *) pm->dev_malloc_host(_size_bufpa*sizeof(double));
     }
+#ifdef _SIMPLE_TIMER
+  double t1 = omp_get_wtime();
+  t_array[8] += t1 - t0;
+#endif
 }
 /* ---------------------------------------------------------------------- */
 void Device::pull_jk_ao2mo(py::array_t<double> _j_pc, py::array_t<double> _k_pc, int nmo, int ncore)
@@ -284,13 +298,20 @@ void Device::pull_jk_ao2mo(py::array_t<double> _j_pc, py::array_t<double> _k_pc,
       for(int j=0; j<ncore*nmo; ++j) k_pc[j] += tmp[j];
     }
   }
+#ifdef _SIMPLE_TIMER
+  double t1 = omp_get_wtime();
+  t_array[10] += t1 - t0;
+#endif
 }
 /* ---------------------------------------------------------------------- */
 void Device::pull_ints_ao2mo(py::array_t<double> _fxpp, py::array_t<double> _bufpa, int blksize, int naoaux, int nmo, int ncas)
 {
+#ifdef _SIMPLE_TIMER
+  double t0 = omp_get_wtime();
+#endif
     py::buffer_info info_fxpp = _fxpp.request(); //3D array (nmo*nmo*naoaux)
     double * fxpp = static_cast<double*>(info_fxpp.ptr);
-    printf("size_fxpp %i\n", size_fxpp);
+    //printf("size_fxpp %i\n", size_fxpp);
     
     int count = 0;
     int k = 0;
@@ -299,7 +320,7 @@ void Device::pull_ints_ao2mo(py::array_t<double> _fxpp, py::array_t<double> _buf
     while(k < naoaux) {
       int size_vector = (naoaux-k > blksize) ? blksize : naoaux-k; // transfer whole blksize or last subset?
       
-      printf("k= %i  size_vector= %i\n",k,size_vector);
+      //printf("k= %i  size_vector= %i\n",k,size_vector);
       for (int i=0; i<nmo; ++i)
 	for (int j=0; j<nmo; ++j) {
 	  int indx_in = count * nmo * nmo * blksize + i * nmo * size_vector + j * size_vector;
@@ -314,8 +335,13 @@ void Device::pull_ints_ao2mo(py::array_t<double> _fxpp, py::array_t<double> _buf
     
     py::buffer_info info_bufpa = _bufpa.request(); //3D array (naoaux*nmo*ncas)
     double * bufpa = static_cast<double*>(info_bufpa.ptr);
-    printf("size_bufpa %i\n", size_bufpa);
+    //printf("size_bufpa %i\n", size_bufpa);
     std::memcpy(bufpa, pin_bufpa, size_bufpa*sizeof(double));
+
+#ifdef _SIMPLE_TIMER
+  double t1 = omp_get_wtime();
+  t_array[10] += t1 - t0;
+#endif
 }
 
 /* ---------------------------------------------------------------------- */
@@ -1294,6 +1320,7 @@ void Device::df_ao2mo_pass1 (int naux, int nmo, int nao, int ncore, int ncas,
 				  py::array_t<double> _bufpp_t, py::array_t<double> _bufpa, py::array_t<double> _eri1,
 				  int count, size_t addr_dfobj)
 {
+  profile_start("AO2MO v1");
   const int device_id = count % num_devices;
   pm->dev_set_device(device_id);
   my_device_data * dd = &(device_data[device_id]);
@@ -1505,10 +1532,10 @@ cublasDgemm(dd->handle,CUBLAS_OP_N, CUBLAS_OP_T,
   //pm->dev_free(d_bufd);
   //pm->dev_free_async(d_bufpa, dd->stream);
   //pm->dev_stream_wait(dd->stream);
-  
+  profile_stop(); 
 #ifdef _SIMPLE_TIMER
   double t1 = omp_get_wtime();
-  t_array[5] += t1 - t0;
+  t_array[10] += t1 - t0;
 #endif
 }
 
@@ -1517,16 +1544,17 @@ void Device::df_ao2mo_pass1_v2 (int blksize, int nmo, int nao, int ncore, int nc
 				  py::array_t<double> _eri1,
 				  int count, size_t addr_dfobj)
 {
+#ifdef _SIMPLE_TIMER
+  double t0 = omp_get_wtime();
+#endif
+  profile_start("AO2MO v2");
   const int device_id = count % num_devices;
   pm->dev_set_device(device_id);
   my_device_data * dd = &(device_data[device_id]);
-  printf(" naux %i blksize %i\n", naux, blksize);
+  //printf(" naux %i blksize %i\n", naux, blksize);
 #ifdef _DEBUG_DEVICE
   printf("LIBGPU:: Inside Device::df_ao2mo_pass1_fdrv()\n");
   printf("LIBGPU:: dfobj= %#012x  count= %i  combined= %#012x %p update_dfobj= %i\n",addr_dfobj,count,addr_dfobj+count,addr_dfobj+count,update_dfobj);
-#endif
-#ifdef _SIMPLE_TIMER
-  double t0 = omp_get_wtime();
 #endif
   py::buffer_info info_eri1 = _eri1.request(); // 2D array (naux, nao_pair) nao_pair= nao*(nao+1)/2
   const int nao_pair = nao*(nao+1)/2;
@@ -1539,7 +1567,7 @@ void Device::df_ao2mo_pass1_v2 (int blksize, int nmo, int nao, int ncore, int nc
   size_t freeMem;size_t totalMem;
   freeMem=0;totalMem=0;
   cudaMemGetInfo(&freeMem, &totalMem);
-  printf("Starting ao2mo fdrv Free memory %lu bytes, total memory %lu bytes\n",freeMem,totalMem);
+  printf("Starting ao2mo Free memory %lu bytes, total memory %lu bytes\n",freeMem,totalMem);
 #endif
 
   if(_size_eri_unpacked > dd->size_buf) {
@@ -1607,7 +1635,7 @@ void Device::df_ao2mo_pass1_v2 (int blksize, int nmo, int nao, int ncore, int nc
   double * d_bufpa = (double *) pm->dev_malloc (naux*nmo*ncas*sizeof(double));
 #endif
 
-  { dim3 block_size(1,1,1);
+  { dim3 block_size(_UNPACK_BLOCK_SIZE,_UNPACK_BLOCK_SIZE,1);
     dim3 grid_size (_TILE(naux, block_size.x), _TILE(nmo, block_size.y), ncas);
     get_bufpa<<<grid_size, block_size, 0, dd->stream>>>(d_bufpp, d_bufpa, naux, nmo, ncore, ncas);}
 #if 0
@@ -1666,7 +1694,7 @@ else
 #else
     double * d_bufd = (double *) pm->dev_malloc_async(naux*nmo*sizeof(double),dd->stream);
 #endif
-  {dim3 block_size (1,1,1);
+  {dim3 block_size (_UNPACK_BLOCK_SIZE,_UNPACK_BLOCK_SIZE,1);
   dim3 grid_size (_TILE(naux, block_size.x),_TILE(nmo, block_size.y),1) ;
   get_bufd<<<grid_size, block_size, 0, dd->stream>>>(d_bufpp, d_bufd, naux, nmo);}
 // calculate j_pc
@@ -1693,13 +1721,10 @@ else {
   cudaMemGetInfo(&freeMem, &totalMem);
   printf("Ending ao2mo fdrv Free memory %lu bytes, total memory %lu bytes\n",freeMem,totalMem);
 #endif
-  //pm->dev_free(d_bufd);
-  //pm->dev_free_async(d_bufpa, dd->stream);
-  //pm->dev_stream_wait(dd->stream);
-  
+  profile_stop(); 
 #ifdef _SIMPLE_TIMER
   double t1 = omp_get_wtime();
-  t_array[5] += t1 - t0;
+  t_array[10] += t1 - t0;
 #endif
 }
 
@@ -2210,7 +2235,7 @@ void Device::update_h2eff_sub(int ncore, int ncas, int nocc, int nmo,
   
 #ifdef _SIMPLE_TIMER
   double t1 = omp_get_wtime();
-  t_array[6] += t1 - t0;
+  t_array[5] += t1 - t0;
 #endif
 }
 
@@ -2311,7 +2336,7 @@ void Device::h2eff_df_contract1(py::array_t<double> _cderi,
   free(my_unpack_map);
 #ifdef _SIMPLE_TIMER
   double t1 = omp_get_wtime();
-  t_array[7] += t1 - t0;
+  t_array[6] += t1 - t0;
 #endif
 }
 /* ---------------------------------------------------------------------- */
