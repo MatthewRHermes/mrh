@@ -209,6 +209,16 @@ class CSFTransformer (lib.StreamObject):
         if self.wfnsym is None or self._orbsym is None: return self.econf_csf_mask.size
         return (np.count_nonzero (self.confsym[self.econf_csf_mask] == self.wfnsym))
 
+    def print_config (self, printer=print):
+        printer ('***** CSFTransformer configuration *****')
+        printer ('norb = {}'.format (self.norb))
+        printer ('neleca, nelecb = {}, {}'.format (self.neleca, self.nelecb))
+        printer ('smult = {}'.format (self.smult))
+        printer ('orbsym = {}'.format (self.orbsym))
+        printer ('wfnsym = {}'.format (self.wfnsym))
+        printer ('ndeta, ndetb = {}, {}'.format (self.ndeta, self.ndetb))
+        printer ('ncsf = {}'.format (self.ncsf))
+
 def unpack_sym_ci (ci, idx, vec_on_cols=False):
     if idx is None: return ci
     tot_len = idx.size
@@ -563,7 +573,7 @@ def _transform_det2csf (inparr, norb, neleca, nelecb, smult, reverse=False, csd_
     ncol_out = (ncsf_all, ndet_all)[reverse or project]
     ncol_in = (ncsf_all, ndet_all)[~reverse or project]
     if not project:
-        outarr = np.ascontiguousarray (np.zeros ((nrow, ncol_out), dtype=np.float_))
+        outarr = np.ascontiguousarray (np.zeros ((nrow, ncol_out), dtype=np.float64))
         csf_addrs = np.zeros (ncsf_all, dtype=np.bool_)
     # Initialization is necessary because not all determinants have a csf for all spin states
 
@@ -874,7 +884,7 @@ def get_spin_evecs (nspin, neleca, nelecb, smult):
     scstrs = addrs2str (nspin, smult, list (range (ncsf)))
     assert (len (scstrs) == ncsf), "should have {} coupling strings; have {} (nspin={}, s={})".format (ncsf, len (scstrs), nspin, s)
 
-    umat = np.ones ((ndet, ncsf), dtype=np.float_)
+    umat = np.ones ((ndet, ncsf), dtype=np.float64)
     twoS = smult-1
     twoMS = neleca - nelecb
     
@@ -904,7 +914,7 @@ def test_spin_evecs (nspin, neleca, nelecb, smult, S2mat=None):
     spinstrs = cistring.addrs2str (nspin, na, list (range (ndet)))
 
     if S2mat is None:
-        S2mat = np.zeros ((ndet, ndet), dtype=np.float_)
+        S2mat = np.zeros ((ndet, ndet), dtype=np.float64)
         twoS = smult - 1
         twoMS = int (round (2 * ms))
 

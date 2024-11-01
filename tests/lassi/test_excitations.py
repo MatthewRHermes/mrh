@@ -23,7 +23,7 @@ from mrh.my_pyscf.fci import csf_solver
 from mrh.my_pyscf.mcscf.lasscf_o0 import LASSCF
 from mrh.my_pyscf.lassi import LASSI, op_o0, op_o1
 from mrh.my_pyscf.lassi.lassi import root_make_rdm12s, make_stdm12s
-from mrh.my_pyscf.lassi.states import all_single_excitations
+from mrh.my_pyscf.lassi.spaces import all_single_excitations
 from mrh.my_pyscf.lassi.excitations import ExcitationPSFCISolver
 from mrh.my_pyscf.mcscf.lasci import get_space_info
 from mrh.my_pyscf.mcscf.productstate import ImpureProductStateFCISolver
@@ -60,7 +60,7 @@ def setUpModule ():
     lroots[idx] = 1
     las.lasci (lroots=lroots.T)
     lsi = LASSI (las)
-    lsi.kernel (opt=0)
+    lsi.kernel ()
 
     op = (op_o0, op_o1)
 
@@ -81,7 +81,6 @@ class KnownValues(unittest.TestCase):
                                              stdout=mol.stdout, verbose=mol.verbose, lroots=ncsf)
         ci_ref = [c[0] for c in las.ci]
         nelec_ref = [[1,1] for i in range (3)]
-        psexc = ExcitationPSFCISolver (psref, ci_ref, las.ncas_sub, nelec_ref)
         charges, spins, smults, wfnsyms = get_space_info (lsi._las)
         dneleca = (spins - charges) // 2
         dnelecb = -(charges + spins) // 2
@@ -125,32 +124,40 @@ class KnownValues(unittest.TestCase):
         # the VRV solver misses is just barely below 1e-8; that of the root which it catches is
         # about 1e-6. The moral of the story is that we should probably not use the excitation
         # solver for double excitations directly.
-        for iroot in range (1, 5): #lsi._las.nroots):
-          with self.subTest (rootspace=iroot):
-            for i in range (2):
-                weights = np.zeros (lroots[i,iroot])
-                weights[0] = 1
-                psexc.set_excited_fragment_(1+i, (neleca[iroot,i], nelecb[iroot,i]),
-                                            smults[iroot,i], weights=weights)
-            conv, energy_tot, ci1 = psexc.kernel (h1, h2, ecore=h0, _add_vrv_energy=True)
-            self.assertTrue (conv)
-            e_roots1, si1 = lassi_ref (ci1, iroot)
-            idx_match = np.argmin (np.abs (e_roots1-energy_tot))
-            self.assertAlmostEqual (energy_tot, e_roots1[idx_match], 6)
-            self.assertEqual (idx_match, 0) # local minimum problems
-        # In the no-coupling limit, the Excitation solver should give the same result as the normal
-        # ImpureProductStateFCISolver
-        psexc._deactivate_vrv = True # spoof the no-coupling limit
-        for iroot in range (1, lsi._las.nroots):
-          with self.subTest ('no-coupling limit', rootspace=iroot):
-            for i in range (2):
-                weights = np.zeros (lroots[i,iroot])
-                weights[0] = 1
-                psexc.set_excited_fragment_(1+i, (neleca[iroot,i], nelecb[iroot,i]),
-                                            smults[iroot,i], weights=weights)
-            conv, energy_tot, ci1 = psexc.kernel (h1, h2, ecore=h0, _add_vrv_energy=True)
-            self.assertTrue (conv)
-            self.assertAlmostEqual (energy_tot, lsi._las.e_states[iroot], 8)
+        for opt in (0,1):
+            psexc = ExcitationPSFCISolver (psref, ci_ref, las.ncas_sub, nelec_ref, opt=opt)
+            for iroot in range (1, 5): #lsi._las.nroots):
+              with self.subTest (opt=opt, rootspace=iroot):
+                for i in range (2):
+                    weights = np.zeros (lroots[i,iroot])
+                    weights[0] = 1
+                    psexc.set_excited_fragment_(1+i, (neleca[iroot,i], nelecb[iroot,i]),
+                                                smults[iroot,i], weights=weights)
+                conv, energy_tot, ci1 = psexc.kernel (h1, h2, ecore=h0, _add_vrv_energy=True, davidson_only=True)
+                self.assertTrue (conv)
+                e_roots1, si1 = lassi_ref (ci1, iroot)
+                idx_match = np.argmin (np.abs (e_roots1-energy_tot))
+                self.assertAlmostEqual (energy_tot, e_roots1[idx_match], 6)
+                self.assertEqual (idx_match, 0) # local minimum problems
+            # In the no-coupling limit, the Excitation solver should give the same result as the normal
+            # ImpureProductStateFCISolver
+            psexc._deactivate_vrv = True # spoof the no-coupling limit
+            for iroot in range (1, lsi._las.nroots):
+                for i in range (2):
+                    weights = np.zeros (lroots[i,iroot])
+                    weights[0] = 1
+                    psexc.set_excited_fragment_(1+i, (neleca[iroot,i], nelecb[iroot,i]),
+                                                smults[iroot,i], weights=weights)
+                conv, energy_tot, ci1 = psexc.kernel (h1, h2, ecore=h0, _add_vrv_energy=True)
+                with self.subTest ('no-coupling limit', opt=opt, rootspace=iroot):
+                    self.assertTrue (conv)
+                    self.assertAlmostEqual (energy_tot, lsi._las.e_states[iroot], 8)
+                conv, energy_tot, ci1 = psexc.kernel (h1, h2, ecore=h0, _add_vrv_energy=True,
+                                                      davidson_only=True)
+                with self.subTest ('no-coupling limit; davidson only', opt=opt, rootspace=iroot):
+                    self.assertTrue (conv)
+                    self.assertAlmostEqual (energy_tot, lsi._las.e_states[iroot], 8)
+                
 
     def test_multiref (self):
         # Similar to test_cs_excitation, but treating the triplet manifold as the reference
@@ -179,8 +186,6 @@ class KnownValues(unittest.TestCase):
                  for i in range (3)]
         ci_ref = las.ci
         nelec_ref = [[1,1] for i in range (3)]
-        psexc = ExcitationPSFCISolver (psref, ci_ref, las.ncas_sub, nelec_ref,
-                                       stdout=mol.stdout, verbose=mol.verbose)
         charges, spins, smults, wfnsyms = get_space_info (lsi._las)
         dneleca = (spins - charges) // 2
         dnelecb = -(charges + spins) // 2
@@ -221,19 +226,29 @@ class KnownValues(unittest.TestCase):
             return e_roots1[idx], si1[:,idx]
 
         h0, h1, h2 = LASSI (las).ham_2q ()
-        for iroot in range (1, 5): 
-          with self.subTest (rootspace=iroot):
-            for i in range (2):
-                weights = np.ones (lroots[i,iroot]) / lroots[i,iroot]
-                psexc.set_excited_fragment_(1+i, (neleca[iroot,i], nelecb[iroot,i]),
-                                            smults[iroot,i], weights=weights)
-            conv, energy_tot, ci1 = psexc.kernel (h1, h2, ecore=h0,
-                                                  _add_vrv_energy=True)
-            self.assertTrue (conv)
-            e_roots1, si1 = lassi_ref (ci1, iroot)
-            idx_match = np.argmin (np.abs (e_roots1-energy_tot))
-            self.assertAlmostEqual (energy_tot, e_roots1[idx_match], 6)
-            self.assertEqual (idx_match, 0) # local minimum problems
+        for opt in (0,1):
+            psexc = ExcitationPSFCISolver (psref, ci_ref, las.ncas_sub, nelec_ref,
+                                           stdout=mol.stdout, verbose=mol.verbose, opt=opt)
+            for iroot in range (1, 5): 
+                for i in range (2):
+                    weights = np.ones (lroots[i,iroot]) / lroots[i,iroot]
+                    psexc.set_excited_fragment_(1+i, (neleca[iroot,i], nelecb[iroot,i]),
+                                                smults[iroot,i], weights=weights)
+                conv, energy_tot, ci1 = psexc.kernel (h1, h2, ecore=h0, _add_vrv_energy=True)
+                with self.subTest (rootspace=iroot):
+                    self.assertTrue (conv)
+                    e_roots1, si1 = lassi_ref (ci1, iroot)
+                    idx_match = np.argmin (np.abs (e_roots1-energy_tot))
+                    self.assertAlmostEqual (energy_tot, e_roots1[idx_match], 6)
+                    self.assertEqual (idx_match, 0) # local minimum problems
+                conv, energy_tot, ci1 = psexc.kernel (h1, h2, ecore=h0, _add_vrv_energy=True,
+                                                      davidson_only=True)
+                with self.subTest ('davidson only', rootspace=iroot):
+                    self.assertTrue (conv)
+                    e_roots1, si1 = lassi_ref (ci1, iroot)
+                    idx_match = np.argmin (np.abs (e_roots1-energy_tot))
+                    self.assertAlmostEqual (energy_tot, e_roots1[idx_match], 6)
+                    self.assertEqual (idx_match, 0) # local minimum problems
 
 if __name__ == "__main__":
     print("Full Tests for LASSI excitation constructor")
