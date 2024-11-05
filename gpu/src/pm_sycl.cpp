@@ -1,4 +1,4 @@
-#if defined(_GPU_SYCL_CUDA)
+#if defined(_GPU_SYCL) || defined(_GPU_SYCL_CUDA)
 
 #include <stdio.h>
 #include <iostream>
@@ -343,7 +343,7 @@ void PM::dev_barrier()
 #endif
 }
 
-#if 1
+#if defined(_GPU_SYCL_CUDA)
 
 void PM::dev_stream_create(cudaStream_t & s)
 {
@@ -389,7 +389,9 @@ void PM::dev_stream_wait(cudaStream_t & s)
   printf(" -- Leaving PM::dev_stream_wait()\n");
 #endif
 }
+
 #else
+
 void PM::dev_stream_create(sycl::queue & q)
 {
 #ifdef _DEBUG_PM
@@ -397,7 +399,7 @@ void PM::dev_stream_create(sycl::queue & q)
 #endif
 
   // just return queue already created
-  q = current_queue;
+  q = *current_queue;
   
 #ifdef _DEBUG_PM
   printf(" -- Leaving PM::dev_stream_create()\n");

@@ -4,7 +4,13 @@
 #define MATHLIB_MKL_H
 
 #include "pm.h"
+
+#if defined(_GPU_SYCL_CUDA)
 #include "oneapi/mkl.hpp"
+#else
+#include "oneapi/mkl/blas.hpp"
+#include "mkl.h"
+#endif
 
 namespace MATHLIB_NS {
 

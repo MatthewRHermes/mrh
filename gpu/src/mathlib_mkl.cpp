@@ -21,14 +21,16 @@ void MATHLIB::gemm(const char * transa, const char * transb,
 {  
   sycl::queue * q = pm_->dev_get_queue();
   
+#if defined(_GPU_SYCL_CUDA)
   using oneapi::mkl::blas::column_major::gemm;
   using oneapi::mkl::transpose;
-#ifdef _SINGLE_PRECISION
-  //  cublasSgemm(q, CUBLAS_OP_N, CUBLAS_OP_N, *m, *n, *k, alpha, a, *lda, b, *ldb, beta, c, *ldc);
-#else
-  gemm(*q, transpose::nontrans, transpose::nontrans, *m, *n, *k, *alpha, a, *lda, b, *ldb, *beta, c, *ldc);
-  //  cublasDgemm(q, CUBLAS_OP_N, CUBLAS_OP_N, *m, *n, *k, alpha, a, *lda, b, *ldb, beta, c, *ldc);
   
+  gemm(*q, transpose::nontrans, transpose::nontrans, *m, *n, *k, *alpha, a, *lda, b, *ldb, *beta, c, *ldc);
+#else
+  using oneapi::mkl::blas::gemm;
+  using oneapi::mkl::transpose;
+  
+  gemm(*q, transpose::nontrans, transpose::nontrans, *m, *n, *k, *alpha, a, *lda, b, *ldb, *beta, c, *ldc);
 #endif
   
 }
