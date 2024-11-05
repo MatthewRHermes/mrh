@@ -25,7 +25,7 @@
 // load appropriate header
 
 #if defined(_GPU_CUBLAS)
-#include "mathlib_cuda.h"
+#include "mathlib_cublas.h"
 #elif defined(_GPU_MKL)
 #include "mathlib_mkl.h"
 #endif
