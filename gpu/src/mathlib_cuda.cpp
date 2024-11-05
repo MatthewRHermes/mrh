@@ -20,9 +20,9 @@ void MATHLIB::gemm(const char * transa, const char * transb,
 {
 
 #ifdef _SINGLE_PRECISION
-  cublasSgemm(q, CUBLAS_OP_N, CUBLAS_OP_N, m, n, k, &alpha, a, lda, b, ldb, &beta, c, ldc);
+  cublasSgemm(q, CUBLAS_OP_N, CUBLAS_OP_N, *m, *n, *k, alpha, a, *lda, b, *ldb, beta, c, *ldc);
 #else
-  cublasDgemm(q, CUBLAS_OP_N, CUBLAS_OP_N, m, n, k, &alpha, a, lda, b, ldb, &beta, c, ldc);
+  cublasDgemm(q, CUBLAS_OP_N, CUBLAS_OP_N, *m, *n, *k, alpha, a, *lda, b, *ldb, beta, c, *ldc);
 #endif
   
 }

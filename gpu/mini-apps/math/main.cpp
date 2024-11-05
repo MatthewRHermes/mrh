@@ -292,13 +292,13 @@ int main( int argc, char* argv[] )
   const int lda = _NUM_COLS_A; // lead dimension of second matrix A^T
   const int ldc = _NUM_COLS_B; // lead dimension of result matrix C^T
 
-  cublasDgemm(handle, CUBLAS_OP_N, CUBLAS_OP_N, m, n, k, &alpha, d_b, ldb, d_a, lda, &beta, d_c, ldc);
+  ml->gemm((char *) "N", (char *) "N", &m, &n, &k, &alpha, d_b, &ldb, d_a, &lda, &beta, d_c, &ldc, handle);
   
   pm->dev_barrier();
   
   double t0 = MPI_Wtime();
   for(int i=0; i<_NUM_ITERATIONS_CPU; ++i)
-    cublasDgemm(handle, CUBLAS_OP_N, CUBLAS_OP_N, m, n, k, &alpha, d_b, ldb, d_a, lda, &beta, d_c, ldc);
+    ml->gemm((char *) "N", (char *) "N", &m, &n, &k, &alpha, d_b, &ldb, d_a, &lda, &beta, d_c, &ldc, handle);
   pm->dev_barrier();
   t = MPI_Wtime() - t0;
 #endif
@@ -319,6 +319,13 @@ int main( int argc, char* argv[] )
   
   // Clean up
 
+#if defined(_USE_GPU)
+#if defined(_GPU_CUDA)
+  cublasDestroy(handle);
+  pm->dev_stream_destroy(stream);
+#endif
+#endif
+  
   delete ml;
   
   pm->dev_free(d_a);
