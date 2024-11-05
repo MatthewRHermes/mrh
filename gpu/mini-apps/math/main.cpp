@@ -300,9 +300,7 @@ int main( int argc, char* argv[] )
   t = MPI_Wtime() - t0;
 #endif
 
-#if defined(_GPU_MKL)
-  void * handle;
-  
+#if defined(_GPU_MKL) 
   const double alpha = 1.0;
   const double beta = 0.0;
   
@@ -314,13 +312,13 @@ int main( int argc, char* argv[] )
   const int lda = _NUM_COLS_A; // lead dimension of second matrix A^T
   const int ldc = _NUM_COLS_B; // lead dimension of result matrix C^T
 
-  ml->gemm((char *) "N", (char *) "N", &m, &n, &k, &alpha, d_b, &ldb, d_a, &lda, &beta, d_c, &ldc, handle);
+  ml->gemm((char *) "N", (char *) "N", &m, &n, &k, &alpha, d_b, &ldb, d_a, &lda, &beta, d_c, &ldc);
   
   pm->dev_barrier();
   
   double t0 = MPI_Wtime();
   for(int i=0; i<_NUM_ITERATIONS_CPU; ++i)
-    ml->gemm((char *) "N", (char *) "N", &m, &n, &k, &alpha, d_b, &ldb, d_a, &lda, &beta, d_c, &ldc, handle);
+    ml->gemm((char *) "N", (char *) "N", &m, &n, &k, &alpha, d_b, &ldb, d_a, &lda, &beta, d_c, &ldc);
   pm->dev_barrier();
   t = MPI_Wtime() - t0;
 #endif

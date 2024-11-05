@@ -79,8 +79,6 @@ namespace PM_NS {
 
     void dev_check_pointer(int, const char *, void *);
 
-    void uuid_print(std::array<unsigned char, 16>);
-
 #if defined(_GPU_SYCL_CUDA)
     void dev_stream_create(cudaStream_t & s);
     void dev_stream_destroy(cudaStream_t & s);
@@ -91,9 +89,13 @@ namespace PM_NS {
     void dev_stream_wait(sycl::queue & q);
 #endif
     
+    void dev_set_queue(int);
     sycl::queue * dev_get_queue();
     
   private:
+    
+    void uuid_print(std::array<unsigned char, 16>);
+    
     std::vector<sycl::queue> my_queues;
     sycl::queue * current_queue;
     int current_queue_id;

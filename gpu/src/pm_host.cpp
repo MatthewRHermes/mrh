@@ -85,4 +85,8 @@ void PM::dev_stream_destroy(void * q) {};
 
 void PM::dev_stream_wait(void * q) {};
 
+void PM::dev_set_queue(int id) {}
+
+void * PM::dev_get_queue() {return nullptr;};
+
 #endif

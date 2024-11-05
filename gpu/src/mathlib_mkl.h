@@ -25,7 +25,7 @@ namespace MATHLIB_NS {
 	      const int * m, const int * n, const int * k,
 	      const double * alpha, const double * a, const int * lda,
 	      const double * b, const int * ldb,
-	      const double * beta, double * c, const int * ldc, void * q);
+	      const double * beta, double * c, const int * ldc);
 
   private:
     class PM_NS::PM * pm_;

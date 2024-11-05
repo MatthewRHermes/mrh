@@ -433,6 +433,20 @@ void PM::dev_stream_wait(sycl::queue & q)
 }
 #endif
 
+void PM::dev_set_queue(int id)
+{
+#ifdef _DEBUG_PM
+  printf("Inside PM::dev_set_queue()\n");
+#endif
+
+  current_queue = &(my_queues[id]);
+  current_queue_id = id;
+
+#ifdef _DEBUG_PM
+  printf(" -- Leaving PM::dev_set_queue()\n");
+#endif
+}
+
 sycl::queue * PM::dev_get_queue()
 {
 #ifdef _DEBUG_PM

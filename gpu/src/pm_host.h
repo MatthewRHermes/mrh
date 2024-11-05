@@ -46,8 +46,16 @@ namespace PM_NS {
     void dev_stream_destroy(void *);
     void dev_stream_wait(void *);
 
-  private: 
+    void dev_set_queue(int);
+    void * dev_get_queue();
+    
+  private:
+    
     void uuid_print(size_t);
+
+    std::vector<void *> my_queues;
+    void * current_queue;
+    int current_queue_id;
   };
 
 }

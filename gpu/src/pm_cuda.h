@@ -78,8 +78,16 @@ namespace PM_NS {
     void dev_stream_destroy(cudaStream_t & s);
     void dev_stream_wait(cudaStream_t & s);
 
-  private: 
+    void PM::dev_set_queue(int id);
+    cudaStream_t * PM::dev_get_queue() {};
+    
+  private:
+    
     void uuid_print(cudaUUID_t);
+
+    std::vector<cudaStream_t> my_queues;
+    cudaStream_t * current_queue;
+    int current_queue_id;
   };
 
 }
