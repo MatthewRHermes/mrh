@@ -52,19 +52,23 @@ int PM::dev_get_device() {return 0;}
 
 void * PM::dev_malloc(size_t N) {return malloc(N);}
 
-void * PM::dev_malloc_async(size_t N, size_t) {return dev_malloc(N);}
+void * PM::dev_malloc_async(size_t N, void * q) {return dev_malloc(N);}
 
 void * PM::dev_malloc_host(size_t N) {return malloc(N);}
 
 void PM::dev_free(void * ptr) {free(ptr);}
 
-void PM::dev_free_async(void * ptr, size_t) {dev_free(ptr);}
+void PM::dev_free_async(void * ptr, void * q) {dev_free(ptr);}
 
 void PM::dev_free_host(void * ptr) {free(ptr);}
 
 void PM::dev_push(void * d_ptr, void * h_ptr, size_t N) {memcpy(d_ptr, h_ptr, N);}
 
+int PM::dev_push_async(void * d_ptr, void * h_ptr, size_t N, void * q) {dev_push(d_ptr, h_ptr, N); return 0;}
+
 void PM::dev_pull(void * d_ptr, void * h_ptr, size_t N) {memcpy(h_ptr, d_ptr, N);}
+
+void PM::dev_pull_async(void * d_ptr, void * h_ptr, size_t N, void * q) {dev_pull(h_ptr, d_ptr, N);}
 
 void PM::dev_copy(void * dest, void * src, size_t N) {memcpy(dest, src, N);}
 
@@ -72,5 +76,13 @@ void PM::dev_check_pointer(int rnk, const char * name, void * ptr)
 {
   if(ptr != nullptr) printf("(%i) ptr %s is hostPointer\n",rnk,name);
 }
+
+void PM::dev_barrier() {};
+
+void PM::dev_stream_create(void * q) {};
+
+void PM::dev_stream_destroy(void * q) {};
+
+void PM::dev_stream_wait(void * q) {};
 
 #endif

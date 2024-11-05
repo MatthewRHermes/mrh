@@ -24,19 +24,30 @@ namespace PM_NS {
     int dev_get_device();
 
     void* dev_malloc(size_t);
-    void* dev_malloc_async(size_t, size_t);
+    void* dev_malloc_async(size_t, void *);
     void* dev_malloc_host(size_t);
 
     void dev_free(void*);
-    void dev_free_async(void*, size_t);
+    void dev_free_async(void*, void *);
     void dev_free_host(void*);
 
     void dev_push(void*, void*, size_t);
     void dev_pull(void*, void*, size_t);
     void dev_copy(void*, void*, size_t);
 
+    void dev_barrier();
+
+    int dev_push_async(void *, void *, size_t, void *);
+    void dev_pull_async(void *, void *, size_t, void *);
+			
     void dev_check_pointer(int, const char *, void *);
 
+    void dev_stream_create(void *);
+    void dev_stream_destroy(void *);
+    void dev_stream_wait(void *);
+
+  private: 
+    void uuid_print(size_t);
   };
 
 }
