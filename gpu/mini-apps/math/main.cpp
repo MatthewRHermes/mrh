@@ -141,8 +141,6 @@ int main( int argc, char* argv[] )
   // ----------------------------------------------------------------
 
   class PM * pm = new PM();
-
-  init_pm(pm);
   
   int num_devices = pm->dev_num_devices();
 
