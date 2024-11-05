@@ -78,6 +78,7 @@ namespace PM_NS {
     void dev_stream_destroy(cudaStream_t & s);
     void dev_stream_wait(cudaStream_t & s);
 
+  private: 
     void uuid_print(cudaUUID_t);
   };
 
