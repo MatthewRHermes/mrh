@@ -1,4 +1,4 @@
-#if defined(_GPU_CUDA) || defined(_GPU_SYCL_CUDA)
+#if defined(_GPU_CUBLAS)
 
 #include "mathlib.h"
 

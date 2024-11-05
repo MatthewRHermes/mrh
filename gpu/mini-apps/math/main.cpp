@@ -22,12 +22,6 @@
 #define _NUM_ITERATIONS_CPU 10
 #define _NUM_ITERATIONS_GPU 1000
 
-#ifdef _SINGLE_PRECISION
-  typedef float real_t;
-#else
-  typedef double real_t;
-#endif
-
 using namespace PM_NS;
 using namespace MATHLIB_NS;
 
@@ -240,7 +234,6 @@ int main( int argc, char* argv[] )
   pm->dev_push(d_b, b, _NUM_ROWS_B * _NUM_COLS_B * sizeof(real_t));
 
 #if defined(_USE_CPU)
-  
   {
     void * handle;
     
@@ -269,7 +262,7 @@ int main( int argc, char* argv[] )
 
 #if defined(_USE_GPU)
 
-#if defined(_GPU_CUDA)
+#if defined(_GPU_CUBLAS)
 
   cudaStream_t stream;
 
@@ -320,7 +313,7 @@ int main( int argc, char* argv[] )
   // Clean up
 
 #if defined(_USE_GPU)
-#if defined(_GPU_CUDA)
+#if defined(_GPU_CUBLAS)
   cublasDestroy(handle);
   pm->dev_stream_destroy(stream);
 #endif

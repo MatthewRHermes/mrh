@@ -1,7 +1,7 @@
-#if defined(_GPU_CUDA) || defined(_GPU_SYCL_CUDA)
+#if defined(_GPU_CUBLAS)
 
-#ifndef MATHLIB_CUDA_H
-#define MATHLIB_CUDA_H
+#ifndef MATHLIB_CUBLAS_H
+#define MATHLIB_CUBLAS_H
 
 #include <cuda_runtime_api.h>
 #include "cublas_v2.h"
