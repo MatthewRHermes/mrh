@@ -23,17 +23,17 @@ void MATHLIB::gemm(const char * transa, const char * transb,
 
   using oneapi::mkl::transpose;
   
-  transpose transA = (transa == "N") ? transpose::nontrans : transpose::trans;
-  transpose transB = (transb == "N") ? transpose::nontrans : transpose::trans;
+  transpose transA = (strcmp(transa, "N") == 0) ? transpose::nontrans : transpose::trans;
+  transpose transB = (strcmp(transb, "N") == 0) ? transpose::nontrans : transpose::trans;
     
 #if defined(_GPU_SYCL_CUDA)
   using oneapi::mkl::blas::column_major::gemm;
   
-  gemm(*q, transa, transb, *m, *n, *k, *alpha, a, *lda, b, *ldb, *beta, c, *ldc);
+  gemm(*q, transA, transB, *m, *n, *k, *alpha, a, *lda, b, *ldb, *beta, c, *ldc);
 #else
   using oneapi::mkl::blas::gemm;
   
-  gemm(*q, transa, transb, *m, *n, *k, *alpha, a, *lda, b, *ldb, *beta, c, *ldc);
+  gemm(*q, transA, transB, *m, *n, *k, *alpha, a, *lda, b, *ldb, *beta, c, *ldc);
 #endif
   
 }
