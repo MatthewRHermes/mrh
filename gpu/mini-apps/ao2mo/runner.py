@@ -8,9 +8,10 @@ from geometry_generator import generator
 from pyscf import gto, scf, tools, mcscf, lib
 from mrh.my_pyscf.mcscf.lasscf_async import LASSCF
 from pyscf.mcscf import avas	
+import time
 if gpu_run:gpu = libgpu.libgpu_init()
 lib.logger.TIMER_LEVEL=lib.logger.INFO
-nfrags=2;basis='sto3g';
+nfrags=10;basis='631g';
 if N:
     atom='''Li 0.0 0.0 0.0;
     Li 0.0 0.0 1.0'''
@@ -56,7 +57,6 @@ def init_eri_gpu_v0 (mo, casscf, with_df):
     if gpu: 
         libgpu.libgpu_pull_jk_ao2mo (gpu, j_pc, k_cp, nmo, ncore)
     k_pc = k_cp.T.copy()
-    print("finishing v0")
     return fxpp,bufpa,j_pc, k_pc
      
 def init_eri_gpu_v1 (mo, casscf, with_df):
@@ -75,8 +75,6 @@ def init_eri_gpu_v1 (mo, casscf, with_df):
     k_pc = numpy.zeros((nmo,ncore))
     k_cp = numpy.zeros((ncore,nmo))
 
-    print(naoaux*nmo*nmo)
-    print(naoaux*nmo*ncas)
     if gpu:
         arg = numpy.array([-1, -1, -1, -1], dtype=numpy.int32)
         libgpu.libgpu_get_dfobj_status(gpu, id(with_df), arg)
@@ -100,19 +98,21 @@ def init_eri_gpu_v1 (mo, casscf, with_df):
         libgpu.libgpu_df_ao2mo_pass1_v2(gpu,blksize,nmo,nao,ncore,ncas,naux,eri1,count,id(with_df)) # includes pulling fxpp and bufpa
         #libgpu.libgpu_df_ao2mo_pass1_v2(gpu,blksize,nmo,nao,ncore,ncas,naux,eri1,count,id(with_df)) # includes pulling fxpp and bufpa
     libgpu.libgpu_pull_jk_ao2mo (gpu, j_pc, k_cp, nmo, ncore)
-    print(naoaux*nmo*nmo)
-    print(naoaux*nmo*ncas)
     libgpu.libgpu_pull_ints_ao2mo(gpu, fxpp, bufpa, blksize, naoaux, nmo, ncas)
     k_pc = k_cp.T.copy()
-    print("finishing v1")
     return fxpp,bufpa, j_pc, k_pc
- 
-fxpp, bufpa, j_pc, k_pc = init_eri_gpu_v0 (mf.mo_coeff, mc, with_df)
-fxpp2, bufpa2, j_pc2, k_pc2 = init_eri_gpu_v1 (mf.mo_coeff, mc, with_df)
-print("fxpp check", numpy.allclose(fxpp,fxpp2))
-print(numpy.max(fxpp-fxpp2))
+
+t0=time.time()
+for _ in range(10): fxpp, bufpa, j_pc, k_pc = init_eri_gpu_v0 (mf.mo_coeff, mc, with_df)
+t1=time.time()
+for _ in range(10): fxpp2, bufpa2, j_pc2, k_pc2 = init_eri_gpu_v1 (mf.mo_coeff, mc, with_df)
+t2=time.time()
+print("v1", t1-t0)
+print("v2", t2-t1)
+#print("fxpp check", numpy.allclose(fxpp,fxpp2))
+#print(numpy.max(fxpp-fxpp2))
 #print(fxpp-fxpp2)
 #print(fxpp2)
-print("bufpa check", numpy.allclose(bufpa, bufpa2))
-print("j_pc check", numpy.allclose(j_pc, j_pc2))
-print("k_pc check", numpy.allclose(k_pc, k_pc2))
+#print("bufpa check", numpy.allclose(bufpa, bufpa2))
+#print("j_pc check", numpy.allclose(j_pc, j_pc2))
+#print("k_pc check", numpy.allclose(k_pc, k_pc2))

@@ -4,7 +4,7 @@
 
 #include "device.h"
 
-#define _NUM_SIMPLE_TIMER 8
+#define _NUM_SIMPLE_TIMER 11
 
 #define _DEBUG_OPENMP
 
@@ -172,19 +172,21 @@ Device::~Device()
   printf("\nLIBGPU :: SIMPLE_TIMER :: orbital_response\n");
   printf("LIBGPU :: SIMPLE_TIMER :: i= %i  name= orbital_response() time= %f s\n",4,t_array[4]);
 
-  printf("\nLIBGPU :: SIMPLE_TIMER :: df_ao2mo_pass1_fdrv\n");
-  printf("LIBGPU :: SIMPLE_TIMER :: i= %i  name= df_ao2mo_pass1_fdrv() time= %f s\n",5,t_array[5]);
   
   printf("\nLIBGPU :: SIMPLE_TIMER :: _update_h2eff\n");
-  printf("LIBGPU :: SIMPLE_TIMER :: i= %i  name= update_h2eff_sub() time= %f s\n",6,t_array[6]);
+  printf("LIBGPU :: SIMPLE_TIMER :: i= %i  name= update_h2eff_sub() time= %f s\n",5,t_array[5]);
 
   printf("\nLIBGPU :: SIMPLE_TIMER :: _h2eff_df \n");
-  printf("LIBGPU :: SIMPLE_TIMER :: i= %i  name= h2eff_df() time= %f s\n",7,t_array[7]);
+  printf("LIBGPU :: SIMPLE_TIMER :: i= %i  name= h2eff_df() time= %f s\n",6,t_array[6]);
  
   printf("\nLIBGPU :: SIMPLE_TIMER :: transfer_mo_coeff \n");
-  printf("LIBGPU :: SIMPLE_TIMER :: i= %i  name= transfer_mo_coeff() time= %f s\n",8,t_array[8]);
-  printf("LIBGPU :: SIMPLE_TIMER :: total= %f s\n",total);
+  printf("LIBGPU :: SIMPLE_TIMER :: i= %i  name= transfer_mo_coeff() time= %f s\n",7,t_array[7]);
   
+  printf("\nLIBGPU :: SIMPLE_TIMER :: df_ao2mo_pass1\n");
+  printf("LIBGPU :: SIMPLE_TIMER :: i= %i  name= init_ints_and_jkpc() time= %f s\n",8,t_array[8]);
+  printf("LIBGPU :: SIMPLE_TIMER :: i= %i  name= compute_ints_and_jkpc() time= %f s\n",9,t_array[9]);
+  printf("LIBGPU :: SIMPLE_TIMER :: i= %i  name= pull_ints_and_jkpc() time= %f s\n",10,t_array[10]);
+  printf("LIBGPU :: SIMPLE_TIMER :: total= %f s\n",total);
   free(t_array);
 #endif
 

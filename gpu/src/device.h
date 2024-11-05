@@ -80,15 +80,7 @@ public :
 
   void init_ints_ao2mo (int, int, int);
 
-  void df_ao2mo_pass1_fdrv (int, int, int, int,
-			    py::array_t<double>, py::array_t<double>,
-			    py::array_t<double>,
-			    int, size_t);
-  
-  void df_ao2mo_pass1 (int, int, int, int, int,
-			    py::array_t<double>, py::array_t<double>,py::array_t<double>,
-			    int, size_t);
-
+ 
   void df_ao2mo_pass1_v2 (int, int, int, int, int, int,
 			    py::array_t<double>,
 			    int, size_t);
