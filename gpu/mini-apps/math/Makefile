@@ -50,8 +50,9 @@ install: $(EXE)
 	cp $(EXE) $(INSTALL)
 #	cp $(MOD) $(FOBJ) $(INSTALL)/include
 
-pm:
+update:
 	cp ../../src/pm*.cpp ./
+	cp ../../src/mathlib*.cpp ./
 
 ####################################################################
 
@@ -78,6 +79,7 @@ realclean:
 	rm -rf $(EXE).dSYM
 	rm -f *.optrpt
 	rm -f pm*.cpp
+	rm -f mathlib*.cpp
 
 #
 # -- Simple dependencies

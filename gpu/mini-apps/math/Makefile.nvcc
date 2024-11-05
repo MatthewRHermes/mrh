@@ -28,7 +28,7 @@ CUDA_CXXFLAGS += -I$(BASE_LIBGPU)
 $(info ARCH is [${ARCH}])
 
 # -- subset of src files with cuda kernels
-CUDA_SRC = pm_cuda.cpp offload.cpp
+CUDA_SRC = pm_cuda.cpp
 CUDA_OBJ = $(CUDA_SRC:.cpp=.o)
 
 CSRC = $(filter-out $(CUDA_SRC), $(wildcard *.cpp))
@@ -38,9 +38,6 @@ COBJ = $(CSRC:.cpp=.o)
 FSRC = $(wildcard *.F)
 MOD = $(FSRC:.F=.mod)
 FOBJ = $(FSRC:.F=.o)
-
-# -- only copy source files; headers referenced with compiler flag
-$(shell cp ../../src/pm*.cpp ./)
 
 #
 # -- target : 	Dependencies
@@ -52,6 +49,10 @@ $(EXE): $(COBJ) $(CUDA_OBJ) $(FOBJ) $(MOD)
 install: $(EXE)
 	 cp $(EXE) $(INSTALL)
 #	 cp $(MOD) $(FOBJ) $(INSTALL)/include
+
+update:
+	cp ../../src/pm*.cpp ./
+	cp ../../src/mathlib*.cpp ./
 
 ####################################################################
 
@@ -80,7 +81,8 @@ realclean:
 	rm -f $(INSTALL)/$(EXE)
 	rm -rf $(EXE).dSYM
 	rm -f *.optrpt
-	rm -f pm*.h pm*.cpp
+	rm -f pm*.cpp
+	rm -f mathlib*.cpp
 
 #
 # -- Simple dependencies

@@ -8,6 +8,7 @@
 #include <omp.h>
 
 #include "pm.h"
+#include "mathlib.h"
 
 #define _NUM_BATCHES 100
 
@@ -28,8 +29,7 @@
 #endif
 
 using namespace PM_NS;
-
-extern void init_pm(class PM *);
+using namespace MATHLIB_NS;
 
 // A is (m, k) matrix
 // B is (k, n) matrix
@@ -49,13 +49,6 @@ extern "C" {
 	      const double * b, const int * ldb, const double * beta, double * c,
 	      const int * ldc);
 }
-
-// extern void transpose(real_t *, real_t *, const int, const int);
-// extern void copy_naive_gpu(real_t *, real_t *, const int, const int);
-// extern void transpose_naive_gpu(real_t *, real_t *, const int, const int);
-// extern void transpose_gpu_v1(real_t *, real_t *, const int, const int);
-// extern void transpose_gpu_v2(real_t *, real_t *, const int, const int);
-// extern void transpose_gpu_v3(real_t *, real_t *, const int, const int);
 
 // ----------------------------------------------------------------
 
@@ -141,6 +134,8 @@ int main( int argc, char* argv[] )
   // ----------------------------------------------------------------
 
   class PM * pm = new PM();
+
+  class MATHLIB * ml = new MATHLIB();
   
   int num_devices = pm->dev_num_devices();
 
@@ -243,8 +238,12 @@ int main( int argc, char* argv[] )
 
   pm->dev_push(d_a, a, _NUM_ROWS_A * _NUM_COLS_A * sizeof(real_t));
   pm->dev_push(d_b, b, _NUM_ROWS_B * _NUM_COLS_B * sizeof(real_t));
+
+#if defined(_USE_CPU)
   
   {
+    void * handle;
+    
     const double alpha = 1.0;
     const double beta = 0.0;
 
@@ -256,26 +255,56 @@ int main( int argc, char* argv[] )
     const int lda = _NUM_COLS_A; // lead dimension of second matrix A^T
     const int ldc = _NUM_COLS_B; // lead dimension of result matrix C^T
 
-#ifdef _SINGLE_PRECISION
-    sgemm_((char *) "N", (char *) "N", &m, &n, &k, &alpha, d_b, &ldb, d_a, &lda, &beta, d_c, &ldc);
-#else
-    dgemm_((char *) "N", (char *) "N", &m, &n, &k, &alpha, d_b, &ldb, d_a, &lda, &beta, d_c, &ldc);
-#endif
+    ml->gemm((char *) "N", (char *) "N", &m, &n, &k, &alpha, d_b, &ldb, d_a, &lda, &beta, d_c, &ldc, handle);
 
     pm->dev_barrier();
     
     double t0 = MPI_Wtime();
-    for(int i=0; i<_NUM_ITERATIONS_CPU; ++i) {
-#ifdef _SINGLE_PRECISION
-      sgemm_((char *) "N", (char *) "N", &m, &n, &k, &alpha, d_b, &ldb, d_a, &lda, &beta, d_c, &ldc);
-#else	
-      dgemm_((char *) "N", (char *) "N", &m, &n, &k, &alpha, d_b, &ldb, d_a, &lda, &beta, d_c, &ldc);
-#endif
-    }
+    for(int i=0; i<_NUM_ITERATIONS_CPU; ++i)
+      ml->gemm((char *) "N", (char *) "N", &m, &n, &k, &alpha, d_b, &ldb, d_a, &lda, &beta, d_c, &ldc, handle);
     pm->dev_barrier();
     t = MPI_Wtime() - t0;
   }
+#endif
 
+#if defined(_USE_GPU)
+
+#if defined(_GPU_CUDA)
+
+  cudaStream_t stream;
+
+  pm->dev_stream_create(stream);
+  
+  cublasHandle_t handle;
+  
+  cublasCreate(&handle);
+  
+  cublasSetStream(handle, stream);
+
+  const double alpha = 1.0;
+  const double beta = 0.0;
+  
+  const int m = _NUM_COLS_B;  // # rows of first matrix B^T
+  const int n = _NUM_ROWS_A;  // # cols of second matrix A^T
+  const int k = _NUM_ROWS_B;  // # cols of first matrix B^T
+  
+  const int ldb = _NUM_COLS_B; // lead dimension of first matrix B^T
+  const int lda = _NUM_COLS_A; // lead dimension of second matrix A^T
+  const int ldc = _NUM_COLS_B; // lead dimension of result matrix C^T
+
+  cublasDgemm(handle, CUBLAS_OP_N, CUBLAS_OP_N, m, n, k, &alpha, d_b, ldb, d_a, lda, &beta, d_c, ldc);
+  
+  pm->dev_barrier();
+  
+  double t0 = MPI_Wtime();
+  for(int i=0; i<_NUM_ITERATIONS_CPU; ++i)
+    cublasDgemm(handle, CUBLAS_OP_N, CUBLAS_OP_N, m, n, k, &alpha, d_b, ldb, d_a, lda, &beta, d_c, ldc);
+  pm->dev_barrier();
+  t = MPI_Wtime() - t0;
+#endif
+
+#endif
+  
   pm->dev_pull(d_c, c, _NUM_ROWS_A * _NUM_COLS_B * sizeof(real_t));
   
   print_summary(t, _NUM_ROWS_A, _NUM_COLS_A, _NUM_COLS_B, _NUM_ITERATIONS_CPU, "LAPACK gemm");
@@ -290,6 +319,8 @@ int main( int argc, char* argv[] )
   
   // Clean up
 
+  delete ml;
+  
   pm->dev_free(d_a);
   pm->dev_free(d_b);
   pm->dev_free(d_c);
