@@ -14,7 +14,7 @@ AR = ar rcs
 CPP=cpp -P -traditional
 INSTALL=../
 
-ARCH ?= polaris
+ARCH ?= polaris-cpu-gnu
 include arch/$(ARCH)
 
 # couple more flags to build shared library (allows arch files to be used for general app building)

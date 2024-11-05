@@ -16,7 +16,7 @@ AR = ar rcs
 CPP=cpp -P -traditional
 INSTALL=../
 
-ARCH ?= polaris
+ARCH ?= polaris-cpu-gnu
 include $(BASE_LIBGPU)/arch/$(ARCH)
 
 CXXFLAGS += -I$(BASE_LIBGPU)
