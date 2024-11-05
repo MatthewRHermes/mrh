@@ -129,7 +129,7 @@ int main( int argc, char* argv[] )
 
   class PM * pm = new PM();
 
-  class MATHLIB * ml = new MATHLIB();
+  class MATHLIB * ml = new MATHLIB(pm);
   
   int num_devices = pm->dev_num_devices();
 
@@ -220,6 +220,10 @@ int main( int argc, char* argv[] )
   
   //  print_matrix(c, _NUM_ROWS_A, _NUM_COLS_B, "Output c");
 
+  // overwrite c for next time
+
+  for(int i=0; i<_NUM_ROWS_A*_NUM_COLS_B; ++i) c[i] = -1.0;
+  
   // ----------------------------------------------------------------
   // Optimized math library: Matrix Multiply
   // ----------------------------------------------------------------
@@ -232,7 +236,7 @@ int main( int argc, char* argv[] )
 
   pm->dev_push(d_a, a, _NUM_ROWS_A * _NUM_COLS_A * sizeof(real_t));
   pm->dev_push(d_b, b, _NUM_ROWS_B * _NUM_COLS_B * sizeof(real_t));
-
+  
 #if defined(_USE_CPU)
   {
     void * handle;
@@ -296,13 +300,38 @@ int main( int argc, char* argv[] )
   t = MPI_Wtime() - t0;
 #endif
 
+#if defined(_GPU_MKL)
+  void * handle;
+  
+  const double alpha = 1.0;
+  const double beta = 0.0;
+  
+  const int m = _NUM_COLS_B;  // # rows of first matrix B^T
+  const int n = _NUM_ROWS_A;  // # cols of second matrix A^T
+  const int k = _NUM_ROWS_B;  // # cols of first matrix B^T
+  
+  const int ldb = _NUM_COLS_B; // lead dimension of first matrix B^T
+  const int lda = _NUM_COLS_A; // lead dimension of second matrix A^T
+  const int ldc = _NUM_COLS_B; // lead dimension of result matrix C^T
+
+  ml->gemm((char *) "N", (char *) "N", &m, &n, &k, &alpha, d_b, &ldb, d_a, &lda, &beta, d_c, &ldc, handle);
+  
+  pm->dev_barrier();
+  
+  double t0 = MPI_Wtime();
+  for(int i=0; i<_NUM_ITERATIONS_CPU; ++i)
+    ml->gemm((char *) "N", (char *) "N", &m, &n, &k, &alpha, d_b, &ldb, d_a, &lda, &beta, d_c, &ldc, handle);
+  pm->dev_barrier();
+  t = MPI_Wtime() - t0;
+#endif
+  
 #endif
   
   pm->dev_pull(d_c, c, _NUM_ROWS_A * _NUM_COLS_B * sizeof(real_t));
   
-  print_summary(t, _NUM_ROWS_A, _NUM_COLS_A, _NUM_COLS_B, _NUM_ITERATIONS_CPU, "LAPACK gemm");
+  print_summary(t, _NUM_ROWS_A, _NUM_COLS_A, _NUM_COLS_B, _NUM_ITERATIONS_CPU, "GPU gemm");
 
-  check_result(r, c, _NUM_ROWS_A*_NUM_COLS_B, "lapack_dgemm_cpu");
+  check_result(r, c, _NUM_ROWS_A*_NUM_COLS_B, "gemm_gpu");
 
   //  print_matrix(r, _NUM_ROWS_A, _NUM_COLS_B, "Reference r");
   
