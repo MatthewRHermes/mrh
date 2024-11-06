@@ -334,10 +334,32 @@ void PM::dev_barrier()
 #endif
 }
 
-void PM::dev_stream_create(cudaStream_t & s)
+int PM::dev_stream_create()
 {
 #ifdef _DEBUG_PM
   printf("Inside PM::dev_stream_create()\n");
+#endif
+
+  cudaStream_t s;
+
+  cudaStreamCreate(&s);
+  
+  my_queues.push_back(s);
+
+  int id = my_queues.size() - 1;
+  
+  _CUDA_CHECK_ERRORS();
+  
+#ifdef _DEBUG_PM
+  printf(" -- Leaving PM::dev_stream_create()\n");
+#endif
+  return id;
+}
+
+void PM::dev_stream_create(cudaStream_t & s)
+{
+#ifdef _DEBUG_PM
+  printf("Inside PM::dev_stream_create(s)\n");
 #endif
   
   cudaStreamCreate(&s);
@@ -350,10 +372,28 @@ void PM::dev_stream_create(cudaStream_t & s)
 #endif
 }
 
-void PM::dev_stream_destroy(cudaStream_t & s)
+void PM::dev_stream_destroy()
 {
 #ifdef _DEBUG_PM
   printf("Inside PM::dev_stream_destroy()\n");
+#endif
+
+  int id = current_queue_id;
+  
+  cudaStreamDestroy(my_queues[id]);
+  _CUDA_CHECK_ERRORS();
+
+  my_queues[id] = NULL;
+  
+#ifdef _DEBUG_PM
+  printf(" -- Leaving PM::dev_stream_destroy()\n");
+#endif
+}
+
+void PM::dev_stream_destroy(cudaStream_t & s)
+{
+#ifdef _DEBUG_PM
+  printf("Inside PM::dev_stream_destroy(s)\n");
 #endif
   
   cudaStreamDestroy(s);

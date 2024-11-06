@@ -79,7 +79,11 @@ void PM::dev_check_pointer(int rnk, const char * name, void * ptr)
 
 void PM::dev_barrier() {};
 
+int PM::dev_stream_create() {return 0;};
+
 void PM::dev_stream_create(void * q) {};
+
+void PM::dev_stream_destroy() {};
 
 void PM::dev_stream_destroy(void * q) {};
 

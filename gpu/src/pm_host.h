@@ -4,6 +4,7 @@
 #define PM_HOST_H
 
 #include <iostream>
+#include <vector>
 
 namespace PM_NS {
 
@@ -42,7 +43,9 @@ namespace PM_NS {
 			
     void dev_check_pointer(int, const char *, void *);
 
+    int dev_stream_create();
     void dev_stream_create(void *);
+    void dev_stream_destroy();
     void dev_stream_destroy(void *);
     void dev_stream_wait(void *);
 

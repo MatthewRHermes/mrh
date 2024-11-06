@@ -21,6 +21,10 @@ namespace MATHLIB_NS {
     MATHLIB(class PM_NS::PM * pm);
     ~MATHLIB() {};
 
+    int create_handle() {return 0;};
+    void set_handle(int) {};
+    void destroy_handle() {};
+
     void gemm(const char * transa, const char * transb,
 	      const int * m, const int * n, const int * k,
 	      const double * alpha, const double * a, const int * lda,

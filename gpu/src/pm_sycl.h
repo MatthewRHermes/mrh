@@ -80,7 +80,9 @@ namespace PM_NS {
     void dev_check_pointer(int, const char *, void *);
 
 #if defined(_GPU_SYCL_CUDA)
+    int dev_stream_create();
     void dev_stream_create(cudaStream_t & s);
+    void dev_stream_destroy();
     void dev_stream_destroy(cudaStream_t & s);
     void dev_stream_wait(cudaStream_t & s);
 #else

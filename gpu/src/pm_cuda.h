@@ -9,6 +9,7 @@
 #include "nvToolsExt.h"
 
 #include <iostream>
+#include <vector>
 
 namespace PM_NS {
   
@@ -74,12 +75,14 @@ namespace PM_NS {
 
     void dev_check_pointer(int, const char *, void *);
 
+    int dev_stream_create();
     void dev_stream_create(cudaStream_t & s);
+    void dev_stream_destroy();
     void dev_stream_destroy(cudaStream_t & s);
     void dev_stream_wait(cudaStream_t & s);
 
-    void PM::dev_set_queue(int id);
-    cudaStream_t * PM::dev_get_queue() {};
+    void dev_set_queue(int id);
+    cudaStream_t * dev_get_queue();
     
   private:
     
