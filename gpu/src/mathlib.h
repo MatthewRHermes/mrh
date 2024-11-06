@@ -15,9 +15,9 @@
 #if !defined(_GPU_CUBLAS) && !defined(_GPU_MKL)
 
 #if defined(_GPU_CUDA) || defined(_GPU_SYCL_CUDA)
-#define _GPU_CUBLAS
+#error "Did you forget to set -D_GPU_CUBLAS?"
 #elif defined(_GPU_SYCL)
-#define _GPU_MKL
+#error "Did you forget to set -D_GPU_MKL?"
 #endif
 
 #endif
