@@ -626,7 +626,7 @@ class VRVDressedFCISolver (object):
             e, ci1 = self.undressed_kernel (
                 h1e, h2e, norb, nelec, ecore=ecore, ci0=ci1, orbsym=orbsym, **kwargs
             )
-            self.e0_prime = np.atleast_1d (e[0])
+            self.e0_prime = np.atleast_1d (e)[0]
             # Subtract the vrv energy so that agreement between different fragments can
             # be checked in the impure-state case
             if isinstance (e, (list,tuple,np.ndarray)):
