@@ -622,7 +622,7 @@ class VRVDressedFCISolver (object):
             e, ci1 = self.undressed_kernel (
                 h1e, h2e, norb, nelec, ecore=ecore, ci0=ci1, orbsym=orbsym, **kwargs
             )
-            e0_prime = e[0]
+            e0_prime = np.atleast_1d (e[0])
             # Subtract the vrv energy so that agreement between different fragments can
             # be checked in the impure-state case
             if isinstance (e, (list,tuple,np.ndarray)):
@@ -639,10 +639,11 @@ class VRVDressedFCISolver (object):
             log.debug ("Denominators in VRVSolver: {}".format (self.denom_q))
             if abs(e0-e0_last)<conv_tol_e0:
                 converged = True
-                assert (abs(e0-e0_prime)<conv_tol_e0), '{}-{}={} vs {}-{}={}'.format (e0,e0_prime,e0-e0_prime,e0,e0_last,e0-e0_last)
                 break
         self.test_locmin (e0, ci1, norb, nelec, ecore, h1e, h2e)
         self.converged = (converged and np.all (self.converged))
+        if self.converged:
+            assert (abs(e0-e0_prime)<conv_tol_e0), '{}-{}={} vs {}-{}={}'.format (e0,e0_prime,e0-e0_prime,e0,e0_last,e0-e0_last)
         return e, ci1
     def undressed_kernel (self, *args, **kwargs):
         return self._undressed_class.kernel (self, *args, **kwargs)
