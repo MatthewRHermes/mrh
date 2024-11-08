@@ -251,7 +251,7 @@ class ExcitationPSFCISolver (ProductStateFCISolver):
             self.fcisolvers = [self.fcisolvers[i] for i in idx]
 
     def kernel (self, h1, h2, ecore=0, ci0=None,
-                conv_tol_grad=1e-4, conv_tol_self=1e-6, max_cycle_macro=50,
+                conv_tol_grad=1e-6, conv_tol_self=1e-6, max_cycle_macro=50,
                 serialfrag=False, _add_vrv_energy=False, **kwargs):
         h0, h1, h2 = self.get_excited_h (ecore, h1, h2)
         norb_f = np.asarray ([self.norb_ref[ifrag] for ifrag in self.excited_frags])
@@ -270,9 +270,16 @@ class ExcitationPSFCISolver (ProductStateFCISolver):
             )
             if converged:
                 for ix, solver in enumerate (vrvsolvers):
-                    assert (solver.nroots == solver.transformer.ncsf
-                            or abs (solver.e0 - solver.e0_prime) < solver.conv_tol_e0), '{}-{}={}'.format (
-                                solver.e0, solver.e0_prime, solver.e0-solver.e0_prime)
+                    try:
+                        assert (solver.nroots == solver.transformer.ncsf
+                                or abs (solver.e0 - solver.e0_prime) < solver.conv_tol_e0), '{}-{}={}'.format (
+                                    solver.e0, solver.e0_prime, solver.e0-solver.e0_prime)
+                    except AssertionError as err:
+                        print (ix, norb_f[ix], nelec_f[ix], solver.charge, solver.spin, solver.transformer.ncsf, solver.nroots)
+                        print (solver.e_q)
+                        for jx, s in enumerate (vrvsolvers):
+                            print (jx, s.e0, s.e0_prime, s.e0-s.e0_prime, s.transformer.ncsf, s.nroots)
+                        raise (err)
             if _add_vrv_energy: # for a sanity check in unittests only
                 energy_elec += self._energy_vrv (h1, h2, ci1_active)
         ci1 = [c for c in self.ci_ref]
