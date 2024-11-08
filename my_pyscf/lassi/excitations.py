@@ -269,9 +269,10 @@ class ExcitationPSFCISolver (ProductStateFCISolver):
                 max_cycle_macro=max_cycle_macro, serialfrag=serialfrag, **kwargs
             )
             if converged:
-                for solver in vrvsolvers:
-                    assert (abs (solver.e0 - solver.e0_prime) < solver.conv_tol_e0), '{}-{}={}'.format (
-                            solver.e0, solver.e0_prime, solver.e0-solver.e0_prime)
+                for ix, solver in enumerate (vrvsolvers):
+                    assert (solver.nroots == solver.transformer.ncsf
+                            or abs (solver.e0 - solver.e0_prime) < solver.conv_tol_e0), '{}-{}={}'.format (
+                                solver.e0, solver.e0_prime, solver.e0-solver.e0_prime)
             if _add_vrv_energy: # for a sanity check in unittests only
                 energy_elec += self._energy_vrv (h1, h2, ci1_active)
         ci1 = [c for c in self.ci_ref]
