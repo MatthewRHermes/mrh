@@ -268,6 +268,10 @@ class ExcitationPSFCISolver (ProductStateFCISolver):
                 conv_tol_grad=conv_tol_grad, conv_tol_self=conv_tol_self,
                 max_cycle_macro=max_cycle_macro, serialfrag=serialfrag, **kwargs
             )
+            if converged:
+                for solver in vrvsolvers:
+                    assert (abs (solver.e0 - solver.e0_prime) < solver.conv_tol_e0), '{}-{}={}'.format (
+                            solver.e0, solver.e0_prime, solver.e0-solver.e0_prime)
             if _add_vrv_energy: # for a sanity check in unittests only
                 energy_elec += self._energy_vrv (h1, h2, ci1_active)
         ci1 = [c for c in self.ci_ref]
@@ -622,7 +626,7 @@ class VRVDressedFCISolver (object):
             e, ci1 = self.undressed_kernel (
                 h1e, h2e, norb, nelec, ecore=ecore, ci0=ci1, orbsym=orbsym, **kwargs
             )
-            e0_prime = np.atleast_1d (e[0])
+            self.e0_prime = np.atleast_1d (e[0])
             # Subtract the vrv energy so that agreement between different fragments can
             # be checked in the impure-state case
             if isinstance (e, (list,tuple,np.ndarray)):
@@ -633,7 +637,7 @@ class VRVDressedFCISolver (object):
                 hci = self.undressed_contract_2e (h2eff, ci1, norb, nelec)
                 e = ecore + np.dot (ci1.ravel (), hci.ravel ())
             e0_last = e0
-            e0 = self.solve_e0 (ecore, h1e, h2e, norb, nelec, ket)
+            e0 = self.e0 = self.solve_e0 (ecore, h1e, h2e, norb, nelec, ket)
             self.denom_q = e0 - self.e_q
             log.debug ("e0 = %.8g", e0)
             log.debug ("Denominators in VRVSolver: {}".format (self.denom_q))
@@ -642,8 +646,6 @@ class VRVDressedFCISolver (object):
                 break
         self.test_locmin (e0, ci1, norb, nelec, ecore, h1e, h2e)
         self.converged = (converged and np.all (self.converged))
-        if self.converged:
-            assert (abs(e0-e0_prime)<conv_tol_e0), '{}-{}={} vs {}-{}={}'.format (e0,e0_prime,e0-e0_prime,e0,e0_last,e0-e0_last)
         return e, ci1
     def undressed_kernel (self, *args, **kwargs):
         return self._undressed_class.kernel (self, *args, **kwargs)
