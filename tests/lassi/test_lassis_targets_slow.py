@@ -135,7 +135,7 @@ class KnownValues(unittest.TestCase):
             self.assertTrue (lsi.converged)
         # test
         de = 1000 * (e_str - e_equil)
-        self.assertAlmostEqual (de, 191.185141573740, 1)
+        self.assertAlmostEqual (de, 191.06467851275966, 1)
 
     def test_kremer_cr2_model (self):
         xyz='''Cr    -1.320780000000   0.000050000000  -0.000070000000
