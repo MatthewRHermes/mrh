@@ -320,6 +320,8 @@ void Device::set_update_dfobj_(int _val)
 void Device::disable_eri_cache_()
 {
   use_eri_cache = false;
+  printf("LIBGPU :: Error : Not able to disable eri caching as additional support needs to be added to track eri_extra array.");
+  exit(1);
 }
 
 /* ---------------------------------------------------------------------- */
