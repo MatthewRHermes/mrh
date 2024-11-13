@@ -3,6 +3,7 @@ import numpy as np
 from scipy import linalg
 from pyscf.fci import cistring
 from pyscf.fci.direct_spin1 import _unpack_nelec
+from pyscf.scf.addons import canonical_orth_
 from pyscf.mcscf.addons import StateAverageFCISolver
 from mrh.my_pyscf.mcscf.productstate import ProductStateFCISolver, ImpureProductStateFCISolver, state_average_fcisolver
 from mrh.my_pyscf.fci import csf_solver, CSFFCISolver
@@ -356,19 +357,7 @@ class ExcitationPSFCISolver (ProductStateFCISolver):
         with temporary_env (self, ncas_sub=norb_f, mol=self.fcisolvers[0].mol):
             hci_fr_pabq = h_op (self, h1, h2, ci_fr_ket, nelec_frs_ket, ci_fr_bra, nelec_frs_bra,
                                 soc=0, orbsym=None, wfnsym=None)
-        # weights for p
-        weights = getattr (self.fcisolvers[0], 'weights', np.array ([1.0]))
-        for s in self.fcisolvers[1:]:
-            w = getattr (s, 'weights', np.array ([1.0]))
-            weights = np.multiply.outer (w, weights)
-        hci_f_pabq = []
-        for ifrag, hc in enumerate (hci_fr_pabq):
-            # column-major order
-            w = weights.sum (-ifrag-1).ravel ()
-            assert (np.count_nonzero (w<0)==0)
-            idx = w > 0
-            hc = hc[0][idx] * np.sqrt (w[idx])[:,None,None,None]
-            hci_f_pabq.append (hc)
+        hci_f_pabq = [hc[0] for hc in hci_fr_pabq]
         t1 = self.log.timer ('op_ham_pq_ref', *t0)
         return hci_f_pabq
 
@@ -463,20 +452,19 @@ class ExcitationPSFCISolver (ProductStateFCISolver):
             hci_f_pab.append (hci_pab)
         return hci_f_pab
 
-    def get_hpp_xp (self, h1, h2, ci0, norb_f, nelec_f, ecore=None, **kwargs):
+    def get_hpp_xp (self, h1, h2, ci0, norb_f, nelec_f, ecore=0, **kwargs):
         h0 = ecore
         h1eff, h0eff, ci0 = self.project_hfrag (h1, h2, ci0, norb_f, nelec_f,
                                                 ecore=ecore, **kwargs)
         nj = np.cumsum (norb_f)
         ni = nj - norb_f
-        zipper = [h1eff, ci, norb_f, nelec_f, self.fcisolvers, ni, nj]
+        zipper = [h1eff, ci0, norb_f, nelec_f, self.fcisolvers, ni, nj]
         hci_f_pab = []
         for h1e, c, no, ne, solver, i, j in zip (*zipper):
             nelec = self._get_nelec (solver, ne)
             nroots = solver.nroots
             h2e = h2[i:j,i:j,i:j,i:j]
             h2e = solver.absorb_h1e (h1e, h2e, no, nelec, 0.5)
-            if nroots==1: c=c[None,:] 
             hc = [solver.contract_2e (h2e, col, no, nelec) for col in c]
             c, hc = np.asarray (c), np.asarray (hc) 
             chc = np.dot (np.asarray (c).reshape (nroots,-1).conj (),
@@ -498,9 +486,13 @@ class ExcitationPSFCISolver (ProductStateFCISolver):
     def _1shot (self, h0, h1, h2, ci0, hpq_xq, hpp_xp, nroots=1, ovlp_thresh=1e-3):
         # Diagonalize in an extended basis
         ci1 = []
-        for c0, c1, c2 in zip (ci0, hpq_xq, hpp_xp):
-            x = np.concatenate ([c0,c1,c2])
-            ci1.append (canonical_orth_(x.conj () @ x.T).T @ x)
+        for s, c0, c1, c2 in zip (self.fcisolvers, ci0, hpq_xq, hpp_xp):
+            x = np.concatenate ([c0,c1,c2],axis=0)
+            nx, ndeta, ndetb = x.shape
+            x = x.reshape (nx,ndeta*ndetb)
+            x = canonical_orth_(x.conj () @ x.T).T @ x
+            nx = x.shape[0]
+            ci1.append (x.reshape (nx,ndeta,ndetb))
         e, si_p, si_q, ci1, disc_svals = self._eig (h0, h1, h2, ci1, ovlp_thresh=ovlp_thresh,
                                                     nroots=nroots)
         self.log.info ('Sum of discarded singular values = %e', disc_svals)

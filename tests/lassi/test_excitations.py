@@ -129,30 +129,33 @@ class KnownValues(unittest.TestCase):
             for iroot in range (1, 5): #lsi._las.nroots):
               with self.subTest (opt=opt, rootspace=iroot):
                 for i in range (2):
-                    weights = np.zeros (lroots[i,iroot])
-                    weights[0] = 1
                     psexc.set_excited_fragment_(1+i, (neleca[iroot,i], nelecb[iroot,i]),
-                                                smults[iroot,i], weights=weights)
-                conv, energy_tot, ci1 = psexc.kernel (h1, h2, ecore=h0, _add_vrv_energy=True, davidson_only=True)
+                                                smults[iroot,i])
+                nroots = np.amin (lroots[:,iroot])
+                conv, energy_tot, ci1 = psexc.kernel (h1, h2, ecore=h0, davidson_only=True,
+                                                      nroots=nroots)
+                if (opt==0):
+                    for i in range (2):
+                        c = np.asarray (ci1[i+1]).reshape (nroots,-1)
+                        ovlperr = c.conj () @ c.T - np.eye (nroots)
+                        self.assertLess (np.amax (np.abs (ovlperr)), 1e-8)
                 self.assertTrue (conv)
                 e_roots1, si1 = lassi_ref (ci1, iroot)
-                idx_match = np.argmin (np.abs (e_roots1-energy_tot))
-                self.assertAlmostEqual (energy_tot, e_roots1[idx_match], 6)
+                idx_match = np.argmin (np.abs (e_roots1-energy_tot[0]))
+                self.assertAlmostEqual (energy_tot[0], e_roots1[idx_match], 6)
                 self.assertEqual (idx_match, 0) # local minimum problems
             # In the no-coupling limit, the Excitation solver should give the same result as the normal
             # ImpureProductStateFCISolver
             psexc._deactivate_vrv = True # spoof the no-coupling limit
             for iroot in range (1, lsi._las.nroots):
                 for i in range (2):
-                    weights = np.zeros (lroots[i,iroot])
-                    weights[0] = 1
                     psexc.set_excited_fragment_(1+i, (neleca[iroot,i], nelecb[iroot,i]),
-                                                smults[iroot,i], weights=weights)
-                conv, energy_tot, ci1 = psexc.kernel (h1, h2, ecore=h0, _add_vrv_energy=True)
+                                                smults[iroot,i])
+                conv, energy_tot, ci1 = psexc.kernel (h1, h2, ecore=h0)
                 with self.subTest ('no-coupling limit', opt=opt, rootspace=iroot):
                     self.assertTrue (conv)
                     self.assertAlmostEqual (energy_tot, lsi._las.e_states[iroot], 8)
-                conv, energy_tot, ci1 = psexc.kernel (h1, h2, ecore=h0, _add_vrv_energy=True,
+                conv, energy_tot, ci1 = psexc.kernel (h1, h2, ecore=h0,
                                                       davidson_only=True)
                 with self.subTest ('no-coupling limit; davidson only', opt=opt, rootspace=iroot):
                     self.assertTrue (conv)
@@ -234,14 +237,14 @@ class KnownValues(unittest.TestCase):
                     weights = np.ones (lroots[i,iroot]) / lroots[i,iroot]
                     psexc.set_excited_fragment_(1+i, (neleca[iroot,i], nelecb[iroot,i]),
                                                 smults[iroot,i], weights=weights)
-                conv, energy_tot, ci1 = psexc.kernel (h1, h2, ecore=h0, _add_vrv_energy=True)
+                conv, energy_tot, ci1 = psexc.kernel (h1, h2, ecore=h0)
                 with self.subTest (rootspace=iroot):
                     self.assertTrue (conv)
                     e_roots1, si1 = lassi_ref (ci1, iroot)
                     idx_match = np.argmin (np.abs (e_roots1-energy_tot))
                     self.assertAlmostEqual (energy_tot, e_roots1[idx_match], 6)
                     self.assertEqual (idx_match, 0) # local minimum problems
-                conv, energy_tot, ci1 = psexc.kernel (h1, h2, ecore=h0, _add_vrv_energy=True,
+                conv, energy_tot, ci1 = psexc.kernel (h1, h2, ecore=h0,
                                                       davidson_only=True)
                 with self.subTest ('davidson only', rootspace=iroot):
                     self.assertTrue (conv)
