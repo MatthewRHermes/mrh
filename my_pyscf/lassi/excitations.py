@@ -18,16 +18,26 @@ IMAG_SHIFT = getattr (__config__, 'lassi_excitations_imag_shift', 1e-6)
 MAX_CYCLE_E0 = getattr (__config__, 'lassi_excitations_max_cycle_e0', 1)
 CONV_TOL_E0 = getattr (__config__, 'lassi_excitations_conv_tol_e0', 1e-8)
 
-def lowest_refovlp_eigval (ham_pq, ovlp_thresh=LOWEST_REFOVLP_EIGVAL_THRESH):
-    ''' Return the lowest eigenvalue of the matrix ham_pq, whose corresponding
-    eigenvector has nonzero overlap with the first basis function. '''
+def lowest_refovlp_eigpair (ham_pq, p=1, ovlp_thresh=LOWEST_REFOVLP_EIGVAL_THRESH):
+    ''' Identify the lowest-energy eigenpair for which the eigenvector has nonzero overlap with
+    the first p basis functions. '''
     e_all, u_all = linalg.eigh (ham_pq)
-    w = u_all[0,:].conj () * u_all[0,:]
+    w = (u_all[:p,:].conj () * u_all[:p,:]).sum (0) / p
     idx_valid = w > ovlp_thresh
     e_valid = e_all[idx_valid]
     u_valid = u_all[:,idx_valid]
     idx_choice = np.argmin (e_valid)
-    return e_valid[idx_choice]
+    return e_valid[idx_choice], u_valid[:,idx_choice]
+
+def lowest_refovlp_eigval (ham_pq, p=1, ovlp_thresh=LOWEST_REFOVLP_EIGVAL_THRESH):
+    ''' Return the lowest eigenvalue of the matrix ham_pq, whose corresponding
+    eigenvector has nonzero overlap with the first basis p basis functions. '''
+    return lowest_refovlp_eigpair (ham_pq, p=p, ovlp_thresh=ovlp_thresh)[0]
+
+def lowest_refovlp_eigvec (ham_pq, p=1, ovlp_thresh=LOWEST_REFOVLP_EIGVAL_THRESH):
+    ''' Return the eigenvector corresponding to the lowest eigenvalue of the matrix ham_pq
+    which has nonzero overlap with the first basis p basis functions. '''
+    return lowest_refovlp_eigpair (ham_pq, p=p, ovlp_thresh=ovlp_thresh)[1]
 
 def sort_ci0 (obj, ham_pq, ci0):
     '''Prepare guess CI vectors, guess energy, and Q-space Hamiltonian eigenvalues
@@ -252,7 +262,7 @@ class ExcitationPSFCISolver (ProductStateFCISolver):
 
     def kernel (self, h1, h2, ecore=0, ci0=None,
                 conv_tol_grad=1e-4, conv_tol_self=1e-6, max_cycle_macro=50,
-                serialfrag=False, _add_vrv_energy=False, **kwargs):
+                serialfrag=False, nroots=1, **kwargs):
         h0, h1, h2 = self.get_excited_h (ecore, h1, h2)
         norb_f = np.asarray ([self.norb_ref[ifrag] for ifrag in self.excited_frags])
         nelec_f = np.asarray ([self.nelec_ref[ifrag] for ifrag in self.excited_frags])
@@ -263,74 +273,16 @@ class ExcitationPSFCISolver (ProductStateFCISolver):
         # TODO: point group symmetry; I probably also have to do something to wfnsym
         ci0, vrvsolvers, e_q, si_q = self.prepare_vrvsolvers_(h0, h1, h2, ci0=ci0)
         with _vrvloop_env (self, vrvsolvers, e_q, si_q):
-            converged, energy_elec, ci1_active = ProductStateFCISolver.kernel (
-                self, h1, h2, norb_f, nelec_f, ecore=h0, ci0=ci0, orbsym=orbsym,
+            converged, energy_elec, ci1_active = self.fixedpoint (
+                h1, h2, norb_f, nelec_f, ecore=h0, ci0=ci0, orbsym=orbsym,
                 conv_tol_grad=conv_tol_grad, conv_tol_self=conv_tol_self,
-                max_cycle_macro=max_cycle_macro, serialfrag=serialfrag, **kwargs
+                max_cycle_macro=max_cycle_macro, serialfrag=serialfrag,
+                nroots=nroots, **kwargs
             )
-            if _add_vrv_energy: # for a sanity check in unittests only
-                energy_elec += self._energy_vrv (h1, h2, ci1_active)
         ci1 = [c for c in self.ci_ref]
         for ifrag, c in zip (self.excited_frags, ci1_active):
             ci1[ifrag] = np.asarray (c)
         return converged, energy_elec, ci1
-
-    def project_hfrag (self, h1, h2, ci, norb_f, nelec_f, ecore=0, dm1s=None, dm2=None, **kwargs):
-        h1eff, h0eff, ci = ProductStateFCISolver.project_hfrag (
-            self, h1, h2, ci, norb_f, nelec_f, ecore=ecore, dm1s=dm1s, dm2=dm2, **kwargs
-        )
-        nj = np.cumsum (norb_f)
-        ni = nj - norb_f
-        # Project the part coupling the p and q rootspaces
-        ci1 = [c for c in ci]
-        if len (self._e_q) and not self._deactivate_vrv:
-            ci0 = [np.asarray (c) for c in ci]
-            hci_f_pabq = self.op_ham_pq_ref (h1, h2, ci0)
-            zipper = zip (hci_f_pabq, self.fcisolvers, ci0, norb_f, nelec_f, h1eff, h0eff, ni, nj)
-            for ifrag, (hci_pabq, solver, c, norb, nelec, h1e, h0e, i, j) in enumerate (zipper):
-                h2e = h2[i:j,i:j,i:j,i:j]
-                ne = self._get_nelec (solver, nelec)
-                solver.v_qpab = np.tensordot (self._si_q, hci_pabq, axes=((0),(-1)))
-                e0, ci1[ifrag] = solver.sort_ci (h0e, h1e, h2e, norb, ne, c)
-                solver.denom_q = e0 - solver.e_q
-                # The reason I do the above two lines here and not in the fragment-solver kernel is
-                # that between this function and the start of the fragment-solver kernel, the
-                # wrapper needs to compute the current gradient for the whole system. The fragment
-                # solvers need to already know the correct e0 for that gradient calculation.
-        return h1eff, h0eff, ci1
-
-    def _energy_vrv (self, h1, h2, ci):
-        # The only purpose this serves is for a sanity test in test_excitations.py
-        # It can be reattached to energy_elec if I can figure out how to define a whole-system
-        # energy for this step in LASSIS that makes sense.
-        # If so, I should rewrite it so that it can be called outside of this class's kernel
-        # function
-        if (len (self._e_q) == 0) or self._deactivate_vrv: return 0
-        ci0 = []
-        denom_q = 0
-        for c, solver in zip (ci, self.fcisolvers):
-            t = solver.transformer
-            c = np.asarray (c).reshape (-1, t.ndeta, t.ndetb)
-            ci0.append (c)
-            denom_q += solver.denom_q
-        denom_q /= len (ci)
-        lroots = get_lroots (ci0)
-        p = np.prod (lroots)
-        ham_pq = self.get_ham_pq (0, h1, h2, ci0)
-        h_pp = ham_pq[:p,:p]
-        h_pq = ham_pq[:p,p:]
-        h_qq = ham_pq[p:,p:]
-        h_qq = self._si_q.conj ().T @ h_qq @ self._si_q
-        h_pq = np.dot (h_pq, self._si_q)
-        idx = np.abs (denom_q) > 1e-16
-        e_p = np.diag (np.dot (h_pq[:,idx].conj () / denom_q[None,idx], h_pq[:,idx].T))
-        e_p = e_p.reshape (*lroots[::-1]).T
-        for solver in self.fcisolvers:
-            if hasattr (getattr (solver, 'weights', None), '__len__'):
-                e_p = np.dot (solver.weights, e_p)
-            else:
-                e_p = e_p[0]
-        return e_p
 
     def get_ham_pq (self, h0, h1, h2, ci_p):
         '''Build the model-space Hamiltonian matrix for the current state of the P-space.
@@ -443,6 +395,116 @@ class ExcitationPSFCISolver (ProductStateFCISolver):
     def revert_vrvsolvers_(self):
         self._e_q = []
         self._si_q = []
+
+    def fixedpoint (self, h1, h2, norb_f, nelec_f, ecore=0, ci0=None, orbsym=None,
+                    conv_tol_grad=1e-4, conv_tol_self=1e-10, max_cycle_macro=50,
+                    serialfrag=False, nroots=1, **kwargs):
+        h0 = ecore
+        log = self.log
+        converged = False
+        e = 0
+        ci1 = ci0
+        log.info ('Entering product-state fixed-point CI iteration')
+        ci0 = self.get_init_guess (ci1, norb_f, nelec_f, h1, h2)
+        for it in range (max_cycle_macro):
+            e_last = e
+            e, si_p, si_q, ci0 = self._eig (h0, h1, h2, ci1, nroots=nroots)[:4]
+            hpq_xq = self.get_hpq_xq (h1, h2, ci0, si_q)
+            hpp_xp = self.get_hpp_xp (h1, h2, ci0, norb_f, nelec_f)
+            grad = self._get_grad (si_p, hpq_xq, hpp_xp)
+            grad_max = np.amax (np.abs (grad))
+            log.info ('Cycle %d: max grad = %e ; delta e = %e',
+                      it, grad_max, e - e_last)
+            if ((grad_max < conv_tol_grad) and (abs (e-e_last) < conv_tol_self)):
+                converged = True
+                break
+            ci1 = self._1shot (h0, h1, h2, ci0, hpq_xq, hpp_xp, nroots=nroots)
+        conv_str = ['NOT converged','converged'][int (converged)]
+        log.info (('Product_state fixed-point CI iteration {} after {} '
+                   'cycles').format (conv_str, it))
+        if not converged:
+            ci1 = self.get_init_guess (ci1, norb_f, nelec_f, h1, h2)
+            # Issue #86: see above, same problem
+            self._debug_csfs (log, ci0, ci1, norb_f, nelec_f, grad)
+        energy_elec = self.energy_elec (h1, h2, ci1, norb_f, nelec_f,
+            ecore=ecore, **kwargs)
+        return converged, energy_elec, ci1
+
+    def _eig (self, h0, h1, h2, ci0, ovlp_thresh=1e-3, nroots=1):
+        ham_pq = self.get_ham_pq (0, h1, h2, ci0) 
+        lroots = get_lroots (ci0)
+        p = np.prod (lroots)
+        e, si = lowest_refovlp_eigpair (ham_pq, p=p, ovlp_thresh=ovlp_thresh)
+        schmidt_vec = si[:p].reshape (lroots[1],lroots[0])
+        u, svals, vh = linalg.svd (schmidt_vec)
+        disc_svals = 0
+        if len (svals) > nroots:
+            disc_svals = np.sum (svals[nroots:])
+            svals = svals[:nroots]
+            u = u[:,:nroots]
+            vh = vh[:nroots,:]
+        v = vh.conj ().T
+        uh = u.conj ().T
+        ci1 = [np.tensordot (vh, ci0[0], axes=1),
+               np.tensordot (uh, ci0[1], axes=1)]
+        si_p = svals
+        si_q = si[p:]
+        return e, si_p, si_q, ci1, disc_svals
+
+    def get_hpq_xq (self, h1, h2, ci0, si_q):
+        lroots = get_lroots (ci0)
+        p = np.prod (lroots)
+        hci_f_pabq = self.op_ham_pq_ref (h1, h2, ci0)
+        hci_f_pab = []
+        for ci, hci_pabq in zip (ci0, hci_f_pabq):
+            hci_pab = np.dot (hci_pabq, si_q)
+            hci_pr = np.tensordot (hci_pab, ci, axes=((1,2),(1,2)))
+            hci_pab -= np.tensordot (hci_pr, ci, axes=1)
+            hci_f_pab.append (hci_pab)
+        return hci_f_pab
+
+    def get_hpp_xp (self, h1, h2, ci0, norb_f, nelec_f, ecore=None, **kwargs):
+        h0 = ecore
+        h1eff, h0eff, ci0 = self.project_hfrag (h1, h2, ci0, norb_f, nelec_f,
+                                                ecore=ecore, **kwargs)
+        nj = np.cumsum (norb_f)
+        ni = nj - norb_f
+        zipper = [h1eff, ci, norb_f, nelec_f, self.fcisolvers, ni, nj]
+        hci_f_pab = []
+        for h1e, c, no, ne, solver, i, j in zip (*zipper):
+            nelec = self._get_nelec (solver, ne)
+            nroots = solver.nroots
+            h2e = h2[i:j,i:j,i:j,i:j]
+            h2e = solver.absorb_h1e (h1e, h2e, no, nelec, 0.5)
+            if nroots==1: c=c[None,:] 
+            hc = [solver.contract_2e (h2e, col, no, nelec) for col in c]
+            c, hc = np.asarray (c), np.asarray (hc) 
+            chc = np.dot (np.asarray (c).reshape (nroots,-1).conj (),
+                          np.asarray (hc).reshape (nroots,-1).T)
+            hc = hc - np.tensordot (chc, c, axes=1)
+            hci_f_pab.append (hc)
+        return hci_f_pab
+
+    def _get_grad (self, si_p, hpq_xq, hpp_xp):
+        # Compute the gradient of the target interacting energy
+        grad = []
+        for solver, hc1, hc2 in zip (self.fcisolvers, hpq_xq, hpp_xp):
+            hc = si_p[:,...] * (hc1 + hc2)
+            if isinstance (solver, CSFFCISolver):
+                hc = solver.transformer.vec_det2csf (hc, normalize=False)
+            grad.append (hc)
+        return np.concatenate (grad)
+
+    def _1shot (self, h0, h1, h2, ci0, hpq_xq, hpp_xp, nroots=1, ovlp_thresh=1e-3):
+        # Diagonalize in an extended basis
+        ci1 = []
+        for c0, c1, c2 in zip (ci0, hpq_xq, hpp_xp):
+            x = np.concatenate ([c0,c1,c2])
+            ci1.append (canonical_orth_(x.conj () @ x.T).T @ x)
+        e, si_p, si_q, ci1, disc_svals = self._eig (h0, h1, h2, ci1, ovlp_thresh=ovlp_thresh,
+                                                    nroots=nroots)
+        self.log.info ('Sum of discarded singular values = %e', disc_svals)
+        return ci1
 
 class VRVDressedFCISolver (object):
     '''Minimize the energy of a wave function of the form
