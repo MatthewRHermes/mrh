@@ -399,7 +399,7 @@ class ExcitationPSFCISolver (ProductStateFCISolver):
             e_last = e
             e, si_p, si_q, ci0 = self._eig (h0, h1, h2, ci1, nroots=nroots)[:4]
             hpq_xq = self.get_hpq_xq (h1, h2, ci0, si_q)
-            hpp_xp = self.get_hpp_xp (h1, h2, ci0, norb_f, nelec_f)
+            hpp_xp = self.get_hpp_xp (h1, h2, ci0, norb_f, nelec_f, ecore=h0, nroots=nroots)
             grad = self._get_grad (si_p, hpq_xq, hpp_xp)
             grad_max = np.amax (np.abs (grad))
             log.info ('Cycle %d: max grad = %e ; delta e = %e',
@@ -428,8 +428,8 @@ class ExcitationPSFCISolver (ProductStateFCISolver):
         if len (svals) > nroots:
             disc_svals = np.sum (svals[nroots:])
             svals = svals[:nroots]
-            u = u[:,:nroots]
-            vh = vh[:nroots,:]
+        u = u[:,:nroots]
+        vh = vh[:nroots,:]
         v = vh.conj ().T
         uh = u.conj ().T
         ci1 = [np.tensordot (vh, ci0[0], axes=1),
@@ -450,13 +450,13 @@ class ExcitationPSFCISolver (ProductStateFCISolver):
             hci_f_pab.append (hci_pab)
         return hci_f_pab
 
-    def get_hpp_xp (self, h1, h2, ci0, norb_f, nelec_f, ecore=0, **kwargs):
+    def get_hpp_xp (self, h1, h2, ci0, norb_f, nelec_f, ecore=0, nroots=1, **kwargs):
         nfrag = len (ci0)
         h1eff = [[] for i in range (nfrag)]
         h0eff = []
         lroots = get_lroots (ci0)
         assert (len (lroots) == 2)
-        assert (lroots[0] == lroots[1])
+        assert (lroots[0] == lroots[1]), '{} {}'.format (lroots, nroots)
         nroots = lroots[0]
         for iroot in range (nroots):
             c = [x[iroot] for x in ci0]
@@ -488,10 +488,10 @@ class ExcitationPSFCISolver (ProductStateFCISolver):
         # Compute the gradient of the target interacting energy
         grad = []
         for solver, hc1, hc2 in zip (self.fcisolvers, hpq_xq, hpp_xp):
-            hc = si_p[:,...] * (hc1 + hc2)
+            hc = si_p[:,None,None] * (hc1 + hc2)
             if isinstance (solver, CSFFCISolver):
                 hc = solver.transformer.vec_det2csf (hc, normalize=False)
-            grad.append (hc)
+            grad.append (hc.flat)
         return np.concatenate (grad)
 
     def _1shot (self, h0, h1, h2, ci0, hpq_xq, hpp_xp, nroots=1, ovlp_thresh=1e-3):
@@ -501,6 +501,10 @@ class ExcitationPSFCISolver (ProductStateFCISolver):
             x = np.concatenate ([c0,c1,c2],axis=0)
             nx, ndeta, ndetb = x.shape
             x = x.reshape (nx,ndeta*ndetb)
+            x_norm = linalg.norm (x, axis=1)
+            x = x[x_norm>0,:]
+            x_norm = x_norm[x_norm>0]
+            x /= x_norm[:,None]
             ovlp = x.conj () @ x.T
             x = canonical_orth_(ovlp).T @ x
             nx = x.shape[0]

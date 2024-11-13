@@ -215,7 +215,7 @@ def single_excitations_ci (lsi, las2, las1, ci_ch, ncharge=1, sa_heff=True, deac
         psref = [space for space in psref if spaces[i].is_single_excitation_of (space)]
         if auto_singles:
             lr = spaces[i].compute_single_excitation_lroots (psref)
-            lroots[:,i][excfrags] = np.minimum (lroots[:,i][excfrags], lr)
+            lroots[:,i][excfrags] = lr = np.amin (np.minimum (lroots[:,i][excfrags], lr))
         lroots[:,i][~excfrags] = 1
         # logging after setup
         spref0 = spaces[psref_ix[0]]
@@ -249,10 +249,7 @@ def single_excitations_ci (lsi, las2, las1, ci_ch, ncharge=1, sa_heff=True, deac
         nelecb = spaces[i].nelecb
         smults = spaces[i].smults
         for k in np.where (excfrags)[0]:
-            weights = np.zeros (lroots[k,i])
-            if sa_heff: weights[:] = 1.0 / len (weights)
-            else: weights[0] = 1.0
-            psexc.set_excited_fragment_(k, (neleca[k],nelecb[k]), smults[k], weights=weights)
+            psexc.set_excited_fragment_(k, (neleca[k],nelecb[k]), smults[k])
         ifrag, afrag, spin = key
         norb_i, norb_a, smult_i, smult_a = norb[ifrag], norb[afrag], smults[ifrag], smults[afrag]
         nelec_i, nelec_a = (neleca[ifrag],nelecb[ifrag]), (neleca[afrag],nelecb[afrag])
@@ -267,7 +264,8 @@ def single_excitations_ci (lsi, las2, las1, ci_ch, ncharge=1, sa_heff=True, deac
         ci0 = [ci0[int (afrag<ifrag)], ci0[int (ifrag<afrag)]]
         conv, e_roots[i], ci1 = psexc.kernel (h1, h2, ecore=h0, ci0=ci0,
                                               max_cycle_macro=lsi.max_cycle_macro,
-                                              conv_tol_self=lsi.conv_tol_self)
+                                              conv_tol_self=lsi.conv_tol_self,
+                                              nroots=lr)
         ci_ch_ias[0] = mup (ci1[ifrag], norb_i, nelec_i, smult_i)
         if lroots[ifrag,i]==1 and ci_ch_ias[0].ndim == 2:
             ci_ch_ias[0] = ci_ch_ias[0][None,:,:]
