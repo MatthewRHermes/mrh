@@ -141,8 +141,8 @@ class KnownValues(unittest.TestCase):
                         self.assertLess (np.amax (np.abs (ovlperr)), 1e-8)
                 self.assertTrue (conv)
                 e_roots1, si1 = lassi_ref (ci1, iroot)
-                idx_match = np.argmin (np.abs (e_roots1-energy_tot[0]))
-                self.assertAlmostEqual (energy_tot[0], e_roots1[idx_match], 6)
+                idx_match = np.argmin (np.abs (e_roots1-energy_tot))
+                self.assertAlmostEqual (energy_tot, e_roots1[idx_match], 6)
                 self.assertEqual (idx_match, 0) # local minimum problems
             # In the no-coupling limit, the Excitation solver should give the same result as the normal
             # ImpureProductStateFCISolver

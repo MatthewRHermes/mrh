@@ -501,7 +501,8 @@ class ExcitationPSFCISolver (ProductStateFCISolver):
             x = np.concatenate ([c0,c1,c2],axis=0)
             nx, ndeta, ndetb = x.shape
             x = x.reshape (nx,ndeta*ndetb)
-            x = canonical_orth_(x.conj () @ x.T).T @ x
+            ovlp = x.conj () @ x.T
+            x = canonical_orth_(ovlp).T @ x
             nx = x.shape[0]
             ci1.append (x.reshape (nx,ndeta,ndetb))
         e, si_p, si_q, ci1, disc_svals = self._eig (h0, h1, h2, ci1, ovlp_thresh=ovlp_thresh,
