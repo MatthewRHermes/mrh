@@ -570,8 +570,8 @@ def _transform_det2csf (inparr, norb, neleca, nelecb, smult, reverse=False, csd_
     ndet_all = ndeta_all * ndetb_all
     ncsf_all = count_all_csfs (norb, neleca, nelecb, smult)
 
-    ncol_out = (ncsf_all, ndet_all)[reverse or project]
-    ncol_in = (ncsf_all, ndet_all)[~reverse or project]
+    ncol_out = ndet_all if (reverse or project) else ncsf_all
+    ncol_in = ndet_all if ((not reverse) or project) else ncsf_all
     if not project:
         outarr = np.ascontiguousarray (np.zeros ((nrow, ncol_out), dtype=np.float64))
         csf_addrs = np.zeros (ncsf_all, dtype=np.bool_)
@@ -1096,7 +1096,7 @@ def unpack_csfaddrs (norb, neleca, nelecb, smult, addrs):
         npair[ix] = np.where (npair_csf_offset <= iaddr)[0][-1]
         sconf_size = npair_sconf_size[npair[ix]]
         spincpl_size = npair_spincpl_size[npair[ix]]
-        iad = iaddr - npair_csf_offset[npair[ix]]
+        iad = np.squeeze (iaddr - npair_csf_offset[npair[ix]])
         npair[ix] += min_npair
         domo_addrs[ix] = iad // (sconf_size * spincpl_size)
         iad = iad % (sconf_size * spincpl_size)
