@@ -415,9 +415,7 @@ class ExcitationPSFCISolver (ProductStateFCISolver):
             ci1 = self.get_init_guess (ci1, norb_f, nelec_f, h1, h2)
             # Issue #86: see above, same problem
             self._debug_csfs (log, ci0, ci1, norb_f, nelec_f, grad)
-        energy_elec = self.energy_elec (h1, h2, ci1, norb_f, nelec_f,
-            ecore=ecore, **kwargs)
-        return converged, energy_elec, ci1
+        return converged, e, ci1
 
     def _eig (self, h0, h1, h2, ci0, ovlp_thresh=1e-3, nroots=1):
         ham_pq = self.get_ham_pq (0, h1, h2, ci0) 
@@ -453,19 +451,32 @@ class ExcitationPSFCISolver (ProductStateFCISolver):
         return hci_f_pab
 
     def get_hpp_xp (self, h1, h2, ci0, norb_f, nelec_f, ecore=0, **kwargs):
-        h0 = ecore
-        h1eff, h0eff, ci0 = self.project_hfrag (h1, h2, ci0, norb_f, nelec_f,
-                                                ecore=ecore, **kwargs)
+        nfrag = len (ci0)
+        h1eff = [[] for i in range (nfrag)]
+        h0eff = []
+        lroots = get_lroots (ci0)
+        assert (len (lroots) == 2)
+        assert (lroots[0] == lroots[1])
+        nroots = lroots[0]
+        for iroot in range (nroots):
+            c = [x[iroot] for x in ci0]
+            h1e, h0e = self.project_hfrag (h1, h2, c, norb_f, nelec_f, ecore=ecore, **kwargs)[:2]
+            for ifrag in range (nfrag):
+                h1eff[ifrag].append (h1e[ifrag])
+            h0eff.append (h0e)
+        h0eff = np.asarray (h0eff).T
         nj = np.cumsum (norb_f)
         ni = nj - norb_f
-        zipper = [h1eff, ci0, norb_f, nelec_f, self.fcisolvers, ni, nj]
+        zipper = [h1eff, h0eff, ci0, norb_f, nelec_f, self.fcisolvers, ni, nj, lroots]
         hci_f_pab = []
-        for h1e, c, no, ne, solver, i, j in zip (*zipper):
+        for (h1ef, h0ef, c, no, ne, solver, i, j, nroots) in zip (*zipper):
             nelec = self._get_nelec (solver, ne)
-            nroots = solver.nroots
             h2e = h2[i:j,i:j,i:j,i:j]
-            h2e = solver.absorb_h1e (h1e, h2e, no, nelec, 0.5)
-            hc = [solver.contract_2e (h2e, col, no, nelec) for col in c]
+            hc = []
+            for col, h1e, h0e in zip (c, h1ef, h0ef):
+                h2e = solver.absorb_h1e (h1e, h2e, no, nelec, 0.5)
+                hcol = solver.contract_2e (h2e, col, no, nelec) + (h0e * col)
+                hc.append (hcol)
             c, hc = np.asarray (c), np.asarray (hc) 
             chc = np.dot (np.asarray (c).reshape (nroots,-1).conj (),
                           np.asarray (hc).reshape (nroots,-1).T)
