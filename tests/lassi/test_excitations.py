@@ -28,14 +28,14 @@ from mrh.my_pyscf.lassi.excitations import ExcitationPSFCISolver
 from mrh.my_pyscf.mcscf.lasci import get_space_info
 from mrh.my_pyscf.mcscf.productstate import ImpureProductStateFCISolver
 
-def only_ground_states (ci0):
+def array_shape_correction (ci0):
     '''For a list of sequences of CI vectors in the same Hilbert space,
     generate a list in which all but the first element of each sequence
     is discarded.'''
     ci1 = []
     for c in ci0:
         c = np.asarray (c)
-        if c.ndim==3: c = c[0]
+        #if c.ndim==3: c = c[0]
         ci1.append (c)
     return ci1
 
@@ -93,9 +93,9 @@ class KnownValues(unittest.TestCase):
         lroots = lsi.get_lroots ()
         smults_rf = dsmults + 1
 
-        ci0_ref = only_ground_states (ci_ref)
+        ci0_ref = array_shape_correction (ci_ref)
         def lassi_ref (ci1, iroot):
-            ci1 = only_ground_states (ci1)
+            ci1 = array_shape_correction (ci1)
             ci2 = [[ci0_ref[ifrag], ci1[ifrag].copy ()] for ifrag in range (las.nfrags)]
             las1 = LASSCF (mf, (1,2,2), (2,2,2), spin_sub=(1,1,1))
             las1.mo_coeff = las.mo_coeff
@@ -106,7 +106,6 @@ class KnownValues(unittest.TestCase):
                 wfnsyms=[[0,0,0],[0,0,0]]
             )
             las1.ci = ci2
-            las1.e_states = las1.energy_nuc () + np.array (las1.states_energy_elec ())
             ci2 = [[ci_ref[ifrag], ci1[ifrag]] for ifrag in range (las.nfrags)]
             las1.ci = ci2
             lsi1 = LASSI (las1)
@@ -205,9 +204,9 @@ class KnownValues(unittest.TestCase):
         # ref is broken, so I can only have 1 lroot here
         smults_rf = dsmults + 1
 
-        ci0_ref = [only_ground_states (c) for c in ci_ref]
+        ci0_ref = [array_shape_correction (c) for c in ci_ref]
         def lassi_ref (ci1, iroot):
-            ci1 = only_ground_states (ci1)
+            ci1 = array_shape_correction (ci1)
             ci2 = [ci0_ref[ifrag]+[ci1[ifrag].copy (),] for ifrag in range (las.nfrags)]
             las1 = LASSCF (mf, (1,2,2), (2,2,2), spin_sub=(1,1,1))
             las1.mo_coeff = las.mo_coeff
@@ -218,7 +217,6 @@ class KnownValues(unittest.TestCase):
                 wfnsyms=[[0,0,0],]*4
             )
             las1.ci = ci2
-            las1.e_states = las1.energy_nuc () + np.array (las1.states_energy_elec ())
             ci2 = [ci_ref[ifrag]+[ci1[ifrag],] for ifrag in range (las.nfrags)]
             las1.ci = ci2
             lsi1 = LASSI (las1)
