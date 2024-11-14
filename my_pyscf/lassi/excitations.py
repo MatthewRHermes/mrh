@@ -394,7 +394,7 @@ class ExcitationPSFCISolver (ProductStateFCISolver):
         e = 0
         ci1 = ci0
         log.info ('Entering product-state fixed-point CI iteration')
-        ci0 = self.get_init_guess (ci1, norb_f, nelec_f, h1, h2, nroots=nroots)
+        ci1 = ci0 = self.get_init_guess (ci1, norb_f, nelec_f, h1, h2, nroots=nroots)
         for it in range (max_cycle_macro):
             e_last = e
             e, si_p, si_q, ci0 = self._eig (h0, h1, h2, ci1, nroots=nroots)[:4]
@@ -500,16 +500,23 @@ class ExcitationPSFCISolver (ProductStateFCISolver):
         ci1 = []
         for s, c0, c1, c2 in zip (self.fcisolvers, ci0, hpq_xq, hpp_xp):
             x = np.concatenate ([c0,c1,c2],axis=0)
-            nx, ndeta, ndetb = x.shape
-            x = x.reshape (nx,ndeta*ndetb)
+            if isinstance (s, CSFFCISolver):
+                ndeta, ndetb = s.transformer.ndeta, s.transformer.ndetb
+                x = s.transformer.vec_det2csf (x)
+            else:
+                nx, ndeta, ndetb = x.shape
+                x = x.reshape (nx, ndeta*ndetb)
             x_norm = linalg.norm (x, axis=1)
             x = x[x_norm>0,:]
             x_norm = x_norm[x_norm>0]
             x /= x_norm[:,None]
             ovlp = x.conj () @ x.T
             x = canonical_orth_(ovlp).T @ x
-            nx = x.shape[0]
-            ci1.append (x.reshape (nx,ndeta,ndetb))
+            nx = len (x)
+            if isinstance (s, CSFFCISolver):
+                x = s.transformer.vec_csf2det (x)
+            ci1.append (x.reshape (nx, ndeta, ndetb))
+            assert (x.shape[0]>=nroots), '{} {} {} {} {}'.format (x.shape, nroots, c0.shape, c1.shape, c2.shape)
         e, si_p, si_q, ci1, disc_svals = self._eig (h0, h1, h2, ci1, ovlp_thresh=ovlp_thresh,
                                                     nroots=nroots)
         self.log.info ('Sum of discarded singular values = %e', disc_svals)
