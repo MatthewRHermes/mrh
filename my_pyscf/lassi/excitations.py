@@ -1,8 +1,10 @@
 import copy
 import numpy as np
+import ctypes
 from scipy import linalg
 from pyscf.fci import cistring
-from pyscf.fci.direct_spin1 import _unpack_nelec
+from pyscf.fci import direct_nosym
+from pyscf.fci.direct_spin1 import _unpack_nelec, trans_rdm12s, libfci, FCIvector
 from pyscf.scf.addons import canonical_orth_
 from pyscf.mcscf.addons import StateAverageFCISolver
 from mrh.my_pyscf.mcscf.productstate import ProductStateFCISolver, ImpureProductStateFCISolver, state_average_fcisolver
@@ -39,6 +41,37 @@ def lowest_refovlp_eigvec (ham_pq, p=1, ovlp_thresh=LOWEST_REFOVLP_EIGVAL_THRESH
     ''' Return the eigenvector corresponding to the lowest eigenvalue of the matrix ham_pq
     which has nonzero overlap with the first basis p basis functions. '''
     return lowest_refovlp_eigpair (ham_pq, p=p, ovlp_thresh=ovlp_thresh)[1]
+
+def contract_1e_nosym (h1e, fcivec, norb, nelec, link_index=None):
+    ''' Variant of pyscf.fci.direct_nosym.contract_1e that contemplates a spin-separated h1e '''
+    h1e = np.ascontiguousarray(h1e)
+    fcivec = np.asarray(fcivec, order='C')
+    link_indexa, link_indexb = direct_nosym._unpack(norb, nelec, link_index)
+
+    na, nlinka = link_indexa.shape[:2]
+    nb, nlinkb = link_indexb.shape[:2]
+    assert fcivec.size == na*nb
+    assert fcivec.dtype == h1e.dtype == np.float64
+    ci1 = np.zeros_like(fcivec)
+
+    libfci.FCIcontract_a_1e_nosym(h1e[0].ctypes.data_as(ctypes.c_void_p),
+                                  fcivec.ctypes.data_as(ctypes.c_void_p),
+                                  ci1.ctypes.data_as(ctypes.c_void_p),
+                                  ctypes.c_int(norb),
+                                  ctypes.c_int(na), ctypes.c_int(nb),
+                                  ctypes.c_int(nlinka), ctypes.c_int(nlinkb),
+                                  link_indexa.ctypes.data_as(ctypes.c_void_p),
+                                  link_indexb.ctypes.data_as(ctypes.c_void_p))
+    libfci.FCIcontract_b_1e_nosym(h1e[1].ctypes.data_as(ctypes.c_void_p),
+                                  fcivec.ctypes.data_as(ctypes.c_void_p),
+                                  ci1.ctypes.data_as(ctypes.c_void_p),
+                                  ctypes.c_int(norb),
+                                  ctypes.c_int(na), ctypes.c_int(nb),
+                                  ctypes.c_int(nlinka), ctypes.c_int(nlinkb),
+                                  link_indexa.ctypes.data_as(ctypes.c_void_p),
+                                  link_indexb.ctypes.data_as(ctypes.c_void_p))
+    return ci1.view(FCIvector)
+
 
 def sort_ci0 (obj, ham_pq, ci0):
     '''Prepare guess CI vectors, guess energy, and Q-space Hamiltonian eigenvalues
@@ -469,15 +502,29 @@ class ExcitationPSFCISolver (ProductStateFCISolver):
         ni = nj - norb_f
         zipper = [h1eff, h0eff, ci0, norb_f, nelec_f, self.fcisolvers, ni, nj, lroots]
         hci_f_pab = []
-        for (h1ef, h0ef, c, no, ne, solver, i, j, nroots) in zip (*zipper):
+        for ifrag, (h1ef, h0ef, c, no, ne, solver, i, j, nroots) in enumerate (zip (*zipper)):
+            jfrag = 1 if ifrag==0 else 0
+            k, l = ni[jfrag], nj[jfrag]
             nelec = self._get_nelec (solver, ne)
+            nelec_j = self._get_nelec (self.fcisolvers[jfrag], nelec_f[jfrag])
             h2e = h2[i:j,i:j,i:j,i:j]
+            h2e_j = h2[i:j,i:j,k:l,k:l]
+            h2e_k = h2[i:j,k:l,k:l,i:j].transpose (0,3,2,1)
             hc = []
-            for col, h1e, h0e, s in zip (c, h1ef, h0ef, si_p):
-                scol = s * col
+            # Diagonal part: Cn <nKnL|H|*KnL> Cn
+            for iroot, (icol, h1e, h0e, si) in enumerate (zip (c, h1ef, h0ef, si_p)):
                 h2e = solver.absorb_h1e (h1e, h2e, no, nelec, 0.5)
-                hcol = solver.contract_2e (h2e, scol, no, nelec) + (h0e * scol)
-                hc.append (hcol)
+                hcol = solver.contract_2e (h2e, icol, no, nelec) + (h0e * icol)
+                hc.append (si * hcol)
+                # Off-diagonal part: Cm <mKmL|H|*KnL> Cn
+                for jroot, (jcol, sj) in enumerate (zip (c, si_p)):
+                    if iroot==jroot: continue
+                    tdm1s = trans_rdm12s (ci0[jfrag][iroot], ci0[jfrag][jroot], norb_f[jfrag], nelec_j)[0]
+                    tdm1s = np.stack (tdm1s, axis=0).transpose (0, 2, 1)
+                    vj = np.tensordot (h2e_j, tdm1s.sum (0), axes=2)
+                    vk = np.tensordot (tdm1s, h2e_k, axes=((1,2),(2,3)))
+                    veff = vj[None,:,:] - vk
+                    hc[iroot] += sj * contract_1e_nosym (veff, jcol, no, nelec)
             c, hc = np.asarray (c), np.asarray (hc) 
             chc = np.dot (np.asarray (c).reshape (nroots,-1).conj (),
                           np.asarray (hc).reshape (nroots,-1).T)
