@@ -402,8 +402,8 @@ class ExcitationPSFCISolver (ProductStateFCISolver):
             hpp_xp = self.get_hpp_xp (h1, h2, ci0, norb_f, nelec_f, ecore=h0, nroots=nroots)
             grad = self._get_grad (si_p, hpq_xq, hpp_xp)
             grad_max = np.amax (np.abs (grad))
-            log.info ('Cycle %d: max grad = %e ; delta e = %e',
-                      it, grad_max, e - e_last)
+            log.info ('Cycle %d: max grad = %e ; e = %e, |delta| = %e',
+                      it, grad_max, e, e - e_last)
             if ((grad_max < conv_tol_grad) and (abs (e-e_last) < conv_tol_self)):
                 converged = True
                 break
@@ -418,7 +418,7 @@ class ExcitationPSFCISolver (ProductStateFCISolver):
         return converged, e, ci1
 
     def _eig (self, h0, h1, h2, ci0, ovlp_thresh=1e-3, nroots=1):
-        ham_pq = self.get_ham_pq (0, h1, h2, ci0) 
+        ham_pq = self.get_ham_pq (h0, h1, h2, ci0) 
         lroots = get_lroots (ci0)
         p = np.prod (lroots)
         e, si = lowest_refovlp_eigpair (ham_pq, p=p, ovlp_thresh=ovlp_thresh)

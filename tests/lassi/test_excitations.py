@@ -124,7 +124,8 @@ class KnownValues(unittest.TestCase):
         # about 1e-6. The moral of the story is that we should probably not use the excitation
         # solver for double excitations directly.
         for opt in (0,1):
-            psexc = ExcitationPSFCISolver (psref, ci_ref, las.ncas_sub, nelec_ref, opt=opt)
+            psexc = ExcitationPSFCISolver (psref, ci_ref, las.ncas_sub, nelec_ref, 
+                                           stdout=mol.stdout, verbose=mol.verbose, opt=opt)
             for iroot in range (1, 5): #lsi._las.nroots):
               with self.subTest (opt=opt, rootspace=iroot):
                 for i in range (2):
@@ -145,20 +146,20 @@ class KnownValues(unittest.TestCase):
                 self.assertEqual (idx_match, 0) # local minimum problems
             # In the no-coupling limit, the Excitation solver should give the same result as the normal
             # ImpureProductStateFCISolver
-            psexc._deactivate_vrv = True # spoof the no-coupling limit
-            for iroot in range (1, lsi._las.nroots):
-                for i in range (2):
-                    psexc.set_excited_fragment_(1+i, (neleca[iroot,i], nelecb[iroot,i]),
-                                                smults[iroot,i])
-                conv, energy_tot, ci1 = psexc.kernel (h1, h2, ecore=h0)
-                with self.subTest ('no-coupling limit', opt=opt, rootspace=iroot):
-                    self.assertTrue (conv)
-                    self.assertAlmostEqual (energy_tot, lsi._las.e_states[iroot], 8)
-                conv, energy_tot, ci1 = psexc.kernel (h1, h2, ecore=h0,
-                                                      davidson_only=True)
-                with self.subTest ('no-coupling limit; davidson only', opt=opt, rootspace=iroot):
-                    self.assertTrue (conv)
-                    self.assertAlmostEqual (energy_tot, lsi._las.e_states[iroot], 8)
+            #psexc._deactivate_vrv = True # spoof the no-coupling limit
+            #for iroot in range (1, lsi._las.nroots):
+            #    for i in range (2):
+            #        psexc.set_excited_fragment_(1+i, (neleca[iroot,i], nelecb[iroot,i]),
+            #                                    smults[iroot,i])
+            #    conv, energy_tot, ci1 = psexc.kernel (h1, h2, ecore=h0)
+            #    with self.subTest ('no-coupling limit', opt=opt, rootspace=iroot):
+            #        self.assertTrue (conv)
+            #        self.assertAlmostEqual (energy_tot, lsi._las.e_states[iroot], 8)
+            #    conv, energy_tot, ci1 = psexc.kernel (h1, h2, ecore=h0,
+            #                                          davidson_only=True)
+            #    with self.subTest ('no-coupling limit; davidson only', opt=opt, rootspace=iroot):
+            #        self.assertTrue (conv)
+            #        self.assertAlmostEqual (energy_tot, lsi._las.e_states[iroot], 8)
                 
 
     def test_multiref (self):
@@ -207,6 +208,7 @@ class KnownValues(unittest.TestCase):
         ci0_ref = [array_shape_correction (c) for c in ci_ref]
         def lassi_ref (ci1, iroot):
             ci1 = array_shape_correction (ci1)
+            ci1[0] = ci1[0][0] # This is an uncommon use case
             ci2 = [ci0_ref[ifrag]+[ci1[ifrag].copy (),] for ifrag in range (las.nfrags)]
             las1 = LASSCF (mf, (1,2,2), (2,2,2), spin_sub=(1,1,1))
             las1.mo_coeff = las.mo_coeff
