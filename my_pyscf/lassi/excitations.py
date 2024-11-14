@@ -433,7 +433,7 @@ class ExcitationPSFCISolver (ProductStateFCISolver):
             e, si_p, si_q, ci0 = self._eig (h0, h1, h2, ci1, nroots=nroots)[:4]
             hpq_xq = self.get_hpq_xq (h1, h2, ci0, si_q)
             hpp_xp = self.get_hpp_xp (h1, h2, ci0, si_p, norb_f, nelec_f, ecore=h0, nroots=nroots)
-            grad = self._get_grad (si_p, hpq_xq, hpp_xp)
+            grad = self._get_grad (ci0, si_p, hpq_xq, hpp_xp, nroots=nroots)
             grad_max = np.amax (np.abs (grad))
             log.info ('Cycle %d: max grad = %e ; e = %e, |delta| = %e',
                       it, grad_max, e, e - e_last)
@@ -447,7 +447,7 @@ class ExcitationPSFCISolver (ProductStateFCISolver):
         if not converged:
             ci1 = self.get_init_guess (ci1, norb_f, nelec_f, h1, h2, nroots=nroots)
             # Issue #86: see above, same problem
-            self._debug_csfs (log, ci0, ci1, norb_f, nelec_f, grad)
+            self._debug_csfs (log, ci0, ci1, norb_f, nelec_f, grad, nroots=nroots)
         return converged, e, ci1
 
     def _eig (self, h0, h1, h2, ci0, ovlp_thresh=1e-3, nroots=1):
@@ -478,7 +478,7 @@ class ExcitationPSFCISolver (ProductStateFCISolver):
         hci_f_pab = []
         for ci, hci_pabq in zip (ci0, hci_f_pabq):
             hci_pab = np.dot (hci_pabq, si_q)
-            hci_pr = np.tensordot (hci_pab, ci, axes=((1,2),(1,2)))
+            hci_pr = np.tensordot (hci_pab, ci.conj (), axes=((1,2),(1,2)))
             hci_pab -= np.tensordot (hci_pr, ci, axes=1)
             hci_f_pab.append (hci_pab)
         return hci_f_pab
@@ -527,19 +527,27 @@ class ExcitationPSFCISolver (ProductStateFCISolver):
                     hc[iroot] += sj * contract_1e_nosym (veff, jcol, no, nelec)
             c, hc = np.asarray (c), np.asarray (hc) 
             chc = np.dot (np.asarray (c).reshape (nroots,-1).conj (),
-                          np.asarray (hc).reshape (nroots,-1).T)
+                          np.asarray (hc).reshape (nroots,-1).T).T
             hc = hc - np.tensordot (chc, c, axes=1)
             hci_f_pab.append (hc)
         return hci_f_pab
 
-    def _get_grad (self, si_p, hpq_xq, hpp_xp):
+    def _get_grad (self, ci0, si_p, hpq_xq, hpp_xp, nroots=None):
         # Compute the gradient of the target interacting energy
         grad = []
-        for solver, hc1, hc2 in zip (self.fcisolvers, hpq_xq, hpp_xp):
+        for solver, c, hc1, hc2 in zip (self.fcisolvers, ci0, hpq_xq, hpp_xp):
+            if nroots is None: nroots = solver.nroots
             hc = si_p[:,None,None] * (hc1 + hc2)
             if isinstance (solver, CSFFCISolver):
+                c = solver.transformer.vec_det2csf (c, normalize=True)
                 hc = solver.transformer.vec_det2csf (hc, normalize=False)
+            chc = np.dot (c.conj (), hc.T)
+            hc = hc - np.dot (chc.T, c)
             grad.append (hc.flat)
+            if nroots>1:
+                # TODO: figure out how this gradient should actually work
+                chc -= chc.T
+                grad.append (np.zeros_like (chc[np.tril_indices (nroots, k=-1)]))
         return np.concatenate (grad)
 
     def _1shot (self, h0, h1, h2, ci0, hpq_xq, hpp_xp, nroots=1, ovlp_thresh=1e-3):

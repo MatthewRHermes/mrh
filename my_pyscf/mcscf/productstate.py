@@ -146,15 +146,16 @@ class ProductStateFCISolver (StateAverageNMixFCISolver, lib.StreamObject):
                         snroots, solver.transformer.ncsf, ix, solver.nelec, solver.smult))
         return ci1
                 
-    def _debug_csfs (self, log, ci0, ci1, norb_f, nelec_f, grad):
+    def _debug_csfs (self, log, ci0, ci1, norb_f, nelec_f, grad, nroots=None):
         if not all ([isinstance (s, CSFFCISolver) for s in self.fcisolvers]):
             return
         if log.verbose < lib.logger.INFO: return
         transformers = [s.transformer for s in self.fcisolvers]
         grad_f = []
         for s,t in zip (self.fcisolvers, transformers):
-            grad_f.append (grad[:t.ncsf*s.nroots].reshape (s.nroots, t.ncsf))
-            offs = (t.ncsf*s.nroots) + (s.nroots*(s.nroots-1)//2)
+            snroots = nroots if nroots is not None else s.nroots
+            grad_f.append (grad[:t.ncsf*snroots].reshape (snroots, t.ncsf))
+            offs = (t.ncsf*snroots) + (snroots*(snroots-1)//2)
             grad = grad[offs:]
         assert (len (grad) == 0)
         log.info ('Debugging CI and gradient vectors...')
