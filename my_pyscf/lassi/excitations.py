@@ -534,7 +534,8 @@ class ExcitationPSFCISolver (ProductStateFCISolver):
 
     def _get_grad (self, ci0, si_p, hpq_xq, hpp_xp, nroots=None):
         # Compute the gradient of the target interacting energy
-        grad = []
+        grad_ext = []
+        grad_int = []
         for solver, c, hc1, hc2 in zip (self.fcisolvers, ci0, hpq_xq, hpp_xp):
             if nroots is None: nroots = solver.nroots
             hc = si_p[:,None,None] * (hc1 + hc2)
@@ -543,11 +544,15 @@ class ExcitationPSFCISolver (ProductStateFCISolver):
                 hc = solver.transformer.vec_det2csf (hc, normalize=False)
             chc = np.dot (c.conj (), hc.T)
             hc = hc - np.dot (chc.T, c)
-            grad.append (hc.flat)
+            grad_ext.append (hc.flat)
+            grad_int.append (chc)
+        grad_int[0] -= grad_int[1].T
+        grad_int[1] = -grad_int[0].T
+        grad = []
+        for i, e in zip (grad_int, grad_ext):
+            grad.append (e)
             if nroots>1:
-                # TODO: figure out how this gradient should actually work
-                chc -= chc.T
-                grad.append (np.zeros_like (chc[np.tril_indices (nroots, k=-1)]))
+                grad.append (i[np.tril_indices (nroots, k=-1)])
         return np.concatenate (grad)
 
     def _1shot (self, h0, h1, h2, ci0, hpq_xq, hpp_xp, nroots=1, ovlp_thresh=1e-3):
