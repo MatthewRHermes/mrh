@@ -394,12 +394,12 @@ class ExcitationPSFCISolver (ProductStateFCISolver):
         e = 0
         ci1 = ci0
         log.info ('Entering product-state fixed-point CI iteration')
-        ci0 = self.get_init_guess (ci1, norb_f, nelec_f, h1, h2)
+        ci0 = self.get_init_guess (ci1, norb_f, nelec_f, h1, h2, nroots=nroots)
         for it in range (max_cycle_macro):
             e_last = e
             e, si_p, si_q, ci0 = self._eig (h0, h1, h2, ci1, nroots=nroots)[:4]
             hpq_xq = self.get_hpq_xq (h1, h2, ci0, si_q)
-            hpp_xp = self.get_hpp_xp (h1, h2, ci0, norb_f, nelec_f, ecore=h0, nroots=nroots)
+            hpp_xp = self.get_hpp_xp (h1, h2, ci0, si_p, norb_f, nelec_f, ecore=h0, nroots=nroots)
             grad = self._get_grad (si_p, hpq_xq, hpp_xp)
             grad_max = np.amax (np.abs (grad))
             log.info ('Cycle %d: max grad = %e ; e = %e, |delta| = %e',
@@ -412,7 +412,7 @@ class ExcitationPSFCISolver (ProductStateFCISolver):
         log.info (('Product_state fixed-point CI iteration {} after {} '
                    'cycles').format (conv_str, it))
         if not converged:
-            ci1 = self.get_init_guess (ci1, norb_f, nelec_f, h1, h2)
+            ci1 = self.get_init_guess (ci1, norb_f, nelec_f, h1, h2, nroots=nroots)
             # Issue #86: see above, same problem
             self._debug_csfs (log, ci0, ci1, norb_f, nelec_f, grad)
         return converged, e, ci1
@@ -450,7 +450,7 @@ class ExcitationPSFCISolver (ProductStateFCISolver):
             hci_f_pab.append (hci_pab)
         return hci_f_pab
 
-    def get_hpp_xp (self, h1, h2, ci0, norb_f, nelec_f, ecore=0, nroots=1, **kwargs):
+    def get_hpp_xp (self, h1, h2, ci0, si_p, norb_f, nelec_f, ecore=0, nroots=1, **kwargs):
         nfrag = len (ci0)
         h1eff = [[] for i in range (nfrag)]
         h0eff = []
@@ -473,9 +473,10 @@ class ExcitationPSFCISolver (ProductStateFCISolver):
             nelec = self._get_nelec (solver, ne)
             h2e = h2[i:j,i:j,i:j,i:j]
             hc = []
-            for col, h1e, h0e in zip (c, h1ef, h0ef):
+            for col, h1e, h0e, s in zip (c, h1ef, h0ef, si_p):
+                scol = s * col
                 h2e = solver.absorb_h1e (h1e, h2e, no, nelec, 0.5)
-                hcol = solver.contract_2e (h2e, col, no, nelec) + (h0e * col)
+                hcol = solver.contract_2e (h2e, scol, no, nelec) + (h0e * scol)
                 hc.append (hcol)
             c, hc = np.asarray (c), np.asarray (hc) 
             chc = np.dot (np.asarray (c).reshape (nroots,-1).conj (),
