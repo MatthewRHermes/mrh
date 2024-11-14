@@ -1,8 +1,10 @@
 #
 # Definition of MACROS
 
+BASE_LIBGPU=../../src
+
 BINROOT=./
-EXE=libgpu.so
+EXE=a.out
 SHELL=/bin/sh
 CXX = g++
 CXXFLAGS=
@@ -15,12 +17,9 @@ CPP=cpp -P -traditional
 INSTALL=../
 
 ARCH ?= polaris-cpu-gnu
-include arch/$(ARCH)
+include $(BASE_LIBGPU)/arch/$(ARCH)
 
-# couple more flags to build shared library (allows arch files to be used for general app building)
-CXXFLAGS += -fPIC
-CUDA_CXXFLAGS += -shared -Xcompiler -fPIC
-LDFLAGS += -fPIC -shared
+CXXFLAGS += -I$(BASE_LIBGPU)
 
 $(info ARCH is [${ARCH}])
 
@@ -51,6 +50,10 @@ install: $(EXE)
 	cp $(EXE) $(INSTALL)
 #	cp $(MOD) $(FOBJ) $(INSTALL)/include
 
+update:
+	cp ../../src/pm*.cpp ./
+	cp ../../src/mathlib*.cpp ./
+
 ####################################################################
 
 $(COBJ): %.o: %.cpp
@@ -75,17 +78,8 @@ realclean:
 	rm -f $(INSTALL)/$(EXE)
 	rm -rf $(EXE).dSYM
 	rm -f *.optrpt
+	rm -f pm*.cpp
+	rm -f mathlib*.cpp
 
 #
 # -- Simple dependencies
-
-libgpu.o : libgpu.cpp libgpu.h
-
-pm_cuda.o : pm_cuda.cpp pm_cuda.h pm.h
-pm_host.o : pm_host.cpp pm_host.h pm.h
-pm_openmp.o : pm_openmp.cpp pm_openmp.h pm.h
-
-device_cuda.o : device_cuda.cpp device.h
-device_host.o : device_host.cpp device.h
-device_openmp.o : device_openmp.cpp device.h
-device.o : device.cpp device.h

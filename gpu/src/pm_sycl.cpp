@@ -1,4 +1,4 @@
-#if defined(_GPU_SYCL_CUDA)
+#if defined(_GPU_SYCL) || defined(_GPU_SYCL_CUDA)
 
 #include <stdio.h>
 #include <iostream>
@@ -343,7 +343,21 @@ void PM::dev_barrier()
 #endif
 }
 
-#if 1
+#if defined(_GPU_SYCL_CUDA)
+
+int PM::dev_stream_create()
+{
+#ifdef _DEBUG_PM
+  printf("Inside PM::dev_stream_create()\n");
+#endif
+
+  // return stream that corresponds to sycl current queue
+  
+#ifdef _DEBUG_PM
+  printf(" -- Leaving PM::dev_stream_create()\n");
+#endif
+  return current_queue_id;
+}
 
 void PM::dev_stream_create(cudaStream_t & s)
 {
@@ -351,11 +365,27 @@ void PM::dev_stream_create(cudaStream_t & s)
   printf("Inside PM::dev_stream_create()\n");
 #endif
 
-  // return stream that corresponds to sycl queue
+  // return stream that corresponds to current sycl queue
   s = sycl::get_native<sycl::backend::ext_oneapi_cuda>(*current_queue);
   
 #ifdef _DEBUG_PM
   printf(" -- Leaving PM::dev_stream_create()\n");
+#endif
+}
+
+void PM::dev_stream_destroy()
+{
+#ifdef _DEBUG_PM
+  printf("Inside PM::dev_stream_destroy()\n");
+#endif
+  
+  // don't think we should destroy any queues at this point
+  
+  // cudaStreamDestroy(s);
+  // _CUDA_CHECK_ERRORS();
+  
+#ifdef _DEBUG_PM
+  printf(" -- Leaving PM::dev_stream_destroy()\n");
 #endif
 }
 
@@ -389,7 +419,23 @@ void PM::dev_stream_wait(cudaStream_t & s)
   printf(" -- Leaving PM::dev_stream_wait()\n");
 #endif
 }
+
 #else
+
+void PM::dev_stream_create()
+{
+#ifdef _DEBUG_PM
+  printf("Inside PM::dev_stream_create()\n");
+#endif
+  
+  // just return queue already created
+  q = *current_queue;
+  
+#ifdef _DEBUG_PM
+  printf(" -- Leaving PM::dev_stream_create()\n");
+#endif
+}
+
 void PM::dev_stream_create(sycl::queue & q)
 {
 #ifdef _DEBUG_PM
@@ -397,10 +443,23 @@ void PM::dev_stream_create(sycl::queue & q)
 #endif
 
   // just return queue already created
-  q = current_queue;
+  q = *current_queue;
   
 #ifdef _DEBUG_PM
   printf(" -- Leaving PM::dev_stream_create()\n");
+#endif
+}
+
+void PM::dev_stream_destroy()
+{
+#ifdef _DEBUG_PM
+  printf("Inside PM::dev_stream_destroy()\n");
+#endif
+
+  // don't think we should destroy any sycl queues at this point
+  
+#ifdef _DEBUG_PM
+  printf(" -- Leaving PM::dev_stream_destroy()\n");
 #endif
 }
 
@@ -410,7 +469,7 @@ void PM::dev_stream_destroy(sycl::queue & q)
   printf("Inside PM::dev_stream_destroy()\n");
 #endif
 
-  // don't think we should destroy any queues at this point
+  // don't think we should destroy any sycl queues at this point
   
 #ifdef _DEBUG_PM
   printf(" -- Leaving PM::dev_stream_destroy()\n");
@@ -430,6 +489,20 @@ void PM::dev_stream_wait(sycl::queue & q)
 #endif
 }
 #endif
+
+void PM::dev_set_queue(int id)
+{
+#ifdef _DEBUG_PM
+  printf("Inside PM::dev_set_queue()\n");
+#endif
+
+  current_queue = &(my_queues[id]);
+  current_queue_id = id;
+
+#ifdef _DEBUG_PM
+  printf(" -- Leaving PM::dev_set_queue()\n");
+#endif
+}
 
 sycl::queue * PM::dev_get_queue()
 {

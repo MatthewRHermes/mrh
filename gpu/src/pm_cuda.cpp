@@ -111,6 +111,9 @@ void PM::dev_set_device(int id)
   cudaSetDevice(id);
   _CUDA_CHECK_ERRORS();
 
+  current_queue = &(my_queues[id]);
+  current_queue_id = id;
+
 #ifdef _DEBUG_PM
   printf(" -- Leaving PM::dev_set_devices()\n");
 #endif
@@ -125,6 +128,8 @@ int PM::dev_get_device()
   int id;
   cudaGetDevice(&id);
   _CUDA_CHECK_ERRORS();
+
+  current_queue_id = id; // matches whatever cudaGetDevice() returns
 
 #ifdef _DEBUG_PM
   printf(" -- Leaving PM::dev_get_device() : id= %i\n",id);
@@ -329,24 +334,66 @@ void PM::dev_barrier()
 #endif
 }
 
-void PM::dev_stream_create(cudaStream_t & s)
+int PM::dev_stream_create()
 {
 #ifdef _DEBUG_PM
   printf("Inside PM::dev_stream_create()\n");
 #endif
+
+  cudaStream_t s;
+
+  cudaStreamCreate(&s);
+  
+  my_queues.push_back(s);
+
+  int id = my_queues.size() - 1;
+  
+  _CUDA_CHECK_ERRORS();
+  
+#ifdef _DEBUG_PM
+  printf(" -- Leaving PM::dev_stream_create()\n");
+#endif
+  return id;
+}
+
+void PM::dev_stream_create(cudaStream_t & s)
+{
+#ifdef _DEBUG_PM
+  printf("Inside PM::dev_stream_create(s)\n");
+#endif
   
   cudaStreamCreate(&s);
   _CUDA_CHECK_ERRORS();
+
+  my_queues.push_back(s);
   
 #ifdef _DEBUG_PM
   printf(" -- Leaving PM::dev_stream_create()\n");
 #endif
 }
 
-void PM::dev_stream_destroy(cudaStream_t & s)
+void PM::dev_stream_destroy()
 {
 #ifdef _DEBUG_PM
   printf("Inside PM::dev_stream_destroy()\n");
+#endif
+
+  int id = current_queue_id;
+  
+  cudaStreamDestroy(my_queues[id]);
+  _CUDA_CHECK_ERRORS();
+
+  my_queues[id] = NULL;
+  
+#ifdef _DEBUG_PM
+  printf(" -- Leaving PM::dev_stream_destroy()\n");
+#endif
+}
+
+void PM::dev_stream_destroy(cudaStream_t & s)
+{
+#ifdef _DEBUG_PM
+  printf("Inside PM::dev_stream_destroy(s)\n");
 #endif
   
   cudaStreamDestroy(s);
@@ -369,6 +416,35 @@ void PM::dev_stream_wait(cudaStream_t & s)
 #ifdef _DEBUG_PM
   printf(" -- Leaving PM::dev_stream_wait()\n");
 #endif
+}
+
+void PM::dev_set_queue(int id)
+{
+#ifdef _DEBUG_PM
+  printf("Inside PM::dev_set_queue()\n");
+#endif
+
+  current_queue = &(my_queues[id]);
+  current_queue_id = id;
+
+#ifdef _DEBUG_PM
+  printf(" -- Leaving PM::dev_set_queue()\n");
+#endif
+}
+
+cudaStream_t * PM::dev_get_queue()
+{
+#ifdef _DEBUG_PM
+  printf("Inside PM::dev_get_queue()\n");
+#endif
+
+  cudaStream_t * q = current_queue;
+  
+#ifdef _DEBUG_PM
+  printf(" -- Leaving PM::dev_get_queue()\n");
+#endif
+
+  return q;
 }
 
 #endif

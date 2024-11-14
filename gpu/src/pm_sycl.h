@@ -1,4 +1,4 @@
-#if defined(_GPU_SYCL_CUDA)
+#if defined(_GPU_SYCL) || defined(_GPU_SYCL_CUDA)
 
 #ifndef PM_SYCL_CUDA_H
 #define PM_SYCL_CUDA_H
@@ -6,14 +6,17 @@
 #include <sycl/sycl.hpp>
 
 //#include <cuda_runtime_api.h>
-#include "cublas_v2.h"
 
+#if defined(_GPU_SYCL_CUDA)
+#include "cublas_v2.h"
 #include "nvToolsExt.h"
+#endif
 
 #include <iostream>
 
 namespace PM_NS {
-  
+
+#if defined(_GPU_SYCL_CUDA)
 #define _CUDA_CHECK_ERRORS()               \
   {					   \
     cudaError err = cudaGetLastError();	   \
@@ -41,6 +44,7 @@ namespace PM_NS {
       return 1;				   \
     }					   \
   }
+#endif
   
   class PM {
     
@@ -75,10 +79,10 @@ namespace PM_NS {
 
     void dev_check_pointer(int, const char *, void *);
 
-    void uuid_print(std::array<unsigned char, 16>);
-
-#if 1
+#if defined(_GPU_SYCL_CUDA)
+    int dev_stream_create();
     void dev_stream_create(cudaStream_t & s);
+    void dev_stream_destroy();
     void dev_stream_destroy(cudaStream_t & s);
     void dev_stream_wait(cudaStream_t & s);
 #else
@@ -87,9 +91,13 @@ namespace PM_NS {
     void dev_stream_wait(sycl::queue & q);
 #endif
     
+    void dev_set_queue(int);
     sycl::queue * dev_get_queue();
     
   private:
+    
+    void uuid_print(std::array<unsigned char, 16>);
+    
     std::vector<sycl::queue> my_queues;
     sycl::queue * current_queue;
     int current_queue_id;

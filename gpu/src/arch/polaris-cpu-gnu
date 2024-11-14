@@ -16,4 +16,4 @@ LD = $(FC)
 LDFLAGS = -fopenmp
 #LDFLAGS += -fPIC -shared
 LIB = -lstdc++
-LIB += -L/home/knight/soft/polaris/lapack/lib -llapack -lrefblas -lgfortran
+LIB += /grand/LASSCF_gpudev/knight/soft/openblas/lib/libopenblas.so
