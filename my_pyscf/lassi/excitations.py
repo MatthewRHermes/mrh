@@ -442,9 +442,10 @@ class ExcitationPSFCISolver (ProductStateFCISolver):
         log.info ('Entering product-state fixed-point CI iteration')
         ci1 = ci0 = self.get_init_guess (ci1, norb_f, nelec_f, h1, h2, nroots=nroots)
         disc_sval_sum = 0
+        ham_pq = None
         for it in range (max_cycle_macro):
             e_last = e
-            e, si_p, si_q, ci0 = self._eig (h0, h1, h2, ci1, nroots=nroots)[:4]
+            e, si_p, si_q, ci0 = self._eig (h0, h1, h2, ci1, nroots=nroots, ham_pq=ham_pq)[:4]
             hpq_xq = self.get_hpq_xq (h1, h2, ci0, si_q)
             hpp_xp = self.get_hpp_xp (h1, h2, ci0, si_p, norb_f, nelec_f, ecore=h0, nroots=nroots)
             grad = self._get_grad (ci0, si_p, hpq_xq, hpp_xp, nroots=nroots)
@@ -452,10 +453,9 @@ class ExcitationPSFCISolver (ProductStateFCISolver):
             log.info ('Cycle %d: max grad = %e ; e = %e, |delta| = %e, ||discarded|| = %e',
                       it, grad_max, e, e - e_last, disc_sval_sum)
             if ((grad_max < conv_tol_grad) and (abs (e-e_last) < conv_tol_self)):
-            #if abs (e-e_last) < conv_tol_self:
                 converged = True
                 break
-            ci1, disc_sval_sum = self._1shot (h0, h1, h2, ci0, hpq_xq, hpp_xp, nroots=nroots)
+            ci1, disc_sval_sum, ham_pq = self._1shot (h0, h1, h2, ci0, hpq_xq, hpp_xp, nroots=nroots)
         conv_str = ['NOT converged','converged'][int (converged)]
         log.info (('Product_state fixed-point CI iteration {} after {} '
                    'cycles').format (conv_str, it))
@@ -465,8 +465,8 @@ class ExcitationPSFCISolver (ProductStateFCISolver):
             self._debug_csfs (log, ci0, ci1, norb_f, nelec_f, grad, nroots=nroots)
         return converged, e, ci1
 
-    def _eig (self, h0, h1, h2, ci0, ovlp_thresh=1e-3, nroots=1):
-        ham_pq = self.get_ham_pq (h0, h1, h2, ci0) 
+    def _eig (self, h0, h1, h2, ci0, ovlp_thresh=1e-3, nroots=1, ham_pq=None):
+        if ham_pq is None: ham_pq = self.get_ham_pq (h0, h1, h2, ci0) 
         lroots = get_lroots (ci0)
         p = np.prod (lroots)
         e, si = lowest_refovlp_eigpair (ham_pq, p=p, ovlp_thresh=ovlp_thresh, log=self.log)
@@ -482,9 +482,18 @@ class ExcitationPSFCISolver (ProductStateFCISolver):
         uh = u.conj ().T
         ci1 = [np.tensordot (vh, ci0[0], axes=1),
                np.tensordot (uh, ci0[1], axes=1)]
+        # Project ham_pq into selected space
+        nstates = ham_pq.shape[1]
+        h_pr = ham_pq[:p,:].reshape (lroots[1],lroots[0],nstates)
+        h_pr = np.dot (uh, np.dot (vh, h_pr)).reshape (nroots*nroots,nstates)
+        ham_pq = np.append (h_pr, ham_pq[p:,:], axis=0)
+        nstates = ham_pq.shape[0]
+        h_rp = ham_pq[:,:p].reshape (nstates,lroots[1],lroots[0])
+        h_rp = lib.einsum ('rij,ia,jb->rab', h_rp, u, v).reshape (nstates,nroots*nroots)
+        ham_pq = np.append (h_rp, ham_pq[:,p:], axis=1)
         si_p = svals
         si_q = si[p:]
-        return e, si_p, si_q, ci1, disc_svals
+        return e, si_p, si_q, ci1, disc_svals, ham_pq
 
     def get_hpq_xq (self, h1, h2, ci0, si_q):
         lroots = get_lroots (ci0)
@@ -592,10 +601,11 @@ class ExcitationPSFCISolver (ProductStateFCISolver):
                 x = s.transformer.vec_csf2det (x)
             ci1.append (x.reshape (nx, ndeta, ndetb))
             assert (x.shape[0]>=nroots), '{} {} {} {} {}'.format (x.shape, nroots, c0.shape, c1.shape, c2.shape)
-        e, si_p, si_q, ci1, disc_svals = self._eig (h0, h1, h2, ci1, ovlp_thresh=ovlp_thresh,
-                                                    nroots=nroots)
+        e, si_p, si_q, ci1, disc_svals, ham_pq = self._eig (
+            h0, h1, h2, ci1, ovlp_thresh=ovlp_thresh, nroots=nroots
+        )
         self.log.debug ('Discarded singular values: {}'.format (disc_svals))
-        return ci1, sum (disc_svals)
+        return ci1, sum (disc_svals), ham_pq
 
 class VRVDressedFCISolver (object):
     '''Minimize the energy of a wave function of the form
