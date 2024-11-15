@@ -91,7 +91,8 @@ class ProductStateFCISolver (StateAverageNMixFCISolver, lib.StreamObject):
         ci1 = [c for c in ci0] # reference safety
         if h1.ndim < 3: h1 = np.stack ([h1, h1], axis=0)
         for ix, (no, ne, solver) in enumerate (zip (norb_f, nelec_f, self.fcisolvers)):
-            snroots = solver.nroots if nroots is None else nroots
+            solver.check_transformer_cache ()
+            snroots = solver.nroots if nroots is None else min (nroots, solver.transformer.ncsf)
             nelec = self._get_nelec (solver, ne)
             i = sum (norb_f[:ix])
             j = i + norb_f[ix]
@@ -126,7 +127,8 @@ class ProductStateFCISolver (StateAverageNMixFCISolver, lib.StreamObject):
         ci1 = []
         if ci0 is None: ci0 = [None for i in range (len (norb_f))]
         for ix, (no, ne, solver) in enumerate (zip (norb_f, nelec_f, self.fcisolvers)):
-            snroots = solver.nroots if nroots is None else nroots
+            solver.check_transformer_cache ()
+            snroots = solver.nroots if nroots is None else min (nroots, solver.transformer.ncsf)
             nelec = self._get_nelec (solver, ne)
             neleca, nelecb = nelec
             na = cistring.num_strings (no, neleca)
