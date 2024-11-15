@@ -603,7 +603,7 @@ class LASSIS (LASSI):
         self.crash_locmin = crash_locmin
         self.e_states_meaningless = True # a tag to silence an invalid warning
         LASSI.__init__(self, las, opt=opt, **kwargs)
-        self.max_cycle_macro = 200
+        self.max_cycle_macro = 50
         self.conv_tol_self = 1e-8
         self.ci_spin_flips = [[None for s in range (2)] for i in range (self.nfrags)]
         self.ci_charge_hops = [[[[None,None] for s in range (4)]

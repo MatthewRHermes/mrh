@@ -2,6 +2,7 @@ import copy
 import numpy as np
 import ctypes
 from scipy import linalg
+from pyscf.lib import logger
 from pyscf.fci import cistring
 from pyscf.fci import direct_nosym
 from pyscf.fci.direct_spin1 import _unpack_nelec, trans_rdm12s, libfci, FCIvector
@@ -25,14 +26,21 @@ def lowest_refovlp_eigpair (ham_pq, p=1, ovlp_thresh=LOWEST_REFOVLP_EIGVAL_THRES
     ''' Identify the lowest-energy eigenpair for which the eigenvector has nonzero overlap with
     the first p basis functions. '''
     e_all, u_all = linalg.eigh (ham_pq)
-    w = (u_all[:p,:].conj () * u_all[:p,:]).sum (0) / p
-    idx_valid = w > ovlp_thresh
+    w_pp = (u_all[:p,:].conj () * u_all[:p,:]).sum (0) / p
+    w_q0q0 = u_all[p,:].conj () * u_all[p,:]
+    w_pq0 = np.abs (u_all[:p,:].conj () * u_all[p,:][None,:]).sum (0)
+    idx_valid = w_q0q0 > 0.1
     e_valid = e_all[idx_valid]
     u_valid = u_all[:,idx_valid]
     idx_choice = np.argmin (e_valid)
-    if log is not None:
-        log.debug ('eigenvalues of ham_pq: {}'.format (e_all))
-        log.debug ('corresponding weights: {}'.format (w))
+    if log is not None and log.verbose > logger.DEBUG:
+        log.debug2 ("Debugging eigenpair selection")
+        log.debug2 (" idx e w_pp w_q0q0 w_pq0")
+        i0 = np.where (idx_valid)[0][idx_choice]
+        for i in range (len (e_all)):
+            line = ' {} {} {} {} {}'.format (i,e_all[i],w_pp[i],w_q0q0[i],w_pq0[i])
+            if i==i0: line += ' selected'
+            log.debug2 (line)
     return e_valid[idx_choice], u_valid[:,idx_choice]
 
 def lowest_refovlp_eigval (ham_pq, p=1, ovlp_thresh=LOWEST_REFOVLP_EIGVAL_THRESH):
@@ -443,8 +451,8 @@ class ExcitationPSFCISolver (ProductStateFCISolver):
             grad_max = np.amax (np.abs (grad))
             log.info ('Cycle %d: max grad = %e ; e = %e, |delta| = %e, ||discarded|| = %e',
                       it, grad_max, e, e - e_last, disc_sval_sum)
-            #if ((grad_max < conv_tol_grad) and (abs (e-e_last) < conv_tol_self)):
-            if abs (e-e_last) < conv_tol_self:
+            if ((grad_max < conv_tol_grad) and (abs (e-e_last) < conv_tol_self)):
+            #if abs (e-e_last) < conv_tol_self:
                 converged = True
                 break
             ci1, disc_sval_sum = self._1shot (h0, h1, h2, ci0, hpq_xq, hpp_xp, nroots=nroots)

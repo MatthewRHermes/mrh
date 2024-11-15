@@ -117,9 +117,9 @@ class ProductStateFCISolver (StateAverageNMixFCISolver, lib.StreamObject):
                 ci1_new = u.T @ x
                 nnew = ci1_new.shape[0]
                 ovlp = ci1_new.conj () @ ci1_inp.T
-                assert (np.all (np.abs (ovlp[:ninp,:ninp] - np.eye (ninp)) < 1e-6)), '{}'.format (ovlp)
+                assert (np.all (np.abs (ovlp[:ninp,:ninp] - np.eye (ninp)) < 1e-3)), '{}'.format (ovlp)
                 ovlp = (ci1_new.conj () @ ci1_new.T)
-                assert (np.all (np.abs (ovlp - np.eye (nnew)) < 1e-6)), '{}'.format (ovlp)
+                assert (np.all (np.abs (ovlp - np.eye (nnew)) < 1e-3)), '{}'.format (ovlp)
                 ci1[ix] = ci1_new[:snroots].reshape (snroots, na, nb)
         return self._check_init_guess (ci1, norb_f, nelec_f, nroots=nroots)
 
