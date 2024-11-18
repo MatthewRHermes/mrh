@@ -316,15 +316,42 @@ class ExcitationPSFCISolver (ProductStateFCISolver):
         if orbsym is not None:
             idx = self.get_excited_orb_idx ()
             orbsym = [orbsym[iorb] for iorb in range (norb_tot) if idx[iorb]]
-        # TODO: point group symmetry; I probably also have to do something to wfnsym
-        ci0, vrvsolvers, e_q, si_q = self.prepare_vrvsolvers_(h0, h1, h2, ci0=ci0, nroots=nroots)
-        with _vrvloop_env (self, vrvsolvers, e_q, si_q):
-            converged, energy_elec, ci1_active = self.fixedpoint (
-                h1, h2, norb_f, nelec_f, ecore=h0, ci0=ci0, orbsym=orbsym,
-                conv_tol_grad=conv_tol_grad, conv_tol_self=conv_tol_self,
-                max_cycle_macro=max_cycle_macro, serialfrag=serialfrag,
-                nroots=nroots, **kwargs
-            )
+        ci0 = self.get_init_guess (ci0, norb_f, nelec_f, h1, h2, nroots=3*nroots)
+        ham_pq = self.get_ham_pq (h0, h1, h2, ci0)
+        ci0 = self._eig (ham_pq, ci0, nroots=nroots)[3]
+        log = self.log
+        converged = False
+        e = 0
+        ci1 = ci0
+        log.info ('Entering product-state fixed-point CI iteration')
+        ci1 = ci0 = self.get_init_guess (ci1, norb_f, nelec_f, h1, h2, nroots=nroots)
+        disc_sval_sum = 0
+        ham_pq = self.get_ham_pq (h0, h1, h2, ci1)
+        for it in range (max_cycle_macro):
+            e_last = e
+            e, si_p, si_q, ci0 = self._eig (ham_pq, ci1, nroots=nroots)[:4]
+            hci_qspace = self.op_ham_pq_ref (h1, h2, ci0)
+            hci_pspace_diag = self.op_ham_pp_diag (h1, h2, ci0, norb_f, nelec_f)
+            tdm1s_f = self.get_tdm1s_f (ci0, ci0, norb_f, nelec_f)
+            hpq_xq = self.get_hpq_xq (hci_qspace, ci0, si_q)
+            hpp_xp = self.get_hpp_xp (ci0, si_p, hci_pspace_diag, h0, h2, tdm1s_f, norb_f, nelec_f)
+            grad = self._get_grad (ci0, si_p, hpq_xq, hpp_xp, nroots=nroots)
+            grad_max = np.amax (np.abs (grad))
+            log.info ('Cycle %d: max grad = %e ; e = %e, |delta| = %e, ||discarded|| = %e',
+                      it, grad_max, e, e - e_last, disc_sval_sum)
+            if ((grad_max < conv_tol_grad) and (abs (e-e_last) < conv_tol_self)):
+                converged = True
+                break
+            ci1, disc_sval_sum, ham_pq = self._1shot (h0, h1, h2, ci0, hpq_xq, hpp_xp, nroots=nroots)
+        conv_str = ['NOT converged','converged'][int (converged)]
+        log.info (('Product_state fixed-point CI iteration {} after {} '
+                   'cycles').format (conv_str, it))
+        if not converged:
+            ci1 = self.get_init_guess (ci1, norb_f, nelec_f, h1, h2, nroots=nroots)
+            # Issue #86: see above, same problem
+            self._debug_csfs (log, ci0, ci1, norb_f, nelec_f, grad, nroots=nroots)
+        energy_elec = e
+        ci1_active = ci1
         ci1 = [c for c in self.ci_ref]
         for ifrag, c in zip (self.excited_frags, ci1_active):
             ci1[ifrag] = np.asarray (c)
