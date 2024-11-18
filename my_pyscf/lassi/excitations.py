@@ -204,10 +204,18 @@ class ExcitationPSFCISolver (ProductStateFCISolver):
             self.excited_frags = [self.excited_frags[i] for i in idx]
             self.fcisolvers = [self.fcisolvers[i] for i in idx]
 
+    def check_orth (self, ci):
+        for ifrag in range (len (ci)):
+            nx = len (ci[ifrag])
+            x = ci[ifrag].reshape (nx,-1)
+            ovlp = x.conj () @ x.T
+            assert (np.amax (np.abs (ovlp-np.eye (nx))) < 1e-8), '{} {}'.format (ifrag, ovlp)
+
     def kernel (self, h1, h2, ecore=0, ci0=None,
                 conv_tol_grad=1e-4, conv_tol_self=1e-6, max_cycle_macro=50,
                 serialfrag=False, nroots=1, **kwargs):
         h0, h1, h2 = self.get_excited_h (ecore, h1, h2)
+        log = self.log
         norb_f = np.asarray ([self.norb_ref[ifrag] for ifrag in self.excited_frags])
         nelec_f = np.asarray ([self.nelec_ref[ifrag] for ifrag in self.excited_frags])
         orbsym = self.orbsym_ref
@@ -215,32 +223,40 @@ class ExcitationPSFCISolver (ProductStateFCISolver):
             idx = self.get_excited_orb_idx ()
             orbsym = [orbsym[iorb] for iorb in range (norb_tot) if idx[iorb]]
         ci0 = self.get_init_guess (ci0, norb_f, nelec_f, h1, h2, nroots=3*nroots)
+        self.check_orth (ci0)
         ham_pq = self.get_ham_pq (h0, h1, h2, ci0)
-        ci0 = self._eig (ham_pq, ci0, nroots=nroots)[3]
-        log = self.log
-        converged = False
+        ci1, disc_svals, ham_pq = self._eig (ham_pq, ci0, nroots=nroots)[3:]
+        self.check_orth (ci1)
         e = 0
-        ci1 = ci0
+        disc_sval_sum = sum (disc_svals)
+        converged = False
         log.info ('Entering product-state fixed-point CI iteration')
-        ci1 = ci0 = self.get_init_guess (ci1, norb_f, nelec_f, h1, h2, nroots=nroots)
-        disc_sval_sum = 0
-        ham_pq = self.get_ham_pq (h0, h1, h2, ci1)
         for it in range (max_cycle_macro):
             e_last = e
-            e, si_p, si_q, ci0 = self._eig (ham_pq, ci1, nroots=nroots)[:4]
-            hci_qspace = self.op_ham_pq_ref (h1, h2, ci0)
-            hci_pspace_diag = self.op_ham_pp_diag (h1, h2, ci0, norb_f, nelec_f)
-            tdm1s_f = self.get_tdm1s_f (ci0, ci0, norb_f, nelec_f)
-            hpq_xq = self.get_hpq_xq (hci_qspace, ci0, si_q)
-            hpp_xp = self.get_hpp_xp (ci0, si_p, hci_pspace_diag, h0, h2, tdm1s_f, norb_f, nelec_f)
-            grad = self._get_grad (ci0, si_p, hpq_xq, hpp_xp, nroots=nroots)
+            ci0 = ci1
+            e, si_p, si_q, ci1 = self._eig (ham_pq, ci0, nroots=nroots)[:4]
+            self.check_orth (ci1)
+            hci_qspace = self.op_ham_pq_ref (h1, h2, ci1)
+            hci_pspace_diag = self.op_ham_pp_diag (h1, h2, ci1, norb_f, nelec_f)
+            tdm1s_f = self.get_tdm1s_f (ci1, ci1, norb_f, nelec_f)
+            hpq_xq = self.get_hpq_xq (hci_qspace, ci1, si_q)
+            hpp_xp = self.get_hpp_xp (ci1, si_p, hci_pspace_diag, h0, h2, tdm1s_f, norb_f, nelec_f)
+            grad = self._get_grad (ci1, si_p, hpq_xq, hpp_xp, nroots=nroots)
             grad_max = np.amax (np.abs (grad))
             log.info ('Cycle %d: max grad = %e ; e = %e, |delta| = %e, ||discarded|| = %e',
                       it, grad_max, e, e - e_last, disc_sval_sum)
             if ((grad_max < conv_tol_grad) and (abs (e-e_last) < conv_tol_self)):
                 converged = True
                 break
-            ci1, disc_sval_sum, ham_pq = self._1shot (h0, h1, h2, ci0, hpq_xq, hpp_xp, nroots=nroots)
+            ci1 = self.get_new_vecs (ci1, hpq_xq, hpp_xp, nroots=nroots)
+            self.check_orth (ci1)
+            ham_pq = self.get_ham_pq (h0, h1, h2, ci1)
+            _, _, _, ci1, disc_svals, ham_pq = self._eig (
+                ham_pq, ci1, nroots=nroots
+            )
+            self.check_orth (ci1)
+            log.debug ('Discarded singular values: {}'.format (disc_svals))
+            disc_sval_sum = sum (disc_svals)
         conv_str = ['NOT converged','converged'][int (converged)]
         log.info (('Product_state fixed-point CI iteration {} after {} '
                    'cycles').format (conv_str, it))
@@ -492,32 +508,70 @@ class ExcitationPSFCISolver (ProductStateFCISolver):
                 grad.append (i[np.tril_indices (nroots, k=-1)])
         return np.concatenate (grad)
 
-    def _1shot (self, h0, h1, h2, ci0, hpq_xq, hpp_xp, nroots=1, ovlp_thresh=1e-3):
-        # Diagonalize in an extended basis
+    def get_new_vecs (self, ci0, hpq_xq, hpp_xp, nroots=1):
         ci1 = []
-        for s, c0, c1, c2 in zip (self.fcisolvers, ci0, hpq_xq, hpp_xp):
+        lroots = get_lroots (ci0)
+        self.check_orth (ci0)
+        for s, c0, c1, c2, nx0 in zip (self.fcisolvers, ci0, hpq_xq, hpp_xp, lroots):
             x = np.concatenate ([c0,c1,c2],axis=0)
             if isinstance (s, CSFFCISolver):
                 ndeta, ndetb = s.transformer.ndeta, s.transformer.ndetb
                 x = s.transformer.vec_det2csf (x)
+                x0 = s.transformer.vec_det2csf (c0)
             else:
                 nx, ndeta, ndetb = x.shape
                 x = x.reshape (nx, ndeta*ndetb)
+                x0 = c0.reshape (len (c0), ndeta*ndetb)
+            # normalize vecs
             x_norm = linalg.norm (x, axis=1)
             x = x[x_norm>0,:]
             x_norm = x_norm[x_norm>0]
             x /= x_norm[:,None]
+            # canonical orthogonalization
             ovlp = x.conj () @ x.T
+            evals, evecs = linalg.eigh (ovlp)
             x = canonical_orth_(ovlp).T @ x
             nx = len (x)
+            # line up with c0
+            ovlp = x0.conj () @ x.T
+            u, svals, vh = linalg.svd (ovlp, full_matrices=True)
+            vh[:nx0] = u @ vh[:nx0]
+            x = vh @ x
             if isinstance (s, CSFFCISolver):
+                assert (nx <= s.transformer.ncsf), '{}'.format (evals)
                 x = s.transformer.vec_csf2det (x)
+            assert (x.shape[0] >= nroots), '{} {} {} {} {} {}'.format (
+                x.shape, nx0, nroots, c0.shape, c1.shape, c2.shape
+            )
             ci1.append (x.reshape (nx, ndeta, ndetb))
-            assert (x.shape[0]>=nroots), '{} {} {} {} {}'.format (x.shape, nroots, c0.shape, c1.shape, c2.shape)
-        ham_pq = self.get_ham_pq (h0, h1, h2, ci1)
-        e, si_p, si_q, ci1, disc_svals, ham_pq = self._eig (
-            ham_pq, ci1, ovlp_thresh=ovlp_thresh, nroots=nroots
+        return ci1
+
+    def get_init_guess (self, ci0, norb_f, nelec_f, h1, h2, nroots=None):
+        ''' Make sure initial guess is orthonormal '''
+        ci0 = ProductStateFCISolver.get_init_guess (
+            self, ci0, norb_f, nelec_f, h1, h2, nroots=nroots
         )
-        self.log.debug ('Discarded singular values: {}'.format (disc_svals))
-        return ci1, sum (disc_svals), ham_pq
+        for ifrag in range (len (ci0)):
+            s = self.fcisolvers[ifrag]
+            if isinstance (s, CSFFCISolver):
+                ndeta, ndetb = s.transformer.ndeta, s.transformer.ndetb
+                x0 = s.transformer.vec_det2csf (ci0[ifrag])
+            else:
+                nx, ndeta, ndetb = ci0[ifrag].shape
+                x0 = ci0[ifrag].reshape (nx, ndeta*ndetb)
+            ovlp = x0.conj () @ x0.T
+            x = canonical_orth_(ovlp).T @ x0
+            nx = len (x)
+            ovlp = x0.conj () @ x.T
+            u, svals, vh = linalg.svd (ovlp)
+            k = len (svals)
+            vh[:k,:k] = u[:k,:k] @ vh[:k,:k]
+            x = vh @ x
+            if isinstance (s, CSFFCISolver):
+                ci0[ifrag] = s.transformer.vec_csf2det (x).reshape (nx, ndeta, ndetb)
+            else:
+                ci0[ifrag] = x.reshape (nx, ndeta, ndetb)
+        return ci0
+
+
 
