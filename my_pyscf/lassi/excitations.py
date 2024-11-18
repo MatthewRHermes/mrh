@@ -457,7 +457,6 @@ class ExcitationPSFCISolver (ProductStateFCISolver):
             tdm1s_f = self.get_tdm1s_f (ci0, ci0, norb_f, nelec_f)
             hpq_xq = self.get_hpq_xq (hci_qspace, ci0, si_q)
             hpp_xp = self.get_hpp_xp (ci0, si_p, hci_pspace_diag, h0, h2, tdm1s_f, norb_f, nelec_f)
-            self.test_hpp_xp (hpp_xp, h1, h2, ci0, si_p, norb_f, nelec_f, ecore=h0, nroots=nroots)
             grad = self._get_grad (ci0, si_p, hpq_xq, hpp_xp, nroots=nroots)
             grad_max = np.amax (np.abs (grad))
             log.info ('Cycle %d: max grad = %e ; e = %e, |delta| = %e, ||discarded|| = %e',
@@ -608,66 +607,6 @@ class ExcitationPSFCISolver (ProductStateFCISolver):
             hc = hc - np.tensordot (chc, c, axes=1)
             hci_f_pab[ifrag] = hc
         return hci_f_pab
-
-    def test_hpp_xp (self, test, h1, h2, ci0, si_p, norb_f, nelec_f, ecore=0, nroots=1, **kwargs):
-        nfrag = len (ci0)
-        h1eff = [[] for i in range (nfrag)]
-        h0eff = []
-        lroots = get_lroots (ci0)
-        assert (len (lroots) == 2)
-        assert (lroots[0] == lroots[1]), '{} {}'.format (lroots, nroots)
-        nroots = lroots[0]
-        for iroot in range (nroots):
-            c = [x[iroot] for x in ci0]
-            h1e, h0e = self.project_hfrag (h1, h2, c, norb_f, nelec_f, ecore=ecore, **kwargs)[:2]
-            for ifrag in range (nfrag):
-                h1eff[ifrag].append (h1e[ifrag])
-            h0eff.append (h0e)
-        h0eff = np.asarray (h0eff).T
-        nj = np.cumsum (norb_f)
-        ni = nj - norb_f
-        zipper = [h1eff, h0eff, ci0, norb_f, nelec_f, self.fcisolvers, ni, nj, lroots]
-        hci_f_pab = []
-        for ifrag, (h1ef, h0ef, c, no, ne, solver, i, j, nroots) in enumerate (zip (*zipper)):
-            jfrag = 1 if ifrag==0 else 0
-            k, l = ni[jfrag], nj[jfrag]
-            nelec = self._get_nelec (solver, ne)
-            nelec_j = self._get_nelec (self.fcisolvers[jfrag], nelec_f[jfrag])
-            h2e = h2[i:j,i:j,i:j,i:j]
-            h2e_j = h2[i:j,i:j,k:l,k:l]
-            h2e_k = h2[i:j,k:l,k:l,i:j].transpose (0,3,2,1)
-            hc = []
-            # Diagonal part: Cn <nKnL|H|*KnL> Cn
-            for iroot, (icol, h1e, h0e, si) in enumerate (zip (c, h1ef, h0ef, si_p)):
-                h2eff = solver.absorb_h1e (h1e, h2e, no, nelec, 0.5)
-                hcol = solver.contract_2e (h2eff, icol, no, nelec) + (h0e * icol)
-                hc.append (si * hcol)
-                # Off-diagonal part: Cm <mKmL|H|*KnL> Cn
-                for jroot, (jcol, sj) in enumerate (zip (c, si_p)):
-                    if iroot==jroot: continue
-                    tdm1s = trans_rdm12s (ci0[jfrag][iroot], ci0[jfrag][jroot], norb_f[jfrag], nelec_j)[0]
-                    tdm1s = np.stack (tdm1s, axis=0).transpose (0, 2, 1)
-                    vj = np.tensordot (h2e_j, tdm1s.sum (0), axes=2)
-                    vk = np.tensordot (tdm1s, h2e_k, axes=((1,2),(2,3)))
-                    veff = vj[None,:,:] - vk
-                    hc[iroot] += sj * contract_1e_nosym (veff, jcol, no, nelec)
-            c, hc = np.asarray (c), np.asarray (hc)
-            chc = np.dot (np.asarray (c).reshape (nroots,-1).conj (),
-                          np.asarray (hc).reshape (nroots,-1).T).T
-            hc = hc - np.tensordot (chc, c, axes=1)
-            hci_f_pab.append (hc)
-        for ifrag in range (nfrag):
-            t = test[ifrag]
-            r = hci_f_pab[ifrag]
-            try:
-                assert (abs (lib.fp (t) - lib.fp (r)) < 1e-8)
-            except AssertionError as err:
-                print (ifrag)
-                print (t)
-                print (r)
-                raise (err)
-        return hci_f_pab
-
 
     def _get_grad (self, ci0, si_p, hpq_xq, hpp_xp, nroots=None):
         # Compute the gradient of the target interacting energy
