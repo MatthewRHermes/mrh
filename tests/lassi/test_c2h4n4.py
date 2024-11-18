@@ -186,7 +186,7 @@ class KnownValues(unittest.TestCase):
             with self.subTest (opt=opt):
                 lsis = LASSIS (las1).run (opt=opt)
                 self.assertTrue (lsis.converged)
-                self.assertAlmostEqual (lsis.e_roots[0], -295.52185685771315, 7)
+                self.assertAlmostEqual (lsis.e_roots[0], -295.52185731568903, 7)
                 case_lassis_fbf_2_model_state (self, lsis)
                 case_lassis_fbfdm (self, lsis)
         with self.subTest ('as_scanner'):

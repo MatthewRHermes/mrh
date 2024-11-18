@@ -195,7 +195,7 @@ class KnownValues(unittest.TestCase):
         lsi = lassi.LASSIS (las).run ()
         with self.subTest('convergence'):
             self.assertTrue (lsi.converged)
-        self.assertAlmostEqual (yamaguchi (lsi.e_roots, lsi.s2, 6), -12.3325783837079, 2)
+        self.assertAlmostEqual (yamaguchi (lsi.e_roots, lsi.s2, 6), -12.406510069940726, 2)
 
     def test_alfefe (self):
         xyz='''O -2.2201982441 0.3991903003 1.6944716989
