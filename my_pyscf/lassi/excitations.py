@@ -204,13 +204,6 @@ class ExcitationPSFCISolver (ProductStateFCISolver):
             self.excited_frags = [self.excited_frags[i] for i in idx]
             self.fcisolvers = [self.fcisolvers[i] for i in idx]
 
-    def check_orth (self, ci):
-        for ifrag in range (len (ci)):
-            nx = len (ci[ifrag])
-            x = ci[ifrag].reshape (nx,-1)
-            ovlp = x.conj () @ x.T
-            assert (np.amax (np.abs (ovlp-np.eye (nx))) < 1e-8), '{} {}'.format (ifrag, ovlp)
-
     def kernel (self, h1, h2, ecore=0, ci0=None,
                 conv_tol_grad=1e-4, conv_tol_self=1e-6, max_cycle_macro=50,
                 serialfrag=False, nroots=1, **kwargs):
@@ -223,10 +216,8 @@ class ExcitationPSFCISolver (ProductStateFCISolver):
             idx = self.get_excited_orb_idx ()
             orbsym = [orbsym[iorb] for iorb in range (norb_tot) if idx[iorb]]
         ci0 = self.get_init_guess (ci0, norb_f, nelec_f, h1, h2, nroots=3*nroots)
-        self.check_orth (ci0)
         ham_pq = self.get_ham_pq (h0, h1, h2, ci0)
         ci1, disc_svals, ham_pq = self._eig (ham_pq, ci0, nroots=nroots)[3:]
-        self.check_orth (ci1)
         e = 0
         disc_sval_sum = sum (disc_svals)
         converged = False
@@ -235,7 +226,6 @@ class ExcitationPSFCISolver (ProductStateFCISolver):
             e_last = e
             ci0 = ci1
             e, si_p, si_q, ci1 = self._eig (ham_pq, ci0, nroots=nroots)[:4]
-            self.check_orth (ci1)
             hci_qspace = self.op_ham_pq_ref (h1, h2, ci1)
             hci_pspace_diag = self.op_ham_pp_diag (h1, h2, ci1, norb_f, nelec_f)
             tdm1s_f = self.get_tdm1s_f (ci1, ci1, norb_f, nelec_f)
@@ -249,12 +239,10 @@ class ExcitationPSFCISolver (ProductStateFCISolver):
                 converged = True
                 break
             ci1 = self.get_new_vecs (ci1, hpq_xq, hpp_xp, nroots=nroots)
-            self.check_orth (ci1)
             ham_pq = self.get_ham_pq (h0, h1, h2, ci1)
             _, _, _, ci1, disc_svals, ham_pq = self._eig (
                 ham_pq, ci1, nroots=nroots
             )
-            self.check_orth (ci1)
             log.debug ('Discarded singular values: {}'.format (disc_svals))
             disc_sval_sum = sum (disc_svals)
         conv_str = ['NOT converged','converged'][int (converged)]
@@ -511,7 +499,6 @@ class ExcitationPSFCISolver (ProductStateFCISolver):
     def get_new_vecs (self, ci0, hpq_xq, hpp_xp, nroots=1):
         ci1 = []
         lroots = get_lroots (ci0)
-        self.check_orth (ci0)
         for s, c0, c1, c2, nx0 in zip (self.fcisolvers, ci0, hpq_xq, hpp_xp, lroots):
             x = np.concatenate ([c0,c1,c2],axis=0)
             if isinstance (s, CSFFCISolver):
