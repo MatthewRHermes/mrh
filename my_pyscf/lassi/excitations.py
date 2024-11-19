@@ -305,7 +305,7 @@ class ExcitationPSFCISolver (ProductStateFCISolver):
 
     def update_ham_pq (self, ham_pq, h0, h1, h2, ci, hci1_qspace, hci1_pspace_diag, tdm1s_f_1,
                        norb_f, nelec_f):
-        ref = self.get_ham_pq (h0, h1, h2, ci)
+        #ref = self.get_ham_pq (h0, h1, h2, ci)
         t0 = lib.logger.process_clock (), lib.logger.perf_counter ()
         #return ref
         nfrags = len (ci)
@@ -322,7 +322,7 @@ class ExcitationPSFCISolver (ProductStateFCISolver):
         # q,q sector
         ham_pq = np.zeros ((p+q,p+q), dtype=old_ham_pq.dtype)
         ham_pq[-q:,-q:] = old_ham_pq[-q:,-q:]        
-        assert (np.amax (np.abs (ham_pq[p:,p:] - ref[p:,p:])) < 1e-6)
+        #assert (np.amax (np.abs (ham_pq[p:,p:] - ref[p:,p:])) < 1e-6)
 
         # p,q sector
         h_pq = np.zeros ((lroots[1],lroots[0],q), dtype=ham_pq.dtype)
@@ -339,9 +339,9 @@ class ExcitationPSFCISolver (ProductStateFCISolver):
             )
         h_pq = h_pq.reshape (lroots[1]*lroots[0],q)
         ham_pq[:p,p:] = h_pq
-        assert (np.amax (np.abs (ham_pq[:p,p:] - ref[:p,p:])) < 1e-6)
+        #assert (np.amax (np.abs (ham_pq[:p,p:] - ref[:p,p:])) < 1e-6)
         ham_pq[p:,:p] = h_pq.conj ().T
-        assert (np.amax (np.abs (ham_pq[p:,:p] - ref[p:,:p])) < 1e-6)
+        #assert (np.amax (np.abs (ham_pq[p:,:p] - ref[p:,:p])) < 1e-6)
 
         # p,p sector - constant
         h_pp = np.zeros ((p,p), dtype=ham_pq.dtype)
@@ -381,24 +381,24 @@ class ExcitationPSFCISolver (ProductStateFCISolver):
                         h2[i:,:i,:i,i:])
         h_pp += w.transpose (0,2,1,3)
         ham_pq[:p,:p] = h_pp.reshape (lroots[1]*lroots[0], lroots[1]*lroots[0])
-        try:
-            assert (np.amax (np.abs (ham_pq[:p,:p] - ref[:p,:p])) < 1e-6), '{}-{}={}'.format (
-                lib.fp (ham_pq[:p,:p]), lib.fp (ref[:p,:p]), lib.fp (ham_pq[:p,:p])-lib.fp (ref[:p,:p]))
-        except AssertionError as err:
-            idx = np.argmax (np.abs (ham_pq[:p,:p]-ref[:p,:p]))
-            print (lroots, idx, ham_pq[:p,:p].flat[idx], ref[:p,:p].flat[idx], (ham_pq[:p,:p]-ref[:p,:p]).flat[idx])
-            raise (err)
+        #try:
+        #    assert (np.amax (np.abs (ham_pq[:p,:p] - ref[:p,:p])) < 1e-6), '{}-{}={}'.format (
+        #        lib.fp (ham_pq[:p,:p]), lib.fp (ref[:p,:p]), lib.fp (ham_pq[:p,:p])-lib.fp (ref[:p,:p]))
+        #except AssertionError as err:
+        #    idx = np.argmax (np.abs (ham_pq[:p,:p]-ref[:p,:p]))
+        #    print (lroots, idx, ham_pq[:p,:p].flat[idx], ref[:p,:p].flat[idx], (ham_pq[:p,:p]-ref[:p,:p]).flat[idx])
+        #    raise (err)
 
-        try:
-            assert (np.amax (np.abs (ham_pq - ref)) < 1e-6), '{}-{}={}'.format (
-                lib.fp (ham_pq), lib.fp (ref), lib.fp (ham_pq)-lib.fp (ref))
-        except AssertionError as err:
-            idx = np.argmax (np.abs (ham_pq-ref))
-            print (lroots, idx, ham_pq.flat[idx], ref.flat[idx], ham_pq.flat[idx]-ref.flat[idx])
-            raise (err)
+        #try:
+        #    assert (np.amax (np.abs (ham_pq - ref)) < 1e-6), '{}-{}={}'.format (
+        #        lib.fp (ham_pq), lib.fp (ref), lib.fp (ham_pq)-lib.fp (ref))
+        #except AssertionError as err:
+        #    idx = np.argmax (np.abs (ham_pq-ref))
+        #    print (lroots, idx, ham_pq.flat[idx], ref.flat[idx], ham_pq.flat[idx]-ref.flat[idx])
+        #    raise (err)
 
         t1 = self.log.timer ('update_ham_pq', *t0)
-        return ref
+        return ham_pq
 
     def op_ham_pq_ref (self, h1, h2, ci):
         '''Act the Hamiltonian on the reference CI vectors and project onto the current
