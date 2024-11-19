@@ -214,8 +214,10 @@ def single_excitations_ci (lsi, las2, las1, ci_ch, ncharge=1, sa_heff=True, deac
                                                frozen_frags=(~excfrags))
         psref = [space for space in psref if spaces[i].is_single_excitation_of (space)]
         if auto_singles:
-            lr = spaces[i].compute_single_excitation_lroots (psref)
-            lroots[:,i][excfrags] = lr = np.amin (np.minimum (lroots[:,i][excfrags], lr))
+            ncharge_i = spaces[i].compute_single_excitation_lroots (psref)
+        else:
+            ncharge_i = ncharge
+        lroots[:,i][excfrags] = ncharge_i = np.amin (np.minimum (lroots[:,i][excfrags], ncharge_i))
         lroots[:,i][~excfrags] = 1
         # logging after setup
         spref0 = spaces[psref_ix[0]]
@@ -265,7 +267,7 @@ def single_excitations_ci (lsi, las2, las1, ci_ch, ncharge=1, sa_heff=True, deac
         conv, e_roots[i], ci1 = psexc.kernel (h1, h2, ecore=h0, ci0=ci0,
                                               max_cycle_macro=lsi.max_cycle_macro,
                                               conv_tol_self=lsi.conv_tol_self,
-                                              nroots=lr)
+                                              nroots=ncharge_i)
         ci_ch_ias[0] = mup (ci1[ifrag], norb_i, nelec_i, smult_i)
         if lroots[ifrag,i]==1 and ci_ch_ias[0].ndim == 2:
             ci_ch_ias[0] = ci_ch_ias[0][None,:,:]

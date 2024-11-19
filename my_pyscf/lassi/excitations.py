@@ -218,7 +218,7 @@ class ExcitationPSFCISolver (ProductStateFCISolver):
             orbsym = [orbsym[iorb] for iorb in range (norb_tot) if idx[iorb]]
         ci0 = self.get_init_guess (ci0, norb_f, nelec_f, h1, h2, nroots=3*nroots)
         ham_pq = self.get_ham_pq (h0, h1, h2, ci0)
-        ci1, disc_svals, ham_pq = self._eig (ham_pq, ci0, nroots=nroots)[3:]
+        ci1, disc_svals, ham_pq = self.eig1_schmidt (ham_pq, ci0, nroots=nroots)[3:]
         e = 0
         disc_sval_sum = sum (disc_svals)
         converged = False
@@ -226,7 +226,7 @@ class ExcitationPSFCISolver (ProductStateFCISolver):
         for it in range (max_cycle_macro):
             e_last = e
             ci0 = ci1
-            e, si_p, si_q, ci1 = self._eig (ham_pq, ci0, nroots=nroots)[:4]
+            e, si_p, si_q, ci1 = self.eig1_schmidt (ham_pq, ci0, nroots=nroots)[:4]
             hci_qspace = self.op_ham_pq_ref (h1, h2, ci1)
             hci_pspace_diag = self.op_ham_pp_diag (h1, h2, ci1, norb_f, nelec_f)
             tdm1s_f = self.get_tdm1s_f (ci1, ci1, norb_f, nelec_f)
@@ -242,9 +242,7 @@ class ExcitationPSFCISolver (ProductStateFCISolver):
             ci1 = self.get_new_vecs (ci1, hpq_xq, hpp_xp, nroots=nroots)
             ham_pq = self.update_ham_pq (ham_pq, h0, h1, h2, ci1, hci_qspace, hci_pspace_diag,
                                          tdm1s_f, norb_f, nelec_f)
-            _, _, _, ci1, disc_svals, ham_pq = self._eig (
-                ham_pq, ci1, nroots=nroots
-            )
+            ci1, disc_svals, ham_pq = self.eig1_schmidt (ham_pq, ci1, nroots=nroots)[3:]
             log.debug ('Discarded singular values: {}'.format (disc_svals))
             disc_sval_sum = sum (disc_svals)
         conv_str = ['NOT converged','converged'][int (converged)]
@@ -276,7 +274,7 @@ class ExcitationPSFCISolver (ProductStateFCISolver):
                 Spin-separated 1-electron part of the excited-fragment Hamiltonian
             h2: ndarray of shape [nexc,]*4
                 2-electron part of the excited-fragment Hamiltonian
-            ci_p: list of ndarray
+            ci_p: list of ndarray of shape (p[i],ndeta[i],ndetb[i])
                 CI vectors for the active fragments in the P-space
 
         Returns:
@@ -303,8 +301,41 @@ class ExcitationPSFCISolver (ProductStateFCISolver):
         t1 = self.log.timer ('get_ham_pq', *t0)
         return ham_pq + (h0*ovlp_pq)
 
-    def update_ham_pq (self, ham_pq, h0, h1, h2, ci, hci1_qspace, hci1_pspace_diag, tdm1s_f_1,
+    def update_ham_pq (self, ham_pq, h0, h1, h2, ci, hci0_qspace, hci0_pspace_diag, tdm1s_f_00,
                        norb_f, nelec_f):
+        '''Build the model-space Hamiltonian matrix for the current state of the P-space, reusing
+        as many intermediates as possible.
+
+        Args:
+            ham_pq: ndarray of shape (?+q,?+q)
+                Hamiltonian matrix describing a previous P-space. Only used to extract the Q-space
+                diagonal block
+            h0: float
+                Constant part of the excited-fragment Hamiltonian
+            h1: ndarray of shape (2,nexc,nexc)
+                Spin-separated 1-electron part of the excited-fragment Hamiltonian
+            h2: ndarray of shape [nexc,]*4
+                2-electron part of the excited-fragment Hamiltonian
+            ci: list of ndarray of shape (p,ndeta[i],ndetb[i])
+                CI vectors for the active fragments in the P-space
+            hci0_qspace: list of ndarray of shape (p0,ndeta,ndetb,q)
+                H|q> projected on <p0| for all but one fragment, where <p0| is the first few
+                vectors of CI, i.e., the output of op_ham_pq_ref for part of ci.
+            hci0_pspace_diag: list of ndarray of shape (p0,ndeta,ndetb)
+                H(ifrag)|p0(ifrag)>, where <p0| is the first few vectors of CI; i.e., the output of
+                op_ham_pp_diag for part of ci.
+            tdm1s_f_00: list of ndarray of shape (p0,p0,2,norb[i],norb[i])
+                Spin-separated transition one-body density matrices within each fragment for the
+                first few vectors in ci.
+            norb_f: list of length (nfrag)
+                Number of orbitals in excited fragments
+            nelec_f: list of length (nfrag)
+                Reference number of electrons in excited fragments
+
+        Returns:
+            ham_pq: ndarray of shape (p+q,p+q)
+                Model space Hamiltonian matrix
+        '''
         #ref = self.get_ham_pq (h0, h1, h2, ci)
         t0 = lib.logger.process_clock (), lib.logger.perf_counter ()
         #return ref
@@ -312,10 +343,10 @@ class ExcitationPSFCISolver (ProductStateFCISolver):
         assert (nfrags == 2)
         old_ham_pq = ham_pq
         lroots = get_lroots (ci)
-        lroots1 = get_lroots (hci1_pspace_diag)
-        ci1 = [c[:l] for c,l in zip (ci, lroots1)]
-        ci2 = [c[l:] for c,l in zip (ci, lroots1)]
-        lroots2 = get_lroots (ci2)
+        lroots0 = get_lroots (hci0_pspace_diag)
+        ci0 = [c[:l] for c,l in zip (ci, lroots0)]
+        ci1 = [c[l:] for c,l in zip (ci, lroots0)]
+        lroots1 = get_lroots (ci1)
         p = np.prod (lroots)
         q = self.get_nq ()
 
@@ -326,16 +357,16 @@ class ExcitationPSFCISolver (ProductStateFCISolver):
 
         # p,q sector
         h_pq = np.zeros ((lroots[1],lroots[0],q), dtype=ham_pq.dtype)
-        h_pq[:,:lroots1[0],:] = lib.einsum (
-            'iab,jabq->ijq', ci[1].conj (), hci1_qspace[1],
+        h_pq[:,:lroots0[0],:] = lib.einsum (
+            'iab,jabq->ijq', ci[1].conj (), hci0_qspace[1],
         )
-        h_pq[:lroots1[1],:,:] = lib.einsum (
-            'jab,iabq->ijq', ci[0].conj (), hci1_qspace[0],
+        h_pq[:lroots0[1],:,:] = lib.einsum (
+            'jab,iabq->ijq', ci[0].conj (), hci0_qspace[0],
         )
-        if np.prod (lroots2) > 0:
-            hci2_qspace = self.op_ham_pq_ref (h1, h2, ci2)
-            h_pq[lroots1[1]:,lroots1[0]:,:] = lib.einsum (
-                'iab,jabq->ijq', ci2[1].conj (), hci2_qspace[1],
+        if np.prod (lroots1) > 0:
+            hci1_qspace = self.op_ham_pq_ref (h1, h2, ci1)
+            h_pq[lroots0[1]:,lroots0[0]:,:] = lib.einsum (
+                'iab,jabq->ijq', ci1[1].conj (), hci1_qspace[1],
             )
         h_pq = h_pq.reshape (lroots[1]*lroots[0],q)
         ham_pq[:p,p:] = h_pq
@@ -349,9 +380,9 @@ class ExcitationPSFCISolver (ProductStateFCISolver):
 
         # p,p sector - semidiagonal
         h_pp = h_pp.reshape (lroots[1],lroots[0],lroots[1],lroots[0])
-        hci2_pspace_diag = self.op_ham_pp_diag (h1, h2, ci2, norb_f, nelec_f)
+        hci1_pspace_diag = self.op_ham_pp_diag (h1, h2, ci1, norb_f, nelec_f)
         hci_pspace_diag = [np.append (hc1, hc2, axis=0) for hc1, hc2
-                           in zip (hci1_pspace_diag, hci2_pspace_diag)]
+                           in zip (hci0_pspace_diag, hci1_pspace_diag)]
         h_pp_diag = [np.dot (c.reshape (l,-1).conj (), hc.reshape (l,-1).T)
                      for c, hc, l in zip (ci, hci_pspace_diag, lroots)]
         for i in range (lroots[1]):
@@ -360,17 +391,17 @@ class ExcitationPSFCISolver (ProductStateFCISolver):
             h_pp[:,i,:,i] += h_pp_diag[1]
 
         # p,p sector - offdiagonal
-        tdm1s_f_2 = self.get_tdm1s_f (ci2, ci, norb_f, nelec_f)
-        tdm1s_f_3 = self.get_tdm1s_f (ci1, ci2, norb_f, nelec_f)
+        tdm1s_f_1x = self.get_tdm1s_f (ci1, ci, norb_f, nelec_f)
+        tdm1s_f_01 = self.get_tdm1s_f (ci0, ci1, norb_f, nelec_f)
         tdm1s_f = []
         for ifrag in range (nfrags):
             lr, no = lroots[ifrag], norb_f[ifrag]
-            lr1, lr2 = lroots1[ifrag], lroots2[ifrag]
+            lr0, lr1 = lroots0[ifrag], lroots1[ifrag]
             ne = self._get_nelec (self.fcisolvers[ifrag], nelec_f[ifrag])
-            t = np.zeros ((lr,lr,2,no,no), dtype=tdm1s_f_1[ifrag].dtype)
-            t[:lr1,:lr1] = tdm1s_f_1[ifrag][:]
-            t[lr1:,:] = tdm1s_f_2[ifrag][:]
-            t[:lr1,lr1:] = tdm1s_f_3[ifrag][:]
+            t = np.zeros ((lr,lr,2,no,no), dtype=tdm1s_f_00[ifrag].dtype)
+            t[:lr0,:lr0] = tdm1s_f_00[ifrag][:]
+            t[lr0:,:] = tdm1s_f_1x[ifrag][:]
+            t[:lr0,lr0:] = tdm1s_f_01[ifrag][:]
             tdm1s_f.append (t)
         i = norb_f[0]
         w = lib.einsum ('ijab,klcd,abcd->ijkl', tdm1s_f[1].sum (2), tdm1s_f[0].sum (2),
@@ -409,11 +440,11 @@ class ExcitationPSFCISolver (ProductStateFCISolver):
                 1-electron part of the excited-fragment Hamiltonian
             h2: ndarray of shape [nexc,]*4
                 2-electron part of the excited-fragment Hamiltonian
-            ci: list of ndarray
+            ci: list of ndarray of shape (p,ndeta[i],ndetb[i])
                 CI vectors of the active fragments in the P-space
 
         Returns:
-            hci_f_pabq: list of ndarray
+            hci_f_pabq: list of ndarray of shape (p,ndeta[i],ndetb[i],q)
                 Contains H|q>, projected onto <p| for all but one fragment, for each fragment.
                 Vectors are multiplied by the sqrt of the weight of p.'''
         # TODO: point group symmetry
@@ -440,6 +471,24 @@ class ExcitationPSFCISolver (ProductStateFCISolver):
         return hci_f_pabq
 
     def op_ham_pp_diag (self, h1, h2, ci, norb_f, nelec_f):
+        ''' Act Hfrag[i]|ci[i]> for all fragments i 
+
+        Args:
+            h1: ndarray of shape (2,nexc,nexc)
+                1-electron part of the excited-fragment Hamiltonian
+            h2: ndarray of shape [nexc,]*4
+                2-electron part of the excited-fragment Hamiltonian
+            ci: list of ndarray of shape (p,ndeta[i],ndetb[i])
+                CI vectors of the active fragments in the P-space
+            norb_f: list of length (nfrag)
+                Number of orbitals in excited fragments
+            nelec_f: list of length (nfrag)
+                Reference number of electrons in excited fragments
+
+        Returns:
+            hci: list of ndarray of shape (p,ndeta[i],ndetb[i])
+                Hamiltonian-vector products
+        '''
         t0 = lib.logger.process_clock (), lib.logger.perf_counter ()
         lroots = get_lroots (ci)
         nfrags = len (ci)
@@ -468,6 +517,22 @@ class ExcitationPSFCISolver (ProductStateFCISolver):
         return hci
 
     def get_tdm1s_f (self, cibra, ciket, norb_f, nelec_f):
+        '''Transition density matrices between the states of each fragment
+
+        Args:
+            cibra: list of ndarray of shape (pbra[i],ndeta[i],ndetb[i])
+                Bra CI vectors
+            ciket: list of ndarray of shape (pket[i],ndeta[i],ndetb[i])
+                Ket CI vectors
+            norb_f: list of length (nfrag)
+                Number of orbitals in excited fragments
+            nelec_f: list of length (nfrag)
+                Reference number of electrons in excited fragments
+
+        Returns:
+            tdm1s_f: list of ndarray of shape (pbra[i],pket[i],2,norb_f[i],norb_f[i])
+                Spin-separated 1-body transition density matrices between cibra and ciket
+        '''
         t0 = lib.logger.process_clock (), lib.logger.perf_counter ()
         lroots_bra = get_lroots (cibra)
         lroots_ket = get_lroots (ciket)
@@ -489,7 +554,39 @@ class ExcitationPSFCISolver (ProductStateFCISolver):
         t1 = self.log.timer ('get_tdm1s_f', *t0)
         return tdm1s_f
 
-    def _eig (self, ham_pq, ci0, ovlp_thresh=1e-3, nroots=1):
+    def eig1_schmidt (self, ham_pq, ci0, ovlp_thresh=1e-3, nroots=1):
+        '''Diagonalize the coupled Hamiltonian for the lowest-energy eigensolution with substantial
+        overlap on the reference state, rotate the p-space CI vectors into the Schmidt basis for
+        this eigenstate, discard all but nroots of them, and transform the coupled Hamiltonian
+        into this truncated basis.
+
+        Args:
+            ham_pq: ndarray of shape (p+q,p+q)
+                Hamiltonian matrix including both P and Q spaces
+            ci0: list of ndarray of shape (p[i],ndeta[i],ndetb[i])
+                CI vectors describing the P states of ham_pq
+
+        Kwargs:
+            ovlp_thresh: float
+                Tolerance for identifying substantial overlap with the reference state
+            nroots: integer
+                Number of roots for each fragment to retain; i.e., sqrt (p)
+
+        Returns:
+            e: float
+                Total energy
+            si_p: ndarray of shape (nroots,)
+                P-space part of the CI vector, in the Schmidt (diagonal) basis
+            si_q: ndarray of shape (q,)
+                Q-space part of the CI vector
+            ci1: list of ndarray of shape (nroots,ndeta[i],ndetb[i])
+                Truncated CI vectors in the Schmidt basis corresponding to si_p
+            disc_svals: ndarray of shape (p-nroots,)
+                List of singular values discarded in the truncation
+            ham_pq: ndarray of shape (nroots**nfrags+p,nroots**nfrags+p)
+                Truncated ham_pq in the Schmidt basis
+        '''
+
         t0 = lib.logger.process_clock (), lib.logger.perf_counter ()
         lroots = get_lroots (ci0)
         p = np.prod (lroots)
@@ -521,6 +618,21 @@ class ExcitationPSFCISolver (ProductStateFCISolver):
         return e, si_p, si_q, ci1, disc_svals, ham_pq
 
     def get_hpq_xq (self, hci_f_pabq, ci0, si_q):
+        '''Generate the P-row, Q-column part of the Hamiltonian-vector product projected into P'
+
+        Args:
+            hci_f_pabq: list of ndarrays of shape (nroots,ndeta[i],ndetb[i],q)
+                H|q> projected on <p0| for all but one fragment, where <p0| is the first few
+                vectors of CI, i.e., the output of op_ham_pq_ref for ci0.
+            ci0: list of ndarrays of shape (nroots,ndeta[i],ndetb[i])
+                CI vectors of the p-space
+            si_q: ndarray of shape (nq,)
+                Q-space part of the SI vector
+
+        Returns:
+            hci_f_pab: list of ndarrays of shape (nroots,ndeta[i],ndetb[i])
+                Hamiltonian-vector product component, projected orthogonal to ci0
+        '''
         t0 = lib.logger.process_clock (), lib.logger.perf_counter ()
         lroots = get_lroots (ci0)
         p = np.prod (lroots)
@@ -534,6 +646,31 @@ class ExcitationPSFCISolver (ProductStateFCISolver):
         return hci_f_pab
 
     def get_hpp_xp (self, ci0, si_p, hci_pspace_diag, h0, h2, tdm1s_f, norb_f, nelec_f):
+        '''Generate the P-row, P-column part of the Hamiltonian-vector product projected into P'
+
+        Args:
+            ci0: list of ndarrays of shape (nroots,ndeta[i],ndetb[i])
+                CI vectors of the p-space in the Schmidt basis
+            si_p: ndarray of shape (nroots)
+                SI vector for the current P-space (requires Schmidt basis)
+            hci_pspace_diag: list of ndarray of shape (p0,ndeta,ndetb)
+                H(ifrag)|p0(ifrag)>, where <p0| is the vectors of ci0; i.e., the output of
+                op_ham_pp_diag for ci0.
+            h0: float
+                Constant part of the excited-fragment Hamiltonian
+            h2: ndarray of shape [nexc,]*4
+                2-electron part of the excited-fragment Hamiltonian
+            tdm1s_f: list of ndarray of shape (nroots,nroots,2,norb[i],norb[i])
+                Spin-separated transition one-body density matrices within each fragment for ci0
+            norb_f: list of length (nfrag)
+                Number of orbitals in excited fragments
+            nelec_f: list of length (nfrag)
+                Reference number of electrons in excited fragments
+
+        Returns:
+            hci_f_pab: list of ndarrays of shape (nroots,ndeta[i],ndetb[i])
+                Hamiltonian-vector product component, projected orthogonal to ci0
+        '''
         t0 = lib.logger.process_clock (), lib.logger.perf_counter ()
         nfrags = len (ci0)
         lroots = get_lroots (ci0)
@@ -588,7 +725,26 @@ class ExcitationPSFCISolver (ProductStateFCISolver):
         return hci_f_pab
 
     def _get_grad (self, ci0, si_p, hpq_xq, hpp_xp, nroots=None):
-        # Compute the gradient of the target interacting energy
+        ''' Compute the gradient of the target interacting energy
+
+        Args:
+            ci0: list of ndarray of shape (nroots,ndeta[i],ndetb[i])
+                CI vectors
+            si_p: ndarray of shape (nroots,)
+                P-space SI vector. Schmidt basis required
+            hpq_xq: list of ndarray of shape (nroots,ndeta[i],ndetb[i])
+                P-row, Q-column part of the Hamiltonian-vector product
+            hpp_xp: list of ndarray of shape (nroots,ndeta[i],ndetb[i])
+                P-row, P-column part of the Hamiltonian-vector product
+
+        Kwargs:
+            nroots: integer
+                Number of states in each fragment
+
+        Returns:
+            grad: flat ndarray
+                Gradient with respect to all nonredundant parameters
+        '''
         t0 = lib.logger.process_clock (), lib.logger.perf_counter ()
         grad_ext = []
         grad_int = []
@@ -613,6 +769,25 @@ class ExcitationPSFCISolver (ProductStateFCISolver):
         return np.concatenate (grad)
 
     def get_new_vecs (self, ci0, hpq_xq, hpp_xp, nroots=1):
+        ''' Extend the P space: P + P' -> P
+
+        Args:
+            ci0: list of ndarray of shape (nroots,ndeta[i],ndetb[i])
+                CI vectors
+            hpq_xq: list of ndarray of shape (nroots,ndeta[i],ndetb[i])
+                P-row, Q-column part of the Hamiltonian-vector product
+            hpp_xp: list of ndarray of shape (nroots,ndeta[i],ndetb[i])
+                P-row, P-column part of the Hamiltonian-vector product
+
+        Kwargs:
+            nroots: integer
+                Number of states in each fragment
+
+        Returns:
+            ci1: list of ndarray of shape (nroots+?,ndeta[i],ndetb[i])
+                CI vectors beginning with ci0, followed by new vectors
+        '''
+
         t0 = lib.logger.process_clock (), lib.logger.perf_counter ()
         ci1 = []
         lroots = get_lroots (ci0)
