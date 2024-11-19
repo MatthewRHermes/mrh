@@ -207,6 +207,7 @@ class ExcitationPSFCISolver (ProductStateFCISolver):
     def kernel (self, h1, h2, ecore=0, ci0=None,
                 conv_tol_grad=1e-4, conv_tol_self=1e-6, max_cycle_macro=50,
                 serialfrag=False, nroots=1, **kwargs):
+        t0 = lib.logger.process_clock (), lib.logger.perf_counter ()
         h0, h1, h2 = self.get_excited_h (ecore, h1, h2)
         log = self.log
         norb_f = np.asarray ([self.norb_ref[ifrag] for ifrag in self.excited_frags])
@@ -258,6 +259,7 @@ class ExcitationPSFCISolver (ProductStateFCISolver):
         ci1 = [c for c in self.ci_ref]
         for ifrag, c in zip (self.excited_frags, ci1_active):
             ci1[ifrag] = np.asarray (c)
+        t1 = self.log.timer ('ExcitationPSFCISolver kernel', *t0)
         return converged, energy_elec, ci1
 
     def get_nq (self):
@@ -304,6 +306,7 @@ class ExcitationPSFCISolver (ProductStateFCISolver):
     def update_ham_pq (self, ham_pq, h0, h1, h2, ci, hci1_qspace, hci1_pspace_diag, tdm1s_f_1,
                        norb_f, nelec_f):
         ref = self.get_ham_pq (h0, h1, h2, ci)
+        t0 = lib.logger.process_clock (), lib.logger.perf_counter ()
         #return ref
         nfrags = len (ci)
         assert (nfrags == 2)
@@ -319,7 +322,7 @@ class ExcitationPSFCISolver (ProductStateFCISolver):
         # q,q sector
         ham_pq = np.zeros ((p+q,p+q), dtype=old_ham_pq.dtype)
         ham_pq[-q:,-q:] = old_ham_pq[-q:,-q:]        
-        #assert (abs (lib.fp (ham_pq[-q:,-q:]) - lib.fp (ref[-q:,-q:])) < 1e-8)
+        assert (np.amax (np.abs (ham_pq[p:,p:] - ref[p:,p:])) < 1e-6)
 
         # p,q sector
         h_pq = np.zeros ((lroots[1],lroots[0],q), dtype=ham_pq.dtype)
@@ -335,10 +338,10 @@ class ExcitationPSFCISolver (ProductStateFCISolver):
                 'iab,jabq->ijq', ci2[1].conj (), hci2_qspace[1],
             )
         h_pq = h_pq.reshape (lroots[1]*lroots[0],q)
-        ham_pq[:p,-q:] = h_pq
-        #assert (abs (lib.fp (ham_pq[:p,-q:]) - lib.fp (ref[:p,-q:])) < 1e-8)
-        ham_pq[-q:,:p] = h_pq.conj ().T
-        #assert (abs (lib.fp (ham_pq[-q:,:p]) - lib.fp (ref[-q:,:p])) < 1e-8)
+        ham_pq[:p,p:] = h_pq
+        assert (np.amax (np.abs (ham_pq[:p,p:] - ref[:p,p:])) < 1e-6)
+        ham_pq[p:,:p] = h_pq.conj ().T
+        assert (np.amax (np.abs (ham_pq[p:,:p] - ref[p:,:p])) < 1e-6)
 
         # p,p sector - constant
         h_pp = np.zeros ((p,p), dtype=ham_pq.dtype)
@@ -378,10 +381,23 @@ class ExcitationPSFCISolver (ProductStateFCISolver):
                         h2[i:,:i,:i,i:])
         h_pp += w.transpose (0,2,1,3)
         ham_pq[:p,:p] = h_pp.reshape (lroots[1]*lroots[0], lroots[1]*lroots[0])
-        #assert (abs (lib.fp (ham_pq[:p,:p]) - lib.fp (ref[:p,:p])) < 1e-8)
+        try:
+            assert (np.amax (np.abs (ham_pq[:p,:p] - ref[:p,:p])) < 1e-6), '{}-{}={}'.format (
+                lib.fp (ham_pq[:p,:p]), lib.fp (ref[:p,:p]), lib.fp (ham_pq[:p,:p])-lib.fp (ref[:p,:p]))
+        except AssertionError as err:
+            idx = np.argmax (np.abs (ham_pq[:p,:p]-ref[:p,:p]))
+            print (lroots, idx, ham_pq[:p,:p].flat[idx], ref[:p,:p].flat[idx], (ham_pq[:p,:p]-ref[:p,:p]).flat[idx])
+            raise (err)
 
-        #assert (abs (lib.fp (ham_pq) - lib.fp (ref)) < 1e-8)
+        try:
+            assert (np.amax (np.abs (ham_pq - ref)) < 1e-6), '{}-{}={}'.format (
+                lib.fp (ham_pq), lib.fp (ref), lib.fp (ham_pq)-lib.fp (ref))
+        except AssertionError as err:
+            idx = np.argmax (np.abs (ham_pq-ref))
+            print (lroots, idx, ham_pq.flat[idx], ref.flat[idx], ham_pq.flat[idx]-ref.flat[idx])
+            raise (err)
 
+        t1 = self.log.timer ('update_ham_pq', *t0)
         return ref
 
     def op_ham_pq_ref (self, h1, h2, ci):
@@ -424,6 +440,7 @@ class ExcitationPSFCISolver (ProductStateFCISolver):
         return hci_f_pabq
 
     def op_ham_pp_diag (self, h1, h2, ci, norb_f, nelec_f):
+        t0 = lib.logger.process_clock (), lib.logger.perf_counter ()
         lroots = get_lroots (ci)
         nfrags = len (ci)
         nj = np.cumsum (norb_f)
@@ -447,9 +464,11 @@ class ExcitationPSFCISolver (ProductStateFCISolver):
                 c = ci[ifrag][iroot]
                 hc.append (solver.contract_2e (h2eff, c, norb, nelec))
             hci.append (np.stack (hc, axis=0))
+        t1 = self.log.timer ('op_ham_pp_diag', *t0)
         return hci
 
     def get_tdm1s_f (self, cibra, ciket, norb_f, nelec_f):
+        t0 = lib.logger.process_clock (), lib.logger.perf_counter ()
         lroots_bra = get_lroots (cibra)
         lroots_ket = get_lroots (ciket)
         nfrags = len (cibra)
@@ -467,9 +486,11 @@ class ExcitationPSFCISolver (ProductStateFCISolver):
                 tdm1s[i,j,1] = tdm1s[i,j,1].T
             assert (tdm1s.ndim==5)
             tdm1s_f.append (tdm1s)
+        t1 = self.log.timer ('get_tdm1s_f', *t0)
         return tdm1s_f
 
     def _eig (self, ham_pq, ci0, ovlp_thresh=1e-3, nroots=1):
+        t0 = lib.logger.process_clock (), lib.logger.perf_counter ()
         lroots = get_lroots (ci0)
         p = np.prod (lroots)
         e, si = lowest_refovlp_eigpair (ham_pq, p=p, ovlp_thresh=ovlp_thresh, log=self.log)
@@ -496,9 +517,11 @@ class ExcitationPSFCISolver (ProductStateFCISolver):
         ham_pq = np.append (h_rp, ham_pq[:,p:], axis=1)
         si_p = svals
         si_q = si[p:]
+        t1 = self.log.timer ('ExcitationPSFCISolver _eig', *t0)
         return e, si_p, si_q, ci1, disc_svals, ham_pq
 
     def get_hpq_xq (self, hci_f_pabq, ci0, si_q):
+        t0 = lib.logger.process_clock (), lib.logger.perf_counter ()
         lroots = get_lroots (ci0)
         p = np.prod (lroots)
         hci_f_pab = []
@@ -507,9 +530,11 @@ class ExcitationPSFCISolver (ProductStateFCISolver):
             hci_pr = np.tensordot (hci_pab, ci.conj (), axes=((1,2),(1,2)))
             hci_pab -= np.tensordot (hci_pr, ci, axes=1)
             hci_f_pab.append (hci_pab)
+        t1 = self.log.timer ('get_hpq_xq', *t0)
         return hci_f_pab
 
     def get_hpp_xp (self, ci0, si_p, hci_pspace_diag, h0, h2, tdm1s_f, norb_f, nelec_f):
+        t0 = lib.logger.process_clock (), lib.logger.perf_counter ()
         nfrags = len (ci0)
         lroots = get_lroots (ci0)
         assert (nfrags==2)
@@ -559,10 +584,12 @@ class ExcitationPSFCISolver (ProductStateFCISolver):
                           np.asarray (hc).reshape (nroots,-1).T).T
             hc = hc - np.tensordot (chc, c, axes=1)
             hci_f_pab[ifrag] = hc
+        t1 = self.log.timer ('get_hpp_xp', *t0)
         return hci_f_pab
 
     def _get_grad (self, ci0, si_p, hpq_xq, hpp_xp, nroots=None):
         # Compute the gradient of the target interacting energy
+        t0 = lib.logger.process_clock (), lib.logger.perf_counter ()
         grad_ext = []
         grad_int = []
         for solver, c, hc1, hc2 in zip (self.fcisolvers, ci0, hpq_xq, hpp_xp):
@@ -582,9 +609,11 @@ class ExcitationPSFCISolver (ProductStateFCISolver):
             grad.append (e)
             if nroots>1:
                 grad.append (i[np.tril_indices (nroots, k=-1)])
+        t1 = self.log.timer ('ExcitationPSFCISolver _get_grad', *t0)
         return np.concatenate (grad)
 
     def get_new_vecs (self, ci0, hpq_xq, hpp_xp, nroots=1):
+        t0 = lib.logger.process_clock (), lib.logger.perf_counter ()
         ci1 = []
         lroots = get_lroots (ci0)
         for s, c0, c1, c2, nx0 in zip (self.fcisolvers, ci0, hpq_xq, hpp_xp, lroots):
@@ -619,6 +648,7 @@ class ExcitationPSFCISolver (ProductStateFCISolver):
                 x.shape, nx0, nroots, c0.shape, c1.shape, c2.shape
             )
             ci1.append (x.reshape (nx, ndeta, ndetb))
+        t1 = self.log.timer ('get_new_vecs', *t0)
         return ci1
 
     def get_init_guess (self, ci0, norb_f, nelec_f, h1, h2, nroots=None):
