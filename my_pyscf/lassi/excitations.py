@@ -220,22 +220,20 @@ class ExcitationPSFCISolver (ProductStateFCISolver):
         ham_pq = self.get_ham_pq (h0, h1, h2, ci0)
         e, si = self.eig1 (ham_pq, ci0)
         disc_svals, _, _, ci1, ham_pq = self.schmidt_trunc (si, ci0, ham_pq, nroots=nroots)[:5]
+        hci_qspace = self.op_ham_pq_ref (h1, h2, ci1)
+        hci_pspace_diag = self.op_ham_pp_diag (h1, h2, ci1, norb_f, nelec_f)
+        tdm1s_f = self.get_tdm1s_f (ci1, ci1, norb_f, nelec_f)
         e = 0
         disc_sval_sum = sum (disc_svals)
         converged = False
-        hci_qspace = hci_pspace_diag = None
         log.info ('Entering product-state fixed-point CI iteration')
         for it in range (max_cycle_macro):
             e_last = e
             ci0 = ci1
             e, si = self.eig1 (ham_pq, ci0)
-            _, si_p, si_q, ci1, ham_pq, hci_qspace, hci_pspace_diag = self.schmidt_trunc (
-                si, ci0, ham_pq, hci_qspace, hci_pspace_diag, nroots=nroots
+            _, si_p, si_q, ci1, ham_pq, hci_qspace, hci_pspace_diag, tdm1s_f = self.schmidt_trunc (
+                si, ci0, ham_pq, hci_qspace, hci_pspace_diag, tdm1s_f, nroots=nroots
             )
-            if hci_qspace is None: hci_qspace = self.op_ham_pq_ref (h1, h2, ci1)
-            if hci_pspace_diag is None:
-                hci_pspace_diag = self.op_ham_pp_diag (h1, h2, ci1, norb_f, nelec_f)
-            tdm1s_f = self.get_tdm1s_f (ci1, ci1, norb_f, nelec_f)
             hpq_xq = self.get_hpq_xq (hci_qspace, ci1, si_q)
             hpp_xp = self.get_hpp_xp (ci1, si_p, hci_pspace_diag, h0, h2, tdm1s_f, norb_f, nelec_f)
             grad = self._get_grad (ci1, si_p, hpq_xq, hpp_xp, nroots=nroots)
@@ -248,15 +246,23 @@ class ExcitationPSFCISolver (ProductStateFCISolver):
             ci2 = self.get_new_vecs (ci1, hpq_xq, hpp_xp, nroots=nroots)
             hci2_qspace = self.op_ham_pq_ref (h1, h2, ci2)
             hci2_pspace_diag = self.op_ham_pp_diag (h1, h2, ci2, norb_f, nelec_f)
+            tdm1s_f_12 = self.get_tdm1s_f (ci1, ci2, norb_f, nelec_f)
+            tdm1s_f_21 = self.get_tdm1s_f (ci2, ci1, norb_f, nelec_f)
+            tdm1s_f_22 = self.get_tdm1s_f (ci2, ci2, norb_f, nelec_f)
             for ifrag in range (len (ci1)):
                 ci1[ifrag] = np.append (ci1[ifrag], ci2[ifrag], axis=0)
                 hci_qspace[ifrag] = np.append (hci_qspace[ifrag], hci2_qspace[ifrag], axis=0)
                 hci_pspace_diag[ifrag] = np.append (hci_pspace_diag[ifrag], hci2_pspace_diag[ifrag], axis=0)
+                tdm1s_f[ifrag] = np.append (
+                    np.append (tdm1s_f[ifrag], tdm1s_f_12[ifrag], axis=1),
+                    np.append (tdm1s_f_21[ifrag], tdm1s_f_22[ifrag], axis=1),
+                    axis=0
+                )
             ham_pq = self.update_ham_pq (ham_pq, h0, h1, h2, ci1, hci_qspace, hci_pspace_diag,
                                          tdm1s_f, norb_f, nelec_f)
             _, si = self.eig1 (ham_pq, ci1)
-            disc_svals, _, _, ci1, ham_pq, hci_qspace, hci_pspace_diag = self.schmidt_trunc (
-                si, ci1, ham_pq, hci_qspace, hci_pspace_diag, nroots=nroots
+            disc_svals, _, _, ci1, ham_pq, hci_qspace, hci_pspace_diag, tdm1s_f = self.schmidt_trunc (
+                si, ci1, ham_pq, hci_qspace, hci_pspace_diag, tdm1s_f, nroots=nroots
             )
             log.debug ('Discarded singular values: {}'.format (disc_svals))
             disc_sval_sum = sum (disc_svals)
@@ -316,7 +322,7 @@ class ExcitationPSFCISolver (ProductStateFCISolver):
         t1 = self.log.timer ('get_ham_pq', *t0)
         return ham_pq + (h0*ovlp_pq)
 
-    def update_ham_pq (self, ham_pq, h0, h1, h2, ci, hci0_qspace, hci0_pspace_diag, tdm1s_f_00,
+    def update_ham_pq (self, ham_pq, h0, h1, h2, ci, hci_qspace, hci_pspace_diag, tdm1s_f,
                        norb_f, nelec_f):
         '''Build the model-space Hamiltonian matrix for the current state of the P-space, reusing
         as many intermediates as possible.
@@ -333,15 +339,15 @@ class ExcitationPSFCISolver (ProductStateFCISolver):
                 2-electron part of the excited-fragment Hamiltonian
             ci: list of ndarray of shape (p,ndeta[i],ndetb[i])
                 CI vectors for the active fragments in the P-space
-            hci0_qspace: list of ndarray of shape (p0,ndeta,ndetb,q)
-                H|q> projected on <p0| for all but one fragment, where <p0| is the first few
-                vectors of CI, i.e., the output of op_ham_pq_ref for part of ci.
-            hci0_pspace_diag: list of ndarray of shape (p0,ndeta,ndetb)
-                H(ifrag)|p0(ifrag)>, where <p0| is the first few vectors of CI; i.e., the output of
-                op_ham_pp_diag for part of ci.
-            tdm1s_f_00: list of ndarray of shape (p0,p0,2,norb[i],norb[i])
+            hci_qspace: list of ndarray of shape (nroots,ndeta,ndetb,q)
+                H|q> projected on <p| for all but one fragment, where <p| is the
+                vectors of CI, i.e., the output of op_ham_pq_ref for ci.
+            hci_pspace_diag: list of ndarray of shape (nroots,ndeta,ndetb)
+                H(ifrag)|p(ifrag)>, where <p| is the vectors of CI; i.e., the output of
+                op_ham_pp_diag for ci.
+            tdm1s_f: list of ndarray of shape (p,p,2,norb[i],norb[i])
                 Spin-separated transition one-body density matrices within each fragment for the
-                first few vectors in ci.
+                vectors in ci.
             norb_f: list of length (nfrag)
                 Number of orbitals in excited fragments
             nelec_f: list of length (nfrag)
@@ -368,7 +374,7 @@ class ExcitationPSFCISolver (ProductStateFCISolver):
 
         # p,q sector
         h_pq = lib.einsum (
-            'iab,jabq->ijq', ci[1].conj (), hci0_qspace[1],
+            'iab,jabq->ijq', ci[1].conj (), hci_qspace[1],
         )
         h_pq = h_pq.reshape (lroots[1]*lroots[0],q)
         ham_pq[:p,p:] = h_pq
@@ -382,7 +388,6 @@ class ExcitationPSFCISolver (ProductStateFCISolver):
 
         # p,p sector - semidiagonal
         h_pp = h_pp.reshape (lroots[1],lroots[0],lroots[1],lroots[0])
-        hci_pspace_diag = hci0_pspace_diag
         h_pp_diag = [np.dot (c.reshape (l,-1).conj (), hc.reshape (l,-1).T)
                      for c, hc, l in zip (ci, hci_pspace_diag, lroots)]
         for i in range (lroots[1]):
@@ -391,22 +396,6 @@ class ExcitationPSFCISolver (ProductStateFCISolver):
             h_pp[:,i,:,i] += h_pp_diag[1]
 
         # p,p sector - offdiagonal
-        lroots0 = np.asarray ([t.shape[0] for t in tdm1s_f_00])
-        lroots1 = lroots - lroots0
-        ci0 = [c[:l] for c, l in zip (ci, lroots0)]
-        ci1 = [c[l:] for c, l in zip (ci, lroots0)]
-        tdm1s_f_1x = self.get_tdm1s_f (ci1, ci, norb_f, nelec_f)
-        tdm1s_f_01 = self.get_tdm1s_f (ci0, ci1, norb_f, nelec_f)
-        tdm1s_f = []
-        for ifrag in range (nfrags):
-            lr, no = lroots[ifrag], norb_f[ifrag]
-            lr0, lr1 = lroots0[ifrag], lroots1[ifrag]
-            ne = self._get_nelec (self.fcisolvers[ifrag], nelec_f[ifrag])
-            t = np.zeros ((lr,lr,2,no,no), dtype=tdm1s_f_00[ifrag].dtype)
-            t[:lr0,:lr0] = tdm1s_f_00[ifrag][:]
-            t[lr0:,:] = tdm1s_f_1x[ifrag][:]
-            t[:lr0,lr0:] = tdm1s_f_01[ifrag][:]
-            tdm1s_f.append (t)
         i = norb_f[0]
         w = lib.einsum ('ijab,klcd,abcd->ijkl', tdm1s_f[1].sum (2), tdm1s_f[0].sum (2),
                         h2[i:,i:,:i,:i])
@@ -599,7 +588,8 @@ class ExcitationPSFCISolver (ProductStateFCISolver):
         e, si = lowest_refovlp_eigpair (ham_pq, p=p, ovlp_thresh=ovlp_thresh, log=self.log)
         return e, si
 
-    def schmidt_trunc (self, si, ci0, ham_pq=None, hci_qspace=None, hci_pspace_diag=None, nroots=1):
+    def schmidt_trunc (self, si, ci0, ham_pq=None, hci_qspace=None, hci_pspace_diag=None,
+                       tdm1s_f=None, nroots=1):
         '''Perform the Schmidt decomposition on the P-space part of an si vector, truncate all but
         the highest nroots singular values, and correspondingly transform various intermediates.
 
@@ -618,6 +608,8 @@ class ExcitationPSFCISolver (ProductStateFCISolver):
             hci_pspace_diag: list of ndarray of shape (nroots+?,ndeta,ndetb)
                 H(ifrag)|p(ifrag)>, where <p| is the vectors of ci0; i.e., the output of
                 op_ham_pp_diag for ci.
+            tdm1s_f: list of ndarray of shape (nroots+?,nroots+?,2,norb[i],norb[i])
+                Spin-separated transition one-body density matrices within each fragment for ci
             nroots: integer
                 Number of roots for each fragment to retain; i.e., sqrt (p)
 
@@ -637,6 +629,8 @@ class ExcitationPSFCISolver (ProductStateFCISolver):
                 in ci1
             hci_pspace_diag: list of ndarray of shape (nroots,ndeta,ndetb) or None
                 H(ifrag)|p(ifrag)>, where <p| is the vectors of ci1
+            tdm1s_f: list of ndarray of shape (nroots+?,nroots+?,2,norb[i],norb[i])
+                Spin-separated transition one-body density matrices within each fragment for ci1
         '''
         t0 = lib.logger.process_clock (), lib.logger.perf_counter ()
         nfrags = len (ci0)
@@ -679,8 +673,14 @@ class ExcitationPSFCISolver (ProductStateFCISolver):
             hci_pspace_diag[0] = np.tensordot (vh.conj(), hci_pspace_diag[0], axes=1)
             hci_pspace_diag[1] = np.tensordot (uh.conj(), hci_pspace_diag[1], axes=1)
 
+        # tdm1s_f
+        if tdm1s_f is not None:
+            tdm1s_f[0] = lib.einsum ('mu,uvsij,nv->mnsij', vh.conj (), tdm1s_f[0], vh)
+            tdm1s_f[1] = lib.einsum ('mu,uvsij,nv->mnsij', uh.conj (), tdm1s_f[1], uh)
+
         t1 = self.log.timer ('schmidt_trunc', *t0)
-        return disc_svals, si_p, si_q, ci1, ham_pq, hci_qspace, hci_pspace_diag
+        print (ham_pq is None, hci_qspace is None, hci_pspace_diag is None, tdm1s_f is None)
+        return disc_svals, si_p, si_q, ci1, ham_pq, hci_qspace, hci_pspace_diag, tdm1s_f
 
     def get_hpq_xq (self, hci_f_pabq, ci0, si_q):
         '''Generate the P-row, Q-column part of the Hamiltonian-vector product projected into P'
