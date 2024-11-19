@@ -304,42 +304,44 @@ class ExcitationPSFCISolver (ProductStateFCISolver):
     def update_ham_pq (self, ham_pq, h0, h1, h2, ci, hci1_qspace, hci1_pspace_diag, tdm1s_f_1,
                        norb_f, nelec_f):
         ref = self.get_ham_pq (h0, h1, h2, ci)
-        return ref
-        assert (len (ci) == 2)
+        #return ref
+        nfrags = len (ci)
+        assert (nfrags == 2)
         old_ham_pq = ham_pq
         lroots = get_lroots (ci)
-        lroots1 = get_lroots (hci_pspace_diag)
+        lroots1 = get_lroots (hci1_pspace_diag)
         ci1 = [c[:l] for c,l in zip (ci, lroots1)]
         ci2 = [c[l:] for c,l in zip (ci, lroots1)]
         lroots2 = get_lroots (ci2)
-        np = np.prod (lroots)
-        nq = self.get_nq ()
+        p = np.prod (lroots)
+        q = self.get_nq ()
 
         # q,q sector
-        ham_pq = np.zeros ((np+nq,np+nq), dtype=old_ham_pq.dtype)
-        ham_pq[-nq:,-nq:] = old_ham_pq[-nq:,-nq:]        
-        #assert (abs (lib.fp (ham_pq[-nq:,-nq:]) - lib.fp (ref[-nq:,-nq:])) < 1e-8)
+        ham_pq = np.zeros ((p+q,p+q), dtype=old_ham_pq.dtype)
+        ham_pq[-q:,-q:] = old_ham_pq[-q:,-q:]        
+        #assert (abs (lib.fp (ham_pq[-q:,-q:]) - lib.fp (ref[-q:,-q:])) < 1e-8)
 
         # p,q sector
-        h_pq = np.zeros ((lroots[1],lroots[0],nq), dtype=ham_pq.dtype)
+        h_pq = np.zeros ((lroots[1],lroots[0],q), dtype=ham_pq.dtype)
         h_pq[:,:lroots1[0],:] = lib.einsum (
             'iab,jabq->ijq', ci[1].conj (), hci1_qspace[1],
         )
         h_pq[:lroots1[1],:,:] = lib.einsum (
             'jab,iabq->ijq', ci[0].conj (), hci1_qspace[0],
         )
-        hci2_qspace = self.op_ham_pq_ref (h1, h2, ci2)
-        h_pq[lroots1[1]:,lroots1[0]:,:] = lib.einsum (
-            'iab,jabq->ijq', ci2[1].conj (), hci2_qspace[1],
-        )
-        h_pq = h_pq.reshape (lroots[1]*lroots[0],nq)
-        ham_pq[:np,-nq:] = h_pq
-        #assert (abs (lib.fp (ham_pq[:np,-nq:]) - lib.fp (ref[:np,-nq:])) < 1e-8)
-        ham_pq[-nq:,:np] = h_pq.conj ().T
-        #assert (abs (lib.fp (ham_pq[-nq:,:np]) - lib.fp (ref[-nq:,:np])) < 1e-8)
+        if np.prod (lroots2) > 0:
+            hci2_qspace = self.op_ham_pq_ref (h1, h2, ci2)
+            h_pq[lroots1[1]:,lroots1[0]:,:] = lib.einsum (
+                'iab,jabq->ijq', ci2[1].conj (), hci2_qspace[1],
+            )
+        h_pq = h_pq.reshape (lroots[1]*lroots[0],q)
+        ham_pq[:p,-q:] = h_pq
+        #assert (abs (lib.fp (ham_pq[:p,-q:]) - lib.fp (ref[:p,-q:])) < 1e-8)
+        ham_pq[-q:,:p] = h_pq.conj ().T
+        #assert (abs (lib.fp (ham_pq[-q:,:p]) - lib.fp (ref[-q:,:p])) < 1e-8)
 
         # p,p sector - constant
-        h_pp = np.zeros ((np,np), dtype=ham_pq.dtype)
+        h_pp = np.zeros ((p,p), dtype=ham_pq.dtype)
         h_pp[np.diag_indices_from (h_pp)] = h0
 
         # p,p sector - semidiagonal
@@ -362,7 +364,7 @@ class ExcitationPSFCISolver (ProductStateFCISolver):
             lr, no = lroots[ifrag], norb_f[ifrag]
             lr1, lr2 = lroots1[ifrag], lroots2[ifrag]
             ne = self._get_nelec (self.fcisolvers[ifrag], nelec_f[ifrag])
-            t = np.zeros ((lr,lr,2,no,no), dtype=tdm1s_f[ifrag].dtype)
+            t = np.zeros ((lr,lr,2,no,no), dtype=tdm1s_f_1[ifrag].dtype)
             t[:lr1,:lr1] = tdm1s_f_1[ifrag][:]
             t[lr1:,:] = tdm1s_f_2[ifrag][:]
             t[:lr1,lr1:] = tdm1s_f_3[ifrag][:]
@@ -375,8 +377,8 @@ class ExcitationPSFCISolver (ProductStateFCISolver):
         w -= lib.einsum ('ijab,klcd,adcb->ijkl', tdm1s_f[1][:,:,1], tdm1s_f[0][:,:,1],
                         h2[i:,:i,:i,i:])
         h_pp += w.transpose (0,2,1,3)
-        ham_pq[:np,:np] = h_pp.reshape (lroots[1]*lroots[0], lroots[1]*lroots[0])
-        #assert (abs (lib.fp (ham_pq[:np,:np]) - lib.fp (ref[:np,:np])) < 1e-8)
+        ham_pq[:p,:p] = h_pp.reshape (lroots[1]*lroots[0], lroots[1]*lroots[0])
+        #assert (abs (lib.fp (ham_pq[:p,:p]) - lib.fp (ref[:p,:p])) < 1e-8)
 
         #assert (abs (lib.fp (ham_pq) - lib.fp (ref)) < 1e-8)
 
@@ -429,14 +431,18 @@ class ExcitationPSFCISolver (ProductStateFCISolver):
         if h1.ndim < 3: h1 = np.stack ([h1,h1], axis=0)
         hci = []
         for ifrag in range (nfrags):
+            nroots = lroots[ifrag]
             solver = self.fcisolvers[ifrag]
+            if nroots == 0:
+                na, nb = solver.transformer.ndeta, solver.transformer.ndetb
+                hci.append (np.zeros ((0,na,nb)))
+                continue
             i, j = ni[ifrag], nj[ifrag]
             norb, nelec = norb_f[ifrag], self._get_nelec (solver, nelec_f[ifrag])
             h1e = h1[:,i:j,i:j]
             h2e = h2[i:j,i:j,i:j,i:j]
             h2eff = solver.absorb_h1e (h1e, h2e, norb, nelec, 0.5)
             hc = []
-            nroots = lroots[ifrag]
             for iroot in range (nroots):
                 c = ci[ifrag][iroot]
                 hc.append (solver.contract_2e (h2eff, c, norb, nelec))
