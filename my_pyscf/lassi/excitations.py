@@ -239,7 +239,8 @@ class ExcitationPSFCISolver (ProductStateFCISolver):
                 converged = True
                 break
             ci1 = self.get_new_vecs (ci1, hpq_xq, hpp_xp, nroots=nroots)
-            ham_pq = self.get_ham_pq (h0, h1, h2, ci1)
+            ham_pq = self.update_ham_pq (ham_pq, h0, h1, h2, ci1, hci_qspace, hci_pspace_diag,
+                                         tdm1s_f, norb_f, nelec_f)
             _, _, _, ci1, disc_svals, ham_pq = self._eig (
                 ham_pq, ci1, nroots=nroots
             )
@@ -299,6 +300,87 @@ class ExcitationPSFCISolver (ProductStateFCISolver):
                                                    orbsym=self.orbsym_ref, wfnsym=self.wfnsym_ref)
         t1 = self.log.timer ('get_ham_pq', *t0)
         return ham_pq + (h0*ovlp_pq)
+
+    def update_ham_pq (self, ham_pq, h0, h1, h2, ci, hci1_qspace, hci1_pspace_diag, tdm1s_f_1,
+                       norb_f, nelec_f):
+        ref = self.get_ham_pq (h0, h1, h2, ci)
+        return ref
+        assert (len (ci) == 2)
+        old_ham_pq = ham_pq
+        lroots = get_lroots (ci)
+        lroots1 = get_lroots (hci_pspace_diag)
+        ci1 = [c[:l] for c,l in zip (ci, lroots1)]
+        ci2 = [c[l:] for c,l in zip (ci, lroots1)]
+        lroots2 = get_lroots (ci2)
+        np = np.prod (lroots)
+        nq = self.get_nq ()
+
+        # q,q sector
+        ham_pq = np.zeros ((np+nq,np+nq), dtype=old_ham_pq.dtype)
+        ham_pq[-nq:,-nq:] = old_ham_pq[-nq:,-nq:]        
+        #assert (abs (lib.fp (ham_pq[-nq:,-nq:]) - lib.fp (ref[-nq:,-nq:])) < 1e-8)
+
+        # p,q sector
+        h_pq = np.zeros ((lroots[1],lroots[0],nq), dtype=ham_pq.dtype)
+        h_pq[:,:lroots1[0],:] = lib.einsum (
+            'iab,jabq->ijq', ci[1].conj (), hci1_qspace[1],
+        )
+        h_pq[:lroots1[1],:,:] = lib.einsum (
+            'jab,iabq->ijq', ci[0].conj (), hci1_qspace[0],
+        )
+        hci2_qspace = self.op_ham_pq_ref (h1, h2, ci2)
+        h_pq[lroots1[1]:,lroots1[0]:,:] = lib.einsum (
+            'iab,jabq->ijq', ci2[1].conj (), hci2_qspace[1],
+        )
+        h_pq = h_pq.reshape (lroots[1]*lroots[0],nq)
+        ham_pq[:np,-nq:] = h_pq
+        #assert (abs (lib.fp (ham_pq[:np,-nq:]) - lib.fp (ref[:np,-nq:])) < 1e-8)
+        ham_pq[-nq:,:np] = h_pq.conj ().T
+        #assert (abs (lib.fp (ham_pq[-nq:,:np]) - lib.fp (ref[-nq:,:np])) < 1e-8)
+
+        # p,p sector - constant
+        h_pp = np.zeros ((np,np), dtype=ham_pq.dtype)
+        h_pp[np.diag_indices_from (h_pp)] = h0
+
+        # p,p sector - semidiagonal
+        h_pp = h_pp.reshape (lroots[1],lroots[0],lroots[1],lroots[0])
+        hci2_pspace_diag = self.op_ham_pp_diag (h1, h2, ci2, norb_f, nelec_f)
+        hci_pspace_diag = [np.append (hc1, hc2, axis=0) for hc1, hc2
+                           in zip (hci1_pspace_diag, hci2_pspace_diag)]
+        h_pp_diag = [np.dot (c.reshape (l,-1).conj (), hc.reshape (l,-1).T)
+                     for c, hc, l in zip (ci, hci_pspace_diag, lroots)]
+        for i in range (lroots[1]):
+            h_pp[i,:,i,:] += h_pp_diag[0]
+        for i in range (lroots[0]):
+            h_pp[:,i,:,i] += h_pp_diag[1]
+
+        # p,p sector - offdiagonal
+        tdm1s_f_2 = self.get_tdm1s_f (ci2, ci, norb_f, nelec_f)
+        tdm1s_f_3 = self.get_tdm1s_f (ci1, ci2, norb_f, nelec_f)
+        tdm1s_f = []
+        for ifrag in range (nfrags):
+            lr, no = lroots[ifrag], norb_f[ifrag]
+            lr1, lr2 = lroots1[ifrag], lroots2[ifrag]
+            ne = self._get_nelec (self.fcisolvers[ifrag], nelec_f[ifrag])
+            t = np.zeros ((lr,lr,2,no,no), dtype=tdm1s_f[ifrag].dtype)
+            t[:lr1,:lr1] = tdm1s_f_1[ifrag][:]
+            t[lr1:,:] = tdm1s_f_2[ifrag][:]
+            t[:lr1,lr1:] = tdm1s_f_3[ifrag][:]
+            tdm1s_f.append (t)
+        i = norb_f[0]
+        w = lib.einsum ('ijab,klcd,abcd->ijkl', tdm1s_f[1].sum (2), tdm1s_f[0].sum (2),
+                        h2[i:,i:,:i,:i])
+        w -= lib.einsum ('ijab,klcd,adcb->ijkl', tdm1s_f[1][:,:,0], tdm1s_f[0][:,:,0],
+                        h2[i:,:i,:i,i:])
+        w -= lib.einsum ('ijab,klcd,adcb->ijkl', tdm1s_f[1][:,:,1], tdm1s_f[0][:,:,1],
+                        h2[i:,:i,:i,i:])
+        h_pp += w.transpose (0,2,1,3)
+        ham_pq[:np,:np] = h_pp.reshape (lroots[1]*lroots[0], lroots[1]*lroots[0])
+        #assert (abs (lib.fp (ham_pq[:np,:np]) - lib.fp (ref[:np,:np])) < 1e-8)
+
+        #assert (abs (lib.fp (ham_pq) - lib.fp (ref)) < 1e-8)
+
+        return ref
 
     def op_ham_pq_ref (self, h1, h2, ci):
         '''Act the Hamiltonian on the reference CI vectors and project onto the current
