@@ -256,7 +256,7 @@ class ExcitationPSFCISolver (ProductStateFCISolver):
                                          tdm1s_f, norb_f, nelec_f)
             _, si = self.eig1 (ham_pq, ci1)
             disc_svals, _, _, ci1, ham_pq, hci_qspace, hci_pspace_diag = self.schmidt_trunc (
-                si, ci1, ham_pq, nroots=nroots
+                si, ci1, ham_pq, hci_qspace, hci_pspace_diag, nroots=nroots
             )
             log.debug ('Discarded singular values: {}'.format (disc_svals))
             disc_sval_sum = sum (disc_svals)
@@ -674,10 +674,10 @@ class ExcitationPSFCISolver (ProductStateFCISolver):
         # hci
         if hci_qspace is not None:
             hci_qspace[0] = np.tensordot (uh.conj(), hci_qspace[0], axes=1)
-            hci_qspace[1] = np.tensordot (vh.conj(), hci_qspace[0], axes=1)
+            hci_qspace[1] = np.tensordot (vh.conj(), hci_qspace[1], axes=1)
         if hci_pspace_diag is not None:
             hci_pspace_diag[0] = np.tensordot (vh.conj(), hci_pspace_diag[0], axes=1)
-            hci_pspace_diag[1] = np.tensordot (uh.conj(), hci_pspace_diag[0], axes=1)
+            hci_pspace_diag[1] = np.tensordot (uh.conj(), hci_pspace_diag[1], axes=1)
 
         t1 = self.log.timer ('schmidt_trunc', *t0)
         return disc_svals, si_p, si_q, ci1, ham_pq, hci_qspace, hci_pspace_diag
