@@ -306,6 +306,10 @@ class FragTDMInt (object):
         hopping_index = self.hopping_index
         zerop_index = self.zerop_index
         onep_index = self.onep_index
+        self.mask_ints = np.logical_or (
+            self.mask_ints, self.mask_ints.T
+        )
+        #self.mask_ints[:,:] = True
 
         nroots, norb = self.nroots, self.norb
         t0 = (lib.logger.process_clock (), lib.logger.perf_counter ())
@@ -347,6 +351,12 @@ class FragTDMInt (object):
                 self.onep_index[:,i] |= self.onep_index[:,j]
                 self.zerop_index[i] |= self.zerop_index[j]
                 self.zerop_index[:,i] |= self.zerop_index[:,j]
+                self.mask_ints[i,:] = np.logical_or (
+                    self.mask_ints[i,:], self.mask_ints[j,:]
+                )
+                self.mask_ints[:,i] = np.logical_or (
+                    self.mask_ints[:,i], self.mask_ints[:,j]
+                )
         for i in range (self.nroots):
             assert (self.root_unique[self.unique_root[i]])
         idx_uniq = self.root_unique
@@ -354,12 +364,14 @@ class FragTDMInt (object):
         # Overlap matrix
         offs = np.cumsum (lroots)
         for i, j in combinations (np.where (idx_uniq)[0], 2):
-            if self.nelec_r[i] == self.nelec_r[j]:
-                ci_i = ci[i].reshape (lroots[i], -1)
-                ci_j = ci[j].reshape (lroots[j], -1)
-                self.ovlp[i][j] = np.dot (ci_i.conj (), ci_j.T)
-                self.ovlp[j][i] = self.ovlp[i][j].conj ().T
+            if self.nelec_r[i] != self.nelec_r[j]: continue
+            if not self.mask_ints[i,j]: continue
+            ci_i = ci[i].reshape (lroots[i], -1)
+            ci_j = ci[j].reshape (lroots[j], -1)
+            self.ovlp[i][j] = np.dot (ci_i.conj (), ci_j.T)
+            self.ovlp[j][i] = self.ovlp[i][j].conj ().T
         for i in np.where (idx_uniq)[0]:
+            if not self.mask_ints[i,i]: continue
             ci_i = ci[i].reshape (lroots[i], -1)
             self.ovlp[i][i] = np.dot (ci_i.conj (), ci_i.T)
             errmat = self.ovlp[i][i] - np.eye (lroots[i])
@@ -430,6 +442,7 @@ class FragTDMInt (object):
             apket = np.stack ([des_a_loop (ci[ket], nelec, p) for p in range (norb)], axis=0)
             nelec = (nelec[0]-1, nelec[1])
             for bra in np.where ((hopping_index[0,:,ket] < 0) & idx_uniq)[0]:
+                if not self.mask_ints[bra,ket]: continue
                 bravec = ci[bra].reshape (lroots[bra], ndeta[bra]*ndetb[bra]).conj ()
                 # <j|a_p|i>
                 if np.all (hopping_index[:,bra,ket] == [-1,0]):
@@ -476,6 +489,7 @@ class FragTDMInt (object):
                 for p in range (norb)], axis=0) if bpvec_list[ket] is None else bpvec_list[ket]
             nelec = (nelec[0], nelec[1]-1)
             for bra in np.where ((hopping_index[1,:,ket] < 0) & idx_uniq)[0]:
+                if not self.mask_ints[bra,ket]: continue
                 bravec = ci[bra].reshape (lroots[bra], ndeta[bra]*ndetb[bra]).conj ()
                 # <j|b_p|i>
                 if np.all (hopping_index[:,bra,ket] == [0,-1]):
