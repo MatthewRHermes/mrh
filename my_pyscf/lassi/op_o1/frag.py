@@ -106,6 +106,15 @@ class FragTDMInt (object):
         self._sm = [[None for i in range (nroots)] for j in range (nroots)]
         self.dm1 = [[None for i in range (nroots)] for j in range (nroots)]
         self.dm2 = [[None for i in range (nroots)] for j in range (nroots)]
+        self.linkstr = [None for i in range (nroots)]
+        self.linkstrl = [None for j in range (nroots)]
+        for i in range (nroots):
+            la = cistring.gen_linkstr_index(range(norb), nelec_rs[i][0])
+            lb = cistring.gen_linkstr_index(range(norb), nelec_rs[i][1])
+            self.linkstr[i] = (la,lb)
+            la = cistring.gen_linkstr_index_trilidx(range(norb), nelec_rs[i][0])
+            lb = cistring.gen_linkstr_index_trilidx(range(norb), nelec_rs[i][1])
+            self.linkstrl[i] = (la,lb)
         self.rootaddr = rootaddr
         self.fragaddr = fragaddr
         self.idx_frag = idx_frag
@@ -379,13 +388,15 @@ class FragTDMInt (object):
             tdm2s = np.zeros ((bra.shape[0],ket.shape[0],4,norb,norb,norb,norb), dtype=self.dtype)
             if do2:
                 for i, j in product (range (bra.shape[0]), range (ket.shape[0])):
-                    d1s, d2s = trans_rdm12s (bra[i], ket[j], norb, nelec)
+                    d1s, d2s = trans_rdm12s (bra[i], ket[j], norb, nelec,
+                                             link_index=self.linkstr[iroot])
                     # Transpose based on docstring of direct_spin1.trans_rdm12s
                     tdm1s[i,j] = np.stack (d1s, axis=0).transpose (0, 2, 1)
                     tdm2s[i,j] = np.stack (d2s, axis=0)
             else:
                 for i, j in product (range (bra.shape[0]), range (ket.shape[0])):
-                    d1s = trans_rdm1s (bra[i], ket[j], norb, nelec)
+                    d1s = trans_rdm1s (bra[i], ket[j], norb, nelec,
+                                       link_index=self.linkstr[iroot])
                     # Transpose based on docstring of direct_spin1.trans_rdm12s
                     tdm1s[i,j] = np.stack (d1s, axis=0).transpose (0, 2, 1)
             return tdm1s, tdm2s
@@ -501,11 +512,14 @@ class FragTDMInt (object):
         h_uhf = [h_uhf, -h_uhf]
         h_11 = h_11.sum (0) / 2
         if h_22 is None:
-            hci = h_00*ci + contract_1e (h_11, ci, norb, nelec)
+            hci = h_00*ci + contract_1e (h_11, ci, norb, nelec,
+                                         link_index=self.linkstrl[ket])
         else:
             h2eff = absorb_h1e (h_11, h_22, norb, nelec, 0.5)
-            hci = h_00*ci + contract_2e (h2eff, ci, norb, nelec)
-        hci += contract_1e_uhf (h_uhf, ci, norb, nelec)
+            hci = h_00*ci + contract_2e (h2eff, ci, norb, nelec,
+                                         link_index=self.linkstrl[ket])
+        hci += contract_1e_uhf (h_uhf, ci, norb, nelec,
+                                link_index=self.linkstrl[ket])
         return hci
 
     def contract_h10 (self, spin, h_10, h_21, ket):
@@ -518,7 +532,8 @@ class FragTDMInt (object):
         for p in range (self.norb):
             hci += h_10[p] * cre_op (ci, norb, nelec, p)
             if h_21 is not None:
-                hci += cre_op (contract_1e (h_21[p], ci, norb, nelec),
+                hci += cre_op (contract_1e (h_21[p], ci, norb, nelec,
+                                            link_index=self.linkstrl[ket]),
                                norb, nelec, p)
         return hci
 
@@ -536,7 +551,7 @@ class FragTDMInt (object):
             hci += h_01[p] * des_op (ci, norb, nelec, p)
             if h_12 is not None:
                 hci += contract_1e (h_12[:,:,p], des_op (ci, norb, nelec, p),
-                                    norb, nelecp)
+                                    norb, nelecp, link_index=self.linkstrl[ket])
         return hci
 
     def contract_h20 (self, spin, h_20, ket):
