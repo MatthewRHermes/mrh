@@ -513,13 +513,13 @@ class FragTDMInt (object):
         h_11 = h_11.sum (0) / 2
         if h_22 is None:
             hci = h_00*ci + contract_1e (h_11, ci, norb, nelec,
-                                         link_index=self.linkstrl[ket])
+                                         link_index=self.linkstrl[r])
         else:
             h2eff = absorb_h1e (h_11, h_22, norb, nelec, 0.5)
             hci = h_00*ci + contract_2e (h2eff, ci, norb, nelec,
-                                         link_index=self.linkstrl[ket])
+                                         link_index=self.linkstrl[r])
         hci += contract_1e_uhf (h_uhf, ci, norb, nelec,
-                                link_index=self.linkstrl[ket])
+                                link_index=self.linkstrl[r])
         return hci
 
     def contract_h10 (self, spin, h_10, h_21, ket):
@@ -532,8 +532,7 @@ class FragTDMInt (object):
         for p in range (self.norb):
             hci += h_10[p] * cre_op (ci, norb, nelec, p)
             if h_21 is not None:
-                hci += cre_op (contract_1e (h_21[p], ci, norb, nelec,
-                                            link_index=self.linkstrl[ket]),
+                hci += cre_op (contract_1e (h_21[p], ci, norb, nelec),
                                norb, nelec, p)
         return hci
 
@@ -551,7 +550,7 @@ class FragTDMInt (object):
             hci += h_01[p] * des_op (ci, norb, nelec, p)
             if h_12 is not None:
                 hci += contract_1e (h_12[:,:,p], des_op (ci, norb, nelec, p),
-                                    norb, nelecp, link_index=self.linkstrl[ket])
+                                    norb, nelecp)
         return hci
 
     def contract_h20 (self, spin, h_20, ket):
