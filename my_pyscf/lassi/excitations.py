@@ -219,7 +219,9 @@ class ExcitationPSFCISolver (ProductStateFCISolver):
         ci0 = self.get_init_guess (ci0, norb_f, nelec_f, h1, h2, nroots=3*nroots)
         ham_pq = self.get_ham_pq (h0, h1, h2, ci0)
         e, si = self.eig1 (ham_pq, ci0)
-        disc_svals, _, _, ci1, ham_pq = self.schmidt_trunc (si, ci0, ham_pq, nroots=nroots)[:5]
+        disc_svals, u, si_p, si_q, vh = self.schmidt_trunc (si, ci0, nroots=nroots)
+        ham_pq = self.truncrot_ham_pq (ham_pq, u, vh)
+        ci1 = self.truncrot_ci (ci0, u, vh)
         hci_qspace = self.op_ham_pq_ref (h1, h2, ci1)
         hci_pspace_diag = self.op_ham_pp_diag (h1, h2, ci1, norb_f, nelec_f)
         tdm1s_f = self.get_tdm1s_f (ci1, ci1, norb_f, nelec_f)
@@ -230,10 +232,15 @@ class ExcitationPSFCISolver (ProductStateFCISolver):
         for it in range (max_cycle_macro):
             e_last = e
             ci0 = ci1
+            # Re-diagonalize in truncated space
             e, si = self.eig1 (ham_pq, ci0)
-            _, si_p, si_q, ci1, ham_pq, hci_qspace, hci_pspace_diag, tdm1s_f = self.schmidt_trunc (
-                si, ci0, ham_pq, hci_qspace, hci_pspace_diag, tdm1s_f, nroots=nroots
-            )
+            _, u, si_p, si_q, vh = self.schmidt_trunc (si, ci0, nroots=nroots)
+            ham_pq = self.truncrot_ham_pq (ham_pq, u, vh)
+            ci1 = self.truncrot_ci (ci0, u, vh)
+            hci_qspace = self.truncrot_hci_qspace (hci_qspace, u, vh)
+            hci_pspace_diag = self.truncrot_hci_pspace_diag (hci_pspace_diag, u, vh)
+            tdm1s_f = self.truncrot_tdm1s_f (tdm1s_f, u, vh)
+            # Generate additional vectors and compute gradient
             hpq_xq = self.get_hpq_xq (hci_qspace, ci1, si_q)
             hpp_xp = self.get_hpp_xp (ci1, si_p, hci_pspace_diag, h0, h2, tdm1s_f, norb_f, nelec_f)
             grad = self._get_grad (ci1, si_p, hpq_xq, hpp_xp, nroots=nroots)
@@ -244,6 +251,7 @@ class ExcitationPSFCISolver (ProductStateFCISolver):
                 converged = True
                 break
             ci2 = self.get_new_vecs (ci1, hpq_xq, hpp_xp, nroots=nroots)
+            # Extend intermediates
             hci2_qspace = self.op_ham_pq_ref (h1, h2, ci2)
             hci2_pspace_diag = self.op_ham_pp_diag (h1, h2, ci2, norb_f, nelec_f)
             tdm1s_f_12 = self.get_tdm1s_f (ci1, ci2, norb_f, nelec_f)
@@ -260,10 +268,14 @@ class ExcitationPSFCISolver (ProductStateFCISolver):
                 )
             ham_pq = self.update_ham_pq (ham_pq, h0, h1, h2, ci1, hci_qspace, hci_pspace_diag,
                                          tdm1s_f, norb_f, nelec_f)
+            # Diagonalize and truncate
             _, si = self.eig1 (ham_pq, ci1)
-            disc_svals, _, _, ci1, ham_pq, hci_qspace, hci_pspace_diag, tdm1s_f = self.schmidt_trunc (
-                si, ci1, ham_pq, hci_qspace, hci_pspace_diag, tdm1s_f, nroots=nroots
-            )
+            disc_svals, u, _, _, vh = self.schmidt_trunc (si, ci1, nroots=nroots)
+            ham_pq = self.truncrot_ham_pq (ham_pq, u, vh)
+            ci1 = self.truncrot_ci (ci1, u, vh)
+            hci_qspace = self.truncrot_hci_qspace (hci_qspace, u, vh)
+            hci_pspace_diag = self.truncrot_hci_pspace_diag (hci_pspace_diag, u, vh)
+            tdm1s_f = self.truncrot_tdm1s_f (tdm1s_f, u, vh)
             log.debug ('Discarded singular values: {}'.format (disc_svals))
             disc_sval_sum = sum (disc_svals)
         conv_str = ['NOT converged','converged'][int (converged)]
@@ -588,8 +600,7 @@ class ExcitationPSFCISolver (ProductStateFCISolver):
         e, si = lowest_refovlp_eigpair (ham_pq, p=p, ovlp_thresh=ovlp_thresh, log=self.log)
         return e, si
 
-    def schmidt_trunc (self, si, ci0, ham_pq=None, hci_qspace=None, hci_pspace_diag=None,
-                       tdm1s_f=None, nroots=1):
+    def schmidt_trunc (self, si, ci0, nroots=1):
         '''Perform the Schmidt decomposition on the P-space part of an si vector, truncate all but
         the highest nroots singular values, and correspondingly transform various intermediates.
 
@@ -600,37 +611,20 @@ class ExcitationPSFCISolver (ProductStateFCISolver):
                 CI vectors describing the P states of ham_pq
 
         Kwargs:
-            ham_pq: ndarray of shape (p+?+q,p+?+q)
-                Hamiltonian matrix including both P and Q spaces
-            hci_qspace: list of ndarray of shape (nroots+?,ndeta,ndetb,q)
-                H|q> projected on <p| for all but one fragment, where <p| is the vectors
-                in ci0, i.e., the output of op_ham_pq_ref
-            hci_pspace_diag: list of ndarray of shape (nroots+?,ndeta,ndetb)
-                H(ifrag)|p(ifrag)>, where <p| is the vectors of ci0; i.e., the output of
-                op_ham_pp_diag for ci.
-            tdm1s_f: list of ndarray of shape (nroots+?,nroots+?,2,norb[i],norb[i])
-                Spin-separated transition one-body density matrices within each fragment for ci
             nroots: integer
                 Number of roots for each fragment to retain; i.e., sqrt (p)
 
         Returns:
             disc_svals: ndarray of shape (p-nroots,)
                 List of singular values discarded in the truncation
+            u: ndarray of shape (nroots+?,nroots)
+                nroots left-singular vectors
             si_p: ndarray of shape (nroots,)
                 P-space part of the CI vector, in the Schmidt (diagonal) basis
             si_q: ndarray of shape (q,)
                 Q-space part of the CI vector
-            ci1: list of ndarray of shape (nroots,ndeta[i],ndetb[i])
-                Truncated CI vectors in the Schmidt basis corresponding to si_p
-            ham_pq: ndarray of shape (p+q,p+q) or None
-                Truncated ham_pq in the Schmidt basis
-            hci_qspace: list of ndarray of shape (nroots,ndeta,ndetb,q) or None
-                H|q> projected on <p| for all but one fragment, where <p| is the vectors
-                in ci1
-            hci_pspace_diag: list of ndarray of shape (nroots,ndeta,ndetb) or None
-                H(ifrag)|p(ifrag)>, where <p| is the vectors of ci1
-            tdm1s_f: list of ndarray of shape (nroots+?,nroots+?,2,norb[i],norb[i])
-                Spin-separated transition one-body density matrices within each fragment for ci1
+            vh: ndarray of shape (nroots,nroots+?)
+                nroots right-singular vectors
         '''
         t0 = lib.logger.process_clock (), lib.logger.perf_counter ()
         nfrags = len (ci0)
@@ -645,42 +639,46 @@ class ExcitationPSFCISolver (ProductStateFCISolver):
             svals = svals[:nroots]
         u = u[:,:nroots]
         vh = vh[:nroots,:]
-        v = vh.conj ().T
-        uh = u.conj ().T
         si_p = svals
         si_q = si[p:]
+        return disc_svals, u, si_p, si_q, vh
 
-        # ci
+    def truncrot_ci (self, ci0, u, vh):
         ci1 = [np.tensordot (vh, ci0[0], axes=1),
-               np.tensordot (uh, ci0[1], axes=1)]
+               np.tensordot (u.conj ().T, ci0[1], axes=1)]
+        return ci1
 
-        # ham_pq
-        if ham_pq is not None:
-            nstates = ham_pq.shape[1]
-            h_pr = ham_pq[:p,:].reshape (lroots[1],lroots[0],nstates)
-            h_pr = np.dot (uh, np.dot (vh, h_pr)).reshape (nroots*nroots,nstates)
-            ham_pq = np.append (h_pr, ham_pq[p:,:], axis=0)
-            nstates = ham_pq.shape[0]
-            h_rp = ham_pq[:,:p].reshape (nstates,lroots[1],lroots[0])
-            h_rp = lib.einsum ('rij,ia,jb->rab', h_rp, u, v).reshape (nstates,nroots*nroots)
-            ham_pq = np.append (h_rp, ham_pq[:,p:], axis=1)
+    def truncrot_ham_pq (self, ham_pq, u, vh):
+        uh = u.conj ().T
+        v = vh.conj ().T
+        nroots = u.shape[1]
+        lroots = [v.shape[0], u.shape[0]]
+        p = np.prod (lroots)
+        nstates = ham_pq.shape[1]
+        h_pr = ham_pq[:p,:].reshape (lroots[1],lroots[0],nstates)
+        h_pr = np.dot (uh, np.dot (vh, h_pr)).reshape (nroots*nroots,nstates)
+        ham_pq = np.append (h_pr, ham_pq[p:,:], axis=0)
+        nstates = ham_pq.shape[0]
+        h_rp = ham_pq[:,:p].reshape (nstates,lroots[1],lroots[0])
+        h_rp = lib.einsum ('rij,ia,jb->rab', h_rp, u, v).reshape (nstates,nroots*nroots)
+        ham_pq = np.append (h_rp, ham_pq[:,p:], axis=1)
+        return ham_pq
 
-        # hci
-        if hci_qspace is not None:
-            hci_qspace[0] = np.tensordot (uh.conj(), hci_qspace[0], axes=1)
-            hci_qspace[1] = np.tensordot (vh.conj(), hci_qspace[1], axes=1)
-        if hci_pspace_diag is not None:
-            hci_pspace_diag[0] = np.tensordot (vh.conj(), hci_pspace_diag[0], axes=1)
-            hci_pspace_diag[1] = np.tensordot (uh.conj(), hci_pspace_diag[1], axes=1)
+    def truncrot_hci_qspace (self, hci_qspace, u, vh):
+        hci_qspace[0] = np.tensordot (u.T, hci_qspace[0], axes=1)
+        hci_qspace[1] = np.tensordot (vh.conj(), hci_qspace[1], axes=1)
+        return hci_qspace
 
+    def truncrot_hci_pspace_diag (self, hci_pspace_diag, u, vh):
+        hci_pspace_diag[0] = np.tensordot (vh.conj(), hci_pspace_diag[0], axes=1)
+        hci_pspace_diag[1] = np.tensordot (u.T, hci_pspace_diag[1], axes=1)
+        return hci_pspace_diag
+
+    def truncrot_tdm1s_f (self, tdm1s_f, u, vh):
         # tdm1s_f
-        if tdm1s_f is not None:
-            tdm1s_f[0] = lib.einsum ('mu,uvsij,nv->mnsij', vh.conj (), tdm1s_f[0], vh)
-            tdm1s_f[1] = lib.einsum ('mu,uvsij,nv->mnsij', uh.conj (), tdm1s_f[1], uh)
-
-        t1 = self.log.timer ('schmidt_trunc', *t0)
-        print (ham_pq is None, hci_qspace is None, hci_pspace_diag is None, tdm1s_f is None)
-        return disc_svals, si_p, si_q, ci1, ham_pq, hci_qspace, hci_pspace_diag, tdm1s_f
+        tdm1s_f[0] = lib.einsum ('mu,uvsij,nv->mnsij', vh.conj (), tdm1s_f[0], vh)
+        tdm1s_f[1] = lib.einsum ('um,uvsij,vn->mnsij', u, tdm1s_f[1], u.conj ())
+        return tdm1s_f
 
     def get_hpq_xq (self, hci_f_pabq, ci0, si_q):
         '''Generate the P-row, Q-column part of the Hamiltonian-vector product projected into P'
