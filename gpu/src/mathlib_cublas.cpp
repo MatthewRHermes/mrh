@@ -19,13 +19,19 @@ int MATHLIB::create_handle()
 
   cublasCreate(&h);
   
+  _CUDA_CHECK_ERRORS();
+  
   cudaStream_t * s = pm->dev_get_queue();
   
   cublasSetStream(h, *s);
+  
+  _CUDA_CHECK_ERRORS();
 
   my_handles.push_back(h);
 
   int id = my_handles.size() - 1;
+
+  set_handle(id);
   
   return id;
 }
@@ -46,6 +52,13 @@ void MATHLIB::set_handle()
   
   current_handle = &(my_handles[id]);
   current_handle_id = id;
+}
+
+// ----------------------------------------------------------------
+
+cublasHandle_t * MATHLIB::get_handle()
+{  
+  return current_handle;
 }
 
 // ----------------------------------------------------------------
