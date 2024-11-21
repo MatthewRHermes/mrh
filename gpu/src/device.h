@@ -77,6 +77,7 @@ public :
 
   void getjk_rho(double *, double *, double *, int, int, int);
   void getjk_vj(double *, double *, double *, int, int, int, int);
+  void getjk_unpack_buf2(double *, double *, int *, int, int, int);
   
   void set_update_dfobj_(int);
   void get_dfobj_status(size_t, py::array_t<int>);

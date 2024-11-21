@@ -887,6 +887,29 @@ void Device::getjk_vj(double * vj, double * rho, double * eri, int nset, int nao
 
 /* ---------------------------------------------------------------------- */
 
+void Device::getjk_unpack_buf2(double * buf2, double * eri, int * map, int naux, int nao, int nao_pair)
+{
+#if 1
+  dim3 grid_size(naux, _TILE(nao, _UNPACK_BLOCK_SIZE), 1);
+  dim3 block_size(1, _UNPACK_BLOCK_SIZE, 1);
+#else
+  dim3 grid_size(naux, _TILE(nao*nao, _UNPACK_BLOCK_SIZE), 1);
+  dim3 block_size(1, _UNPACK_BLOCK_SIZE, 1);
+#endif
+  
+  cudaStream_t s = *(pm->dev_get_queue());
+  
+  _getjk_unpack_buf2<<<grid_size, block_size, 0, s>>>(buf2, eri, map, naux, nao, nao_pair);
+  
+#ifdef _DEBUG_DEVICE
+  printf("LIBGPU ::  -- get_jk::_getjk_unpack_buf2 :: naux= %i  nao= %i _UNPACK_BLOCK_SIZE= %i  grid_size= %i %i %i  block_size= %i %i %i\n",
+	 naux, nao, _UNPACK_BLOCK_SIZE, grid_size.x,grid_size.y,grid_size.z,block_size.x,block_size.y,block_size.z);
+  _CUDA_CHECK_ERRORS();
+#endif
+}
+
+/* ---------------------------------------------------------------------- */
+
 // The _vj and _vk arguements aren't actually used anymore and could be removed. 
 void Device::get_jk(int naux, int nao, int nset,
 		    py::array_t<double> _eri1, py::array_t<double> _dmtril, py::list & _dms_list,
@@ -1005,24 +1028,8 @@ void Device::get_jk(int naux, int nao, int nset,
   // buf2 = lib.unpack_tril(eri1, out=buf[1])
     
   profile_start("get_jk :: with_k");
-    
-  {
-#if 1
-    dim3 grid_size(naux, _TILE(nao, _UNPACK_BLOCK_SIZE), 1);
-    dim3 block_size(1, _UNPACK_BLOCK_SIZE, 1);
-#else
-    dim3 grid_size(naux, _TILE(nao*nao, _UNPACK_BLOCK_SIZE), 1);
-    dim3 block_size(1, _UNPACK_BLOCK_SIZE, 1);
-#endif
-    
-    _getjk_unpack_buf2<<<grid_size, block_size, 0, dd->stream>>>(dd->d_buf2, d_eri, dd->d_pumap_ptr, naux, nao, nao_pair);
-    
-#ifdef _DEBUG_DEVICE
-    printf("LIBGPU ::  -- get_jk::_getjk_unpack_buf2 :: naux= %i  nao= %i _UNPACK_BLOCK_SIZE= %i  grid_size= %i %i %i  block_size= %i %i %i\n",
-	   naux, nao, _UNPACK_BLOCK_SIZE, grid_size.x,grid_size.y,grid_size.z,block_size.x,block_size.y,block_size.z);
-    _CUDA_CHECK_ERRORS();
-#endif
-  }
+
+  getjk_unpack_buf2(dd->d_buf2, d_eri, dd->d_pumap_ptr, naux, nao, nao_pair);
 
 #ifdef _DEBUG_DEVICE
   printf("LIBGPU ::  -- finished\n");
