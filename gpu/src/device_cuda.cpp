@@ -562,13 +562,12 @@ void Device::init_get_jk(py::array_t<double> _eri1, py::array_t<double> _dmtril,
 #endif
 
   const int device_id = count % num_devices;
+  
   pm->dev_set_device(device_id);
 
   my_device_data * dd = &(device_data[device_id]);
-
-  // Create cuda stream -- 1-time initialization
   
-  if(dd->stream == nullptr) pm->dev_stream_create(dd->stream);
+  if(dd->stream == nullptr) dd->stream = *(pm->dev_get_queue());
   
   int nao_pair = nao * (nao+1) / 2;
   
@@ -650,18 +649,9 @@ void Device::init_get_jk(py::array_t<double> _eri1, py::array_t<double> _dmtril,
   
   // Create blas handle
 
-  if(dd->handle == nullptr) {
-    
-#ifdef _DEBUG_DEVICE
-    printf(" -- calling cublasCreate(&handle)\n");
-#endif
-    cublasCreate(&(dd->handle));
-    _CUDA_CHECK_ERRORS();
-#ifdef _DEBUG_DEVICE
-    printf(" -- calling cublasSetStream(handle, stream)\n");
-#endif
-    cublasSetStream(dd->handle, dd->stream);
-    _CUDA_CHECK_ERRORS();
+  if(dd->handle == nullptr) {    
+    ml->create_handle();
+    dd->handle = *(ml->get_handle());
   }
   
   profile_stop();
