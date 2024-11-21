@@ -19,6 +19,7 @@ namespace MATHLIB_NS {
 
     int create_handle();
     void set_handle(int);
+    void set_handle();
     void destroy_handle();
     
     void gemm(const char * transa, const char * transb,

@@ -40,6 +40,16 @@ void MATHLIB::set_handle(int id)
 
 // ----------------------------------------------------------------
 
+void MATHLIB::set_handle()
+{
+  int id = pm->dev_get_device();
+  
+  current_handle = &(my_handles[id]);
+  current_handle_id = id;
+}
+
+// ----------------------------------------------------------------
+
 void MATHLIB::destroy_handle()
 {
   int id = current_handle_id;
