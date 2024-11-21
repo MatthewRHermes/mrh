@@ -504,6 +504,20 @@ void PM::dev_stream_destroy(cudaStream_t & s)
 #endif
 }
 
+void PM::dev_stream_wait()
+{
+#ifdef _DEBUG_PM
+  printf("Inside PM::dev_stream_wait()\n");
+#endif
+  
+  cudaStreamSynchronize(*current_queue);
+  _CUDA_CHECK_ERRORS();
+  
+#ifdef _DEBUG_PM
+  printf(" -- Leaving PM::dev_stream_wait()\n");
+#endif
+}
+
 void PM::dev_stream_wait(cudaStream_t & s)
 {
 #ifdef _DEBUG_PM

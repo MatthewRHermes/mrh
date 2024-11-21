@@ -83,6 +83,7 @@ namespace PM_NS {
     void dev_stream_create(cudaStream_t & s);
     void dev_stream_destroy();
     void dev_stream_destroy(cudaStream_t & s);
+    void dev_stream_wait();
     void dev_stream_wait(cudaStream_t & s);
 
     void dev_set_queue(int id);
