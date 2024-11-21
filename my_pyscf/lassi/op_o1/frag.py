@@ -546,25 +546,27 @@ class FragTDMInt (object):
         for p in range (self.norb):
             hci += h_10[p] * cre_op (ci, norb, nelec, p)
             if h_21 is not None:
-                hci += cre_op (contract_1e (h_21[p], ci, norb, nelec),
+                hci += cre_op (contract_1e (h_21[p], ci, norb, nelec,
+                                            link_index=self.linkstrl[r]),
                                norb, nelec, p)
         return hci
 
     def contract_h01 (self, spin, h_01, h_12, ket):
-        r = self.rootaddr[ket]
+        rket = self.rootaddr[ket]
         n = self.fragaddr[ket]
-        norb, nelec = self.norb, self.nelec_r[r]
+        norb, nelec = self.norb, self.nelec_r[rket]
         des_op = (des_a, des_b)[spin]
-        ci = self.ci[r][n]
+        ci = self.ci[rket][n]
         hci = 0
         nelecp = list (nelec)
         nelecp[spin] = nelecp[spin] - 1
         nelecp = tuple (nelecp)
+        rbra = self.nelec_r.index (nelecp)
         for p in range (self.norb):
             hci += h_01[p] * des_op (ci, norb, nelec, p)
             if h_12 is not None:
                 hci += contract_1e (h_12[:,:,p], des_op (ci, norb, nelec, p),
-                                    norb, nelecp)
+                                    norb, nelecp, link_index=self.linkstrl[rbra])
         return hci
 
     def contract_h20 (self, spin, h_20, ket):
