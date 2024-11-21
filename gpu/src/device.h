@@ -12,9 +12,11 @@
 namespace py = pybind11;
 
 #include "pm.h"
+#include "mathlib.h"
 #include "dev_array.h"
 
 using namespace PM_NS;
+using namespace MATHLIB_NS;
 
 #define _SIZE_GRID 32
 #define _SIZE_BLOCK 256
@@ -106,6 +108,8 @@ public :
 private:
 
   class PM * pm;
+
+  class MATHLIB * ml;
   
   double host_compute(double *);
   void get_cores(char *);

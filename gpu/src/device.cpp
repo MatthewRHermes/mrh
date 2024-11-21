@@ -22,6 +22,8 @@ Device::Device()
   
   pm = new PM();
 
+  ml = new MATHLIB(pm);
+
   update_dfobj = 0;
   
   rho = nullptr;
@@ -245,6 +247,8 @@ Device::~Device()
   printf("LIBGPU :: Finished\n");
 #endif
 
+  delete ml;
+  
   delete pm;
 }
 
