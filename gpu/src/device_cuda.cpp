@@ -910,6 +910,33 @@ void Device::getjk_unpack_buf2(double * buf2, double * eri, int * map, int naux,
 
 /* ---------------------------------------------------------------------- */
 
+void Device::transpose(double * out, double * in, int nrow, int ncol)
+{
+#ifdef _DEBUG_DEVICE
+  printf("LIBGPU ::  -- calling _transpose()\n");
+#endif
+            
+#if 1
+  dim3 grid_size( _TILE(nrow, _TRANSPOSE_BLOCK_SIZE), _TILE(ncol, _TRANSPOSE_BLOCK_SIZE), 1);
+  dim3 block_size(_TRANSPOSE_BLOCK_SIZE, _TRANSPOSE_NUM_ROWS, 1);
+#else
+  dim3 grid_size(nrow, 1, 1);
+  dim3 block_size(1, _TRANSPOSE_BLOCK_SIZE, 1);
+#endif
+  
+  cudaStream_t s = *(pm->dev_get_queue());
+  
+  _transpose<<<grid_size, block_size, 0, s>>>(out, in, nrow, ncol);
+
+#ifdef _DEBUG_DEVICE
+  printf("LIBGPU ::  -- transpose :: nrow= %i  ncol= %i _TRANSPOSE_BLOCK_SIZE= %i  _TRANSPOSE_NUM_ROWS= %i  grid_size= %i %i %i  block_size= %i %i %i\n",
+	 nrow, ncol, _TRANSPOSE_BLOCK_SIZE, _TRANSPOSE_NUM_ROWS, grid_size.x,grid_size.y,grid_size.z,block_size.x,block_size.y,block_size.z);
+  _CUDA_CHECK_ERRORS();
+#endif
+}
+
+/* ---------------------------------------------------------------------- */
+
 // The _vj and _vk arguements aren't actually used anymore and could be removed. 
 void Device::get_jk(int naux, int nao, int nset,
 		    py::array_t<double> _eri1, py::array_t<double> _dmtril, py::list & _dms_list,
@@ -1061,7 +1088,17 @@ void Device::get_jk(int naux, int nao, int nset,
 	exit(1);
       }
     }
+
+#if 0
+    {
+      const double alpha = 1.0;
+      const double beta = 0.0;
+      const int nao2 = nao * nao;
+
+      ml->gemm_batch();
+    }
     
+#else
     {
       const double alpha = 1.0;
       const double beta = 0.0;
@@ -1075,6 +1112,7 @@ void Device::get_jk(int naux, int nao, int nset,
 				d_dms, nao, 0,
 				&beta, dd->d_buf1, nao, nao2, naux);
     }
+#endif
     
     // dgemm of (nao X blksize*nao) and (blksize*nao X nao) matrices - can refactor later...
     // vk[k] += lib.dot(buf1.reshape(-1,nao).T, buf2.reshape(-1,nao))  // vk[k] is nao x nao array
@@ -1082,27 +1120,7 @@ void Device::get_jk(int naux, int nao, int nset,
     // buf3 = buf1.reshape(-1,nao).T
     // buf4 = buf2.reshape(-1,nao)
     
-    {
-#ifdef _DEBUG_DEVICE
-      printf("LIBGPU ::  -- calling _transpose()\n");
-#endif
-      
-#if 1
-      dim3 grid_size( _TILE(naux*nao, _TRANSPOSE_BLOCK_SIZE), _TILE(nao, _TRANSPOSE_BLOCK_SIZE), 1);
-      dim3 block_size(_TRANSPOSE_BLOCK_SIZE, _TRANSPOSE_NUM_ROWS, 1);
-#else
-      dim3 grid_size(naux*nao, 1, 1);
-      dim3 block_size(1, _TRANSPOSE_BLOCK_SIZE, 1);
-#endif
-      
-      _transpose<<<grid_size, block_size, 0, dd->stream>>>(dd->d_buf3, dd->d_buf1, naux*nao, nao);
-      
-#ifdef _DEBUG_DEVICE
-      printf("LIBGPU ::  -- get_jk::_transpose :: naux= %i  nao= %i _TRANSPOSE_BLOCK_SIZE= %i  _TRANSPOSE_NUM_ROWS= %i  grid_size= %i %i %i  block_size= %i %i %i\n",
-	     naux, nao, _TRANSPOSE_BLOCK_SIZE, _TRANSPOSE_NUM_ROWS, grid_size.x,grid_size.y,grid_size.z,block_size.x,block_size.y,block_size.z);
-    _CUDA_CHECK_ERRORS();
-#endif
-    }
+    transpose(dd->d_buf3, dd->d_buf1, naux*nao, nao);
     
     // vk[k] += lib.dot(buf3, buf4)
     // gemm(A,B,C) : C = alpha * A.B + beta * C
