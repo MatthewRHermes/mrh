@@ -46,7 +46,7 @@ namespace PM_NS {
   public:
     
     PM();
-    ~PM() {};
+    ~PM();
     
     int dev_num_devices();
     void dev_properties(int);

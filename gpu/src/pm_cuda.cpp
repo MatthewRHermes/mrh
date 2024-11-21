@@ -15,6 +15,28 @@ using namespace PM_NS;
 
 PM::PM()
 {
+  int num_devices = dev_num_devices();
+
+  // initialize main queue/stream for each device
+  
+  for(int i=0; i<num_devices; ++i) {
+    cudaSetDevice(i);
+    _CUDA_CHECK_ERRORS();
+
+    cudaStream_t s;
+    cudaStreamCreate(&s);
+
+    my_queues.push_back(s);
+  }
+
+  cudaSetDevice(0);
+}
+
+PM::~PM()
+{
+  int n = my_queues.size();
+  for (int i=0; i<n; ++i) cudaStreamDestroy(my_queues[i]);
+  
 }
 
 //https://stackoverflow.com/questions/68823023/set-cuda-device-by-uuid
@@ -340,6 +362,11 @@ int PM::dev_stream_create()
   printf("Inside PM::dev_stream_create()\n");
 #endif
 
+#if 1
+  // just return id of current main stream
+
+  int id = current_queue_id;
+#else
   cudaStream_t s;
 
   cudaStreamCreate(&s);
@@ -347,7 +374,7 @@ int PM::dev_stream_create()
   my_queues.push_back(s);
 
   int id = my_queues.size() - 1;
-  
+#endif
   _CUDA_CHECK_ERRORS();
   
 #ifdef _DEBUG_PM
@@ -361,11 +388,15 @@ void PM::dev_stream_create(cudaStream_t & s)
 #ifdef _DEBUG_PM
   printf("Inside PM::dev_stream_create(s)\n");
 #endif
-  
+
+#if 1
+  s = *current_queue;
+#else
   cudaStreamCreate(&s);
   _CUDA_CHECK_ERRORS();
 
   my_queues.push_back(s);
+#endif
   
 #ifdef _DEBUG_PM
   printf(" -- Leaving PM::dev_stream_create()\n");
@@ -378,12 +409,16 @@ void PM::dev_stream_destroy()
   printf("Inside PM::dev_stream_destroy()\n");
 #endif
 
+#if 1
+
+#else
   int id = current_queue_id;
   
   cudaStreamDestroy(my_queues[id]);
   _CUDA_CHECK_ERRORS();
 
   my_queues[id] = NULL;
+#endif
   
 #ifdef _DEBUG_PM
   printf(" -- Leaving PM::dev_stream_destroy()\n");
@@ -395,9 +430,13 @@ void PM::dev_stream_destroy(cudaStream_t & s)
 #ifdef _DEBUG_PM
   printf("Inside PM::dev_stream_destroy(s)\n");
 #endif
-  
+
+#if 1
+
+#else
   cudaStreamDestroy(s);
   _CUDA_CHECK_ERRORS();
+#endif
   
 #ifdef _DEBUG_PM
   printf(" -- Leaving PM::dev_stream_destroy()\n");

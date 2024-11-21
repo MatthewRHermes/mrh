@@ -17,6 +17,20 @@ PM::PM()
 {
   current_queue = nullptr;
   current_queue_id = -1;
+
+  // initialize main queue/stream for each device
+  
+  std::vector<sycl::platform> platforms = sycl::platform::get_platforms();
+  
+  for (const auto &plat : platforms) {
+    std::vector<sycl::device> devices = plat.get_devices();
+
+    for (const auto &dev : devices) {
+      sycl::queue q(dev);
+      if(dev.is_gpu()) my_queues.push_back(q);
+    }
+    
+  }
 }
 
 void PM::uuid_print(std::array<unsigned char, 16>  a){
@@ -37,17 +51,17 @@ int PM::dev_num_devices()
 #endif
   
   std::vector<sycl::platform> platforms = sycl::platform::get_platforms();
+
+  int num_devices = 0;
   
   for (const auto &plat : platforms) {
     std::vector<sycl::device> devices = plat.get_devices();
 
     for (const auto &dev : devices) {
       sycl::queue q(dev);
-      if(dev.is_gpu()) my_queues.push_back(q);
+      if(dev.is_gpu()) num_devices++;
     }
   }
-
-  int num_devices = my_queues.size();
 
 #ifdef _DEBUG_PM
   printf(" -- Leaving PM::dev_num_devices() : num_devices= %i\n",num_devices);
