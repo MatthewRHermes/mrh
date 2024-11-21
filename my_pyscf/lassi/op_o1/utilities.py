@@ -133,6 +133,7 @@ def get_contig_blks (mask):
 
 def split_contig_array (arrlen, nthreads):
     '''Divide a contiguous array into chunks to be handled by each thread'''
+    nthreads = min (arrlen, nthreads)
     blklen, rem = divmod (arrlen, nthreads);
     blklen = np.array ([blklen,]*nthreads)
     blklen[:rem] += 1
