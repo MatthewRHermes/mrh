@@ -1145,7 +1145,9 @@ void Device::get_jk(int naux, int nao, int nset,
 #ifdef _DEBUG_DEVICE
     printf("LIBGPU ::  -- calling cublasDgemm()\n");
 #endif
-    cublasDgemm(dd->handle, CUBLAS_OP_N, CUBLAS_OP_N, m, n, k, &alpha, dd->d_buf2, ldb, dd->d_buf3, lda, &beta, (dd->d_vkk)+vk_offset, ldc);
+
+    ml->set_handle();
+    ml->gemm((char *) "N", (char *) "N", &m, &n, &k, &alpha, dd->d_buf2, &ldb, dd->d_buf3, &lda, &beta, (dd->d_vkk)+vk_offset, &ldc);
   }
   
   profile_stop();
