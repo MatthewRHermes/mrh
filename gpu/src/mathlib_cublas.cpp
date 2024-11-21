@@ -61,9 +61,9 @@ void MATHLIB::destroy_handle()
 // ----------------------------------------------------------------
 
 void MATHLIB::gemm(const char * transa, const char * transb,
-	      const int * m, const int * n, const int * k,
-	      const double * alpha, const double * a, const int * lda,
-	      const double * b, const int * ldb,
+		   const int * m, const int * n, const int * k,
+		   const double * alpha, const double * a, const int * lda,
+		   const double * b, const int * ldb,
 		   const double * beta, double * c, const int * ldc)
 {
 
@@ -73,6 +73,28 @@ void MATHLIB::gemm(const char * transa, const char * transb,
   cublasSgemm(*h, CUBLAS_OP_N, CUBLAS_OP_N, *m, *n, *k, alpha, a, *lda, b, *ldb, beta, c, *ldc);
 #else
   cublasDgemm(*h, CUBLAS_OP_N, CUBLAS_OP_N, *m, *n, *k, alpha, a, *lda, b, *ldb, beta, c, *ldc);
+#endif
+  
+}
+
+// ----------------------------------------------------------------
+
+void MATHLIB::gemm_batch(const char * transa, const char * transb,
+			 const int * m, const int * n, const int * k,
+			 const double * alpha, const double * a, const int * lda, const int * strideA,
+			 const double * b, const int * ldb, const int * strideB,
+			 const double * beta, double * c, const int * ldc, const int * strideC,
+			 const int * batchCount)
+{
+
+  cublasHandle_t * h = current_handle;
+  
+#ifdef _SINGLE_PRECISION
+  cublasSgemmStridedBatched(*h, CUBLAS_OP_N, CUBLAS_OP_N, *m, *n, *k,
+			    alpha, a, *lda, *strideA, b, *ldb, *strideB, beta, c, *ldc, *strideC, *batchCount);
+#else
+  cublasDgemmStridedBatched(*h, CUBLAS_OP_N, CUBLAS_OP_N, *m, *n, *k,
+			    alpha, a, *lda, *strideA, b, *ldb, *strideB, beta, c, *ldc, *strideC, *batchCount);
 #endif
   
 }

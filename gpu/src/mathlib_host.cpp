@@ -28,16 +28,40 @@ MATHLIB::MATHLIB(class PM_NS::PM * pm)
 // ----------------------------------------------------------------
 
 void MATHLIB::gemm(const char * transa, const char * transb,
-	      const int * m, const int * n, const int * k,
-	      const double * alpha, const double * a, const int * lda,
-	      const double * b, const int * ldb,
-	      const double * beta, double * c, const int * ldc)
+		   const int * m, const int * n, const int * k,
+		   const double * alpha, const double * a, const int * lda,
+		   const double * b, const int * ldb,
+		   const double * beta, double * c, const int * ldc)
 {
 #ifdef _SINGLE_PRECISION
   sgemm_(transa, transb, m, n, k, alpha, a, lda, b, ldb, beta, c, ldc);
 #else
   dgemm_(transa, transb, m, n, k, alpha, a, lda, b, ldb, beta, c, ldc);
 #endif 
+}
+
+// ----------------------------------------------------------------
+
+void MATHLIB::gemm_batch(const char * transa, const char * transb,
+			 const int * m, const int * n, const int * k,
+			 const double * alpha, const double * a, const int * lda, const int * strideA,
+			 const double * b, const int * ldb, const int * strideB,
+			 const double * beta, double * c, const int * ldc, const int * strideC, const int * batchCount)
+{
+  
+#pragma omp parallel for
+  for(int i=0; i<*batchCount; ++i) {
+    real_t * a_ = &(a[i * strideA]);
+    real_t * b_ = &(b[i * strideB]);
+    real_t * c_ = &(c[i * strideC]);
+    
+#ifdef _SINGLE_PRECISION
+    sgemm_(transa, transb, m, n, k, alpha, a_, lda, b_, ldb, beta, c_, ldc);
+#else
+    dgemm_(transa, transb, m, n, k, alpha, a_, lda, b_, ldb, beta, c_, ldc);
+#endif
+  }
+  
 }
 
 #endif
