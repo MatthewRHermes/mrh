@@ -103,10 +103,10 @@ void MATHLIB::gemm_batch(const char * transa, const char * transb,
   cublasHandle_t * h = current_handle;
   
 #ifdef _SINGLE_PRECISION
-  cublasSgemmStridedBatched(*h, CUBLAS_OP_N, CUBLAS_OP_N, *m, *n, *k,
+  cublasSgemmStridedBatched(*h, CUBLAS_OP_T, CUBLAS_OP_T, *m, *n, *k,
 			    alpha, a, *lda, *strideA, b, *ldb, *strideB, beta, c, *ldc, *strideC, *batchCount);
 #else
-  cublasDgemmStridedBatched(*h, CUBLAS_OP_N, CUBLAS_OP_N, *m, *n, *k,
+  cublasDgemmStridedBatched(*h, CUBLAS_OP_T, CUBLAS_OP_T, *m, *n, *k,
 			    alpha, a, *lda, *strideA, b, *ldb, *strideB, beta, c, *ldc, *strideC, *batchCount);
 #endif
   
