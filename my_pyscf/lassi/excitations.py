@@ -4,13 +4,10 @@ import ctypes
 import itertools
 from scipy import linalg
 from pyscf.lib import logger
-from pyscf.fci import cistring
-from pyscf.fci import direct_nosym
-from pyscf.fci.direct_spin1 import _unpack_nelec, trans_rdm1s, trans_rdm12s, libfci, FCIvector
+from pyscf.fci.direct_spin1 import _unpack_nelec, trans_rdm1s, trans_rdm12s
 from pyscf.scf.addons import canonical_orth_
-from pyscf.mcscf.addons import StateAverageFCISolver
-from mrh.my_pyscf.mcscf.productstate import ProductStateFCISolver, ImpureProductStateFCISolver, state_average_fcisolver
-from mrh.my_pyscf.fci import csf_solver, CSFFCISolver
+from mrh.my_pyscf.mcscf.productstate import ProductStateFCISolver, state_average_fcisolver
+from mrh.my_pyscf.fci import csf_solver, CSFFCISolver, direct_nosym_uhf
 from mrh.my_pyscf.lassi import op_o0, op_o1
 from mrh.my_pyscf.lassi.citools import get_lroots
 from pyscf import lib
@@ -53,36 +50,6 @@ def lowest_refovlp_eigvec (ham_pq, p=1, ovlp_thresh=LOWEST_REFOVLP_EIGVAL_THRESH
     ''' Return the eigenvector corresponding to the lowest eigenvalue of the matrix ham_pq
     which has nonzero overlap with the first basis p basis functions. '''
     return lowest_refovlp_eigpair (ham_pq, p=p, ovlp_thresh=ovlp_thresh)[1]
-
-def contract_1e_nosym (h1e, fcivec, norb, nelec, link_index=None):
-    ''' Variant of pyscf.fci.direct_nosym.contract_1e that contemplates a spin-separated h1e '''
-    h1e = np.ascontiguousarray(h1e)
-    fcivec = np.asarray(fcivec, order='C')
-    link_indexa, link_indexb = direct_nosym._unpack(norb, nelec, link_index)
-
-    na, nlinka = link_indexa.shape[:2]
-    nb, nlinkb = link_indexb.shape[:2]
-    assert fcivec.size == na*nb
-    assert fcivec.dtype == h1e.dtype == np.float64
-    ci1 = np.zeros_like(fcivec)
-
-    libfci.FCIcontract_a_1e_nosym(h1e[0].ctypes.data_as(ctypes.c_void_p),
-                                  fcivec.ctypes.data_as(ctypes.c_void_p),
-                                  ci1.ctypes.data_as(ctypes.c_void_p),
-                                  ctypes.c_int(norb),
-                                  ctypes.c_int(na), ctypes.c_int(nb),
-                                  ctypes.c_int(nlinka), ctypes.c_int(nlinkb),
-                                  link_indexa.ctypes.data_as(ctypes.c_void_p),
-                                  link_indexb.ctypes.data_as(ctypes.c_void_p))
-    libfci.FCIcontract_b_1e_nosym(h1e[1].ctypes.data_as(ctypes.c_void_p),
-                                  fcivec.ctypes.data_as(ctypes.c_void_p),
-                                  ci1.ctypes.data_as(ctypes.c_void_p),
-                                  ctypes.c_int(norb),
-                                  ctypes.c_int(na), ctypes.c_int(nb),
-                                  ctypes.c_int(nlinka), ctypes.c_int(nlinkb),
-                                  link_indexa.ctypes.data_as(ctypes.c_void_p),
-                                  link_indexb.ctypes.data_as(ctypes.c_void_p))
-    return ci1.view(FCIvector)
 
 class ExcitationPSFCISolver (ProductStateFCISolver):
     '''Minimize the energy of a normalized wave function of the form
@@ -773,7 +740,7 @@ class ExcitationPSFCISolver (ProductStateFCISolver):
             # Generalizing it requires substantial refactoring of this entire file
             for iroot, jroot in itertools.product (range (nroots), repeat=2):
                 v = veff[iroot,jroot]
-                vc = contract_1e_nosym (v, c[jroot], norb, nelec)
+                vc = direct_nosym_uhf.contract_1e (v, c[jroot], norb, nelec)
                 hc[iroot] += si_p[jroot] * vc
             hci_f_pab[ifrag] = hc
         for ifrag in range (nfrags):
