@@ -574,16 +574,16 @@ void Device::init_get_jk(py::array_t<double> _eri1, py::array_t<double> _dmtril,
   int _size_vj = nset * nao_pair;
   if(_size_vj > dd->size_vj) {
     dd->size_vj = _size_vj;
-    if(dd->d_vj) pm->dev_free_async(dd->d_vj, dd->stream);
-    dd->d_vj = (double *) pm->dev_malloc_async(_size_vj * sizeof(double), dd->stream);
+    if(dd->d_vj) pm->dev_free_async(dd->d_vj);
+    dd->d_vj = (double *) pm->dev_malloc_async(_size_vj * sizeof(double));
   }
   
   int _size_vk = nset * nao * nao;
   if(_size_vk > dd->size_vk) {
     dd->size_vk = _size_vk;
     
-    if(dd->d_vkk) pm->dev_free_async(dd->d_vkk, dd->stream);
-    dd->d_vkk = (double *) pm->dev_malloc_async(_size_vk * sizeof(double), dd->stream);
+    if(dd->d_vkk) pm->dev_free_async(dd->d_vkk);
+    dd->d_vkk = (double *) pm->dev_malloc_async(_size_vk * sizeof(double));
   }
 
   int _size_buf = blksize * nao * nao;
@@ -597,35 +597,35 @@ void Device::init_get_jk(py::array_t<double> _eri1, py::array_t<double> _dmtril,
     buf3 = (double *) pm->dev_malloc_host(_size_buf*sizeof(double)); // (nao, blksize*nao)
     buf4 = (double *) pm->dev_malloc_host(_size_buf*sizeof(double)); // (blksize*nao, nao)
 
-    if(dd->d_buf1) pm->dev_free_async(dd->d_buf1, dd->stream);
-    if(dd->d_buf2) pm->dev_free_async(dd->d_buf2, dd->stream);
-    if(dd->d_buf3) pm->dev_free_async(dd->d_buf3, dd->stream);
+    if(dd->d_buf1) pm->dev_free_async(dd->d_buf1);
+    if(dd->d_buf2) pm->dev_free_async(dd->d_buf2);
+    if(dd->d_buf3) pm->dev_free_async(dd->d_buf3);
     
-    dd->d_buf1 = (double *) pm->dev_malloc_async(_size_buf * sizeof(double), dd->stream);
-    dd->d_buf2 = (double *) pm->dev_malloc_async(_size_buf * sizeof(double), dd->stream);
-    dd->d_buf3 = (double *) pm->dev_malloc_async(_size_buf * sizeof(double), dd->stream);
+    dd->d_buf1 = (double *) pm->dev_malloc_async(_size_buf * sizeof(double));
+    dd->d_buf2 = (double *) pm->dev_malloc_async(_size_buf * sizeof(double));
+    dd->d_buf3 = (double *) pm->dev_malloc_async(_size_buf * sizeof(double));
   }
   
   int _size_dms = nset * nao * nao;
   if(_size_dms > dd->size_dms) {
     dd->size_dms = _size_dms;
-    if(dd->d_dms) pm->dev_free_async(dd->d_dms, dd->stream);
-    dd->d_dms = (double *) pm->dev_malloc_async(_size_dms * sizeof(double), dd->stream);
+    if(dd->d_dms) pm->dev_free_async(dd->d_dms);
+    dd->d_dms = (double *) pm->dev_malloc_async(_size_dms * sizeof(double));
   }
 
   int _size_dmtril = nset * nao_pair;
   if(_size_dmtril > dd->size_dmtril) {
     dd->size_dmtril = _size_dmtril;
-    if(dd->d_dmtril) pm->dev_free_async(dd->d_dmtril, dd->stream);
-    dd->d_dmtril = (double *) pm->dev_malloc_async(_size_dmtril * sizeof(double), dd->stream);
+    if(dd->d_dmtril) pm->dev_free_async(dd->d_dmtril);
+    dd->d_dmtril = (double *) pm->dev_malloc_async(_size_dmtril * sizeof(double));
   }
 
   if(!use_eri_cache) {
     int _size_eri1 = naux * nao_pair;
     if(_size_eri1 > dd->size_eri1) {
       dd->size_eri1 = _size_eri1;
-      if(dd->d_eri1) pm->dev_free_async(dd->d_eri1, dd->stream);
-      dd->d_eri1 = (double *) pm->dev_malloc_async(_size_eri1 * sizeof(double), dd->stream);
+      if(dd->d_eri1) pm->dev_free_async(dd->d_eri1);
+      dd->d_eri1 = (double *) pm->dev_malloc_async(_size_eri1 * sizeof(double));
     }
   }
   
@@ -663,109 +663,6 @@ void Device::init_get_jk(py::array_t<double> _eri1, py::array_t<double> _dmtril,
 
 #ifdef _DEBUG_DEVICE
   printf("LIBGPU :: -- Leaving Device::init_get_jk()\n");
-#endif
-}
-
-/* ---------------------------------------------------------------------- */
-
-void Device::pull_get_jk(py::array_t<double> _vj, py::array_t<double> _vk, int nao, int nset, int with_k)
-{
-#ifdef _DEBUG_DEVICE
-  printf("LIBGPU :: -- Inside Device::pull_get_jk()\n");
-#endif
-
-#ifdef _SIMPLE_TIMER
-  double t0 = omp_get_wtime();
-#endif
-    
-  profile_start("pull_get_jk");
-  
-  py::buffer_info info_vj = _vj.request(); // 2D array (nset, nao_pair)
-  
-  double * vj = static_cast<double*>(info_vj.ptr);
-
-  int nao_pair = nao * (nao+1) / 2;
-  
-  int size = nset * nao_pair * sizeof(double);
-
-  double * tmp;
-  
-  for(int i=0; i<num_devices; ++i) {
-    pm->dev_set_device(i);
-    
-    my_device_data * dd = &(device_data[i]);
-
-    if(i == 0) tmp = vj;
-    else tmp = &(buf_vj[i * nset * nao_pair]);
-    
-    if(dd->d_vj) pm->dev_pull_async(dd->d_vj, tmp, size, dd->stream);
-  }
-  
-  for(int i=0; i<num_devices; ++i) {
-    my_device_data * dd = &(device_data[i]);
-    pm->dev_stream_wait(dd->stream);
-
-    if(i > 0 && dd->d_vj) {
-      
-      tmp = &(buf_vj[i * nset * nao_pair]);
-#pragma omp parallel for
-      for(int j=0; j<nset*nao_pair; ++j) vj[j] += tmp[j];
-      
-    }
-  }
-  
-  update_dfobj = 0;
-  
-  if(!with_k) {
-    profile_stop();
-    
-#ifdef _DEBUG_DEVICE
-    printf("LIBGPU :: -- Leaving Device::pull_get_jk()\n");
-#endif
-    
-    return;
-  }
-    
-  py::buffer_info info_vk = _vk.request(); // 3D array (nset, nao, nao)
-    
-  double * vk = static_cast<double*>(info_vk.ptr);
-
-  size = nset * nao * nao * sizeof(double);
-
-  for(int i=0; i<num_devices; ++i) {
-    pm->dev_set_device(i);
-      
-    my_device_data * dd = &(device_data[i]);
-
-    if(i == 0) tmp = vk;
-    else tmp = &(buf_vk[i * nset * nao * nao]);
-
-    if(dd->d_vkk) pm->dev_pull_async(dd->d_vkk, tmp, size, dd->stream);
-  }
-
-  for(int i=0; i<num_devices; ++i) {
-    my_device_data * dd = &(device_data[i]);
-    pm->dev_stream_wait(dd->stream);
-
-    if(i > 0 && dd->d_vkk) {
-      
-      tmp = &(buf_vk[i * nset * nao * nao]);
-#pragma omp parallel for
-      for(int j=0; j<nset*nao*nao; ++j) vk[j] += tmp[j];
-    
-    }
-
-  }
-
-  profile_stop();
-  
-#ifdef _SIMPLE_TIMER
-  double t1 = omp_get_wtime();
-  t_array[1] += t1 - t0;
-#endif
-    
-#ifdef _DEBUG_DEVICE
-  printf("LIBGPU :: -- Leaving Device::pull_get_jk()\n");
 #endif
 }
 
@@ -985,12 +882,12 @@ void Device::get_jk(int naux, int nao, int nset,
   if(!use_eri_cache) {
     // if not caching, then eri block always transferred
     
-    pm->dev_push_async(dd->d_eri1, eri1, naux * nao_pair * sizeof(double), dd->stream);
+    pm->dev_push_async(dd->d_eri1, eri1, naux * nao_pair * sizeof(double));
     d_eri = dd->d_eri1;
   }
 
   if(count < num_devices) {
-    int err = pm->dev_push_async(dd->d_dmtril, dmtril, nset * nao_pair * sizeof(double), dd->stream);
+    int err = pm->dev_push_async(dd->d_dmtril, dmtril, nset * nao_pair * sizeof(double));
     if(err) {
       printf("LIBGPU:: dev_push_async(d_dmtril) failed on count= %i\n",count);
       exit(1);
@@ -1000,8 +897,8 @@ void Device::get_jk(int naux, int nao, int nset,
   int _size_rho = nset * naux;
   if(_size_rho > dd->size_rho) {
     dd->size_rho = _size_rho;
-    if(dd->d_rho) pm->dev_free_async(dd->d_rho, dd->stream);
-    dd->d_rho = (double *) pm->dev_malloc_async(_size_rho * sizeof(double), dd->stream);
+    if(dd->d_rho) pm->dev_free_async(dd->d_rho);
+    dd->d_rho = (double *) pm->dev_malloc_async(_size_rho * sizeof(double));
   }
 
 #if 0
@@ -1135,7 +1032,7 @@ void Device::get_jk(int naux, int nao, int nset,
       printf("LIBGPU ::  -- calling dev_push_async(dms) for indxK= %i  nset= %i\n",indxK,nset);
 #endif
     
-      int err = pm->dev_push_async(d_dms, dms, nao*nao*sizeof(double), dd->stream);
+      int err = pm->dev_push_async(d_dms, dms, nao*nao*sizeof(double));
       if(err) {
 	printf("LIBGPU:: dev_push_async(d_dms) on indxK= %i\n",indxK);
 	printf("LIBGPU:: d_dms= %#012x  dms= %#012x  nao= %i  stream= %#012x\n",d_dms,dms,nao,dd->stream);

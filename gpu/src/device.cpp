@@ -412,6 +412,115 @@ void Device::get_dfobj_status(size_t addr_dfobj, py::array_t<int> _arg)
 }
 
 
+/* ---------------------------------------------------------------------- */
+
+void Device::pull_get_jk(py::array_t<double> _vj, py::array_t<double> _vk, int nao, int nset, int with_k)
+{
+#ifdef _DEBUG_DEVICE
+  printf("LIBGPU :: -- Inside Device::pull_get_jk()\n");
+#endif
+
+#ifdef _SIMPLE_TIMER
+  double t0 = omp_get_wtime();
+#endif
+    
+  profile_start("pull_get_jk");
+  
+  py::buffer_info info_vj = _vj.request(); // 2D array (nset, nao_pair)
+  
+  double * vj = static_cast<double*>(info_vj.ptr);
+
+  int nao_pair = nao * (nao+1) / 2;
+  
+  int size = nset * nao_pair * sizeof(double);
+
+  double * tmp;
+  
+  for(int i=0; i<num_devices; ++i) {
+    pm->dev_set_device(i);
+    
+    my_device_data * dd = &(device_data[i]);
+
+    if(i == 0) tmp = vj;
+    else tmp = &(buf_vj[i * nset * nao_pair]);
+    
+    if(dd->d_vj) pm->dev_pull_async(dd->d_vj, tmp, size);
+  }
+  
+  for(int i=0; i<num_devices; ++i) {
+    pm->dev_set_device(i);
+    
+    my_device_data * dd = &(device_data[i]);
+    
+    pm->dev_stream_wait();
+
+    if(i > 0 && dd->d_vj) {
+      
+      tmp = &(buf_vj[i * nset * nao_pair]);
+#pragma omp parallel for
+      for(int j=0; j<nset*nao_pair; ++j) vj[j] += tmp[j];
+      
+    }
+  }
+  
+  update_dfobj = 0;
+  
+  if(!with_k) {
+    profile_stop();
+    
+#ifdef _DEBUG_DEVICE
+    printf("LIBGPU :: -- Leaving Device::pull_get_jk()\n");
+#endif
+    
+    return;
+  }
+    
+  py::buffer_info info_vk = _vk.request(); // 3D array (nset, nao, nao)
+    
+  double * vk = static_cast<double*>(info_vk.ptr);
+
+  size = nset * nao * nao * sizeof(double);
+
+  for(int i=0; i<num_devices; ++i) {
+    pm->dev_set_device(i);
+      
+    my_device_data * dd = &(device_data[i]);
+
+    if(i == 0) tmp = vk;
+    else tmp = &(buf_vk[i * nset * nao * nao]);
+
+    if(dd->d_vkk) pm->dev_pull_async(dd->d_vkk, tmp, size);
+  }
+
+  for(int i=0; i<num_devices; ++i) {
+    pm->dev_set_device(i);
+    
+    my_device_data * dd = &(device_data[i]);
+    
+    pm->dev_stream_wait();
+
+    if(i > 0 && dd->d_vkk) {
+      
+      tmp = &(buf_vk[i * nset * nao * nao]);
+#pragma omp parallel for
+      for(int j=0; j<nset*nao*nao; ++j) vk[j] += tmp[j];
+    
+    }
+
+  }
+
+  profile_stop();
+  
+#ifdef _SIMPLE_TIMER
+  double t1 = omp_get_wtime();
+  t_array[1] += t1 - t0;
+#endif
+    
+#ifdef _DEBUG_DEVICE
+  printf("LIBGPU :: -- Leaving Device::pull_get_jk()\n");
+#endif
+}
+
 
 
 
