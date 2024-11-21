@@ -74,6 +74,9 @@ public :
 	      py::array_t<double>, py::array_t<double>,
 	      int, int, size_t);
   void pull_get_jk(py::array_t<double>, py::array_t<double>, int, int, int);
+
+  void getjk_rho(double *, double *, double *, int, int, int);
+  void getjk_vj(double *, double *, double *, int, int, int, int);
   
   void set_update_dfobj_(int);
   void get_dfobj_status(size_t, py::array_t<int>);

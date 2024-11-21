@@ -846,6 +846,47 @@ __global__ void _transpose(double * buf3, double * buf1, int nrow, int ncol)
 
 /* ---------------------------------------------------------------------- */
 
+void Device::getjk_rho(double * rho, double * dmtril, double * eri, int nset, int naux, int nao_pair)
+{
+#if 1
+  dim3 grid_size(nset, naux, 1);
+  dim3 block_size(1, 1, _RHO_BLOCK_SIZE);
+#else
+  dim3 grid_size(nset, (naux + (_RHO_BLOCK_SIZE - 1)) / _RHO_BLOCK_SIZE, 1);
+  dim3 block_size(1, _RHO_BLOCK_SIZE, 1);
+#endif
+
+  cudaStream_t s = *(pm->dev_get_queue());
+  
+  _getjk_rho<<<grid_size, block_size, 0, s>>>(rho, dmtril, eri, nset, naux, nao_pair);
+  
+#ifdef _DEBUG_DEVICE
+  printf("LIBGPU ::  -- get_jk::_getjk_rho :: nset= %i  naux= %i  RHO_BLOCK_SIZE= %i  grid_size= %i %i %i  block_size= %i %i %i\n",
+	 nset, naux, _RHO_BLOCK_SIZE, grid_size.x,grid_size.y,grid_size.z,block_size.x,block_size.y,block_size.z);
+  _CUDA_CHECK_ERRORS();
+#endif
+}
+
+/* ---------------------------------------------------------------------- */
+
+void Device::getjk_vj(double * vj, double * rho, double * eri, int nset, int nao_pair, int naux, int init)
+{
+  dim3 grid_size(nset, (nao_pair + (_DOT_BLOCK_SIZE - 1)) / _DOT_BLOCK_SIZE, 1);
+  dim3 block_size(1, _DOT_BLOCK_SIZE, 1);
+  
+  cudaStream_t s = *(pm->dev_get_queue());
+  
+  _getjk_vj<<<grid_size, block_size, 0, s>>>(vj, rho, eri, nset, nao_pair, naux, init);
+  
+#ifdef _DEBUG_DEVICE
+  printf("LIBGPU ::  -- get_jk::_getjk_vj :: nset= %i  nao_pair= %i _DOT_BLOCK_SIZE= %i  grid_size= %i %i %i  block_size= %i %i %i\n",
+	 nset, nao_pair, _DOT_BLOCK_SIZE, grid_size.x,grid_size.y,grid_size.z,block_size.x,block_size.y,block_size.z);
+  _CUDA_CHECK_ERRORS();
+#endif
+}
+
+/* ---------------------------------------------------------------------- */
+
 // The _vj and _vk arguements aren't actually used anymore and could be removed. 
 void Device::get_jk(int naux, int nao, int nset,
 		    py::array_t<double> _eri1, py::array_t<double> _dmtril, py::list & _dms_list,
@@ -924,55 +965,29 @@ void Device::get_jk(int naux, int nao, int nset,
   
   if(use_eri_cache)
     d_eri = dd_fetch_eri(dd, eri1, naux, nao_pair, addr_dfobj, count);
-
+  
   profile_stop();
-
+  
 #ifdef _DEBUG_DEVICE
   printf("LIBGPU :: Starting with_j calculation\n");
 #endif
-    if (with_j){
-	 
+  if (with_j){
+    
     profile_start("get_jk :: with_j");
     
     // rho = numpy.einsum('ix,px->ip', dmtril, eri1)
-    {
-#if 1
-      dim3 grid_size(nset, naux, 1);
-      dim3 block_size(1, 1, _RHO_BLOCK_SIZE);
-#else
-      dim3 grid_size(nset, (naux + (_RHO_BLOCK_SIZE - 1)) / _RHO_BLOCK_SIZE, 1);
-      dim3 block_size(1, _RHO_BLOCK_SIZE, 1);
-#endif
 
-      //      printf(" -- calling _getjk_rho()\n");
-      _getjk_rho<<<grid_size, block_size, 0, dd->stream>>>(dd->d_rho, dd->d_dmtril, d_eri, nset, naux, nao_pair);
-      
-#ifdef _DEBUG_DEVICE
-      printf("LIBGPU ::  -- get_jk::_getjk_rho :: nset= %i  naux= %i  RHO_BLOCK_SIZE= %i  grid_size= %i %i %i  block_size= %i %i %i\n",
-	     nset, naux, _RHO_BLOCK_SIZE, grid_size.x,grid_size.y,grid_size.z,block_size.x,block_size.y,block_size.z);
-    _CUDA_CHECK_ERRORS();
-#endif
-    }
+    getjk_rho(dd->d_rho, dd->d_dmtril, d_eri, nset, naux, nao_pair);
     
     // vj += numpy.einsum('ip,px->ix', rho, eri1)
    
-    {
-      dim3 grid_size(nset, (nao_pair + (_DOT_BLOCK_SIZE - 1)) / _DOT_BLOCK_SIZE, 1);
-      dim3 block_size(1, _DOT_BLOCK_SIZE, 1);
-      
-      //      printf(" -- calling _getjk_vj()\n");
-      int init = (count < num_devices) ? 1 : 0;
-      _getjk_vj<<<grid_size, block_size, 0, dd->stream>>>(dd->d_vj, dd->d_rho, d_eri, nset, nao_pair, naux, init);
-
-#ifdef _DEBUG_DEVICE
-      printf("LIBGPU ::  -- get_jk::_getjk_vj :: nset= %i  nao_pair= %i _DOT_BLOCK_SIZE= %i  grid_size= %i %i %i  block_size= %i %i %i\n",
-	     nset, nao_pair, _DOT_BLOCK_SIZE, grid_size.x,grid_size.y,grid_size.z,block_size.x,block_size.y,block_size.z);
-    _CUDA_CHECK_ERRORS();
-#endif
-    }
+    int init = (count < num_devices) ? 1 : 0;
+  
+    getjk_vj(dd->d_vj, dd->d_rho, d_eri, nset, nao_pair, naux, init);
 
     profile_stop();
   }
+    
   if(!with_k) {
     
 #ifdef _SIMPLE_TIMER
