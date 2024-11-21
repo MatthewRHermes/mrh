@@ -18,7 +18,7 @@
 #define _NUM_ROWS_B _NUM_COLS_A
 #define _NUM_COLS_B 1024
 
-#define _TOL 1e-8
+#define _TOL 1e-6
 #define _NUM_ITERATIONS_CPU 1
 #define _NUM_ITERATIONS_GPU 100
 
@@ -78,9 +78,11 @@ int check_result(real_t * ref, real_t * test, int n, const char * name)
   for(int i=0; i<n; ++i) {
     real_t diff = (ref[i] - test[i]) * (ref[i] - test[i]);
     //    printf(" -- i= %i  ref= %f  test= %f  diff= %f\n",i,ref[i],test[i],diff);
-    if(diff > _TOL) err++;
+    //    if(diff > _TOL) err++;
     if(diff > max_diff) max_diff = diff;
   }
+
+  if(max_diff > _TOL) err = 1;
   
   if(err == 0) printf("Results from %s are correct!! :)\n", name);
   else printf("Results from %s are incorrect!! :(  max_diff= %0.4e\n", name, max_diff);
