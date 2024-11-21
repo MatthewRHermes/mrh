@@ -56,10 +56,12 @@ namespace PM_NS {
     int dev_get_device();
 
     void* dev_malloc(size_t);
+    void* dev_malloc_async(size_t);
     void* dev_malloc_async(size_t, cudaStream_t &s);
     void* dev_malloc_host(size_t);
 
     void dev_free(void*);
+    void dev_free_async(void*);
     void dev_free_async(void*, cudaStream_t &s);
     void dev_free_host(void*);
 
@@ -69,8 +71,10 @@ namespace PM_NS {
 
     void dev_barrier();
     
-    // specific to cuda
+    int dev_push_async(void * d_ptr, void * h_ptr, size_t N);
     int dev_push_async(void * d_ptr, void * h_ptr, size_t N, cudaStream_t &s);
+    
+    void dev_pull_async(void * d_ptr, void * h_ptr, size_t N);
     void dev_pull_async(void * d_ptr, void * h_ptr, size_t N, cudaStream_t &s);
 
     void dev_check_pointer(int, const char *, void *);

@@ -177,6 +177,23 @@ void * PM::dev_malloc(size_t N)
   return ptr;
 }
 
+void * PM::dev_malloc_async(size_t N)
+{
+#ifdef _DEBUG_PM
+  printf("Inside PM::dev_malloc_async()\n");
+#endif
+
+  void * ptr;
+  cudaMallocAsync((void**) &ptr, N, *current_queue);
+  _CUDA_CHECK_ERRORS();
+  
+#ifdef _DEBUG_PM
+  printf(" -- Leaving PM::dev_malloc_async()\n");
+#endif
+  
+  return ptr;
+}
+
 void * PM::dev_malloc_async(size_t N, cudaStream_t &s)
 {
 #ifdef _DEBUG_PM
@@ -225,6 +242,20 @@ void PM::dev_free(void * ptr)
 #endif
 }
 
+void PM::dev_free_async(void * ptr)
+{
+#ifdef _DEBUG_PM
+  printf("Inside PM::dev_free_async()\n");
+#endif
+  
+  if(ptr) cudaFreeAsync(ptr, *current_queue);
+  _CUDA_CHECK_ERRORS();
+  
+#ifdef _DEBUG_PM
+  printf(" -- Leaving PM::dev_free_async()\n");
+#endif
+}
+
 void PM::dev_free_async(void * ptr, cudaStream_t &s)
 {
 #ifdef _DEBUG_PM
@@ -267,6 +298,22 @@ void PM::dev_push(void * d_ptr, void * h_ptr, size_t N)
 #endif
 }
 
+int PM::dev_push_async(void * d_ptr, void * h_ptr, size_t N)
+{
+#ifdef _DEBUG_PM
+  printf("Inside PM::dev_push_async()\n");
+#endif
+  
+  cudaMemcpyAsync(d_ptr, h_ptr, N, cudaMemcpyHostToDevice, *current_queue);
+  _CUDA_CHECK_ERRORS2();
+  
+#ifdef _DEBUG_PM
+  printf(" -- Leaving PM::dev_push_async()\n");
+#endif
+  
+  return 0;
+}
+
 int PM::dev_push_async(void * d_ptr, void * h_ptr, size_t N, cudaStream_t &s)
 {
 #ifdef _DEBUG_PM
@@ -294,6 +341,20 @@ void PM::dev_pull(void * d_ptr, void * h_ptr, size_t N)
   
 #ifdef _DEBUG_PM
   printf(" -- Leaving PM::dev_pull()\n");
+#endif
+}
+
+void PM::dev_pull_async(void * d_ptr, void * h_ptr, size_t N)
+{
+#ifdef _DEBUG_PM
+  printf("Inside PM::dev_pull_async()\n");
+#endif
+  
+  cudaMemcpyAsync(h_ptr, d_ptr, N, cudaMemcpyDeviceToHost, *current_queue);
+  _CUDA_CHECK_ERRORS();
+  
+#ifdef _DEBUG_PM
+  printf(" -- Leaving PM::dev_pull_async()\n");
 #endif
 }
 
