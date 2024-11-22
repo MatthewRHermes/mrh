@@ -25,10 +25,11 @@ def add_doubly_occupied_orbital (ci0, norb, nelec):
         ci1 = tuple (ci1)
     return ci1
 
-def add_singly_occupied_orbital (ci0, norb, nelec, spin):
+def add_singly_occupied_bottom_orbital (ci0, norb, nelec, spin):
+    '''Add a singly-occupied orbital of the given spin in the first position'''
     is_list = isinstance (ci0, list)
     is_tuple = isinstance (ci0, tuple)
-    ci0 = add_doubly_occupied_orbital (ci0)
+    ci0 = add_doubly_occupied_orbital (ci0, norb, nelec)
     neleca, nelecb = _unpack_nelec (nelec)
     norb = norb + 1
     neleca = neleca + 1
