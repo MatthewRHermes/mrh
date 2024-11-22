@@ -186,6 +186,21 @@ void * PM::dev_malloc(size_t N)
   return ptr;
 }
 
+void * PM::dev_malloc_async(size_t N)
+{
+#ifdef _DEBUG_PM
+  printf("Inside PM::dev_malloc_async()\n");
+#endif
+  
+  void * ptr = sycl::malloc_device<char>(N, *current_queue);
+  
+#ifdef _DEBUG_PM
+  printf(" -- Leaving PM::dev_malloc_async()\n");
+#endif
+  
+  return ptr;
+}
+
 void * PM::dev_malloc_async(size_t N, sycl::queue &q)
 {
 #ifdef _DEBUG_PM
@@ -231,6 +246,19 @@ void PM::dev_free(void * ptr)
 #endif
 }
 
+void PM::dev_free_async(void * ptr)
+{
+#ifdef _DEBUG_PM
+  printf("Inside PM::dev_free_async()\n");
+#endif
+  
+  sycl::free(ptr, *current_queue);
+  
+#ifdef _DEBUG_PM
+  printf(" -- Leaving PM::dev_free_async()\n");
+#endif
+}
+
 void PM::dev_free_async(void * ptr, sycl::queue &q)
 {
 #ifdef _DEBUG_PM
@@ -272,6 +300,21 @@ void PM::dev_push(void * d_ptr, void * h_ptr, size_t N)
 #endif
 }
 
+int PM::dev_push_async(void * d_ptr, void * h_ptr, size_t N)
+{
+#ifdef _DEBUG_PM
+  printf("Inside PM::dev_push_async()\n");
+#endif
+
+  current_queue->memcpy(d_ptr, h_ptr, N);
+  
+#ifdef _DEBUG_PM
+  printf(" -- Leaving PM::dev_push_async()\n");
+#endif
+  
+  return 0;
+}
+
 int PM::dev_push_async(void * d_ptr, void * h_ptr, size_t N, sycl::queue &q)
 {
 #ifdef _DEBUG_PM
@@ -298,6 +341,19 @@ void PM::dev_pull(void * d_ptr, void * h_ptr, size_t N)
   
 #ifdef _DEBUG_PM
   printf(" -- Leaving PM::dev_pull()\n");
+#endif
+}
+
+void PM::dev_pull_async(void * d_ptr, void * h_ptr, size_t N)
+{
+#ifdef _DEBUG_PM
+  printf("Inside PM::dev_pull_async()\n");
+#endif
+  
+  current_queue->memcpy(h_ptr, d_ptr, N);
+  
+#ifdef _DEBUG_PM
+  printf(" -- Leaving PM::dev_pull_async()\n");
 #endif
 }
 
@@ -357,8 +413,6 @@ void PM::dev_barrier()
 #endif
 }
 
-#if defined(_GPU_SYCL_CUDA)
-
 int PM::dev_stream_create()
 {
 #ifdef _DEBUG_PM
@@ -371,20 +425,6 @@ int PM::dev_stream_create()
   printf(" -- Leaving PM::dev_stream_create()\n");
 #endif
   return current_queue_id;
-}
-
-void PM::dev_stream_create(cudaStream_t & s)
-{
-#ifdef _DEBUG_PM
-  printf("Inside PM::dev_stream_create()\n");
-#endif
-
-  // return stream that corresponds to current sycl queue
-  s = sycl::get_native<sycl::backend::ext_oneapi_cuda>(*current_queue);
-  
-#ifdef _DEBUG_PM
-  printf(" -- Leaving PM::dev_stream_create()\n");
-#endif
 }
 
 void PM::dev_stream_destroy()
@@ -400,6 +440,37 @@ void PM::dev_stream_destroy()
   
 #ifdef _DEBUG_PM
   printf(" -- Leaving PM::dev_stream_destroy()\n");
+#endif
+}
+
+void PM::dev_stream_wait()
+{
+#ifdef _DEBUG_PM
+  printf("Inside PM::dev_stream_wait()\n");
+#endif
+
+  current_queue->wait();
+  // cudaStreamSynchronize(s);
+  // _CUDA_CHECK_ERRORS();
+  
+#ifdef _DEBUG_PM
+  printf(" -- Leaving PM::dev_stream_wait()\n");
+#endif
+}
+
+#if defined(_GPU_SYCL_CUDA)
+
+void PM::dev_stream_create(cudaStream_t & s)
+{
+#ifdef _DEBUG_PM
+  printf("Inside PM::dev_stream_create()\n");
+#endif
+
+  // return stream that corresponds to current sycl queue
+  s = sycl::get_native<sycl::backend::ext_oneapi_cuda>(*current_queue);
+  
+#ifdef _DEBUG_PM
+  printf(" -- Leaving PM::dev_stream_create()\n");
 #endif
 }
 
@@ -435,20 +506,6 @@ void PM::dev_stream_wait(cudaStream_t & s)
 }
 
 #else
-
-void PM::dev_stream_create()
-{
-#ifdef _DEBUG_PM
-  printf("Inside PM::dev_stream_create()\n");
-#endif
-  
-  // just return queue already created
-  q = *current_queue;
-  
-#ifdef _DEBUG_PM
-  printf(" -- Leaving PM::dev_stream_create()\n");
-#endif
-}
 
 void PM::dev_stream_create(sycl::queue & q)
 {
