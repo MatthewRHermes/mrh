@@ -1,5 +1,6 @@
 import numpy as np
 import math
+from scipy import linalg
 from pyscf.fci import direct_spin1
 from pyscf.fci.addons import _unpack_nelec
 from mrh.my_pyscf.fci.addons import add_doubly_occupied_orbital
@@ -57,11 +58,17 @@ def trans_rdm13hs (cibra_alpha, cibra_beta, ciket, norb, nelec, link_index=None)
         cibra = cibra + add_singly_occupied_bottom_orbital (cibra_beta,norb,(neleca,nelecb+1),0)
     fac = math.sqrt (fac)
     cibra /= fac
+    branorm = abs (1-np.dot (cibra.conj ().flat, cibra.flat))
+    braket_ovlp = abs (np.dot (cibra.conj ().flat, ciket.flat))
+    ketnorm = abs (1-np.dot (ciket.conj ().flat, ciket.flat))
+    assert (branorm < 1e-8), '{} {} {}'.format (branorm, linalg.norm (cibra_alpha), linalg.norm (cibra_beta))
+    assert (braket_ovlp < 1e-8), '{}'.format (braket_ovlp)
+    assert (ketnorm < 1e-8), '{}'.format (ketnorm)
     tdm1hs, tdm3hs = direct_spin1.trans_rdm12s (cibra, ciket, norb+1, (neleca+1,nelecb+1),
                                                 link_index=link_index)
-    tdm1hs = (-fac*tdm1hs[0][0,1:], -fac*tdm1hs[1][0,1:])
+    tdm1hs = (-fac*tdm1hs[0][0,1:], fac*tdm1hs[1][0,1:])
     tdm3hs = (-fac*tdm3hs[0][1:,0,1:,1:], -fac*tdm3hs[1][1:,0,1:,1:],
-              -fac*tdm3hs[1][1:,0,1:,1:], -fac*tdm3hs[1][1:,0,1:,1:])
+               fac*tdm3hs[2][1:,0,1:,1:],  fac*tdm3hs[3][1:,0,1:,1:])
     return tdm1hs, tdm3hs
 
 def trans_rdm1hs (cibra_alpha, cibra_beta, ciket, norb, nelec, link_index=None):
@@ -113,10 +120,16 @@ def trans_rdm1hs (cibra_alpha, cibra_beta, ciket, norb, nelec, link_index=None):
         cibra = cibra + add_singly_occupied_bottom_orbital (cibra_beta,norb,(neleca,nelecb+1),0)
     fac = math.sqrt (fac)
     cibra /= fac
+    branorm = abs (1-np.dot (cibra.conj ().flat, cibra.flat))
+    braket_ovlp = abs (np.dot (cibra.conj ().flat, ciket.flat))
+    ketnorm = abs (1-np.dot (ciket.conj ().flat, ciket.flat))
+    assert (branorm < 1e-8), '{} {} {}'.format (branorm, linalg.norm (cibra_alpha), linalg.norm (cibra_beta))
+    assert (braket_ovlp < 1e-8), '{}'.format (braket_ovlp)
+    assert (ketnorm < 1e-8), '{}'.format (ketnorm)
     tdm1ha, tdm1hb = direct_spin1.trans_rdm1s (cibra, ciket, norb+1, (neleca+1,nelecb+1),
                                                link_index=link_index)
     tdm1ha = -fac*tdm1ha[0,1:]
-    tdm1hb = -fac*tdm1hb[0,1:]
+    tdm1hb = fac*tdm1hb[0,1:]
     return tdm1ha, tdm1hb
 
 
