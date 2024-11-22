@@ -1,88 +1,21 @@
 import numpy as np
 import math
 from scipy import linalg
-from pyscf.fci import direct_spin1
+from pyscf.fci import direct_spin1, rdm
 from pyscf.fci.addons import _unpack_nelec
-from mrh.my_pyscf.fci.addons import add_doubly_occupied_orbital
-from mrh.my_pyscf.fci.addons import add_singly_occupied_bottom_orbital
+from mrh.my_pyscf.fci.addons import add_empty_orbital
+from mrh.my_pyscf.fci.addons import add_singly_occupied_orbital
 
-def trans_rdm13hs (cibra_alpha, cibra_beta, ciket, norb, nelec, link_index=None):
-    ''' Evaluate the one-half- and three-half-particle transition density matrices between ci
-    vectors in different Hilbert spaces: <cibra|r'p'q|ciket> and <cibra|r'|ciket>, where |cibra>
-    has the same number of orbitals but one additional electron of the same spin as r compared to
-    |ciket>.
-
-    Args:
-        cibra_alpha: ndarray or None
-            CI vector in neleca+1 Hilbert space. Must not be None if cibra_beta is None.
-        cibra_beta: ndarray or None
-            CI vector in nelecb+1 Hilbert space. Must not be None if cibra_alpha is None.
-        ciket: ndarray
-            CI vector in (norb,nelec) Hilbert space.
-        norb: integer
-            Number of spatial orbitals
-        nelec: integer or sequence of length 2
-            Number of electrons in the ket Hilbert space
-
-    Kwargs:
-        link_index: tuple of length 2 of "linkstr" type ndarray
-            linkstr arrays for the (neleca+1,nelecb+1) electrons in norb+1 orbitals Hilbert space.
-            See pyscf.fci.gen_linkstr_index for the shape of "linkstr".
-
-    Returns:
-        tdm1hs: tuple of length 2 of ndarray of shape (norb,)
-            Spin-separated one-half-particle transition density matrix. The first element is
-            between cibra_alpha and ciket, and the second is between cibra_beta and ciket. If
-            either is None, the corresponding array elements are zero.
-        tdm3hs: tuple of length 4 of ndarray of shape (norb,norb,norb)
-            Spin-separated three-half-particle transition density matrix. The first two elements
-            are between cibra_alpha and ciket, and the next two are between cibra_beta and ciket.
-            If either is None, the corresponding array elements are zero.
-    '''
-    assert ((cibra_alpha is not None) or (cibra_beta is not None))
-    neleca, nelecb = _unpack_nelec (nelec)
-    if link_index is not None:
-        link_indexa, link_indexb = direct_spin1._unpack (link_index)
-        errmsg = ("For the half-particle transition density matrix functions, the linkstr must "
-                  "be for (neleca+1,nelecb+1) electrons occupying norb+1 orbitals.")
-        assert (link_indexa.shape[1]==(neleca+1)*(norb-neleca)+neleca+1), errmsg
-        assert (link_indexb.shape[1]==(nelecb+1)*(norb-nelecb)+nelecb+1), errmsg
-    ciket = add_doubly_occupied_orbital (ciket, norb, nelec)
-    cibra = 0
-    fac = 0.0
-    if cibra_alpha is not None:
-        fac += 1.0
-        cibra = cibra + add_singly_occupied_bottom_orbital (cibra_alpha,norb,(neleca+1,nelecb),1)
-    if cibra_beta is not None:
-        fac += 1.0
-        cibra = cibra + add_singly_occupied_bottom_orbital (cibra_beta,norb,(neleca,nelecb+1),0)
-    fac = math.sqrt (fac)
-    cibra /= fac
-    branorm = abs (1-np.dot (cibra.conj ().flat, cibra.flat))
-    braket_ovlp = abs (np.dot (cibra.conj ().flat, ciket.flat))
-    ketnorm = abs (1-np.dot (ciket.conj ().flat, ciket.flat))
-    assert (branorm < 1e-8), '{} {} {}'.format (branorm, linalg.norm (cibra_alpha), linalg.norm (cibra_beta))
-    assert (braket_ovlp < 1e-8), '{}'.format (braket_ovlp)
-    assert (ketnorm < 1e-8), '{}'.format (ketnorm)
-    tdm1hs, tdm3hs = direct_spin1.trans_rdm12s (cibra, ciket, norb+1, (neleca+1,nelecb+1),
-                                                link_index=link_index)
-    tdm1hs = (-fac*tdm1hs[0][0,1:], fac*tdm1hs[1][0,1:])
-    tdm3hs = (-fac*tdm3hs[0][1:,0,1:,1:], -fac*tdm3hs[1][1:,0,1:,1:],
-               fac*tdm3hs[2][1:,0,1:,1:],  fac*tdm3hs[3][1:,0,1:,1:])
-    return tdm1hs, tdm3hs
-
-def trans_rdm1hs (cibra_alpha, cibra_beta, ciket, norb, nelec, link_index=None):
-    ''' Evaluate the one-half-particle transition density matrix between ci vectors in different
+def _trans_rdm1hs (cibra, ciket, norb, nelec, spin=0, link_index=None):
+    '''Evaluate the one-half-particle transition density matrix between ci vectors in different
     Hilbert spaces: <cibra|r'|ciket>, where |cibra> has the same number of orbitals but one
     additional electron of the same spin as r compared to |ciket>.
 
     Args:
-        cibra_alpha: ndarray or None
-            CI vector in neleca+1 Hilbert space. Must not be None if cibra_beta is None.
-        cibra_beta: ndarray or None
-            CI vector in nelecb+1 Hilbert space. Must not be None if cibra_alpha is None.
+        cibra: ndarray
+            CI vector in (norb,nelec+1) Hilbert space
         ciket: ndarray
-            CI vector in (norb,nelec) Hilbert space.
+            CI vector in (norb,nelec) Hilbert space
         norb: integer
             Number of spatial orbitals 
         nelec: integer or sequence of length 2
@@ -90,46 +23,94 @@ def trans_rdm1hs (cibra_alpha, cibra_beta, ciket, norb, nelec, link_index=None):
 
     Kwargs:
         link_index: tuple of length 2 of "linkstr" type ndarray
-            linkstr arrays for the (neleca+1,nelecb+1) electrons in norb+1 orbitals Hilbert space.
+            linkstr arrays for the nelec+1 electrons in norb+1 orbitals Hilbert space.
             See pyscf.fci.gen_linkstr_index for the shape of "linkstr".
 
     Returns:
-        tdm1ha: ndarray of shape (norb,)
-            Spin-up one-half-particle transition density matrix between cibra_alpha and ciket.
-            Elements are zero if cibra_alpha is None.
-        tdm1hb: ndarray of shape (norb,)
-            Spin-down one-half-particle transition density matrix between cibra_beta and ciket.
-            Elements are zero if cibra_beta is None.
+        tdm1h: ndarray of shape (norb,)
+            One-half-particle transition density matrix between cibra and ciket.
     '''
-    assert ((cibra_alpha is not None) or (cibra_beta is not None))
-    neleca, nelecb = _unpack_nelec (nelec)
+    nelec_ket = _unpack_nelec (nelec)
+    nelec_bra = list (_unpack_nelec (nelec))
+    nelec_bra[spin] += 1
     if link_index is not None:
-        link_indexa, link_indexb = direct_spin1._unpack (link_index)
+        ne = nelec_bra
+        linkstr = direct_spin1._unpack (link_index)
         errmsg = ("For the half-particle transition density matrix functions, the linkstr must "
-                  "be for (neleca+1,nelecb+1) electrons occupying norb+1 orbitals.")
-        assert (link_indexa.shape[1]==(neleca+1)*(norb-neleca)+neleca+1), errmsg
-        assert (link_indexb.shape[1]==(nelecb+1)*(norb-nelecb)+nelecb+1), errmsg
-    ciket = add_doubly_occupied_orbital (ciket, norb, nelec)
-    cibra = 0
-    fac = 0.0
-    if cibra_alpha is not None:
-        fac += 1.0
-        cibra = cibra + add_singly_occupied_bottom_orbital (cibra_alpha,norb,(neleca+1,nelecb),1)
-    if cibra_beta is not None:
-        fac += 1.0
-        cibra = cibra + add_singly_occupied_bottom_orbital (cibra_beta,norb,(neleca,nelecb+1),0)
-    fac = math.sqrt (fac)
-    cibra /= fac
-    branorm = abs (1-np.dot (cibra.conj ().flat, cibra.flat))
-    braket_ovlp = abs (np.dot (cibra.conj ().flat, ciket.flat))
-    ketnorm = abs (1-np.dot (ciket.conj ().flat, ciket.flat))
-    assert (branorm < 1e-8), '{} {} {}'.format (branorm, linalg.norm (cibra_alpha), linalg.norm (cibra_beta))
-    assert (braket_ovlp < 1e-8), '{}'.format (braket_ovlp)
-    assert (ketnorm < 1e-8), '{}'.format (ketnorm)
-    tdm1ha, tdm1hb = direct_spin1.trans_rdm1s (cibra, ciket, norb+1, (neleca+1,nelecb+1),
-                                               link_index=link_index)
-    tdm1ha = -fac*tdm1ha[0,1:]
-    tdm1hb = fac*tdm1hb[0,1:]
-    return tdm1ha, tdm1hb
+                  "be for nelec+1 electrons occupying norb+1 orbitals.")
+        for i in range (2): assert (linkstr[i].shape[1]==(ne[i]*(norb-ne[i]+1))), errmsg
+    ciket = add_singly_occupied_orbital (ciket, norb, nelec_ket, spin)
+    cibra = add_empty_orbital (cibra, norb, nelec_bra)
+    fn = ('FCItrans_rdm1a', 'FCItrans_rdm1b')[spin]
+    return rdm.make_rdm1_spin1 (fn, cibra, ciket, norb+1, nelec_bra, link_index)[-1,:-1]
+
+def trans_rdm1ha (cibra, ciket, norb, nelec, link_index=None):
+    '''Half-electron spin-up case of:\n''' + _trans_rdm1hs.__doc__
+    return _trans_rdm1hs (cibra, ciket, norb, nelec, spin=0, link_index=link_index)
+
+def trans_rdm1hb (cibra, ciket, norb, nelec, link_index=None):
+    '''Half-electron spin-down case of:\n''' + _trans_rdm1hs.__doc__
+    return _trans_rdm1hs (cibra, ciket, norb, nelec, spin=1, link_index=link_index)
+
+def _trans_rdm13hs (cibra, ciket, norb, nelec, spin=0, link_index=None, reorder=True):
+    ''' Evaluate the one-half- and three-half-particle transition density matrices between ci
+    vectors in different Hilbert spaces: <cibra|r'p'q|ciket> and <cibra|r'|ciket>, where |cibra>
+    has the same number of orbitals but one additional electron of the same spin as r compared to
+    |ciket>.
+
+    Args:
+        cibra: ndarray
+            CI vector in (norb,nelec+1) Hilbert space
+        ciket: ndarray
+            CI vector in (norb,nelec) Hilbert space
+        norb: integer
+            Number of spatial orbitals 
+        nelec: integer or sequence of length 2
+            Number of electrons in the ket Hilbert space
+
+    Kwargs:
+        link_index: tuple of length 2 of "linkstr" type ndarray
+            linkstr arrays for the nelec+1 electrons in norb+1 orbitals Hilbert space.
+            See pyscf.fci.gen_linkstr_index for the shape of "linkstr".
+
+    Returns:
+        tdm1h: ndarray of shape (norb,)
+            One-half-particle transition density matrix between cibra and ciket.
+        (tdm3ha, tdm3hb): ndarrays of shape (norb,norb,norb,)
+            Three-half-particle transition density matrix between cibra and ciket, spin-up and
+            spin-down cases of the full electron.
+    '''
+    nelec_ket = _unpack_nelec (nelec)
+    nelec_bra = list (_unpack_nelec (nelec))
+    nelec_bra[spin] += 1
+    if link_index is not None:
+        ne = nelec_bra
+        linkstr = direct_spin1._unpack (link_index)
+        errmsg = ("For the half-particle transition density matrix functions, the linkstr must "
+                  "be for nelec+1 electrons occupying norb+1 orbitals.")
+        for i in range (2): assert (linkstr[i].shape[1]==(ne[i]*(norb-ne[i]+1))), errmsg
+    ciket = add_singly_occupied_orbital (ciket, norb, nelec_ket, spin)
+    cibra = add_empty_orbital (cibra, norb, nelec_bra)
+    fn_par = ('FCItdm12kern_a', 'FCItdm12kern_b')[spin]
+    fn_ab = 'FCItdm12kern_ab'
+    tdm1h, tdm3h_par = rdm.make_rdm12_spin1 (fn_par, cibra, ciket, norb+1, nelec_bra, link_index, 2)
+    if reorder: tdm1h, tdm3h_par = rdm.reorder_rdm (tdm1h, tdm3h_par, inplace=True)
+    if spin:
+        tdm3ha = rdm.make_rdm12_spin1 (fn_ab, ciket, cibra, norb+1, nelec_bra, link_index, 0)[1]
+        tdm3ha = tdm3ha.transpose (3,2,1,0)
+        tdm3hb = tdm3h_par
+    else:
+        tdm3ha = tdm3h_par
+        tdm3hb = rdm.make_rdm12_spin1 (fn_ab, cibra, ciket, norb+1, nelec_bra, link_index, 0)[1]
+
+    return tdm1h[-1,:-1], (tdm3ha[:-1,-1,:-1,:-1], tdm3hb[:-1,-1,:-1,:-1])
+
+def trans_rdm13ha (cibra, ciket, norb, nelec, link_index=None):
+    '''Half-electron spin-up case of:\n''' + _trans_rdm1hs.__doc__
+    return _trans_rdm13hs (cibra, ciket, norb, nelec, spin=0, link_index=link_index)
+
+def trans_rdm13hb (cibra, ciket, norb, nelec, link_index=None):
+    '''Half-electron spin-down case of:\n''' + _trans_rdm1hs.__doc__
+    return _trans_rdm13hs (cibra, ciket, norb, nelec, spin=1, link_index=link_index)
 
 
