@@ -27,13 +27,9 @@ void MATHLIB::gemm(const char * transa, const char * transb,
   transpose transB = (strcmp(transb, "N") == 0) ? transpose::nontrans : transpose::trans;
     
 #if defined(_GPU_SYCL_CUDA)
-  using oneapi::mkl::blas::column_major::gemm;
-  
-  gemm(*q, transA, transB, *m, *n, *k, *alpha, a, *lda, b, *ldb, *beta, c, *ldc);
+  oneapi::mkl::blas::column_major::gemm(*q, transA, transB, *m, *n, *k, *alpha, a, *lda, b, *ldb, *beta, c, *ldc);
 #else
-  using oneapi::mkl::blas::gemm;
-  
-  gemm(*q, transA, transB, *m, *n, *k, *alpha, a, *lda, b, *ldb, *beta, c, *ldc);
+  oneapi::mkl::blas::gemm(*q, transA, transB, *m, *n, *k, *alpha, a, *lda, b, *ldb, *beta, c, *ldc);
 #endif
   
 }
@@ -53,14 +49,12 @@ void MATHLIB::gemm_batch(const char * transa, const char * transb,
   transpose transA = (strcmp(transa, "N") == 0) ? transpose::nontrans : transpose::trans;
   transpose transB = (strcmp(transb, "N") == 0) ? transpose::nontrans : transpose::trans;
     
-#if defined(_GPU_SYCL_CUDA)
-  using oneapi::mkl::blas::column_major::gemm;
-  
-  gemm_batch(*q, transA, transB, *m, *n, *k, *alpha, a, *lda, *strideA, b, *ldb, *strideB, *beta, c, *ldc, *strideC, *batchCount);
-#else
-  using oneapi::mkl::blas::gemm;
-  
-  gemm_batch(*q, transA, transB, *m, *n, *k, *alpha, a, *lda, *strideA, b, *ldb, *strideB, *beta, c, *ldc, *strideC, *batchCount);
+#if defined(_GPU_SYCL_CUDA)  
+  oneapi::mkl::blas::column_major::gemm_batch(*q, transA, transB, *m, *n, *k, *alpha,
+					      a, *lda, *strideA, b, *ldb, *strideB, *beta, c, *ldc, *strideC, *batchCount);
+#else  
+  oneapi::mkl::blas::gemm_batch(*q, transA, transB, *m, *n, *k, *alpha,
+				a, *lda, *strideA, b, *ldb, *strideB, *beta, c, *ldc, *strideC, *batchCount);
 #endif
   
 }
