@@ -38,11 +38,12 @@ def read_orbital (ci1, norb, nelec, occ_a=0, occ_b=0):
     ndetb1 = cistring.num_strings (norb+1, nelecb+occ_b) 
     if occ_a: ia, ja = ndeta1-ndeta0, ndeta1
     if occ_b: ib, jb = ndetb1-ndetb0, ndetb1
+    sgn = (1,-1)[occ_b * (neleca%2)]
     ci1 = np.asarray (ci1)
     ci1 = ci1.reshape (-1,ndeta1,ndetb1)
     nvecs = len (ci1)
     ci0 = np.zeros ((nvecs, ndeta0, ndetb0), dtype=ci1.dtype)
-    ci0[:,:,:] = ci1[:,ia:ja,ib:jb]
+    ci0[:,:,:] = sgn * ci1[:,ia:ja,ib:jb]
     if nvecs==1: 
         ci0 = ci0[0]
     elif is_list:

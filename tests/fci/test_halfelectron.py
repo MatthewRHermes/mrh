@@ -27,6 +27,7 @@ def tearDownModule ():
     del rng, cases
 
 def case_contract_1he (self, norb, nelec, cre, spin):
+    if (not cre) and (not nelec[spin]): return
     ci = rng.random ((cistring.num_strings (norb,nelec[0]),
                          cistring.num_strings (norb,nelec[1])), dtype=float)
     ci /= linalg.norm (ci)
@@ -50,7 +51,6 @@ class KnownValues(unittest.TestCase):
                 for spin in range (2):
                     with self.subTest (cre=cre, spin=spin, norb=norb, nelec=nelec):
                         case_contract_1he (self, norb, nelec, cre, spin)
-            break
 
 if __name__ == "__main__":
     print("Full Tests for direct_halfelectron")
