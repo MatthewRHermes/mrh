@@ -9,6 +9,8 @@ from pyscf.fci import cistring
 from itertools import product, combinations
 from mrh.my_pyscf.lassi.citools import get_lroots, get_rootaddr_fragaddr
 from mrh.my_pyscf.lassi.op_o1.utilities import *
+from mrh.my_pyscf.fci.rdm import trans_rdm1ha, trans_rdm1hb
+from mrh.my_pyscf.fci.rdm import trans_rdm13ha, trans_rdm13hb
 from pyscf import __config__
 
 SCREEN_THRESH = getattr (__config__, 'lassi_frag_screen_thresh', 1e-10)
@@ -108,6 +110,7 @@ class FragTDMInt (object):
         self.dm2 = [[None for i in range (nroots)] for j in range (nroots)]
         self.linkstr = [None for i in range (nroots)]
         self.linkstrl = [None for j in range (nroots)]
+        self.hlinkstr = [None for i in range (nroots)]
         for i in range (nroots):
             la = cistring.gen_linkstr_index(range(norb), nelec_rs[i][0])
             lb = cistring.gen_linkstr_index(range(norb), nelec_rs[i][1])
@@ -115,6 +118,9 @@ class FragTDMInt (object):
             la = cistring.gen_linkstr_index_trilidx(range(norb), nelec_rs[i][0])
             lb = cistring.gen_linkstr_index_trilidx(range(norb), nelec_rs[i][1])
             self.linkstrl[i] = (la,lb)
+            la = cistring.gen_linkstr_index(range(norb+1), nelec_rs[i][0])
+            lb = cistring.gen_linkstr_index(range(norb+1), nelec_rs[i][1])
+            self.hlinkstr[i] = (la,lb)
         self.rootaddr = rootaddr
         self.fragaddr = fragaddr
         self.idx_frag = idx_frag
@@ -425,6 +431,33 @@ class FragTDMInt (object):
             dm1s, dm2s = trans_rdm12s_loop (j, ci[i], ci[j], do2=zerop_index[i,j])
             self.set_dm1 (i, j, dm1s)
             if zerop_index[i,j]: self.set_dm2 (i, j, dm2s)
+ 
+        # adjoint all of theses functions
+        def trans_rdm13h_loop (bra_r, ket_r, spin=0, do3h=True):
+            trans_rdm13h = (trans_rdm13ha, trans_rdm13hb)[spin]
+            trans_rdm1h = (trans_rdm1ha, trans_rdm1hb)[spin]
+            nelec_bra = self.nelec_r[bra_r]
+            bravecs = ci[bra_r].reshape (-1, ndeta[bra_r], ndetb[bra_r])
+            ketvecs = ci[ket_r].reshape (-1, ndeta[ket_r], ndetb[ket_r])
+            tdm1h = np.zeros ((bravecs.shape[0],ketvecs.shape[0],norb), dtype=self.dtype)
+            tdm3h = np.zeros ((bravecs.shape[0],ketvecs.shape[0],2,norb,norb,norb),
+                              dtype=self.dtype)
+            if do3h:
+                for i, j in product (range (bravecs.shape[0]), range (ketvecs.shape[0])):
+                    d1s, d2s = trans_rdm13h (ketvecs[j], bravecs[i], norb, nelec_bra,
+                                             link_index=self.hlinkstr[ket_r])
+                    tdm1h[i,j] = d1s.conj ()
+                    tdm3h[i,j] = np.stack (d2s, axis=0).conj ().transpose (0,3,2,1)
+                    # The above transpose does both adjoint [(0,1,3,2)] 
+                    # and Mulliken -> Dirac [(0,2,3,1)]
+            else:
+                for i, j in product (range (bravecs.shape[0]), range (ketvecs.shape[0])):
+                    d1s = trans_rdm1h (ketvecs[j], bravecs[i], norb, nelec_bra,
+                                       link_index=self.hlinkstr[ket_r])
+                    tdm1h[i,j] = d1s.conj ()
+            return tdm1h, tdm3h
+        def trans_rdm1h_loop (bra_r, ket_r, spin=0):
+            return trans_rdm13h_loop (bra_r, ket_r, do3h=False)[0]
 
         # Cache some b_p|i> beforehand for the sake of the spin-flip intermediate 
         # shape = (norb, lroots[ket], ndeta[ket], ndetb[*])
@@ -446,13 +479,10 @@ class FragTDMInt (object):
                 bravec = ci[bra].reshape (lroots[bra], ndeta[bra]*ndetb[bra]).conj ()
                 # <j|a_p|i>
                 if np.all (hopping_index[:,bra,ket] == [-1,0]):
-                    self.set_h (bra, ket, 0, np.tensordot (
-                        bravec, apket.reshape (norb,lroots[ket],ndeta[bra]*ndetb[bra]).T, axes=1
-                    ))
+                    h, phh = trans_rdm13h_loop (bra, ket, spin=0)
+                    self.set_h (bra, ket, 0, h)
                     # <j|a'_q a_r a_p|i>, <j|b'_q b_r a_p|i> - how to tell if consistent sign rule?
                     if onep_index[bra,ket]:
-                        phh = np.stack ([trans_rdm1s_loop (bra, ci[bra], ketmat)
-                                         for ketmat in apket], axis=-1)
                         err = np.abs (phh[:,:,0] + phh[:,:,0].transpose (0,1,2,4,3))
                         assert (np.amax (err) < 1e-8), '{}'.format (np.amax (err)) 
                         # ^ Passing this assert proves that I have the correct index
@@ -493,13 +523,10 @@ class FragTDMInt (object):
                 bravec = ci[bra].reshape (lroots[bra], ndeta[bra]*ndetb[bra]).conj ()
                 # <j|b_p|i>
                 if np.all (hopping_index[:,bra,ket] == [0,-1]):
-                    self.set_h (bra, ket, 1, np.tensordot (
-                        bravec, bpket.reshape (norb,lroots[ket],ndeta[bra]*ndetb[bra]).T, axes=1
-                    ))
+                    h, phh = trans_rdm13h_loop (bra, ket, spin=1)
+                    self.set_h (bra, ket, 1, h)
                     # <j|a'_q a_r b_p|i>, <j|b'_q b_r b_p|i> - how to tell if consistent sign rule?
                     if onep_index[bra,ket]:
-                        phh = np.stack ([trans_rdm1s_loop (bra, ci[bra], ketmat)
-                                         for ketmat in bpket], axis=-1)
                         err = np.abs (phh[:,:,1] + phh[:,:,1].transpose (0,1,2,4,3))
                         assert (np.amax (err) < 1e-8), '{}'.format (np.amax (err))
                         # ^ Passing this assert proves that I have the correct index

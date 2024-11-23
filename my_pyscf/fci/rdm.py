@@ -33,12 +33,10 @@ def _trans_rdm1hs (cibra, ciket, norb, nelec, spin=0, link_index=None):
     nelec_ket = _unpack_nelec (nelec)
     nelec_bra = list (_unpack_nelec (nelec))
     nelec_bra[spin] += 1
-    if link_index is not None:
-        ne = nelec_bra
-        linkstr = direct_spin1._unpack (link_index)
-        errmsg = ("For the half-particle transition density matrix functions, the linkstr must "
-                  "be for nelec+1 electrons occupying norb+1 orbitals.")
-        for i in range (2): assert (linkstr[i].shape[1]==(ne[i]*(norb-ne[i]+1))), errmsg
+    linkstr = direct_spin1._unpack (norb+1, nelec_bra, link_index)
+    errmsg = ("For the half-particle transition density matrix functions, the linkstr must "
+              "be for nelec+1 electrons occupying norb+1 orbitals.")
+    for i in range (2): assert (linkstr[i].shape[1]==(nelec_bra[i]*(norb-nelec_bra[i]+2))), errmsg
     ciket = add_singly_occupied_orbital (ciket, norb, nelec_ket, spin)
     cibra = add_empty_orbital (cibra, norb, nelec_bra)
     fn = ('FCItrans_rdm1a', 'FCItrans_rdm1b')[spin]
@@ -83,12 +81,10 @@ def _trans_rdm13hs (cibra, ciket, norb, nelec, spin=0, link_index=None, reorder=
     nelec_ket = _unpack_nelec (nelec)
     nelec_bra = list (_unpack_nelec (nelec))
     nelec_bra[spin] += 1
-    if link_index is not None:
-        ne = nelec_bra
-        linkstr = direct_spin1._unpack (link_index)
-        errmsg = ("For the half-particle transition density matrix functions, the linkstr must "
-                  "be for nelec+1 electrons occupying norb+1 orbitals.")
-        for i in range (2): assert (linkstr[i].shape[1]==(ne[i]*(norb-ne[i]+1))), errmsg
+    linkstr = direct_spin1._unpack (norb+1, nelec_bra, link_index)
+    errmsg = ("For the half-particle transition density matrix functions, the linkstr must "
+              "be for nelec+1 electrons occupying norb+1 orbitals.")
+    for i in range (2): assert (linkstr[i].shape[1]==(nelec_bra[i]*(norb-nelec_bra[i]+2))), errmsg
     ciket = add_singly_occupied_orbital (ciket, norb, nelec_ket, spin)
     cibra = add_empty_orbital (cibra, norb, nelec_bra)
     fn_par = ('FCItdm12kern_a', 'FCItdm12kern_b')[spin]
