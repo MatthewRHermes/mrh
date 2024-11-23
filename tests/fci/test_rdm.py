@@ -106,6 +106,6 @@ class KnownValues(unittest.TestCase):
                 case_trans_rdm1hs (self, norb, nelec)
 
 if __name__ == "__main__":
-    print("Full Tests for direct_nosym_uhf")
+    print("Full Tests for rdm")
     unittest.main()
 

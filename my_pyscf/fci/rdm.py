@@ -3,8 +3,7 @@ import math
 from scipy import linalg
 from pyscf.fci import direct_spin1, rdm
 from pyscf.fci.addons import _unpack_nelec
-from mrh.my_pyscf.fci.addons import add_empty_orbital
-from mrh.my_pyscf.fci.addons import add_singly_occupied_orbital
+from mrh.my_pyscf.fci import dummy
 
 def _trans_rdm1hs (cibra, ciket, norb, nelec, spin=0, link_index=None):
     '''Evaluate the one-half-particle transition density matrix between ci vectors in different
@@ -37,8 +36,8 @@ def _trans_rdm1hs (cibra, ciket, norb, nelec, spin=0, link_index=None):
     errmsg = ("For the half-particle transition density matrix functions, the linkstr must "
               "be for nelec+1 electrons occupying norb+1 orbitals.")
     for i in range (2): assert (linkstr[i].shape[1]==(nelec_bra[i]*(norb-nelec_bra[i]+2))), errmsg
-    ciket = add_singly_occupied_orbital (ciket, norb, nelec_ket, spin)
-    cibra = add_empty_orbital (cibra, norb, nelec_bra)
+    ciket = dummy.add_orbital (ciket, norb, nelec_ket, occ_a=(1-spin), occ_b=spin)
+    cibra = dummy.add_orbital (cibra, norb, nelec_bra, occ_a=0, occ_b=0)
     fn = ('FCItrans_rdm1a', 'FCItrans_rdm1b')[spin]
     return rdm.make_rdm1_spin1 (fn, cibra, ciket, norb+1, nelec_bra, link_index)[-1,:-1]
 
@@ -85,8 +84,8 @@ def _trans_rdm13hs (cibra, ciket, norb, nelec, spin=0, link_index=None, reorder=
     errmsg = ("For the half-particle transition density matrix functions, the linkstr must "
               "be for nelec+1 electrons occupying norb+1 orbitals.")
     for i in range (2): assert (linkstr[i].shape[1]==(nelec_bra[i]*(norb-nelec_bra[i]+2))), errmsg
-    ciket = add_singly_occupied_orbital (ciket, norb, nelec_ket, spin)
-    cibra = add_empty_orbital (cibra, norb, nelec_bra)
+    ciket = dummy.add_orbital (ciket, norb, nelec_ket, occ_a=(1-spin), occ_b=spin)
+    cibra = dummy.add_orbital (cibra, norb, nelec_bra, occ_a=0, occ_b=0)
     fn_par = ('FCItdm12kern_a', 'FCItdm12kern_b')[spin]
     fn_ab = 'FCItdm12kern_ab'
     tdm1h, tdm3h_par = rdm.make_rdm12_spin1 (fn_par, cibra, ciket, norb+1, nelec_bra, link_index, 2)

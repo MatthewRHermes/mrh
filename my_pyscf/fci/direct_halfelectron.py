@@ -1,29 +1,28 @@
-from mrh.my_pyscf.fci.addons import add_empty_orbital
-from mrh.my_pyscf.fci.addons import add_singly_occupied_orbital
-from mrh.my_pyscf.fci.addons import read_dummy_orbital
+import numpy as np
+from mrh.my_pyscf.fci import dummy
 from pyscf.fci import direct_spin1
 from pyscf.fci.addons import _unpack_nelec
 
 def contract_1he (h1he, cre, spin, ci, norb, nelec, link_index=None):
     neleca, nelecb = _unpack_nelec (nelec)
-    nelecd = [neleca, nelecb]
-    if cre: ci = add_empty_orbital (ci, norb, nelec)
-    else: 
-        ci = add_singly_occupied_orbital (ci, norb, nelec, spin)
-        nelecd[spin] += 1
+    ket_occ = [0,0]
+    bra_occ = [0,0]
+    if cre: 
+        bra_occ[spin] = 1
+    else:
+        ket_occ[spin] = 1
+    nelecd = [neleca + ket_occ[0], nelecb + ket_occ[1]]
+    ci = dummy.add_orbital (ci, norb, nelec, occ_a=ket_occ[0], occ_b=ket_occ[1])
     f1e = np.zeros ((norb+1,norb+1), dtype=h1he.dtype)
     f1e[-1,:-1] = h1he[:]
     f1e += f1e.T
     hci = direct_spin1.contract_1e (f1e, ci, norb+1, nelecd, link_index=link_index)
-    return read_dummy_orbital (hci, norb, nelec, spin=spin, occ=(not cre))
+    return dummy.read_orbital (hci, norb, nelec, occ_a=bra_occ[0], occ_b=bra_occ[1])
 
 def absorb_h1he (h1he, h3he, cre, spin, norb, nelec, fac=1):
     neleca, nelecb = _unpack_nelec (nelec)
     nelecd = [neleca, nelecb]
-    if cre: ci = add_empty_orbital (ci, norb, nelec)
-    else: 
-        ci = add_singly_occupied_orbital (ci, norb, nelec, spin)
-        nelecd[spin] += 1
+    if cre: nelecd[spin] += 1
     f1e = np.zeros ((norb+1,norb+1), dtype=h1he.dtype)
     f1e[-1,:-1] = h1he[:]
     f1e += f1e.T
@@ -38,11 +37,14 @@ def absorb_h1he (h1he, h3he, cre, spin, norb, nelec, fac=1):
 
 def contract_3he (h3heff, cre, spin, ci, norb, nelec, link_index=None):
     neleca, nelecb = _unpack_nelec (nelec)
-    nelecd = [neleca, nelecb]
-    if cre: ci = add_empty_orbital (ci, norb, nelec)
-    else: 
-        ci = add_singly_occupied_orbital (ci, norb, nelec, spin)
-        nelecd[spin] += 1
+    ket_occ = [0,0]
+    bra_occ = [0,0]
+    if cre: 
+        ket_occ[spin] = 1
+    else:
+        bra_occ[spin] = 1
+    nelecd = [neleca + ket_occ[0], nelecb + ket_occ[1]]
+    ci = dummy.add_orbital (ci, norb, nelec, occ_a=ket_occ[0], occ_b=ket_occ[1])
     hci = direct_spin1.contract_2e (h3heff, ci, norb+1, nelecd, link_index=link_index)
-    return read_dummy_orbital (hci, norb, nelec, spin=spin, occ=(not cre))
+    return dummy.read_orbital (hci, norb, nelec, occ_a=bra_occ[0], occ_b=bra_occ[1])
 
