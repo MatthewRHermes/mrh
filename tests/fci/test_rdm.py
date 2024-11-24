@@ -1,5 +1,6 @@
 import unittest
 import numpy as np
+import itertools
 from scipy import linalg
 from pyscf import lib
 from pyscf.fci import cistring, direct_spin1
@@ -97,6 +98,28 @@ def case_trans_sfudm1 (self, norb, nelec):
     sfudm1 = rdm.trans_sfudm1 (cibra, ciket, norb, nelec)
     self.assertAlmostEqual (lib.fp (sfudm1), lib.fp (sfudm1_ref), 8)
 
+def case_trans_ppdm (self, norb, nelec, spin):
+    if (norb-nelec[0]) < (2-spin): return
+    if (norb-nelec[1]) < spin: return
+    ciket = rng.random ((cistring.num_strings (norb,nelec[0]),
+                         cistring.num_strings (norb,nelec[1])), dtype=float)
+    ciket /= linalg.norm (ciket)
+    cibra = rng.random ((cistring.num_strings (norb,nelec[0]+2-spin),
+                         cistring.num_strings (norb,nelec[1]+spin)), dtype=float)
+    cibra /= linalg.norm (cibra)
+    nelec_ket = nelec
+    nelec_bra = (nelec[0]+2-spin, nelec[1]+spin)
+    op_ket = (cre_a, cre_b)[int (spin>0)]
+    op_bra = (des_a, des_b)[int (spin>1)]
+    pbra = np.stack ([op_bra (cibra, norb, nelec_bra, i) for i in range (norb)], axis=0)
+    qket = np.stack ([op_ket (ciket, norb, nelec_ket, i) for i in range (norb)], axis=0)
+    ppdm_ref = np.dot (pbra.reshape (norb,-1).conj (), qket.reshape (norb,-1).T)
+    ppdm = rdm.trans_ppdm (cibra, ciket, norb, nelec, spin=spin)
+    if abs (lib.fp (ppdm) - lib.fp (ppdm_ref)) > 1e-8:
+        for i,j in itertools.product (range (norb), repeat=2):
+            print (i,j,ppdm[i,j],ppdm_ref[i,j])
+    self.assertAlmostEqual (lib.fp (ppdm), lib.fp (ppdm_ref), 8)
+
 class KnownValues(unittest.TestCase):
 
     def test_trans_rdm13hs (self):
@@ -113,6 +136,12 @@ class KnownValues(unittest.TestCase):
         for norb, nelec in cases:
             with self.subTest (norb=norb, nelec=nelec):
                 case_trans_sfudm1 (self, norb, nelec)
+
+    def test_trans_ppdm (self):
+        for norb, nelec in cases:
+            for spin in range (3):
+                with self.subTest (norb=norb, nelec=nelec, spin=spin):
+                    case_trans_ppdm (self, norb, nelec, spin)
 
 if __name__ == "__main__":
     print("Full Tests for rdm")

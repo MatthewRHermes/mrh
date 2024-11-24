@@ -172,3 +172,80 @@ def trans_sfddm1 (cibra, ciket, norb, nelec, link_index=None):
     '''
     return trans_sfudm1 (ciket, cibra, norb, nelec, link_index=link_index).conj ().T
 
+def trans_ppdm (cibra, ciket, norb, nelec, spin=0, link_index=None):
+    ''' Evaluate the pair-creation single-electron transition density matrix: <cibra|p'q'|ciket>.
+
+    Args:
+        cibra: ndarray
+            CI vector in (norb,nelec+2) Hilbert space
+        ciket: ndarray
+            CI vector in (norb,nelec) Hilbert space
+        norb: integer
+            Number of spatial orbitals 
+        nelec: integer or sequence of length 2
+            Number of electrons in the ket Hilbert space
+        spin: integer
+            Spin of created pair. 0 = aa, 1 = ab, 2 = bb
+
+    Kwargs:
+        link_index: tuple of length 2 of "linkstr" type ndarray
+            linkstr arrays for the nelec+2 electrons in norb+1/norb+2 (for ab/other spin) orbitals
+            Hilbert space. See pyscf.fci.gen_linkstr_index for the shape of "linkstr".
+
+    Returns:
+        ppdm: ndarray of shape (norb,norb)
+            Pair-creation single-electron transition density matrix
+    '''
+    s1 = int (spin>1)
+    s2 = int (spin>0)
+    ndum = 2 - (spin%2)
+    nelec_ket = _unpack_nelec (nelec)
+    nelec_bra = list (_unpack_nelec (nelec))
+    nelec_bra[s1] += 1
+    nelec_bra[s2] += 1
+    occ_a, occ_b = int (spin<2), int (spin>0)
+    linkstr = direct_spin1._unpack (norb+ndum, nelec_bra, link_index)
+    errmsg = ("For the pair-creation transition density matrix functions, the linkstr must "
+              "be for nelec+2 electrons occupying norb+1/norb+2 (ab/other spin case) orbitals.")
+    assert (linkstr[0].shape[1]==(nelec_bra[0]*(norb+ndum-nelec_bra[0]+1))), errmsg
+    assert (linkstr[1].shape[1]==(nelec_bra[1]*(norb+ndum-nelec_bra[1]+1))), errmsg
+    nelecd = [nelec_ket[0], nelec_ket[1]]
+    for i in range (ndum):
+        ciket = dummy.add_orbital (ciket, norb+i, nelecd, occ_a=occ_a, occ_b=occ_b)
+        nelecd[0] += occ_a
+        nelecd[1] += occ_b
+        cibra = dummy.add_orbital (cibra, norb+i, nelec_bra, occ_a=0, occ_b=0)
+    fn = ('FCItdm12kern_a', 'FCItdm12kern_ab', 'FCItdm12kern_b')[spin]
+    fac = (2,0,2)[spin]
+    dumdm1, dumdm2 = rdm.make_rdm12_spin1 (fn, cibra, ciket, norb+ndum, nelec_bra, link_index, fac)
+    if (spin%2)==0: dumdm1, dumdm2 = rdm.reorder_rdm (dumdm1, dumdm2, inplace=True)
+    return dumdm2[:-ndum,-1,:-ndum,-ndum]
+
+def trans_hhdm (cibra, ciket, norb, nelec, spin=0, link_index=None):
+    ''' Evaluate the pair-annihilation single-electron transition density matrix: <cibra|p'q'|ciket>.
+
+    Args:
+        cibra: ndarray
+            CI vector in (norb,nelec+2) Hilbert space
+        ciket: ndarray
+            CI vector in (norb,nelec) Hilbert space
+        norb: integer
+            Number of spatial orbitals 
+        nelec: integer or sequence of length 2
+            Number of electrons in the ket Hilbert space
+        spin: integer
+            Spin of created pair. 0 = aa, 1 = ab, 2 = bb
+
+    Kwargs:
+        link_index: tuple of length 2 of "linkstr" type ndarray
+            linkstr arrays for the nelec+2 electrons in norb+1/norb+2 (for ab/other spin) orbitals
+            Hilbert space. See pyscf.fci.gen_linkstr_index for the shape of "linkstr".
+
+    Returns:
+        ppdm: ndarray of shape (norb,norb)
+            Pair-creation single-electron transition density matrix
+    '''
+    return trans_ppdm (ciket, cibra, norb, nelec, spin=spin, link_index=link_index).conj ().T
+
+
+
