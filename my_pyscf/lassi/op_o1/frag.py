@@ -11,6 +11,7 @@ from mrh.my_pyscf.lassi.citools import get_lroots, get_rootaddr_fragaddr
 from mrh.my_pyscf.lassi.op_o1.utilities import *
 from mrh.my_pyscf.fci.rdm import trans_rdm1ha, trans_rdm1hb
 from mrh.my_pyscf.fci.rdm import trans_rdm13ha, trans_rdm13hb
+from mrh.my_pyscf.fci.direct_halfelectron import contract_1he, absorb_h1he, contract_3he
 from pyscf import __config__
 
 SCREEN_THRESH = getattr (__config__, 'lassi_frag_screen_thresh', 1e-10)
@@ -567,33 +568,26 @@ class FragTDMInt (object):
         r = self.rootaddr[ket]
         n = self.fragaddr[ket]
         norb, nelec = self.norb, self.nelec_r[r]
-        cre_op = (cre_a, cre_b)[spin]
         ci = self.ci[r][n]
         hci = 0
-        for p in range (self.norb):
-            hci += h_10[p] * cre_op (ci, norb, nelec, p)
-            if h_21 is not None:
-                hci += cre_op (contract_1e (h_21[p], ci, norb, nelec,
-                                            link_index=self.linkstrl[r]),
-                               norb, nelec, p)
+        if h_21 is None:
+            hci = contract_1he (h_10, True, spin, ci, norb, nelec)
+        else:
+            h3eff = absorb_h1he (h_10, h_21, True, spin, norb, nelec, 0.5)
+            hci = contract_3he (h3eff, True, spin, ci, norb, nelec)
         return hci
 
     def contract_h01 (self, spin, h_01, h_12, ket):
         rket = self.rootaddr[ket]
         n = self.fragaddr[ket]
         norb, nelec = self.norb, self.nelec_r[rket]
-        des_op = (des_a, des_b)[spin]
         ci = self.ci[rket][n]
         hci = 0
-        nelecp = list (nelec)
-        nelecp[spin] = nelecp[spin] - 1
-        nelecp = tuple (nelecp)
-        rbra = self.nelec_r.index (nelecp)
-        for p in range (self.norb):
-            hci += h_01[p] * des_op (ci, norb, nelec, p)
-            if h_12 is not None:
-                hci += contract_1e (h_12[:,:,p], des_op (ci, norb, nelec, p),
-                                    norb, nelecp, link_index=self.linkstrl[rbra])
+        if h_12 is None:
+            hci = contract_1he (h_01, False, spin, ci, norb, nelec)
+        else:
+            h3eff = absorb_h1he (h_01, h_12, False, spin, norb, nelec, 0.5)
+            hci = contract_3he (h3eff, False, spin, ci, norb, nelec)
         return hci
 
     def contract_h20 (self, spin, h_20, ket):

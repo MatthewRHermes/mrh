@@ -15,6 +15,10 @@ def contract_1he (h1he, cre, spin, ci, norb, nelec, link_index=None):
         bra_occ[spin] = 1
         nelec_bra[spin] -= 1
     nelecd = [neleca + ket_occ[0], nelecb + ket_occ[1]]
+    errmsg = ("For the half-particle Hamiltonian functions, when creating/annihilating, "
+              "linkstr must be for nelec+1/nelec electrons occupying norb+1 orbitals")
+    linkstr = direct_spin1._unpack (norb+1, nelecd, link_index)
+    for i in range (2): assert (linkstr[i].shape[1]==(nelecd[i]*(norb-nelecd[i]+2))), errmsg
     ci = dummy.add_orbital (ci, norb, nelec, occ_a=ket_occ[0], occ_b=ket_occ[1])
     f1e = np.zeros ((norb+1,norb+1), dtype=h1he.dtype)
     f1e[-1,:-1] = h1he[:]
@@ -50,7 +54,12 @@ def contract_3he (h3heff, cre, spin, ci, norb, nelec, link_index=None):
         bra_occ[spin] = 1
         nelec_bra[spin] -= 1
     nelecd = [neleca + ket_occ[0], nelecb + ket_occ[1]]
+    errmsg = ("For the half-particle Hamiltonian functions, when creating/annihilating, "
+              "linkstr must be for nelec+1/nelec electrons occupying norb+1 orbitals")
+    linkstr = direct_spin1._unpack (norb+1, nelecd, link_index)
+    for i in range (2): assert (linkstr[i].shape[1]==(nelecd[i]*(norb-nelecd[i]+2))), errmsg
     ci = dummy.add_orbital (ci, norb, nelec, occ_a=ket_occ[0], occ_b=ket_occ[1])
     hci = direct_spin1.contract_2e (h3heff, ci, norb+1, nelecd, link_index=link_index)
     return dummy.read_orbital (hci, norb, nelec_bra, occ_a=bra_occ[0], occ_b=bra_occ[1])
+
 
