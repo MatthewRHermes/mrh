@@ -112,6 +112,8 @@ class FragTDMInt (object):
         self.linkstr = [None for i in range (nroots)]
         self.linkstrl = [None for j in range (nroots)]
         self.hlinkstr = [None for i in range (nroots)]
+        self.hlinkstrl = [None for i in range (nroots)]
+        self.plinkstrl = [[None for i in range (nroots)] for s in (0,1)]
         for i in range (nroots):
             la = cistring.gen_linkstr_index(range(norb), nelec_rs[i][0])
             lb = cistring.gen_linkstr_index(range(norb), nelec_rs[i][1])
@@ -122,6 +124,9 @@ class FragTDMInt (object):
             la = cistring.gen_linkstr_index(range(norb+1), nelec_rs[i][0])
             lb = cistring.gen_linkstr_index(range(norb+1), nelec_rs[i][1])
             self.hlinkstr[i] = (la,lb)
+            la = cistring.gen_linkstr_index_trilidx(range(norb+1), nelec_rs[i][0])
+            lb = cistring.gen_linkstr_index_trilidx(range(norb+1), nelec_rs[i][1])
+            self.hlinkstrl[i] = (la,lb)
         self.rootaddr = rootaddr
         self.fragaddr = fragaddr
         self.idx_frag = idx_frag
@@ -480,6 +485,7 @@ class FragTDMInt (object):
                 bravec = ci[bra].reshape (lroots[bra], ndeta[bra]*ndetb[bra]).conj ()
                 # <j|a_p|i>
                 if np.all (hopping_index[:,bra,ket] == [-1,0]):
+                    self.plinkstrl[0][bra] = self.hlinkstrl[ket]
                     h, phh = trans_rdm13h_loop (bra, ket, spin=0)
                     self.set_h (bra, ket, 0, h)
                     # <j|a'_q a_r a_p|i>, <j|b'_q b_r a_p|i> - how to tell if consistent sign rule?
@@ -524,6 +530,7 @@ class FragTDMInt (object):
                 bravec = ci[bra].reshape (lroots[bra], ndeta[bra]*ndetb[bra]).conj ()
                 # <j|b_p|i>
                 if np.all (hopping_index[:,bra,ket] == [0,-1]):
+                    self.plinkstrl[1][bra] = self.hlinkstrl[ket]
                     h, phh = trans_rdm13h_loop (bra, ket, spin=1)
                     self.set_h (bra, ket, 1, h)
                     # <j|a'_q a_r b_p|i>, <j|b'_q b_r b_p|i> - how to tell if consistent sign rule?
@@ -571,10 +578,12 @@ class FragTDMInt (object):
         ci = self.ci[r][n]
         hci = 0
         if h_21 is None:
-            hci = contract_1he (h_10, True, spin, ci, norb, nelec)
+            hci = contract_1he (h_10, True, spin, ci, norb, nelec,
+                                link_index=self.plinkstrl[spin][r])
         else:
             h3eff = absorb_h1he (h_10, h_21, True, spin, norb, nelec, 0.5)
-            hci = contract_3he (h3eff, True, spin, ci, norb, nelec)
+            hci = contract_3he (h3eff, True, spin, ci, norb, nelec,
+                                link_index=self.plinkstrl[spin][r])
         return hci
 
     def contract_h01 (self, spin, h_01, h_12, ket):
@@ -584,10 +593,12 @@ class FragTDMInt (object):
         ci = self.ci[rket][n]
         hci = 0
         if h_12 is None:
-            hci = contract_1he (h_01, False, spin, ci, norb, nelec)
+            hci = contract_1he (h_01, False, spin, ci, norb, nelec,
+                                link_index=self.hlinkstrl[rket])
         else:
             h3eff = absorb_h1he (h_01, h_12, False, spin, norb, nelec, 0.5)
-            hci = contract_3he (h3eff, False, spin, ci, norb, nelec)
+            hci = contract_3he (h3eff, False, spin, ci, norb, nelec,
+                                link_index=self.hlinkstrl[rket])
         return hci
 
     def contract_h20 (self, spin, h_20, ket):
