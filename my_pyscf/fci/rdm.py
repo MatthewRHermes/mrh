@@ -1,6 +1,8 @@
 import numpy as np
 import math
+import itertools
 from scipy import linalg
+from pyscf import lib
 from pyscf.fci import direct_spin1, rdm
 from pyscf.fci.addons import _unpack_nelec
 from mrh.my_pyscf.fci import dummy
@@ -108,4 +110,65 @@ def trans_rdm13hb (cibra, ciket, norb, nelec, link_index=None):
     '''Half-electron spin-down case of:\n''' + _trans_rdm1hs.__doc__
     return _trans_rdm13hs (cibra, ciket, norb, nelec, spin=1, link_index=link_index)
 
+def trans_sfudm1 (cibra, ciket, norb, nelec, link_index=None):
+    ''' Evaluate the spin-flip-up single-electron transition density matrix: <cibra|a'b|ciket>.
+
+    Args:
+        cibra: ndarray
+            CI vector in (norb,(neleca+1,nelecb-1)) Hilbert space
+        ciket: ndarray
+            CI vector in (norb,(neleca,nelecb)) Hilbert space
+        norb: integer
+            Number of spatial orbitals 
+        nelec: integer or sequence of length 2
+            Number of electrons in the ket Hilbert space
+
+    Kwargs:
+        link_index: tuple of length 2 of "linkstr" type ndarray
+            linkstr arrays for the nelec+1 electrons in norb+1 orbitals Hilbert space.
+            See pyscf.fci.gen_linkstr_index for the shape of "linkstr".
+
+    Returns:
+        sfudm1: ndarray of shape (norb,norb)
+            Spin-flip up transition density matrix between cibra and ciket
+    '''
+    nelec_ket = _unpack_nelec (nelec)
+    nelec_bra = list (_unpack_nelec (nelec))
+    nelec_bra[0] += 1
+    nelec_bra[1] -= 1
+    nelecd = [nelec_bra[0], nelec_ket[1]]
+    linkstr = direct_spin1._unpack (norb+1, nelecd, link_index)
+    errmsg = ("For the spin-flip transition density matrix functions, the linkstr must be for "
+              "nelec+1 electrons occupying norb+1 orbitals.")
+    for i in range (2): assert (linkstr[i].shape[1]==(nelecd[i]*(norb-nelecd[i]+2))), errmsg
+    ciket = dummy.add_orbital (ciket, norb, nelec_ket, occ_a=1, occ_b=0)
+    cibra = dummy.add_orbital (cibra, norb, nelec_bra, occ_a=0, occ_b=1)
+    fn = 'FCItdm12kern_ab'
+    dm2dum = rdm.make_rdm12_spin1 (fn, ciket, cibra, norb+1, nelecd, link_index, 0)[1]
+    sfudm1 = dm2dum[-1,:-1,:-1,-1]
+    return -sfudm1
+
+def trans_sfddm1 (cibra, ciket, norb, nelec, link_index=None):
+    ''' Evaluate the spin-flip-down single-electron transition density matrix: <cibra|b'a|ciket>.
+
+    Args:
+        cibra: ndarray
+            CI vector in (norb,(neleca-1,nelecb+1)) Hilbert space
+        ciket: ndarray
+            CI vector in (norb,(neleca,nelecb)) Hilbert space
+        norb: integer
+            Number of spatial orbitals 
+        nelec: integer or sequence of length 2
+            Number of electrons in the ket Hilbert space
+
+    Kwargs:
+        link_index: tuple of length 2 of "linkstr" type ndarray
+            linkstr arrays for the nelec+1 electrons in norb+1 orbitals Hilbert space.
+            See pyscf.fci.gen_linkstr_index for the shape of "linkstr".
+
+    Returns:
+        sfdm1: ndarray of shape (norb,norb)
+            Spin-flip-down transition density matrix between cibra and ciket
+    '''
+    return trans_sfudm1 (ciket, cibra, norb, nelec, link_index=link_index).conj ().T
 
