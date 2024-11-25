@@ -9,8 +9,8 @@ from pyscf.fci import cistring
 from itertools import product, combinations
 from mrh.my_pyscf.lassi.citools import get_lroots, get_rootaddr_fragaddr
 from mrh.my_pyscf.lassi.op_o1.utilities import *
-from mrh.my_pyscf.fci.rdm import trans_rdm1ha, trans_rdm1hb
-from mrh.my_pyscf.fci.rdm import trans_rdm13ha, trans_rdm13hb
+from mrh.my_pyscf.fci.rdm import trans_rdm1ha_des, trans_rdm1hb_des
+from mrh.my_pyscf.fci.rdm import trans_rdm13ha_des, trans_rdm13hb_des
 from mrh.my_pyscf.fci.direct_halfelectron import contract_1he, absorb_h1he, contract_3he
 from pyscf import __config__
 
@@ -440,9 +440,9 @@ class FragTDMInt (object):
  
         # adjoint all of theses functions
         def trans_rdm13h_loop (bra_r, ket_r, spin=0, do3h=True):
-            trans_rdm13h = (trans_rdm13ha, trans_rdm13hb)[spin]
-            trans_rdm1h = (trans_rdm1ha, trans_rdm1hb)[spin]
-            nelec_bra = self.nelec_r[bra_r]
+            trans_rdm13h = (trans_rdm13ha_des, trans_rdm13hb_des)[spin]
+            trans_rdm1h = (trans_rdm1ha_des, trans_rdm1hb_des)[spin]
+            nelec_ket = self.nelec_r[ket_r]
             bravecs = ci[bra_r].reshape (-1, ndeta[bra_r], ndetb[bra_r])
             ketvecs = ci[ket_r].reshape (-1, ndeta[ket_r], ndetb[ket_r])
             tdm1h = np.zeros ((bravecs.shape[0],ketvecs.shape[0],norb), dtype=self.dtype)
@@ -450,17 +450,16 @@ class FragTDMInt (object):
                               dtype=self.dtype)
             if do3h:
                 for i, j in product (range (bravecs.shape[0]), range (ketvecs.shape[0])):
-                    d1s, d2s = trans_rdm13h (ketvecs[j], bravecs[i], norb, nelec_bra,
+                    d1s, d2s = trans_rdm13h (bravecs[i], ketvecs[j], norb, nelec_ket,
                                              link_index=self.hlinkstr[ket_r])
-                    tdm1h[i,j] = d1s.conj ()
-                    tdm3h[i,j] = np.stack (d2s, axis=0).conj ().transpose (0,3,2,1)
-                    # The above transpose does both adjoint [(0,1,3,2)] 
-                    # and Mulliken -> Dirac [(0,2,3,1)]
+                    tdm1h[i,j] = d1s
+                    tdm3h[i,j] = np.stack (d2s, axis=0).transpose (0,2,3,1)
+                    # Mulliken -> Dirac
             else:
                 for i, j in product (range (bravecs.shape[0]), range (ketvecs.shape[0])):
-                    d1s = trans_rdm1h (ketvecs[j], bravecs[i], norb, nelec_bra,
+                    d1s = trans_rdm1h (bravecs[i], ketvecs[j], norb, nelec_ket,
                                        link_index=self.hlinkstr[ket_r])
-                    tdm1h[i,j] = d1s.conj ()
+                    tdm1h[i,j] = d1s
             return tdm1h, tdm3h
         def trans_rdm1h_loop (bra_r, ket_r, spin=0):
             return trans_rdm13h_loop (bra_r, ket_r, do3h=False)[0]

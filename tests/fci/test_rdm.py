@@ -41,8 +41,8 @@ def case_trans_rdm1hs (self, norb, nelec):
                   for i in range (norb)]
     tdm1hb_ref = [np.dot (cibra_beta.conj ().flat, cre_b (ciket, norb, nelec, i).flat)
                   for i in range (norb)]
-    tdm1ha = rdm.trans_rdm1ha (cibra_alpha, ciket, norb, nelec)
-    tdm1hb = rdm.trans_rdm1hb (cibra_beta, ciket, norb, nelec)
+    tdm1ha = rdm.trans_rdm1ha_cre (cibra_alpha, ciket, norb, nelec)
+    tdm1hb = rdm.trans_rdm1hb_cre (cibra_beta, ciket, norb, nelec)
     self.assertAlmostEqual (lib.fp (tdm1ha), lib.fp (tdm1ha_ref), 8)
     self.assertAlmostEqual (lib.fp (tdm1hb), lib.fp (tdm1hb_ref), 8)
 
@@ -73,11 +73,11 @@ def case_trans_rdm13hs (self, norb, nelec):
         dm1a, dm1b = direct_spin1.trans_rdm1s (pcibra, ciket, norb, nelec)
         tdm3hba_ref[i,:,:] = dm1a.T
         tdm3hbb_ref[i,:,:] = dm1b.T
-    tdm1ha, (tdm3haa, tdm3hab) = rdm.trans_rdm13ha (cibra_alpha, ciket, norb, nelec)
+    tdm1ha, (tdm3haa, tdm3hab) = rdm.trans_rdm13ha_cre (cibra_alpha, ciket, norb, nelec)
     self.assertAlmostEqual (lib.fp (tdm1ha), lib.fp (tdm1ha_ref), 8)
     self.assertAlmostEqual (lib.fp (tdm3haa), lib.fp (tdm3haa_ref), 8)
     self.assertAlmostEqual (lib.fp (tdm3hab), lib.fp (tdm3hab_ref), 8)
-    tdm1hb, (tdm3hba, tdm3hbb) = rdm.trans_rdm13hb (cibra_beta, ciket, norb, nelec)
+    tdm1hb, (tdm3hba, tdm3hbb) = rdm.trans_rdm13hb_cre (cibra_beta, ciket, norb, nelec)
     self.assertAlmostEqual (lib.fp (tdm1hb), lib.fp (tdm1hb_ref), 8)
     self.assertAlmostEqual (lib.fp (tdm3hba), lib.fp (tdm3hba_ref), 8)
     self.assertAlmostEqual (lib.fp (tdm3hbb), lib.fp (tdm3hbb_ref), 8)
