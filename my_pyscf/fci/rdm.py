@@ -165,7 +165,7 @@ def trans_sfudm1 (cibra, ciket, norb, nelec, link_index=None):
 
     Kwargs:
         link_index: tuple of length 2 of "linkstr" type ndarray
-            linkstr arrays for the nelec+1 electrons in norb+1 orbitals Hilbert space.
+            linkstr arrays for the (neleca+1,nelecb) electrons in norb+1 orbitals Hilbert space.
             See pyscf.fci.gen_linkstr_index for the shape of "linkstr".
 
     Returns:
@@ -179,7 +179,7 @@ def trans_sfudm1 (cibra, ciket, norb, nelec, link_index=None):
     nelecd = [nelec_bra[0], nelec_ket[1]]
     linkstr = direct_spin1._unpack (norb+1, nelecd, link_index)
     errmsg = ("For the spin-flip transition density matrix functions, the linkstr must be for "
-              "nelec+1 electrons occupying norb+1 orbitals.")
+              "(neleca+1,nelecb) electrons occupying norb+1 orbitals.")
     for i in range (2): assert (linkstr[i].shape[1]==(nelecd[i]*(norb-nelecd[i]+2))), errmsg
     ciket = dummy.add_orbital (ciket, norb, nelec_ket, occ_a=1, occ_b=0)
     cibra = dummy.add_orbital (cibra, norb, nelec_bra, occ_a=0, occ_b=1)
@@ -203,7 +203,7 @@ def trans_sfddm1 (cibra, ciket, norb, nelec, link_index=None):
 
     Kwargs:
         link_index: tuple of length 2 of "linkstr" type ndarray
-            linkstr arrays for the nelec+1 electrons in norb+1 orbitals Hilbert space.
+            linkstr arrays for the (neleca,nelecb+1) electrons in norb+1 orbitals Hilbert space.
             See pyscf.fci.gen_linkstr_index for the shape of "linkstr".
 
     Returns:
@@ -281,7 +281,7 @@ def trans_hhdm (cibra, ciket, norb, nelec, spin=0, link_index=None):
 
     Kwargs:
         link_index: tuple of length 2 of "linkstr" type ndarray
-            linkstr arrays for the nelec+2 electrons in norb+1/norb+2 (for ab/other spin) orbitals
+            linkstr arrays for the nelec electrons in norb+1/norb+2 (for ab/other spin) orbitals
             Hilbert space. See pyscf.fci.gen_linkstr_index for the shape of "linkstr".
 
     Returns:
