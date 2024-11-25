@@ -11,7 +11,7 @@ from mrh.my_pyscf.lassi.citools import get_lroots, get_rootaddr_fragaddr
 from mrh.my_pyscf.lassi.op_o1.utilities import *
 from mrh.my_pyscf.fci.rdm import trans_rdm1ha_des, trans_rdm1hb_des
 from mrh.my_pyscf.fci.rdm import trans_rdm13ha_des, trans_rdm13hb_des
-from mrh.my_pyscf.fci.rdm import trans_sfddm, trans_hhdm
+from mrh.my_pyscf.fci.rdm import trans_sfddm1, trans_hhdm
 from mrh.my_pyscf.fci.direct_halfelectron import contract_1he, absorb_h1he, contract_3he
 from pyscf import __config__
 
@@ -464,8 +464,8 @@ class FragTDMInt (object):
             sfddm = np.zeros ((bravecs.shape[0],ketvecs.shape[0],norb,norb), dtype=self.dtype)
             linkstr = _check_linkstr_cache (norb+1, nelec_ket[0], nelec_ket[1]+1)
             for i, j in product (range (bravecs.shape[0]), range (ketvecs.shape[0])):
-                d1 = trans_sfddm (bravecs[i], ketvecs[j], norb, nelec_ket,
-                                  link_index=linkstr)
+                d1 = trans_sfddm1 (bravecs[i], ketvecs[j], norb, nelec_ket,
+                                   link_index=linkstr)
                 sfddm[i,j] = d1
             return sfddm
         def trans_hhdm_loop (bra_r, ket_r, spin=0):
@@ -477,7 +477,7 @@ class FragTDMInt (object):
             linkstr = _check_linkstr_cache (norb+ndum, nelec_ket[0], nelec_ket[1])
             for i, j in product (range (bravecs.shape[0]), range (ketvecs.shape[0])):
                 d1 = trans_hhdm (bravecs[i], ketvecs[j], norb, nelec_ket,
-                                 link_index=linkstr)
+                                 spin=spin, link_index=linkstr)
                 hhdm[i,j] = d1
             return hhdm
 
@@ -492,24 +492,13 @@ class FragTDMInt (object):
             self.set_dm1 (i, j, dm1s)
             if zerop_index[i,j]: self.set_dm2 (i, j, dm2s)
  
-        # Cache some b_p|i> beforehand for the sake of the spin-flip intermediate 
-        # shape = (norb, lroots[ket], ndeta[ket], ndetb[*])
         hidx_ket_a = np.where (np.any (hopping_index[0] < 0, axis=0) & idx_uniq)[0]
         hidx_ket_b = np.where (np.any (hopping_index[1] < 0, axis=0) & idx_uniq)[0]
-        bpvec_list = [None for ket in range (nroots)]
-        for ket in hidx_ket_b:
-            if np.any (np.all (hopping_index[:,:,ket] == np.array ([1,-1])[:,None], axis=0)):
-                bpvec_list[ket] = np.stack ([des_b_loop (ci[ket], self.nelec_r[ket], p)
-                                             for p in range (norb)], axis=0)
 
         # a_p|i>; shape = (norb, lroots[ket], ndeta[*], ndetb[ket])
         for ket in hidx_ket_a:
-            nelec = self.nelec_r[ket]
-            apket = np.stack ([des_a_loop (ci[ket], nelec, p) for p in range (norb)], axis=0)
-            nelec = (nelec[0]-1, nelec[1])
             for bra in np.where ((hopping_index[0,:,ket] < 0) & idx_uniq)[0]:
                 if not self.mask_ints[bra,ket]: continue
-                bravec = ci[bra].reshape (lroots[bra], ndeta[bra]*ndetb[bra]).conj ()
                 # <j|a_p|i>
                 if np.all (hopping_index[:,bra,ket] == [-1,0]):
                     h, phh = trans_rdm13h_loop (bra, ket, spin=0)
@@ -523,40 +512,18 @@ class FragTDMInt (object):
                         self.set_phh (bra, ket, 0, phh)
                 # <j|b'_q a_p|i> = <j|s-|i>
                 elif np.all (hopping_index[:,bra,ket] == [-1,1]):
-                    #self.set_sm (bra, ket, trans_sfddm_loop (bra, ket))
-                    bqbra = bpvec_list[bra].reshape (norb, lroots[bra], -1).conj ()
-                    self.set_sm (bra, ket, np.tensordot (
-                        bqbra, apket.reshape (norb, lroots[ket], -1).T, axes=1
-                    ).transpose (1,2,0,3))
+                    self.set_sm (bra, ket, trans_sfddm_loop (bra, ket))
                 # <j|b_q a_p|i>
                 elif np.all (hopping_index[:,bra,ket] == [-1,-1]):
-                    #self.set_hh (bra, ket, 1, trans_hhdm_loop (bra, ket, spin=1))
-                    hh = np.zeros ((lroots[bra], lroots[ket], norb, norb), dtype = self.dtype)
-                    for q, p in product (range (norb), repeat=2):
-                        bq_ap_ket = des_b_loop (apket[p], nelec, q)
-                        bq_ap_ket = bq_ap_ket.reshape (lroots[ket], ndeta[bra]*ndetb[bra])
-                        hh[:,:,q,p] = np.dot (bravec, bq_ap_ket.T)
-                    self.set_hh (bra, ket, 1, hh)
+                    self.set_hh (bra, ket, 1, trans_hhdm_loop (bra, ket, spin=1))
                 # <j|a_q a_p|i>
                 elif np.all (hopping_index[:,bra,ket] == [-2,0]):
-                    #self.set_hh (bra, ket, 0, trans_hhdm_loop (bra, ket, spin=0))
-                    hh = np.zeros ((lroots[bra], lroots[ket], norb, norb), dtype = self.dtype)
-                    for q, p in combinations (range (norb), 2):
-                        aq_ap_ket = des_a_loop (apket[p], nelec, q)
-                        aq_ap_ket = aq_ap_ket.reshape (lroots[ket], ndeta[bra]*ndetb[bra])
-                        hh[:,:,q,p] = np.dot (bravec, aq_ap_ket.T)
-                    hh -= hh.transpose (0,1,3,2)
-                    self.set_hh (bra, ket, 0, hh)                
+                    self.set_hh (bra, ket, 0, trans_hhdm_loop (bra, ket, spin=0))
                 
         # b_p|i>
         for ket in hidx_ket_b:
-            nelec = self.nelec_r[ket]
-            bpket = np.stack ([des_b_loop (ci[ket], nelec, p)
-                for p in range (norb)], axis=0) if bpvec_list[ket] is None else bpvec_list[ket]
-            nelec = (nelec[0], nelec[1]-1)
             for bra in np.where ((hopping_index[1,:,ket] < 0) & idx_uniq)[0]:
                 if not self.mask_ints[bra,ket]: continue
-                bravec = ci[bra].reshape (lroots[bra], ndeta[bra]*ndetb[bra]).conj ()
                 # <j|b_p|i>
                 if np.all (hopping_index[:,bra,ket] == [0,-1]):
                     h, phh = trans_rdm13h_loop (bra, ket, spin=1)
@@ -570,14 +537,7 @@ class FragTDMInt (object):
                         self.set_phh (bra, ket, 1, phh)
                 # <j|b_q b_p|i>
                 elif np.all (hopping_index[:,bra,ket] == [0,-2]):
-                    #self.set_hh (bra, ket, 2, trans_hhdm_loop (bra, ket, spin=2))
-                    hh = np.zeros ((lroots[bra], lroots[ket], norb, norb), dtype = self.dtype)
-                    for q, p in combinations (range (norb), 2):
-                        bq_bp_ket = des_b_loop (bpket[p], nelec, q)
-                        bq_bp_ket = bq_bp_ket.reshape (lroots[ket], ndeta[bra]*ndetb[bra])
-                        hh[:,:,q,p] = np.dot (bravec, bq_bp_ket.T)
-                    hh -= hh.transpose (0,1,3,2)
-                    self.set_hh (bra, ket, 2, hh)                
+                    self.set_hh (bra, ket, 2, trans_hhdm_loop (bra, ket, spin=2))
         
         return t0
 
