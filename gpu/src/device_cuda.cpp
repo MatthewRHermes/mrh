@@ -24,125 +24,6 @@
 
 /* ---------------------------------------------------------------------- */
 
-int * Device::dd_fetch_pumap(my_device_data * dd, int size_pumap_, int type_pumap = _PUMAP_2D_UNPACK)
-{
-  // search if pack/unpack map already created
-
-  int indx = -1;
-  for(int i=0; i<dd->size_pumap.size(); ++i)
-    if(dd->type_pumap[i] == type_pumap && dd->size_pumap[i] == size_pumap_) indx = i;
-
-  // add unpack/pack map if not found
-  
-  if(indx < 0) {
-    dd->type_pumap.push_back(type_pumap);
-    dd->size_pumap.push_back(size_pumap_);
-    dd->pumap.push_back(nullptr);
-    dd->d_pumap.push_back(nullptr);
-
-    indx = dd->type_pumap.size() - 1;
-
-    int size_pumap = -1;
-    
-    if(type_pumap == _PUMAP_2D_UNPACK) {
-      int nao = size_pumap_;
-      size_pumap = nao * nao;
-      
-      dd->pumap[indx] = (int *) pm->dev_malloc_host(size_pumap * sizeof(int));
-      dd->d_pumap[indx] = (int *) pm->dev_malloc_async(size_pumap * sizeof(int), dd->stream);
-      
-      int _i, _j, _ij;
-      int * tm = dd->pumap[indx];
-      for(_ij = 0, _i = 0; _i < nao; _i++)
-	for(_j = 0; _j<=_i; _j++, _ij++) {
-	  tm[_i*nao + _j] = _ij;
-	  tm[_i + nao*_j] = _ij;
-	}
-      
-    } else if(type_pumap == _PUMAP_H2EFF_UNPACK) {
-
-#if 1
-      int ncas = size_pumap_;
-      size_pumap = ncas * ncas;
-
-      dd->pumap[indx] = (int *) pm->dev_malloc_host(size_pumap * sizeof(int));
-      dd->d_pumap[indx] = (int *) pm->dev_malloc_async(size_pumap * sizeof(int), dd->stream);
-
-      int * tm = dd->pumap[indx];
-      int _ij, _i, _j;
-      for(_ij = 0, _i = 0; _i < ncas; _i++)
-	for(_j = 0; _j<=_i; _j++, _ij++) {
-	  tm[_i*ncas + _j] = _ij;
-	  tm[_i + ncas*_j] = _ij;
-	}
-#else
-      int ncas = size_pumap_;
-      int ncas_pair = ncas * (ncas+1)/2;
-      size_pumap = ncas * ncas * ncas;
-
-      dd->pumap[indx] = (int *) pm->dev_malloc_host(size_pumap * sizeof(int));
-      dd->d_pumap[indx] = (int *) pm->dev_malloc_async(size_pumap * sizeof(int), dd->stream);
-
-      int * tm = dd->pumap[indx];
-      for (int _i=0; _i<ncas;++_i) {
-	for (int _j=0, _jk=0; _j<ncas; ++_j) {
-	  for (int _k=0;_k<=_j;++_k,++_jk) {
-	    tm[_i*ncas*ncas + _j*ncas+_k]=_i*ncas_pair+_jk;
-	    tm[_i*ncas*ncas + _k*ncas+_j]=_i*ncas_pair+_jk;
-	  }
-	}
-      }
-#endif
-    } else if(type_pumap == _PUMAP_H2EFF_PACK) {
-#if 1
-      int ncas = size_pumap_;
-      int ncas_pair = ncas * (ncas+1)/2;
-      size_pumap = ncas_pair;
-
-      dd->pumap[indx] = (int *) pm->dev_malloc_host(size_pumap * sizeof(int));
-      dd->d_pumap[indx] = (int *) pm->dev_malloc_async(size_pumap * sizeof(int), dd->stream);
-
-      int * tm = dd->pumap[indx];
-      int _i, _j, _ij;
-      for (_i=0, _ij=0; _i<ncas; ++_i) {
-	for (_j=0; _j<=_i; ++_j, ++_ij) {
-	  tm[_ij] = _i*ncas + _j;
-	}
-      }
-#else
-      int ncas = size_pumap_;
-      int ncas_pair = ncas * (ncas+1)/2;
-      size_pumap = ncas * ncas_pair;
-
-      dd->pumap[indx] = (int *) pm->dev_malloc_host(size_pumap * sizeof(int));
-      dd->d_pumap[indx] = (int *) pm->dev_malloc_async(size_pumap * sizeof(int), dd->stream);
-
-      int * tm = dd->pumap[indx];
-      int _i, _j, _k, _ijk;
-      for (_ijk=0, _i=0; _i<ncas;++_i){
-	for (_j=0; _j<ncas; ++_j){
-	  for (_k=0;_k<=_j;++_k,++_ijk){
-	    tm[_ijk] = _i*ncas*ncas + _j*ncas+_k;
-	  }
-	}
-      }
-#endif
-      
-    } // if(type_pumap)
-    
-    pm->dev_push_async(dd->d_pumap[indx], dd->pumap[indx], size_pumap*sizeof(int), dd->stream);
-  } // if(map_not_found)
-  
-  // set pointers to current map
-
-  dd->pumap_ptr = dd->pumap[indx];
-  dd->d_pumap_ptr = dd->d_pumap[indx];
-
-  return dd->d_pumap_ptr;
-}
-
-/* ---------------------------------------------------------------------- */
-
 void Device::push_mo_coeff(py::array_t<double> _mo_coeff, int _size_mo_coeff)
 {
 #ifdef _SIMPLE_TIMER
@@ -645,7 +526,7 @@ void Device::init_get_jk(py::array_t<double> _eri1, py::array_t<double> _dmtril,
 
   // 1-time initialization
   
-  dd_fetch_pumap(dd, nao);
+  dd_fetch_pumap(dd, nao, _PUMAP_2D_UNPACK);
   
   // Create blas handle
 
@@ -1111,7 +992,7 @@ void Device::df_ao2mo_pass1_v2 (int blksize, int nmo, int nao, int ncore, int nc
     //    pm->dev_push_async(d_eri, eri, _size_eri * sizeof(double), dd->stream);
   }
   
-  int * my_d_tril_map_ptr = dd_fetch_pumap(dd, nao);
+  int * my_d_tril_map_ptr = dd_fetch_pumap(dd, nao, _PUMAP_2D_UNPACK);
   
   {
     dim3 block_size(_UNPACK_BLOCK_SIZE, _UNPACK_BLOCK_SIZE, 1);
@@ -1817,7 +1698,7 @@ void Device::get_h2eff_df(py::array_t<double> _cderi,
 
   double * d_cderi_unpacked=(double*) pm->dev_malloc_async( _size_cderi_unpacked * sizeof(double), dd->stream);
 
-  int * d_my_unpack_map_ptr = dd_fetch_pumap(dd, nao);
+  int * d_my_unpack_map_ptr = dd_fetch_pumap(dd, nao, _PUMAP_2D_UNPACK);
 
   {
     dim3 block_size(_UNPACK_BLOCK_SIZE, _UNPACK_BLOCK_SIZE, 1);
@@ -1917,7 +1798,8 @@ void Device::get_h2eff_df(py::array_t<double> _cderi,
   pm->dev_free_async(d_vuwm, dd->stream);
 
   double * d_eri = (double*) pm->dev_malloc_async(_size_eri*sizeof(double), dd->stream);
-  int * my_d_tril_map_ptr = dd_fetch_pumap(dd, ncas);
+
+  int * my_d_tril_map_ptr = dd_fetch_pumap(dd, ncas, _PUMAP_2D_UNPACK);
 
   {
     dim3 block_size(_UNPACK_BLOCK_SIZE, _UNPACK_BLOCK_SIZE, 1);
