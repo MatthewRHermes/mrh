@@ -306,9 +306,6 @@ def ci_outer_product_generator (ci_fr, norb_f, nelec_fr):
     '''
 
     norb = sum (norb_f)
-    #print ("SV norb = ", norb)
-    #print ("SV nelec_fr = ", nelec_fr)
-    #print ("SV np.sum (nelec_fr, axis=0) = ", np.sum (nelec_fr, axis=0)[0]) 
     ndet = max ([cistring.num_strings (norb, ne[0]) * cistring.num_strings (norb, ne[1])
                 for ne in np.sum (nelec_fr, axis=0)])
     gen_ci_r = []
