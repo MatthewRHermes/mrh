@@ -82,12 +82,23 @@ void MATHLIB::gemm(const char * transa, const char * transb,
 
   cublasHandle_t * h = current_handle;
   
+  cublasOperation_t ta, tb;
+  
+  if(strcmp(transa, "N") == 0) ta = CUBLAS_OP_N;
+  else if(strcmp(transa, "T") == 0) ta = CUBLAS_OP_T;
+  else ta = CUBLAS_OP_C;
+
+  if(strcmp(transb, "N") == 0) tb = CUBLAS_OP_N;
+  else if(strcmp(transb, "T") == 0) tb = CUBLAS_OP_T;
+  else tb = CUBLAS_OP_C;
+  
 #ifdef _SINGLE_PRECISION
-  cublasSgemm(*h, CUBLAS_OP_N, CUBLAS_OP_N, *m, *n, *k, alpha, a, *lda, b, *ldb, beta, c, *ldc);
+  cublasSgemm(*h, ta, tb, *m, *n, *k, alpha, a, *lda, b, *ldb, beta, c, *ldc);
 #else
-  cublasDgemm(*h, CUBLAS_OP_N, CUBLAS_OP_N, *m, *n, *k, alpha, a, *lda, b, *ldb, beta, c, *ldc);
+  cublasDgemm(*h, ta, tb, *m, *n, *k, alpha, a, *lda, b, *ldb, beta, c, *ldc);
 #endif
   
+  _CUDA_CHECK_ERRORS();  
 }
 
 // ----------------------------------------------------------------
@@ -101,15 +112,26 @@ void MATHLIB::gemm_batch(const char * transa, const char * transb,
 {
 
   cublasHandle_t * h = current_handle;
+
+  cublasOperation_t ta, tb;
+  
+  if(strcmp(transa, "N") == 0) ta = CUBLAS_OP_N;
+  else if(strcmp(transa, "T") == 0) ta = CUBLAS_OP_T;
+  else ta = CUBLAS_OP_C;
+
+  if(strcmp(transb, "N") == 0) tb = CUBLAS_OP_N;
+  else if(strcmp(transb, "T") == 0) tb = CUBLAS_OP_T;
+  else tb = CUBLAS_OP_C;
   
 #ifdef _SINGLE_PRECISION
-  cublasSgemmStridedBatched(*h, CUBLAS_OP_T, CUBLAS_OP_T, *m, *n, *k,
+  cublasSgemmStridedBatched(*h, ta, tb, *m, *n, *k,
 			    alpha, a, *lda, *strideA, b, *ldb, *strideB, beta, c, *ldc, *strideC, *batchCount);
 #else
-  cublasDgemmStridedBatched(*h, CUBLAS_OP_T, CUBLAS_OP_T, *m, *n, *k,
+  cublasDgemmStridedBatched(*h, ta, tb, *m, *n, *k,
 			    alpha, a, *lda, *strideA, b, *ldb, *strideB, beta, c, *ldc, *strideC, *batchCount);
 #endif
-  
+
+  _CUDA_CHECK_ERRORS();
 }
 
 #endif

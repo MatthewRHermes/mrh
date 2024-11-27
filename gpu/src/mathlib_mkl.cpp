@@ -23,13 +23,20 @@ void MATHLIB::gemm(const char * transa, const char * transb,
 
   using oneapi::mkl::transpose;
   
-  transpose transA = (strcmp(transa, "N") == 0) ? transpose::nontrans : transpose::trans;
-  transpose transB = (strcmp(transb, "N") == 0) ? transpose::nontrans : transpose::trans;
+  transpose ta, tb;
+  
+  if(strcmp(transa, "N") == 0) ta = transpose::nontrans;
+  else if(strcmp(transa, "T") == 0) ta = transpose::trans;
+  else ta = tranpose::conjtrans;
+  
+  if(strcmp(transb, "N") == 0) tb = transpose::nontrans;
+  else if(strcmp(transb, "T") == 0) tb = transpose::trans;
+  else tb = tranpose::conjtrans;
     
 #if defined(_GPU_SYCL_CUDA)
-  oneapi::mkl::blas::column_major::gemm(*q, transA, transB, *m, *n, *k, *alpha, a, *lda, b, *ldb, *beta, c, *ldc);
+  oneapi::mkl::blas::column_major::gemm(*q, ta, tb, *m, *n, *k, *alpha, a, *lda, b, *ldb, *beta, c, *ldc);
 #else
-  oneapi::mkl::blas::gemm(*q, transA, transB, *m, *n, *k, *alpha, a, *lda, b, *ldb, *beta, c, *ldc);
+  oneapi::mkl::blas::gemm(*q, ta, tb, *m, *n, *k, *alpha, a, *lda, b, *ldb, *beta, c, *ldc);
 #endif
   
 }
@@ -46,14 +53,21 @@ void MATHLIB::gemm_batch(const char * transa, const char * transb,
 
   using oneapi::mkl::transpose;
   
-  transpose transA = (strcmp(transa, "N") == 0) ? transpose::nontrans : transpose::trans;
-  transpose transB = (strcmp(transb, "N") == 0) ? transpose::nontrans : transpose::trans;
+  transpose ta, tb;
+  
+  if(strcmp(transa, "N") == 0) ta = transpose::nontrans;
+  else if(strcmp(transa, "T") == 0) ta = transpose::trans;
+  else ta = tranpose::conjtrans;
+  
+  if(strcmp(transb, "N") == 0) tb = transpose::nontrans;
+  else if(strcmp(transb, "T") == 0) tb = transpose::trans;
+  else tb = tranpose::conjtrans;
     
 #if defined(_GPU_SYCL_CUDA)  
-  oneapi::mkl::blas::column_major::gemm_batch(*q, transA, transB, *m, *n, *k, *alpha,
+  oneapi::mkl::blas::column_major::gemm_batch(*q, ta, tb, *m, *n, *k, *alpha,
 					      a, *lda, *strideA, b, *ldb, *strideB, *beta, c, *ldc, *strideC, *batchCount);
 #else  
-  oneapi::mkl::blas::gemm_batch(*q, transA, transB, *m, *n, *k, *alpha,
+  oneapi::mkl::blas::gemm_batch(*q, ta, tb, *m, *n, *k, *alpha,
 				a, *lda, *strideA, b, *ldb, *strideB, *beta, c, *ldc, *strideC, *batchCount);
 #endif
   
