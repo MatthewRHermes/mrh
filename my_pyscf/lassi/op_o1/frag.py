@@ -1,13 +1,18 @@
 import numpy as np
 from scipy import linalg
 from pyscf import lib
-from pyscf.fci.direct_spin1 import trans_rdm12s, contract_1e, contract_2e, absorb_h1e
+from pyscf.fci.direct_spin1 import trans_rdm12s, trans_rdm1s
+from pyscf.fci.direct_spin1 import contract_1e, contract_2e, absorb_h1e
 from pyscf.fci.direct_uhf import contract_1e as contract_1e_uhf
 from pyscf.fci.addons import cre_a, cre_b, des_a, des_b
 from pyscf.fci import cistring
 from itertools import product, combinations
 from mrh.my_pyscf.lassi.citools import get_lroots, get_rootaddr_fragaddr
 from mrh.my_pyscf.lassi.op_o1.utilities import *
+from mrh.my_pyscf.fci.rdm import trans_rdm1ha_des, trans_rdm1hb_des
+from mrh.my_pyscf.fci.rdm import trans_rdm13ha_des, trans_rdm13hb_des
+from mrh.my_pyscf.fci.rdm import trans_sfddm1, trans_hhdm
+from mrh.my_pyscf.fci.direct_halfelectron import contract_1he, absorb_h1he, contract_3he
 from pyscf import __config__
 
 SCREEN_THRESH = getattr (__config__, 'lassi_frag_screen_thresh', 1e-10)
@@ -87,7 +92,7 @@ class FragTDMInt (object):
     '''
 
     def __init__(self, ci, hopping_index, zerop_index, onep_index, norb, nroots, nelec_rs,
-                 rootaddr, fragaddr, idx_frag, dtype=np.float64,
+                 rootaddr, fragaddr, idx_frag, mask_ints, dtype=np.float64,
                  screen_linequiv=DO_SCREEN_LINEQUIV):
         # TODO: if it actually helps, cache the "linkstr" arrays
         self.ci = ci
@@ -105,9 +110,11 @@ class FragTDMInt (object):
         self._sm = [[None for i in range (nroots)] for j in range (nroots)]
         self.dm1 = [[None for i in range (nroots)] for j in range (nroots)]
         self.dm2 = [[None for i in range (nroots)] for j in range (nroots)]
+        self.linkstrl_cache = {}
         self.rootaddr = rootaddr
         self.fragaddr = fragaddr
         self.idx_frag = idx_frag
+        self.mask_ints = mask_ints
 
         # Consistent array shape
         self.ndeta_r = np.array ([cistring.num_strings (norb, nelec[0]) for nelec in self.nelec_r])
@@ -115,6 +122,16 @@ class FragTDMInt (object):
         self.ci = [c.reshape (-1,na,nb) for c, na, nb in zip (self.ci, self.ndeta_r, self.ndetb_r)]
 
         self.time_crunch = self._init_crunch_(screen_linequiv)
+
+    def _check_linkstrl_cache (self, no, na, nb):
+        if (no, na, nb) not in self.linkstrl_cache.keys ():
+            la = cistring.gen_linkstr_index_trilidx(range(no), na)
+            lb = cistring.gen_linkstr_index_trilidx(range(no), nb)
+            linkstrl = (la,lb)
+            self.linkstrl_cache[(no,na,nb)] = (la,lb)
+            return linkstrl
+        else:
+            return self.linkstrl_cache[(no,na,nb)]
 
     # Exception catching
 
@@ -295,6 +312,10 @@ class FragTDMInt (object):
         hopping_index = self.hopping_index
         zerop_index = self.zerop_index
         onep_index = self.onep_index
+        self.mask_ints = np.logical_or (
+            self.mask_ints, self.mask_ints.T
+        )
+        #self.mask_ints[:,:] = True
 
         nroots, norb = self.nroots, self.norb
         t0 = (lib.logger.process_clock (), lib.logger.perf_counter ())
@@ -336,6 +357,12 @@ class FragTDMInt (object):
                 self.onep_index[:,i] |= self.onep_index[:,j]
                 self.zerop_index[i] |= self.zerop_index[j]
                 self.zerop_index[:,i] |= self.zerop_index[:,j]
+                self.mask_ints[i,:] = np.logical_or (
+                    self.mask_ints[i,:], self.mask_ints[j,:]
+                )
+                self.mask_ints[:,i] = np.logical_or (
+                    self.mask_ints[:,i], self.mask_ints[:,j]
+                )
         for i in range (self.nroots):
             assert (self.root_unique[self.unique_root[i]])
         idx_uniq = self.root_unique
@@ -343,12 +370,14 @@ class FragTDMInt (object):
         # Overlap matrix
         offs = np.cumsum (lroots)
         for i, j in combinations (np.where (idx_uniq)[0], 2):
-            if self.nelec_r[i] == self.nelec_r[j]:
-                ci_i = ci[i].reshape (lroots[i], -1)
-                ci_j = ci[j].reshape (lroots[j], -1)
-                self.ovlp[i][j] = np.dot (ci_i.conj (), ci_j.T)
-                self.ovlp[j][i] = self.ovlp[i][j].conj ().T
+            if self.nelec_r[i] != self.nelec_r[j]: continue
+            if not self.mask_ints[i,j]: continue
+            ci_i = ci[i].reshape (lroots[i], -1)
+            ci_j = ci[j].reshape (lroots[j], -1)
+            self.ovlp[i][j] = np.dot (ci_i.conj (), ci_j.T)
+            self.ovlp[j][i] = self.ovlp[i][j].conj ().T
         for i in np.where (idx_uniq)[0]:
+            if not self.mask_ints[i,i]: continue
             ci_i = ci[i].reshape (lroots[i], -1)
             self.ovlp[i][i] = np.dot (ci_i.conj (), ci_i.T)
             errmat = self.ovlp[i][i] - np.eye (lroots[i])
@@ -357,6 +386,17 @@ class FragTDMInt (object):
                 errmsg = ('States w/in single Hilbert space must be orthonormal; '
                           'eigvals (ovlp) = {}')
                 raise RuntimeError (errmsg.format (w))
+
+        linkstr_cache = {}
+        def _check_linkstr_cache (no, na, nb):
+            if (no, na, nb) not in linkstr_cache.keys ():
+                la = cistring.gen_linkstr_index(range(no), na)
+                lb = cistring.gen_linkstr_index(range(no), nb)
+                linkstr = (la,lb)
+                linkstr_cache[(no,na,nb)] = (la,lb)
+                return linkstr
+            else:
+                return linkstr_cache[(no,na,nb)]
 
         # Loop over lroots functions
         def des_loop (des_fn, c, nelec, p):
@@ -368,19 +408,78 @@ class FragTDMInt (object):
             return np.asarray (des_c)
         def des_a_loop (c, nelec, p): return des_loop (des_a, c, nelec, p)
         def des_b_loop (c, nelec, p): return des_loop (des_b, c, nelec, p)
-        def trans_rdm12s_loop (iroot, bra, ket):
+        def trans_rdm12s_loop (iroot, bra, ket, do2=True):
             nelec = self.nelec_r[iroot]
             na, nb = ndeta[iroot], ndetb[iroot]
             bra = bra.reshape (-1, na, nb)
             ket = ket.reshape (-1, na, nb)
             tdm1s = np.zeros ((bra.shape[0],ket.shape[0],2,norb,norb), dtype=self.dtype)
             tdm2s = np.zeros ((bra.shape[0],ket.shape[0],4,norb,norb,norb,norb), dtype=self.dtype)
-            for i, j in product (range (bra.shape[0]), range (ket.shape[0])):
-                d1s, d2s = trans_rdm12s (bra[i], ket[j], norb, nelec)
-                # Transpose based on docstring of direct_spin1.trans_rdm12s
-                tdm1s[i,j] = np.stack (d1s, axis=0).transpose (0, 2, 1)
-                tdm2s[i,j] = np.stack (d2s, axis=0)
+            linkstr = _check_linkstr_cache (norb, nelec[0], nelec[1])
+            if do2:
+                for i, j in product (range (bra.shape[0]), range (ket.shape[0])):
+                    d1s, d2s = trans_rdm12s (bra[i], ket[j], norb, nelec,
+                                             link_index=linkstr)
+                    # Transpose based on docstring of direct_spin1.trans_rdm12s
+                    tdm1s[i,j] = np.stack (d1s, axis=0).transpose (0, 2, 1)
+                    tdm2s[i,j] = np.stack (d2s, axis=0)
+            else:
+                for i, j in product (range (bra.shape[0]), range (ket.shape[0])):
+                    d1s = trans_rdm1s (bra[i], ket[j], norb, nelec,
+                                       link_index=linkstr)
+                    # Transpose based on docstring of direct_spin1.trans_rdm12s
+                    tdm1s[i,j] = np.stack (d1s, axis=0).transpose (0, 2, 1)
             return tdm1s, tdm2s
+        def trans_rdm1s_loop (iroot, bra, ket):
+            return trans_rdm12s_loop (iroot, bra, ket, do2=False)[0]
+        def trans_rdm13h_loop (bra_r, ket_r, spin=0, do3h=True):
+            trans_rdm13h = (trans_rdm13ha_des, trans_rdm13hb_des)[spin]
+            trans_rdm1h = (trans_rdm1ha_des, trans_rdm1hb_des)[spin]
+            nelec_ket = self.nelec_r[ket_r]
+            bravecs = ci[bra_r].reshape (-1, ndeta[bra_r], ndetb[bra_r])
+            ketvecs = ci[ket_r].reshape (-1, ndeta[ket_r], ndetb[ket_r])
+            tdm1h = np.zeros ((bravecs.shape[0],ketvecs.shape[0],norb), dtype=self.dtype)
+            tdm3h = np.zeros ((bravecs.shape[0],ketvecs.shape[0],2,norb,norb,norb),
+                              dtype=self.dtype)
+            linkstr = _check_linkstr_cache (norb+1, nelec_ket[0], nelec_ket[1])
+            if do3h:
+                for i, j in product (range (bravecs.shape[0]), range (ketvecs.shape[0])):
+                    d1s, d2s = trans_rdm13h (bravecs[i], ketvecs[j], norb, nelec_ket,
+                                             link_index=linkstr)
+                    tdm1h[i,j] = d1s
+                    tdm3h[i,j] = np.stack (d2s, axis=0).transpose (0,2,3,1)
+                    # Mulliken -> Dirac
+            else:
+                for i, j in product (range (bravecs.shape[0]), range (ketvecs.shape[0])):
+                    d1s = trans_rdm1h (bravecs[i], ketvecs[j], norb, nelec_ket,
+                                       link_index=linkstr)
+                    tdm1h[i,j] = d1s
+            return tdm1h, tdm3h
+        def trans_rdm1h_loop (bra_r, ket_r, spin=0):
+            return trans_rdm13h_loop (bra_r, ket_r, do3h=False)[0]
+        def trans_sfddm_loop (bra_r, ket_r):
+            bravecs = ci[bra_r].reshape (-1, ndeta[bra_r], ndetb[bra_r])
+            ketvecs = ci[ket_r].reshape (-1, ndeta[ket_r], ndetb[ket_r])
+            nelec_ket = self.nelec_r[ket_r]
+            sfddm = np.zeros ((bravecs.shape[0],ketvecs.shape[0],norb,norb), dtype=self.dtype)
+            linkstr = _check_linkstr_cache (norb+1, nelec_ket[0], nelec_ket[1]+1)
+            for i, j in product (range (bravecs.shape[0]), range (ketvecs.shape[0])):
+                d1 = trans_sfddm1 (bravecs[i], ketvecs[j], norb, nelec_ket,
+                                   link_index=linkstr)
+                sfddm[i,j] = d1
+            return sfddm
+        def trans_hhdm_loop (bra_r, ket_r, spin=0):
+            bravecs = ci[bra_r].reshape (-1, ndeta[bra_r], ndetb[bra_r])
+            ketvecs = ci[ket_r].reshape (-1, ndeta[ket_r], ndetb[ket_r])
+            nelec_ket = self.nelec_r[ket_r]
+            hhdm = np.zeros ((bravecs.shape[0],ketvecs.shape[0],norb,norb), dtype=self.dtype)
+            ndum = 2 - (spin%2)
+            linkstr = _check_linkstr_cache (norb+ndum, nelec_ket[0], nelec_ket[1])
+            for i, j in product (range (bravecs.shape[0]), range (ketvecs.shape[0])):
+                d1 = trans_hhdm (bravecs[i], ketvecs[j], norb, nelec_ket,
+                                 spin=spin, link_index=linkstr)
+                hhdm[i,j] = d1
+            return hhdm
 
         # Spectator fragment contribution
         spectator_index = np.all (hopping_index == 0, axis=0)
@@ -389,36 +488,23 @@ class FragTDMInt (object):
         spectator_index[np.triu_indices (nroots, k=1)] = False
         spectator_index = np.stack (np.where (spectator_index), axis=1)
         for i, j in spectator_index:
-            dm1s, dm2s = trans_rdm12s_loop (j, ci[i], ci[j])
+            dm1s, dm2s = trans_rdm12s_loop (j, ci[i], ci[j], do2=zerop_index[i,j])
             self.set_dm1 (i, j, dm1s)
             if zerop_index[i,j]: self.set_dm2 (i, j, dm2s)
-
-        # Cache some b_p|i> beforehand for the sake of the spin-flip intermediate 
-        # shape = (norb, lroots[ket], ndeta[ket], ndetb[*])
+ 
         hidx_ket_a = np.where (np.any (hopping_index[0] < 0, axis=0) & idx_uniq)[0]
         hidx_ket_b = np.where (np.any (hopping_index[1] < 0, axis=0) & idx_uniq)[0]
-        bpvec_list = [None for ket in range (nroots)]
-        for ket in hidx_ket_b:
-            if np.any (np.all (hopping_index[:,:,ket] == np.array ([1,-1])[:,None], axis=0)):
-                bpvec_list[ket] = np.stack ([des_b_loop (ci[ket], self.nelec_r[ket], p)
-                                             for p in range (norb)], axis=0)
 
         # a_p|i>; shape = (norb, lroots[ket], ndeta[*], ndetb[ket])
         for ket in hidx_ket_a:
-            nelec = self.nelec_r[ket]
-            apket = np.stack ([des_a_loop (ci[ket], nelec, p) for p in range (norb)], axis=0)
-            nelec = (nelec[0]-1, nelec[1])
             for bra in np.where ((hopping_index[0,:,ket] < 0) & idx_uniq)[0]:
-                bravec = ci[bra].reshape (lroots[bra], ndeta[bra]*ndetb[bra]).conj ()
+                if not self.mask_ints[bra,ket]: continue
                 # <j|a_p|i>
                 if np.all (hopping_index[:,bra,ket] == [-1,0]):
-                    self.set_h (bra, ket, 0, np.tensordot (
-                        bravec, apket.reshape (norb,lroots[ket],ndeta[bra]*ndetb[bra]).T, axes=1
-                    ))
+                    h, phh = trans_rdm13h_loop (bra, ket, spin=0)
+                    self.set_h (bra, ket, 0, h)
                     # <j|a'_q a_r a_p|i>, <j|b'_q b_r a_p|i> - how to tell if consistent sign rule?
                     if onep_index[bra,ket]:
-                        phh = np.stack ([trans_rdm12s_loop (bra, ci[bra], ketmat)[0]
-                                         for ketmat in apket], axis=-1)
                         err = np.abs (phh[:,:,0] + phh[:,:,0].transpose (0,1,2,4,3))
                         assert (np.amax (err) < 1e-8), '{}'.format (np.amax (err)) 
                         # ^ Passing this assert proves that I have the correct index
@@ -426,45 +512,24 @@ class FragTDMInt (object):
                         self.set_phh (bra, ket, 0, phh)
                 # <j|b'_q a_p|i> = <j|s-|i>
                 elif np.all (hopping_index[:,bra,ket] == [-1,1]):
-                    bqbra = bpvec_list[bra].reshape (norb, lroots[bra], -1).conj ()
-                    self.set_sm (bra, ket, np.tensordot (
-                        bqbra, apket.reshape (norb, lroots[ket], -1).T, axes=1
-                    ).transpose (1,2,0,3))
+                    self.set_sm (bra, ket, trans_sfddm_loop (bra, ket))
                 # <j|b_q a_p|i>
                 elif np.all (hopping_index[:,bra,ket] == [-1,-1]):
-                    hh = np.zeros ((lroots[bra], lroots[ket], norb, norb), dtype = self.dtype)
-                    for q, p in product (range (norb), repeat=2):
-                        bq_ap_ket = des_b_loop (apket[p], nelec, q)
-                        bq_ap_ket = bq_ap_ket.reshape (lroots[ket], ndeta[bra]*ndetb[bra])
-                        hh[:,:,q,p] = np.dot (bravec, bq_ap_ket.T)
-                    self.set_hh (bra, ket, 1, hh)
+                    self.set_hh (bra, ket, 1, trans_hhdm_loop (bra, ket, spin=1))
                 # <j|a_q a_p|i>
                 elif np.all (hopping_index[:,bra,ket] == [-2,0]):
-                    hh = np.zeros ((lroots[bra], lroots[ket], norb, norb), dtype = self.dtype)
-                    for q, p in combinations (range (norb), 2):
-                        aq_ap_ket = des_a_loop (apket[p], nelec, q)
-                        aq_ap_ket = aq_ap_ket.reshape (lroots[ket], ndeta[bra]*ndetb[bra])
-                        hh[:,:,q,p] = np.dot (bravec, aq_ap_ket.T)
-                    hh -= hh.transpose (0,1,3,2)
-                    self.set_hh (bra, ket, 0, hh)                
+                    self.set_hh (bra, ket, 0, trans_hhdm_loop (bra, ket, spin=0))
                 
         # b_p|i>
         for ket in hidx_ket_b:
-            nelec = self.nelec_r[ket]
-            bpket = np.stack ([des_b_loop (ci[ket], nelec, p)
-                for p in range (norb)], axis=0) if bpvec_list[ket] is None else bpvec_list[ket]
-            nelec = (nelec[0], nelec[1]-1)
             for bra in np.where ((hopping_index[1,:,ket] < 0) & idx_uniq)[0]:
-                bravec = ci[bra].reshape (lroots[bra], ndeta[bra]*ndetb[bra]).conj ()
+                if not self.mask_ints[bra,ket]: continue
                 # <j|b_p|i>
                 if np.all (hopping_index[:,bra,ket] == [0,-1]):
-                    self.set_h (bra, ket, 1, np.tensordot (
-                        bravec, bpket.reshape (norb,lroots[ket],ndeta[bra]*ndetb[bra]).T, axes=1
-                    ))
+                    h, phh = trans_rdm13h_loop (bra, ket, spin=1)
+                    self.set_h (bra, ket, 1, h)
                     # <j|a'_q a_r b_p|i>, <j|b'_q b_r b_p|i> - how to tell if consistent sign rule?
                     if onep_index[bra,ket]:
-                        phh = np.stack ([trans_rdm12s_loop (bra, ci[bra], ketmat)[0]
-                                         for ketmat in bpket], axis=-1)
                         err = np.abs (phh[:,:,1] + phh[:,:,1].transpose (0,1,2,4,3))
                         assert (np.amax (err) < 1e-8), '{}'.format (np.amax (err))
                         # ^ Passing this assert proves that I have the correct index
@@ -472,13 +537,7 @@ class FragTDMInt (object):
                         self.set_phh (bra, ket, 1, phh)
                 # <j|b_q b_p|i>
                 elif np.all (hopping_index[:,bra,ket] == [0,-2]):
-                    hh = np.zeros ((lroots[bra], lroots[ket], norb, norb), dtype = self.dtype)
-                    for q, p in combinations (range (norb), 2):
-                        bq_bp_ket = des_b_loop (bpket[p], nelec, q)
-                        bq_bp_ket = bq_bp_ket.reshape (lroots[ket], ndeta[bra]*ndetb[bra])
-                        hh[:,:,q,p] = np.dot (bravec, bq_bp_ket.T)
-                    hh -= hh.transpose (0,1,3,2)
-                    self.set_hh (bra, ket, 2, hh)                
+                    self.set_hh (bra, ket, 2, trans_hhdm_loop (bra, ket, spin=2))
         
         return t0
 
@@ -490,43 +549,50 @@ class FragTDMInt (object):
         h_uhf = (h_11[0] - h_11[1]) / 2
         h_uhf = [h_uhf, -h_uhf]
         h_11 = h_11.sum (0) / 2
+        linkstrl = self._check_linkstrl_cache (norb, nelec[0], nelec[1])
         if h_22 is None:
-            hci = h_00*ci + contract_1e (h_11, ci, norb, nelec)
+            hci = h_00*ci + contract_1e (h_11, ci, norb, nelec,
+                                         link_index=linkstrl)
         else:
             h2eff = absorb_h1e (h_11, h_22, norb, nelec, 0.5)
-            hci = h_00*ci + contract_2e (h2eff, ci, norb, nelec)
-        hci += contract_1e_uhf (h_uhf, ci, norb, nelec)
+            hci = h_00*ci + contract_2e (h2eff, ci, norb, nelec,
+                                         link_index=linkstrl)
+        hci += contract_1e_uhf (h_uhf, ci, norb, nelec,
+                                link_index=linkstrl)
         return hci
 
     def contract_h10 (self, spin, h_10, h_21, ket):
         r = self.rootaddr[ket]
         n = self.fragaddr[ket]
         norb, nelec = self.norb, self.nelec_r[r]
-        cre_op = (cre_a, cre_b)[spin]
+        nelec_bra = [nelec[0], nelec[1]]
+        nelec_bra[spin] += 1
+        linkstrl = self._check_linkstrl_cache (norb+1, nelec_bra[0], nelec_bra[1])
         ci = self.ci[r][n]
         hci = 0
-        for p in range (self.norb):
-            hci += h_10[p] * cre_op (ci, norb, nelec, p)
-            if h_21 is not None:
-                hci += cre_op (contract_1e (h_21[p], ci, norb, nelec),
-                               norb, nelec, p)
+        if h_21 is None:
+            hci = contract_1he (h_10, True, spin, ci, norb, nelec,
+                                link_index=linkstrl)
+        else:
+            h3eff = absorb_h1he (h_10, h_21, True, spin, norb, nelec, 0.5)
+            hci = contract_3he (h3eff, True, spin, ci, norb, nelec,
+                                link_index=linkstrl)
         return hci
 
     def contract_h01 (self, spin, h_01, h_12, ket):
-        r = self.rootaddr[ket]
+        rket = self.rootaddr[ket]
         n = self.fragaddr[ket]
-        norb, nelec = self.norb, self.nelec_r[r]
-        des_op = (des_a, des_b)[spin]
-        ci = self.ci[r][n]
+        norb, nelec = self.norb, self.nelec_r[rket]
+        linkstrl = self._check_linkstrl_cache (norb+1, nelec[0], nelec[1])
+        ci = self.ci[rket][n]
         hci = 0
-        nelecp = list (nelec)
-        nelecp[spin] = nelecp[spin] - 1
-        nelecp = tuple (nelecp)
-        for p in range (self.norb):
-            hci += h_01[p] * des_op (ci, norb, nelec, p)
-            if h_12 is not None:
-                hci += contract_1e (h_12[:,:,p], des_op (ci, norb, nelec, p),
-                                    norb, nelecp)
+        if h_12 is None:
+            hci = contract_1he (h_01, False, spin, ci, norb, nelec,
+                                link_index=linkstrl)
+        else:
+            h3eff = absorb_h1he (h_01, h_12, False, spin, norb, nelec, 0.5)
+            hci = contract_3he (h3eff, False, spin, ci, norb, nelec,
+                                link_index=linkstrl)
         return hci
 
     def contract_h20 (self, spin, h_20, ket):
@@ -588,7 +654,7 @@ class FragTDMInt (object):
         return hci
 
 def make_ints (las, ci, nelec_frs, screen_linequiv=DO_SCREEN_LINEQUIV, nlas=None,
-               _FragTDMInt_class=FragTDMInt):
+               _FragTDMInt_class=FragTDMInt, mask_ints=None):
     ''' Build fragment-local intermediates (`FragTDMInt`) for LASSI o1
 
     Args:
@@ -603,6 +669,8 @@ def make_ints (las, ci, nelec_frs, screen_linequiv=DO_SCREEN_LINEQUIV, nlas=None
         screen_linequiv : logical
             Whether to compress data by aggressively identifying linearly equivalent
             rootspaces and storing the relevant unitary matrices.
+        mask_ints : ndarray of shape (nroots,nroots)
+            Mask index down to only the included interactions
 
     Returns:
         hopping_index : ndarray of ints of shape (nfrags, 2, nroots, nroots)
@@ -614,6 +682,7 @@ def make_ints (las, ci, nelec_frs, screen_linequiv=DO_SCREEN_LINEQUIV, nlas=None
     '''
     nfrags, nroots = nelec_frs.shape[:2]
     if nlas is None: nlas = las.ncas_sub
+    if mask_ints is None: mask_ints = np.ones ((nroots,nroots), dtype=bool)
     lroots = get_lroots (ci)
     hopping_index, zerop_index, onep_index = lst_hopping_index (nelec_frs)
     rootaddr, fragaddr = get_rootaddr_fragaddr (lroots)
@@ -621,7 +690,8 @@ def make_ints (las, ci, nelec_frs, screen_linequiv=DO_SCREEN_LINEQUIV, nlas=None
     for ifrag in range (nfrags):
         tdmint = _FragTDMInt_class (ci[ifrag], hopping_index[ifrag], zerop_index, onep_index,
                                    nlas[ifrag], nroots, nelec_frs[ifrag], rootaddr,
-                                   fragaddr[ifrag], ifrag, screen_linequiv=screen_linequiv)
+                                   fragaddr[ifrag], ifrag, mask_ints,
+                                   screen_linequiv=screen_linequiv)
         lib.logger.timer (las, 'LAS-state TDM12s fragment {} intermediate crunching'.format (
             ifrag), *tdmint.time_crunch)
         lib.logger.debug (las, 'UNIQUE ROOTSPACES OF FRAG %d: %d/%d', ifrag,
