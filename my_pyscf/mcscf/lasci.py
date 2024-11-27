@@ -1207,7 +1207,7 @@ class LASCINoSymm (casci.CASCI):
             casdm3s.append (np.stack ([dm3aaa, dm3aab, dm3abb, dm3bbb], axis=0))
         return casdm3s
 
-    #SV casdm3s_sub
+    #SV casdm3s_sub from external fake_rdm.py file
     def make_casdm3s_sub_1 (self, ncas_sub=None, nelecas_sub=None, dm3s_sub_spinless=None, **kwargs):
         '''Spin-separated 3-RDMs in the MO basis for each subspace in sequence'''
         if ncas_sub is None: ncas_sub = self.ncas_sub
@@ -1222,62 +1222,6 @@ class LASCINoSymm (casci.CASCI):
             dm3bbb = dm3[ncas:,ncas:,ncas:,ncas:,ncas:,ncas:]
             casdm3s.append (np.stack ([dm3aaa, dm3aab, dm3abb, dm3bbb], axis=0))
         return casdm3s
-
-    def make_casdm1s_fake(self, casdm1fs=None, **kwargs):
-        casdm1s_sub = casdm1fs
-        casdm1a = linalg.block_diag (*[dm[0] for dm in casdm1s_sub])
-        casdm1b = linalg.block_diag (*[dm[1] for dm in casdm1s_sub])
-        return np.stack ([casdm1a, casdm1b], axis=0)
-
-    def make_casdm2s_fake(self, ci=None, ncas_sub=None, nelecas_sub=None,
-            casdm2rs=None, casdm2fs=None , casdm1frs=None, casdm2frs=None,
-            **kwargs):
-
-        if casdm2rs is not None:
-            return np.einsum ('rsijkl,r->sijkl', casdm2rs, self.weights)
-        if ci is None: ci = self.ci
-        if ncas_sub is None: ncas_sub = self.ncas_sub
-        if nelecas_sub is None: nelecas_sub = self.nelecas_sub
-        if casdm1frs is None: casdm1frs = self.states_make_casdm1s_sub (ci=ci,
-            ncas_sub=ncas_sub, nelecas_sub=nelecas_sub)
-        #if casdm2fs is None: casdm2fs = self.make_casdm2s_sub (ci=ci,
-            #ncas_sub=ncas_sub, nelecas_sub=nelecas_sub, casdm2frs=casdm2frs)
-        ncas = sum (ncas_sub)
-        ncas_cum = np.cumsum ([0] + ncas_sub.tolist ())
-        weights = self.weights
-        casdm2s = np.zeros ((3,ncas,ncas,ncas,ncas))
-
-        # Diagonal of aa,ab,bb
-        for isub, dm2 in enumerate (casdm2fs):
-            i = ncas_cum[isub]
-            j = ncas_cum[isub+1]
-            for spin in [0,1,2]:
-                casdm2s[spin][i:j, i:j, i:j, i:j] = dm2[spin]
-
-        # Off-diagonal
-        for (isub1, dm1rs1), (isub2, dm1rs2) in combinations (enumerate (casdm1frs), 2):
-            i = ncas_cum[isub1]
-            j = ncas_cum[isub1+1]
-            k = ncas_cum[isub2]
-            l = ncas_cum[isub2+1]
-            dma1r, dmb1r = dm1rs1[:,0], dm1rs1[:,1]
-            dma2r, dmb2r = dm1rs2[:,0], dm1rs2[:,1]
-            # Coulomb slice
-            casdm2s[0][i:j, i:j, k:l, k:l] = lib.einsum ('r,rij,rkl->ijkl', weights, dma1r, dma2r)
-            casdm2s[1][i:j, i:j, k:l, k:l] = lib.einsum ('r,rij,rkl->ijkl', weights, dma1r, dmb2r) # ab = ba
-            casdm2s[2][i:j, i:j, k:l, k:l] = lib.einsum ('r,rij,rkl->ijkl', weights, dmb1r, dmb2r)
-            for spin in [0,1,2]:
-                casdm2s[spin][k:l, k:l, i:j, i:j] = casdm2s[spin][i:j, i:j, k:l, k:l].transpose (2,3,0,1)
-            # Exchange slice
-            d2exc_aa = lib.einsum ('rij,rkl->rilkj', dma1r, dma2r)
-            d2exc_bb = lib.einsum ('rij,rkl->rilkj', dmb1r, dmb2r)
-            casdm2s[0][i:j, k:l, k:l, i:j] -= np.tensordot (weights, d2exc_aa, axes=1)
-            casdm2s[2][i:j, k:l, k:l, i:j] -= np.tensordot (weights, d2exc_bb, axes=1)
-            for spin in [0,2]:
-                casdm2s[spin][k:l, i:j, i:j, k:l] = casdm2s[spin][i:j, k:l, k:l, i:j].transpose (1,0,3,2)
-
-        return casdm2s
-
 
     def states_make_rdm1s (self, mo_coeff=None, ci=None, ncas_sub=None,
             nelecas_sub=None, casdm1rs=None, casdm1frs=None, **kwargs):
