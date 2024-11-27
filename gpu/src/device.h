@@ -92,6 +92,11 @@ public :
 			    py::array_t<double>,
 			    int, size_t);
 
+  void get_bufpa(const double *, double *, int, int, int, int);
+  void transpose_120(double *, double *, int, int, int, int order = 0);
+  void get_bufd(const double *, double *, int, int);
+  
+  
   void pull_jk_ao2mo (py::array_t<double>,py::array_t<double>,int, int);
   void pull_ints_ao2mo (py::array_t<double>,py::array_t<double>, int, int, int, int);
 
@@ -101,14 +106,26 @@ public :
 			int, int, int);
 
   void update_h2eff_sub(int, int, int, int,
-                        py::array_t<double>,py::array_t<double>); 
+                        py::array_t<double>,py::array_t<double>);
+  
+  void extract_submatrix(const double *, double *, int, int, int);
+  void unpack_h2eff_2d(double *, double *, int *, int, int, int);
+  void transpose_2310(double *, double *, int, int);
+  void transpose_3210(double *, double *, int, int);
+  void pack_h2eff_2d(double *, double *, int *, int, int, int);
+  
   void h2eff_df_contract1(py::array_t<double>, 
                      int, int, int, int, int,
                      py::array_t<double>, py::array_t<double>);
- void get_h2eff_df( py::array_t<double> , 
-                    int , int , int , int , int ,
-                    py::array_t<double>, int, size_t );
 
+  void transpose_210(double *, double *, int, int, int);
+  
+  void get_h2eff_df( py::array_t<double> , 
+		     int , int , int , int , int ,
+		     py::array_t<double>, int, size_t );
+  void get_mo_cas(const double *, double *, int, int, int);
+  void pack_d_vuwM(const double *, double *, int *, int, int, int);
+  
   void push_mo_coeff(py::array_t<double>, int);
 private:
 
