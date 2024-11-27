@@ -1,4 +1,4 @@
-# cp ../transpose/offload_cuda.cpp ./
+# cp ../../transpose/offload_cuda.cpp ./
 # strip down file to just calling functions and cuda kernels
 
 rm -r dpct_output
