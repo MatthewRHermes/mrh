@@ -260,9 +260,20 @@ private:
     int * d_pumap_ptr; // no explicit allocation
     int * pumap_ptr; // no explicit allocation
 
+    // we keep the following for now, but we don't explicitly use them anymore
+    // besides, pm.h should defined a queue_t and mathlib.h a handle_t...
+    
 #if defined (_USE_GPU)
+#if defined _GPU_CUBLAS
     cublasHandle_t handle;
     cudaStream_t stream;
+#elif defined _GPU_MKL
+    void handle;
+    sycl::queue stream;
+#endif
+#else
+    void handle;
+    void stream;
 #endif
   };
 

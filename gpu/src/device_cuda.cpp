@@ -5,7 +5,6 @@
 #include "device.h"
 
 #include <stdio.h>
-//#include <cuda_runtime_api.h>
 
 #define _RHO_BLOCK_SIZE 64
 #define _DOT_BLOCK_SIZE 32
@@ -20,6 +19,7 @@
 //#define _DEBUG_H2EFF2
 //#define _DEBUG_H2EFF_DF
 #define _DEBUG_AO2MO
+
 #define _TILE(A,B) (A + B - 1) / B
 
 /* ---------------------------------------------------------------------- */

@@ -5,10 +5,8 @@
 
 #include <sycl/sycl.hpp>
 
-//#include <cuda_runtime_api.h>
-
 #if defined(_GPU_SYCL_CUDA)
-#include "cublas_v2.h"
+#include "cublas_v2.h" // this shouldn't be here. move it to mathlib_cublas.h
 #include "nvToolsExt.h"
 #endif
 
