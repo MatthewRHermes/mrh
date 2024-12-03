@@ -413,8 +413,7 @@ class LASUCCTrialState (object):
             g.append (2*duc.ravel ().dot (uhuc_i.ravel ()))
         g = self.uop.product_rule_pack (g)
         return np.asarray (g)
-<<<<<<< Updated upstream
-=======
+
                
     def get_grad_t1(self, x, h, c=None, huc=None, uhuc=None, epsilon=0.0):
         """
@@ -480,7 +479,7 @@ class LASUCCTrialState (object):
                 i_idxs_lst.append(i_idx)
 
         return all_g, g, gen_indices, a_idxs_lst, i_idxs_lst, len(a_idxs_lst), len(i_idxs_lst)
->>>>>>> Stashed changes
+
 
     def get_jac_ci (self, x, h, uhuc=None, uci_f=None):
         # "uhuc": e^-T1 H e^T1 U|ci0>
