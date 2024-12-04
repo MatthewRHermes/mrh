@@ -584,5 +584,3 @@ class FCISolver (direct_spin1.FCISolver):
         for i,j in zip (np.cumsum (norb_f)-norb_f, np.cumsum(norb_f)):
             freeze_mask[i:j,i:j] = True
         return get_uccs_op (norb, freeze_mask=freeze_mask)
-
-
