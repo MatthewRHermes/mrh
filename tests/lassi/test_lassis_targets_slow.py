@@ -104,7 +104,7 @@ class KnownValues(unittest.TestCase):
         mo = las.set_fragments_((list (range (5)), list (range (5,10))))
         las.kernel (mo)
         mo_coeff = las.mo_coeff
-        las = lasscf_async.LASSCF (mf, (5,5), ((3,2),(2,3)))
+        las = lasscf_async.LASSCF (mf, (5,5), ((4,1),(1,4)))
         las.lasci_(mo_coeff)
         lsi = lassi.LASSIS (las).run ()
         e_str = lsi.e_roots[0]
@@ -127,7 +127,7 @@ class KnownValues(unittest.TestCase):
         mo = las.set_fragments_((list (range (5)), list (range (5,10))), mo)
         las.kernel (mo)
         mo_coeff = las.mo_coeff
-        las = lasscf_async.LASSCF (mf, (5,5), ((3,2),(2,3)))
+        las = lasscf_async.LASSCF (mf, (5,5), ((4,1),(1,4)))
         las.lasci_(mo_coeff)
         lsi = lassi.LASSIS (las).run ()
         e_equil = lsi.e_roots[0]
