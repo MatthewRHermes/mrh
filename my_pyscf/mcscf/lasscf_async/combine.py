@@ -5,24 +5,30 @@ from pyscf import lib
 from pyscf.lo import orth
 from pyscf.scf.rohf import get_roothaan_fock
 from mrh.my_pyscf.mcscf import lasci, _DFLASCI
+from mrh.my_pyscf.mcscf.lasscf_async import keyframe, crunch
 
 # TODO: symmetry
-def orth_orb (las, kf2_list):
+def orth_orb (las, kf2_list, kf_ref=None):
     ncore, ncas = las.ncore, las.ncas
     nocc = ncore + ncas
     nao, nmo = las.mo_coeff.shape
-    nfrags = len (kf2_list)
+    nfrags = las.nfrags
     log = lib.logger.new_logger (las, las.verbose)
 
     # orthonormalize active orbitals
-    mo_cas = np.empty ((nao, ncas), dtype=las.mo_coeff.dtype)
-    ci = []
-    for ifrag, kf2 in enumerate (kf2_list):
-        i = sum (las.ncas_sub[:ifrag])
-        j = i + las.ncas_sub[ifrag]
-        k, l = i + ncore, j + ncore
-        mo_cas[:,i:j] = kf2.mo_coeff[:,k:l]
-        ci.append (kf2.ci[ifrag])
+    if kf_ref is not None:
+        ci = [c for c in kf_ref.ci]
+        mo_cas = kf_ref.mo_coeff[:,ncore:nocc].copy ()
+    else:
+        ci = [None for i in range (las.nfrags)]
+        mo_cas = np.empty ((nao, ncas), dtype=las.mo_coeff.dtype)
+    for kf2 in kf2_list:
+        for ifrag in kf2.frags:
+            i = sum (las.ncas_sub[:ifrag])
+            j = i + las.ncas_sub[ifrag]
+            k, l = i + ncore, j + ncore
+            mo_cas[:,i:j] = kf2.mo_coeff[:,k:l]
+            ci[ifrag] = kf2.ci[ifrag]
     mo_cas_preorth = mo_cas.copy ()
     s0 = las._scf.get_ovlp ()
     mo_cas = orth.vec_lowdin (mo_cas_preorth, s=s0)
@@ -63,8 +69,8 @@ def orth_orb (las, kf2_list):
         log.warn ('Non-orthogonal AOs in lasscf_async.combine.orth_orb: %e', errmax)
     mo1 = mo1[:,ncas:]
     if mo1.size:
-        veff = sum ([kf2.veff for kf2 in kf2_list]) / nfrags
-        dm1s = sum ([kf2.dm1s for dm1s in kf2_list]) / nfrags
+        veff = sum ([kf2.veff for kf2 in kf2_list]) / len (kf2_list)
+        dm1s = sum ([kf2.dm1s for dm1s in kf2_list]) / len (kf2_list)
         fock = las.get_hcore ()[None,:,:] + veff
         fock = get_roothaan_fock (fock, dm1s, s0)
         orbsym = None # TODO: symmetry
@@ -104,25 +110,58 @@ class flas_stdout_env (object):
         if getattr (self.las, 'with_df', None):
             self.las.with_df.stdout = self.las_stdout
 
-def relax (las, kf):
-    log = lib.logger.new_logger (las, las.verbose)
+def relax (las, kf, freeze_inactive=False, unfrozen_frags=None):
     flas_stdout = getattr (las, '_flas_stdout', None)
+    if unfrozen_frags is None:
+        frozen_frags = []
+        flas_tail = '.flas'
+    else:
+        unfrozen_frags = tuple (sorted (unfrozen_frags)) # sorted
+        frozen_frags = [i for i in range (las.nfrags) if i not in unfrozen_frags]
+        flas_stdout = flas_stdout.get (unfrozen_frags, None)
+        flas_tail = '.' + '.'.join ([str (s) for s in unfrozen_frags])
+    log = lib.logger.new_logger (las, las.verbose)
     if flas_stdout is None:
         output = getattr (las.mol, 'output', None)
         if not ((output is None) or (output=='/dev/null')):
-            flas_output = output + '.flas'
+            flas_output = output + flas_tail
             if las.verbose > lib.logger.QUIET:
                 if os.path.isfile (flas_output):
                     print('overwrite output file: %s' % flas_output)
                 else:
                     print('output file: %s' % flas_output)
             flas_stdout = open (flas_output, 'w')
-            las._flas_stdout = flas_stdout
+            if unfrozen_frags is None: las._flas_stdout = flas_stdout
+            else: las._flas_stdout[unfrozen_frags] = flas_stdout
         else:
             flas_stdout = las.stdout
     with flas_stdout_env (las, flas_stdout):
         flas = lasci.LASCI (las._scf, las.ncas_sub, las.nelecas_sub)
         flas.__dict__.update (las.__dict__)
+        flas.frozen = []
+        flas.frozen_ci = frozen_frags
+        if freeze_inactive:
+            flas.frozen.extend (list (range (las.ncore)))
+        for ifrag in frozen_frags:
+            i0 = las.ncore + sum (las.ncas_sub[:ifrag])
+            i1 = i0 + las.ncas_sub[ifrag]
+            flas.frozen.extend (list (range (i0,i1)))
+        if freeze_inactive:
+            nocc = las.ncore + las.ncas
+            nmo = kf.mo_coeff.shape[1]
+            flas.frozen.extend (list (range (nocc,nmo)))
+        # Default: scale down conv_tol_grad according to size of subproblem
+        scale = np.sqrt (flas.get_ugg ().nvar_tot / las.get_ugg ().nvar_tot)
+        flas.conv_tol_grad = scale * las.conv_tol_grad
+        flas.min_cycle_macro = 1
+        params = getattr (las, 'relax_params', {})
+        glob = {key: val for key, val in params.items () if isinstance (key, str)}
+        glob = {key: val for key, val in glob.items () if key not in ('frozen', 'frozen_ci')}
+        flas.__dict__.update (glob)
+        if unfrozen_frags is not None:
+            loc = params.get (tuple (unfrozen_frags), {})
+            loc = {key: val for key, val in loc.items () if key not in ('frozen', 'frozen_ci')}
+            flas.__dict__.update (loc)
         e_tot, e_cas, ci, mo_coeff, mo_energy, h2eff_sub, veff = \
             flas.kernel (kf.mo_coeff, ci0=kf.ci)
     ovlp = mo_coeff.conj ().T @ las._scf.get_ovlp () @ mo_coeff
@@ -137,4 +176,143 @@ def combine_o0 (las, kf2_list):
     kf1 = relax (las, kf1)
     return kf1
 
+# Relaxing the fragments pairwise slows down optimization way too much in general
+# However, I might be able to get clever w/ memory management...
+def select_aa_block (las, frags1, frags2, fock1, max_frags=None):
+    '''Identify from two lists of candidate fragments the single active-active orbital-rotation
+    gradient block with the largest norm
 
+    Args:
+        las : object of :class:`LASCINoSymm`
+        frags1 : sequence of integers
+        frags2 : sequence of integers
+        fock1 : ndarray of shape (nmo,nmo)
+
+    Kwargs:
+        max_frags : integer
+
+    Returns:
+        aa_frags : set of integers
+            From frags1 and frags2
+'''
+    if max_frags is None: max_frags = getattr (las, 'combine_pair_max_frags', None)
+    if max_frags is None: max_frags = las.nfrags
+    frags1 = list (frags1)
+    frags2 = list (frags2)
+    g_orb = fock1 - fock1.conj ().T
+    ncore = las.ncore
+    nocc = ncore + las.ncas
+    g_orb = g_orb[ncore:nocc,ncore:nocc]
+    gblk = []
+    for i in frags1:
+        i0 = sum (las.ncas_sub[:i])
+        i1 = i0 + las.ncas_sub[i]
+        for j in frags2:
+            j0 = sum (las.ncas_sub[:j])
+            j1 = j0 + las.ncas_sub[j]
+            gblk.append (linalg.norm (g_orb[i0:i1,j0:j1]))
+    gmax = np.argmax (gblk)
+    i = frags1[gmax // len (frags2)]
+    j = frags2[gmax % len (frags2)]
+    aa_frags = set ((i,j))
+
+    all_frags = sorted (frags1 + frags2)
+    max_frags = min (len (all_frags), max_frags)
+
+    if max_frags < 3: return aa_frags
+
+    # TODO: In future, when this becomes relevant, improve the selection:
+    # use Hessian; add fragments one-at-a-time, etc.
+    all_frags.remove (i)
+    all_frags.remove (j)
+    nextra = max_frags - 2
+    idx = np.zeros (las.ncas, dtype=bool)
+    i0 = sum (las.ncas_sub[:i])
+    i1 = i0 + las.ncas_sub[i]
+    idx[i0:i1] = True
+    j0 = sum (las.ncas_sub[:j])
+    j1 = j0 + las.ncas_sub[j]
+    idx[j0:j1] = True
+    gblk = []
+    for k in all_frags:
+        k0 = sum (las.ncas_sub[:k])
+        k1 = k0 + las.ncas_sub[k]
+        gblk.append (linalg.norm (g_orb[k0:k1,idx]))
+    idx = np.argsort (-np.asarray (gblk))
+    new_frags = set (np.asarray (all_frags)[idx][:nextra])
+    aa_frags = aa_frags.union (new_frags)
+
+    return aa_frags
+
+def combine_pair (las, kf1, kf2, kf_ref=None):
+    '''Combine two keyframes and relax one specific block of active-active orbital rotations
+    between the fragments assigned to each with the inactive and virtual orbitals frozen.'''
+    if kf_ref is None: kf_ref=kf1
+    if len (kf1.frags.intersection (kf2.frags)):
+        errstr = ("Cannot combine keyframes that are responsible for the same fragments "
+                  "({} {})").format (kf1.frags, kf2.frags)
+        raise RuntimeError (errstr)
+    kf3 = orth_orb (las, [kf1, kf2], kf_ref=kf_ref)
+    aa_frags = select_aa_block (las, kf1.frags, kf2.frags, kf3.fock1)
+    #kf3 = relax (las, kf3, freeze_inactive=True, unfrozen_frags=(i,j))
+    pair = crunch.get_pair_lasci (las, tuple (aa_frags))
+    pair._pull_keyframe_(kf3)
+    if pair.conv_tol_grad == 'DEFAULT':
+        # Default: scale down conv_tol_grad according to size of subproblem
+        scale = np.sqrt (pair.get_ugg ().nvar_tot / las.get_ugg ().nvar_tot)
+        pair.conv_tol_grad = scale * las.conv_tol_grad
+    pair.kernel ()
+    kf3 = pair._push_keyframe (kf3)
+    return kf3
+
+# Function from failed algorithm. Retained for reference
+def combine_o1_kappa_rigid (las, kf1, kf2, kf_ref):
+    '''Combine two keyframes (without relaxing the active orbitals) by weighting the kappa matrices
+    with respect to a third reference keyframe democratically
+
+    Args:
+        las : object of :class:`LASCINoSymm`
+        kf1 : object of :class:`LASKeyframe`
+        kf2 : object of :class:`LASKeyframe`
+        kf_ref : object of :class:`LASKeyframe`
+            Reference point for the kappa matrices
+
+    Returns:
+        kf3 : object of :class:`LASKeyframe`
+    '''
+    log = lib.logger.new_logger (las, las.verbose)
+    nmo = las.mo_coeff.shape[1]
+    kf3 = kf_ref.copy ()
+    kappa1, rmat1 = keyframe.get_kappa (las, kf1, kf_ref)
+    kappa2, rmat2 = keyframe.get_kappa (las, kf2, kf_ref)
+    kappa1 = keyframe.democratic_matrix (las, kappa1, kf1.frags, kf_ref.mo_coeff)
+    kappa2 = keyframe.democratic_matrix (las, kappa2, kf2.frags, kf_ref.mo_coeff)
+    kappa = kappa1 + kappa2
+    rmat = np.eye (nmo) + np.zeros_like (rmat1) + np.zeros_like (rmat2) # complex safety
+
+    offs = np.cumsum (las.ncas_sub) + las.ncore
+    for i in kf1.frags:
+        i1 = offs[i]
+        i0 = i1 - las.ncas_sub[i]
+        kf3.ci[i] = kf1.ci[i]
+        rmat[i0:i1,i0:i1] = rmat1[i0:i1,i0:i1]
+    for i in kf2.frags:
+        i1 = offs[i]
+        i0 = i1 - las.ncas_sub[i]
+        kf3.ci[i] = kf2.ci[i]
+        rmat[i0:i1,i0:i1] = rmat2[i0:i1,i0:i1]
+
+    # set orbitals and frag associations
+    umat = linalg.expm (kappa) @ rmat
+    if np.iscomplexobj (umat):
+        log.warn ('Complex umat constructed. Discarding imaginary part; norm: %e',
+                  linalg.norm (umat.imag))
+        umat = umat.real
+    kf3.mo_coeff = kf_ref.mo_coeff @ umat
+    kf3.frags = kf1.frags.union (kf2.frags)
+    
+    return kf3
+
+
+
+    

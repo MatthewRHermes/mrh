@@ -57,9 +57,11 @@ class FCISolver (CSFFCISolver, direct_spin1_symm.FCISolver):
         self.wfnsym = wfnsym
         kwargs['wfnsym'] = wfnsym
         self.check_transformer_cache ()
+        self.log_transformer_cache (logger.DEBUG)
 
         idx_sym = self.transformer.confsym[self.transformer.econf_csf_mask] == wfnsym
-        e, c = kernel (self, h1e, eri, norb, nelec, smult=self.smult, idx_sym=idx_sym, ci0=ci0, transformer=self.transformer, **kwargs)
+        e, c = kernel (self, h1e, eri, norb, nelec, smult=self.smult, idx_sym=idx_sym, ci0=ci0,
+                       transformer=self.transformer, **kwargs)
         self.eci, self.ci = e, c
 
         self.orbsym = orbsym_back

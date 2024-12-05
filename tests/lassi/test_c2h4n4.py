@@ -23,6 +23,8 @@ from mrh.tests.lasscf.c2h4n4_struct import structure as struct
 from mrh.my_pyscf.mcscf.lasscf_o0 import LASSCF
 from mrh.my_pyscf.lassi.lassi import roots_make_rdm12s, root_make_rdm12s, make_stdm12s, ham_2q
 from mrh.my_pyscf.lassi import LASSI
+from mrh.tests.lassi.addons import case_contract_hlas_ci, case_lassis_fbf_2_model_state
+from mrh.tests.lassi.addons import case_lassis_fbfdm
 topdir = os.path.abspath (os.path.join (__file__, '..'))
 
 def setUpModule ():
@@ -165,6 +167,8 @@ class KnownValues(unittest.TestCase):
                 las1.mo_coeff = las.mo_coeff
                 las1.lasci ()
                 lsis = LASSIS (las1).run (opt=opt, max_cycle_macro=1)
+                case_lassis_fbf_2_model_state (self, lsis)
+                case_lassis_fbfdm (self, lsis)
 
     def test_lassis_slow (self):
         from mrh.my_pyscf.lassi.lassis import LASSIS
@@ -181,8 +185,33 @@ class KnownValues(unittest.TestCase):
         for opt in (0,1):
             with self.subTest (opt=opt):
                 lsis = LASSIS (las1).run (opt=opt)
-                self.assertAlmostEqual (lsis.e_roots[0], -295.5210783894406, 7)
                 self.assertTrue (lsis.converged)
+                self.assertAlmostEqual (lsis.e_roots[0], -295.52185731568903, 7)
+                case_lassis_fbf_2_model_state (self, lsis)
+                case_lassis_fbfdm (self, lsis)
+        with self.subTest ('as_scanner'):
+            lsis_scanner = lsis.as_scanner ()
+            mol2 = struct (1.9, 1.9, '6-31g', symmetry=False)
+            mol2.verbose = 0
+            mol2.output = '/dev/null'
+            mol2.build ()
+            lsis_scanner (mol2)
+            self.assertTrue (lsis_scanner.converged)
+            mf2 = scf.RHF (mol2).run ()
+            las2 = LASSCF (mf2, (5,5), ((3,2),(2,3)), spin_sub=(2,2))
+            las2.mo_coeff = lsis_scanner.mo_coeff
+            las2.lasci ()
+            lsis2 = LASSIS (las2).run ()
+            self.assertTrue (lsis2.converged)
+            self.assertAlmostEqual (lsis_scanner.e_roots[0], lsis2.e_roots[0], 5)
+
+
+    def test_contract_hlas_ci (self):
+        las, nelec_frs = lsi._las, lsi.get_nelec_frs ()
+        h0, h1, h2 = lsi.ham_2q ()
+        ci = [c[:4] for c in las.ci] # No SOC yet
+        nelec_frs = nelec_frs[:,:4,:] # No SOC yet
+        case_contract_hlas_ci (self, las, h0, h1, h2, ci, nelec_frs)
 
 if __name__ == "__main__":
     print("Full Tests for SA-LASSI of c2h4n4 molecule")

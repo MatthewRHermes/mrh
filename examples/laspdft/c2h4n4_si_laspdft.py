@@ -30,8 +30,8 @@ lsi = lassi.LASSI(las)
 lsi.kernel()
 
 # LASSI-PDFT
-mc = mcpdft.LASSI(lsi, 'tPBE', (3, 3), ((2,1),(1,2)))
-mc.kernel() 
+mc = mcpdft.LASSI(lsi, 'tPBE', states=[0, 1])
+mc.kernel()
 
 # CASCI-PDFT in las orbitals
 from pyscf import mcpdft
