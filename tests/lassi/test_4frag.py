@@ -30,6 +30,10 @@ from mrh.my_pyscf.lassi.lassi import make_stdm12s, ham_2q, las_symm_tuple
 from mrh.my_pyscf.lassi import op_o0
 from mrh.my_pyscf.lassi import op_o1
 from mrh.my_pyscf.lassi import LASSIS
+from mrh.my_pyscf.lassi.op_o1 import get_fdm1_maker
+from mrh.my_pyscf.lassi.sitools import make_sdm1
+from mrh.tests.lassi.addons import case_contract_hlas_ci, case_lassis_fbf_2_model_state
+from mrh.tests.lassi.addons import case_lassis_fbfdm
 
 def setUpModule ():
     global mol, mf, las, nroots, nelec_frs, si
@@ -124,7 +128,7 @@ class KnownValues(unittest.TestCase):
         fps_o0 = [lib.fp (mat) for mat in mats_o0]
         mats_o1 = op_o1.ham (las, h1, h2, las.ci, nelec_frs)#, orbsym=orbsym, wfnsym=wfnsym)
         for lbl, mat, fp in zip (lbls, mats_o1, fps_o0):
-            with self.subTest(matrix=lbl):
+            with self.subTest(opt=1, matrix=lbl):
                 self.assertAlmostEqual (lib.fp (mat), fp, 9)
 
     def test_rdm12s (self):
@@ -132,7 +136,7 @@ class KnownValues(unittest.TestCase):
         d12_o1 = op_o1.roots_make_rdm12s (las, las.ci, nelec_frs, si)#, orbsym=orbsym, wfnsym=wfnsym)
         for r in range (2):
             for i in range (nroots):
-                with self.subTest (rank=r+1, root=i):
+                with self.subTest (rank=r+1, root=i, opt=1):
                     self.assertAlmostEqual (lib.fp (d12_o0[r][i]),
                         lib.fp (d12_o1[r][i]), 9)
                 with self.subTest ('single matrix constructor', opt=0, rank=r+1, root=i):
@@ -151,6 +155,7 @@ class KnownValues(unittest.TestCase):
         lsi = LASSIS (las0)
         lsi.prepare_states_()
         self.assertTrue (lsi.converged)
+        case_lassis_fbf_2_model_state (self, lsi)
 
     def test_lassis_1111 (self):
         xyz='''H 0 0 0
@@ -166,6 +171,8 @@ class KnownValues(unittest.TestCase):
         lsi = LASSIS (las1).run ()
         self.assertTrue (lsi.converged)
         self.assertAlmostEqual (lsi.e_roots[0], -1.867291372401379, 6)
+        case_lassis_fbf_2_model_state (self, lsi)
+        case_lassis_fbfdm (self, lsi)
 
     def test_lassis_slow (self):
         las0 = las.get_single_state_las (state=0)
@@ -174,6 +181,22 @@ class KnownValues(unittest.TestCase):
         lsi = LASSIS (las0).run ()
         self.assertTrue (lsi.converged)
         self.assertAlmostEqual (lsi.e_roots[0], -304.5372586630968, 3)
+        case_lassis_fbf_2_model_state (self, lsi)
+        #case_lassis_fbfdm (self, lsi)
+
+    def test_fdm1 (self):
+        make_fdm1 = get_fdm1_maker (las, las.ci, nelec_frs, si)
+        for iroot in range (nroots):
+            for ifrag in range (4):
+                with self.subTest (iroot=iroot, ifrag=ifrag):
+                    fdm1 = make_fdm1 (iroot, ifrag)
+                    sdm1 = make_sdm1 (las, iroot, ifrag, si=si)
+                    self.assertAlmostEqual (lib.fp (fdm1), lib.fp (sdm1), 7)
+
+    def test_contract_hlas_ci (self):
+        h0, h1, h2 = ham_2q (las, las.mo_coeff)
+        case_contract_hlas_ci (self, las, h0, h1, h2, las.ci, nelec_frs)        
+
 
 if __name__ == "__main__":
     print("Full Tests for LASSI o1 4-fragment intermediates")

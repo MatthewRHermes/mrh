@@ -5,8 +5,9 @@ from pyscf.fci import cistring
 from pyscf.lib import logger
 from pyscf.lo.orth import vec_lowdin
 from pyscf import symm, __config__
+from mrh.my_pyscf.lib.logger import select_log_printer
 from mrh.my_pyscf.fci import csf_solver
-from mrh.my_pyscf.fci.spin_op import contract_sdown, contract_sup
+from mrh.my_pyscf.fci.spin_op import contract_sdown, contract_sup, mdown, mup
 from mrh.my_pyscf.fci.csfstring import CSFTransformer
 from mrh.my_pyscf.fci.csfstring import ImpossibleSpinError
 from mrh.my_pyscf.mcscf.productstate import ImpureProductStateFCISolver
@@ -106,6 +107,48 @@ class SingleLASRootspace (object):
         assert (a_ncsf)
         return SingleLASRootspace (self.las, spins, smults, charges, 0, nlas=self.nlas,
                                nelelas=self.nelelas, stdout=self.stdout, verbose=self.verbose)
+
+    def get_single_any_m (self, i, a, dsi, dsa, ci_i=None, ci_a=None):
+        mi, ma = self.spins[i], self.spins[a]
+        si, sa = self.smults[i]+dsi, self.smults[a]+dsa
+        i_a_pos = self.neleca[i]>0 and abs(mi-1)<si
+        i_b_pos = self.nelecb[i]>0 and abs(mi+1)<si
+        a_a_pos = self.nholea[a]>0 and abs(ma+1)<sa
+        a_b_pos = self.nholeb[a]>0 and abs(ma-1)<sa
+        ofrags = np.ones (self.nfrag, dtype=bool)
+        ofrags[i] = ofrags[a] = False
+        max_up = sum((self.smults-1-self.spins)[ofrags])//2
+        max_dn = sum((self.spins+self.smults-1)[ofrags])//2
+        p = None
+        if i_a_pos and a_a_pos:
+            sp = self.get_single (i, a, 0, dsi, dsa)
+        elif i_b_pos and a_b_pos:
+            sp = self.get_single (i, a, 1, dsi, dsa)
+        elif i_a_pos and a_b_pos and max_up:
+            p = np.where (ofrags & (self.spins<self.smults))[0][0]
+            dsp = 1 if self.nholeu[p]>0 else -1
+            sp = self.get_single (i, p, 0, dsi, dsp).get_single (p, a, 1, -dsp, dsa)
+        elif i_b_pos and a_a_pos and max_dn:
+            p = np.where (ofrags & (self.spins>-self.smults))[0][0]
+            dsp = 1 if self.nholeu[p]>0 else -1
+            sp = self.get_single (i, p, 1, dsi, dsp).get_single (p, a, 0, -dsp, dsa)
+        else:
+            raise ImpossibleSpinError ((
+                "Can't figure out legal excitation (norb={}, neleca={}, nelecb={}, smults={}, "
+                "i = {}, a = {}, dsi = {}, dsa = {} {} {} {} {} {} {}").format (self.nlas, self.neleca, self.nelecb,
+                self.smults, i, a, dsi, dsa, i_a_pos, i_b_pos, a_a_pos, a_b_pos, max_up, max_dn)
+            )
+        if self.has_ci () and ci_i is not None and ci_a is not None:
+            sp.ci = [x for x in self.ci]
+            sp.ci[i] = mdown (ci_i, sp.nlas[i], (sp.neleca[i],sp.nelecb[i]), sp.smults[i])
+            sp.ci[a] = mdown (ci_a, sp.nlas[a], (sp.neleca[a],sp.nelecb[a]), sp.smults[a])
+            if p is not None:
+                nelec0 = (self.neleca[p],self.nelecb[p])
+                nelec1 = (sp.neleca[p],sp.nelecb[p])
+                norb, smult = self.nlas[p], self.smults[p]
+                sp.ci[p] = mdown (mup (self.ci[p], norb, nelec0, smult), norb, nelec1, smult)
+        sp.set_entmap_(self, ignore_m=True)
+        return sp
 
     def get_valid_smult_change (self, i, dneleca, dnelecb):
         assert ((abs (dneleca) + abs (dnelecb)) == 1), 'Function only implemented for +-1 e-'
@@ -255,8 +298,13 @@ class SingleLASRootspace (object):
         lroots_s = min (self.nlas[src_frag], self.nlas[dest_frag])
         return src_frag, dest_frag, e_spin, src_ds, dest_ds, lroots_s
 
-    def set_entmap_(self, ref):
-        idx = np.where (self.excited_fragments (ref))[0]
+    def single_excitation_key (self, other):
+        i, a, _, si, sa, _ = self.describe_single_excitation (other)
+        spin = (2 * int (si=='u')) + int (sa=='u')
+        return i, a, spin
+
+    def set_entmap_(self, ref, ignore_m=False):
+        idx = np.where (self.excited_fragments (ref, ignore_m=ignore_m))[0]
         idx = tuple (set (idx))
         self.entmap = tuple ((idx,))
         #self.entmap[:,:] = 0
@@ -265,8 +313,8 @@ class SingleLASRootspace (object):
 
     def single_excitation_description_string (self, other):
         src, dest, e_spin, src_ds, dest_ds, lroots_s = self.describe_single_excitation (other)
-        fmt_str = '{:d}({:s}) --{:s}--> {:d}({:s}) ({:d} lroots)'
-        return fmt_str.format (src, src_ds, e_spin, dest, dest_ds, lroots_s)
+        fmt_str = '{:d}({:s}) --{:s}--> {:d}({:s})'
+        return fmt_str.format (src, src_ds, e_spin, dest, dest_ds)
 
     def compute_single_excitation_lroots (self, ref):
         if isinstance (ref, (list, tuple)):
@@ -285,11 +333,14 @@ class SingleLASRootspace (object):
         ci_sz = other.get_ci_szrot ()
         return [ci_sz[ifrag][self.spins[ifrag]] for ifrag in range (self.nfrag)]
 
-    def excited_fragments (self, other):
+    def excited_fragments (self, other, ignore_m=False):
         if other is None: return np.ones (self.nfrag, dtype=bool)
         dneleca = self.neleca - other.neleca
         dnelecb = self.nelecb - other.nelecb
         dsmults = self.smults - other.smults
+        if ignore_m:
+            dneleca += dnelecb
+            dnelecb[:] = 0
         idx_same = (dneleca==0) & (dnelecb==0) & (dsmults==0)
         return ~idx_same
 
@@ -301,16 +352,17 @@ class SingleLASRootspace (object):
             lroots.append (c.shape[0])
         return lroots
 
-    def table_printlog (self, lroots=None):
+    def table_printlog (self, lroots=None, tverbose=logger.INFO):
         if lroots is None: lroots = self.get_lroots ()
         log = logger.new_logger (self, self.verbose)
+        printer = select_log_printer (log, tverbose=tverbose)
         fmt_str = " {:4s}  {:>11s}  {:>4s}  {:>3s}"
         header = fmt_str.format ("Frag", "Nelec,Norb", "2S+1", "Ir")
         fmt_str = " {:4d}  {:>11s}  {:>4d}  {:>3s}"
         if lroots is not None:
             header += '  Nroots'
             fmt_str += '  {:>6d}'
-        log.info (header)
+        printer (header)
         for ifrag in range (self.nfrag):
             na, nb = self.neleca[ifrag], self.nelecb[ifrag]
             sm, no = self.smults[ifrag], self.nlas[ifrag]
@@ -319,7 +371,7 @@ class SingleLASRootspace (object):
             irname = symm.irrep_id2name (self.las.mol.groupname, irid)
             row = [ifrag, nelec_norb, sm, irname]
             if lroots is not None: row += [lroots[ifrag]]
-            log.info (fmt_str.format (*row))
+            printer (fmt_str.format (*row))
 
     def single_fragment_spin_change (self, ifrag, new_smult, new_spin, ci=None):
         smults1 = self.smults.copy ()
@@ -486,6 +538,8 @@ def spin_shuffle (las, verbose=None, equal_weights=False):
     return las.state_average (weights=weights, charges=charges, spins=spins, smults=smults)
 
 def _spin_shuffle (ref_spaces, equal_weights=False):
+    '''The same as spin_shuffle, but the inputs and outputs are space lists rather than LASSCF
+    instances and no logging is done.'''
     seen = set (ref_spaces)
     all_spaces = [space for space in ref_spaces]
     for ref_space in ref_spaces:
@@ -625,6 +679,12 @@ def filter_spaces (las, max_charges=None, min_charges=None, max_smults=None, min
     if 1-np.sum (weights) > 1e-3: log.warn ("Filtered LAS spaces have less than unity weight!")
     return las.state_average (weights=weights, charges=charges[idx], spins=spins[idx],
                               smults=smults[idx], wfnsyms=wfnsyms[idx])
+
+def list_spaces (las):
+    from mrh.my_pyscf.mcscf.lasci import get_space_info
+    spaces = [SingleLASRootspace (las, m, s, c, las.weights[ix], ci=[c[ix] for c in las.ci])
+              for ix, (c, m, s, w) in enumerate (zip (*get_space_info (las)))]
+    return spaces
 
 if __name__=='__main__':
     from mrh.tests.lasscf.c2h4n4_struct import structure as struct

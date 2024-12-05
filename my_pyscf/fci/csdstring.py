@@ -177,8 +177,6 @@ def csdaddrs2csdstrs (norb, neleca, nelecb, csdaddrs):
         if len (idx) == 1:
             if not idx[0]:
                 continue
-            else:
-                idx = 0
         try:
             dconf_addr = (csdaddrs[idx] - offset) // (sconf_size * spins_size)
         except:

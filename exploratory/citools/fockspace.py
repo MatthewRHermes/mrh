@@ -3,7 +3,7 @@ from scipy import linalg
 from pyscf.fci import cistring
 from pyscf.fci.direct_spin1 import _unpack_nelec
 from itertools import product
-from mrh.my_pyscf.lassi.op_o1 import fermion_spin_shuffle as _fss
+from mrh.my_pyscf.lassi.op_o1.utilities import fermion_spin_shuffle as _fss
 from mrh.my_pyscf.fci.csfstring import CSFTransformer
 
 MAX_NORB = 26 # for now

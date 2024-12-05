@@ -40,7 +40,7 @@ def memcheck (las, ci, soc=None):
     else:
         nbytes = 2*nbytes_per_sfvec
     # memory load of ci_dp vectors
-    nbytes += sum ([np.prod ([c[iroot].size for c in ci])
+    nbytes += sum ([np.prod ([float (c[iroot].size) for c in ci])
                     * np.amax ([c[iroot].dtype.itemsize for c in ci])
                     for iroot in range (nroots)])
     safety_factor = 1.2
@@ -805,8 +805,8 @@ def root_make_rdm12s (las, ci_fr, nelec_frs, si, ix, orbsym=None, wfnsym=None):
         d1s2, d2s2 = solver.trans_rdm12s (ci_r_real, ci_r_imag, norb, nelec_r)
         d1s2 -= np.asarray (d1s2).transpose (0,2,1)
         d2s2 -= np.asarray (d2s2).transpose (0,2,1,4,3)
-        d1s -= 1j * d1s2 
-        d2s += 1j * d2s2
+        d1s += 1j * d1s2 
+        d2s -= 1j * d2s2
     rdm1s[0,:,:] = d1s[0]
     rdm1s[1,:,:] = d1s[1]
     rdm2s[0,:,:,0,:,:] = d2s[0]

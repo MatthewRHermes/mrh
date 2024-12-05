@@ -5,10 +5,9 @@ from pyscf import lib
 from pyscf.mcscf import mc1step
 from mrh.my_pyscf.mcscf import lasci, lasscf_sync_o0
 from mrh.my_pyscf.mcscf.lasscf_guess import interpret_frags_atoms
-from mrh.my_pyscf.mcscf.lasscf_async import keyframe
+from mrh.my_pyscf.mcscf.lasscf_async import keyframe, combine
 from mrh.my_pyscf.mcscf.lasscf_async.split import get_impurity_space_constructor
 from mrh.my_pyscf.mcscf.lasscf_async.crunch import get_impurity_casscf
-from mrh.my_pyscf.mcscf.lasscf_async.combine import combine_o0
 
 def kernel (las, mo_coeff=None, ci0=None, conv_tol_grad=1e-4,
             assert_no_dupes=False, verbose=lib.logger.NOTE, frags_orbs=None,
@@ -29,7 +28,7 @@ def kernel (las, mo_coeff=None, ci0=None, conv_tol_grad=1e-4,
     log = lib.logger.new_logger(las, verbose)
     t0 = (lib.logger.process_clock(), lib.logger.perf_counter())
     kf0 = las.get_keyframe (mo_coeff, ci0) 
-    las._flas_stdout = None # TODO: more elegant model for this
+    las._flas_stdout = {} # TODO: more elegant model for this
 
     ###############################################################################################
     ################################## Begin actual kernel logic ##################################
@@ -57,18 +56,27 @@ def kernel (las, mo_coeff=None, ci0=None, conv_tol_grad=1e-4,
             impurity.kernel ()
             kf2_list.append (impurity._push_keyframe (kf1))
 
-        # EXPERIMENTAL: examining differences in keyframes
-        for i in range (len (kf2_list)):
-            kfi = kf2_list[i]
-            log.info ('Comparing reference keyframe to fragment %d', i)
-            keyframe.count_common_orbitals (las, kf1, kfi)
-        for i, j in itertools.combinations (range (len (kf2_list)), 2):
-            kfi, kfj = kf2_list[i], kf2_list[j]
-            log.info ('Comparing keyframes for fragments %d and %d:', i, j)
-            keyframe.count_common_orbitals (las, kfi, kfj)
-
-        # 3. Combine from fragments. TODO: smaller chunks instead of one whole-molecule function
-        kf1 = combine_o0 (las, kf2_list)
+        # 3. Combine from fragments. It should not be necessary to do this in any particular order,
+        #    and the below does it March Madness tournament style; e.g.:
+        #
+        #       kf2_list[0] --- kf2_list[1]     kf2_list[2] --- kf2_list[3]
+        #                    |                               |
+        #                   kfi --------------------------- kfj
+        #                                    |
+        #                                   kf2
+        #
+        nkf = len (kf2_list)
+        ncyc = int (np.ceil (np.log2 (nkf)))
+        for i in range (int (np.ceil (np.log2 (nkf)))):
+            nkfi = len (kf2_list)
+            kf3_list = []
+            for kf2, kf3 in zip (kf2_list[::2],kf2_list[1::2]):
+                kf3_list.append (combine.combine_pair (las, kf2, kf3, kf_ref=kf1))
+            if nkfi%2: kf3_list.insert (len(kf3_list)-1, kf2_list[-1])
+            # Insert this at second-to-last position so that it gets "mixed in" next cycle
+            kf2_list = kf3_list
+        assert (len (kf2_list) == 1)
+        kf1 = kf2_list[0]
 
         # Evaluate status and break if converged
         e_tot = las.energy_nuc () + las.energy_elec (
@@ -76,6 +84,7 @@ def kernel (las, mo_coeff=None, ci0=None, conv_tol_grad=1e-4,
         gvec = las.get_grad (ugg=ugg, kf=kf1)
         norm_gvec = linalg.norm (gvec)
         log.info ('LASSCF macro %d : E = %.15g ; |g| = %.15g', it, e_tot, norm_gvec)
+        if verbose > lib.logger.INFO: keyframe.gradient_analysis (las, kf1, log)
         t1 = log.timer ('one LASSCF macro cycle', *t1)
         las.dump_chk (mo_coeff=kf1.mo_coeff, ci=kf1.ci)
         if norm_gvec < conv_tol_grad:
@@ -90,7 +99,7 @@ def kernel (las, mo_coeff=None, ci0=None, conv_tol_grad=1e-4,
     ################################### End actual kernel logic ###################################
     ###############################################################################################
 
-    if getattr (las, '_flas_stdout', None) is not None: las._flas_stdout.close ()
+    for key, val in las._flas_stdout.items (): val.close ()
     # TODO: more elegant model for this
     mo_coeff, ci1, h2eff_sub, veff = kf1.mo_coeff, kf1.ci, kf1.h2eff_sub, kf1.veff
     t1 = log.timer ('LASSCF {} macrocycles'.format (it), *t0)
@@ -144,7 +153,59 @@ def get_grad (las, mo_coeff=None, ci=None, ugg=None, kf=None):
                            veff=veff)
     return ugg.pack (gorb, gci)
 
+class SortedIndexDict (dict):
+    '''A dict, but all keys that are tuples are sorted so that, for instance, (1,2) is always
+    the same as (2,1)'''
+    def __setitem__(self, key, val):
+        if isinstance (key, tuple): key = tuple (sorted (key))
+        dict.__setitem__(self, key, val)
+    def __getitem__(self, key):
+        if isinstance (key, tuple): key = tuple (sorted (key))
+        return dict.__getitem__(self, key)
+    def get (self, key, *args):
+        if isinstance (key, tuple): key = tuple (sorted (key))
+        if len (args):
+            return dict.get (self, key, *args)
+        else:
+            return dict.get (self, key)
+
 class LASSCFNoSymm (lasci.LASCINoSymm):
+    '''Extra attributes:
+
+    frags_orbs : list of length nfrags of list of integers
+        Identifies the definition of fragments as lists of AOs
+    impurity_params : list of length nfrags of dict
+        Key/value pairs are assigned as attributes of the impurity solver CASSCF object.
+        Use this to address, e.g., conv_tol_grad, max_cycle_macro, etc. of the impurity
+        subproblems
+    relax_params : dict
+        Key/value pairs are assigned as attributes to the active-active relaxation (``LASCI'')
+        subproblem, similar to impurity_params. Use this to, e.g., set a different max_cycle_macro
+        for the ``LASCI'' step.
+    combine_pair_max_frags : integer
+        Maximum number of frags to simultaneously relax during the combine_pair step.
+    '''
+    def __init__(self, mf, ncas, nelecas, ncore=None, spin_sub=None, **kwargs):
+        lasci.LASCINoSymm.__init__(self, mf, ncas, nelecas, ncore=ncore, spin_sub=spin_sub,
+                                   **kwargs)
+        self.impurity_params = {}
+        for i in range (self.nfrags):
+            self.impurity_params[i] = {}
+        self.relax_params = {}
+        for i, j in itertools.combinations (range (self.nfrags), 2):
+            self.relax_params[(i,j)] = {}
+        self.combine_pair_max_frags = self.nfrags
+        keys = set (('frags_orbs','impurity_params','relax_params','combine_pair_max_frags'))
+        self._keys = self._keys.union (keys)
+
+    @property
+    def relax_params (self): return self._relax_params
+    @relax_params.setter
+    def relax_params (self, d):
+        self._relax_params = SortedIndexDict ()
+        for key, val in d.items ():
+            self._relax_params[key] = val
+
     _ugg = lasscf_sync_o0.LASSCF_UnitaryGroupGenerators
     _kern = kernel
     get_grad = get_grad
@@ -202,6 +263,13 @@ class LASSCFNoSymm (lasci.LASCINoSymm):
         return
 
 class LASSCFSymm (lasci.LASCISymm):
+    def __init__(self, mf, ncas, nelecas, ncore=None, spin_sub=None, **kwargs):
+        lasci.LASCISymm.__init__(self, mf, ncas, nelecas, ncore=ncore, spin_sub=spin_sub, **kwargs)
+        self.impurity_params = [{} for i in range (self.nfrags)]
+        self.relax_params = {}
+        keys = set (('frags_orbs','impurity_params','relax_params'))
+        self._keys = self._keys.union (keys)
+
     _ugg = lasscf_sync_o0.LASSCFSymm_UnitaryGroupGenerators
     _kern = kernel
     _finalize = LASSCFNoSymm._finalize

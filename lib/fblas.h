@@ -81,7 +81,8 @@ void zgemm_(const char*, const char*,
             const double complex*, const double complex*, const int*,
             const double complex*, const int*,
             const double complex*, double complex*, const int*);
-
+void zaxpy_(const int *n, const double complex *da, const double complex *dx,
+           const int *incx, double complex *dy, const int *incy);
 
 void CINTdset0(const int n, double *x);
 void CINTdaxpy2v(const int n, const double a,

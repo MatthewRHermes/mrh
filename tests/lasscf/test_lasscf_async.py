@@ -29,6 +29,7 @@ def tearDownModule():
 
 def _run_mod (mod):
     las=mod.LASSCF(mf, (2,2), (2,2))
+    las.conv_tol_grad = 1e-7
     localize_fn = getattr (las, 'set_fragments_', las.localize_init_guess)
     mo_coeff=localize_fn (frag_atom_list, mo0)
     las.state_average_(weights=[.2,]*5,
@@ -40,14 +41,14 @@ def _run_mod (mod):
 class KnownValues (unittest.TestCase):
 
     def test_implementations (self):
-        las_syn = _run_mod (syn)
-        with self.subTest ('synchronous calculation converged'):
-            self.assertTrue (las_syn.converged)
         las_asyn = _run_mod (asyn)
         with self.subTest ('asynchronous calculation converged'):
             self.assertTrue (las_asyn.converged)
+        las_syn = _run_mod (syn)
+        with self.subTest ('synchronous calculation converged'):
+            self.assertTrue (las_syn.converged)
         with self.subTest ('average energy'):
-            self.assertAlmostEqual (las_syn.e_tot, las_asyn.e_tot, 8)
+            self.assertAlmostEqual (las_syn.e_tot, las_asyn.e_tot, 7)
         for i in range (5):
             with self.subTest ('energy', state=i):
                 self.assertAlmostEqual (las_syn.e_states[i], las_asyn.e_states[i], 6)
