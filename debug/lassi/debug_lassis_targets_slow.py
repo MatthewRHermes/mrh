@@ -104,12 +104,11 @@ class KnownValues(unittest.TestCase):
         mo = las.set_fragments_((list (range (5)), list (range (5,10))))
         las.kernel (mo)
         mo_coeff = las.mo_coeff
-        las = lasscf_async.LASSCF (mf, (5,5), ((3,2),(2,3)))
+        las = lasscf_async.LASSCF (mf, (5,5), ((4,1),(1,4)))
         las.lasci_(mo_coeff)
         lsi = lassi.LASSIS (las).run ()
         e_str = lsi.e_roots[0]
-        with self.subTest ('str converged'):
-            self.assertTrue (lsi.converged)
+        str_converged = lsi.converged
         # equil
         mol = struct (0.0, 0.0, '6-31g', symmetry=False)
         mol.spin = 0
@@ -127,15 +126,17 @@ class KnownValues(unittest.TestCase):
         mo = las.set_fragments_((list (range (5)), list (range (5,10))), mo)
         las.kernel (mo)
         mo_coeff = las.mo_coeff
-        las = lasscf_async.LASSCF (mf, (5,5), ((3,2),(2,3)))
+        las = lasscf_async.LASSCF (mf, (5,5), ((4,1),(1,4)))
         las.lasci_(mo_coeff)
         lsi = lassi.LASSIS (las).run ()
         e_equil = lsi.e_roots[0]
-        with self.subTest ('equil converged'):
-            self.assertTrue (lsi.converged)
         # test
         de = 1000 * (e_str - e_equil)
         self.assertAlmostEqual (de, 191.185141573740, 1)
+        with self.subTest ('str converged'):
+            self.assertTrue (str_converged)
+        with self.subTest ('equil converged'):
+            self.assertTrue (lsi.converged)
 
     def test_kremer_cr2_model (self):
         xyz='''Cr    -1.320780000000   0.000050000000  -0.000070000000

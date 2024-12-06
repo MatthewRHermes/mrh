@@ -193,6 +193,7 @@ class ExcitationPSFCISolver (ProductStateFCISolver):
         hci_pspace_diag = self.op_ham_pp_diag (h1, h2, ci1, norb_f, nelec_f)
         tdm1s_f = self.get_tdm1s_f (ci1, ci1, norb_f, nelec_f)
         e = 0
+        grad_max = conv_tol_grad * 100
         disc_sval_sum = sum (disc_svals)
         converged = False
         log.info ('Entering product-state fixed-point CI iteration')
@@ -202,21 +203,19 @@ class ExcitationPSFCISolver (ProductStateFCISolver):
             # Re-diagonalize in truncated space
             e, si = self.eig1 (ham_pq, ci0)
             _, u, si_p, si_q, vh = self.schmidt_trunc (si, ci0, nroots=nroots)
-            ham_pq = self.truncrot_ham_pq (ham_pq, u, vh)
             ci1 = self.truncrot_ci (ci0, u, vh)
+            log.info ('Cycle %d: max grad = %e ; e = %e, |delta| = %e, ||discarded|| = %e',
+                      it, grad_max, e, e - e_last, disc_sval_sum)
+            if ((grad_max < conv_tol_grad) and (abs (e-e_last) < conv_tol_self)):
+                converged = True
+                break
+            ham_pq = self.truncrot_ham_pq (ham_pq, u, vh)
             hci_qspace = self.truncrot_hci_qspace (hci_qspace, u, vh)
             hci_pspace_diag = self.truncrot_hci_pspace_diag (hci_pspace_diag, u, vh)
             tdm1s_f = self.truncrot_tdm1s_f (tdm1s_f, u, vh)
             # Generate additional vectors and compute gradient
             hpq_xq = self.get_hpq_xq (hci_qspace, ci1, si_q)
             hpp_xp = self.get_hpp_xp (ci1, si_p, hci_pspace_diag, h0, h2, tdm1s_f, norb_f, nelec_f)
-            grad = self._get_grad (ci1, si_p, hpq_xq, hpp_xp, nroots=nroots)
-            grad_max = np.amax (np.abs (grad))
-            log.info ('Cycle %d: max grad = %e ; e = %e, |delta| = %e, ||discarded|| = %e',
-                      it, grad_max, e, e - e_last, disc_sval_sum)
-            if ((grad_max < conv_tol_grad) and (abs (e-e_last) < conv_tol_self)):
-                converged = True
-                break
             ci2 = self.get_new_vecs (ci1, hpq_xq, hpp_xp, nroots=nroots)
             # Extend intermediates
             hci2_qspace = self.op_ham_pq_ref (h1, h2, ci2)
@@ -237,6 +236,10 @@ class ExcitationPSFCISolver (ProductStateFCISolver):
                                          tdm1s_f, norb_f, nelec_f)
             # Diagonalize and truncate
             _, si = self.eig1 (ham_pq, ci1)
+            # THIS is the gradient that this algorithm pushes to zero
+            grad = self._get_grad (ci1, si, hci_qspace, hci_pspace_diag, tdm1s_f, h0, h2, norb_f,
+                                   nelec_f)
+            grad_max = np.amax (np.abs (grad))
             disc_svals, u, _, _, vh = self.schmidt_trunc (si, ci1, nroots=nroots)
             ham_pq = self.truncrot_ham_pq (ham_pq, u, vh)
             ci1 = self.truncrot_ci (ci1, u, vh)
@@ -631,21 +634,23 @@ class ExcitationPSFCISolver (ProductStateFCISolver):
         ham_pq = np.append (h_rp, ham_pq[:,p:], axis=1)
         return ham_pq
 
-    def truncrot_hci_qspace (self, hci_qspace, u, vh):
-        hci_qspace[0] = np.tensordot (u.T, hci_qspace[0], axes=1)
-        hci_qspace[1] = np.tensordot (vh.conj(), hci_qspace[1], axes=1)
-        return hci_qspace
+    def truncrot_hci_qspace (self, hci0_qspace, u, vh):
+        hci1_qspace = [None, None]
+        hci1_qspace[0] = np.tensordot (u.T, hci0_qspace[0], axes=1)
+        hci1_qspace[1] = np.tensordot (vh.conj(), hci0_qspace[1], axes=1)
+        return hci1_qspace
 
-    def truncrot_hci_pspace_diag (self, hci_pspace_diag, u, vh):
-        hci_pspace_diag[0] = np.tensordot (vh.conj(), hci_pspace_diag[0], axes=1)
-        hci_pspace_diag[1] = np.tensordot (u.T, hci_pspace_diag[1], axes=1)
-        return hci_pspace_diag
+    def truncrot_hci_pspace_diag (self, hci0_pspace_diag, u, vh):
+        hci1_pspace_diag = [None, None]
+        hci1_pspace_diag[0] = np.tensordot (vh.conj(), hci0_pspace_diag[0], axes=1)
+        hci1_pspace_diag[1] = np.tensordot (u.T, hci0_pspace_diag[1], axes=1)
+        return hci1_pspace_diag
 
-    def truncrot_tdm1s_f (self, tdm1s_f, u, vh):
-        # tdm1s_f
-        tdm1s_f[0] = lib.einsum ('mu,uvsij,nv->mnsij', vh.conj (), tdm1s_f[0], vh)
-        tdm1s_f[1] = lib.einsum ('um,uvsij,vn->mnsij', u, tdm1s_f[1], u.conj ())
-        return tdm1s_f
+    def truncrot_tdm1s_f (self, tdm1s_f0, u, vh):
+        tdm1s_f1 = [None, None]
+        tdm1s_f1[0] = lib.einsum ('mu,uvsij,nv->mnsij', vh.conj (), tdm1s_f0[0], vh)
+        tdm1s_f1[1] = lib.einsum ('um,uvsij,vn->mnsij', u, tdm1s_f0[1], u.conj ())
+        return tdm1s_f1
 
     def get_hpq_xq (self, hci_f_pabq, ci0, si_q):
         '''Generate the P-row, Q-column part of the Hamiltonian-vector product projected into P'
@@ -754,31 +759,39 @@ class ExcitationPSFCISolver (ProductStateFCISolver):
         t1 = self.log.timer ('get_hpp_xp', *t0)
         return hci_f_pab
 
-    def _get_grad (self, ci0, si_p, hpq_xq, hpp_xp, nroots=None):
+    def _get_grad (self, ci0, si, hci_qspace, hci_pspace_diag, tdm1s_f, h0, h2, norb_f, nelec_f):
         ''' Compute the gradient of the target interacting energy
 
         Args:
             ci0: list of ndarray of shape (nroots,ndeta[i],ndetb[i])
                 CI vectors
-            si_p: ndarray of shape (nroots,)
-                P-space SI vector. Schmidt basis required
-            hpq_xq: list of ndarray of shape (nroots,ndeta[i],ndetb[i])
-                P-row, Q-column part of the Hamiltonian-vector product
-            hpp_xp: list of ndarray of shape (nroots,ndeta[i],ndetb[i])
-                P-row, P-column part of the Hamiltonian-vector product
-
-        Kwargs:
-            nroots: integer
-                Number of states in each fragment
+            si: ndarray of shape (p+?+q,)
+                SI vector
+            hci_qspace: list of ndarray of shape (nroots,ndeta,ndetb,q)
+                H|q> projected on <p| for all but one fragment, where <p| is the
+                vectors of CI, i.e., the output of op_ham_pq_ref for ci0.
+            hci_pspace_diag: list of ndarray of shape (nroots,ndeta,ndetb)
+                H(ifrag)|p(ifrag)>, where <p| is the vectors of CI; i.e., the output of
+                op_ham_pp_diag for ci0.
+            tdm1s_f: list of ndarray of shape (nroots,nroots,2,norb[i],norb[i])
+                Spin-separated transition one-body density matrices within each fragment for ci0
 
         Returns:
             grad: flat ndarray
                 Gradient with respect to all nonredundant parameters
         '''
         t0 = lib.logger.process_clock (), lib.logger.perf_counter ()
+        nroots = min (get_lroots (ci0))
+        u, si_p, si_q, vh = self.schmidt_trunc (si, ci0, nroots=nroots)[1:]
+        ci1 = self.truncrot_ci (ci0, u, vh)
+        hci_qspace = self.truncrot_hci_qspace (hci_qspace, u, vh)
+        hci_pspace_diag = self.truncrot_hci_pspace_diag (hci_pspace_diag, u, vh)
+        tdm1s_f = self.truncrot_tdm1s_f (tdm1s_f, u, vh)
+        hpq_xq = self.get_hpq_xq (hci_qspace, ci1, si_q)
+        hpp_xp = self.get_hpp_xp (ci1, si_p, hci_pspace_diag, h0, h2, tdm1s_f, norb_f, nelec_f)
         grad_ext = []
         grad_int = []
-        for solver, c, hc1, hc2 in zip (self.fcisolvers, ci0, hpq_xq, hpp_xp):
+        for solver, c, hc1, hc2 in zip (self.fcisolvers, ci1, hpq_xq, hpp_xp):
             if nroots is None: nroots = solver.nroots
             hc = si_p[:,None,None] * (hc1 + hc2)
             if isinstance (solver, CSFFCISolver):
