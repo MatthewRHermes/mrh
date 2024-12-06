@@ -72,11 +72,7 @@ def grad_elec(las_grad, mo_coeff=None, ci=None, atmlst=None, verbose=None):
     mo_occ = mo_coeff[:,:nocc]
     mo_core = mo_coeff[:,:ncore]
     mo_cas = mo_coeff[:,ncore:nocc]
-    #print ("SV nocc, ncas, ncore = ", nocc, ncas, ncore)
-    #print ("mo_cas shape =", mo_cas.shape)
-    #print ("SV entering grad_elec in lasscf")
     lasdm1 = las.make_casdm1()
-    #print ("SV lasdm1 shape = ",lasdm1.shape)
     lasdm2 = las.make_casdm2()
     #casdm1, casdm2 = mc.fcisolver.make_rdm12(ci, ncas, nelecas)
 
