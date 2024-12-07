@@ -134,3 +134,19 @@ set_target_properties (clib_mrh_lassi PROPERTIES
     LIBRARY_OUTPUT_DIRECTORY ${PROJECT_SOURCE_DIR}
     OUTPUT_NAME "lassi")
 
+# Build the DKH library
+option(ENABLE_DKH "Compiling DKH Library" ON)
+if(ENABLE_DKH)
+   enable_language(Fortran)
+   set(CMAKE_Fortran_FLAGS "${CMAKE_Fortran_FLAGS} -g -O0")
+   set (DKH_SOURCE_FILES "dkh.f90")
+   add_library (clib_mrh_dkh SHARED ${DKH_SOURCE_FILES})
+   target_link_libraries (clib_mrh_dkh ${LAPACK_LIBRARIES})
+   set_target_properties (clib_mrh_dkh PROPERTIES
+      LINKER_LANGUAGE Fortran
+      CLEAN_DIRECT_OUTPUT 1
+      LIBRARY_OUTPUT_DIRECTORY ${PROJECT_SOURCE_DIR}
+      OUTPUT_NAME "dkh")
+else()
+    message(STATUS "DKH library compilation is disabled")
+endif()
