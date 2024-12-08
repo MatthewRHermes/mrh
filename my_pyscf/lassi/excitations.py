@@ -10,6 +10,7 @@ from mrh.my_pyscf.mcscf.productstate import ProductStateFCISolver, state_average
 from mrh.my_pyscf.fci import csf_solver, CSFFCISolver, direct_nosym_uhf
 from mrh.my_pyscf.lassi import op_o0, op_o1
 from mrh.my_pyscf.lassi.citools import get_lroots
+from mrh.my_pyscf.lassi import min_2frag_tps
 from pyscf import lib
 from pyscf.lib import temporary_env
 from pyscf import __config__
@@ -202,6 +203,9 @@ class ExcitationPSFCISolver (ProductStateFCISolver):
             ci0 = ci1
             # Re-diagonalize in truncated space
             e, si = self.eig1 (ham_pq, ci0)
+            grad = self._get_grad (ci1, si, hci_qspace, hci_pspace_diag, tdm1s_f, h0, h2, norb_f,
+                                   nelec_f)
+            grad_max = np.amax (np.abs (grad))
             _, u, si_p, si_q, vh = self.schmidt_trunc (si, ci0, nroots=nroots)
             ci1 = self.truncrot_ci (ci0, u, vh)
             log.info ('Cycle %d: max grad = %e ; e = %e, |delta| = %e, ||discarded|| = %e',
@@ -235,12 +239,9 @@ class ExcitationPSFCISolver (ProductStateFCISolver):
             ham_pq = self.update_ham_pq (ham_pq, h0, h1, h2, ci1, hci_qspace, hci_pspace_diag,
                                          tdm1s_f, norb_f, nelec_f)
             # Diagonalize and truncate
-            _, si = self.eig1 (ham_pq, ci1)
-            # THIS is the gradient that this algorithm pushes to zero
-            grad = self._get_grad (ci1, si, hci_qspace, hci_pspace_diag, tdm1s_f, h0, h2, norb_f,
-                                   nelec_f)
-            grad_max = np.amax (np.abs (grad))
+            , si = self.eig1 (ham_pq, ci1)
             disc_svals, u, _, _, vh = self.schmidt_trunc (si, ci1, nroots=nroots)
+            u, vh = min_2frag_tps.quadratic_step (ham_pq, ci1, si_p, si_q)
             ham_pq = self.truncrot_ham_pq (ham_pq, u, vh)
             ci1 = self.truncrot_ci (ci1, u, vh)
             hci_qspace = self.truncrot_hci_qspace (hci_qspace, u, vh)
