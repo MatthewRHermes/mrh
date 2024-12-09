@@ -1,6 +1,6 @@
 /* -*- c++ -*- */
 
-#if defined(_GPU_CUDA)
+//#if defined(_GPU_CUDA)
 
 #include "device.h"
 
@@ -702,4 +702,4 @@ void Device::pack_d_vuwM(const double * in, double * out, int * map, int nmo, in
 #endif
 }
 
-#endif
+//#endif

@@ -20,15 +20,13 @@ class ContractHamCI (stdm.LSTDM):
         h2 : ndarray of size ncas**4
             Contains 2-electron Hamiltonian amplitudes in second quantization
     '''
-    def __init__(self, ints, nlas, hopping_index, lroots, h1, h2, nbra=1,
-                 log=None, max_memory=2000, dtype=np.float64):
-        nfrags, _, nroots, _ = hopping_index.shape
-        nket = nroots - nbra
+    def __init__(self, ints, nlas, hopping_index, lroots, h1, h2, mask_bra_space=None,
+                 mask_ket_space=None, log=None, max_memory=2000, dtype=np.float64):
         hams2ovlp.HamS2Ovlp.__init__(self, ints, nlas, hopping_index, lroots, h1, h2,
-                                        mask_bra_space = list (range (nket, nroots)),
-                                        mask_ket_space = list (range (nket)),
-                                        log=log, max_memory=max_memory, dtype=dtype)
-        self.nbra = nbra
+                                     mask_bra_space = mask_bra_space,
+                                     mask_ket_space = mask_ket_space,
+                                     log=log, max_memory=max_memory, dtype=dtype)
+        self.nbra = len (mask_bra_space)
         self.hci_fr_pabq = self._init_vecs ()
 
     get_ham_2q = hams2ovlp.HamS2Ovlp.get_ham_2q
@@ -448,15 +446,22 @@ def contract_ham_ci (las, h1, h2, ci_fr_ket, nelec_frs_ket, ci_fr_bra, nelec_frs
     nket = nelec_frs_ket.shape[1]
     ci = [ci_r_ket + ci_r_bra for ci_r_bra, ci_r_ket in zip (ci_fr_bra, ci_fr_ket)]
     nelec_frs = np.append (nelec_frs_ket, nelec_frs_bra, axis=1)
+    nroots = nbra + nket
+    mask_bra_space = list (range (nket,nroots))
+    mask_ket_space = list (range (nket))
+    mask_ints = np.zeros ((nroots,nroots), dtype=bool)
+    mask_ints[np.ix_(mask_bra_space,mask_ket_space)] = True
 
     # First pass: single-fragment intermediates
     hopping_index, ints, lroots = frag.make_ints (las, ci, nelec_frs, nlas=nlas,
-                                                  screen_linequiv=False)
+                                                  screen_linequiv=False,
+                                                  mask_ints=mask_ints)
 
     # Second pass: upper-triangle
     t0 = (lib.logger.process_clock (), lib.logger.perf_counter ())
     max_memory = getattr (las, 'max_memory', las.mol.max_memory)
-    contracter = ContractHamCI (ints, nlas, hopping_index, lroots, h1, h2, nbra=nbra,
+    contracter = ContractHamCI (ints, nlas, hopping_index, lroots, h1, h2,
+                                mask_bra_space=mask_bra_space, mask_ket_space=mask_ket_space,
                                 dtype=ci[0][0].dtype, max_memory=max_memory, log=log)
     lib.logger.timer (las, 'LASSI Hamiltonian contraction second intermediate indexing setup', *t0)        
     hket_fr_pabq, t0 = contracter.kernel ()

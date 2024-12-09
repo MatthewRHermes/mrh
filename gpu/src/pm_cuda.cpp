@@ -15,6 +15,28 @@ using namespace PM_NS;
 
 PM::PM()
 {
+  int num_devices = dev_num_devices();
+
+  // initialize main queue/stream for each device
+  
+  for(int i=0; i<num_devices; ++i) {
+    cudaSetDevice(i);
+    _CUDA_CHECK_ERRORS();
+
+    cudaStream_t s;
+    cudaStreamCreate(&s);
+
+    my_queues.push_back(s);
+  }
+
+  cudaSetDevice(0);
+}
+
+PM::~PM()
+{
+  int n = my_queues.size();
+  for (int i=0; i<n; ++i) cudaStreamDestroy(my_queues[i]);
+  
 }
 
 //https://stackoverflow.com/questions/68823023/set-cuda-device-by-uuid
@@ -155,6 +177,23 @@ void * PM::dev_malloc(size_t N)
   return ptr;
 }
 
+void * PM::dev_malloc_async(size_t N)
+{
+#ifdef _DEBUG_PM
+  printf("Inside PM::dev_malloc_async()\n");
+#endif
+
+  void * ptr;
+  cudaMallocAsync((void**) &ptr, N, *current_queue);
+  _CUDA_CHECK_ERRORS();
+  
+#ifdef _DEBUG_PM
+  printf(" -- Leaving PM::dev_malloc_async()\n");
+#endif
+  
+  return ptr;
+}
+
 void * PM::dev_malloc_async(size_t N, cudaStream_t &s)
 {
 #ifdef _DEBUG_PM
@@ -203,6 +242,20 @@ void PM::dev_free(void * ptr)
 #endif
 }
 
+void PM::dev_free_async(void * ptr)
+{
+#ifdef _DEBUG_PM
+  printf("Inside PM::dev_free_async()\n");
+#endif
+  
+  if(ptr) cudaFreeAsync(ptr, *current_queue);
+  _CUDA_CHECK_ERRORS();
+  
+#ifdef _DEBUG_PM
+  printf(" -- Leaving PM::dev_free_async()\n");
+#endif
+}
+
 void PM::dev_free_async(void * ptr, cudaStream_t &s)
 {
 #ifdef _DEBUG_PM
@@ -245,6 +298,22 @@ void PM::dev_push(void * d_ptr, void * h_ptr, size_t N)
 #endif
 }
 
+int PM::dev_push_async(void * d_ptr, void * h_ptr, size_t N)
+{
+#ifdef _DEBUG_PM
+  printf("Inside PM::dev_push_async()\n");
+#endif
+  
+  cudaMemcpyAsync(d_ptr, h_ptr, N, cudaMemcpyHostToDevice, *current_queue);
+  _CUDA_CHECK_ERRORS2();
+  
+#ifdef _DEBUG_PM
+  printf(" -- Leaving PM::dev_push_async()\n");
+#endif
+  
+  return 0;
+}
+
 int PM::dev_push_async(void * d_ptr, void * h_ptr, size_t N, cudaStream_t &s)
 {
 #ifdef _DEBUG_PM
@@ -272,6 +341,20 @@ void PM::dev_pull(void * d_ptr, void * h_ptr, size_t N)
   
 #ifdef _DEBUG_PM
   printf(" -- Leaving PM::dev_pull()\n");
+#endif
+}
+
+void PM::dev_pull_async(void * d_ptr, void * h_ptr, size_t N)
+{
+#ifdef _DEBUG_PM
+  printf("Inside PM::dev_pull_async()\n");
+#endif
+  
+  cudaMemcpyAsync(h_ptr, d_ptr, N, cudaMemcpyDeviceToHost, *current_queue);
+  _CUDA_CHECK_ERRORS();
+  
+#ifdef _DEBUG_PM
+  printf(" -- Leaving PM::dev_pull_async()\n");
 #endif
 }
 
@@ -340,6 +423,11 @@ int PM::dev_stream_create()
   printf("Inside PM::dev_stream_create()\n");
 #endif
 
+#if 1
+  // just return id of current main stream
+
+  int id = current_queue_id;
+#else
   cudaStream_t s;
 
   cudaStreamCreate(&s);
@@ -347,7 +435,7 @@ int PM::dev_stream_create()
   my_queues.push_back(s);
 
   int id = my_queues.size() - 1;
-  
+#endif
   _CUDA_CHECK_ERRORS();
   
 #ifdef _DEBUG_PM
@@ -361,11 +449,15 @@ void PM::dev_stream_create(cudaStream_t & s)
 #ifdef _DEBUG_PM
   printf("Inside PM::dev_stream_create(s)\n");
 #endif
-  
+
+#if 1
+  s = *current_queue;
+#else
   cudaStreamCreate(&s);
   _CUDA_CHECK_ERRORS();
 
   my_queues.push_back(s);
+#endif
   
 #ifdef _DEBUG_PM
   printf(" -- Leaving PM::dev_stream_create()\n");
@@ -378,12 +470,16 @@ void PM::dev_stream_destroy()
   printf("Inside PM::dev_stream_destroy()\n");
 #endif
 
+#if 1
+
+#else
   int id = current_queue_id;
   
   cudaStreamDestroy(my_queues[id]);
   _CUDA_CHECK_ERRORS();
 
   my_queues[id] = NULL;
+#endif
   
 #ifdef _DEBUG_PM
   printf(" -- Leaving PM::dev_stream_destroy()\n");
@@ -395,12 +491,30 @@ void PM::dev_stream_destroy(cudaStream_t & s)
 #ifdef _DEBUG_PM
   printf("Inside PM::dev_stream_destroy(s)\n");
 #endif
-  
+
+#if 1
+
+#else
   cudaStreamDestroy(s);
   _CUDA_CHECK_ERRORS();
+#endif
   
 #ifdef _DEBUG_PM
   printf(" -- Leaving PM::dev_stream_destroy()\n");
+#endif
+}
+
+void PM::dev_stream_wait()
+{
+#ifdef _DEBUG_PM
+  printf("Inside PM::dev_stream_wait()\n");
+#endif
+  
+  cudaStreamSynchronize(*current_queue);
+  _CUDA_CHECK_ERRORS();
+  
+#ifdef _DEBUG_PM
+  printf(" -- Leaving PM::dev_stream_wait()\n");
 #endif
 }
 

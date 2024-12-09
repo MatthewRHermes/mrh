@@ -12,15 +12,15 @@
 
 #define _NUM_BATCHES 100
 
-#define _NUM_ROWS_A 4
-#define _NUM_COLS_A 3
+#define _NUM_ROWS_A 1024
+#define _NUM_COLS_A 1024
 
 #define _NUM_ROWS_B _NUM_COLS_A
-#define _NUM_COLS_B 5
+#define _NUM_COLS_B 1024
 
-#define _TOL 1e-8
-#define _NUM_ITERATIONS_CPU 10
-#define _NUM_ITERATIONS_GPU 1000
+#define _TOL 1e-6
+#define _NUM_ITERATIONS_CPU 1
+#define _NUM_ITERATIONS_GPU 100
 
 using namespace PM_NS;
 using namespace MATHLIB_NS;
@@ -74,14 +74,18 @@ void gemm_NN0_naive_cpu(const int * m_, const int * n_, const int * k_, const re
 int check_result(real_t * ref, real_t * test, int n, const char * name)
 {
   int err = 0;
+  double max_diff = 0.0;
   for(int i=0; i<n; ++i) {
     real_t diff = (ref[i] - test[i]) * (ref[i] - test[i]);
     //    printf(" -- i= %i  ref= %f  test= %f  diff= %f\n",i,ref[i],test[i],diff);
-    if(diff > _TOL) err++;
+    //    if(diff > _TOL) err++;
+    if(diff > max_diff) max_diff = diff;
   }
+
+  if(max_diff > _TOL) err = 1;
   
-  if(err == 0) printf("Results from %s are correct!! :) \n", name);
-  else printf("Results from %s are incorrect!! :( \n", name);
+  if(err == 0) printf("Results from %s are correct!! :)\n", name);
+  else printf("Results from %s are incorrect!! :(  max_diff= %0.4e\n", name, max_diff);
   
   return err;
 }
@@ -101,7 +105,7 @@ void print_matrix(real_t * data, int num_rows, int num_cols, const char * name)
 
 void print_summary(double t, int num_rows_a, int num_cols_a, int num_cols_b, int num_iter, const char * name)
 {
-  double flop = 2.0 * num_rows_a * num_cols_a * num_cols_b / 1024.0 / 1024.0 / 1024.0; // GFlop
+  double flop = num_rows_a * num_cols_b * (2.0 * num_cols_a - 1.0) / 1024.0 / 1024.0 / 1024.0; // GFlop
 
   double flops = flop * num_iter / t; // GFlop/s
 
@@ -128,10 +132,15 @@ int main( int argc, char* argv[] )
   // ----------------------------------------------------------------
 
   class PM * pm = new PM();
+  
+  int num_devices = pm->dev_num_devices();
 
   class MATHLIB * ml = new MATHLIB(pm);
   
-  int num_devices = pm->dev_num_devices();
+  for(int i=0; i<num_devices; ++i) {
+    pm->dev_set_device(i);
+    int hid = ml->create_handle();
+  }
 
   if(me == 0) {
     printf("\n# of devices= %i\n",num_devices);
@@ -143,6 +152,8 @@ int main( int argc, char* argv[] )
   int device_id = me % num_devices;
 
   pm->dev_set_device(device_id);
+  
+  ml->set_handle();
   
   for(int i=0; i<nranks; ++i) {
     if(i == me) {
@@ -229,21 +240,21 @@ int main( int argc, char* argv[] )
   // ----------------------------------------------------------------
 
   // Create device buffers and transfer data to device
-  
-  real_t * d_a = (real_t *) pm->dev_malloc(_NUM_ROWS_A * _NUM_COLS_A * sizeof(real_t));
-  real_t * d_b = (real_t *) pm->dev_malloc(_NUM_ROWS_B * _NUM_COLS_B * sizeof(real_t));
-  real_t * d_c = (real_t *) pm->dev_malloc(_NUM_ROWS_A * _NUM_COLS_B * sizeof(real_t));
 
-  pm->dev_push(d_a, a, _NUM_ROWS_A * _NUM_COLS_A * sizeof(real_t));
-  pm->dev_push(d_b, b, _NUM_ROWS_B * _NUM_COLS_B * sizeof(real_t));
- 
-  int sid = pm->dev_stream_create();
+  real_t ** d_a = (real_t **) pm->dev_malloc_host(num_devices * sizeof(real_t*));
+  real_t ** d_b = (real_t **) pm->dev_malloc_host(num_devices * sizeof(real_t*));
+  real_t ** d_c = (real_t **) pm->dev_malloc_host(num_devices * sizeof(real_t*));
 
-  pm->dev_set_queue(sid);
+  for(int i=0; i<num_devices; ++i) {
+    pm->dev_set_device(i);
+    
+    d_a[i] = (real_t *) pm->dev_malloc(_NUM_ROWS_A * _NUM_COLS_A * sizeof(real_t));
+    d_b[i] = (real_t *) pm->dev_malloc(_NUM_ROWS_B * _NUM_COLS_B * sizeof(real_t));
+    d_c[i] = (real_t *) pm->dev_malloc(_NUM_ROWS_A * _NUM_COLS_B * sizeof(real_t));
 
-  int hid = ml->create_handle();
-
-  ml->set_handle(hid);
+    pm->dev_push(d_a[i], a, _NUM_ROWS_A * _NUM_COLS_A * sizeof(real_t));
+    pm->dev_push(d_b[i], b, _NUM_ROWS_B * _NUM_COLS_B * sizeof(real_t));
+  }
   
   const double alpha = 1.0;
   const double beta = 0.0;
@@ -256,38 +267,68 @@ int main( int argc, char* argv[] )
   const int lda = _NUM_COLS_A; // lead dimension of second matrix A^T
   const int ldc = _NUM_COLS_B; // lead dimension of result matrix C^T
 
-  ml->gemm((char *) "N", (char *) "N", &m, &n, &k, &alpha, d_b, &ldb, d_a, &lda, &beta, d_c, &ldc);
+  for(int i=0; i<num_devices; ++i) {
+    pm->dev_set_device(i);
+    ml->set_handle();
+    
+    ml->gemm((char *) "N", (char *) "N", &m, &n, &k, &alpha, d_b[i], &ldb, d_a[i], &lda, &beta, d_c[i], &ldc);
   
-  pm->dev_barrier();
+    pm->dev_barrier();
+  }
   
   double t0 = MPI_Wtime();
-  for(int i=0; i<_NUM_ITERATIONS_CPU; ++i)
-    ml->gemm((char *) "N", (char *) "N", &m, &n, &k, &alpha, d_b, &ldb, d_a, &lda, &beta, d_c, &ldc);
-  pm->dev_barrier();
+  for(int i=0; i<_NUM_ITERATIONS_GPU; ++i) {
+
+    for(int j=0; j<num_devices; ++j){
+      pm->dev_set_device(j);
+      ml->set_handle();
+      
+      ml->gemm((char *) "N", (char *) "N", &m, &n, &k, &alpha, d_b[j], &ldb, d_a[j], &lda, &beta, d_c[j], &ldc);
+    }
+    
+  }
+
+  for(int i=0; i<num_devices; ++i) {
+    pm->dev_set_device(i);
+    pm->dev_barrier();
+  }
+
   t = MPI_Wtime() - t0;
-  
-  pm->dev_pull(d_c, c, _NUM_ROWS_A * _NUM_COLS_B * sizeof(real_t));
-  
-  print_summary(t, _NUM_ROWS_A, _NUM_COLS_A, _NUM_COLS_B, _NUM_ITERATIONS_CPU, "GPU gemm");
 
-  check_result(r, c, _NUM_ROWS_A*_NUM_COLS_B, "gemm_gpu");
-
-  //  print_matrix(r, _NUM_ROWS_A, _NUM_COLS_B, "Reference r");
+  for(int i=0; i<num_devices; ++i) {
+    pm->dev_set_device(i);
+    
+    pm->dev_pull(d_c[i], c, _NUM_ROWS_A * _NUM_COLS_B * sizeof(real_t));
   
-  //  print_matrix(c, _NUM_ROWS_A, _NUM_COLS_B, "Output c");
+    print_summary(t, _NUM_ROWS_A, _NUM_COLS_A, _NUM_COLS_B, _NUM_ITERATIONS_GPU, "GPU gemm");
+
+    check_result(r, c, _NUM_ROWS_A*_NUM_COLS_B, "gemm_gpu");
+
+    //  print_matrix(r, _NUM_ROWS_A, _NUM_COLS_B, "Reference r");
+  
+    //  print_matrix(c, _NUM_ROWS_A, _NUM_COLS_B, "Output c");
+  }
   
   // ----------------------------------------------------------------
   
   // Clean up
 
-  ml->destroy_handle();
-  pm->dev_stream_destroy();
+  for(int i=0; i<num_devices; ++i) {
+    pm->dev_set_device(i);
+    
+    ml->destroy_handle();
+    pm->dev_stream_destroy();
+
+    pm->dev_free(d_a[i]);
+    pm->dev_free(d_b[i]);
+    pm->dev_free(d_c[i]);
+  }
   
   delete ml;
   
-  pm->dev_free(d_a);
-  pm->dev_free(d_b);
-  pm->dev_free(d_c);
+  pm->dev_free_host(d_a);
+  pm->dev_free_host(d_b);
+  pm->dev_free_host(d_c);
   
   delete pm;
     
