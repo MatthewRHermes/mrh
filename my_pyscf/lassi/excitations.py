@@ -626,11 +626,11 @@ class ExcitationPSFCISolver (ProductStateFCISolver):
         p = np.prod (lroots)
         nstates = ham_pq.shape[1]
         h_pr = ham_pq[:p,:].reshape (lroots[1],lroots[0],nstates)
-        h_pr = np.dot (uh, np.dot (vh, h_pr)).reshape (nroots*nroots,nstates)
+        h_pr = np.dot (uh, np.dot (vh, h_pr)).reshape (u.shape[1]*v.shape[1],nstates)
         ham_pq = np.append (h_pr, ham_pq[p:,:], axis=0)
         nstates = ham_pq.shape[0]
         h_rp = ham_pq[:,:p].reshape (nstates,lroots[1],lroots[0])
-        h_rp = lib.einsum ('rij,ia,jb->rab', h_rp, u, v).reshape (nstates,nroots*nroots)
+        h_rp = lib.einsum ('rij,ia,jb->rab', h_rp, u, v).reshape (nstates,u.shape[1]*v.shape[1])
         ham_pq = np.append (h_rp, ham_pq[:,p:], axis=1)
         return ham_pq
 

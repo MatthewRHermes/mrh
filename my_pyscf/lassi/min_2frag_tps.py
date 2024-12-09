@@ -153,13 +153,34 @@ def quadratic_step (ham_pq, ci1, si_p, si_q):
     kappa_u[nroots:,:nroots] = x[:nelu].reshape (
             lroots[1]-nroots, nroots)
     kappa_u -= kappa_u.T
-    u = linalg.expm (kappa_u)[:,:nroots]
+    u = linalg.expm (-kappa_u/2)[:,:nroots]
     kappa_v = np.zeros ((lroots[0],lroots[0]), dtype=x.dtype)
     kappa_v[nroots:,:nroots] = x[:nelv].reshape (
             lroots[0]-nroots, nroots)
     kappa_v -= kappa_v.T
-    vh = linalg.expm (kappa_v)[:,:nroots].conj ().T
+    vh = linalg.expm (-kappa_v/2)[:,:nroots].conj ().T
     return u, vh
+
+def idx_down_ham_pq (ham_pq, lroots, nroots):
+    p = np.prod (lroots)
+    q = ham_pq.shape[0] - p
+    h_pr = ham_pq[:p,:].reshape (lroots[1],lroots[0],p+q)
+    h_pr = h_pr[:nroots,:nroots,:].reshape (nroots*nroots,p+q)
+    ham_pq = np.append (h_pr, ham_pq[p:,:], axis=0)
+    h_rp = ham_pq[:,:p].reshape (nroots*nroots+q,lroots[1],lroots[0])
+    h_rp = h_rp[:,:nroots,:nroots].reshape (nroots*nroots+q,nroots*nroots)
+    ham_pq = np.append (h_rp, ham_pq[:,p:], axis=1)
+    return ham_pq
+
+def subspace_eig (ham_pq, lroots, nroots):
+    p = np.prod (lroots)
+    q = ham_pq.shape[0] - p
+    p0 = nroots*nroots
+    evals, evecs = linalg.eigh (idx_down_ham_pq (ham_pq, lroots, nroots))
+    si_p = np.zeros ((lroots[1],lroots[0],p0+q), dtype=evecs.dtype)
+    si_p[:nroots,:nroots,:] = evecs[:p0,:].reshape (nroots,nroots,p0+q)
+    si = np.append (si_p.reshape (p,p0+q), evecs[p0:,:], axis=0)
+    return evals, si
 
 
     
