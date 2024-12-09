@@ -239,7 +239,7 @@ class ExcitationPSFCISolver (ProductStateFCISolver):
             ham_pq = self.update_ham_pq (ham_pq, h0, h1, h2, ci1, hci_qspace, hci_pspace_diag,
                                          tdm1s_f, norb_f, nelec_f)
             # Diagonalize and truncate
-            , si = self.eig1 (ham_pq, ci1)
+            _, si = self.eig1 (ham_pq, ci1)
             disc_svals, u, _, _, vh = self.schmidt_trunc (si, ci1, nroots=nroots)
             u, vh = min_2frag_tps.quadratic_step (ham_pq, ci1, si_p, si_q)
             ham_pq = self.truncrot_ham_pq (ham_pq, u, vh)
