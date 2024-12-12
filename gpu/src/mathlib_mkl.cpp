@@ -27,11 +27,11 @@ void MATHLIB::gemm(const char * transa, const char * transb,
   
   if(strcmp(transa, "N") == 0) ta = transpose::nontrans;
   else if(strcmp(transa, "T") == 0) ta = transpose::trans;
-  else ta = tranpose::conjtrans;
+  else ta = transpose::conjtrans;
   
   if(strcmp(transb, "N") == 0) tb = transpose::nontrans;
   else if(strcmp(transb, "T") == 0) tb = transpose::trans;
-  else tb = tranpose::conjtrans;
+  else tb = transpose::conjtrans;
     
 #if defined(_GPU_SYCL_CUDA)
   oneapi::mkl::blas::column_major::gemm(*q, ta, tb, *m, *n, *k, *alpha, a, *lda, b, *ldb, *beta, c, *ldc);
@@ -57,11 +57,11 @@ void MATHLIB::gemm_batch(const char * transa, const char * transb,
   
   if(strcmp(transa, "N") == 0) ta = transpose::nontrans;
   else if(strcmp(transa, "T") == 0) ta = transpose::trans;
-  else ta = tranpose::conjtrans;
+  else ta = transpose::conjtrans;
   
   if(strcmp(transb, "N") == 0) tb = transpose::nontrans;
   else if(strcmp(transb, "T") == 0) tb = transpose::trans;
-  else tb = tranpose::conjtrans;
+  else tb = transpose::conjtrans;
     
 #if defined(_GPU_SYCL_CUDA)  
   oneapi::mkl::blas::column_major::gemm_batch(*q, ta, tb, *m, *n, *k, *alpha,

@@ -141,6 +141,11 @@ int PM::dev_check_peer(int rank, int ngpus)
   return 1;
 }
 
+void PM::dev_check_errors()
+{
+  _SYCL_CHECK_ERRORS()
+}
+
 void PM::dev_set_device(int id)
 {
 #ifdef _DEBUG_PM
@@ -221,9 +226,15 @@ void * PM::dev_malloc_host(size_t N)
 #ifdef _DEBUG_PM
   printf("Inside PM::dev_malloc_host()\n");
 #endif
-  
-  void * ptr = sycl::malloc_host<char>(N, *current_queue);
-  current_queue->wait(); // needed?
+
+  void * ptr;
+
+  if(current_queue) {
+    ptr = sycl::malloc_host<char>(N, *current_queue);
+    current_queue->wait(); // needed?
+  } else {
+    ptr = malloc(N);
+  }
   
 #ifdef _DEBUG_PM
   printf(" -- Leaving PM::dev_malloc_host()\n");
@@ -518,19 +529,6 @@ void PM::dev_stream_create(sycl::queue & q)
   
 #ifdef _DEBUG_PM
   printf(" -- Leaving PM::dev_stream_create()\n");
-#endif
-}
-
-void PM::dev_stream_destroy()
-{
-#ifdef _DEBUG_PM
-  printf("Inside PM::dev_stream_destroy()\n");
-#endif
-
-  // don't think we should destroy any sycl queues at this point
-  
-#ifdef _DEBUG_PM
-  printf(" -- Leaving PM::dev_stream_destroy()\n");
 #endif
 }
 

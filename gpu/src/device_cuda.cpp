@@ -14,12 +14,6 @@
 #define _HESSOP_BLOCK_SIZE 32
 #define _DEFAULT_BLOCK_SIZE 32
 
-//#define _DEBUG_DEVICE
-//#define _DEBUG_H2EFF
-//#define _DEBUG_H2EFF2
-//#define _DEBUG_H2EFF_DF
-#define _DEBUG_AO2MO
-
 #define _TILE(A,B) (A + B - 1) / B
 
 /* ---------------------------------------------------------------------- */

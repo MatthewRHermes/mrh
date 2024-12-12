@@ -195,7 +195,7 @@ Device::~Device()
   // print summary of cached eri blocks
 
   if(use_eri_cache) {
-    printf("\nLIBGPU :: eri cache statistics :: count= %i\n",eri_list.size());
+    printf("\nLIBGPU :: eri cache statistics :: count= %zu\n",eri_list.size());
     for(int i=0; i<eri_list.size(); ++i)
       printf("LIBGPU :: %i : eri= %p  Mbytes= %f  count= %i  update= %i device= %i\n", i, eri_list[i],
 	     eri_size[i]*sizeof(double)/1024./1024., eri_count[i], eri_update[i], eri_device[i]);
@@ -237,11 +237,9 @@ Device::~Device()
     dd->pumap.clear();
     dd->d_pumap.clear();
 
-#if defined (_USE_GPU)
-    if(dd->handle) cublasDestroy(dd->handle);
-    
-    if(dd->stream) pm->dev_stream_destroy(dd->stream);
-#endif
+    if(dd->handle) ml->destroy_handle();
+
+    if(dd->stream) pm->dev_stream_destroy();
   }
 
   printf("LIBGPU :: Finished\n");
@@ -431,7 +429,7 @@ void Device::init_get_jk(py::array_t<double> _eri1, py::array_t<double> _dmtril,
 
   my_device_data * dd = &(device_data[device_id]);
   
-  if(dd->stream == nullptr) dd->stream = *(pm->dev_get_queue()); // this is blocking the move of init_get_jk() to device.cpp
+  if(dd->stream == nullptr) dd->stream = pm->dev_get_queue();
   
   int nao_pair = nao * (nao+1) / 2;
   
@@ -515,7 +513,7 @@ void Device::init_get_jk(py::array_t<double> _eri1, py::array_t<double> _dmtril,
 
   if(dd->handle == nullptr) {    
     ml->create_handle();
-    dd->handle = *(ml->get_handle());
+    dd->handle = ml->get_handle();
   }
   
   profile_stop();
@@ -1436,10 +1434,12 @@ void Device::df_ao2mo_pass1_v2 (int blksize, int nmo, int nao, int ncore, int nc
   int _size_eri_unpacked = naux * nao * nao; 
   
 #ifdef _DEBUG_DEVICE
+#if defined (_GPU_CUDA)
   size_t freeMem;size_t totalMem;
   freeMem=0;totalMem=0;
   cudaMemGetInfo(&freeMem, &totalMem);
   printf("Starting ao2mo Free memory %lu bytes, total memory %lu bytes\n",freeMem,totalMem);
+#endif
 #endif
 
   if(_size_eri_unpacked > dd->size_buf) {
@@ -1556,9 +1556,11 @@ void Device::df_ao2mo_pass1_v2 (int blksize, int nmo, int nao, int ncore, int nc
 	   &alpha, d_bufd, &nmo, d_bufd, &nmo, &beta_, dd->d_j_pc, &ncore);
   
 #ifdef _DEBUG_DEVICE
+#if defined (_GPU_CUDA)
   printf("LIBGPU :: Leaving Device::df_ao2mo_pass1_fdrv()\n"); 
   cudaMemGetInfo(&freeMem, &totalMem);
   printf("Ending ao2mo fdrv Free memory %lu bytes, total memory %lu bytes\n",freeMem,totalMem);
+#endif
 #endif
   
   profile_stop();
@@ -1599,10 +1601,12 @@ void Device::update_h2eff_sub(int ncore, int ncas, int nocc, int nmo,
   double * h2eff_sub = static_cast<double*>(info_h2eff_sub.ptr);
 
 #ifdef _DEBUG_DEVICE
+#if defined (_GPU_CUDA)
   size_t freeMem;size_t totalMem;
   freeMem=0;totalMem=0;
   cudaMemGetInfo(&freeMem, &totalMem);
   printf("Starting h2eff_update Free memory %lu bytes, total memory %lu bytes\n",freeMem,totalMem);
+#endif
 #endif
   
   int _size_h2eff_unpacked = nmo*ncas*ncas*ncas;
@@ -1775,9 +1779,11 @@ void Device::update_h2eff_sub(int ncore, int ncas, int nocc, int nmo,
   
 #ifdef _DEBUG_DEVICE
   printf("LIBGPU :: Inside Device :: Leaving update function\n");
+#if defined (_GPU_CUDA)
   cudaMemGetInfo(&freeMem, &totalMem);
   
   printf("Ending h2eff_sub_update Free memory %lu bytes, total memory %lu bytes\n",freeMem,totalMem);
+#endif
 #endif
   
 #ifdef _SIMPLE_TIMER
@@ -1971,7 +1977,6 @@ void Device::get_h2eff_df(py::array_t<double> _cderi,
   double * d_bPvu = (double*) pm->dev_malloc_async(_size_bPvu *sizeof(double));
 
   int ncas2 = ncas * ncas;
-  ml->set_handle();
   ml->gemm_batch((char *) "T", (char *) "N", &ncas, &ncas, &nao,
 		 &alpha, d_mo_cas, &nao, &zero, d_bPmu, &nao, &ncas_nao, &beta, d_bPvu, &ncas, &ncas2, &naux);
   
@@ -1979,7 +1984,9 @@ void Device::get_h2eff_df(py::array_t<double> _cderi,
   //transpose bPmu
   
   double * d_bumP = (double*) pm->dev_malloc_async(_size_bPmu *sizeof(double));
-  
+
+  pm->dev_barrier();
+  printf("calling transpose_120()\n");
   transpose_120(d_bPmu, d_bumP, naux, ncas, nao, 1); // this call distributes work items differently 
   
   pm->dev_free_async(d_bPmu);

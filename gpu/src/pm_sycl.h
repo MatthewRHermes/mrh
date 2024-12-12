@@ -1,7 +1,7 @@
 #if defined(_GPU_SYCL) || defined(_GPU_SYCL_CUDA)
 
-#ifndef PM_SYCL_CUDA_H
-#define PM_SYCL_CUDA_H
+#ifndef PM_SYCL_H
+#define PM_SYCL_H
 
 #include <sycl/sycl.hpp>
 
@@ -15,7 +15,7 @@
 namespace PM_NS {
 
 #if defined(_GPU_SYCL_CUDA)
-#define _CUDA_CHECK_ERRORS()               \
+#define _SYCL_CHECK_ERRORS()               \
   {					   \
     cudaError err = cudaGetLastError();	   \
     if(err != cudaSuccess) {		   \
@@ -29,7 +29,7 @@ namespace PM_NS {
     }					   \
   }
   
-#define _CUDA_CHECK_ERRORS2()               \
+#define _SYCL_CHECK_ERRORS2()              \
   {					   \
     cudaError err = cudaGetLastError();	   \
     if(err != cudaSuccess) {		   \
@@ -42,6 +42,16 @@ namespace PM_NS {
       return 1;				   \
     }					   \
   }
+  
+#else
+  
+#define _SYCL_CHECK_ERRORS()              \
+  {                                        \
+  }
+
+#define _SYCL_CHECK_ERRORS2()             \
+  {                                        \
+  }
 #endif
   
   class PM {
@@ -53,7 +63,9 @@ namespace PM_NS {
     
     int dev_num_devices();
     void dev_properties(int);
+
     int dev_check_peer(int, int);
+    void dev_check_errors();
 
     void dev_set_device(int);
     int dev_get_device();
