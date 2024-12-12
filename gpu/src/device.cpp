@@ -66,6 +66,8 @@ Device::Device()
   device_data = (my_device_data*) pm->dev_malloc_host(num_devices * sizeof(my_device_data));
 
   for(int i=0; i<num_devices; ++i) {
+    pm->dev_set_device(i);
+    
     device_data[i].device_id = i;
     
     device_data[i].size_rho = 0;
@@ -109,6 +111,8 @@ Device::Device()
     device_data[i].handle = nullptr;
     device_data[i].stream = nullptr;
 #endif
+
+    ml->create_handle();
   }
 
 #ifdef _DEBUG_OPENMP
@@ -213,6 +217,7 @@ Device::~Device()
   for(int i=0; i<num_devices; ++i) {
   
     pm->dev_set_device(i);
+    
     my_device_data * dd = &(device_data[i]);
     
     pm->dev_free(dd->d_rho);
@@ -237,9 +242,9 @@ Device::~Device()
     dd->pumap.clear();
     dd->d_pumap.clear();
 
-    if(dd->handle) ml->destroy_handle();
+    //    if(dd->handle) ml->destroy_handle();
 
-    if(dd->stream) pm->dev_stream_destroy();
+    //    if(dd->stream) pm->dev_stream_destroy();
   }
 
   printf("LIBGPU :: Finished\n");
@@ -429,7 +434,7 @@ void Device::init_get_jk(py::array_t<double> _eri1, py::array_t<double> _dmtril,
 
   my_device_data * dd = &(device_data[device_id]);
   
-  if(dd->stream == nullptr) dd->stream = pm->dev_get_queue();
+  //  if(dd->stream == nullptr) dd->stream = pm->dev_get_queue();
   
   int nao_pair = nao * (nao+1) / 2;
   
@@ -511,10 +516,10 @@ void Device::init_get_jk(py::array_t<double> _eri1, py::array_t<double> _dmtril,
   
   // Create blas handle
 
-  if(dd->handle == nullptr) {    
-    ml->create_handle();
-    dd->handle = ml->get_handle();
-  }
+  // if(dd->handle == nullptr) {
+  //   ml->create_handle();
+  //   //    dd->handle = ml->get_handle();
+  // }
   
   profile_stop();
     
