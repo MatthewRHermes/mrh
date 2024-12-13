@@ -16,7 +16,7 @@ AR = ar rcs
 CPP=cpp -P -traditional
 INSTALL=../
 
-ARCH ?= polaris
+ARCH ?= polaris-gnu-nvcc
 include $(BASE_LIBGPU)/arch/$(ARCH)
 
 CXXFLAGS += -I$(BASE_LIBGPU)
@@ -50,7 +50,7 @@ install: $(EXE)
 	cp $(EXE) $(INSTALL)
 #	cp $(MOD) $(FOBJ) $(INSTALL)/include
 
-pm:
+update:
 	cp ../../src/pm*.cpp ./
 
 ####################################################################
