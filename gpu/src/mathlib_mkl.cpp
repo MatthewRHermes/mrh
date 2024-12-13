@@ -2,6 +2,8 @@
 
 #include "mathlib.h"
 
+#define _DEBUG_ML
+
 using namespace MATHLIB_NS;
 
 // ----------------------------------------------------------------
@@ -19,6 +21,10 @@ void MATHLIB::gemm(const char * transa, const char * transb,
 		   const double * b, const int * ldb,
 		   const double * beta, double * c, const int * ldc)
 {  
+#ifdef _DEBUG_ML
+  printf("Inside MATHLIB::gemm()\n");
+#endif
+  
   sycl::queue * q = pm_->dev_get_queue();
 
   using oneapi::mkl::transpose;
@@ -39,6 +45,9 @@ void MATHLIB::gemm(const char * transa, const char * transb,
   oneapi::mkl::blas::gemm(*q, ta, tb, *m, *n, *k, *alpha, a, *lda, b, *ldb, *beta, c, *ldc);
 #endif
   
+#ifdef _DEBUG_ML
+  printf(" -- Leaving MATHLIB::gemm()\n");
+#endif
 }
 
 // ----------------------------------------------------------------
@@ -49,6 +58,12 @@ void MATHLIB::gemm_batch(const char * transa, const char * transb,
 			 const double * b, const int * ldb, const int * strideB,
 			 const double * beta, double * c, const int * ldc, const int * strideC, const int * batchCount)
 {  
+#ifdef _DEBUG_ML
+  printf("Inside MATHLIB::gemm_batch()\n");
+  printf("mnk= %i %i %i  alpha= %f  beta= %f  ld= %i %i %i  stride= %i %i %i  batchCount= %i\n",
+	 *m,*n,*k,*alpha,*beta,*lda,*ldb,*ldc,*strideA,*strideB,*strideC,*batchCount);
+#endif
+  
   sycl::queue * q = pm_->dev_get_queue();
 
   using oneapi::mkl::transpose;
@@ -69,6 +84,10 @@ void MATHLIB::gemm_batch(const char * transa, const char * transb,
 #else  
   oneapi::mkl::blas::gemm_batch(*q, ta, tb, *m, *n, *k, *alpha,
 				a, *lda, *strideA, b, *ldb, *strideB, *beta, c, *ldc, *strideC, *batchCount);
+#endif
+
+#ifdef _DEBUG_ML
+  printf("Leaving MATHLIB::gemm_batch()\n");
 #endif
   
 }

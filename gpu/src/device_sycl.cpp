@@ -545,6 +545,11 @@ void Device::getjk_unpack_buf2(double * buf2, double * eri, int * map, int naux,
 #endif
 
   sycl::queue * s = pm->dev_get_queue();
+  
+#ifdef _DEBUG_DEVICE
+  printf("LIBGPU ::  -- get_jk::_getjk_unpack_buf2 :: naux= %i  nao= %i _UNPACK_BLOCK_SIZE= %i  grid_size= %i %i %i  block_size= %i %i %i",
+	 naux, nao, _UNPACK_BLOCK_SIZE, grid_size[0],grid_size[1],grid_size[2],block_size[0],block_size[1],block_size[2]);
+#endif
 
   {
     //dpct::has_capability_or_fail(s->get_device(), {sycl::aspect::fp64});
@@ -557,8 +562,8 @@ void Device::getjk_unpack_buf2(double * buf2, double * eri, int * map, int naux,
   }
 
 #ifdef _DEBUG_DEVICE
-  printf("LIBGPU ::  -- get_jk::_getjk_unpack_buf2 :: naux= %i  nao= %i _UNPACK_BLOCK_SIZE= %i  grid_size= %i %i %i  block_size= %i %i %i\n",
-	 naux, nao, _UNPACK_BLOCK_SIZE, grid_size[0],grid_size[1],grid_size[2],block_size[0],block_size[1],block_size[2]);
+  pm->dev_barrier();
+  printf(" -- success!\n");
   pm->dev_check_errors();
 #endif
 }
