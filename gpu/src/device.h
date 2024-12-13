@@ -124,6 +124,9 @@ public :
   void get_h2eff_df( py::array_t<double> , 
 		     int , int , int , int , int ,
 		     py::array_t<double>, int, size_t );
+  void get_h2eff_df_v1( py::array_t<double> , 
+		     int , int , int , int , int ,
+		     py::array_t<double>, int, size_t );
   void get_h2eff_df_v2 ( py::array_t<double>, 
                          int, int, int, int, int, 
                          py::array_t<double>, int, size_t);//VA: new function

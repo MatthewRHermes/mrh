@@ -70,6 +70,10 @@ extern "C"
                            py::array_t<double> , 
                            int , int , int , int , int ,
                            py::array_t<double>, int, size_t);
+  void libgpu_get_h2eff_df_v1(void * , 
+                           py::array_t<double> , 
+                           int , int , int , int , int ,
+                           py::array_t<double>, int, size_t);
   void libgpu_get_h2eff_df_v2(void * , 
                            py::array_t<double> , 
                            int , int , int , int , int ,
@@ -109,6 +113,7 @@ PYBIND11_MODULE(libgpu, m) {
   m.def("libgpu_h2eff_df_contract1", &libgpu_h2eff_df_contract1, "my_pyscf/df/sparse_df.py::contract1");
   m.def("libgpu_init_eri_h2eff", &libgpu_init_eri_h2eff, "my_pyscf/mcscf/las_ao2mo.py::get_h2eff_df part 0.1");
   m.def("libgpu_get_h2eff_df", &libgpu_get_h2eff_df, "my_pyscf/mcscf/las_ao2mo.py::get_h2eff_df");
+  m.def("libgpu_get_h2eff_df_v1", &libgpu_get_h2eff_df_v1, "my_pyscf/mcscf/las_ao2mo.py::get_h2eff_df_v1");
   m.def("libgpu_get_h2eff_df_v2", &libgpu_get_h2eff_df_v2, "my_pyscf/mcscf/las_ao2mo.py::get_h2eff_df_v2");
   m.def("libgpu_pull_eri_h2eff", &libgpu_pull_eri_h2eff, "my_pyscf/mcscf/las_ao2mo.py::get_h2eff_df part 0.3");
   

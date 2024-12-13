@@ -1972,7 +1972,7 @@ void Device::get_h2eff_df(py::array_t<double> _cderi,
   
   profile_start("h2eff df setup");
   
-  py::buffer_info info_eri = _eri.request(); //2D array nao * ncas
+  py::buffer_info info_eri = _eri.request(); //2D array nao * ncas * ncas_pair
   
   const int device_id = count % num_devices;
   
@@ -2108,6 +2108,204 @@ void Device::get_h2eff_df(py::array_t<double> _cderi,
   t_array[7] += t1 - t0;//TODO: add the array size
 #endif
 }
+/* ---------------------------------------------------------------------- */
+
+void Device::get_h2eff_df_v1(py::array_t<double> _cderi, 
+                                int nao, int nmo, int ncas, int naux, int ncore, 
+                                py::array_t<double> _eri, int count, size_t addr_dfobj) 
+{
+#ifdef _SIMPLE_TIMER
+  double t0 = omp_get_wtime();
+#endif
+
+#ifdef _DEBUG_DEVICE
+  printf("LIBGPU :: Inside Device :: Starting h2eff_df_contract1 function");
+  printf("LIBGPU:: dfobj= %#012x count= %i combined= %#012x %p update_dfobj= %i\n",addr_dfobj,count,addr_dfobj+count,addr_dfobj+count,update_dfobj);
+#endif 
+  
+  profile_start("h2eff df setup");
+  
+  py::buffer_info info_eri = _eri.request(); //2D array nao * ncas * ncas_pair
+  
+  const int device_id = count % num_devices;
+  
+  pm->dev_set_device(device_id);
+  
+  my_device_data * dd = &(device_data[device_id]);
+  
+  const int nao_pair = nao * (nao+1)/2;
+  const int ncas_pair = ncas * (ncas+1)/2;
+  const int _size_eri = nmo*ncas*ncas_pair;
+  const int _size_cderi = naux*nao_pair;
+  const int _size_mo_cas = nao*ncas;
+
+  const int eri_size = naux * nao * nao;
+  const int bump_buvp = naux * ncas * (ncas + nao); 
+  const int size_vuwm = ncas * ncas * ncas * nao;
+#if 1
+  #if 1
+  // assume nao>ncas
+  int _size_cderi_unpacked = 0;
+  if (eri_size>=bump_buvp)
+     {
+     if (eri_size>=size_vuwm){_size_cderi_unpacked = eri_size;}
+     else {_size_cderi_unpacked = size_vuwm;}
+     }
+  else 
+     {
+     if (bump_buvp>=size_vuwm){ _size_cderi_unpacked = bump_buvp;}
+     else {_size_cderi_unpacked = size_vuwm;}
+     }
+  // the above exercise is done so as to avoid new memory allocations during the calculations and allocate the largest needed arrays. bump and buvp is done together because they need to exist simultaneously.     naux*nao^2 vs naux*ncas*(nao+ncas) vs nmo*ncas^3 
+  #else
+  // doing this because naux*nao**2 > nao*ncas**3 and naux*nao**2 > naux*ncas*(ncas+nao)
+  const int _size_cderi_unpacked = naux * nao * nao; 
+  #endif
+  if (_size_cderi_unpacked > dd->size_eri_unpacked){
+  //printf("Size ERI in h2eff v2: %i", dd->size_eri_unpacked);
+  dd->size_eri_unpacked = _size_cderi_unpacked;
+  if (dd->d_buf1) pm->dev_free_async(dd->d_buf1);
+  if (dd->d_buf2) pm->dev_free_async(dd->d_buf2);
+  dd->d_buf1 = (double *) pm->dev_malloc_async ( dd->size_eri_unpacked * sizeof(double));
+  dd->d_buf2 = (double *) pm->dev_malloc_async ( dd->size_eri_unpacked * sizeof(double));
+  }
+#endif
+  double * eri = static_cast<double*>(info_eri.ptr);
+  double * d_mo_coeff = dd->d_mo_coeff;
+#if 0 
+  double * d_mo_cas = (double*) pm->dev_malloc_async(_size_mo_cas*sizeof(double));
+  get_mo_cas(d_mo_coeff, d_mo_cas, ncas, ncore, nao);
+#else
+  double * d_mo_cas = dd->d_mo_cas; 
+#endif
+  
+  py::buffer_info info_cderi = _cderi.request(); // 2D array blksize * nao_pair
+  double * cderi = static_cast<double*>(info_cderi.ptr);
+
+  double * d_cderi = nullptr;
+  
+  if(use_eri_cache) {
+    d_cderi = dd_fetch_eri(dd, cderi, naux, nao_pair, addr_dfobj, count);
+  } else {
+    if(_size_cderi > dd->size_eri1) {
+      dd->size_eri1 = _size_cderi;
+      if(dd->d_eri1) pm->dev_free_async(dd->d_eri1);
+      dd->d_eri1 = (double *) pm->dev_malloc_async(_size_cderi * sizeof(double));
+    }
+    d_cderi = dd->d_eri1;
+
+    pm->dev_push_async(d_cderi, cderi, _size_cderi * sizeof(double));
+  }
+#if 0
+ double * d_cderi_unpacked = (double*) pm->dev_malloc_async( _size_cderi_unpacked * sizeof(double));
+#else
+ double * d_cderi_unpacked = dd->d_buf1;
+#endif
+
+
+  int * d_my_unpack_map_ptr = dd_fetch_pumap(dd, nao, _PUMAP_2D_UNPACK);
+
+  getjk_unpack_buf2(d_cderi_unpacked,d_cderi,d_my_unpack_map_ptr,naux, nao, nao_pair);
+  
+  //bPmu = np.einsum('Pmn,nu->Pmu',cderi,mo_cas)
+  
+  const double alpha = 1.0;
+  const double beta = 0.0;
+  int zero = 0;
+  int nao2 = nao * nao;
+  int ncas_nao = ncas * nao;
+  int ncas2 = ncas * ncas;
+  const int _size_bPmu = naux*ncas*nao;
+#if 0  
+  double * d_bPmu = (double*) pm->dev_malloc_async(_size_bPmu *sizeof(double));
+#else
+  double * d_bPmu = dd->d_buf2;
+#endif
+  
+  ml->set_handle();
+  ml->gemm_batch((char *) "N", (char *) "N", &nao, &ncas, &nao,
+		 &alpha, d_cderi_unpacked, &nao, &nao2, d_mo_cas, &nao, &zero, &beta, d_bPmu, &nao, &ncas_nao, &naux);
+  const int _size_bPvu = naux*ncas*ncas;
+  //bPvu = np.einsum('mv,Pmu->Pvu',mo_cas.conjugate(),bPmu)
+#if 0 
+  pm->dev_free_async(d_cderi_unpacked);
+  double * d_bPvu = (double*) pm->dev_malloc_async(_size_bPvu *sizeof(double));
+#else
+  double * d_bPvu= dd->d_buf2 + naux*ncas*nao;
+#endif
+  ml->set_handle();
+  ml->gemm_batch((char *) "T", (char *) "N", &ncas, &ncas, &nao,
+		 &alpha, d_mo_cas, &nao, &zero, d_bPmu, &nao, &ncas_nao, &beta, d_bPvu, &ncas, &ncas2, &naux);
+  
+  //eri = np.einsum('Pmw,Pvu->mwvu', bPmu, bPvu)
+  //transpose bPmu
+#if 0  
+  double * d_bumP = (double*) pm->dev_malloc_async(_size_bPmu *sizeof(double));
+#else
+  double * d_bumP = dd->d_buf1;
+#endif
+  transpose_120(d_bPmu, d_bumP, naux, ncas, nao, 1); // this call distributes work items differently 
+#if 0  
+  pm->dev_free_async(d_bPmu);
+
+  double * d_buvP = (double*) pm->dev_malloc_async(_size_bPvu *sizeof(double));
+#else
+  double * d_buvP = dd->d_buf1+naux*ncas*nao;
+#endif
+  //transpose bPvu
+
+  transpose_210(d_bPvu, d_buvP, naux, ncas, ncas);
+
+  const int _size_mwvu = nao*ncas*ncas*ncas;
+#if 0
+  pm->dev_free_async(d_bPvu);
+
+  //h_vuwm[i*ncas*nao+j]+=h_bvuP[i*naux + k]*h_bumP[j*naux+k];
+  //dgemm (probably just simple, not strided/batched, contracted dimension = P)
+
+  double * d_vuwm = (double*) pm ->dev_malloc_async( _size_mwvu*sizeof(double));
+#else
+  double * d_vuwm = dd->d_buf2; 
+#endif
+  ml->gemm((char *) "T", (char *) "N", &ncas_nao, &ncas2, &naux,
+	   &alpha, d_bumP, &naux, d_buvP, &naux, &beta, d_vuwm, &ncas_nao);
+#if 0
+  pm->dev_free_async(d_bumP);
+  pm->dev_free_async(d_buvP);
+
+  //eri = np.einsum('mM,mwvu->Mwvu', mo_coeff.conjugate(),eri)
+  //gemm_batch(batch = v*u, contracted dimenion = m)
+  
+  double * d_vuwM = (double*) pm ->dev_malloc_async(_size_mwvu*sizeof(double));
+#else
+  double * d_vuwM = dd->d_buf1;
+#endif
+  ml->gemm_batch((char *) "T", (char *) "T", &ncas, &nao, &nao,
+		 &alpha, d_vuwm, &nao, &ncas_nao, d_mo_coeff, &nao, &zero, &beta, d_vuwM, &ncas, &ncas_nao, &ncas2);
+#if 0  
+  pm->dev_free_async(d_vuwm);
+#endif
+  double * d_eri = (double*) pm->dev_malloc_async(_size_eri*sizeof(double));
+
+  int * my_d_tril_map_ptr = dd_fetch_pumap(dd, ncas, _PUMAP_2D_UNPACK);
+
+  pack_d_vuwM(d_vuwM, d_eri, my_d_tril_map_ptr, nmo, ncas, ncas_pair);
+#if 0
+  pm->dev_free_async(d_vuwM);
+#endif
+  pm->dev_pull_async(d_eri, eri, _size_eri*sizeof(double));
+
+  pm->dev_free_async(d_eri);
+
+  pm->dev_stream_wait();
+  
+  profile_stop();
+#ifdef _SIMPLE_TIMER
+  double t1 = omp_get_wtime();
+  t_array[7] += t1 - t0;//TODO: add the array size
+#endif
+}
+
 
 /* ---------------------------------------------------------------------- */
 void Device::get_h2eff_df_v2(py::array_t<double> _cderi, 
@@ -2142,7 +2340,7 @@ void Device::get_h2eff_df_v2(py::array_t<double> _cderi,
   const int eri_size = naux * nao * nao;
   const int bump_buvp = naux * ncas * (ncas + nao); 
   const int size_vuwm = ncas * ncas * ncas * nao;
-  #if 0
+  #if 1
   // assume nao>ncas
   int _size_cderi_unpacked = 0;
   if (eri_size>=bump_buvp)
@@ -2389,6 +2587,7 @@ void Device::get_h2eff_df_v2(py::array_t<double> _cderi,
   printf("num_devices: %i",num_devices);
   pack_d_vuwM_add(d_vuwM, d_eri, my_d_tril_map_ptr, nmo, ncas, ncas_pair);
   }
+
 #endif
   profile_stop();
 #ifdef _DEBUG_H2EFF

@@ -13,7 +13,7 @@ from mrh.my_pyscf.df.sparse_df import sparsedf_array
 from pyscf.mcscf import avas
 if gpu_run:gpu = libgpu.libgpu_init()
 lib.logger.TIMER_LEVEL=lib.logger.INFO
-nfrags=5;basis='631g';
+nfrags=6;basis='631g';
 outputfile=str(nfrags)+'_'+str(basis)+'_out_cpu_ref_2.log';
 if gpu_run:outputfile=str(nfrags)+'_'+str(basis)+'_out_gpu_ref_1_debug.log';
 mol=gto.M(atom=generator(nfrags),basis=basis,verbose=4,output=outputfile,max_memory=160000)
@@ -134,6 +134,51 @@ def get_h2eff_gpu (las,mo_coeff):
         eri +=eri1
     eri1= None
     return eri
+def get_h2eff_gpu_v1 (las,mo_coeff):
+    log = lib.logger.new_logger (las, las.verbose)
+    gpu=las.use_gpu
+    nao, nmo = mo_coeff.shape
+    count = 0
+    ncore, ncas = las.ncore, las.ncas
+    nocc = ncore + ncas
+    mo_cas = mo_coeff[:,ncore:nocc]
+    libgpu.libgpu_push_mo_coeff(gpu,mo_coeff.copy(),mo_coeff.size)
+    libgpu.libgpu_init_eri_h2eff(gpu, nmo, ncas)
+    libgpu.libgpu_extract_mo_cas(gpu,ncas, ncore, nao)
+    naux = las.with_df.get_naoaux ()
+    blksize = las.with_df.blockdim
+    eri = 0
+    t0 = (lib.logger.process_clock (), lib.logger.perf_counter ())
+    eri1 = np.empty((nmo, int(ncas*ncas*(ncas+1)/2)),dtype='d')
+    for cderi in las.with_df.loop (blksize=blksize):
+        t1 = lib.logger.timer (las, 'Sparsedf', *t0)
+        naux = cderi.shape[0]
+        if DEBUG and gpu:
+            libgpu.libgpu_get_h2eff_df_v1(gpu, cderi, nao, nmo, ncas, naux, ncore,eri1, count, id(las.with_df))
+            bPmu = np.einsum('Pmn,nu->Pmu',lib.unpack_tril(cderi),mo_cas)
+            bPvu = np.einsum('mv,Pmu->Pvu',mo_cas.conjugate(),bPmu)
+            bumP = bPmu.transpose(2,1,0)
+            buvP = bPvu.transpose(2,1,0)
+            eri2 = np.einsum('uvP,wmP->uvwm', buvP, bumP)
+            eri2 = np.einsum('mM,uvwm->Mwvu', mo_coeff.conjugate(),eri2)
+            eri2 = lib.pack_tril (eri2.reshape (nmo*ncas, ncas, ncas)).reshape (nmo, -1)
+            if np.allclose(eri1,eri2): print("h2eff v1 is working")
+            else: print("h2eff v1 not working"); exit()
+        elif gpu: libgpu.libgpu_get_h2eff_df_v1(gpu, cderi, nao, nmo, ncas, naux, ncore,eri1, count, id(las.with_df)); 
+        else: 
+            bPmn = sparsedf_array (cderi)
+            bmuP1 = bPmn.contract1 (mo_cas)
+            buvP = np.tensordot (mo_cas.conjugate (), bmuP1, axes=((0),(0)))
+            eri1 = np.tensordot (bmuP1, buvP, axes=((2),(2)))
+            eri1 = np.tensordot (mo_coeff.conjugate (), eri1, axes=((0),(0)))
+            eri1 = lib.pack_tril (eri1.reshape (nmo*ncas, ncas, ncas)).reshape (nmo, -1)
+            cderi = bPmn = bmuP1 = buvP = None
+        t1 = lib.logger.timer (las, 'contract1 gpu', *t1)
+        count+=1
+        eri +=eri1
+    eri1= None
+    return eri
+
 
 def get_h2eff_gpu_v2 (las,mo_coeff):
     log = lib.logger.new_logger (las, las.verbose)
@@ -156,6 +201,7 @@ def get_h2eff_gpu_v2 (las,mo_coeff):
     for cderi in las.with_df.loop (blksize=blksize):
         t1 = lib.logger.timer (las, 'Sparsedf', *t0)
         naux = cderi.shape[0]
+        print(naux)
         if DEBUG and gpu:
             libgpu.libgpu_get_h2eff_df_v2(gpu, cderi, nao, nmo, ncas, naux, ncore,eri1, count, id(las.with_df))
             bPmn = sparsedf_array (cderi)
@@ -192,7 +238,7 @@ def get_h2eff_gpu_v2 (las,mo_coeff):
 #if gpu_run:gpu = libgpu.libgpu_init()
 
 t0=time.time()
-for _ in range(1):  get_h2eff_gpu_v2 (las, mf.mo_coeff)
+for _ in range(1):  get_h2eff_gpu_v1 (las, mf.mo_coeff)
 t1=time.time()
 if gpu_run:libgpu.libgpu_destroy_device(gpu)
 #print("fxpp check", numpy.allclose(fxpp,fxpp2))
