@@ -18,7 +18,9 @@ PM::PM()
   current_queue = nullptr;
   current_queue_id = -1;
 
-  // initialize main queue/stream for each device
+  // initialize main queue/stream for each device as in-order
+
+  sycl::property_list q_prop{sycl::property::queue::in_order()};
   
   std::vector<sycl::platform> platforms = sycl::platform::get_platforms();
   
@@ -26,7 +28,7 @@ PM::PM()
     std::vector<sycl::device> devices = plat.get_devices();
 
     for (const auto &dev : devices) {
-      sycl::queue q(dev);
+      sycl::queue q(dev, q_prop);
       if(dev.is_gpu()) my_queues.push_back(q);
     }
     
