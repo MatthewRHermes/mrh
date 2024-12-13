@@ -192,7 +192,7 @@ def get_h2eff_gpu_v2 (las,mo_coeff):
 #if gpu_run:gpu = libgpu.libgpu_init()
 
 t0=time.time()
-for _ in range(1): fxpp, bufpa, j_pc, k_pc = get_h2eff_gpu_v2 (las, mf.mo_coeff)
+for _ in range(1):  get_h2eff_gpu_v2 (las, mf.mo_coeff)
 t1=time.time()
 if gpu_run:libgpu.libgpu_destroy_device(gpu)
 #print("fxpp check", numpy.allclose(fxpp,fxpp2))
