@@ -194,7 +194,7 @@ class ExcitationPSFCISolver (ProductStateFCISolver):
         tdm1s_f = self.get_tdm1s_f (ci1, ci1, norb_f, nelec_f)
         e = 0
         grad_max = conv_tol_grad * 100
-        disc_sval_sum = sum (disc_svals)
+        disc_sval_max = max (list(disc_svals)+[0.0,])
         converged = False
         log.info ('Entering product-state fixed-point CI iteration')
         for it in range (max_cycle_macro):
@@ -204,8 +204,8 @@ class ExcitationPSFCISolver (ProductStateFCISolver):
             e, si = self.eig1 (ham_pq, ci0)
             _, u, si_p, si_q, vh = self.schmidt_trunc (si, ci0, nroots=nroots)
             ci1 = self.truncrot_ci (ci0, u, vh)
-            log.info ('Cycle %d: max grad = %e ; e = %e, |delta| = %e, ||discarded|| = %e',
-                      it, grad_max, e, e - e_last, disc_sval_sum)
+            log.info ('Cycle %d: max grad = %e ; e = %e, |delta| = %e, max (discarded) = %e',
+                      it, grad_max, e, e - e_last, disc_sval_max)
             if ((grad_max < conv_tol_grad) and (abs (e-e_last) < conv_tol_self)):
                 converged = True
                 break
@@ -247,7 +247,7 @@ class ExcitationPSFCISolver (ProductStateFCISolver):
             hci_pspace_diag = self.truncrot_hci_pspace_diag (hci_pspace_diag, u, vh)
             tdm1s_f = self.truncrot_tdm1s_f (tdm1s_f, u, vh)
             log.debug ('Discarded singular values: {}'.format (disc_svals))
-            disc_sval_sum = sum (disc_svals)
+            disc_sval_max = max (list (disc_svals) + [0.0,])
         conv_str = ['NOT converged','converged'][int (converged)]
         log.info (('Product_state fixed-point CI iteration {} after {} '
                    'cycles').format (conv_str, it))
@@ -261,7 +261,7 @@ class ExcitationPSFCISolver (ProductStateFCISolver):
         for ifrag, c in zip (self.excited_frags, ci1_active):
             ci1[ifrag] = np.asarray (c)
         t1 = self.log.timer ('ExcitationPSFCISolver kernel', *t0)
-        return converged, energy_elec, ci1
+        return converged, energy_elec, ci1, disc_sval_max
 
     def get_nq (self):
         lroots = get_lroots ([self.ci_ref[ifrag] for ifrag in self.excited_frags])

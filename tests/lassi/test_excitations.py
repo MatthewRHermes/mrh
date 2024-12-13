@@ -133,7 +133,7 @@ class KnownValues(unittest.TestCase):
                                                 smults[iroot,i])
                 nroots = np.amin (lroots[:,iroot])
                 conv, energy_tot, ci1 = psexc.kernel (h1, h2, ecore=h0, davidson_only=True,
-                                                      nroots=nroots)
+                                                      nroots=nroots)[:3]
                 if (opt==0):
                     for i in range (2):
                         c = np.asarray (ci1[i+1]).reshape (nroots,-1)
@@ -237,7 +237,7 @@ class KnownValues(unittest.TestCase):
                     weights = np.ones (lroots[i,iroot]) / lroots[i,iroot]
                     psexc.set_excited_fragment_(1+i, (neleca[iroot,i], nelecb[iroot,i]),
                                                 smults[iroot,i], weights=weights)
-                conv, energy_tot, ci1 = psexc.kernel (h1, h2, ecore=h0)
+                conv, energy_tot, ci1 = psexc.kernel (h1, h2, ecore=h0)[:3]
                 with self.subTest (rootspace=iroot):
                     self.assertTrue (conv)
                     e_roots1, si1 = lassi_ref (ci1, iroot)
@@ -245,7 +245,7 @@ class KnownValues(unittest.TestCase):
                     self.assertAlmostEqual (energy_tot, e_roots1[idx_match], 6)
                     self.assertEqual (idx_match, 0) # local minimum problems
                 conv, energy_tot, ci1 = psexc.kernel (h1, h2, ecore=h0,
-                                                      davidson_only=True)
+                                                      davidson_only=True)[:3]
                 with self.subTest ('davidson only', rootspace=iroot):
                     self.assertTrue (conv)
                     e_roots1, si1 = lassi_ref (ci1, iroot)

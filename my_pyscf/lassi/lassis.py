@@ -96,13 +96,13 @@ def prepare_fbf (lsi, ci_ref, ci_sf, ci_ch, ncharge=1, nspin=0, sa_heff=True,
     # 3. Charge excitations
     if ncharge:
         las2 = all_single_excitations (las1)
-        conv_ch, ci_ch = single_excitations_ci (
+        conv_ch, ci_ch, max_disc_sval = single_excitations_ci (
             lsi, las2, las1, ci_ch, ncharge=ncharge, sa_heff=sa_heff,
             deactivate_vrv=deactivate_vrv, spin_flips=spin_flips, crash_locmin=crash_locmin,
             ham_2q=ham_2q
         )
     log.timer ("LASSIS fragment basis functions preparation", *t0)
-    return conv_sf and conv_ch, ci_sf, ci_ch
+    return conv_sf and conv_ch, ci_sf, ci_ch, max_disc_sval
 
 def filter_single_excitation_spin_shuffles (lsi, spaces, nroots_ref=1):
     spaces_ref = spaces[:nroots_ref]
@@ -202,6 +202,7 @@ def single_excitations_ci (lsi, las2, las1, ci_ch, ncharge=1, sa_heff=True, deac
     converged = True
     spaces = filter_single_excitation_spin_shuffles (lsi, spaces, nroots_ref=las1.nroots)
     keys = set ()
+    max_max_disc = 0
     for i in range (las1.nroots, len (spaces)):
         # compute lroots
         psref_ix = [j for j, space in enumerate (spaces[:las1.nroots])
@@ -264,10 +265,10 @@ def single_excitations_ci (lsi, las2, las1, ci_ch, ncharge=1, sa_heff=True, deac
             ci0[1] = mdown (ci0[1], norb_a, nelec_a, smult_a)
             if lroots[afrag,i] == 1 and ci0[1].ndim==3: ci0[1] = ci0[1][0]
         ci0 = [ci0[int (afrag<ifrag)], ci0[int (ifrag<afrag)]]
-        conv, e_roots[i], ci1 = psexc.kernel (h1, h2, ecore=h0, ci0=ci0,
-                                              max_cycle_macro=lsi.max_cycle_macro,
-                                              conv_tol_self=lsi.conv_tol_self,
-                                              nroots=ncharge_i)
+        conv, e_roots[i], ci1, disc_svals_max = psexc.kernel (
+            h1, h2, ecore=h0, ci0=ci0, max_cycle_macro=lsi.max_cycle_macro,
+            conv_tol_self=lsi.conv_tol_self, nroots=ncharge_i
+        )
         ci_ch_ias[0] = mup (ci1[ifrag], norb_i, nelec_i, smult_i)
         if lroots[ifrag,i]==1 and ci_ch_ias[0].ndim == 2:
             ci_ch_ias[0] = ci_ch_ias[0][None,:,:]
@@ -279,8 +280,10 @@ def single_excitations_ci (lsi, las2, las1, ci_ch, ncharge=1, sa_heff=True, deac
         spaces[i].ci = ci1
         if not conv: log.warn ("CI vectors for charge-separated rootspace %s not converged",keystr)
         converged = converged and conv
+        log.info ('Electron hop {} max disc sval: {}'.format (keystr, disc_svals_max))
+        max_max_disc = max (max_max_disc, disc_svals_max)
         t0 = log.timer ("Electron hop {}".format (keystr), *t0)
-    return converged, ci_ch
+    return converged, ci_ch, max_max_disc
 
 class SpinFlips (object):
     '''For a single fragment, bundle the ci vectors of various spin-flipped states with their
@@ -665,10 +668,10 @@ class LASSIS (LASSI):
         ci_ref = self.get_ci_ref ()
         ci_sf = self.ci_spin_flips
         ci_ch = self.ci_charge_hops
-        self.converged, ci_sf, ci_ch = self.prepare_fbf (ci_ref, ci_sf, ci_ch, ncharge=ncharge,
-                                                         nspin=nspin, sa_heff=sa_heff,
-                                                         deactivate_vrv=deactivate_vrv,
-                                                         crash_locmin=crash_locmin)
+        self.converged, ci_sf, ci_ch, self.max_disc_sval = self.prepare_fbf (
+            ci_ref, ci_sf, ci_ch, ncharge=ncharge, nspin=nspin, sa_heff=sa_heff,
+            deactivate_vrv=deactivate_vrv, crash_locmin=crash_locmin
+        )
         self.ci_spin_flips = ci_sf
         self.ci_charge_hops = ci_ch
 
@@ -682,6 +685,7 @@ class LASSIS (LASSI):
         self.e_states = las.e_states
         log.info ('LASSIS model state summary: %d rootspaces; %d model states; converged? %s',
                   self.nroots, self.get_lroots ().prod (0).sum (), str (self.converged))
+        log.info ('LASSIS overall max disc sval: %e', self.max_disc_sval)
         return self.converged
 
     eig = LASSI.kernel
