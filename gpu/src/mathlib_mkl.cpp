@@ -2,7 +2,7 @@
 
 #include "mathlib.h"
 
-#define _DEBUG_ML
+//#define _DEBUG_ML
 
 using namespace MATHLIB_NS;
 
@@ -81,7 +81,7 @@ void MATHLIB::gemm_batch(const char * transa, const char * transb,
 #if defined(_GPU_SYCL_CUDA)  
   oneapi::mkl::blas::column_major::gemm_batch(*q, ta, tb, *m, *n, *k, *alpha,
 					      a, *lda, *strideA, b, *ldb, *strideB, *beta, c, *ldc, *strideC, *batchCount);
-#else  
+#else
   oneapi::mkl::blas::gemm_batch(*q, ta, tb, *m, *n, *k, *alpha,
 				a, *lda, *strideA, b, *ldb, *strideB, *beta, c, *ldc, *strideC, *batchCount);
 #endif
