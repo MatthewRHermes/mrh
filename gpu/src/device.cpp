@@ -2332,7 +2332,7 @@ void Device::get_h2eff_df_v2(py::array_t<double> _cderi,
 #else
   double * d_vuwm = dd->d_buf2;
 #endif
-#if 1
+#if 0
   cublasDgemm(dd->handle, CUBLAS_OP_T, CUBLAS_OP_N,
               ncas*nao, ncas*ncas, naux,
               &alpha, 
@@ -2354,7 +2354,7 @@ void Device::get_h2eff_df_v2(py::array_t<double> _cderi,
 #else
   double * d_vuwM = dd->d_buf1;//using same arrays
 #endif
-#if 1
+#if 0
   cublasDgemmStridedBatched(dd->handle, CUBLAS_OP_T, CUBLAS_OP_C, 
                             ncas, nao, nao, 
                             &alpha, 
@@ -2415,6 +2415,7 @@ void Device::pull_eri_h2eff(py::array_t<double> _eri, int nmo, int ncas)
   // Pulling eri from all devices
   for (int i=0; i<num_devices; ++i){
     pm->dev_set_device(i);
+
     my_device_data * dd = &(device_data[i]);
 
     if (i==0) tmp = eri;
@@ -2423,11 +2424,15 @@ void Device::pull_eri_h2eff(py::array_t<double> _eri, int nmo, int ncas)
     if (dd->d_eri_h2eff) pm->dev_pull_async(dd->d_eri_h2eff, tmp, size_eri_h2eff*sizeof(double));
   }
   // Adding eri from all devices
-  printf("adding eri\n");
   for(int i=0; i<num_devices; ++i) {
+    pm->dev_set_device(i);
+
     my_device_data * dd = &(device_data[i]);
-    pm->dev_stream_wait(dd->stream);
+
+    pm->dev_stream_wait();
+
     if(i > 0 && dd->d_eri_h2eff) {
+
       tmp = &(buf_eri_h2eff[i * size_eri_h2eff]);
 //#pragma omp parallel for
       for(int j=0; j< size_eri_h2eff; ++j) eri[j] += tmp[j];
