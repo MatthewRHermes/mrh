@@ -121,7 +121,7 @@ Device::Device()
   int rnk = 0;
   
 #pragma omp parallel for ordered
-  for(int it=0; it<omp_get_num_threads(); ++it) {
+  for(int it=0; it<num_threads; ++it) {
     char list_cores[7*CPU_SETSIZE];
     get_cores(list_cores);
 #pragma omp ordered
