@@ -181,7 +181,6 @@ class ExcitationPSFCISolver (ProductStateFCISolver):
             ovlp = ovlp.conj () * ovlp
             ovlp -= np.diag (si1_p.conj () * si1_p)
             delta = max (delta, ovlp.sum ())
-            print (ovlp, x0, x1)
         delta = max (delta, np.amax (np.abs (si1_p-si0_p)))
         return delta
 
