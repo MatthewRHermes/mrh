@@ -171,8 +171,22 @@ class ExcitationPSFCISolver (ProductStateFCISolver):
             self.excited_frags = [self.excited_frags[i] for i in idx]
             self.fcisolvers = [self.fcisolvers[i] for i in idx]
 
+    def space_delta (self, ci0, si0_p, ci1, si1_p, nroots):
+        delta = 0
+        for c0, c1 in zip (ci0, ci1):
+            x0 = np.asarray (c0[:nroots]).reshape (nroots,-1) 
+            x1 = np.asarray (c1[:nroots]).reshape (nroots,-1) 
+            ovlp = x0.conj () @ x1.T
+            ovlp = ovlp * si1_p[None,:]
+            ovlp = ovlp.conj () * ovlp
+            ovlp -= np.diag (si1_p.conj () * si1_p)
+            delta = max (delta, ovlp.sum ())
+            print (ovlp, x0, x1)
+        delta = max (delta, np.amax (np.abs (si1_p-si0_p)))
+        return delta
+
     def kernel (self, h1, h2, ecore=0, ci0=None,
-                conv_tol_grad=1e-4, conv_tol_self=1e-6, max_cycle_macro=50,
+                conv_tol_space=1e-4, conv_tol_self=1e-6, max_cycle_macro=50,
                 serialfrag=False, nroots=1, **kwargs):
         t0 = lib.logger.process_clock (), lib.logger.perf_counter ()
         h0, h1, h2 = self.get_excited_h (ecore, h1, h2)
@@ -192,21 +206,22 @@ class ExcitationPSFCISolver (ProductStateFCISolver):
         hci_qspace = self.op_ham_pq_ref (h1, h2, ci1)
         hci_pspace_diag = self.op_ham_pp_diag (h1, h2, ci1, norb_f, nelec_f)
         tdm1s_f = self.get_tdm1s_f (ci1, ci1, norb_f, nelec_f)
-        e = 0
-        grad_max = conv_tol_grad * 100
+        e, si0_p = 0, si_p
         disc_sval_max = max (list(disc_svals)+[0.0,])
         converged = False
         log.info ('Entering product-state fixed-point CI iteration')
         for it in range (max_cycle_macro):
             e_last = e
-            ci0 = ci1
+            space_delta = self.space_delta (ci0, si0_p, ci1, si_p, nroots)
+            ci0, si0_p = ci1, si_p
             # Re-diagonalize in truncated space
             e, si = self.eig1 (ham_pq, ci0)
             _, u, si_p, si_q, vh = self.schmidt_trunc (si, ci0, nroots=nroots)
+            log.debug ('Singular values in truncated space: {}'.format (si_p))
             ci1 = self.truncrot_ci (ci0, u, vh)
-            log.info ('Cycle %d: max grad = %e ; e = %e, |delta| = %e, max (discarded) = %e',
-                      it, grad_max, e, e - e_last, disc_sval_max)
-            if ((grad_max < conv_tol_grad) and (abs (e-e_last) < conv_tol_self)):
+            log.info ('Cycle %d: |delta space| = %e ; e = %e, |delta e| = %e, max (discarded) = %e',
+                      it, space_delta, e, e - e_last, disc_sval_max)
+            if ((space_delta < conv_tol_space) and (abs (e-e_last) < conv_tol_self)):
                 converged = True
                 break
             ham_pq = self.truncrot_ham_pq (ham_pq, u, vh)
@@ -216,6 +231,7 @@ class ExcitationPSFCISolver (ProductStateFCISolver):
             # Generate additional vectors and compute gradient
             hpq_xq = self.get_hpq_xq (hci_qspace, ci1, si_q)
             hpp_xp = self.get_hpp_xp (ci1, si_p, hci_pspace_diag, h0, h2, tdm1s_f, norb_f, nelec_f)
+            grad = self._get_grad (ci1, si_p, hpq_xq, hpp_xp, nroots=nroots)
             ci2 = self.get_new_vecs (ci1, hpq_xq, hpp_xp, nroots=nroots)
             # Extend intermediates
             hci2_qspace = self.op_ham_pq_ref (h1, h2, ci2)
@@ -236,16 +252,13 @@ class ExcitationPSFCISolver (ProductStateFCISolver):
                                          tdm1s_f, norb_f, nelec_f)
             # Diagonalize and truncate
             _, si = self.eig1 (ham_pq, ci1)
-            # THIS is the gradient that this algorithm pushes to zero
-            grad = self._get_grad (ci1, si, hci_qspace, hci_pspace_diag, tdm1s_f, h0, h2, norb_f,
-                                   nelec_f)
-            grad_max = np.amax (np.abs (grad))
-            disc_svals, u, _, _, vh = self.schmidt_trunc (si, ci1, nroots=nroots)
+            disc_svals, u, si_p, si_q, vh = self.schmidt_trunc (si, ci1, nroots=nroots)
             ham_pq = self.truncrot_ham_pq (ham_pq, u, vh)
             ci1 = self.truncrot_ci (ci1, u, vh)
             hci_qspace = self.truncrot_hci_qspace (hci_qspace, u, vh)
             hci_pspace_diag = self.truncrot_hci_pspace_diag (hci_pspace_diag, u, vh)
             tdm1s_f = self.truncrot_tdm1s_f (tdm1s_f, u, vh)
+            log.debug ('Retained singular values: {}'.format (si_p))
             log.debug ('Discarded singular values: {}'.format (disc_svals))
             disc_sval_max = max (list (disc_svals) + [0.0,])
         conv_str = ['NOT converged','converged'][int (converged)]
@@ -759,36 +772,24 @@ class ExcitationPSFCISolver (ProductStateFCISolver):
         t1 = self.log.timer ('get_hpp_xp', *t0)
         return hci_f_pab
 
-    def _get_grad (self, ci0, si, hci_qspace, hci_pspace_diag, tdm1s_f, h0, h2, norb_f, nelec_f):
+    def _get_grad (self, ci1, si_p, hpq_xq, hpp_xp, nroots=None):
         ''' Compute the gradient of the target interacting energy
 
         Args:
             ci0: list of ndarray of shape (nroots,ndeta[i],ndetb[i])
                 CI vectors
-            si: ndarray of shape (p+?+q,)
-                SI vector
-            hci_qspace: list of ndarray of shape (nroots,ndeta,ndetb,q)
-                H|q> projected on <p| for all but one fragment, where <p| is the
-                vectors of CI, i.e., the output of op_ham_pq_ref for ci0.
-            hci_pspace_diag: list of ndarray of shape (nroots,ndeta,ndetb)
-                H(ifrag)|p(ifrag)>, where <p| is the vectors of CI; i.e., the output of
-                op_ham_pp_diag for ci0.
-            tdm1s_f: list of ndarray of shape (nroots,nroots,2,norb[i],norb[i])
-                Spin-separated transition one-body density matrices within each fragment for ci0
+            si_p: ndarray of shape (p,)
+                SI vector in Schmidt basis
+            hpq_xq: list of ndarray of shape (nroots,ndeta[i],ndetb[i])
+                P-row, Q-column part of the Hamiltonian-vector product
+            hpp_xp: list of ndarray of shape (nroots,ndeta[i],ndetb[i])
+                P-row, P-column part of the Hamiltonian-vector product
 
         Returns:
             grad: flat ndarray
                 Gradient with respect to all nonredundant parameters
         '''
         t0 = lib.logger.process_clock (), lib.logger.perf_counter ()
-        nroots = min (get_lroots (ci0))
-        u, si_p, si_q, vh = self.schmidt_trunc (si, ci0, nroots=nroots)[1:]
-        ci1 = self.truncrot_ci (ci0, u, vh)
-        hci_qspace = self.truncrot_hci_qspace (hci_qspace, u, vh)
-        hci_pspace_diag = self.truncrot_hci_pspace_diag (hci_pspace_diag, u, vh)
-        tdm1s_f = self.truncrot_tdm1s_f (tdm1s_f, u, vh)
-        hpq_xq = self.get_hpq_xq (hci_qspace, ci1, si_q)
-        hpp_xp = self.get_hpp_xp (ci1, si_p, hci_pspace_diag, h0, h2, tdm1s_f, norb_f, nelec_f)
         grad_ext = []
         grad_int = []
         for solver, c, hc1, hc2 in zip (self.fcisolvers, ci1, hpq_xq, hpp_xp):
