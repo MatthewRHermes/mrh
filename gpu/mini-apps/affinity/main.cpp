@@ -70,7 +70,11 @@ int main(int argc, char *argv[])
 
   int num_devices = pm->dev_num_devices();
 
-  if(rnk == 0) printf("rnk= %i :  # of devices detected= %i\n", rnk, num_devices);
+  int num_threads = -1;
+#pragma omp parallel
+  num_threads = omp_get_num_threads();
+  
+  if(rnk == 0) printf("rnk= %i :  # of devices detected= %i  # of OpenMP threads= %i\n", rnk, num_devices, num_threads);
   MPI_Barrier(MPI_COMM_WORLD);
   
   for(int ir=0; ir<nprocs; ++ir) {
@@ -87,7 +91,7 @@ int main(int argc, char *argv[])
       printf("\n");
 
       #pragma omp parallel for ordered
-      for(int it=0; it<omp_get_num_threads(); ++it) {
+      for(int it=0; it<num_threads; ++it) {
         char list_cores[7*CPU_SETSIZE];
         get_cores(list_cores);
         #pragma omp ordered
