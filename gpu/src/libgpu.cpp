@@ -137,6 +137,16 @@ void libgpu_push_mo_coeff(void * ptr,
 }
 
 /* ---------------------------------------------------------------------- */
+void libgpu_extract_mo_cas(void * ptr,
+			   int ncas, int ncore, int nao)
+{
+  Device * dev = (Device *) ptr;
+  dev->extract_mo_cas(ncas, ncore, nao);
+}
+
+/* ---------------------------------------------------------------------- */
+
+
 void libgpu_init_jk_ao2mo(void * ptr, 
                           int ncore, int nmo)
 {
@@ -210,6 +220,14 @@ void libgpu_h2eff_df_contract1(void * ptr,
 }
 
 /* ---------------------------------------------------------------------- */
+void libgpu_init_eri_h2eff(void * ptr, 
+                             int nao, int ncas)
+{
+  Device * dev = (Device *) ptr;
+  dev->init_eri_h2eff(nao, ncas);
+}
+/* ---------------------------------------------------------------------- */
+
 void libgpu_get_h2eff_df(void * ptr, 
                            py::array_t<double> cderi, 
                            int nao, int nmo, int ncas, int naux, int ncore,
@@ -217,5 +235,32 @@ void libgpu_get_h2eff_df(void * ptr,
 {
   Device * dev = (Device *) ptr;
   dev->get_h2eff_df(cderi, nao, nmo, ncas, naux, ncore, eri1, count, addr_dfobj); 
+}
+/* ---------------------------------------------------------------------- */
+
+void libgpu_get_h2eff_df_v1(void * ptr, 
+                           py::array_t<double> cderi, 
+                           int nao, int nmo, int ncas, int naux, int ncore,
+                           py::array_t<double> eri1, int count, size_t addr_dfobj)
+{
+  Device * dev = (Device *) ptr;
+  dev->get_h2eff_df_v1(cderi, nao, nmo, ncas, naux, ncore, eri1, count, addr_dfobj); 
+}
+/* ---------------------------------------------------------------------- */
+void libgpu_get_h2eff_df_v2(void * ptr, 
+                           py::array_t<double> cderi, 
+                           int nao, int nmo, int ncas, int naux, int ncore,
+                           py::array_t<double> eri1, int count, size_t addr_dfobj)
+{
+  Device * dev = (Device *) ptr;
+  dev->get_h2eff_df_v2(cderi, nao, nmo, ncas, naux, ncore, eri1, count, addr_dfobj); 
+}
+/* ---------------------------------------------------------------------- */
+
+void libgpu_pull_eri_h2eff(void * ptr, 
+                             py::array_t<double> eri, int nao, int ncas)
+{
+  Device * dev = (Device *) ptr;
+  dev->pull_eri_h2eff(eri, nao, ncas);
 }
 /* ---------------------------------------------------------------------- */

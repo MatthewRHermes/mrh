@@ -126,11 +126,21 @@ public :
 
   void transpose_210(double *, double *, int, int, int);
   
+  void init_eri_h2eff( int, int);//VA: new function
   void get_h2eff_df( py::array_t<double> , 
 		     int , int , int , int , int ,
 		     py::array_t<double>, int, size_t );
+  void get_h2eff_df_v1( py::array_t<double> , 
+		     int , int , int , int , int ,
+		     py::array_t<double>, int, size_t );
+  void get_h2eff_df_v2 ( py::array_t<double>, 
+                         int, int, int, int, int, 
+                         py::array_t<double>, int, size_t);//VA: new function
+  void pull_eri_h2eff(py::array_t<double>, int, int);// VA: new function
+  void extract_mo_cas(int, int, int);//TODO: fix the difference - changed slightly
   void get_mo_cas(const double *, double *, int, int, int);
   void pack_d_vuwM(const double *, double *, int *, int, int, int);
+  void pack_d_vuwM_add(const double *, double *, int *, int, int, int);
   
   void push_mo_coeff(py::array_t<double>, int);
 private:
@@ -184,6 +194,11 @@ private:
   double * pin_fxpp;
   double * pin_bufpa;
 
+  // h2eff_df
+  int size_eri_h2eff;
+  int size_buf_eri_h2eff;
+  double * buf_eri_h2eff;
+
   // eri caching on device
 
   bool use_eri_cache;
@@ -235,11 +250,16 @@ private:
     int size_umat;
     int size_h2eff;
     int size_mo_coeff; 
+    int size_mo_cas; 
+    //ao2mo
     int size_j_pc;
     int size_k_cp;
     int size_k_pc;
     int size_bufd;
     int size_bufpa;
+    // eri_h2eff
+    int size_eri_unpacked;
+    int size_eri_h2eff;
 
     double * d_rho;
     double * d_vj;
@@ -254,10 +274,14 @@ private:
     double * d_umat;
     double * d_h2eff;
     double * d_mo_coeff;
+    double * d_mo_cas;
+    //ao2mo
     double * d_j_pc;
     double * d_k_pc;
     double * d_bufd;
     double * d_bufpa;
+    // eri_h2eff
+    double * d_eri_h2eff;
 
     std::vector<int> type_pumap;
     std::vector<int> size_pumap;
