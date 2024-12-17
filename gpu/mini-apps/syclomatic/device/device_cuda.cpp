@@ -14,12 +14,6 @@
 #define _HESSOP_BLOCK_SIZE 32
 #define _DEFAULT_BLOCK_SIZE 32
 
-//#define _DEBUG_DEVICE
-//#define _DEBUG_H2EFF
-//#define _DEBUG_H2EFF2
-//#define _DEBUG_H2EFF_DF
-#define _DEBUG_AO2MO
-
 #define _TILE(A,B) (A + B - 1) / B
 
 /* ---------------------------------------------------------------------- */
@@ -404,7 +398,22 @@ __global__ void _pack_d_vuwM(const double * in, double * out, int * map, int nmo
     if(j >= ncas*ncas) return;
     //out[k*ncas_pair*nao+l*ncas_pair+ij]=h_vuwM[i*ncas*ncas*nao+j*ncas*nao+k*nao+l];}}}}
     out[i*ncas_pair + map[j]]=in[j*ncas*nmo + i];
+
 }
+/* ---------------------------------------------------------------------- */
+
+__global__ void _pack_d_vuwM_add(const double * in, double * out, int * map, int nmo, int ncas, int ncas_pair)
+{
+    int i = blockIdx.x * blockDim.x + threadIdx.x;
+    int j = blockIdx.y * blockDim.y + threadIdx.y;
+
+    if(i >= nmo*ncas) return;
+    if(j >= ncas*ncas) return;
+    //out[k*ncas_pair*nao+l*ncas_pair+ij]=h_vuwM[i*ncas*ncas*nao+j*ncas*nao+k*nao+l];}}}}
+    out[i*ncas_pair + map[j]]+=in[j*ncas*nmo + i];
+
+}
+
 
 /* ---------------------------------------------------------------------- */
 /* Interface functions calling CUDA kernels
@@ -701,5 +710,22 @@ void Device::pack_d_vuwM(const double * in, double * out, int * map, int nmo, in
   _CUDA_CHECK_ERRORS();
 #endif
 }
+/* ---------------------------------------------------------------------- */
+void Device::pack_d_vuwM_add(const double * in, double * out, int * map, int nmo, int ncas, int ncas_pair)
+{
+  dim3 block_size(_UNPACK_BLOCK_SIZE, _UNPACK_BLOCK_SIZE, 1);
+  dim3 grid_size(_TILE(nmo*ncas,block_size.x), _TILE(ncas*ncas,block_size.y));
+  
+  cudaStream_t s = *(pm->dev_get_queue());
+  
+  _pack_d_vuwM_add<<<grid_size,block_size, 0, s>>>(in, out, map, nmo, ncas, ncas_pair);
+  
+#ifdef _DEBUG_DEVICE
+  printf("LIBGPU ::  -- get_h2eff_df::pack_d_vumM_add :: nmo*ncas= %i  ncas*ncas= %i  grid_size= %i %i %i  block_size= %i %i %i\n",
+	 nmo*ncas, ncas*ncas, grid_size.x,grid_size.y,grid_size.z,block_size.x,block_size.y,block_size.z);
+  _CUDA_CHECK_ERRORS();
+#endif
+}
+
 
 //#endif

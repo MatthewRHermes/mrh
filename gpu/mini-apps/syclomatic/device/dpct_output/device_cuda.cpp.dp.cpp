@@ -16,12 +16,6 @@
 #define _HESSOP_BLOCK_SIZE 32
 #define _DEFAULT_BLOCK_SIZE 32
 
-//#define _DEBUG_DEVICE
-//#define _DEBUG_H2EFF
-//#define _DEBUG_H2EFF2
-//#define _DEBUG_H2EFF_DF
-#define _DEBUG_AO2MO
-
 #define _TILE(A,B) (A + B - 1) / B
 
 /* ---------------------------------------------------------------------- */
@@ -464,7 +458,25 @@ void _pack_d_vuwM(const double * in, double * out, int * map, int nmo, int ncas,
     if(j >= ncas*ncas) return;
     //out[k*ncas_pair*nao+l*ncas_pair+ij]=h_vuwM[i*ncas*ncas*nao+j*ncas*nao+k*nao+l];}}}}
     out[i*ncas_pair + map[j]]=in[j*ncas*nmo + i];
+
 }
+/* ---------------------------------------------------------------------- */
+
+void _pack_d_vuwM_add(const double * in, double * out, int * map, int nmo, int ncas, int ncas_pair,
+                      const sycl::nd_item<3> &item_ct1)
+{
+    int i = item_ct1.get_group(2) * item_ct1.get_local_range(2) +
+            item_ct1.get_local_id(2);
+    int j = item_ct1.get_group(1) * item_ct1.get_local_range(1) +
+            item_ct1.get_local_id(1);
+
+    if(i >= nmo*ncas) return;
+    if(j >= ncas*ncas) return;
+    //out[k*ncas_pair*nao+l*ncas_pair+ij]=h_vuwM[i*ncas*ncas*nao+j*ncas*nao+k*nao+l];}}}}
+    out[i*ncas_pair + map[j]]+=in[j*ncas*nmo + i];
+
+}
+
 
 /* ---------------------------------------------------------------------- */
 /* Interface functions calling CUDA kernels
@@ -487,7 +499,7 @@ void Device::getjk_rho(double * rho, double * dmtril, double * eri, int nset, in
 
     s->submit([&](sycl::handler &cgh) {
       /*
-      DPCT1101:11: '_RHO_BLOCK_SIZE' expression was replaced with a value.
+      DPCT1101:12: '_RHO_BLOCK_SIZE' expression was replaced with a value.
       Modify the code to use the original expression, provided in comments, if
       it is correct.
       */
@@ -594,12 +606,12 @@ void Device::transpose(double * out, double * in, int nrow, int ncol)
 
     s->submit([&](sycl::handler &cgh) {
       /*
-      DPCT1101:12: '_TRANSPOSE_BLOCK_SIZE' expression was replaced with a
+      DPCT1101:13: '_TRANSPOSE_BLOCK_SIZE' expression was replaced with a
       value. Modify the code to use the original expression, provided in
       comments, if it is correct.
       */
       /*
-      DPCT1101:13: '_TRANSPOSE_BLOCK_SIZE+1' expression was replaced with a
+      DPCT1101:14: '_TRANSPOSE_BLOCK_SIZE+1' expression was replaced with a
       value. Modify the code to use the original expression, provided in
       comments, if it is correct.
       */
@@ -976,5 +988,36 @@ void Device::pack_d_vuwM(const double * in, double * out, int * map, int nmo, in
   _CUDA_CHECK_ERRORS();
 #endif
 }
+/* ---------------------------------------------------------------------- */
+void Device::pack_d_vuwM_add(const double * in, double * out, int * map, int nmo, int ncas, int ncas_pair)
+{
+  sycl::range<3> block_size(1, _UNPACK_BLOCK_SIZE, _UNPACK_BLOCK_SIZE);
+  sycl::range<3> grid_size(1, _TILE(ncas * ncas, block_size[1]),
+                           _TILE(nmo * ncas, block_size[2]));
+
+  dpct::queue_ptr s = *(pm->dev_get_queue());
+
+  /*
+  DPCT1049:11: The work-group size passed to the SYCL kernel may exceed the
+  limit. To get the device limit, query info::device::max_work_group_size.
+  Adjust the work-group size if needed.
+  */
+  {
+    dpct::has_capability_or_fail(s->get_device(), {sycl::aspect::fp64});
+
+    s->parallel_for(sycl::nd_range<3>(grid_size * block_size, block_size),
+                    [=](sycl::nd_item<3> item_ct1) {
+                      _pack_d_vuwM_add(in, out, map, nmo, ncas, ncas_pair,
+                                       item_ct1);
+                    });
+  }
+
+#ifdef _DEBUG_DEVICE
+  printf("LIBGPU ::  -- get_h2eff_df::pack_d_vumM_add :: nmo*ncas= %i  ncas*ncas= %i  grid_size= %i %i %i  block_size= %i %i %i\n",
+	 nmo*ncas, ncas*ncas, grid_size.x,grid_size.y,grid_size.z,block_size.x,block_size.y,block_size.z);
+  _CUDA_CHECK_ERRORS();
+#endif
+}
+
 
 //#endif
