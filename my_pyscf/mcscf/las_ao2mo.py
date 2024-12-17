@@ -3,7 +3,7 @@ from scipy import linalg
 from pyscf import ao2mo, lib
 from mrh.my_pyscf.df.sparse_df import sparsedf_array
 from mrh.my_pyscf.gpu import libgpu
-DEBUG=True
+DEBUG=False
 def get_h2eff_df (las, mo_coeff):
     # Store intermediate with one contracted ao index for faster calculation of exchange!
     log = lib.logger.new_logger (las, las.verbose)
