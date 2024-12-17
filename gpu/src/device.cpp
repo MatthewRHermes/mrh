@@ -88,6 +88,7 @@ Device::Device()
     device_data[i].size_k_pc = 0;
     device_data[i].size_bufd = 0;
     device_data[i].size_bufpa = 0;
+    device_data[i].size_eri_h2eff=0;
     
     device_data[i].d_rho = nullptr;
     device_data[i].d_vj = nullptr;
@@ -1304,9 +1305,10 @@ void Device::init_eri_h2eff(int nmo, int ncas)
     my_device_data * dd = &(device_data[id]);
 
     if (size_eri_h2eff > dd->size_eri_h2eff){
+      printf("setting size\n");
       dd->size_eri_h2eff = size_eri_h2eff;
       if (dd->d_eri_h2eff) pm->dev_free_async(dd->d_eri_h2eff);
-      dd->d_eri_h2eff = (double *) pm->dev_malloc_async(size_eri_h2eff*sizeof(double));
+      dd->d_eri_h2eff = (double *) pm->dev_malloc_async(dd->size_eri_h2eff*sizeof(double));
     }
 
   }
@@ -1314,7 +1316,7 @@ void Device::init_eri_h2eff(int nmo, int ncas)
   if(_size_buf_eri_h2eff > size_buf_eri_h2eff) {
     size_buf_eri_h2eff = _size_buf_eri_h2eff;
     if(buf_eri_h2eff) pm->dev_free_host(buf_eri_h2eff);
-    buf_eri_h2eff = (double *) pm->dev_malloc_host(_size_buf_eri_h2eff*sizeof(double));
+    buf_eri_h2eff = (double *) pm->dev_malloc_host(size_buf_eri_h2eff*sizeof(double));
     }
 #ifdef _SIMPLE_TIMER
   double t1 = omp_get_wtime();
@@ -2285,18 +2287,19 @@ void Device::get_h2eff_df_v1(py::array_t<double> _cderi,
 #if 0  
   pm->dev_free_async(d_vuwm);
 #endif
+#if 0
   double * d_eri = (double*) pm->dev_malloc_async(_size_eri*sizeof(double));
-
+#else
+  double * d_eri = dd->d_buf2;
+#endif
   int * my_d_tril_map_ptr = dd_fetch_pumap(dd, ncas, _PUMAP_2D_UNPACK);
 
   pack_d_vuwM(d_vuwM, d_eri, my_d_tril_map_ptr, nmo, ncas, ncas_pair);
+  pm->dev_pull_async(d_eri, eri, _size_eri*sizeof(double));
 #if 0
   pm->dev_free_async(d_vuwM);
-#endif
-  pm->dev_pull_async(d_eri, eri, _size_eri*sizeof(double));
-
   pm->dev_free_async(d_eri);
-
+#endif
   pm->dev_stream_wait();
   
   profile_stop();
@@ -2587,12 +2590,17 @@ void Device::get_h2eff_df_v2(py::array_t<double> _cderi,
   printf("num_devices: %i",num_devices);
   pack_d_vuwM_add(d_vuwM, d_eri, my_d_tril_map_ptr, nmo, ncas, ncas_pair);
   }
-
 #endif
   profile_stop();
-#ifdef _DEBUG_H2EFF
-  //printf("size_eri_h2eff %i\n",dd->size_eri_h2eff);
-  //double * h_eri = (double*) pm->dev_malloc_host( dd->size_eri_h2eff*sizeof(double));
+#if 1
+  printf("ncas %i, nao %i, size_eri_h2eff %i\n",ncas, nao, dd->size_eri_h2eff);
+  double * h_eri = (double*) pm->dev_malloc_host(dd->size_eri_h2eff*sizeof(double));
+  pm->dev_pull(d_eri, h_eri, dd->size_eri_h2eff*sizeof(double));
+  for (int i =0; i<nao; ++i){
+    for (int j = 0; j<ncas*ncas*(ncas+1)/2; ++j){
+      printf("%f\t",h_eri[i*ncas*ncas*(ncas+1)/2+j]);} printf("\n");
+  }
+  pm->dev_free_host(h_eri);
 #endif  
 #ifdef _SIMPLE_TIMER
   double t1 = omp_get_wtime();

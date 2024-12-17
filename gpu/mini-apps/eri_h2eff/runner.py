@@ -3,7 +3,9 @@ DEBUG=1
 import time
 if gpu_run:from mrh.my_pyscf.gpu import libgpu
 import pyscf
+import sys
 import numpy as np
+np.set_printoptions(threshold=sys.maxsize)
 if gpu_run:from gpu4pyscf import patch_pyscf
 from geometry_generator import generator
 from pyscf import gto, scf, tools, mcscf, lib
@@ -13,7 +15,7 @@ from mrh.my_pyscf.df.sparse_df import sparsedf_array
 from pyscf.mcscf import avas
 if gpu_run:gpu = libgpu.libgpu_init()
 lib.logger.TIMER_LEVEL=lib.logger.INFO
-nfrags=6;basis='631g';
+nfrags=6;basis='sto3g';
 outputfile=str(nfrags)+'_'+str(basis)+'_out_cpu_ref_2.log';
 if gpu_run:outputfile=str(nfrags)+'_'+str(basis)+'_out_gpu_ref_1_debug.log';
 mol=gto.M(atom=generator(nfrags),basis=basis,verbose=4,output=outputfile,max_memory=160000)
@@ -22,8 +24,10 @@ mf=scf.RHF(mol)
 mf=mf.density_fit()#auxbasis='weigend')
 mf.run()
 las=LASSCF(mf, list((2,)*nfrags),list((2,)*nfrags),verbose=4)#, use_gpu=gpu)
-if gpu_run:las=LASSCF(mf, list((2,)*nfrags),list((2,)*nfrags), use_gpu=gpu,verbose=4)
-frag_atom_list=[list(range(1+4*nfrag,3+4*nfrag)) for nfrag in range(nfrags)]
+#if gpu_run:las=LASSCF(mf, list((2,)*nfrags),list((2,)*nfrags), use_gpu=gpu,verbose=4)
+#frag_atom_list=[list(range(1+4*nfrag,3+4*nfrag)) for nfrag in range(nfrags)]
+if gpu_run:las=LASSCF(mf, list((2,)*4),list((2,)*4), use_gpu=gpu,verbose=4)
+frag_atom_list=[list(range(1+4*nfrag,3+4*nfrag)) for nfrag in range(4)]
 ncas,nelecas,guess_mo_coeff=avas.kernel(mf, ["C 2pz"])
 mo_coeff=las.set_fragments_(frag_atom_list, guess_mo_coeff)
 
@@ -184,6 +188,7 @@ def get_h2eff_gpu_v2 (las,mo_coeff):
     log = lib.logger.new_logger (las, las.verbose)
     gpu=las.use_gpu
     nao, nmo = mo_coeff.shape
+    print(nao,nmo)
     count = 0
     ncore, ncas = las.ncore, las.ncas
     nocc = ncore + ncas
@@ -210,6 +215,7 @@ def get_h2eff_gpu_v2 (las,mo_coeff):
             eri2 = np.tensordot (bmuP1, buvP, axes=((2),(2)))
             eri2 = np.tensordot (mo_coeff.conjugate (), eri2, axes=((0),(0)))
             eri2 = lib.pack_tril (eri2.reshape (nmo*ncas, ncas, ncas)).reshape (nmo, -1)
+            print(eri2)
             eri_cpu +=eri2
         elif gpu: 
             libgpu.libgpu_get_h2eff_df_v2(gpu, cderi, nao, nmo, ncas, naux, ncore,eri1, count, id(las.with_df)); 
@@ -224,7 +230,7 @@ def get_h2eff_gpu_v2 (las,mo_coeff):
         
         t1 = lib.logger.timer (las, 'contract1 gpu', *t1)
         count+=1
-    libgpu.libgpu_pull_eri_h2eff(gpu, eri, nmo, ncas)
+    libgpu.libgpu_pull_eri_h2eff(gpu, eri, nao, ncas)
     if DEBUG and gpu:
         if np.allclose(eri, eri_cpu): print("h2eff_v2 working")
         #else: print("h2eff not working");exit()#print('eri'); print(eri);print('eri_cpu'); print(eri_cpu);exit()

@@ -98,6 +98,7 @@ def get_h2eff_gpu (las,mo_coeff):
     nocc = ncore + ncas
     mo_cas = mo_coeff[:,ncore:nocc]
     libgpu.libgpu_push_mo_coeff(gpu,mo_coeff.copy(),mo_coeff.size)
+    libgpu.libgpu_extract_mo_cas(gpu,ncas, ncore, nao)
     naux = las.with_df.get_naoaux ()
     blksize = las.with_df.blockdim
     #else:
@@ -134,7 +135,7 @@ def get_h2eff_gpu (las,mo_coeff):
         t1 = lib.logger.timer (las, 'Sparsedf', *t0)
         naux = cderi.shape[0]
         if DEBUG and gpu:
-            libgpu.libgpu_get_h2eff_df(gpu, cderi, nao, nmo, ncas, naux, ncore,eri1, count, id(las.with_df))
+            libgpu.libgpu_get_h2eff_df_v1(gpu, cderi, nao, nmo, ncas, naux, ncore,eri1, count, id(las.with_df))
             bPmu = np.einsum('Pmn,nu->Pmu',lib.unpack_tril(cderi),mo_cas)
             bPvu = np.einsum('mv,Pmu->Pvu',mo_cas.conjugate(),bPmu)
             bumP = bPmu.transpose(2,1,0)
@@ -142,9 +143,9 @@ def get_h2eff_gpu (las,mo_coeff):
             eri2 = np.einsum('uvP,wmP->uvwm', buvP, bumP)
             eri2 = np.einsum('mM,uvwm->Mwvu', mo_coeff.conjugate(),eri2)
             eri2 = lib.pack_tril (eri2.reshape (nmo*ncas, ncas, ncas)).reshape (nmo, -1)
-            if np.allclose(eri1,eri2): print("h2eff is working")
-            else: print("h2eff not working"); exit()
-        elif gpu: libgpu.libgpu_get_h2eff_df(gpu, cderi, nao, nmo, ncas, naux, ncore,eri1, count, id(las.with_df)); 
+            if np.allclose(eri1,eri2): print("h2eff v1 is working")
+            else: print("h2eff v1 not working"); exit()
+        elif gpu: libgpu.libgpu_get_h2eff_df_v1(gpu, cderi, nao, nmo, ncas, naux, ncore,eri1, count, id(las.with_df)); 
         else: 
             bPmn = sparsedf_array (cderi)
             bmuP1 = bPmn.contract1 (mo_cas)
