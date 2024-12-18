@@ -465,6 +465,23 @@ void _pack_d_vuwM(const double * in, double * out, int * map, int nmo, int ncas,
 }
 
 /* ---------------------------------------------------------------------- */
+
+void _pack_d_vuwM_add(const double * in, double * out, int * map, int nmo, int ncas, int ncas_pair,
+                      const sycl::nd_item<3> &item_ct1)
+{
+    int i = item_ct1.get_group(2) * item_ct1.get_local_range(2) +
+            item_ct1.get_local_id(2);
+    int j = item_ct1.get_group(1) * item_ct1.get_local_range(1) +
+            item_ct1.get_local_id(1);
+
+    if(i >= nmo*ncas) return;
+    if(j >= ncas*ncas) return;
+    //out[k*ncas_pair*nao+l*ncas_pair+ij]=h_vuwM[i*ncas*ncas*nao+j*ncas*nao+k*nao+l];}}}}
+    out[i*ncas_pair + map[j]]+=in[j*ncas*nmo + i];
+
+}
+
+/* ---------------------------------------------------------------------- */
 /* Interface functions calling CUDA kernels                               */
 /* ---------------------------------------------------------------------- */
 
@@ -959,6 +976,38 @@ void Device::pack_d_vuwM(const double * in, double * out, int * map, int nmo, in
 
 #ifdef _DEBUG_DEVICE
   printf("LIBGPU ::  -- get_h2eff_df::pack_d_vumM :: nmo*ncas= %i  ncas*ncas= %i  grid_size= %i %i %i  block_size= %i %i %i\n",
+	 nmo*ncas, ncas*ncas, grid_size[0],grid_size[1],grid_size[2],block_size[0],block_size[1],block_size[2]);
+  pm->dev_check_errors();
+#endif
+}
+
+/* ---------------------------------------------------------------------- */
+
+void Device::pack_d_vuwM_add(const double * in, double * out, int * map, int nmo, int ncas, int ncas_pair)
+{
+  sycl::range<3> block_size(1, _UNPACK_BLOCK_SIZE, _UNPACK_BLOCK_SIZE);
+  sycl::range<3> grid_size(1, _TILE(ncas * ncas, block_size[1]),
+                           _TILE(nmo * ncas, block_size[2]));
+
+  sycl::queue * s = pm->dev_get_queue();
+
+  /*
+  DPCT1049:11: The work-group size passed to the SYCL kernel may exceed the
+  limit. To get the device limit, query info::device::max_work_group_size.
+  Adjust the work-group size if needed.
+  */
+  {
+    //    dpct::has_capability_or_fail(s->get_device(), {sycl::aspect::fp64});
+
+    s->parallel_for(sycl::nd_range<3>(grid_size * block_size, block_size),
+                    [=](sycl::nd_item<3> item_ct1) {
+                      _pack_d_vuwM_add(in, out, map, nmo, ncas, ncas_pair,
+                                       item_ct1);
+                    });
+  }
+
+#ifdef _DEBUG_DEVICE
+  printf("LIBGPU ::  -- get_h2eff_df::pack_d_vumM_add :: nmo*ncas= %i  ncas*ncas= %i  grid_size= %i %i %i  block_size= %i %i %i\n",
 	 nmo*ncas, ncas*ncas, grid_size[0],grid_size[1],grid_size[2],block_size[0],block_size[1],block_size[2]);
   pm->dev_check_errors();
 #endif
