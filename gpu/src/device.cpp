@@ -66,7 +66,8 @@ Device::Device()
 
   num_devices = pm->dev_num_devices();
   
-  device_data = (my_device_data*) pm->dev_malloc_host(num_devices * sizeof(my_device_data));
+  //  device_data = (my_device_data*) pm->dev_malloc_host(num_devices * sizeof(my_device_data));
+  device_data = new my_device_data[num_devices];
 
   for(int i=0; i<num_devices; ++i) {
     pm->dev_set_device(i);
@@ -235,16 +236,20 @@ Device::~Device()
     pm->dev_free(dd->d_buf3);
     pm->dev_free(dd->d_vkk);
     pm->dev_free(dd->d_dms);
-    pm->dev_free(dd->d_dmtril);
-    pm->dev_free(dd->d_eri1);
-    pm->dev_free(dd->d_h2eff);
     pm->dev_free(dd->d_mo_coeff);
     pm->dev_free(dd->d_mo_cas);
+    pm->dev_free(dd->d_dmtril);
+    pm->dev_free(dd->d_eri1);
+    pm->dev_free(dd->d_ucas);
+    pm->dev_free(dd->d_umat);
+    pm->dev_free(dd->d_h2eff);
+    pm->dev_free(dd->d_eri_h2eff);
+    
     pm->dev_free(dd->d_j_pc);
     pm->dev_free(dd->d_k_pc);
-    pm->dev_free(dd->d_eri_h2eff);
-    //pm->dev_free(bufd);
-    //pm->dev_free(bufpa);
+    pm->dev_free(dd->d_bufd);
+    pm->dev_free(dd->d_bufpa);
+    
     for(int i=0; i<dd->size_pumap.size(); ++i) {
       pm->dev_free_host(dd->pumap[i]);
       pm->dev_free(dd->d_pumap[i]);
@@ -253,15 +258,13 @@ Device::~Device()
     dd->size_pumap.clear();
     dd->pumap.clear();
     dd->d_pumap.clear();
-
-    //    if(dd->handle) ml->destroy_handle();
-
-    //    if(dd->stream) pm->dev_stream_destroy();
   }
 
   printf("LIBGPU :: Finished\n");
 #endif
 
+  delete [] device_data;
+  
   delete ml;
   
   delete pm;
