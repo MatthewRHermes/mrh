@@ -411,6 +411,30 @@ class LSTDM (object):
         wgt *= self.fermion_frag_shuffle (ket, uniq_frags)
         return wgt
 
+    def crunch_ovlp (self, bra, ket):
+        i = self.ints[-1]
+        b, k = i.unique_root[bra], i.unique_root[ket]
+        o = i.ovlp[b][k] / (1 + int (bra==ket))
+        for i in self.ints[-2::-1]:
+            b, k = i.unique_root[bra], i.unique_root[ket]
+            o = np.multiply.outer (o, i.ovlp[b][k]).transpose (0,2,1,3)
+            o = o.reshape (o.shape[0]*o.shape[1], o.shape[2]*o.shape[3])
+        o *= self.spin_shuffle[bra]
+        o *= self.spin_shuffle[ket]
+        return o
+
+    def get_ovlp (self, rootidx=None):
+        exc_null = self.exc_null
+        offs_lroots = self.offs_lroots
+        nstates = self.nstates
+        ovlp = np.zeros ([nstates,]*2, dtype=self.dtype)
+        for bra, ket in exc_null:
+            i0, i1 = offs_lroots[bra]
+            j0, j1 = offs_lroots[ket]
+            ovlp[i0:i1,j0:j1] = self.crunch_ovlp (bra, ket)
+        ovlp += ovlp.T
+        return ovlp 
+
     def _get_addr_range (self, raddr, *inv, _profile=True):
         '''Get the integer offsets for successive ENVs in a particular rootspace in which some
         fragments are frozen in the zero state.
