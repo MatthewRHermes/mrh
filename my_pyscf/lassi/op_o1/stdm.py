@@ -427,6 +427,18 @@ class LSTDM (object):
         exc_null = self.exc_null
         offs_lroots = self.offs_lroots
         nstates = self.nstates
+        if rootidx is not None:
+            rootidx = np.atleast_1d (rootidx)
+            bra_null = np.isin (self.exc_null[:,0], rootidx)
+            ket_null = np.isin (self.exc_null[:,1], rootidx)
+            idx_null = bra_null & ket_null
+            exc_null = exc_null[idx_null,:]
+            lroots = self.lroots[:,idx_null]
+            nprods = np.prod (lroots, axis=0)
+            offs1 = np.cumsum (nprods)
+            offs0 = offs1 - nprods 
+            offs_lroots = np.stack ([offs0, offs1], axis=1)
+            nstates = offs1[-1]
         ovlp = np.zeros ([nstates,]*2, dtype=self.dtype)
         for bra, ket in exc_null:
             i0, i1 = offs_lroots[bra]

@@ -6,15 +6,11 @@ from pyscf import fci, lib
 from pyscf.fci.direct_nosym import contract_1e as contract_1e_nosym
 from pyscf.fci.direct_spin1 import _unpack_nelec
 from pyscf.fci.spin_op import contract_ss, spin_square
-from pyscf.scf.addons import canonical_orth_
 from pyscf.data import nist
 from itertools import combinations
 from mrh.my_pyscf.mcscf import soc_int as soc_int
 from mrh.my_pyscf.lassi import dms as lassi_dms
 from mrh.my_pyscf.fci.csf import unpack_h1e_cs
-from pyscf import __config__
-
-LINDEP_THRESH = getattr (__config__, 'lassi_lindep_thresh', 1.0e-5)
 
 def memcheck (las, ci, soc=None):
     '''Check if the system has enough memory to run these functions! ONLY checks
@@ -440,8 +436,6 @@ def get_orth_basis (ci_fr, norb_f, nelec_frs, _get_ovlp=get_ovlp):
     unique, uniq_idx, inverse, cnts = np.unique (nelec_frs, axis=1, return_index=True,
                                                  return_inverse=True, return_counts=True)
     if not np.count_nonzero (cnts>1):
-        print ("escape")
-        print (cnts)
         def raw2orth (rawarr):
             return rawarr
         def orth2raw (ortharr):
@@ -469,7 +463,6 @@ def get_orth_basis (ci_fr, norb_f, nelec_frs, _get_ovlp=get_ovlp):
         manifolds_xmat.append (xmat)
 
     nraw = offs1[-1]
-    print (nraw, north)
     def raw2orth (rawarr):
         col_shape = rawarr.shape[1:]
         orth_shape = [north,] + list (col_shape)
@@ -480,7 +473,6 @@ def get_orth_basis (ci_fr, norb_f, nelec_frs, _get_ovlp=get_ovlp):
             j = i + xmat.shape[1]
             ortharr[i:j] = np.tensordot (xmat.T, rawarr[prod_idx], axes=1)
             i = j
-        print (rawarr.shape, ortharr.shape)
         return ortharr
 
     def orth2raw (ortharr):

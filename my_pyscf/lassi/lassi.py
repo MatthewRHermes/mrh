@@ -4,6 +4,7 @@ from scipy import linalg
 from mrh.my_pyscf.lassi import op_o0
 from mrh.my_pyscf.lassi import op_o1
 from mrh.my_pyscf.lassi import chkfile
+from mrh.my_pyscf.lassi import citools
 from mrh.my_pyscf.lassi.citools import get_lroots
 from pyscf import lib, symm, ao2mo
 from pyscf.scf.addons import canonical_orth_
@@ -429,7 +430,7 @@ def _eig_block (las, e0, h1, h2, ci_blk, nelec_blk, rootsym, soc, orbsym, wfnsym
         lc = 'checking if LASSI basis has lindeps: |ovlp| = {:.6e}'.format (ovlp_det)
         lib.logger.info (las, 'Caught error %s, %s', str (err), lc)
         if ovlp_det < LINDEP_THRESH:
-            raw2orth, orth2raw = op_o0.get_orth_basis (ci_blk, las.ncas_sub, nelec_blk)
+            raw2orth, orth2raw = citools.get_orth_basis (ci_blk, las.ncas_sub, nelec_blk)
             xhx = raw2orth (ham_blk).conj ().T
             #x = canonical_orth_(ovlp_blk, thr=LINDEP_THRESH)
             lib.logger.info (las, '%d/%d linearly independent model states',
