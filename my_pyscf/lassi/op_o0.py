@@ -12,6 +12,7 @@ from itertools import combinations
 from mrh.my_pyscf.mcscf import soc_int as soc_int
 from mrh.my_pyscf.lassi import dms as lassi_dms
 from mrh.my_pyscf.fci.csf import unpack_h1e_cs
+from pyscf import __config__
 
 LINDEP_THRESH = getattr (__config__, 'lassi_lindep_thresh', 1.0e-5)
 
@@ -436,9 +437,11 @@ def get_ovlp (ci_fr, norb_f, nelec_frs, rootidx=None):
 
 def get_orth_basis (ci_fr, norb_f, nelec_frs, _get_ovlp=get_ovlp):
     nfrags, nroots = nelec_frs.shape[:2]
-    unique, uniq_idx, inverse, cnts = np.unique (nelec_frs, axis=1, return_indices=True,
+    unique, uniq_idx, inverse, cnts = np.unique (nelec_frs, axis=1, return_index=True,
                                                  return_inverse=True, return_counts=True)
-    if np.count_nonzero (cnts>1):
+    if not np.count_nonzero (cnts>1):
+        print ("escape")
+        print (cnts)
         def raw2orth (rawarr):
             return rawarr
         def orth2raw (ortharr):
@@ -466,6 +469,7 @@ def get_orth_basis (ci_fr, norb_f, nelec_frs, _get_ovlp=get_ovlp):
         manifolds_xmat.append (xmat)
 
     nraw = offs1[-1]
+    print (nraw, north)
     def raw2orth (rawarr):
         col_shape = rawarr.shape[1:]
         orth_shape = [north,] + list (col_shape)
@@ -475,6 +479,8 @@ def get_orth_basis (ci_fr, norb_f, nelec_frs, _get_ovlp=get_ovlp):
         for prod_idx, xmat in zip (manifolds_prod_idx, manifolds_xmat):
             j = i + xmat.shape[1]
             ortharr[i:j] = np.tensordot (xmat.T, rawarr[prod_idx], axes=1)
+            i = j
+        print (rawarr.shape, ortharr.shape)
         return ortharr
 
     def orth2raw (ortharr):
@@ -486,6 +492,7 @@ def get_orth_basis (ci_fr, norb_f, nelec_frs, _get_ovlp=get_ovlp):
         for prod_idx, xmat in zip (manifolds_prod_idx, manifolds_xmat):
             j = i + xmat.shape[1]
             rawarr[prod_idx] = np.tensordot (xmat.conj (), ortharr[i:j], axes=1)
+            i = j
         return rawarr
 
     return raw2orth, orth2raw

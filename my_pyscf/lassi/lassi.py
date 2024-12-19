@@ -429,12 +429,16 @@ def _eig_block (las, e0, h1, h2, ci_blk, nelec_blk, rootsym, soc, orbsym, wfnsym
         lc = 'checking if LASSI basis has lindeps: |ovlp| = {:.6e}'.format (ovlp_det)
         lib.logger.info (las, 'Caught error %s, %s', str (err), lc)
         if ovlp_det < LINDEP_THRESH:
-            x = canonical_orth_(ovlp_blk, thr=LINDEP_THRESH)
+            raw2orth, orth2raw = op_o0.get_orth_basis (ci_blk, las.ncas_sub, nelec_blk)
+            xhx = raw2orth (ham_blk).conj ().T
+            #x = canonical_orth_(ovlp_blk, thr=LINDEP_THRESH)
             lib.logger.info (las, '%d/%d linearly independent model states',
-                             x.shape[1], x.shape[0])
-            xhx = x.conj ().T @ ham_blk @ x
+                             xhx.shape[1], xhx.shape[0])
+            xhx = raw2orth (xhx).conj ().T
+            #xhx = x.conj ().T @ ham_blk @ x
             e, c = linalg.eigh (xhx)
-            c = x @ c
+            #c = x @ c
+            c = orth2raw (c)
         else: raise (err) from None
     return e, c, s2_blk
 
