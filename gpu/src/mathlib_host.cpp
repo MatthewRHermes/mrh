@@ -51,9 +51,13 @@ void MATHLIB::gemm_batch(const char * transa, const char * transb,
   
 #pragma omp parallel for
   for(int i=0; i<*batchCount; ++i) {
-    real_t * a_ = &(a[i * strideA]);
-    real_t * b_ = &(b[i * strideB]);
-    real_t * c_ = &(c[i * strideC]);
+    int offset_a = i * (*strideA);
+    int offset_b = i * (*strideB);
+    int offset_c = i * (*strideC);
+    
+    const real_t * a_ = &(a[offset_a]);
+    const real_t * b_ = &(b[offset_b]);
+    real_t * c_ = &(c[offset_c]);
     
 #ifdef _SINGLE_PRECISION
     sgemm_(transa, transb, m, n, k, alpha, a_, lda, b_, ldb, beta, c_, ldc);
