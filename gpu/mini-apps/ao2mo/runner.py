@@ -25,6 +25,9 @@ mf.run()
 mc=mcscf.CASSCF(mf, nfrags*2, nfrags*2)
 with_df = mc._scf.with_df
 
+def prange(start, end, step):
+    for i in range(start, end, step):
+        yield i, min(i+step, end)
 def init_eri_gpu_v0 (mo, casscf, with_df):
     nao, nmo = mo.shape
     ncore = casscf.ncore

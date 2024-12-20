@@ -40,18 +40,29 @@ extern "C"
   void libgpu_extract_mo_cas(void *, 
 			    int, int, int);
   
-  void libgpu_df_ao2mo_pass1_v2(void * ,
-                             int, int, int, int, int, int,
-                             py::array_t<double>, int, size_t);
   void libgpu_init_jk_ao2mo(void *, 
                             int, int);
   void libgpu_init_ints_ao2mo(void *, 
                             int, int, int);
+  void libgpu_init_ints_ao2mo_v3(void *, 
+                            int, int, int);
+  void libgpu_init_ppaa_ao2mo(void *, 
+                             int, int);
+  void libgpu_df_ao2mo_pass1_v2(void * ,
+                             int, int, int, int, int, int,
+                             py::array_t<double>, int, size_t);
+  void libgpu_df_ao2mo_v3(void * ,
+                             int, int, int, int, int, int,
+                             py::array_t<double>, int, size_t);
   void libgpu_pull_jk_ao2mo(void *, 
                             py::array_t<double>, py::array_t<double>,int, int);
   void libgpu_pull_ints_ao2mo(void *, 
 			      py::array_t<double>, py::array_t<double>, int, int, int, int);
-  
+  void libgpu_pull_ints_ao2mo_v3(void *, 
+			      py::array_t<double>, int, int, int, int);
+  void libgpu_pull_ppaa_ao2mo(void *, 
+			      py::array_t<double>, int, int);
+
   void libgpu_orbital_response(void *,
 			       py::array_t<double>,
 			       py::array_t<double>, py::array_t<double>, py::array_t<double>,
@@ -60,10 +71,6 @@ extern "C"
   void libgpu_update_h2eff_sub(void *, 
                                int, int, int, int, 
 			       py::array_t<double>, py::array_t<double>);
-  void libgpu_h2eff_df_contract1(void * , 
-                           py::array_t<double> ,  
-                           int , int , int , int , int ,
-                           py::array_t<double> ,py::array_t<double> );
   void libgpu_init_eri_h2eff(void * , 
                               int, int);
   void libgpu_get_h2eff_df(void * , 
@@ -106,11 +113,15 @@ PYBIND11_MODULE(libgpu, m) {
   m.def("libgpu_extract_mo_cas", &libgpu_extract_mo_cas, "pyscf/mcscf/las_ao2mo.py");
   m.def("libgpu_init_jk_ao2mo", &libgpu_init_jk_ao2mo, "pyscf/mcscf/df.py::_ERIS.__init__() part 0.2");
   m.def("libgpu_init_ints_ao2mo", &libgpu_init_ints_ao2mo, "pyscf/mcscf/df.py::_ERIS.__init__() part 0.3");
+  m.def("libgpu_init_ppaa_ao2mo", &libgpu_init_ppaa_ao2mo, "pyscf/mcscf/df.py::_ERIS.__init__() part 0.4");
+  m.def("libgpu_init_ints_ao2mo_v3", &libgpu_init_ints_ao2mo_v3, "pyscf/mcscf/df.py::_ERIS.__init__() part 0.3_v3");
   m.def("libgpu_df_ao2mo_pass1_v2", &libgpu_df_ao2mo_pass1_v2, "pyscf/mcscf/df.py::_ERIS.__init__() 2.0");
+  m.def("libgpu_df_ao2mo_v3", &libgpu_df_ao2mo_v3, "pyscf/mcscf/df.py::_ERIS.__init__() 3.0");
   m.def("libgpu_pull_jk_ao2mo", &libgpu_pull_jk_ao2mo, "pyscf/mcscf/df.py::_ERIS.__init__() part 0.5");
   m.def("libgpu_pull_ints_ao2mo", &libgpu_pull_ints_ao2mo, "pyscf/mcscf/df.py::_ERIS.__init__() part 0.6");
+  m.def("libgpu_pull_ppaa_ao2mo", &libgpu_pull_ppaa_ao2mo, "pyscf/mcscf/df.py::_ERIS.__init__() part 0.7");
+  m.def("libgpu_pull_ints_ao2mo_v3", &libgpu_pull_ints_ao2mo_v3, "pyscf/mcscf/df.py::_ERIS.__init__() part 0.6_v3");
   m.def("libgpu_update_h2eff_sub", &libgpu_update_h2eff_sub, "my_pyscf/mcscf/lasci_sync.py::_update_h2_eff()");
-  m.def("libgpu_h2eff_df_contract1", &libgpu_h2eff_df_contract1, "my_pyscf/df/sparse_df.py::contract1");
   m.def("libgpu_init_eri_h2eff", &libgpu_init_eri_h2eff, "my_pyscf/mcscf/las_ao2mo.py::get_h2eff_df part 0.1");
   m.def("libgpu_get_h2eff_df", &libgpu_get_h2eff_df, "my_pyscf/mcscf/las_ao2mo.py::get_h2eff_df");
   m.def("libgpu_get_h2eff_df_v1", &libgpu_get_h2eff_df_v1, "my_pyscf/mcscf/las_ao2mo.py::get_h2eff_df_v1");
