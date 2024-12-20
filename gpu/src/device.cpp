@@ -1501,8 +1501,6 @@ void Device::df_ao2mo_pass1_v2 (int blksize, int nmo, int nao, int ncore, int nc
 
   my_device_data * dd = &(device_data[device_id]);
 
-  //  pm->dev_barrier();
-
   //printf(" naux %i blksize %i\n", naux, blksize);
 #ifdef _DEBUG_DEVICE
   printf("LIBGPU:: Inside Device::df_ao2mo_pass1_fdrv()\n");
@@ -2051,10 +2049,6 @@ void Device::get_h2eff_df(py::array_t<double> _cderi,
   ml->set_handle();
   ml->gemm_batch((char *) "N", (char *) "N", &nao, &ncas, &nao,
 		 &alpha, d_cderi_unpacked, &nao, &nao2, d_mo_cas, &nao, &zero, &beta, d_bPmu, &nao, &ncas_nao, &naux);
-
-  pm->dev_barrier();
-
-  //  printf("call dev_free_async(d_cderi_unpacked)\n");
   
   pm->dev_free_async(d_cderi_unpacked);
 
@@ -2063,25 +2057,16 @@ void Device::get_h2eff_df(py::array_t<double> _cderi,
   const int _size_bPvu = naux*ncas*ncas;
   
   double * d_bPvu = (double*) pm->dev_malloc_async(_size_bPvu *sizeof(double));
-
-  //  printf("so far, so good...\n");
-  pm->dev_barrier();
   
   int ncas2 = ncas * ncas;
   ml->gemm_batch((char *) "T", (char *) "N", &ncas, &ncas, &nao,
 		 &alpha, d_mo_cas, &nao, &zero, d_bPmu, &nao, &ncas_nao, &beta, d_bPvu, &ncas, &ncas2, &naux);
-  
-  pm->dev_barrier();
-
-  //  printf("call dev_malloc_async(d_bumP)\n");
   
   //eri = np.einsum('Pmw,Pvu->mwvu', bPmu, bPvu)
   //transpose bPmu
   
   double * d_bumP = (double*) pm->dev_malloc_async(_size_bPmu *sizeof(double));
 
-  pm->dev_barrier();
-  //  printf("calling transpose_120()\n");
   transpose_120(d_bPmu, d_bumP, naux, ncas, nao, 1); // this call distributes work items differently 
   
   pm->dev_free_async(d_bPmu);
