@@ -235,7 +235,7 @@ class LASSIOop01DisagreementError (RuntimeError):
         return self.message
 
 def lassi (las, mo_coeff=None, ci=None, veff_c=None, h2eff_sub=None, orbsym=None, soc=False,
-           break_symmetry=False, opt=1):
+           break_symmetry=False, opt=1, davidson_only=None):
     ''' Diagonalize the state-interaction matrix of LASSCF '''
     if mo_coeff is None: mo_coeff = las.mo_coeff
     if ci is None: ci = las.ci
@@ -245,6 +245,8 @@ def lassi (las, mo_coeff=None, ci=None, veff_c=None, h2eff_sub=None, orbsym=None
             orbsym = las.label_symmetry_(las.mo_coeff).orbsym
         if orbsym is not None:
             orbsym = orbsym[las.ncore:las.ncore+las.ncas]
+    if davidson_only is None: davidson_only = getattr (las, 'davidson_only', False)
+    max_memory = getattr (las, 'max_memory', 2000)
     o0_memcheck = op_o0.memcheck (las, ci, soc=soc)
     if opt == 0 and o0_memcheck == False:
         raise RuntimeError ('Insufficient memory to use o0 LASSI algorithm')
@@ -289,7 +291,9 @@ def lassi (las, mo_coeff=None, ci=None, veff_c=None, h2eff_sub=None, orbsym=None
             continue
         wfnsym = None if break_symmetry else sym[-1]
         e, c, s2_blk = _eig_block (las1, e0, h1, h2, ci_blk, nelec_blk, sym, soc,
-                                   orbsym, wfnsym, o0_memcheck, opt)
+                                   orbsym, wfnsym, o0_memcheck, opt,
+                                   davidson_only=davidson_only,
+                                   max_memory=max_memory)
         s2_mat.append (s2_blk)
         si.append (c)
         s2_blk = c.conj ().T @ s2_blk @ c
@@ -350,7 +354,26 @@ def lassi (las, mo_coeff=None, ci=None, veff_c=None, h2eff_sub=None, orbsym=None
             break
     return e_roots, si
 
-def _eig_block (las, e0, h1, h2, ci_blk, nelec_blk, rootsym, soc, orbsym, wfnsym, o0_memcheck, opt):
+def _eig_block (las, e0, h1, h2, ci_blk, nelec_blk, rootsym, soc, orbsym, wfnsym, o0_memcheck,
+                opt, max_memory=2000, davidson_only=False):
+    nstates = np.prod (get_lroots (ci_blk), axis=0).sum ()
+    req_memory = 24*nstates*nstates/1e6
+    current_memory = lib.current_memory ()[0]
+    if current_memory+req_memory > max_memory:
+        lib.logger.info ("Need %f MB of %f MB avail for incore LASSI diag; Davidson alg forced",
+                         req_memory, max_memory-current_memory)
+    if davidson_only or current_memory+req_memory > max_memory:
+        return _eig_block_Davidson (las, e0, h1, h2, ci_blk, nelec_blk, rootsym, soc, orbsym,
+                                    wfnsym, o0_memcheck, opt)
+    return _eig_block_incore (las, e0, h1, h2, ci_blk, nelec_blk, rootsym, soc, orbsym, wfnsym,
+                              o0_memcheck, opt)
+
+def _eig_block_Davidson (las, e0, h1, h2, ci_blk, nelec_blk, rootsym, soc, orbsym, wfnsym,
+                         o0_memcheck, opt):
+    raise NotImplementedError
+
+def _eig_block_incore (las, e0, h1, h2, ci_blk, nelec_blk, rootsym, soc, orbsym, wfnsym,
+                       o0_memcheck, opt):
     # TODO: simplify
     t0 = (lib.logger.process_clock (), lib.logger.perf_counter ())
     if (las.verbose > lib.logger.INFO) and (o0_memcheck):
