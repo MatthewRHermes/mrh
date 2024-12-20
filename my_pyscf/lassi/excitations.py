@@ -312,7 +312,8 @@ class ExcitationPSFCISolver (ProductStateFCISolver):
         nelec_frs = np.append (nelec_fs_p[:,None,:], nelec_frs_q, axis=1)
         with temporary_env (self, ncas_sub=norb_ref, mol=fcisolvers[0].mol):
             ham_pq, _, ovlp_pq = op[self.opt].ham (self, h1, h2, ci_fr, nelec_frs, soc=0,
-                                                   orbsym=self.orbsym_ref, wfnsym=self.wfnsym_ref)
+                                                   orbsym=self.orbsym_ref,
+                                                   wfnsym=self.wfnsym_ref)[:3]
         t1 = self.log.timer ('get_ham_pq', *t0)
         return ham_pq + (h0*ovlp_pq)
 

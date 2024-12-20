@@ -472,6 +472,6 @@ def ham (las, h1, h2, ci, nelec_frs, soc=0, nlas=None, _HamS2Ovlp_class=HamS2Ovl
     if las.verbose >= lib.logger.TIMER_LEVEL:
         lib.logger.info (las, 'LASSI Hamiltonian crunching profile:\n%s', outerprod.sprint_profile ())
 
-    return ham, s2, ovlp
+    return ham, s2, ovlp, outerprod.get_ovlp
 
 

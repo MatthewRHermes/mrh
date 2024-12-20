@@ -158,9 +158,9 @@ class KnownValues(unittest.TestCase):
         h1, h2 = ham_2q (las, las.mo_coeff, veff_c=None, h2eff_sub=None)[1:]
         lbls = ('ham','s2','ovlp')
         t0, w0 = lib.logger.process_clock (), lib.logger.perf_counter ()
-        mats_o0 = op_o0.ham (las, h1, h2, las.ci, nelec_frs, orbsym=orbsym, wfnsym=wfnsym)
+        mats_o0 = op_o0.ham (las, h1, h2, las.ci, nelec_frs, orbsym=orbsym, wfnsym=wfnsym)[:3]
         t1, w1 = lib.logger.process_clock (), lib.logger.perf_counter ()
-        mats_o1 = op_o1.ham (las, h1, h2, las.ci, nelec_frs, orbsym=orbsym, wfnsym=wfnsym)
+        mats_o1 = op_o1.ham (las, h1, h2, las.ci, nelec_frs, orbsym=orbsym, wfnsym=wfnsym)[:3]
         t2, w2 = lib.logger.process_clock (), lib.logger.perf_counter ()
         #print (t1-t0, t2-t1)
         #print (w1-w0, w2-w1)

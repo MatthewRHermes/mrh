@@ -1,5 +1,6 @@
 import sys
 import numpy as np
+import functools
 from scipy import linalg
 from pyscf.fci import cistring
 from pyscf import fci, lib
@@ -585,7 +586,8 @@ def ham (las, h1, h2, ci_fr, nelec_frs, soc=0, orbsym=None, wfnsym=None):
         ket = None
         ham_eff[i,:] = dotter (hket, nelec_ket, spinless2ss=spinless2ss, iket=i, oporder=2)
     
-    return ham_eff, s2_eff, ovlp_eff
+    _get_ovlp = functools.partial (get_ovlp, ci_fr, norb_f, nelec_frs)
+    return ham_eff, s2_eff, ovlp_eff, _get_ovlp
 
 def contract_ham_ci (las, h1, h2, ci_fr_ket, nelec_frs_ket, ci_fr_bra, nelec_frs_bra, 
                      soc=0, orbsym=None, wfnsym=None):

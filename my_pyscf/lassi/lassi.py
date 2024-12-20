@@ -356,7 +356,7 @@ def _eig_block (las, e0, h1, h2, ci_blk, nelec_blk, rootsym, soc, orbsym, wfnsym
     t0 = (lib.logger.process_clock (), lib.logger.perf_counter ())
     if (las.verbose > lib.logger.INFO) and (o0_memcheck):
         ham_ref, s2_ref, ovlp_ref = op_o0.ham (las, h1, h2, ci_blk, nelec_blk, soc=soc,
-                                               orbsym=orbsym, wfnsym=wfnsym)
+                                               orbsym=orbsym, wfnsym=wfnsym)[:3]
         t0 = lib.logger.timer (las, 'LASSI diagonalizer rootsym {} CI algorithm'.format (
             rootsym), *t0)
 
@@ -364,8 +364,8 @@ def _eig_block (las, e0, h1, h2, ci_blk, nelec_blk, rootsym, soc, orbsym, wfnsym
         if soc:
             h1_sf = (h1[0:las.ncas,0:las.ncas]
                      - h1[las.ncas:2*las.ncas,las.ncas:2*las.ncas]).real/2
-        ham_blk, s2_blk, ovlp_blk = op[opt].ham (las, h1_sf, h2, ci_blk, nelec_blk, orbsym=orbsym,
-                                               wfnsym=wfnsym)
+        ham_blk, s2_blk, ovlp_blk, get_ovlp = op[opt].ham (las, h1_sf, h2, ci_blk, nelec_blk,
+                                                           orbsym=orbsym, wfnsym=wfnsym)
         t0 = lib.logger.timer (las, 'LASSI diagonalizer rootsym {} TDM algorithm'.format (
             rootsym), *t0)
         lib.logger.debug (las,
@@ -388,8 +388,8 @@ def _eig_block (las, e0, h1, h2, ci_blk, nelec_blk, rootsym, soc, orbsym, wfnsym
     else:
         if (las.verbose > lib.logger.INFO): lib.logger.debug (
             las, 'Insufficient memory to test against o0 LASSI algorithm')
-        ham_blk, s2_blk, ovlp_blk = op[opt].ham (las, h1, h2, ci_blk, nelec_blk, soc=soc,
-                                                 orbsym=orbsym, wfnsym=wfnsym)
+        ham_blk, s2_blk, ovlp_blk, get_ovlp = op[opt].ham (las, h1, h2, ci_blk, nelec_blk, soc=soc,
+                                                           orbsym=orbsym, wfnsym=wfnsym)
         t0 = lib.logger.timer (las, 'LASSI H build rootsym {}'.format (rootsym), *t0)
     log_debug = lib.logger.debug2 if las.nroots>10 else lib.logger.debug
     if np.iscomplexobj (ham_blk):
@@ -430,7 +430,8 @@ def _eig_block (las, e0, h1, h2, ci_blk, nelec_blk, rootsym, soc, orbsym, wfnsym
         lc = 'checking if LASSI basis has lindeps: |ovlp| = {:.6e}'.format (ovlp_det)
         lib.logger.info (las, 'Caught error %s, %s', str (err), lc)
         if ovlp_det < LINDEP_THRESH:
-            raw2orth, orth2raw = citools.get_orth_basis (ci_blk, las.ncas_sub, nelec_blk)
+            raw2orth, orth2raw = citools.get_orth_basis (ci_blk, las.ncas_sub, nelec_blk,
+                                                         _get_ovlp=get_ovlp)
             xhx = raw2orth (ham_blk).conj ().T
             #x = canonical_orth_(ovlp_blk, thr=LINDEP_THRESH)
             lib.logger.info (las, '%d/%d linearly independent model states',
