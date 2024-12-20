@@ -447,11 +447,14 @@ class LSTDM (object):
             ovlp[i0:i1,j0:j1] = self.crunch_ovlp (bra, ket)
         ovlp += ovlp.T
         for ifrag, inti in enumerate (self.ints):
-            for iroot_id, umat in inti.umat_root.items ():
-                if rootidx is None: iroot_pos=iroot_id
-                else:
-                    if iroot_id not in rootidx: continue
-                    iroot_pos = np.where (rootidx==iroot_id)[0][0]
+            iroot_ids = iroot_poss = inti.umat_root.keys ()
+            if rootidx is not None:
+                iroot_ids = np.asarray (list (iroot_ids))
+                idx = np.isin (rootidx, iroot_ids)
+                iroot_ids = rootidx[idx]
+                iroot_poss = np.where (idx)[0]
+            for iroot_id, iroot_pos in zip (iroot_ids, iroot_poss):
+                umat = inti.umat_root[iroot_id]
                 ovlp = umat_dot_1frag_(ovlp, umat, lroots, ifrag, iroot_pos, axis=0)
                 ovlp = umat_dot_1frag_(ovlp, umat, lroots, ifrag, iroot_pos, axis=1)
         return ovlp 
