@@ -39,7 +39,7 @@ class HamS2Ovlp (stdm.LSTDM):
         self.h2 = np.ascontiguousarray (h2)
 
     def _add_transpose_(self):
-        self.ham += self.ham.T
+        self.ham += self.ham.conj ().T
         self.s2 += self.s2.T
 
     def _umat_linequiv_(self, ifrag, iroot, umat, *args):

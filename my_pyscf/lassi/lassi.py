@@ -423,33 +423,27 @@ def _eig_block (las, e0, h1, h2, ci_blk, nelec_blk, rootsym, soc, orbsym, wfnsym
             lib.logger.warn (las, 'LAS states in basis may not be converged (%s = %e)',
                              'max(|Hdiag-e_states|)', maxerr)
     # Error catch: linear dependencies in basis
+    raw2orth, orth2raw = citools.get_orth_basis (ci_blk, las.ncas_sub, nelec_blk,
+                                                 _get_ovlp=get_ovlp)
+    xhx = raw2orth (ham_blk.T).T
+    lib.logger.info (las, '%d/%d linearly independent model states',
+                     xhx.shape[1], xhx.shape[0])
+    xhx = raw2orth (xhx.conj ()).conj ()
     try:
-        e, c = linalg.eigh (ham_blk, b=ovlp_blk)
+        e, c = linalg.eigh (xhx)
     except linalg.LinAlgError as err:
-        #ovlp_test = get_ovlp ()
-        #err = np.amax (np.abs (ovlp_test-ovlp_blk))
-        #print (ovlp_test.shape, ovlp_blk.shape)
-        #for i in range (ovlp_test.shape[0]):
-        #    for j in range (ovlp_test.shape[1]):
-        #        if abs (ovlp_test[i,j]-ovlp_blk[i,j]) > 1e-8:
-        #            print (i,j,ovlp_test[i,j], ovlp_blk[i,j])
-        #assert (err<1e-8), '{}'.format (err)
         ovlp_det = linalg.det (ovlp_blk)
         lc = 'checking if LASSI basis has lindeps: |ovlp| = {:.6e}'.format (ovlp_det)
         lib.logger.info (las, 'Caught error %s, %s', str (err), lc)
         if ovlp_det < LINDEP_THRESH:
-            raw2orth, orth2raw = citools.get_orth_basis (ci_blk, las.ncas_sub, nelec_blk,
-                                                         _get_ovlp=get_ovlp)
-            xhx = raw2orth (ham_blk).conj ().T
-            #x = canonical_orth_(ovlp_blk, thr=LINDEP_THRESH)
-            lib.logger.info (las, '%d/%d linearly independent model states',
-                             xhx.shape[1], xhx.shape[0])
-            xhx = raw2orth (xhx).conj ().T
-            #xhx = x.conj ().T @ ham_blk @ x
-            e, c = linalg.eigh (xhx)
-            #c = x @ c
-            c = orth2raw (c)
+            x_ref = canonical_orth_(ovlp_blk, thr=LINDEP_THRESH)
+            x_test = raw2orth (np.eye (ham_blk.shape[0]))
+            x_ovlp = x_test.conj () @ x_ref
+            x_err = x_ovlp @ x_ovlp.conj ().T - np.eye (x_ovlp.shape[0])
+            err = np.trace (x_err)
+            raise RuntimeError ("LASSI lindep prescreening failure; orth err = {}".format (err))
         else: raise (err) from None
+    c = orth2raw (c)
     return e, c, s2_blk
 
 def make_stdm12s (las, ci=None, orbsym=None, soc=False, break_symmetry=False, opt=1):
