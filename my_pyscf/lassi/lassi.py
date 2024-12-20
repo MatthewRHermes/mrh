@@ -426,6 +426,14 @@ def _eig_block (las, e0, h1, h2, ci_blk, nelec_blk, rootsym, soc, orbsym, wfnsym
     try:
         e, c = linalg.eigh (ham_blk, b=ovlp_blk)
     except linalg.LinAlgError as err:
+        ovlp_test = get_ovlp ()
+        err = np.amax (np.abs (ovlp_test-ovlp_blk))
+        print (ovlp_test.shape, ovlp_blk.shape)
+        for i in range (ovlp_test.shape[0]):
+            for j in range (ovlp_test.shape[1]):
+                if abs (ovlp_test[i,j]-ovlp_blk[i,j]) > 1e-8:
+                    print (i,j,ovlp_test[i,j], ovlp_blk[i,j])
+        assert (err<1e-8), '{}'.format (err)
         ovlp_det = linalg.det (ovlp_blk)
         lc = 'checking if LASSI basis has lindeps: |ovlp| = {:.6e}'.format (ovlp_det)
         lib.logger.info (las, 'Caught error %s, %s', str (err), lc)

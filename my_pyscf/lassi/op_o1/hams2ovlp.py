@@ -43,14 +43,10 @@ class HamS2Ovlp (stdm.LSTDM):
         self.s2 += self.s2.T
 
     def _umat_linequiv_(self, ifrag, iroot, umat, *args):
-        ovlp = args[0]
         self.ham = umat_dot_1frag_(self.ham, umat, self.lroots, ifrag, iroot, axis=0)
         self.ham = umat_dot_1frag_(self.ham, umat, self.lroots, ifrag, iroot, axis=1)
         self.s2 = umat_dot_1frag_(self.s2, umat, self.lroots, ifrag, iroot, axis=0)
         self.s2 = umat_dot_1frag_(self.s2, umat, self.lroots, ifrag, iroot, axis=1)
-        ovlp = umat_dot_1frag_(ovlp, umat, self.lroots, ifrag, iroot, axis=0)
-        ovlp = umat_dot_1frag_(ovlp, umat, self.lroots, ifrag, iroot, axis=1)
-        return ovlp
 
     def kernel (self):
         ''' Main driver method of class.
@@ -74,7 +70,7 @@ class HamS2Ovlp (stdm.LSTDM):
         ovlp = self.get_ovlp ()
         dt, dw = logger.process_clock () - t1, logger.perf_counter () - w1
         self.dt_o, self.dw_o = self.dt_o + dt, self.dw_o + dw
-        self._umat_linequiv_loop_(ovlp)
+        self._umat_linequiv_loop_()
         return self.ham, self.s2, ovlp, t0
 
     def canonical_operator_order (self, arr, inv):

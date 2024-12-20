@@ -424,6 +424,7 @@ class LSTDM (object):
         return o
 
     def get_ovlp (self, rootidx=None):
+        lroots = self.lroots.copy ()
         exc_null = self.exc_null
         offs_lroots = self.offs_lroots.copy ()
         nstates = self.nstates
@@ -432,7 +433,7 @@ class LSTDM (object):
             bra_null = np.isin (self.exc_null[:,0], rootidx)
             ket_null = np.isin (self.exc_null[:,1], rootidx)
             exc_null = exc_null[bra_null&ket_null,:]
-            lroots = self.lroots[:,rootidx]
+            lroots = lroots[:,rootidx]
             nprods = np.prod (lroots, axis=0)
             offs1 = np.cumsum (nprods)
             offs0 = offs1 - nprods
@@ -445,6 +446,14 @@ class LSTDM (object):
             j0, j1 = offs_lroots[ket]
             ovlp[i0:i1,j0:j1] = self.crunch_ovlp (bra, ket)
         ovlp += ovlp.T
+        for ifrag, inti in enumerate (self.ints):
+            for iroot_id, umat in inti.umat_root.items ():
+                if rootidx is None: iroot_pos=iroot_id
+                else:
+                    if iroot_id not in rootidx: continue
+                    iroot_pos = np.where (rootidx==iroot_id)[0][0]
+                ovlp = umat_dot_1frag_(ovlp, umat, lroots, ifrag, iroot_pos, axis=0)
+                ovlp = umat_dot_1frag_(ovlp, umat, lroots, ifrag, iroot_pos, axis=1)
         return ovlp 
 
     def _get_addr_range (self, raddr, *inv, _profile=True):
