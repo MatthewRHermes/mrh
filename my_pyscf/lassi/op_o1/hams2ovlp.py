@@ -39,18 +39,14 @@ class HamS2Ovlp (stdm.LSTDM):
         self.h2 = np.ascontiguousarray (h2)
 
     def _add_transpose_(self):
-        self.ham += self.ham.T
+        self.ham += self.ham.conj ().T
         self.s2 += self.s2.T
 
     def _umat_linequiv_(self, ifrag, iroot, umat, *args):
-        ovlp = args[0]
         self.ham = umat_dot_1frag_(self.ham, umat, self.lroots, ifrag, iroot, axis=0)
         self.ham = umat_dot_1frag_(self.ham, umat, self.lroots, ifrag, iroot, axis=1)
         self.s2 = umat_dot_1frag_(self.s2, umat, self.lroots, ifrag, iroot, axis=0)
         self.s2 = umat_dot_1frag_(self.s2, umat, self.lroots, ifrag, iroot, axis=1)
-        ovlp = umat_dot_1frag_(ovlp, umat, self.lroots, ifrag, iroot, axis=0)
-        ovlp = umat_dot_1frag_(ovlp, umat, self.lroots, ifrag, iroot, axis=1)
-        return ovlp
 
     def kernel (self):
         ''' Main driver method of class.
@@ -71,25 +67,10 @@ class HamS2Ovlp (stdm.LSTDM):
         self.s2 = np.zeros ([self.nstates,]*2, dtype=self.dtype)
         self._crunch_all_()
         t1, w1 = lib.logger.process_clock (), lib.logger.perf_counter ()
-        ovlp = np.zeros ([self.nstates,]*2, dtype=self.dtype)
-        def crunch_ovlp (bra_sp, ket_sp):
-            i = self.ints[-1]
-            b, k = i.unique_root[bra_sp], i.unique_root[ket_sp]
-            o = i.ovlp[b][k] / (1 + int (bra_sp==ket_sp))
-            for i in self.ints[-2::-1]:
-                b, k = i.unique_root[bra_sp], i.unique_root[ket_sp]
-                o = np.multiply.outer (o, i.ovlp[b][k]).transpose (0,2,1,3)
-                o = o.reshape (o.shape[0]*o.shape[1], o.shape[2]*o.shape[3])
-            o *= self.spin_shuffle[bra_sp]
-            o *= self.spin_shuffle[ket_sp]
-            i0, i1 = self.offs_lroots[bra_sp]
-            j0, j1 = self.offs_lroots[ket_sp]
-            ovlp[i0:i1,j0:j1] = o
-        for bra_sp, ket_sp in self.exc_null: crunch_ovlp (bra_sp, ket_sp)
-        ovlp += ovlp.T
+        ovlp = self.get_ovlp ()
         dt, dw = logger.process_clock () - t1, logger.perf_counter () - w1
         self.dt_o, self.dw_o = self.dt_o + dt, self.dw_o + dw
-        self._umat_linequiv_loop_(ovlp)
+        self._umat_linequiv_loop_()
         return self.ham, self.s2, ovlp, t0
 
     def canonical_operator_order (self, arr, inv):
@@ -487,6 +468,6 @@ def ham (las, h1, h2, ci, nelec_frs, soc=0, nlas=None, _HamS2Ovlp_class=HamS2Ovl
     if las.verbose >= lib.logger.TIMER_LEVEL:
         lib.logger.info (las, 'LASSI Hamiltonian crunching profile:\n%s', outerprod.sprint_profile ())
 
-    return ham, s2, ovlp
+    return ham, s2, ovlp, outerprod.get_ovlp
 
 

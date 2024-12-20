@@ -4,6 +4,7 @@ from scipy import linalg
 from mrh.my_pyscf.lassi import op_o0
 from mrh.my_pyscf.lassi import op_o1
 from mrh.my_pyscf.lassi import chkfile
+from mrh.my_pyscf.lassi import citools
 from mrh.my_pyscf.lassi.citools import get_lroots
 from pyscf import lib, symm, ao2mo
 from pyscf.scf.addons import canonical_orth_
@@ -378,7 +379,7 @@ def _eig_block_incore (las, e0, h1, h2, ci_blk, nelec_blk, rootsym, soc, orbsym,
     t0 = (lib.logger.process_clock (), lib.logger.perf_counter ())
     if (las.verbose > lib.logger.INFO) and (o0_memcheck):
         ham_ref, s2_ref, ovlp_ref = op_o0.ham (las, h1, h2, ci_blk, nelec_blk, soc=soc,
-                                               orbsym=orbsym, wfnsym=wfnsym)
+                                               orbsym=orbsym, wfnsym=wfnsym)[:3]
         t0 = lib.logger.timer (las, 'LASSI diagonalizer rootsym {} CI algorithm'.format (
             rootsym), *t0)
 
@@ -386,8 +387,8 @@ def _eig_block_incore (las, e0, h1, h2, ci_blk, nelec_blk, rootsym, soc, orbsym,
         if soc:
             h1_sf = (h1[0:las.ncas,0:las.ncas]
                      - h1[las.ncas:2*las.ncas,las.ncas:2*las.ncas]).real/2
-        ham_blk, s2_blk, ovlp_blk = op[opt].ham (las, h1_sf, h2, ci_blk, nelec_blk, orbsym=orbsym,
-                                               wfnsym=wfnsym)
+        ham_blk, s2_blk, ovlp_blk, get_ovlp = op[opt].ham (las, h1_sf, h2, ci_blk, nelec_blk,
+                                                           orbsym=orbsym, wfnsym=wfnsym)
         t0 = lib.logger.timer (las, 'LASSI diagonalizer rootsym {} TDM algorithm'.format (
             rootsym), *t0)
         lib.logger.debug (las,
@@ -410,8 +411,8 @@ def _eig_block_incore (las, e0, h1, h2, ci_blk, nelec_blk, rootsym, soc, orbsym,
     else:
         if (las.verbose > lib.logger.INFO): lib.logger.debug (
             las, 'Insufficient memory to test against o0 LASSI algorithm')
-        ham_blk, s2_blk, ovlp_blk = op[opt].ham (las, h1, h2, ci_blk, nelec_blk, soc=soc,
-                                                 orbsym=orbsym, wfnsym=wfnsym)
+        ham_blk, s2_blk, ovlp_blk, get_ovlp = op[opt].ham (las, h1, h2, ci_blk, nelec_blk, soc=soc,
+                                                           orbsym=orbsym, wfnsym=wfnsym)
         t0 = lib.logger.timer (las, 'LASSI H build rootsym {}'.format (rootsym), *t0)
     log_debug = lib.logger.debug2 if las.nroots>10 else lib.logger.debug
     if np.iscomplexobj (ham_blk):
@@ -445,20 +446,27 @@ def _eig_block_incore (las, e0, h1, h2, ci_blk, nelec_blk, rootsym, soc, orbsym,
             lib.logger.warn (las, 'LAS states in basis may not be converged (%s = %e)',
                              'max(|Hdiag-e_states|)', maxerr)
     # Error catch: linear dependencies in basis
+    raw2orth, orth2raw = citools.get_orth_basis (ci_blk, las.ncas_sub, nelec_blk,
+                                                 _get_ovlp=get_ovlp)
+    xhx = raw2orth (ham_blk.T).T
+    lib.logger.info (las, '%d/%d linearly independent model states',
+                     xhx.shape[1], xhx.shape[0])
+    xhx = raw2orth (xhx.conj ()).conj ()
     try:
-        e, c = linalg.eigh (ham_blk, b=ovlp_blk)
+        e, c = linalg.eigh (xhx)
     except linalg.LinAlgError as err:
         ovlp_det = linalg.det (ovlp_blk)
         lc = 'checking if LASSI basis has lindeps: |ovlp| = {:.6e}'.format (ovlp_det)
         lib.logger.info (las, 'Caught error %s, %s', str (err), lc)
         if ovlp_det < LINDEP_THRESH:
-            x = canonical_orth_(ovlp_blk, thr=LINDEP_THRESH)
-            lib.logger.info (las, '%d/%d linearly independent model states',
-                             x.shape[1], x.shape[0])
-            xhx = x.conj ().T @ ham_blk @ x
-            e, c = linalg.eigh (xhx)
-            c = x @ c
+            x_ref = canonical_orth_(ovlp_blk, thr=LINDEP_THRESH)
+            x_test = raw2orth (np.eye (ham_blk.shape[0]))
+            x_ovlp = x_test.conj () @ x_ref
+            x_err = x_ovlp @ x_ovlp.conj ().T - np.eye (x_ovlp.shape[0])
+            err = np.trace (x_err)
+            raise RuntimeError ("LASSI lindep prescreening failure; orth err = {}".format (err))
         else: raise (err) from None
+    c = orth2raw (c)
     return e, c, s2_blk
 
 def make_stdm12s (las, ci=None, orbsym=None, soc=False, break_symmetry=False, opt=1):
