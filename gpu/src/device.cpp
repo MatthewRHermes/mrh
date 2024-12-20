@@ -1395,7 +1395,8 @@ void Device::extract_mo_cas(int ncas, int ncore, int nao)
   }
   
 #ifdef _SIMPLE_TIMER
-//sort this later
+  double t1 = omp_get_wtime();
+  t_array[7] += t1 - t0;
 #endif
 
 }
@@ -1520,7 +1521,8 @@ void Device::pull_ints_ao2mo(py::array_t<double> _fxpp, py::array_t<double> _buf
   std::memcpy(bufpa, pin_bufpa, size_bufpa*sizeof(double));
   
 #ifdef _SIMPLE_TIMER
-//sort out later
+  double t1 = omp_get_wtime();
+  t_array[10] += t1 - t0;
 #endif
 }
 
@@ -1537,7 +1539,8 @@ void Device::pull_ints_ao2mo_v3(py::array_t<double> _bufpa, int blksize, int nao
   std::memcpy(bufpa, pin_bufpa, size_bufpa*sizeof(double));
   
 #ifdef _SIMPLE_TIMER
-//sort out later
+  double t1 = omp_get_wtime();
+  t_array[10] += t1 - t0;
 #endif
 }
 
@@ -1754,7 +1757,7 @@ void Device::df_ao2mo_pass1_v2 (int blksize, int nmo, int nao, int ncore, int nc
   
 #ifdef _SIMPLE_TIMER
   double t1 = omp_get_wtime();
-  t_array[10] += t1 - t0;
+  t_array[9] += t1 - t0;
 #endif
 }
 /* ---------------------------------------------------------------------- */
@@ -1979,7 +1982,7 @@ void Device::df_ao2mo_v3 (int blksize, int nmo, int nao, int ncore, int ncas, in
   
 #ifdef _SIMPLE_TIMER
   double t1 = omp_get_wtime();
-  t_array[10] += t1 - t0;
+  t_array[9] += t1 - t0;
 #endif
 }
 
@@ -2351,7 +2354,7 @@ void Device::get_h2eff_df(py::array_t<double> _cderi,
   profile_stop();
 #ifdef _SIMPLE_TIMER
   double t1 = omp_get_wtime();
-  t_array[7] += t1 - t0;//TODO: add the array size
+  t_array[6] += t1 - t0;//TODO: add the array size
 #endif
 }
 /* ---------------------------------------------------------------------- */
@@ -2549,7 +2552,7 @@ void Device::get_h2eff_df_v1(py::array_t<double> _cderi,
   profile_stop();
 #ifdef _SIMPLE_TIMER
   double t1 = omp_get_wtime();
-  t_array[7] += t1 - t0;//TODO: add the array size
+  t_array[6] += t1 - t0;//TODO: add the array size
 #endif
 }
 
