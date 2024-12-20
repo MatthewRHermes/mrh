@@ -1,6 +1,6 @@
 /* -*- c++ -*- */
 
-//#if defined(_GPU_CUDA)
+#if defined(_GPU_CUDA)
 
 #include "device.h"
 
@@ -259,6 +259,22 @@ __global__ void _get_bufpa (const double* bufpp, double* bufpa, int naux, int nm
 }
 
 /* ---------------------------------------------------------------------- */
+__global__ void _get_bufaa (const double* bufpp, double* bufaa, int naux, int nmo, int ncore, int ncas){
+  const int i = blockIdx.x * blockDim.x + threadIdx.x;
+  const int j = blockIdx.y * blockDim.y + threadIdx.y;
+  const int k = blockIdx.z * blockDim.z + threadIdx.z;
+
+  if(i >= naux) return;
+  if(j >= ncas) return;
+  if(k >= ncas) return;
+  
+  int inputIndex = (i*nmo + (j+ncore))*nmo + k+ncore;
+  int outputIndex = (i*ncas + j)*ncas + k;
+  bufaa[outputIndex] = bufpp[inputIndex];
+}
+
+/* ---------------------------------------------------------------------- */
+
 
 __global__ void _transpose_120(double * in, double * out, int naux, int nao, int ncas) {
     //Pum->muP
@@ -534,6 +550,18 @@ void Device::get_bufpa(const double* bufpp, double* bufpa, int naux, int nmo, in
   
   _get_bufpa<<<grid_size, block_size, 0, s>>>(bufpp, bufpa, naux, nmo, ncore, ncas);
 }
+/* ---------------------------------------------------------------------- */
+
+void Device::get_bufaa(const double* bufpp, double* bufaa, int naux, int nmo, int ncore, int ncas)
+{
+  dim3 block_size(_UNPACK_BLOCK_SIZE,1,1);
+  dim3 grid_size (_TILE(naux, block_size.x), ncas, ncas);
+  
+  cudaStream_t s = *(pm->dev_get_queue());
+  
+  _get_bufaa<<<grid_size, block_size, 0, s>>>(bufpp, bufaa, naux, nmo, ncore, ncas);
+}
+
 
 /* ---------------------------------------------------------------------- */
 
@@ -728,4 +756,4 @@ void Device::pack_d_vuwM_add(const double * in, double * out, int * map, int nmo
 }
 
 
-//#endif
+#endif

@@ -1,6 +1,5 @@
-# cp ../../../../src/device.h ./
-# cp ../../../../src/device_cuda.cpp ./
-# comment out preprocessor to expose code (must be flag to pass -D_GPU_CUDA...)
+cp ../../../src/device.h ./
+cp ../../../src/device_cuda.cpp ./
 
-rm -r dpct_output
-dpct device_cuda.cpp
+rm -rf dpct_output
+dpct --extra-arg="-D_GPU_CUDA" device_cuda.cpp

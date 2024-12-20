@@ -92,19 +92,27 @@ public :
   void init_jk_ao2mo (int, int);
 
   void init_ints_ao2mo (int, int, int);
+  void init_ints_ao2mo_v3 (int, int, int);
+  void init_ppaa_ao2mo (int, int);
 
  
   void df_ao2mo_pass1_v2 (int, int, int, int, int, int,
 			    py::array_t<double>,
 			    int, size_t);
+  void df_ao2mo_v3 (int, int, int, int, int, int,
+			    py::array_t<double>,
+			    int, size_t);
 
   void get_bufpa(const double *, double *, int, int, int, int);
+  void get_bufaa(const double *, double *, int, int, int, int);
   void transpose_120(double *, double *, int, int, int, int order = 0);
   void get_bufd(const double *, double *, int, int);
-  
-  
   void pull_jk_ao2mo (py::array_t<double>,py::array_t<double>,int, int);
   void pull_ints_ao2mo (py::array_t<double>,py::array_t<double>, int, int, int, int);
+  void pull_ints_ao2mo_v3 (py::array_t<double>, int, int, int, int);
+  void pull_ppaa_ao2mo (py::array_t<double>, int, int);
+  
+  
 
   void orbital_response(py::array_t<double>,
 			py::array_t<double>, py::array_t<double>, py::array_t<double>,
@@ -120,10 +128,6 @@ public :
   void transpose_3210(double *, double *, int, int);
   void pack_h2eff_2d(double *, double *, int *, int, int, int);
   
-  void h2eff_df_contract1(py::array_t<double>, 
-                     int, int, int, int, int,
-                     py::array_t<double>, py::array_t<double>);
-
   void transpose_210(double *, double *, int, int, int);
   
   void init_eri_h2eff( int, int);//VA: new function
@@ -184,15 +188,18 @@ private:
   // ao2mo
   int size_buf_k_pc;
   int size_buf_j_pc;
-  int size_fxpp;
+  int size_fxpp; // remove when ao2mo_v3 is running
   int size_bufpa;
+  int size_bufaa;
   int size_k_pc;
   int size_j_pc;
+  int size_buf_ppaa;
 
   double * buf_j_pc; 
   double * buf_k_pc; 
-  double * pin_fxpp;
+  double * pin_fxpp;//remove when ao2mo_v3 is running
   double * pin_bufpa;
+  double * buf_ppaa;
 
   // h2eff_df
   int size_eri_h2eff;
@@ -257,6 +264,7 @@ private:
     int size_k_pc;
     int size_bufd;
     int size_bufpa;
+    int size_bufaa;
     // eri_h2eff
     int size_eri_unpacked;
     int size_eri_h2eff;
@@ -280,6 +288,8 @@ private:
     double * d_k_pc;
     double * d_bufd;
     double * d_bufpa;
+    double * d_bufaa;
+    double * d_ppaa;
     // eri_h2eff
     double * d_eri_h2eff;
 

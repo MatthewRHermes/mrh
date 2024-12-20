@@ -1,6 +1,6 @@
 /* -*- c++ -*- */
 
-//#if defined(_GPU_CUDA)
+#if defined(_GPU_CUDA)
 
 #include <sycl/sycl.hpp>
 #include <dpct/dpct.hpp>
@@ -287,6 +287,26 @@ void _get_bufpa (const double* bufpp, double* bufpa, int naux, int nmo, int ncor
 }
 
 /* ---------------------------------------------------------------------- */
+void _get_bufaa (const double* bufpp, double* bufaa, int naux, int nmo, int ncore, int ncas,
+                 const sycl::nd_item<3> &item_ct1){
+  const int i = item_ct1.get_group(2) * item_ct1.get_local_range(2) +
+                item_ct1.get_local_id(2);
+  const int j = item_ct1.get_group(1) * item_ct1.get_local_range(1) +
+                item_ct1.get_local_id(1);
+  const int k = item_ct1.get_group(0) * item_ct1.get_local_range(0) +
+                item_ct1.get_local_id(0);
+
+  if(i >= naux) return;
+  if(j >= ncas) return;
+  if(k >= ncas) return;
+  
+  int inputIndex = (i*nmo + (j+ncore))*nmo + k+ncore;
+  int outputIndex = (i*ncas + j)*ncas + k;
+  bufaa[outputIndex] = bufpp[inputIndex];
+}
+
+/* ---------------------------------------------------------------------- */
+
 
 void _transpose_120(double * in, double * out, int naux, int nao, int ncas,
                     const sycl::nd_item<3> &item_ct1) {
@@ -499,7 +519,7 @@ void Device::getjk_rho(double * rho, double * dmtril, double * eri, int nset, in
 
     s->submit([&](sycl::handler &cgh) {
       /*
-      DPCT1101:12: '_RHO_BLOCK_SIZE' expression was replaced with a value.
+      DPCT1101:13: '_RHO_BLOCK_SIZE' expression was replaced with a value.
       Modify the code to use the original expression, provided in comments, if
       it is correct.
       */
@@ -606,12 +626,12 @@ void Device::transpose(double * out, double * in, int nrow, int ncol)
 
     s->submit([&](sycl::handler &cgh) {
       /*
-      DPCT1101:13: '_TRANSPOSE_BLOCK_SIZE' expression was replaced with a
+      DPCT1101:14: '_TRANSPOSE_BLOCK_SIZE' expression was replaced with a
       value. Modify the code to use the original expression, provided in
       comments, if it is correct.
       */
       /*
-      DPCT1101:14: '_TRANSPOSE_BLOCK_SIZE+1' expression was replaced with a
+      DPCT1101:15: '_TRANSPOSE_BLOCK_SIZE+1' expression was replaced with a
       value. Modify the code to use the original expression, provided in
       comments, if it is correct.
       */
@@ -679,6 +699,31 @@ void Device::get_bufpa(const double* bufpp, double* bufpa, int naux, int nmo, in
                     });
   }
 }
+/* ---------------------------------------------------------------------- */
+
+void Device::get_bufaa(const double* bufpp, double* bufaa, int naux, int nmo, int ncore, int ncas)
+{
+  sycl::range<3> block_size(1, 1, _UNPACK_BLOCK_SIZE);
+  sycl::range<3> grid_size(ncas, ncas, _TILE(naux, block_size[2]));
+
+  dpct::queue_ptr s = *(pm->dev_get_queue());
+
+  /*
+  DPCT1049:2: The work-group size passed to the SYCL kernel may exceed the
+  limit. To get the device limit, query info::device::max_work_group_size.
+  Adjust the work-group size if needed.
+  */
+  {
+    dpct::has_capability_or_fail(s->get_device(), {sycl::aspect::fp64});
+
+    s->parallel_for(sycl::nd_range<3>(grid_size * block_size, block_size),
+                    [=](sycl::nd_item<3> item_ct1) {
+                      _get_bufaa(bufpp, bufaa, naux, nmo, ncore, ncas,
+                                 item_ct1);
+                    });
+  }
+}
+
 
 /* ---------------------------------------------------------------------- */
 
@@ -699,7 +744,7 @@ void Device::transpose_120(double * in, double * out, int naux, int nao, int nca
                            _TILE(naux, block_size[2])); // originally nmo, nmo
 
   /*
-  DPCT1049:2: The work-group size passed to the SYCL kernel may exceed the
+  DPCT1049:3: The work-group size passed to the SYCL kernel may exceed the
   limit. To get the device limit, query info::device::max_work_group_size.
   Adjust the work-group size if needed.
   */
@@ -724,7 +769,7 @@ void Device::get_bufd( const double* bufpp, double* bufd, int naux, int nmo)
   dpct::queue_ptr s = *(pm->dev_get_queue());
 
   /*
-  DPCT1049:3: The work-group size passed to the SYCL kernel may exceed the
+  DPCT1049:4: The work-group size passed to the SYCL kernel may exceed the
   limit. To get the device limit, query info::device::max_work_group_size.
   Adjust the work-group size if needed.
   */
@@ -750,7 +795,7 @@ void Device::transpose_210(double * in, double * out, int naux, int nao, int nca
   dpct::queue_ptr s = *(pm->dev_get_queue());
 
   /*
-  DPCT1049:4: The work-group size passed to the SYCL kernel may exceed the
+  DPCT1049:5: The work-group size passed to the SYCL kernel may exceed the
   limit. To get the device limit, query info::device::max_work_group_size.
   Adjust the work-group size if needed.
   */
@@ -781,7 +826,7 @@ void Device::extract_submatrix(const double* big_mat, double* small_mat, int nca
   dpct::queue_ptr s = *(pm->dev_get_queue());
 
   /*
-  DPCT1049:5: The work-group size passed to the SYCL kernel may exceed the
+  DPCT1049:6: The work-group size passed to the SYCL kernel may exceed the
   limit. To get the device limit, query info::device::max_work_group_size.
   Adjust the work-group size if needed.
   */
@@ -813,7 +858,7 @@ void Device::unpack_h2eff_2d(double * in, double * out, int * map, int nmo, int 
   dpct::queue_ptr s = *(pm->dev_get_queue());
 
   /*
-  DPCT1049:6: The work-group size passed to the SYCL kernel may exceed the
+  DPCT1049:7: The work-group size passed to the SYCL kernel may exceed the
   limit. To get the device limit, query info::device::max_work_group_size.
   Adjust the work-group size if needed.
   */
@@ -847,7 +892,7 @@ void Device::transpose_2310(double * in, double * out, int nmo, int ncas)
   dpct::queue_ptr s = *(pm->dev_get_queue());
 
   /*
-  DPCT1049:7: The work-group size passed to the SYCL kernel may exceed the
+  DPCT1049:8: The work-group size passed to the SYCL kernel may exceed the
   limit. To get the device limit, query info::device::max_work_group_size.
   Adjust the work-group size if needed.
   */
@@ -879,7 +924,7 @@ void Device::transpose_3210(double* in, double* out, int nmo, int ncas)
   dpct::queue_ptr s = *(pm->dev_get_queue());
 
   /*
-  DPCT1049:8: The work-group size passed to the SYCL kernel may exceed the
+  DPCT1049:9: The work-group size passed to the SYCL kernel may exceed the
   limit. To get the device limit, query info::device::max_work_group_size.
   Adjust the work-group size if needed.
   */
@@ -936,7 +981,7 @@ void Device::get_mo_cas(const double* big_mat, double* small_mat, int ncas, int 
   dpct::queue_ptr s = *(pm->dev_get_queue());
 
   /*
-  DPCT1049:9: The work-group size passed to the SYCL kernel may exceed the
+  DPCT1049:10: The work-group size passed to the SYCL kernel may exceed the
   limit. To get the device limit, query info::device::max_work_group_size.
   Adjust the work-group size if needed.
   */
@@ -968,7 +1013,7 @@ void Device::pack_d_vuwM(const double * in, double * out, int * map, int nmo, in
   dpct::queue_ptr s = *(pm->dev_get_queue());
 
   /*
-  DPCT1049:10: The work-group size passed to the SYCL kernel may exceed the
+  DPCT1049:11: The work-group size passed to the SYCL kernel may exceed the
   limit. To get the device limit, query info::device::max_work_group_size.
   Adjust the work-group size if needed.
   */
@@ -998,7 +1043,7 @@ void Device::pack_d_vuwM_add(const double * in, double * out, int * map, int nmo
   dpct::queue_ptr s = *(pm->dev_get_queue());
 
   /*
-  DPCT1049:11: The work-group size passed to the SYCL kernel may exceed the
+  DPCT1049:12: The work-group size passed to the SYCL kernel may exceed the
   limit. To get the device limit, query info::device::max_work_group_size.
   Adjust the work-group size if needed.
   */
@@ -1020,4 +1065,4 @@ void Device::pack_d_vuwM_add(const double * in, double * out, int * map, int nmo
 }
 
 
-//#endif
+#endif
