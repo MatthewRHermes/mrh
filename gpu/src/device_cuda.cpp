@@ -275,7 +275,6 @@ __global__ void _get_bufaa (const double* bufpp, double* bufaa, int naux, int nm
 
 /* ---------------------------------------------------------------------- */
 
-
 __global__ void _transpose_120(double * in, double * out, int naux, int nao, int ncas) {
     //Pum->muP
     int i = blockIdx.x * blockDim.x + threadIdx.x;
