@@ -23,7 +23,13 @@ using namespace MATHLIB_NS;
 
 #define _USE_ERI_CACHE
 #define _ERI_CACHE_EXTRA 2
+
+//#define _DEBUG_DEVICE
 //#define _DEBUG_ERI_CACHE
+//#define _DEBUG_H2EFF
+//#define _DEBUG_H2EFF2
+//#define _DEBUG_H2EFF_DF
+//#define _DEBUG_AO2MO
 
 #define _PUMAP_2D_UNPACK 0       // generic unpacking of 1D array to 2D matrix
 #define _PUMAP_H2EFF_UNPACK 1    // unpacking h2eff array (generic?)
@@ -86,19 +92,27 @@ public :
   void init_jk_ao2mo (int, int);
 
   void init_ints_ao2mo (int, int, int);
+  void init_ints_ao2mo_v3 (int, int, int);
+  void init_ppaa_ao2mo (int, int);
 
  
   void df_ao2mo_pass1_v2 (int, int, int, int, int, int,
 			    py::array_t<double>,
 			    int, size_t);
+  void df_ao2mo_v3 (int, int, int, int, int, int,
+			    py::array_t<double>,
+			    int, size_t);
 
   void get_bufpa(const double *, double *, int, int, int, int);
+  void get_bufaa(const double *, double *, int, int, int, int);
   void transpose_120(double *, double *, int, int, int, int order = 0);
   void get_bufd(const double *, double *, int, int);
-  
-  
   void pull_jk_ao2mo (py::array_t<double>,py::array_t<double>,int, int);
   void pull_ints_ao2mo (py::array_t<double>,py::array_t<double>, int, int, int, int);
+  void pull_ints_ao2mo_v3 (py::array_t<double>, int, int, int, int);
+  void pull_ppaa_ao2mo (py::array_t<double>, int, int);
+  
+  
 
   void orbital_response(py::array_t<double>,
 			py::array_t<double>, py::array_t<double>, py::array_t<double>,
@@ -114,17 +128,23 @@ public :
   void transpose_3210(double *, double *, int, int);
   void pack_h2eff_2d(double *, double *, int *, int, int, int);
   
-  void h2eff_df_contract1(py::array_t<double>, 
-                     int, int, int, int, int,
-                     py::array_t<double>, py::array_t<double>);
-
   void transpose_210(double *, double *, int, int, int);
   
+  void init_eri_h2eff( int, int);//VA: new function
   void get_h2eff_df( py::array_t<double> , 
 		     int , int , int , int , int ,
 		     py::array_t<double>, int, size_t );
+  void get_h2eff_df_v1( py::array_t<double> , 
+		     int , int , int , int , int ,
+		     py::array_t<double>, int, size_t );
+  void get_h2eff_df_v2 ( py::array_t<double>, 
+                         int, int, int, int, int, 
+                         py::array_t<double>, int, size_t);//VA: new function
+  void pull_eri_h2eff(py::array_t<double>, int, int);// VA: new function
+  void extract_mo_cas(int, int, int);//TODO: fix the difference - changed slightly
   void get_mo_cas(const double *, double *, int, int, int);
   void pack_d_vuwM(const double *, double *, int *, int, int, int);
+  void pack_d_vuwM_add(const double *, double *, int *, int, int, int);
   
   void push_mo_coeff(py::array_t<double>, int);
 private:
@@ -168,15 +188,23 @@ private:
   // ao2mo
   int size_buf_k_pc;
   int size_buf_j_pc;
-  int size_fxpp;
+  int size_fxpp; // remove when ao2mo_v3 is running
   int size_bufpa;
+  int size_bufaa;
   int size_k_pc;
   int size_j_pc;
+  int size_buf_ppaa;
 
   double * buf_j_pc; 
   double * buf_k_pc; 
-  double * pin_fxpp;
+  double * pin_fxpp;//remove when ao2mo_v3 is running
   double * pin_bufpa;
+  double * buf_ppaa;
+
+  // h2eff_df
+  int size_eri_h2eff;
+  int size_buf_eri_h2eff;
+  double * buf_eri_h2eff;
 
   // eri caching on device
 
@@ -229,11 +257,17 @@ private:
     int size_umat;
     int size_h2eff;
     int size_mo_coeff; 
+    int size_mo_cas; 
+    //ao2mo
     int size_j_pc;
     int size_k_cp;
     int size_k_pc;
     int size_bufd;
     int size_bufpa;
+    int size_bufaa;
+    // eri_h2eff
+    int size_eri_unpacked;
+    int size_eri_h2eff;
 
     double * d_rho;
     double * d_vj;
@@ -248,10 +282,16 @@ private:
     double * d_umat;
     double * d_h2eff;
     double * d_mo_coeff;
+    double * d_mo_cas;
+    //ao2mo
     double * d_j_pc;
     double * d_k_pc;
     double * d_bufd;
     double * d_bufpa;
+    double * d_bufaa;
+    double * d_ppaa;
+    // eri_h2eff
+    double * d_eri_h2eff;
 
     std::vector<int> type_pumap;
     std::vector<int> size_pumap;
@@ -268,12 +308,12 @@ private:
     cublasHandle_t handle;
     cudaStream_t stream;
 #elif defined _GPU_MKL
-    void handle;
-    sycl::queue stream;
+    int * handle;
+    sycl::queue * stream;
 #endif
 #else
-    void handle;
-    void stream;
+    int * handle;
+    int * stream;
 #endif
   };
 

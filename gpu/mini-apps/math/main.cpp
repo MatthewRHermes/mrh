@@ -168,17 +168,21 @@ int main( int argc, char* argv[] )
   real_t * c = (real_t*) malloc(_NUM_ROWS_A * _NUM_COLS_B * sizeof(real_t));
   real_t * r = (real_t*) malloc(_NUM_ROWS_A * _NUM_COLS_B * sizeof(real_t));
 
+  std::srand(time(nullptr));
+  
   // Initialize host
   
   for(int i=0; i<_NUM_ROWS_A; ++i) {
     for(int j=0; j<_NUM_COLS_A; ++j) {
-      a[i*_NUM_COLS_A + j] = (i * _NUM_COLS_A + j) * 0.1;
+      //      a[i*_NUM_COLS_A + j] = (i * _NUM_COLS_A + j) * 0.1;
+      a[i*_NUM_COLS_A + j] = std::rand() / (float(RAND_MAX) + 1.0) - 0.5;
     }
   }
   
   for(int i=0; i<_NUM_ROWS_B; ++i) {
     for(int j=0; j<_NUM_COLS_B; ++j) {
-      b[i*_NUM_COLS_B + j] = (i * _NUM_COLS_B + j) * 0.1;
+      //      b[i*_NUM_COLS_B + j] = (i * _NUM_COLS_B + j) * 0.1;
+      b[i*_NUM_COLS_B + j] = std::rand() / (float(RAND_MAX) + 1.0) - 0.5;
     }
   }
 
@@ -300,7 +304,7 @@ int main( int argc, char* argv[] )
     
     pm->dev_pull(d_c[i], c, _NUM_ROWS_A * _NUM_COLS_B * sizeof(real_t));
   
-    print_summary(t, _NUM_ROWS_A, _NUM_COLS_A, _NUM_COLS_B, _NUM_ITERATIONS_GPU, "GPU gemm");
+    print_summary(t, _NUM_ROWS_A, _NUM_COLS_A, _NUM_COLS_B, _NUM_ITERATIONS_GPU, "MATHLIB gemm");
 
     check_result(r, c, _NUM_ROWS_A*_NUM_COLS_B, "gemm_gpu");
 

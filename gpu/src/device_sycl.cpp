@@ -1,9 +1,7 @@
 /* -*- c++ -*- */
 
-#if defined(_GPU_CUDA)
+#if defined(_GPU_SYCL) || defined(_GPU_SYCL_CUDA)
 
-#include <sycl/sycl.hpp>
-#include <dpct/dpct.hpp>
 #include "device.h"
 
 #include <stdio.h>
@@ -15,6 +13,12 @@
 #define _UNPACK_BLOCK_SIZE 32
 #define _HESSOP_BLOCK_SIZE 32
 #define _DEFAULT_BLOCK_SIZE 32
+
+//#define _DEBUG_DEVICE
+//#define _DEBUG_H2EFF
+//#define _DEBUG_H2EFF2
+//#define _DEBUG_H2EFF_DF
+#define _DEBUG_AO2MO
 
 #define _TILE(A,B) (A + B - 1) / B
 
@@ -56,7 +60,7 @@ void Device::fdrv(double *vout, double *vin, double *mo_coeff,
 }
 
 /* ---------------------------------------------------------------------- */
-/* CUDA kernels
+/* CUDA kernels                                                           */
 /* ---------------------------------------------------------------------- */
 
 #if 1
@@ -299,14 +303,13 @@ void _get_bufaa (const double* bufpp, double* bufaa, int naux, int nmo, int ncor
   if(i >= naux) return;
   if(j >= ncas) return;
   if(k >= ncas) return;
-  
+
   int inputIndex = (i*nmo + (j+ncore))*nmo + k+ncore;
   int outputIndex = (i*ncas + j)*ncas + k;
   bufaa[outputIndex] = bufpp[inputIndex];
 }
 
 /* ---------------------------------------------------------------------- */
-
 
 void _transpose_120(double * in, double * out, int naux, int nao, int ncas,
                     const sycl::nd_item<3> &item_ct1) {
@@ -478,8 +481,8 @@ void _pack_d_vuwM(const double * in, double * out, int * map, int nmo, int ncas,
     if(j >= ncas*ncas) return;
     //out[k*ncas_pair*nao+l*ncas_pair+ij]=h_vuwM[i*ncas*ncas*nao+j*ncas*nao+k*nao+l];}}}}
     out[i*ncas_pair + map[j]]=in[j*ncas*nmo + i];
-
 }
+
 /* ---------------------------------------------------------------------- */
 
 void _pack_d_vuwM_add(const double * in, double * out, int * map, int nmo, int ncas, int ncas_pair,
@@ -497,9 +500,8 @@ void _pack_d_vuwM_add(const double * in, double * out, int * map, int nmo, int n
 
 }
 
-
 /* ---------------------------------------------------------------------- */
-/* Interface functions calling CUDA kernels
+/* Interface functions calling CUDA kernels                               */
 /* ---------------------------------------------------------------------- */
 
 void Device::getjk_rho(double * rho, double * dmtril, double * eri, int nset, int naux, int nao_pair)
@@ -512,19 +514,14 @@ void Device::getjk_rho(double * rho, double * dmtril, double * eri, int nset, in
   dim3 block_size(1, _RHO_BLOCK_SIZE, 1);
 #endif
 
-  dpct::queue_ptr s = *(pm->dev_get_queue());
+  sycl::queue * s = pm->dev_get_queue();
 
   {
-    dpct::has_capability_or_fail(s->get_device(), {sycl::aspect::fp64});
+    //    dpct::has_capability_or_fail(s->get_device(), {sycl::aspect::fp64});
 
     s->submit([&](sycl::handler &cgh) {
-      /*
-      DPCT1101:13: '_RHO_BLOCK_SIZE' expression was replaced with a value.
-      Modify the code to use the original expression, provided in comments, if
-      it is correct.
-      */
       sycl::local_accessor<double, 1> cache_acc_ct1(
-          sycl::range<1>(64 /*_RHO_BLOCK_SIZE*/), cgh);
+          sycl::range<1>(_RHO_BLOCK_SIZE), cgh);
 
       cgh.parallel_for(
           sycl::nd_range<3>(grid_size * block_size, block_size),
@@ -539,8 +536,8 @@ void Device::getjk_rho(double * rho, double * dmtril, double * eri, int nset, in
 
 #ifdef _DEBUG_DEVICE
   printf("LIBGPU ::  -- get_jk::_getjk_rho :: nset= %i  naux= %i  RHO_BLOCK_SIZE= %i  grid_size= %i %i %i  block_size= %i %i %i\n",
-	 nset, naux, _RHO_BLOCK_SIZE, grid_size.x,grid_size.y,grid_size.z,block_size.x,block_size.y,block_size.z);
-  _CUDA_CHECK_ERRORS();
+	 nset, naux, _RHO_BLOCK_SIZE, grid_size[0],grid_size[1],grid_size[2],block_size[0],block_size[1],block_size[2]);
+  pm->dev_check_errors();
 #endif
 }
 
@@ -552,10 +549,10 @@ void Device::getjk_vj(double * vj, double * rho, double * eri, int nset, int nao
       1, (nao_pair + (_DOT_BLOCK_SIZE - 1)) / _DOT_BLOCK_SIZE, nset);
   sycl::range<3> block_size(1, _DOT_BLOCK_SIZE, 1);
 
-  dpct::queue_ptr s = *(pm->dev_get_queue());
+  sycl::queue * s = pm->dev_get_queue();
 
   {
-    dpct::has_capability_or_fail(s->get_device(), {sycl::aspect::fp64});
+    //    dpct::has_capability_or_fail(s->get_device(), {sycl::aspect::fp64});
 
     s->parallel_for(sycl::nd_range<3>(grid_size * block_size, block_size),
                     [=](sycl::nd_item<3> item_ct1) {
@@ -566,8 +563,8 @@ void Device::getjk_vj(double * vj, double * rho, double * eri, int nset, int nao
 
 #ifdef _DEBUG_DEVICE
   printf("LIBGPU ::  -- get_jk::_getjk_vj :: nset= %i  nao_pair= %i _DOT_BLOCK_SIZE= %i  grid_size= %i %i %i  block_size= %i %i %i\n",
-	 nset, nao_pair, _DOT_BLOCK_SIZE, grid_size.x,grid_size.y,grid_size.z,block_size.x,block_size.y,block_size.z);
-  _CUDA_CHECK_ERRORS();
+	 nset, nao_pair, _DOT_BLOCK_SIZE, grid_size[0],grid_size[1],grid_size[2],block_size[0],block_size[1],block_size[2]);
+  pm->dev_check_errors();
 #endif
 }
 
@@ -583,10 +580,15 @@ void Device::getjk_unpack_buf2(double * buf2, double * eri, int * map, int naux,
   dim3 block_size(1, _UNPACK_BLOCK_SIZE, 1);
 #endif
 
-  dpct::queue_ptr s = *(pm->dev_get_queue());
+  sycl::queue * s = pm->dev_get_queue();
+  
+#ifdef _DEBUG_DEVICE
+  printf("LIBGPU ::  -- get_jk::_getjk_unpack_buf2 :: naux= %i  nao= %i _UNPACK_BLOCK_SIZE= %i  grid_size= %i %i %i  block_size= %i %i %i",
+	 naux, nao, _UNPACK_BLOCK_SIZE, grid_size[0],grid_size[1],grid_size[2],block_size[0],block_size[1],block_size[2]);
+#endif
 
   {
-    dpct::has_capability_or_fail(s->get_device(), {sycl::aspect::fp64});
+    //dpct::has_capability_or_fail(s->get_device(), {sycl::aspect::fp64});
 
     s->parallel_for(sycl::nd_range<3>(grid_size * block_size, block_size),
                     [=](sycl::nd_item<3> item_ct1) {
@@ -596,9 +598,9 @@ void Device::getjk_unpack_buf2(double * buf2, double * eri, int * map, int naux,
   }
 
 #ifdef _DEBUG_DEVICE
-  printf("LIBGPU ::  -- get_jk::_getjk_unpack_buf2 :: naux= %i  nao= %i _UNPACK_BLOCK_SIZE= %i  grid_size= %i %i %i  block_size= %i %i %i\n",
-	 naux, nao, _UNPACK_BLOCK_SIZE, grid_size.x,grid_size.y,grid_size.z,block_size.x,block_size.y,block_size.z);
-  _CUDA_CHECK_ERRORS();
+  pm->dev_barrier();
+  printf(" -- success!\n");
+  pm->dev_check_errors();
 #endif
 }
 
@@ -619,25 +621,15 @@ void Device::transpose(double * out, double * in, int nrow, int ncol)
   dim3 block_size(1, _TRANSPOSE_BLOCK_SIZE, 1);
 #endif
 
-  dpct::queue_ptr s = *(pm->dev_get_queue());
+  sycl::queue * s = pm->dev_get_queue();
 
   {
-    dpct::has_capability_or_fail(s->get_device(), {sycl::aspect::fp64});
+    //    dpct::has_capability_or_fail(s->get_device(), {sycl::aspect::fp64});
 
     s->submit([&](sycl::handler &cgh) {
-      /*
-      DPCT1101:14: '_TRANSPOSE_BLOCK_SIZE' expression was replaced with a
-      value. Modify the code to use the original expression, provided in
-      comments, if it is correct.
-      */
-      /*
-      DPCT1101:15: '_TRANSPOSE_BLOCK_SIZE+1' expression was replaced with a
-      value. Modify the code to use the original expression, provided in
-      comments, if it is correct.
-      */
       sycl::local_accessor<double, 2> cache_acc_ct1(
-          sycl::range<2>(16 /*_TRANSPOSE_BLOCK_SIZE*/,
-                         17 /*_TRANSPOSE_BLOCK_SIZE+1*/),
+          sycl::range<2>(_TRANSPOSE_BLOCK_SIZE,
+                         _TRANSPOSE_BLOCK_SIZE+1),
           cgh);
 
       cgh.parallel_for(sycl::nd_range<3>(grid_size * block_size, block_size),
@@ -650,8 +642,8 @@ void Device::transpose(double * out, double * in, int nrow, int ncol)
 
 #ifdef _DEBUG_DEVICE
   printf("LIBGPU ::  -- transpose :: nrow= %i  ncol= %i _TRANSPOSE_BLOCK_SIZE= %i  _TRANSPOSE_NUM_ROWS= %i  grid_size= %i %i %i  block_size= %i %i %i\n",
-	 nrow, ncol, _TRANSPOSE_BLOCK_SIZE, _TRANSPOSE_NUM_ROWS, grid_size.x,grid_size.y,grid_size.z,block_size.x,block_size.y,block_size.z);
-  _CUDA_CHECK_ERRORS();
+	 nrow, ncol, _TRANSPOSE_BLOCK_SIZE, _TRANSPOSE_NUM_ROWS, grid_size[0],grid_size[1],grid_size[2],block_size[0],block_size[1],block_size[2]);
+  pm->dev_check_errors();
 #endif
 }
 
@@ -682,7 +674,7 @@ void Device::get_bufpa(const double* bufpp, double* bufpa, int naux, int nmo, in
   sycl::range<3> grid_size(ncas, _TILE(nmo, block_size[1]),
                            _TILE(naux, block_size[2]));
 
-  dpct::queue_ptr s = *(pm->dev_get_queue());
+  sycl::queue * s = pm->dev_get_queue();
 
   /*
   DPCT1049:1: The work-group size passed to the SYCL kernel may exceed the
@@ -690,7 +682,7 @@ void Device::get_bufpa(const double* bufpp, double* bufpa, int naux, int nmo, in
   Adjust the work-group size if needed.
   */
   {
-    dpct::has_capability_or_fail(s->get_device(), {sycl::aspect::fp64});
+    //dpct::has_capability_or_fail(s->get_device(), {sycl::aspect::fp64});
 
     s->parallel_for(sycl::nd_range<3>(grid_size * block_size, block_size),
                     [=](sycl::nd_item<3> item_ct1) {
@@ -699,6 +691,7 @@ void Device::get_bufpa(const double* bufpp, double* bufpa, int naux, int nmo, in
                     });
   }
 }
+
 /* ---------------------------------------------------------------------- */
 
 void Device::get_bufaa(const double* bufpp, double* bufaa, int naux, int nmo, int ncore, int ncas)
@@ -706,7 +699,7 @@ void Device::get_bufaa(const double* bufpp, double* bufaa, int naux, int nmo, in
   sycl::range<3> block_size(1, 1, _UNPACK_BLOCK_SIZE);
   sycl::range<3> grid_size(ncas, ncas, _TILE(naux, block_size[2]));
 
-  dpct::queue_ptr s = *(pm->dev_get_queue());
+  sycl::queue * s = pm->dev_get_queue();
 
   /*
   DPCT1049:2: The work-group size passed to the SYCL kernel may exceed the
@@ -714,7 +707,7 @@ void Device::get_bufaa(const double* bufpp, double* bufaa, int naux, int nmo, in
   Adjust the work-group size if needed.
   */
   {
-    dpct::has_capability_or_fail(s->get_device(), {sycl::aspect::fp64});
+    //    dpct::has_capability_or_fail(s->get_device(), {sycl::aspect::fp64});
 
     s->parallel_for(sycl::nd_range<3>(grid_size * block_size, block_size),
                     [=](sycl::nd_item<3> item_ct1) {
@@ -724,12 +717,11 @@ void Device::get_bufaa(const double* bufpp, double* bufaa, int naux, int nmo, in
   }
 }
 
-
 /* ---------------------------------------------------------------------- */
 
 void Device::transpose_120(double * in, double * out, int naux, int nao, int ncas, int order)
 {
-  dpct::queue_ptr s = *(pm->dev_get_queue());
+  sycl::queue * s = pm->dev_get_queue();
 
   int na = nao;
   int nb = ncas;
@@ -744,12 +736,12 @@ void Device::transpose_120(double * in, double * out, int naux, int nao, int nca
                            _TILE(naux, block_size[2])); // originally nmo, nmo
 
   /*
-  DPCT1049:3: The work-group size passed to the SYCL kernel may exceed the
+  DPCT1049:2: The work-group size passed to the SYCL kernel may exceed the
   limit. To get the device limit, query info::device::max_work_group_size.
   Adjust the work-group size if needed.
   */
   {
-    dpct::has_capability_or_fail(s->get_device(), {sycl::aspect::fp64});
+    //    dpct::has_capability_or_fail(s->get_device(), {sycl::aspect::fp64});
 
     s->parallel_for(sycl::nd_range<3>(grid_size * block_size, block_size),
                     [=](sycl::nd_item<3> item_ct1) {
@@ -766,15 +758,15 @@ void Device::get_bufd( const double* bufpp, double* bufd, int naux, int nmo)
   sycl::range<3> grid_size(1, _TILE(nmo, block_size[1]),
                            _TILE(naux, block_size[2]));
 
-  dpct::queue_ptr s = *(pm->dev_get_queue());
+  sycl::queue * s = pm->dev_get_queue();
 
   /*
-  DPCT1049:4: The work-group size passed to the SYCL kernel may exceed the
+  DPCT1049:3: The work-group size passed to the SYCL kernel may exceed the
   limit. To get the device limit, query info::device::max_work_group_size.
   Adjust the work-group size if needed.
   */
   {
-    dpct::has_capability_or_fail(s->get_device(), {sycl::aspect::fp64});
+    //    dpct::has_capability_or_fail(s->get_device(), {sycl::aspect::fp64});
 
     s->parallel_for(sycl::nd_range<3>(grid_size * block_size, block_size),
                     [=](sycl::nd_item<3> item_ct1) {
@@ -792,15 +784,15 @@ void Device::transpose_210(double * in, double * out, int naux, int nao, int nca
                            _TILE(ncas, block_size[1]),
                            _TILE(naux, block_size[2]));
 
-  dpct::queue_ptr s = *(pm->dev_get_queue());
+  sycl::queue * s = pm->dev_get_queue();
 
   /*
-  DPCT1049:5: The work-group size passed to the SYCL kernel may exceed the
+  DPCT1049:4: The work-group size passed to the SYCL kernel may exceed the
   limit. To get the device limit, query info::device::max_work_group_size.
   Adjust the work-group size if needed.
   */
   {
-    dpct::has_capability_or_fail(s->get_device(), {sycl::aspect::fp64});
+    //    dpct::has_capability_or_fail(s->get_device(), {sycl::aspect::fp64});
 
     s->parallel_for(sycl::nd_range<3>(grid_size * block_size, block_size),
                     [=](sycl::nd_item<3> item_ct1) {
@@ -810,8 +802,8 @@ void Device::transpose_210(double * in, double * out, int naux, int nao, int nca
 
 #ifdef _DEBUG_DEVICE
   printf("LIBGPU ::  -- h2eff_df_contract1::transpose_210 :: naux= %i  ncas= %i  _UNPACK_BLOCK_SIZE= %i  grid_size= %i %i %i  block_size= %i %i %i\n",
-	 naux, ncas, _UNPACK_BLOCK_SIZE, grid_size.x,grid_size.y,grid_size.z,block_size.x,block_size.y,block_size.z);
-  _CUDA_CHECK_ERRORS();
+	 naux, ncas, _UNPACK_BLOCK_SIZE, grid_size[0],grid_size[1],grid_size[2],block_size[0],block_size[1],block_size[2]);
+  pm->dev_check_errors();
 #endif
 }
 
@@ -823,15 +815,15 @@ void Device::extract_submatrix(const double* big_mat, double* small_mat, int nca
   sycl::range<3> grid_size(1, _TILE(ncas, block_size[1]),
                            _TILE(ncas, block_size[2]));
 
-  dpct::queue_ptr s = *(pm->dev_get_queue());
+  sycl::queue * s = pm->dev_get_queue();
 
   /*
-  DPCT1049:6: The work-group size passed to the SYCL kernel may exceed the
+  DPCT1049:5: The work-group size passed to the SYCL kernel may exceed the
   limit. To get the device limit, query info::device::max_work_group_size.
   Adjust the work-group size if needed.
   */
   {
-    dpct::has_capability_or_fail(s->get_device(), {sycl::aspect::fp64});
+    //    dpct::has_capability_or_fail(s->get_device(), {sycl::aspect::fp64});
 
     s->parallel_for(sycl::nd_range<3>(grid_size * block_size, block_size),
                     [=](sycl::nd_item<3> item_ct1) {
@@ -842,8 +834,8 @@ void Device::extract_submatrix(const double* big_mat, double* small_mat, int nca
 
 #ifdef _DEBUG_DEVICE
   printf("LIBGPU ::  -- extract_submatrix :: ncas= %i  _UNPACK_BLOCK_SIZE= %i  grid_size= %i %i %i  block_size= %i %i %i\n",
-	 ncas, _UNPACK_BLOCK_SIZE, grid_size.x,grid_size.y,grid_size.z,block_size.x,block_size.y,block_size.z);
-  _CUDA_CHECK_ERRORS();
+	 ncas, _UNPACK_BLOCK_SIZE, grid_size[0],grid_size[1],grid_size[2],block_size[0],block_size[1],block_size[2]);
+  pm->dev_check_errors();
 #endif
 }
 
@@ -855,28 +847,27 @@ void Device::unpack_h2eff_2d(double * in, double * out, int * map, int nmo, int 
   sycl::range<3> grid_size(1, _TILE(ncas * ncas, _UNPACK_BLOCK_SIZE),
                            _TILE(nmo * ncas, _UNPACK_BLOCK_SIZE));
 
-  dpct::queue_ptr s = *(pm->dev_get_queue());
+  sycl::queue * s = pm->dev_get_queue();
 
   /*
-  DPCT1049:7: The work-group size passed to the SYCL kernel may exceed the
+  DPCT1049:6: The work-group size passed to the SYCL kernel may exceed the
   limit. To get the device limit, query info::device::max_work_group_size.
   Adjust the work-group size if needed.
   */
   {
-    dpct::has_capability_or_fail(dpct::get_in_order_queue().get_device(),
-                                 {sycl::aspect::fp64});
+    // dpct::has_capability_or_fail(dpct::get_in_order_queue().get_device(),
+    //                              {sycl::aspect::fp64});
 
-    dpct::get_in_order_queue().parallel_for(
-        sycl::nd_range<3>(grid_size * block_size, block_size),
-        [=](sycl::nd_item<3> item_ct1) {
-          _unpack_h2eff_2d(in, out, map, nmo, ncas, ncas_pair, item_ct1);
-        });
+    s->parallel_for(sycl::nd_range<3>(grid_size * block_size, block_size),
+		    [=](sycl::nd_item<3> item_ct1) {
+		      _unpack_h2eff_2d(in, out, map, nmo, ncas, ncas_pair, item_ct1);
+		    });
   }
 
 #ifdef _DEBUG_DEVICE
   printf("LIBGPU ::  -- _unpack_h2eff_2d :: nmo*ncas= %i  ncas*ncas= %i  _UNPACK_BLOCK_SIZE= %i  grid_size= %i %i %i  block_size= %i %i %i\n",
-	 nmo*ncas, ncas*ncas, _UNPACK_BLOCK_SIZE, grid_size.x,grid_size.y,grid_size.z,block_size.x,block_size.y,block_size.z);
-  _CUDA_CHECK_ERRORS();
+	 nmo*ncas, ncas*ncas, _UNPACK_BLOCK_SIZE, grid_size[0],grid_size[1],grid_size[2],block_size[0],block_size[1],block_size[2]);
+  pm->dev_check_errors();
 #endif
 }
 
@@ -889,15 +880,15 @@ void Device::transpose_2310(double * in, double * out, int nmo, int ncas)
                            _TILE(ncas, block_size[1]),
                            _TILE(nmo, block_size[2]));
 
-  dpct::queue_ptr s = *(pm->dev_get_queue());
+  sycl::queue * s = pm->dev_get_queue();
 
   /*
-  DPCT1049:8: The work-group size passed to the SYCL kernel may exceed the
+  DPCT1049:7: The work-group size passed to the SYCL kernel may exceed the
   limit. To get the device limit, query info::device::max_work_group_size.
   Adjust the work-group size if needed.
   */
   {
-    dpct::has_capability_or_fail(s->get_device(), {sycl::aspect::fp64});
+    //    dpct::has_capability_or_fail(s->get_device(), {sycl::aspect::fp64});
 
     s->parallel_for(sycl::nd_range<3>(grid_size * block_size, block_size),
                     [=](sycl::nd_item<3> item_ct1) {
@@ -907,8 +898,8 @@ void Device::transpose_2310(double * in, double * out, int nmo, int ncas)
 
 #ifdef _DEBUG_DEVICE
   printf("LIBGPU ::  -- update_h2eff_sub::transpose_2310 :: nmo= %i  ncas= %i  _DEFAULT_BLOCK_SIZE= %i  grid_size= %i %i %i  block_size= %i %i %i\n",
-	 nmo, ncas, _DEFAULT_BLOCK_SIZE, grid_size.x,grid_size.y,grid_size.z,block_size.x,block_size.y,block_size.z);
-  _CUDA_CHECK_ERRORS();
+	 nmo, ncas, _DEFAULT_BLOCK_SIZE, grid_size[0],grid_size[1],grid_size[2],block_size[0],block_size[1],block_size[2]);
+  pm->dev_check_errors();
 #endif
 }
 
@@ -921,15 +912,15 @@ void Device::transpose_3210(double* in, double* out, int nmo, int ncas)
                            _TILE(ncas, block_size[1]),
                            _TILE(ncas, block_size[2]));
 
-  dpct::queue_ptr s = *(pm->dev_get_queue());
+  sycl::queue * s = pm->dev_get_queue();
 
   /*
-  DPCT1049:9: The work-group size passed to the SYCL kernel may exceed the
+  DPCT1049:8: The work-group size passed to the SYCL kernel may exceed the
   limit. To get the device limit, query info::device::max_work_group_size.
   Adjust the work-group size if needed.
   */
   {
-    dpct::has_capability_or_fail(s->get_device(), {sycl::aspect::fp64});
+    //    dpct::has_capability_or_fail(s->get_device(), {sycl::aspect::fp64});
 
     s->parallel_for(sycl::nd_range<3>(grid_size * block_size, block_size),
                     [=](sycl::nd_item<3> item_ct1) {
@@ -939,8 +930,8 @@ void Device::transpose_3210(double* in, double* out, int nmo, int ncas)
 
 #ifdef _DEBUG_DEVICE
   printf("LIBGPU ::  -- update_h2eff_sub::transpose_3210 :: ncas= %i  _DEFAULT_BLOCK_SIZE= %i  grid_size= %i %i %i  block_size= %i %i %i\n",
-	 ncas, _DEFAULT_BLOCK_SIZE, grid_size.x,grid_size.y,grid_size.z,block_size.x,block_size.y,block_size.z);
-  _CUDA_CHECK_ERRORS();
+	 ncas, _DEFAULT_BLOCK_SIZE, grid_size[0],grid_size[1],grid_size[2],block_size[0],block_size[1],block_size[2]);
+  pm->dev_check_errors();
 #endif
 }
 
@@ -951,10 +942,10 @@ void Device::pack_h2eff_2d(double * in, double * out, int * map, int nmo, int nc
   sycl::range<3> block_size(_UNPACK_BLOCK_SIZE, 1, 1);
   sycl::range<3> grid_size(_TILE(ncas_pair, _DEFAULT_BLOCK_SIZE), ncas, nmo);
 
-  dpct::queue_ptr s = *(pm->dev_get_queue());
+  sycl::queue * s = pm->dev_get_queue();
 
   {
-    dpct::has_capability_or_fail(s->get_device(), {sycl::aspect::fp64});
+    //    dpct::has_capability_or_fail(s->get_device(), {sycl::aspect::fp64});
 
     s->parallel_for(sycl::nd_range<3>(grid_size * block_size, block_size),
                     [=](sycl::nd_item<3> item_ct1) {
@@ -965,8 +956,8 @@ void Device::pack_h2eff_2d(double * in, double * out, int * map, int nmo, int nc
 
 #ifdef _DEBUG_DEVICE
   printf("LIBGPU ::  -- update_h2eff_sub::_pack_h2eff_2d :: nmo= %i  ncas= %i  _UNPACK_BLOCK_SIZE= %i  grid_size= %i %i %i  block_size= %i %i %i\n",
-	 nmo, ncas, _UNPACK_BLOCK_SIZE, grid_size.x,grid_size.y,grid_size.z,block_size.x,block_size.y,block_size.z);
-  _CUDA_CHECK_ERRORS();
+	 nmo, ncas, _UNPACK_BLOCK_SIZE, grid_size[0],grid_size[1],grid_size[2],block_size[0],block_size[1],block_size[2]);
+  pm->dev_check_errors();
 #endif
 }
 
@@ -978,15 +969,15 @@ void Device::get_mo_cas(const double* big_mat, double* small_mat, int ncas, int 
   sycl::range<3> grid_size(1, _TILE(nao, block_size[1]),
                            _TILE(ncas, block_size[2]));
 
-  dpct::queue_ptr s = *(pm->dev_get_queue());
+  sycl::queue * s = pm->dev_get_queue();
 
   /*
-  DPCT1049:10: The work-group size passed to the SYCL kernel may exceed the
+  DPCT1049:9: The work-group size passed to the SYCL kernel may exceed the
   limit. To get the device limit, query info::device::max_work_group_size.
   Adjust the work-group size if needed.
   */
   {
-    dpct::has_capability_or_fail(s->get_device(), {sycl::aspect::fp64});
+    //    dpct::has_capability_or_fail(s->get_device(), {sycl::aspect::fp64});
 
     s->parallel_for(sycl::nd_range<3>(grid_size * block_size, block_size),
                     [=](sycl::nd_item<3> item_ct1) {
@@ -997,8 +988,8 @@ void Device::get_mo_cas(const double* big_mat, double* small_mat, int ncas, int 
 
 #ifdef _DEBUG_DEVICE
   printf("LIBGPU ::  -- get_h2eff_df::_get_mo_cas :: ncas= %i  nao= %i  grid_size= %i %i %i  block_size= %i %i %i\n",
-	 ncas, nao, grid_size.x,grid_size.y,grid_size.z,block_size.x,block_size.y,block_size.z);
-  _CUDA_CHECK_ERRORS();
+	 ncas, nao, grid_size[0],grid_size[1],grid_size[2],block_size[0],block_size[1],block_size[2]);
+  pm->dev_check_errors();
 #endif
 }
 
@@ -1010,15 +1001,15 @@ void Device::pack_d_vuwM(const double * in, double * out, int * map, int nmo, in
   sycl::range<3> grid_size(1, _TILE(ncas * ncas, block_size[1]),
                            _TILE(nmo * ncas, block_size[2]));
 
-  dpct::queue_ptr s = *(pm->dev_get_queue());
+  sycl::queue * s = pm->dev_get_queue();
 
   /*
-  DPCT1049:11: The work-group size passed to the SYCL kernel may exceed the
+  DPCT1049:10: The work-group size passed to the SYCL kernel may exceed the
   limit. To get the device limit, query info::device::max_work_group_size.
   Adjust the work-group size if needed.
   */
   {
-    dpct::has_capability_or_fail(s->get_device(), {sycl::aspect::fp64});
+    //    dpct::has_capability_or_fail(s->get_device(), {sycl::aspect::fp64});
 
     s->parallel_for(sycl::nd_range<3>(grid_size * block_size, block_size),
                     [=](sycl::nd_item<3> item_ct1) {
@@ -1029,26 +1020,28 @@ void Device::pack_d_vuwM(const double * in, double * out, int * map, int nmo, in
 
 #ifdef _DEBUG_DEVICE
   printf("LIBGPU ::  -- get_h2eff_df::pack_d_vumM :: nmo*ncas= %i  ncas*ncas= %i  grid_size= %i %i %i  block_size= %i %i %i\n",
-	 nmo*ncas, ncas*ncas, grid_size.x,grid_size.y,grid_size.z,block_size.x,block_size.y,block_size.z);
-  _CUDA_CHECK_ERRORS();
+	 nmo*ncas, ncas*ncas, grid_size[0],grid_size[1],grid_size[2],block_size[0],block_size[1],block_size[2]);
+  pm->dev_check_errors();
 #endif
 }
+
 /* ---------------------------------------------------------------------- */
+
 void Device::pack_d_vuwM_add(const double * in, double * out, int * map, int nmo, int ncas, int ncas_pair)
 {
   sycl::range<3> block_size(1, _UNPACK_BLOCK_SIZE, _UNPACK_BLOCK_SIZE);
   sycl::range<3> grid_size(1, _TILE(ncas * ncas, block_size[1]),
                            _TILE(nmo * ncas, block_size[2]));
 
-  dpct::queue_ptr s = *(pm->dev_get_queue());
+  sycl::queue * s = pm->dev_get_queue();
 
   /*
-  DPCT1049:12: The work-group size passed to the SYCL kernel may exceed the
+  DPCT1049:11: The work-group size passed to the SYCL kernel may exceed the
   limit. To get the device limit, query info::device::max_work_group_size.
   Adjust the work-group size if needed.
   */
   {
-    dpct::has_capability_or_fail(s->get_device(), {sycl::aspect::fp64});
+    //    dpct::has_capability_or_fail(s->get_device(), {sycl::aspect::fp64});
 
     s->parallel_for(sycl::nd_range<3>(grid_size * block_size, block_size),
                     [=](sycl::nd_item<3> item_ct1) {
@@ -1059,10 +1052,9 @@ void Device::pack_d_vuwM_add(const double * in, double * out, int * map, int nmo
 
 #ifdef _DEBUG_DEVICE
   printf("LIBGPU ::  -- get_h2eff_df::pack_d_vumM_add :: nmo*ncas= %i  ncas*ncas= %i  grid_size= %i %i %i  block_size= %i %i %i\n",
-	 nmo*ncas, ncas*ncas, grid_size.x,grid_size.y,grid_size.z,block_size.x,block_size.y,block_size.z);
-  _CUDA_CHECK_ERRORS();
+	 nmo*ncas, ncas*ncas, grid_size[0],grid_size[1],grid_size[2],block_size[0],block_size[1],block_size[2]);
+  pm->dev_check_errors();
 #endif
 }
-
 
 #endif

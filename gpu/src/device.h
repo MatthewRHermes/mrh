@@ -23,7 +23,13 @@ using namespace MATHLIB_NS;
 
 #define _USE_ERI_CACHE
 #define _ERI_CACHE_EXTRA 2
+
+//#define _DEBUG_DEVICE
 //#define _DEBUG_ERI_CACHE
+//#define _DEBUG_H2EFF
+//#define _DEBUG_H2EFF2
+//#define _DEBUG_H2EFF_DF
+//#define _DEBUG_AO2MO
 
 #define _PUMAP_2D_UNPACK 0       // generic unpacking of 1D array to 2D matrix
 #define _PUMAP_H2EFF_UNPACK 1    // unpacking h2eff array (generic?)
@@ -302,12 +308,12 @@ private:
     cublasHandle_t handle;
     cudaStream_t stream;
 #elif defined _GPU_MKL
-    void handle;
-    sycl::queue stream;
+    int * handle;
+    sycl::queue * stream;
 #endif
 #else
-    void handle;
-    void stream;
+    int * handle;
+    int * stream;
 #endif
   };
 

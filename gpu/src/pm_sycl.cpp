@@ -18,7 +18,9 @@ PM::PM()
   current_queue = nullptr;
   current_queue_id = -1;
 
-  // initialize main queue/stream for each device
+  // initialize main queue/stream for each device as in-order
+
+  sycl::property_list q_prop{sycl::property::queue::in_order()};
   
   std::vector<sycl::platform> platforms = sycl::platform::get_platforms();
   
@@ -26,7 +28,7 @@ PM::PM()
     std::vector<sycl::device> devices = plat.get_devices();
 
     for (const auto &dev : devices) {
-      sycl::queue q(dev);
+      sycl::queue q(dev, q_prop);
       if(dev.is_gpu()) my_queues.push_back(q);
     }
     
@@ -141,6 +143,11 @@ int PM::dev_check_peer(int rank, int ngpus)
   return 1;
 }
 
+void PM::dev_check_errors()
+{
+  _SYCL_CHECK_ERRORS()
+}
+
 void PM::dev_set_device(int id)
 {
 #ifdef _DEBUG_PM
@@ -193,6 +200,7 @@ void * PM::dev_malloc_async(size_t N)
 #endif
   
   void * ptr = sycl::malloc_device<char>(N, *current_queue);
+  //  current_queue->wait();
   
 #ifdef _DEBUG_PM
   printf(" -- Leaving PM::dev_malloc_async()\n");
@@ -221,9 +229,15 @@ void * PM::dev_malloc_host(size_t N)
 #ifdef _DEBUG_PM
   printf("Inside PM::dev_malloc_host()\n");
 #endif
-  
-  void * ptr = sycl::malloc_host<char>(N, *current_queue);
-  current_queue->wait(); // needed?
+
+  void * ptr;
+
+  if(current_queue) {
+    ptr = sycl::malloc_host<char>(N, *current_queue);
+    current_queue->wait(); // needed?
+  } else {
+    ptr = malloc(N);
+  }
   
 #ifdef _DEBUG_PM
   printf(" -- Leaving PM::dev_malloc_host()\n");
@@ -253,6 +267,7 @@ void PM::dev_free_async(void * ptr)
 #endif
   
   sycl::free(ptr, *current_queue);
+  //  current_queue->wait();
   
 #ifdef _DEBUG_PM
   printf(" -- Leaving PM::dev_free_async()\n");
@@ -518,19 +533,6 @@ void PM::dev_stream_create(sycl::queue & q)
   
 #ifdef _DEBUG_PM
   printf(" -- Leaving PM::dev_stream_create()\n");
-#endif
-}
-
-void PM::dev_stream_destroy()
-{
-#ifdef _DEBUG_PM
-  printf("Inside PM::dev_stream_destroy()\n");
-#endif
-
-  // don't think we should destroy any sycl queues at this point
-  
-#ifdef _DEBUG_PM
-  printf(" -- Leaving PM::dev_stream_destroy()\n");
 #endif
 }
 
