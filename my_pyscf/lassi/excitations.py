@@ -1,11 +1,13 @@
 import copy
 import numpy as np
+import ctypes
+import itertools
 from scipy import linalg
-from pyscf.fci import cistring
-from pyscf.fci.direct_spin1 import _unpack_nelec
-from pyscf.mcscf.addons import StateAverageFCISolver
-from mrh.my_pyscf.mcscf.productstate import ProductStateFCISolver, ImpureProductStateFCISolver, state_average_fcisolver
-from mrh.my_pyscf.fci import csf_solver, CSFFCISolver
+from pyscf.lib import logger
+from pyscf.fci.direct_spin1 import _unpack_nelec, trans_rdm1s, trans_rdm12s
+from pyscf.scf.addons import canonical_orth_
+from mrh.my_pyscf.mcscf.productstate import ProductStateFCISolver, state_average_fcisolver
+from mrh.my_pyscf.fci import csf_solver, CSFFCISolver, direct_nosym_uhf
 from mrh.my_pyscf.lassi import op_o0, op_o1
 from mrh.my_pyscf.lassi.citools import get_lroots
 from pyscf import lib
@@ -18,116 +20,36 @@ IMAG_SHIFT = getattr (__config__, 'lassi_excitations_imag_shift', 1e-6)
 MAX_CYCLE_E0 = getattr (__config__, 'lassi_excitations_max_cycle_e0', 1)
 CONV_TOL_E0 = getattr (__config__, 'lassi_excitations_conv_tol_e0', 1e-8)
 
-def lowest_refovlp_eigval (ham_pq, ovlp_thresh=LOWEST_REFOVLP_EIGVAL_THRESH):
-    ''' Return the lowest eigenvalue of the matrix ham_pq, whose corresponding
-    eigenvector has nonzero overlap with the first basis function. '''
+def lowest_refovlp_eigpair (ham_pq, p=1, ovlp_thresh=LOWEST_REFOVLP_EIGVAL_THRESH, log=None):
+    ''' Identify the lowest-energy eigenpair for which the eigenvector has nonzero overlap with
+    the first p basis functions. '''
     e_all, u_all = linalg.eigh (ham_pq)
-    w = u_all[0,:].conj () * u_all[0,:]
-    idx_valid = w > ovlp_thresh
+    w_pp = (u_all[:p,:].conj () * u_all[:p,:]).sum (0) / p
+    w_q0q0 = u_all[p,:].conj () * u_all[p,:]
+    w_pq0 = np.abs (u_all[:p,:].conj () * u_all[p,:][None,:]).sum (0)
+    idx_valid = w_q0q0 > 0.1
     e_valid = e_all[idx_valid]
     u_valid = u_all[:,idx_valid]
     idx_choice = np.argmin (e_valid)
-    return e_valid[idx_choice]
+    if log is not None and log.verbose > logger.DEBUG:
+        log.debug2 ("Debugging eigenpair selection")
+        log.debug2 (" idx e w_pp w_q0q0 w_pq0")
+        i0 = np.where (idx_valid)[0][idx_choice]
+        for i in range (len (e_all)):
+            line = ' {} {} {} {} {}'.format (i,e_all[i],w_pp[i],w_q0q0[i],w_pq0[i])
+            if i==i0: line += ' selected'
+            log.debug2 (line)
+    return e_valid[idx_choice], u_valid[:,idx_choice]
 
-def sort_ci0 (obj, ham_pq, ci0):
-    '''Prepare guess CI vectors, guess energy, and Q-space Hamiltonian eigenvalues
-    and eigenvectors. Sort ci0 so that the ENV |00...0> is the state with the
-    minimum guess energy for the downfolded eigenproblem
+def lowest_refovlp_eigval (ham_pq, p=1, ovlp_thresh=LOWEST_REFOVLP_EIGVAL_THRESH):
+    ''' Return the lowest eigenvalue of the matrix ham_pq, whose corresponding
+    eigenvector has nonzero overlap with the first basis p basis functions. '''
+    return lowest_refovlp_eigpair (ham_pq, p=p, ovlp_thresh=ovlp_thresh)[0]
 
-    (h_pp + h_pq (e0 - e_q)^-1 h_qp) |p> = e0|p>
-
-    NOTE: in the current LASSIS method, this isn't how the converged vectors should be
-    sorted: this arrangement only for the initial guess.
-
-    Args:
-        ham_pq: ndarray of shape (p+q,p+q)
-            Hamiltonian matrix in model-space basis. In the p-space, ENVs ascend in
-            column-major order: |00...0>, |10...0>, |20...0>, ... |0100...0>, |1100...0>, ...
-        ci0: list of ndarray
-            CI vectors for the active fragments
-
-    Returns:
-        ci0: list of ndarray
-            Resorted on each fragment so that |00...0> has the lowest downfolded
-            guess energy
-        e0_p: float
-            Downfolded guess energy of |00...0>
-        ham_pq: ndarray of shape (p+q,p+q)
-            Copy of the input matrix sorted so that |00...0> is the first basis state and
-            individual fragment states "i" are sorted in ascending order of the energy of
-            |00...0i00...0>.'''
-    # Find lowest-energy ENV, including VRV contributions
-    log = lib.logger.new_logger (obj, obj.verbose)
-    lroots = get_lroots (ci0)
-    p = np.prod (lroots)
-    h_pp = ham_pq[:p,:p]
-    h_pq = ham_pq[:p,p:]
-    h_qq = ham_pq[p:,p:]
-    q = ham_pq.shape[-1] - p
-    e_q, si_q = linalg.eigh (h_qq)
-    def project_1p (ip):
-        idx = np.ones (len (ham_pq), dtype=bool)
-        idx[:p] = False
-        idx[ip] = True
-        return ham_pq[idx,:][:,idx]
-    e_p = np.array ([lowest_refovlp_eigval (project_1p (i)) for i in range (p)])
-    idxmin = np.argmin (e_p)
-    e0_p = e_p[idxmin]
-    h_pq = np.dot (h_pq, si_q)
-                
-    # ENV index to address
-    idx = idxmin
-    addr = []
-    for ifrag, lroot in enumerate (lroots):
-        idx, j = divmod (idx, lroot)
-        addr.append (j)
-
-    # Sort against this reference state
-    nfrag = len (addr)
-    e_p_arr = e_p.reshape (*lroots[::-1]).T
-    h_pp = h_pp.reshape (*(list(lroots[::-1])*2))
-    h_pq = ham_pq[:p,p:].reshape (*(list(lroots[::-1])+[q,]))
-    ci1 = [c.copy () for c in ci0]
-    for ifrag in range (nfrag):
-        if lroots[ifrag]<2: continue
-        e_p_slice = e_p_arr
-        for jfrag in range (ifrag):
-            e_p_slice = e_p_slice[addr[jfrag]]
-        for jfrag in range (ifrag+1,nfrag):
-            e_p_slice = e_p_slice[:,addr[jfrag]]
-        sort_idx = np.argsort (e_p_slice)
-        assert (sort_idx[0] == addr[ifrag])
-        ci1[ifrag] = np.stack ([ci1[ifrag][i] for i in sort_idx], axis=0)
-        dimorder = list(range(h_pp.ndim))
-        dimorder.insert (0, dimorder.pop (nfrag-(1+ifrag)))
-        dimorder.insert (1, dimorder.pop (2*nfrag-(1+ifrag)))
-        h_pp = h_pp.transpose (*dimorder)
-        h_pp = h_pp[sort_idx,...][:,sort_idx,...]
-        dimorder = np.argsort (dimorder)
-        h_pp = h_pp.transpose (*dimorder)
-        dimorder = list(range(h_pq.ndim))
-        dimorder.insert (0, dimorder.pop (nfrag-(1+ifrag)))
-        h_pq = h_pq.transpose (*dimorder)
-        h_pq = h_pq[sort_idx,...]
-        dimorder = np.argsort (dimorder)
-        h_pq = h_pq.transpose (*dimorder)
-    h_pp = h_pp.reshape (p, p)
-    h_pq = h_pq.reshape (p, q)
-    ham_pq = np.block ([[h_pp, h_pq],[h_pq.conj ().T, h_qq]])
-    return ci1, e0_p, ham_pq
-
-class _vrvloop_env (object):
-    def __init__(self, fciobj, vrvsolvers, e_q, si_q):
-        self.fciobj = fciobj
-        self.vrvsolvers = vrvsolvers
-        self.e_q = e_q
-        self.si_q = si_q
-    def __enter__(self):
-        self.fciobj.fcisolvers = self.vrvsolvers
-        self.fciobj._e_q = self.e_q
-        self.fciobj._si_q = self.si_q
-    def __exit__(self, type, value, traceback):
-        self.fciobj.revert_vrvsolvers_()
+def lowest_refovlp_eigvec (ham_pq, p=1, ovlp_thresh=LOWEST_REFOVLP_EIGVAL_THRESH):
+    ''' Return the eigenvector corresponding to the lowest eigenvalue of the matrix ham_pq
+    which has nonzero overlap with the first basis p basis functions. '''
+    return lowest_refovlp_eigpair (ham_pq, p=p, ovlp_thresh=ovlp_thresh)[1]
 
 class ExcitationPSFCISolver (ProductStateFCISolver):
     '''Minimize the energy of a normalized wave function of the form
@@ -156,7 +78,6 @@ class ExcitationPSFCISolver (ProductStateFCISolver):
         self.wfnsym_ref = wfnsym_ref
         self.crash_locmin = crash_locmin
         self.opt = opt
-        self._deactivate_vrv = False # for testing
         ProductStateFCISolver.__init__(self, solvers_ref[0].fcisolvers, stdout=stdout,
                                        verbose=verbose)
         ci_ref_rf = [[c[i] for c in ci_ref] for i in range (len (self.solvers_ref))]
@@ -250,87 +171,113 @@ class ExcitationPSFCISolver (ProductStateFCISolver):
             self.excited_frags = [self.excited_frags[i] for i in idx]
             self.fcisolvers = [self.fcisolvers[i] for i in idx]
 
+    def space_delta (self, ci0, si0_p, ci1, si1_p, nroots):
+        delta = 0
+        for c0, c1 in zip (ci0, ci1):
+            x0 = np.asarray (c0[:nroots]).reshape (nroots,-1) 
+            x1 = np.asarray (c1[:nroots]).reshape (nroots,-1) 
+            ovlp = x0.conj () @ x1.T
+            ovlp = ovlp * si1_p[None,:]
+            ovlp = ovlp.conj () * ovlp
+            ovlp -= np.diag (si1_p.conj () * si1_p)
+            delta = max (delta, ovlp.sum ())
+        delta = max (delta, np.amax (np.abs (si1_p-si0_p)))
+        return delta
+
     def kernel (self, h1, h2, ecore=0, ci0=None,
-                conv_tol_grad=1e-4, conv_tol_self=1e-6, max_cycle_macro=50,
-                serialfrag=False, _add_vrv_energy=False, **kwargs):
+                conv_tol_space=1e-4, conv_tol_self=1e-6, max_cycle_macro=50,
+                serialfrag=False, nroots=1, **kwargs):
+        t0 = lib.logger.process_clock (), lib.logger.perf_counter ()
         h0, h1, h2 = self.get_excited_h (ecore, h1, h2)
+        log = self.log
         norb_f = np.asarray ([self.norb_ref[ifrag] for ifrag in self.excited_frags])
         nelec_f = np.asarray ([self.nelec_ref[ifrag] for ifrag in self.excited_frags])
         orbsym = self.orbsym_ref
         if orbsym is not None:
             idx = self.get_excited_orb_idx ()
             orbsym = [orbsym[iorb] for iorb in range (norb_tot) if idx[iorb]]
-        # TODO: point group symmetry; I probably also have to do something to wfnsym
-        ci0, vrvsolvers, e_q, si_q = self.prepare_vrvsolvers_(h0, h1, h2, ci0=ci0)
-        with _vrvloop_env (self, vrvsolvers, e_q, si_q):
-            converged, energy_elec, ci1_active = ProductStateFCISolver.kernel (
-                self, h1, h2, norb_f, nelec_f, ecore=h0, ci0=ci0, orbsym=orbsym,
-                conv_tol_grad=conv_tol_grad, conv_tol_self=conv_tol_self,
-                max_cycle_macro=max_cycle_macro, serialfrag=serialfrag, **kwargs
-            )
-            if _add_vrv_energy: # for a sanity check in unittests only
-                energy_elec += self._energy_vrv (h1, h2, ci1_active)
+        ci0 = self.get_init_guess (ci0, norb_f, nelec_f, h1, h2, nroots=3*nroots)
+        ham_pq = self.get_ham_pq (h0, h1, h2, ci0)
+        e, si = self.eig1 (ham_pq, ci0)
+        disc_svals, u, si_p, si_q, vh = self.schmidt_trunc (si, ci0, nroots=nroots)
+        ham_pq = self.truncrot_ham_pq (ham_pq, u, vh)
+        ci1 = self.truncrot_ci (ci0, u, vh)
+        hci_qspace = self.op_ham_pq_ref (h1, h2, ci1)
+        hci_pspace_diag = self.op_ham_pp_diag (h1, h2, ci1, norb_f, nelec_f)
+        tdm1s_f = self.get_tdm1s_f (ci1, ci1, norb_f, nelec_f)
+        e, si0_p = 0, si_p
+        disc_sval_max = max (list(disc_svals)+[0.0,])
+        converged = False
+        log.info ('Entering product-state fixed-point CI iteration')
+        for it in range (max_cycle_macro):
+            e_last = e
+            space_delta = self.space_delta (ci0, si0_p, ci1, si_p, nroots)
+            ci0, si0_p = ci1, si_p
+            # Re-diagonalize in truncated space
+            e, si = self.eig1 (ham_pq, ci0)
+            _, u, si_p, si_q, vh = self.schmidt_trunc (si, ci0, nroots=nroots)
+            log.debug ('Singular values in truncated space: {}'.format (si_p))
+            ci1 = self.truncrot_ci (ci0, u, vh)
+            log.info ('Cycle %d: |delta space| = %e ; e = %e, |delta e| = %e, max (discarded) = %e',
+                      it, space_delta, e, e - e_last, disc_sval_max)
+            if ((space_delta < conv_tol_space) and (abs (e-e_last) < conv_tol_self)):
+                converged = True
+                break
+            ham_pq = self.truncrot_ham_pq (ham_pq, u, vh)
+            hci_qspace = self.truncrot_hci_qspace (hci_qspace, u, vh)
+            hci_pspace_diag = self.truncrot_hci_pspace_diag (hci_pspace_diag, u, vh)
+            tdm1s_f = self.truncrot_tdm1s_f (tdm1s_f, u, vh)
+            # Generate additional vectors and compute gradient
+            hpq_xq = self.get_hpq_xq (hci_qspace, ci1, si_q)
+            hpp_xp = self.get_hpp_xp (ci1, si_p, hci_pspace_diag, h0, h2, tdm1s_f, norb_f, nelec_f)
+            grad = self._get_grad (ci1, si_p, hpq_xq, hpp_xp, nroots=nroots)
+            ci2 = self.get_new_vecs (ci1, hpq_xq, hpp_xp, nroots=nroots)
+            # Extend intermediates
+            hci2_qspace = self.op_ham_pq_ref (h1, h2, ci2)
+            hci2_pspace_diag = self.op_ham_pp_diag (h1, h2, ci2, norb_f, nelec_f)
+            tdm1s_f_12 = self.get_tdm1s_f (ci1, ci2, norb_f, nelec_f)
+            tdm1s_f_21 = self.get_tdm1s_f (ci2, ci1, norb_f, nelec_f)
+            tdm1s_f_22 = self.get_tdm1s_f (ci2, ci2, norb_f, nelec_f)
+            for ifrag in range (len (ci1)):
+                ci1[ifrag] = np.append (ci1[ifrag], ci2[ifrag], axis=0)
+                hci_qspace[ifrag] = np.append (hci_qspace[ifrag], hci2_qspace[ifrag], axis=0)
+                hci_pspace_diag[ifrag] = np.append (hci_pspace_diag[ifrag], hci2_pspace_diag[ifrag], axis=0)
+                tdm1s_f[ifrag] = np.append (
+                    np.append (tdm1s_f[ifrag], tdm1s_f_12[ifrag], axis=1),
+                    np.append (tdm1s_f_21[ifrag], tdm1s_f_22[ifrag], axis=1),
+                    axis=0
+                )
+            ham_pq = self.update_ham_pq (ham_pq, h0, h1, h2, ci1, hci_qspace, hci_pspace_diag,
+                                         tdm1s_f, norb_f, nelec_f)
+            # Diagonalize and truncate
+            _, si = self.eig1 (ham_pq, ci1)
+            disc_svals, u, si_p, si_q, vh = self.schmidt_trunc (si, ci1, nroots=nroots)
+            ham_pq = self.truncrot_ham_pq (ham_pq, u, vh)
+            ci1 = self.truncrot_ci (ci1, u, vh)
+            hci_qspace = self.truncrot_hci_qspace (hci_qspace, u, vh)
+            hci_pspace_diag = self.truncrot_hci_pspace_diag (hci_pspace_diag, u, vh)
+            tdm1s_f = self.truncrot_tdm1s_f (tdm1s_f, u, vh)
+            log.debug ('Retained singular values: {}'.format (si_p))
+            log.debug ('Discarded singular values: {}'.format (disc_svals))
+            disc_sval_max = max (list (disc_svals) + [0.0,])
+        conv_str = ['NOT converged','converged'][int (converged)]
+        log.info (('Product_state fixed-point CI iteration {} after {} '
+                   'cycles').format (conv_str, it))
+        if not converged:
+            ci1 = self.get_init_guess (ci1, norb_f, nelec_f, h1, h2, nroots=nroots)
+            # Issue #86: see above, same problem
+            self._debug_csfs (log, ci0, ci1, norb_f, nelec_f, grad, nroots=nroots)
+        energy_elec = e
+        ci1_active = ci1
         ci1 = [c for c in self.ci_ref]
         for ifrag, c in zip (self.excited_frags, ci1_active):
             ci1[ifrag] = np.asarray (c)
-        return converged, energy_elec, ci1
+        t1 = self.log.timer ('ExcitationPSFCISolver kernel', *t0)
+        return converged, energy_elec, ci1, disc_sval_max
 
-    def project_hfrag (self, h1, h2, ci, norb_f, nelec_f, ecore=0, dm1s=None, dm2=None, **kwargs):
-        h1eff, h0eff, ci = ProductStateFCISolver.project_hfrag (
-            self, h1, h2, ci, norb_f, nelec_f, ecore=ecore, dm1s=dm1s, dm2=dm2, **kwargs
-        )
-        nj = np.cumsum (norb_f)
-        ni = nj - norb_f
-        # Project the part coupling the p and q rootspaces
-        ci1 = [c for c in ci]
-        if len (self._e_q) and not self._deactivate_vrv:
-            ci0 = [np.asarray (c) for c in ci]
-            hci_f_pabq = self.op_ham_pq_ref (h1, h2, ci0)
-            zipper = zip (hci_f_pabq, self.fcisolvers, ci0, norb_f, nelec_f, h1eff, h0eff, ni, nj)
-            for ifrag, (hci_pabq, solver, c, norb, nelec, h1e, h0e, i, j) in enumerate (zipper):
-                h2e = h2[i:j,i:j,i:j,i:j]
-                ne = self._get_nelec (solver, nelec)
-                solver.v_qpab = np.tensordot (self._si_q, hci_pabq, axes=((0),(-1)))
-                e0, ci1[ifrag] = solver.sort_ci (h0e, h1e, h2e, norb, ne, c)
-                solver.denom_q = e0 - solver.e_q
-                # The reason I do the above two lines here and not in the fragment-solver kernel is
-                # that between this function and the start of the fragment-solver kernel, the
-                # wrapper needs to compute the current gradient for the whole system. The fragment
-                # solvers need to already know the correct e0 for that gradient calculation.
-        return h1eff, h0eff, ci1
-
-    def _energy_vrv (self, h1, h2, ci):
-        # The only purpose this serves is for a sanity test in test_excitations.py
-        # It can be reattached to energy_elec if I can figure out how to define a whole-system
-        # energy for this step in LASSIS that makes sense.
-        # If so, I should rewrite it so that it can be called outside of this class's kernel
-        # function
-        if (len (self._e_q) == 0) or self._deactivate_vrv: return 0
-        ci0 = []
-        denom_q = 0
-        for c, solver in zip (ci, self.fcisolvers):
-            t = solver.transformer
-            c = np.asarray (c).reshape (-1, t.ndeta, t.ndetb)
-            ci0.append (c)
-            denom_q += solver.denom_q
-        denom_q /= len (ci)
-        lroots = get_lroots (ci0)
-        p = np.prod (lroots)
-        ham_pq = self.get_ham_pq (0, h1, h2, ci0)
-        h_pp = ham_pq[:p,:p]
-        h_pq = ham_pq[:p,p:]
-        h_qq = ham_pq[p:,p:]
-        h_qq = self._si_q.conj ().T @ h_qq @ self._si_q
-        h_pq = np.dot (h_pq, self._si_q)
-        idx = np.abs (denom_q) > 1e-16
-        e_p = np.diag (np.dot (h_pq[:,idx].conj () / denom_q[None,idx], h_pq[:,idx].T))
-        e_p = e_p.reshape (*lroots[::-1]).T
-        for solver in self.fcisolvers:
-            if hasattr (getattr (solver, 'weights', None), '__len__'):
-                e_p = np.dot (solver.weights, e_p)
-            else:
-                e_p = e_p[0]
-        return e_p
+    def get_nq (self):
+        lroots = get_lroots ([self.ci_ref[ifrag] for ifrag in self.excited_frags])
+        return np.prod (lroots, axis=0).sum ()
 
     def get_ham_pq (self, h0, h1, h2, ci_p):
         '''Build the model-space Hamiltonian matrix for the current state of the P-space.
@@ -342,7 +289,7 @@ class ExcitationPSFCISolver (ProductStateFCISolver):
                 Spin-separated 1-electron part of the excited-fragment Hamiltonian
             h2: ndarray of shape [nexc,]*4
                 2-electron part of the excited-fragment Hamiltonian
-            ci_p: list of ndarray
+            ci_p: list of ndarray of shape (p[i],ndeta[i],ndetb[i])
                 CI vectors for the active fragments in the P-space
 
         Returns:
@@ -369,6 +316,108 @@ class ExcitationPSFCISolver (ProductStateFCISolver):
         t1 = self.log.timer ('get_ham_pq', *t0)
         return ham_pq + (h0*ovlp_pq)
 
+    def update_ham_pq (self, ham_pq, h0, h1, h2, ci, hci_qspace, hci_pspace_diag, tdm1s_f,
+                       norb_f, nelec_f):
+        '''Build the model-space Hamiltonian matrix for the current state of the P-space, reusing
+        as many intermediates as possible.
+
+        Args:
+            ham_pq: ndarray of shape (?+q,?+q)
+                Hamiltonian matrix describing a previous P-space. Only used to extract the Q-space
+                diagonal block
+            h0: float
+                Constant part of the excited-fragment Hamiltonian
+            h1: ndarray of shape (2,nexc,nexc)
+                Spin-separated 1-electron part of the excited-fragment Hamiltonian
+            h2: ndarray of shape [nexc,]*4
+                2-electron part of the excited-fragment Hamiltonian
+            ci: list of ndarray of shape (p,ndeta[i],ndetb[i])
+                CI vectors for the active fragments in the P-space
+            hci_qspace: list of ndarray of shape (nroots,ndeta,ndetb,q)
+                H|q> projected on <p| for all but one fragment, where <p| is the
+                vectors of CI, i.e., the output of op_ham_pq_ref for ci.
+            hci_pspace_diag: list of ndarray of shape (nroots,ndeta,ndetb)
+                H(ifrag)|p(ifrag)>, where <p| is the vectors of CI; i.e., the output of
+                op_ham_pp_diag for ci.
+            tdm1s_f: list of ndarray of shape (p,p,2,norb[i],norb[i])
+                Spin-separated transition one-body density matrices within each fragment for the
+                vectors in ci.
+            norb_f: list of length (nfrag)
+                Number of orbitals in excited fragments
+            nelec_f: list of length (nfrag)
+                Reference number of electrons in excited fragments
+
+        Returns:
+            ham_pq: ndarray of shape (p+q,p+q)
+                Model space Hamiltonian matrix
+        '''
+        #ref = self.get_ham_pq (h0, h1, h2, ci)
+        t0 = lib.logger.process_clock (), lib.logger.perf_counter ()
+        #return ref
+        nfrags = len (ci)
+        assert (nfrags == 2)
+        old_ham_pq = ham_pq
+        lroots = get_lroots (ci)
+        p = np.prod (lroots)
+        q = self.get_nq ()
+
+        # q,q sector
+        ham_pq = np.zeros ((p+q,p+q), dtype=old_ham_pq.dtype)
+        ham_pq[-q:,-q:] = old_ham_pq[-q:,-q:]        
+        #assert (np.amax (np.abs (ham_pq[p:,p:] - ref[p:,p:])) < 1e-6)
+
+        # p,q sector
+        h_pq = lib.einsum (
+            'iab,jabq->ijq', ci[1].conj (), hci_qspace[1],
+        )
+        h_pq = h_pq.reshape (lroots[1]*lroots[0],q)
+        ham_pq[:p,p:] = h_pq
+        #assert (np.amax (np.abs (ham_pq[:p,p:] - ref[:p,p:])) < 1e-6)
+        ham_pq[p:,:p] = h_pq.conj ().T
+        #assert (np.amax (np.abs (ham_pq[p:,:p] - ref[p:,:p])) < 1e-6)
+
+        # p,p sector - constant
+        h_pp = np.zeros ((p,p), dtype=ham_pq.dtype)
+        h_pp[np.diag_indices_from (h_pp)] = h0
+
+        # p,p sector - semidiagonal
+        h_pp = h_pp.reshape (lroots[1],lroots[0],lroots[1],lroots[0])
+        h_pp_diag = [np.dot (c.reshape (l,-1).conj (), hc.reshape (l,-1).T)
+                     for c, hc, l in zip (ci, hci_pspace_diag, lroots)]
+        for i in range (lroots[1]):
+            h_pp[i,:,i,:] += h_pp_diag[0]
+        for i in range (lroots[0]):
+            h_pp[:,i,:,i] += h_pp_diag[1]
+
+        # p,p sector - offdiagonal
+        i = norb_f[0]
+        w = lib.einsum ('ijab,klcd,abcd->ijkl', tdm1s_f[1].sum (2), tdm1s_f[0].sum (2),
+                        h2[i:,i:,:i,:i])
+        w -= lib.einsum ('ijab,klcd,adcb->ijkl', tdm1s_f[1][:,:,0], tdm1s_f[0][:,:,0],
+                        h2[i:,:i,:i,i:])
+        w -= lib.einsum ('ijab,klcd,adcb->ijkl', tdm1s_f[1][:,:,1], tdm1s_f[0][:,:,1],
+                        h2[i:,:i,:i,i:])
+        h_pp += w.transpose (0,2,1,3)
+        ham_pq[:p,:p] = h_pp.reshape (lroots[1]*lroots[0], lroots[1]*lroots[0])
+        #try:
+        #    assert (np.amax (np.abs (ham_pq[:p,:p] - ref[:p,:p])) < 1e-6), '{}-{}={}'.format (
+        #        lib.fp (ham_pq[:p,:p]), lib.fp (ref[:p,:p]), lib.fp (ham_pq[:p,:p])-lib.fp (ref[:p,:p]))
+        #except AssertionError as err:
+        #    idx = np.argmax (np.abs (ham_pq[:p,:p]-ref[:p,:p]))
+        #    print (lroots, idx, ham_pq[:p,:p].flat[idx], ref[:p,:p].flat[idx], (ham_pq[:p,:p]-ref[:p,:p]).flat[idx])
+        #    raise (err)
+
+        #try:
+        #    assert (np.amax (np.abs (ham_pq - ref)) < 1e-6), '{}-{}={}'.format (
+        #        lib.fp (ham_pq), lib.fp (ref), lib.fp (ham_pq)-lib.fp (ref))
+        #except AssertionError as err:
+        #    idx = np.argmax (np.abs (ham_pq-ref))
+        #    print (lroots, idx, ham_pq.flat[idx], ref.flat[idx], ham_pq.flat[idx]-ref.flat[idx])
+        #    raise (err)
+
+        t1 = self.log.timer ('update_ham_pq', *t0)
+        return ham_pq
+
     def op_ham_pq_ref (self, h1, h2, ci):
         '''Act the Hamiltonian on the reference CI vectors and project onto the current
         ground state of all but one active fragment, for each active fragment.
@@ -378,15 +427,23 @@ class ExcitationPSFCISolver (ProductStateFCISolver):
                 1-electron part of the excited-fragment Hamiltonian
             h2: ndarray of shape [nexc,]*4
                 2-electron part of the excited-fragment Hamiltonian
-            ci: list of ndarray
+            ci: list of ndarray of shape (p,ndeta[i],ndetb[i])
                 CI vectors of the active fragments in the P-space
 
         Returns:
-            hci_f_pabq: list of ndarray
+            hci_f_pabq: list of ndarray of shape (p,ndeta[i],ndetb[i],q)
                 Contains H|q>, projected onto <p| for all but one fragment, for each fragment.
                 Vectors are multiplied by the sqrt of the weight of p.'''
         # TODO: point group symmetry
         t0 = lib.logger.process_clock (), lib.logger.perf_counter ()
+        lroots = get_lroots (ci)
+        nfrags = len (lroots)
+        ci = [c.copy () for c in ci]
+        # ZERO-STATE CLUDGE
+        for ifrag in range (nfrags):
+            if lroots[ifrag]==0:
+                ci[ifrag] = np.zeros ([1,]+list(ci[ifrag].shape[1:]), dtype=ci[ifrag].dtype)
+                ci[ifrag].flat[0] = 1.0
         excited_frags = [ifrag for ifrag in self.excited_frags]
         norb_f = [self.norb_ref[ifrag] for ifrag in excited_frags]
         nelec_f = np.asarray ([self.nelec_ref[ifrag] for ifrag in excited_frags])
@@ -404,367 +461,440 @@ class ExcitationPSFCISolver (ProductStateFCISolver):
         with temporary_env (self, ncas_sub=norb_f, mol=self.fcisolvers[0].mol):
             hci_fr_pabq = h_op (self, h1, h2, ci_fr_ket, nelec_frs_ket, ci_fr_bra, nelec_frs_bra,
                                 soc=0, orbsym=None, wfnsym=None)
-        # weights for p
-        weights = getattr (self.fcisolvers[0], 'weights', np.array ([1.0]))
-        for s in self.fcisolvers[1:]:
-            w = getattr (s, 'weights', np.array ([1.0]))
-            weights = np.multiply.outer (w, weights)
-        hci_f_pabq = []
-        for ifrag, hc in enumerate (hci_fr_pabq):
-            # column-major order
-            w = weights.sum (-ifrag-1).ravel ()
-            assert (np.count_nonzero (w<0)==0)
-            idx = w > 0
-            hc = hc[0][idx] * np.sqrt (w[idx])[:,None,None,None]
-            hci_f_pabq.append (hc)
+        hci_f_pabq = [hc[0] for hc in hci_fr_pabq]
+        # ZERO-STATE CLUDGE
+        for ifrag in range (nfrags):
+            if lroots[ifrag]!=0: continue
+            for jfrag in range (nfrags):
+                if ifrag==jfrag: continue
+                hci = hci_f_pabq[jfrag]
+                hci_f_pabq[jfrag] = np.zeros ([0,]+list(hci.shape[1:]), dtype=hci.dtype)
         t1 = self.log.timer ('op_ham_pq_ref', *t0)
         return hci_f_pabq
 
-    def sort_ci0 (self, ham_pq, ci0):
-        return sort_ci0 (self, ham_pq, ci0)[:2]
+    def op_ham_pp_diag (self, h1, h2, ci, norb_f, nelec_f):
+        ''' Act Hfrag[i]|ci[i]> for all fragments i 
 
-    def prepare_vrvsolvers_(self, h0, h1, h2, ci0=None):
-        do_sort_ci0 = (ci0 is None)
-        norb_f = np.asarray ([self.norb_ref[ifrag] for ifrag in self.excited_frags])
-        nelec_f = np.asarray ([self.nelec_ref[ifrag] for ifrag in self.excited_frags])
-        ci0 = self.get_init_guess (ci0, norb_f, nelec_f, h1, h2)
-        ham_pq = self.get_ham_pq (h0, h1, h2, ci0)
-        p = np.prod (get_lroots (ci0))
-        h_qq = ham_pq[p:,p:]
-        e_q, si_q = linalg.eigh (h_qq)
-        ci0_sorted, e0 = self.sort_ci0 (ham_pq, ci0)
-        if do_sort_ci0: ci0 = ci0_sorted
-        vrvsolvers = []
-        for ix, solver in enumerate (self.fcisolvers):
-            vrvsolvers.append (vrv_fcisolver (solver, e0, e_q, None, max_cycle_e0=MAX_CYCLE_E0,
-                                              crash_locmin=self.crash_locmin))
-        return ci0, vrvsolvers, e_q, si_q
+        Args:
+            h1: ndarray of shape (2,nexc,nexc)
+                1-electron part of the excited-fragment Hamiltonian
+            h2: ndarray of shape [nexc,]*4
+                2-electron part of the excited-fragment Hamiltonian
+            ci: list of ndarray of shape (p,ndeta[i],ndetb[i])
+                CI vectors of the active fragments in the P-space
+            norb_f: list of length (nfrag)
+                Number of orbitals in excited fragments
+            nelec_f: list of length (nfrag)
+                Reference number of electrons in excited fragments
 
-    def revert_vrvsolvers_(self):
-        self._e_q = []
-        self._si_q = []
+        Returns:
+            hci: list of ndarray of shape (p,ndeta[i],ndetb[i])
+                Hamiltonian-vector products
+        '''
+        t0 = lib.logger.process_clock (), lib.logger.perf_counter ()
+        lroots = get_lroots (ci)
+        nfrags = len (ci)
+        nj = np.cumsum (norb_f)
+        ni = nj - norb_f
+        if h1.ndim < 3: h1 = np.stack ([h1,h1], axis=0)
+        hci = []
+        for ifrag in range (nfrags):
+            nroots = lroots[ifrag]
+            solver = self.fcisolvers[ifrag]
+            if nroots == 0:
+                na, nb = solver.transformer.ndeta, solver.transformer.ndetb
+                hci.append (np.zeros ((0,na,nb)))
+                continue
+            i, j = ni[ifrag], nj[ifrag]
+            norb, nelec = norb_f[ifrag], self._get_nelec (solver, nelec_f[ifrag])
+            h1e = h1[:,i:j,i:j]
+            h2e = h2[i:j,i:j,i:j,i:j]
+            h2eff = solver.absorb_h1e (h1e, h2e, norb, nelec, 0.5)
+            hc = []
+            for iroot in range (nroots):
+                c = ci[ifrag][iroot]
+                hc.append (solver.contract_2e (h2eff, c, norb, nelec))
+            hci.append (np.stack (hc, axis=0))
+        t1 = self.log.timer ('op_ham_pp_diag', *t0)
+        return hci
 
-class VRVDressedFCISolver (object):
-    '''Minimize the energy of a wave function of the form
+    def get_tdm1s_f (self, cibra, ciket, norb_f, nelec_f):
+        '''Transition density matrices between the states of each fragment
 
-    |Psi> = |P> + sum_i |Q(i)>
+        Args:
+            cibra: list of ndarray of shape (pbra[i],ndeta[i],ndetb[i])
+                Bra CI vectors
+            ciket: list of ndarray of shape (pket[i],ndeta[i],ndetb[i])
+                Ket CI vectors
+            norb_f: list of length (nfrag)
+                Number of orbitals in excited fragments
+            nelec_f: list of length (nfrag)
+                Reference number of electrons in excited fragments
 
-    expressed in intermediate normalization <P|Psi> = 1, <P|Q(i)> = 0,
-    <Q(i)|Q(j)> = delta_ij, with {|Q(i)>} fixed, using self-energy downfolding:
+        Returns:
+            tdm1s_f: list of ndarray of shape (pbra[i],pket[i],2,norb_f[i],norb_f[i])
+                Spin-separated 1-body transition density matrices between cibra and ciket
+        '''
+        t0 = lib.logger.process_clock (), lib.logger.perf_counter ()
+        lroots_bra = get_lroots (cibra)
+        lroots_ket = get_lroots (ciket)
+        nfrags = len (cibra)
+        tdm1s_f = []
+        for ifrag in range (nfrags):
+            solver = self.fcisolvers[ifrag]
+            norb, nelec = norb_f[ifrag], self._get_nelec (solver, nelec_f[ifrag])
+            nbra, nket = lroots_bra[ifrag], lroots_ket[ifrag]
+            tdm1s = np.zeros ((nbra, nket, 2, norb, norb))
+            b = cibra[ifrag]
+            k = ciket[ifrag]
+            for i, j in itertools.product (range (nbra), range (nket)):
+                tdm1s[i,j,0], tdm1s[i,j,1] = trans_rdm1s (b[i], k[j], norb, nelec)
+                tdm1s[i,j,0] = tdm1s[i,j,0].T
+                tdm1s[i,j,1] = tdm1s[i,j,1].T
+            assert (tdm1s.ndim==5)
+            tdm1s_f.append (tdm1s)
+        t1 = self.log.timer ('get_tdm1s_f', *t0)
+        return tdm1s_f
 
-    _______________     _______
-    |      |      |     |     |
-    | H_PP | V_PQ |     | |P> |
-    |      |      |     |     |
-    --------------- = E -------
-    |      |      |     |     |
-    | V_QP | H_QQ |     | |Q> |
-    |      |      |     |     |
-    ---------------     -------
-  
-    ------>
+    def eig1 (self, ham_pq, ci0, ovlp_thresh=1e-3):
+        '''Diagonalize the coupled Hamiltonian for the lowest-energy eigensolution with substantial
+        overlap on the reference state.
 
-    (H_PP + V_PQ (E - H_QQ)^-1 V_QP) |P> = E|P>
+        Args:
+            ham_pq: ndarray of shape (p+q,p+q)
+                Hamiltonian matrix including both P and Q spaces
+            ci0: list of ndarray of shape (p[i],ndeta[i],ndetb[i])
+                CI vectors describing the P states of ham_pq
 
-    The inverted quantity is sometimes called the "resolvent," R,
+        Kwargs:
+            ovlp_thresh: float
+                Tolerance for identifying substantial overlap with the reference state
 
-    (H_PP + V_PQ R_QQ(E) V_QP) |P> = E|P>
+        Returns:
+            e: float
+                Total energy
+            si: ndarray of shape (p+q,)
+                SI vector corresponding to e
+        '''
 
-    hence the term "VRV".
+        lroots = get_lroots (ci0)
+        p = np.prod (lroots)
+        e, si = lowest_refovlp_eigpair (ham_pq, p=p, ovlp_thresh=ovlp_thresh, log=self.log)
+        return e, si
 
-    The self-consistency is only determined for the lowest energy. H_QQ is assumed
-    to be diagonal for simplicity.
+    def schmidt_trunc (self, si, ci0, nroots=1):
+        '''Perform the Schmidt decomposition on the P-space part of an si vector, truncate all but
+        the highest nroots singular values, and correspondingly transform various intermediates.
 
-    Additional attributes:
-        v_qpab: ndarray of shape (nq, np, ndeta, ndetb)
-            Contains the CI vector V_PQ |Q> in the |P> Hilbert space
-        e_q: ndarray of shape (nq,)
-            Eigenenergies of the QQ sector of the Hamiltonian
-        denom_q: ndarray of shape (nq,)
-            Contains E-e_q with the current guess E solution of the self-consistent
-            eigenproblem
-        max_cycle_e0: integer
-            Maximum number of cycles allowed to attempt to converge the self-consistent
-            eigenproblem
-        conv_tol_e0: float
-            Convergence threshold for the self-consistent eigenenergy
-    '''
-    _keys = {'contract_vrv', 'base', 'v_qpab', 'denom_q', 'e_q', 'max_cycle_e0', 'conv_tol_e0',
-             'charge', 'crash_locmin', 'imag_shift'}
-    def __init__(self, fcibase, my_vrv, my_eq, my_e0, max_cycle_e0=MAX_CYCLE_E0,
-                 conv_tol_e0=CONV_TOL_E0, crash_locmin=False):
-        self.base = copy.copy (fcibase)
-        if isinstance (fcibase, StateAverageFCISolver):
-            self._undressed_class = fcibase._base_class
-        else:
-            self._undressed_class = fcibase.__class__
-        self.__dict__.update (fcibase.__dict__)
-        self.denom_q = 0
-        self.imag_shift = IMAG_SHIFT
-        self.e_q = my_eq
-        self.v_qpab = my_vrv
-        self.max_cycle_e0 = max_cycle_e0
-        self.conv_tol_e0 = conv_tol_e0
-        self.crash_locmin = crash_locmin
-    def contract_2e(self, eri, fcivec, norb, nelec, link_index=None, v_qpab=None, denom_q=None,
-                    **kwargs):
-        ci0 = self.undressed_contract_2e (eri, fcivec, norb, nelec, link_index, **kwargs)
-        ci0 += self.contract_vrv (fcivec, v_qpab=v_qpab, denom_q=denom_q)
-        return ci0
-    def contract_vrv (self, ket, v_qpab=None, denom_q=None):
-        if v_qpab is None: v_qpab = self.v_qpab
-        if denom_q is None: denom_q = self.denom_q
-        if v_qpab is None: return np.zeros_like (ket)
-        ket_shape = ket.shape
-        idx = np.abs (denom_q) > 1e-16
-        p = v_qpab.shape[1]
-        q = np.count_nonzero (idx)
-        if (not q) or (not p): return np.zeros_like (ket)
-        v_qpab, denom_q = v_qpab[idx].reshape (q,p,-1), denom_q[idx]
-        denom_q = denom_q + 1j*self.imag_shift
-        denom_fac_q = np.real (1.0 / denom_q)
-        rv_qp = np.ravel (np.dot (v_qpab.conj (), ket.ravel ()) * denom_fac_q[:,None])
-        hket = np.dot (rv_qp, v_qpab.reshape(p*q,-1)).reshape (ket_shape)
-        return hket
-    def test_locmin (self, e0, ci, norb, nelec, h0e, h1e, h2e, warntag='Apparent local minimum'):
-        log = lib.logger.new_logger (self, self.verbose)
-        if self.v_qpab is not None:
-            p, na, nb = self.v_qpab.shape[1:]
-            ci = np.asarray (ci).reshape (-1,na,nb)[0]
-        ket = ci if isinstance (ci, np.ndarray) else ci[0]
-        vrvket = self.contract_vrv (ket)
-        vrv = np.dot (ket.conj ().ravel (), vrvket.ravel ())
-        if abs (vrv) < 1e-16: return False
-        e_p = e0 - vrv
-        h_qp = np.tensordot (self.v_qpab, ket, axes=2)
-        de_pq = np.zeros_like (self.denom_q)
-        idx = np.abs (self.denom_q) > 1e-16
-        de_pq[idx] = np.diag (np.dot (h_qp.conj (), h_qp.T))[idx] / self.denom_q[idx]
-        idx = np.abs (de_pq) > 1e-8
-        e_q = self.e_q[idx]
-        e_pq = np.append ([e_p,], e_q)
-        h_diagmin = np.amin (e_pq)
-        if e0-h_diagmin > 1e-8:
-            if self.verbose >= lib.logger.DEBUG:
-                log.warn ("%s in VRVSolver: min (hdiag) = %.6f < e0 = %.6f",
-                          warntag, np.amin (e_pq), e0)
-            log.debug ('e_p = %.6f ; vrv = %.6f', e_p, vrv)
-            log.debug ('e_q = {}'.format (e_q))
-            log.debug ('valid de_pq = {}'.format (de_pq[idx]))
-            log.debug ('invalid de_pq = {}'.format (de_pq[~idx]))
-            log.debug ('%d valid q poles ; %d invalid q poles',
-                       np.count_nonzero (idx),
-                       np.count_nonzero (~idx))
-            log.debug ('valid denominators: {}'.format (self.denom_q[idx]))
-            log.debug ('invalid denominators: {}'.format (self.denom_q[~idx]))
-            h2_q = np.diag (np.dot (h_qp.conj (), h_qp.T))
-            log.debug ('valid numerators: {}'.format (h2_q[idx]))
-            log.debug ('invalid numerators: {}'.format (h2_q[~idx]))
-            hket_p = self.undressed_contract_2e (self.absorb_h1e (h1e, h2e, norb, nelec, 0.5),
-                                                 ket, norb, nelec)
-            e_p_test = np.dot (np.ravel (ket), np.ravel (hket_p)) + h0e
-            log.debug ('e_p error: %.6f', e_p_test - e_p)
-            if self.crash_locmin:
-                errstr = "locmin crashed as requested (crash_locmin=True)"
-                log.error (errstr)
-                raise RuntimeError (errstr)
-            return True
-        return False
-    def solve_e0 (self, h0e, h1e, h2e, norb, nelec, ket):
-        # TODO: figure out how to modify this for p>1
-        log = lib.logger.new_logger (self, self.verbose)
-        hket_p = self.undressed_contract_2e (self.absorb_h1e (h1e, h2e, norb, nelec, 0.5),
-                                             ket, norb, nelec)
-        e_p = np.dot (np.ravel (ket), np.ravel (hket_p)) + h0e
-        if self.v_qpab is None: return e_p
-        q, p = self.v_qpab.shape[0:2]
-        v_q = np.dot (self.v_qpab.reshape (q,p,-1), np.ravel (ket)).T.ravel ()
-        e_pq = np.append ([e_p,], list(self.e_q)*p)
-        ham_pq = np.diag (e_pq)
-        ham_pq[0,1:] = v_q
-        ham_pq[1:,0] = v_q
-        log.debug2 ('v_q = {}'.format (v_q))
-        log.debug2 ('e_pq = {}'.format (e_pq))
-        e0 = lowest_refovlp_eigval (ham_pq)
-        return e0
-    def sort_ci (self, h0e, h1e, h2e, norb, nelec, ci):
-        if self.nroots==1: ci = [ci]
-        e0 = [self.solve_e0 (h0e, h1e, h2e, norb, nelec, ket) for ket in ci]
-        idx = np.argsort (e0)
-        e0 = [e0[ix] for ix in idx]
-        ci = [ci[ix] for ix in idx]
-        den = e0[0] - self.e_q
-        h2eff = self.absorb_h1e (h1e, h2e, norb, nelec, 0.5)
-        e = [np.dot (ket.ravel(), self.contract_2e (h2eff, ket, norb, nelec, denom_q=den).ravel())
-             for ket in ci]
-        if self.nroots > 1:
-            idx = np.argsort (e[1:])
-            ci = [ci[0]] + [ci[1:][ix] for ix in idx]
-        else:
-            ci = ci[0]
-        return e0[0], ci
-    def kernel (self, h1e, h2e, norb, nelec, ecore=0, ci0=None, orbsym=None, **kwargs):
-        log = lib.logger.new_logger (self, self.verbose)
-        max_cycle_e0 = self.max_cycle_e0
-        conv_tol_e0 = self.conv_tol_e0
-        e0_last = 0
-        converged = False
-        ket = ci0[0] if self.nroots>1 else ci0
-        e0 = self.solve_e0 (ecore, h1e, h2e, norb, nelec, ket)
-        ci1 = ci0
-        self.denom_q = e0 - self.e_q
-        log.debug ("Self-energy singularities in VRVSolver: {}".format (self.e_q))
-        log.debug ("e0 = %.8g", e0)
-        log.debug ("Denominators in VRVSolver: {}".format (self.denom_q))
-        self.test_locmin (e0, ci1, norb, nelec, ecore, h1e, h2e, warntag='Saddle-point initial guess')
-        h2eff = self.absorb_h1e (h1e, h2e, norb, nelec, 0.5)
-        for it in range (max_cycle_e0):
-            e, ci1 = self.undressed_kernel (
-                h1e, h2e, norb, nelec, ecore=ecore, ci0=ci1, orbsym=orbsym, **kwargs
-            )
-            # Subtract the vrv energy so that agreement between different fragments can
-            # be checked in the impure-state case
-            if isinstance (e, (list,tuple,np.ndarray)):
-                for i in range (len (e)):
-                    hci = self.undressed_contract_2e (h2eff, ci1[i], norb, nelec)
-                    e[i] = ecore + np.dot (ci1[i].ravel (), hci.ravel ())
+        Args:
+            si: ndarray of shape (p+?+q,)
+                SI vector
+            ci0: list of ndarray of shape (nroots+?,ndeta[i],ndetb[i])
+                CI vectors describing the P states of ham_pq
+
+        Kwargs:
+            nroots: integer
+                Number of roots for each fragment to retain; i.e., sqrt (p)
+
+        Returns:
+            disc_svals: ndarray of shape (p-nroots,)
+                List of singular values discarded in the truncation
+            u: ndarray of shape (nroots+?,nroots)
+                nroots left-singular vectors
+            si_p: ndarray of shape (nroots,)
+                P-space part of the CI vector, in the Schmidt (diagonal) basis
+            si_q: ndarray of shape (q,)
+                Q-space part of the CI vector
+            vh: ndarray of shape (nroots,nroots+?)
+                nroots right-singular vectors
+        '''
+        t0 = lib.logger.process_clock (), lib.logger.perf_counter ()
+        nfrags = len (ci0)
+        assert (nfrags==2)
+        lroots = get_lroots (ci0)
+        p = np.prod (lroots)
+        schmidt_vec = si[:p].reshape (lroots[1],lroots[0])
+        u, svals, vh = linalg.svd (schmidt_vec)
+        disc_svals = []
+        if len (svals) > nroots:
+            disc_svals = svals[nroots:]
+            svals = svals[:nroots]
+        u = u[:,:nroots]
+        vh = vh[:nroots,:]
+        si_p = svals
+        si_q = si[p:]
+        return disc_svals, u, si_p, si_q, vh
+
+    def truncrot_ci (self, ci0, u, vh):
+        ci1 = [np.tensordot (vh, ci0[0], axes=1),
+               np.tensordot (u.conj ().T, ci0[1], axes=1)]
+        return ci1
+
+    def truncrot_ham_pq (self, ham_pq, u, vh):
+        uh = u.conj ().T
+        v = vh.conj ().T
+        nroots = u.shape[1]
+        lroots = [v.shape[0], u.shape[0]]
+        p = np.prod (lroots)
+        nstates = ham_pq.shape[1]
+        h_pr = ham_pq[:p,:].reshape (lroots[1],lroots[0],nstates)
+        h_pr = np.dot (uh, np.dot (vh, h_pr)).reshape (u.shape[1]*v.shape[1],nstates)
+        ham_pq = np.append (h_pr, ham_pq[p:,:], axis=0)
+        nstates = ham_pq.shape[0]
+        h_rp = ham_pq[:,:p].reshape (nstates,lroots[1],lroots[0])
+        h_rp = lib.einsum ('rij,ia,jb->rab', h_rp, u, v).reshape (nstates,u.shape[1]*v.shape[1])
+        ham_pq = np.append (h_rp, ham_pq[:,p:], axis=1)
+        return ham_pq
+
+    def truncrot_hci_qspace (self, hci0_qspace, u, vh):
+        hci1_qspace = [None, None]
+        hci1_qspace[0] = np.tensordot (u.T, hci0_qspace[0], axes=1)
+        hci1_qspace[1] = np.tensordot (vh.conj(), hci0_qspace[1], axes=1)
+        return hci1_qspace
+
+    def truncrot_hci_pspace_diag (self, hci0_pspace_diag, u, vh):
+        hci1_pspace_diag = [None, None]
+        hci1_pspace_diag[0] = np.tensordot (vh.conj(), hci0_pspace_diag[0], axes=1)
+        hci1_pspace_diag[1] = np.tensordot (u.T, hci0_pspace_diag[1], axes=1)
+        return hci1_pspace_diag
+
+    def truncrot_tdm1s_f (self, tdm1s_f0, u, vh):
+        tdm1s_f1 = [None, None]
+        tdm1s_f1[0] = lib.einsum ('mu,uvsij,nv->mnsij', vh.conj (), tdm1s_f0[0], vh)
+        tdm1s_f1[1] = lib.einsum ('um,uvsij,vn->mnsij', u, tdm1s_f0[1], u.conj ())
+        return tdm1s_f1
+
+    def get_hpq_xq (self, hci_f_pabq, ci0, si_q):
+        '''Generate the P-row, Q-column part of the Hamiltonian-vector product projected into P'
+
+        Args:
+            hci_f_pabq: list of ndarrays of shape (nroots,ndeta[i],ndetb[i],q)
+                H|q> projected on <p0| for all but one fragment, where <p0| is the first few
+                vectors of CI, i.e., the output of op_ham_pq_ref for ci0.
+            ci0: list of ndarrays of shape (nroots,ndeta[i],ndetb[i])
+                CI vectors of the p-space
+            si_q: ndarray of shape (nq,)
+                Q-space part of the SI vector
+
+        Returns:
+            hci_f_pab: list of ndarrays of shape (nroots,ndeta[i],ndetb[i])
+                Hamiltonian-vector product component, projected orthogonal to ci0
+        '''
+        t0 = lib.logger.process_clock (), lib.logger.perf_counter ()
+        lroots = get_lroots (ci0)
+        p = np.prod (lroots)
+        hci_f_pab = []
+        for ci, hci_pabq in zip (ci0, hci_f_pabq):
+            hci_pab = np.dot (hci_pabq, si_q)
+            hci_pr = np.tensordot (hci_pab, ci.conj (), axes=((1,2),(1,2)))
+            hci_pab -= np.tensordot (hci_pr, ci, axes=1)
+            hci_f_pab.append (hci_pab)
+        t1 = self.log.timer ('get_hpq_xq', *t0)
+        return hci_f_pab
+
+    def get_hpp_xp (self, ci0, si_p, hci_pspace_diag, h0, h2, tdm1s_f, norb_f, nelec_f):
+        '''Generate the P-row, P-column part of the Hamiltonian-vector product projected into P'
+
+        Args:
+            ci0: list of ndarrays of shape (nroots,ndeta[i],ndetb[i])
+                CI vectors of the p-space in the Schmidt basis
+            si_p: ndarray of shape (nroots)
+                SI vector for the current P-space (requires Schmidt basis)
+            hci_pspace_diag: list of ndarray of shape (p0,ndeta,ndetb)
+                H(ifrag)|p0(ifrag)>, where <p0| is the vectors of ci0; i.e., the output of
+                op_ham_pp_diag for ci0.
+            h0: float
+                Constant part of the excited-fragment Hamiltonian
+            h2: ndarray of shape [nexc,]*4
+                2-electron part of the excited-fragment Hamiltonian
+            tdm1s_f: list of ndarray of shape (nroots,nroots,2,norb[i],norb[i])
+                Spin-separated transition one-body density matrices within each fragment for ci0
+            norb_f: list of length (nfrag)
+                Number of orbitals in excited fragments
+            nelec_f: list of length (nfrag)
+                Reference number of electrons in excited fragments
+
+        Returns:
+            hci_f_pab: list of ndarrays of shape (nroots,ndeta[i],ndetb[i])
+                Hamiltonian-vector product component, projected orthogonal to ci0
+        '''
+        t0 = lib.logger.process_clock (), lib.logger.perf_counter ()
+        nfrags = len (ci0)
+        lroots = get_lroots (ci0)
+        assert (nfrags==2)
+        assert (lroots[0]==lroots[1])
+        nj = np.cumsum (norb_f)
+        ni = nj - norb_f
+        hci_f_pab = []
+        e_pspace_diag = np.zeros ((nfrags, lroots[0]))
+        for ifrag in range (nfrags):
+            e = [np.dot (c.conj ().flat, hc.flat) for c, hc 
+                 in zip (ci0[ifrag], hci_pspace_diag[ifrag])]
+            e_pspace_diag[ifrag] = e[:]
+        e_pspace_diag = e_pspace_diag.sum (0) - e_pspace_diag
+        hci_f_pab = []
+        for ifrag in range (nfrags):
+            c = ci0[ifrag]
+            hc = hci_pspace_diag[ifrag]
+            e = e_pspace_diag[ifrag] + h0
+            hc = si_p[:,None,None] * (hc + e[:,None,None]*c)
+            hci_f_pab.append (hc)
+        for ifrag, jfrag in itertools.permutations (range (nfrags), 2):
+            c = ci0[ifrag]
+            hc = hci_f_pab[ifrag]
+            nroots = lroots[ifrag]
+            solver = self.fcisolvers[ifrag]
+            norb, nelec = norb_f[ifrag], self._get_nelec (solver, nelec_f[ifrag])
+            tdm1s = tdm1s_f[jfrag]
+            i0, i1 = ni[ifrag], nj[ifrag]
+            j0, j1 = ni[jfrag], nj[jfrag]
+            h2_j = h2[i0:i1,i0:i1,j0:j1,j0:j1]
+            h2_k = h2[i0:i1,j0:j1,j0:j1,i0:i1].transpose (0,3,2,1)
+            vj = np.tensordot (tdm1s, h2_j, axes=((-2,-1),(-2,-1)))
+            vk = np.tensordot (tdm1s, h2_k, axes=((-2,-1),(-2,-1)))
+            veff = vj.sum (2)[:,:,None,:,:] - vk
+            # This is the part that requires the asserts at top
+            # Generalizing it requires substantial refactoring of this entire file
+            for iroot, jroot in itertools.product (range (nroots), repeat=2):
+                v = veff[iroot,jroot]
+                vc = direct_nosym_uhf.contract_1e (v, c[jroot], norb, nelec)
+                hc[iroot] += si_p[jroot] * vc
+            hci_f_pab[ifrag] = hc
+        for ifrag in range (nfrags):
+            c = ci0[ifrag]
+            hc = hci_f_pab[ifrag]
+            nroots = lroots[ifrag]
+            chc = np.dot (np.asarray (c).reshape (nroots,-1).conj (),
+                          np.asarray (hc).reshape (nroots,-1).T).T
+            hc = hc - np.tensordot (chc, c, axes=1)
+            hci_f_pab[ifrag] = hc
+        t1 = self.log.timer ('get_hpp_xp', *t0)
+        return hci_f_pab
+
+    def _get_grad (self, ci1, si_p, hpq_xq, hpp_xp, nroots=None):
+        ''' Compute the gradient of the target interacting energy
+
+        Args:
+            ci0: list of ndarray of shape (nroots,ndeta[i],ndetb[i])
+                CI vectors
+            si_p: ndarray of shape (p,)
+                SI vector in Schmidt basis
+            hpq_xq: list of ndarray of shape (nroots,ndeta[i],ndetb[i])
+                P-row, Q-column part of the Hamiltonian-vector product
+            hpp_xp: list of ndarray of shape (nroots,ndeta[i],ndetb[i])
+                P-row, P-column part of the Hamiltonian-vector product
+
+        Returns:
+            grad: flat ndarray
+                Gradient with respect to all nonredundant parameters
+        '''
+        t0 = lib.logger.process_clock (), lib.logger.perf_counter ()
+        grad_ext = []
+        grad_int = []
+        for solver, c, hc1, hc2 in zip (self.fcisolvers, ci1, hpq_xq, hpp_xp):
+            if nroots is None: nroots = solver.nroots
+            hc = si_p[:,None,None] * (hc1 + hc2)
+            if isinstance (solver, CSFFCISolver):
+                c = solver.transformer.vec_det2csf (c, normalize=True)
+                hc = solver.transformer.vec_det2csf (hc, normalize=False)
+            chc = np.dot (c.conj (), hc.T)
+            hc = hc - np.dot (chc.T, c)
+            grad_ext.append (hc.flat)
+            grad_int.append (chc)
+        grad_int[0] -= grad_int[1].T
+        grad_int[1] = -grad_int[0].T
+        grad = []
+        for i, e in zip (grad_int, grad_ext):
+            grad.append (e)
+            if nroots>1:
+                grad.append (i[np.tril_indices (nroots, k=-1)])
+        t1 = self.log.timer ('ExcitationPSFCISolver _get_grad', *t0)
+        return np.concatenate (grad)
+
+    def get_new_vecs (self, ci0, hpq_xq, hpp_xp, nroots=1):
+        ''' Extend the P space: P + P' -> P
+
+        Args:
+            ci0: list of ndarray of shape (nroots,ndeta[i],ndetb[i])
+                CI vectors
+            hpq_xq: list of ndarray of shape (nroots,ndeta[i],ndetb[i])
+                P-row, Q-column part of the Hamiltonian-vector product
+            hpp_xp: list of ndarray of shape (nroots,ndeta[i],ndetb[i])
+                P-row, P-column part of the Hamiltonian-vector product
+
+        Kwargs:
+            nroots: integer
+                Number of states in each fragment
+
+        Returns:
+            ci1: list of ndarray of shape (nroots+?,ndeta[i],ndetb[i])
+                CI vectors beginning with ci0, followed by new vectors
+        '''
+
+        t0 = lib.logger.process_clock (), lib.logger.perf_counter ()
+        ci1 = []
+        lroots = get_lroots (ci0)
+        for s, c0, c1, c2, nx0 in zip (self.fcisolvers, ci0, hpq_xq, hpp_xp, lroots):
+            x = np.concatenate ([c0,c1,c2],axis=0)
+            if isinstance (s, CSFFCISolver):
+                ndeta, ndetb = s.transformer.ndeta, s.transformer.ndetb
+                x = s.transformer.vec_det2csf (x)
+                x0 = s.transformer.vec_det2csf (c0)
             else:
-                hci = self.undressed_contract_2e (h2eff, ci1, norb, nelec)
-                e = ecore + np.dot (ci1.ravel (), hci.ravel ())
-            e0_last = e0
-            e0 = self.solve_e0 (ecore, h1e, h2e, norb, nelec, ket)
-            self.denom_q = e0 - self.e_q
-            log.debug ("e0 = %.8g", e0)
-            log.debug ("Denominators in VRVSolver: {}".format (self.denom_q))
-            if abs(e0-e0_last)<conv_tol_e0:
-                converged = True
-                break
-        self.test_locmin (e0, ci1, norb, nelec, ecore, h1e, h2e)
-        self.converged = (converged and np.all (self.converged))
-        return e, ci1
-    def undressed_kernel (self, *args, **kwargs):
-        return self._undressed_class.kernel (self, *args, **kwargs)
-    def undressed_contract_2e (self, *args, **kwargs):
-        return self._undressed_class.contract_2e (self, *args, **kwargs)
+                nx, ndeta, ndetb = x.shape
+                x = x.reshape (nx, ndeta*ndetb)
+                x0 = c0.reshape (len (c0), ndeta*ndetb)
+            # normalize vecs
+            x_norm = linalg.norm (x, axis=1)
+            x = x[x_norm>0,:]
+            x_norm = x_norm[x_norm>0]
+            x /= x_norm[:,None]
+            # canonical orthogonalization
+            ovlp = x.conj () @ x.T
+            evals, evecs = linalg.eigh (ovlp)
+            x = canonical_orth_(ovlp).T @ x
+            nx = len (x)
+            # line up with c0
+            ovlp = x0.conj () @ x.T
+            u, svals, vh = linalg.svd (ovlp, full_matrices=True)
+            vh[:nx0] = u @ vh[:nx0]
+            x = vh[nx0:] @ x
+            if isinstance (s, CSFFCISolver):
+                assert (nx <= s.transformer.ncsf), '{}'.format (evals)
+                x = s.transformer.vec_csf2det (x)
+            assert (x.shape[0]+nx0 >= nroots), '{} {} {} {} {} {}'.format (
+                x.shape, nx0, nroots, c0.shape, c1.shape, c2.shape
+            )
+            ci1.append (x.reshape (nx-nx0, ndeta, ndetb))
+        t1 = self.log.timer ('get_new_vecs', *t0)
+        return ci1
 
-def make_hdiag_det_vrv (fciobj, v_qpab=None, denom_q=None):
-    # Untested!
-    if v_qpab is None: v_qpab = fciobj.v_qpab
-    if denom_q is None: denom_q = fciobj.denom_q 
-    if v_qpab is None: return 0
-    q, p, ndeta, ndetb = v_qpab.shape
-    idx = np.abs (denom_q) > 1e-16
-    p = v_qpab.shape[1]
-    q = np.count_nonzero (idx)
-    if (not q) or (not p): return np.zeros_like (v_qpab).sum ((0,1))
-    v_qpab, denom_q = v_qpab[idx], denom_q[idx]
-    denom_q = denom_q + 1j*fciobj.imag_shift
-    denom_fac_q = np.real (1.0 / denom_q)
-    rv_qp = (v_qpab.conj () * denom_fac_q[:,None,None,None])
-    hdiag = (rv_qp * v_qpab).sum ((0,1))
-    return hdiag
+    def get_init_guess (self, ci0, norb_f, nelec_f, h1, h2, nroots=None):
+        ''' Make sure initial guess is orthonormal '''
+        ci0 = ProductStateFCISolver.get_init_guess (
+            self, ci0, norb_f, nelec_f, h1, h2, nroots=nroots
+        )
+        for ifrag in range (len (ci0)):
+            s = self.fcisolvers[ifrag]
+            if isinstance (s, CSFFCISolver):
+                ndeta, ndetb = s.transformer.ndeta, s.transformer.ndetb
+                x0 = s.transformer.vec_det2csf (ci0[ifrag])
+            else:
+                nx, ndeta, ndetb = ci0[ifrag].shape
+                x0 = ci0[ifrag].reshape (nx, ndeta*ndetb)
+            ovlp = x0.conj () @ x0.T
+            x = canonical_orth_(ovlp).T @ x0
+            nx = len (x)
+            ovlp = x0.conj () @ x.T
+            u, svals, vh = linalg.svd (ovlp)
+            k = len (svals)
+            vh[:k,:k] = u[:k,:k] @ vh[:k,:k]
+            x = vh @ x
+            if isinstance (s, CSFFCISolver):
+                ci0[ifrag] = s.transformer.vec_csf2det (x).reshape (nx, ndeta, ndetb)
+            else:
+                ci0[ifrag] = x.reshape (nx, ndeta, ndetb)
+        return ci0
 
-def make_hdiag_csf_vrv (fciobj, transformer=None, v_qpab=None, denom_q=None):
-    if transformer is None: transformer = fciobj.transformer
-    if v_qpab is None: v_qpab = fciobj.v_qpab
-    if denom_q is None: denom_q = fciobj.denom_q 
-    if v_qpab is None: return 0
-    q, p, ndeta, ndetb = v_qpab.shape
-    idx = np.abs (denom_q) > 1e-16
-    p = v_qpab.shape[1]
-    q = np.count_nonzero (idx)
-    if (not q) or (not p): return np.zeros (transformer.ncsf, dtype=v_qpab.dtype)
-    v_qpab, denom_q = v_qpab[idx].reshape (q*p,ndeta,ndetb), denom_q[idx]
-    v_qpr = transformer.vec_det2csf (v_qpab, normalize=False).reshape (q,p,transformer.ncsf)
-    denom_q = denom_q + 1j*fciobj.imag_shift
-    denom_fac_q = np.real (1.0 / denom_q)
-    rv_qp = (v_qpr.conj () * denom_fac_q[:,None,None])
-    hdiag = (rv_qp * v_qpr).sum ((0,1))
-    return hdiag
-
-def pspace_det_vrv (fciobj, norb, nelec, det_addr, v_qpab=None, denom_q=None):
-    # Untested!
-    if v_qpab is None: v_qpab = fciobj.v_qpab
-    if denom_q is None: denom_q = fciobj.denom_q 
-    if v_qpab is None: return 0
-    q, p, ndeta, ndetb = v_qpab.shape
-    idx = np.abs (denom_q) > 1e-16
-    p = v_qpab.shape[1]
-    q = np.count_nonzero (idx)
-    if (not q) or (not p): return np.zeros ((len(det_addr),len(det_addr)), dtype=v_qpab.dtype)
-    neleca, nelecb = _unpack_nelec (nelec)
-    ndeta = cistring.num_strings (norb, neleca)
-    ndetb = cistring.num_strings (norb, nelecb)
-    addra, addrb = divmod (det_addr, ndetb)
-    jdx = np.ix_(idx,[True,]*p,addra,addrb)
-    v_qpab, denom_q = v_qpab[jdx].reshape (q,p,len(det_addr)), denom_q[idx]
-    denom_q = denom_q + 1j*fciobj.imag_shift
-    denom_fac_q = np.real (1.0 / denom_q)
-    rv_qpab = (v_qpab.conj () * denom_fac_q[:,None,None])
-    h0 = np.tensordot (rv_qpab, v_qpab, axes=((0,1),(0,1)))
-    return h0
-
-def pspace_csf_vrv (fciobj, csf_addr, transformer=None, v_qpab=None, denom_q=None):
-    if transformer is None: transformer = fciobj.transformer
-    if v_qpab is None: v_qpab = fciobj.v_qpab
-    if denom_q is None: denom_q = fciobj.denom_q 
-    if v_qpab is None: return 0
-    ncsf = len (csf_addr)
-    q, p, ndeta, ndetb = v_qpab.shape
-    idx = np.abs (denom_q) > 1e-16
-    p = v_qpab.shape[1]
-    q = np.count_nonzero (idx)
-    if (not q) or (not p): return np.zeros ((ncsf, ncsf), dtype=v_qpab.dtype)
-    v_qpab, denom_q = v_qpab[idx].reshape (q*p,ndeta,ndetb).transpose (1,2,0), denom_q[idx]
-    v_rqp = transformer.vec_det2csf (v_qpab, order='F', normalize=False)
-    v_rqp = v_rqp[csf_addr].reshape (ncsf, q, p)
-    denom_q = denom_q + 1j*fciobj.imag_shift
-    denom_fac_q = np.real (1.0 / denom_q)
-    rv_rqp = (v_rqp.conj () * denom_fac_q[None,:,None])
-    rv_rx, v_rx = rv_rqp.reshape (ncsf, q*p), v_rqp.reshape (ncsf, q*p)
-    h0 = np.dot (rv_rx, v_rx.T)
-    assert (h0.shape == (ncsf, ncsf))
-    return h0
-
-def vrv_fcisolver (fciobj, e0, e_q, v_qpab, max_cycle_e0=MAX_CYCLE_E0, conv_tol_e0=CONV_TOL_E0,
-                   crash_locmin=False):
-    if isinstance (fciobj, VRVDressedFCISolver):
-        fciobj.v_qpab = v_qpab
-        fciobj.e_q = e_q
-        fciobj.max_cycle_e0 = max_cycle_e0
-        fciobj.conv_tol_e0 = conv_tol_e0
-        fciobj.crash_locmin = crash_locmin
-        return fciobj
-    # VRV should be injected below the state-averaged layer
-    if isinstance (fciobj, StateAverageFCISolver):
-        fciobj_class = fciobj._base_class
-        weights = fciobj.weights
-    else:
-        fciobj_class = fciobj.__class__
-        weights = None
-    class FCISolver (VRVDressedFCISolver, fciobj_class):
-        if isinstance (fciobj, CSFFCISolver):
-            def make_hdiag_csf (self, *args, **kwargs):
-                hdiag_csf = fciobj_class.make_hdiag_csf (self, *args, **kwargs)
-                dhdiag_csf = make_hdiag_csf_vrv (self)
-                return hdiag_csf + dhdiag_csf
-            def pspace (self, *args, **kwargs):
-                csf_addr, h0 = fciobj_class.pspace (self, *args, **kwargs)
-                dh0 = pspace_csf_vrv (self, csf_addr)
-                return csf_addr, h0 + dh0
-        else:
-            raise NotImplementedError ("Non-CSF version of excitation solver")
-            #def make_hdiag (self, *args, **kwargs):
-            #    hdiag = fciobj_class.make_hdiag (self, *args, **kwargs)
-            #    dhdiag = make_hdiag_det_vrv (self)
-            #    return hdiag + dhdiag
-            #def pspace (self, h1e, eri, norb, nelec, **kwargs):
-            #    det_addr, h0 = fciobj_class.pspace (self, h1e, eri, norb, nelec, **kwargs)
-            #    dh0 = pspace_det_vrv (self, norb, nelec, det_addr)
-            #    return det_addr, h0 + dh0
-    new_fciobj = FCISolver (fciobj, v_qpab, e_q, e0, max_cycle_e0=max_cycle_e0,
-                            conv_tol_e0=conv_tol_e0, crash_locmin=crash_locmin)
-    if weights is not None: new_fciobj = state_average_fcisolver (new_fciobj, weights=weights)
-    return new_fciobj
 
 

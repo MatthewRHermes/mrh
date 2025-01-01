@@ -334,6 +334,8 @@ def analyze (las, si, ci=None, state=0, print_all_but=1e-8, lbasis='primitive', 
     else:
         log.info ("All %d rootspaces accounted for", las.nroots)
 
+    average_metrics_over_spin_polarization (las, navg, maxw, entr)
+
     if return_metrics:
         space_weights = avg_weights
         return ci1, si1, space_weights, navg, maxw, entr
@@ -390,6 +392,32 @@ def analyze_moments (las, si, ci=None, state=0, do_natorb=True):
     log_qn_spread (c, avg_weights)
     log.info ("Spread of spin multiplicities:")
     log_qn_spread (s, avg_weights)
+
+def average_metrics_over_spin_polarization (las, navg, maxw, entr):
+    log = lib.logger.new_logger (las, las.verbose)
+    c, m, s, w = get_space_info (las)
+    def log_metric (data):
+        fmt_str = '{:4s} {:4s} ' + ' '.join (['Frag {:<5d}',]*las.nfrags)
+        log.info (fmt_str.format ('Chrg', 'Smlt', *list(range(las.nfrags))))
+        idx_omitted = np.any (data==-1,axis=1)
+        for tc in np.unique (c):
+            for ts in np.unique (s):
+                line = '{:4d} {:4d}'.format (tc, ts)
+                row = []
+                doline = False
+                for ifrag in range (las.nfrags):
+                    idx = c[:,ifrag]==tc
+                    idx &= s[:,ifrag]==ts
+                    idx &= ~idx_omitted
+                    if np.any (idx):
+                        line += ' {:10.3e}'.format (np.average (data[:,ifrag][idx]))
+                        doline = True
+                    else:
+                        line += ' {:>10s}'.format ('-')
+                if doline: log.info (line)
+    for lbl, metric in zip (('<n>', 'max(weight)', 'entropy'), (navg, maxw, entr)):
+        log.info ('Average over spin polarization of %s', lbl)
+        log_metric (metric)
 
 def print_wfn_leading (lsi, state=0, ci=None, si=None, ncoeffs=20):
     if si is None: si = lsi.si

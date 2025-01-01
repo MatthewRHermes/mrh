@@ -119,20 +119,18 @@ class LRRDM (stdm.LSTDM):
         return profile
 
     def get_single_rootspace_sivec (self, iroot):
-        '''A single-rootspace slice of the SI vectors, reshaped to expose the lroots.
+        '''A single-rootspace slice of the SI vectors.
 
         Args:
             iroot: integer
                 Rootspace index
 
         Returns:
-            sivec: col-major ndarray of shape (lroots[0,iroot], lroots[1,iroot], ...,
-                                               nroots_si)
+            sivec: col-major ndarray of shape (np.prod (lroots[:,iroot], nroots_si)
                 SI vectors
         '''
         i, j = self.offs_lroots[iroot]
-        vecshape = list (self.lroots[:,iroot]) + [self.nroots_si,]
-        return self.si[i:j,:].reshape (vecshape, order='F')
+        return self.si[i:j,:]
 
     _lowertri = True
 
@@ -151,8 +149,18 @@ class LRRDM (stdm.LSTDM):
                 SI vectors with the faster dimension iterating over states of fragments not in
                 inv and the slower dimension iterating over states of fragments in inv 
         '''
-        axesorder = [i for i in range (self.nfrags) if not (i in inv)] + list (inv) + [self.nfrags,]
-        sivec = self.get_single_rootspace_sivec (iroot).transpose (*axesorder)
+        sivec = self.get_single_rootspace_sivec (iroot)
+        rdim = self.nroots_si
+        lroots = self.lroots[:,iroot].copy ()
+        for i in list (inv)[::-1]:
+            lrl = np.prod (lroots[:i])
+            lrc = lroots[i]
+            lrr = np.prod (lroots[i+1:])
+            sivec = sivec.reshape ((lrl,lrc,lrr,rdim), order='F')
+            sivec = sivec.transpose (0,2,1,3)
+            sivec = sivec.reshape ((lrl*lrr,lrc*rdim), order='F')
+            rdim = rdim * lrc
+            lroots[i] = 1
         nprods = np.prod (self.lroots[:,iroot])
         nrows = np.prod (self.lroots[inv,iroot])
         ncols = nprods // nrows
