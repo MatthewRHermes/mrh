@@ -124,9 +124,9 @@ class KnownValues(unittest.TestCase):
     def test_ham_s2_ovlp (self):
         h1, h2 = ham_2q (las, las.mo_coeff, veff_c=None, h2eff_sub=None)[1:]
         lbls = ('ham','s2','ovlp')
-        mats_o0 = op_o0.ham (las, h1, h2, las.ci, nelec_frs)#, orbsym=orbsym, wfnsym=wfnsym)
+        mats_o0 = op_o0.ham (las, h1, h2, las.ci, nelec_frs)[:3]#, orbsym=orbsym, wfnsym=wfnsym)
         fps_o0 = [lib.fp (mat) for mat in mats_o0]
-        mats_o1 = op_o1.ham (las, h1, h2, las.ci, nelec_frs)#, orbsym=orbsym, wfnsym=wfnsym)
+        mats_o1 = op_o1.ham (las, h1, h2, las.ci, nelec_frs)[:3]#, orbsym=orbsym, wfnsym=wfnsym)
         for lbl, mat, fp in zip (lbls, mats_o1, fps_o0):
             with self.subTest(opt=1, matrix=lbl):
                 self.assertAlmostEqual (lib.fp (mat), fp, 9)
