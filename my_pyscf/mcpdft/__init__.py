@@ -17,12 +17,17 @@ mcpdft_removal_warn()
 
 def _MCPDFT(mc_class, mc_or_mf_or_mol, ot, ncas, nelecas, ncore=None, frozen=None,
             **kwargs):
+
     if isinstance(mc_or_mf_or_mol, (mc1step.CASSCF, casci.CASCI)):
         mc0 = mc_or_mf_or_mol
         mf_or_mol = mc_or_mf_or_mol._scf
     else:
         mc0 = None
         mf_or_mol = mc_or_mf_or_mol
+
+    # Redefine the otfnal class for periodic systems
+    ot = periodicpdft(mf_or_mol.mol, ot)
+
     if isinstance(mf_or_mol, gto.Mole) and mf_or_mol.symmetry:
         logger.warn(mf_or_mol,
                     'Initializing MC-SCF with a symmetry-adapted Mole object may not work!')
@@ -145,3 +150,25 @@ def CIMCPDFT(*args, **kwargs):
 def CIMCPDFT_SCF(*args, **kwargs):
     from mrh.my_pyscf.mcpdft.var_mcpdft import CIMCPDFT as fn
     return fn(mcscf.CASSCF, *args, **kwargs)
+
+
+def periodicpdft(mol, ot):
+    """
+    A wrapper function to check whether the mol is cell object or not.
+    if yes, then the otfnal class will be modified.
+    
+    Note: Remember to write the sanity check for the kpts.
+    
+    Also, this is not the best way to handle the situation but it works for now.In future,
+    I will put this in mrh.pbc folder.
+
+    Args:
+        mc: mcscf object
+    """
+    assert isinstance(ot, str), "The ot should be a string"
+    from pyscf.pbc import gto
+    if isinstance(mol, gto.cell.Cell):
+        from mrh.my_pyscf.mcpdft.otfnalperiodic import _get_transfnal
+        return _get_transfnal(mol, ot)
+    else:
+        return ot
