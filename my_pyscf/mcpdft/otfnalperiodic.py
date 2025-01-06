@@ -6,17 +6,11 @@ from pyscf.mcpdft.otfnal import otfnal
 from pyscf import __config__
 
 def redefine_fnal(original_class, new_parent):
-    # Create the new class
-    class transfnal(new_parent):
+    from pyscf import lib
+    class transfnal (original_class.__class__, new_parent):
         pass
-
-    # Copy over attributes and methods
-    for attr_name, attr_value in original_class.__dict__.items():
-        if not attr_name.startswith("__"):
-            setattr(transfnal, attr_name, attr_value)
-    
-    transfnal.eval_ot = original_class.eval_ot
-    return transfnal
+    new_fnal = lib.view (original_class, transfnal)
+    return new_fnal
 
 redefine_transfnal = redefine_fnal
 redefine_ftransfnal = redefine_fnal
@@ -111,17 +105,16 @@ def _get_transfnal (mol, otxc):
 
     elif fnal_class_type == 'ftransfnal':
         from pyscf.mcpdft.otfnal import ftransfnal
-        xc_base = xc_base[1:]
+        xc_base = xc_base[2:]
         ks.xc = xc_base
         org_ftransfnal = ftransfnal(ks)
         new_func_class = redefine_ftransfnal (org_ftransfnal, otfnalperiodic)
         del org_transfnal
     else:
         raise ValueError ("The fnal class is not recognized")
-    
-    ks.xc = xc_base
+
     logger.info(mol, 'Periodic OT-FNAL class is used')
-    return new_func_class(ks)
+    return new_func_class
 
 
 
