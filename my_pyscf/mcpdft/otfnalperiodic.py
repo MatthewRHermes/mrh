@@ -5,6 +5,7 @@ from pyscf.mcpdft.otpd import get_ontop_pair_density
 from pyscf.mcpdft.otfnal import otfnal
 from mrh.my_pyscf.mcpdft import _getmole
 from pyscf.mcpdft.otfnal import get_transfnal
+from pyscf.mcpdft.otfnal import transfnal, ftransfnal
 from pyscf import __config__
 
 def redefine_fnal(original_class, new_parent):
@@ -105,8 +106,6 @@ def _get_transfnal (mc_or_mf_mol, otxc):
     '''
     This is wrapper function to get the appropriate fnal class for the given cell object
     '''
-  
-
     mol = _getmole (mc_or_mf_mol)
     fnal_class = get_transfnal (mol, otxc)
     fnal_class_type = fnal_class.__class__.__name__
@@ -117,7 +116,6 @@ def _get_transfnal (mc_or_mf_mol, otxc):
     ks = sanity_check_for_df(mc_or_mf_mol)
     
     if fnal_class_type == 'transfnal':
-        from pyscf.mcpdft.otfnal import transfnal
         xc_base = xc_base[1:]
         ks.xc = xc_base
         org_transfnal = transfnal(ks)
@@ -125,7 +123,6 @@ def _get_transfnal (mc_or_mf_mol, otxc):
         del org_transfnal
 
     elif fnal_class_type == 'ftransfnal':
-        from pyscf.mcpdft.otfnal import ftransfnal
         xc_base = xc_base[2:]
         ks.xc = xc_base
         org_ftransfnal = ftransfnal(ks)

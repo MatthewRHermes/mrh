@@ -189,9 +189,28 @@ def periodicpdft(mc_or_mf_mol, ot):
     from pyscf.pbc import gto
     if isinstance(mol, gto.cell.Cell):
         from mrh.my_pyscf.mcpdft.otfnalperiodic import _get_transfnal
-        return _get_transfnal(mc_or_mf_mol, ot)
+        sanity_check_for_kpts(mc_or_mf_mol)
+        fnal = _get_transfnal(mc_or_mf_mol, ot)
+        return fnal
     else:
         return ot
 
+def sanity_check_for_kpts(mc_or_mf_mol):
+    '''
+    A function to check total number of kpts if it is greater than 1
+    raise an error.
+    '''
+    if hasattr(mc_or_mf_mol, '_scf'):
+        nkpts = len(mc_or_mf_mol._scf.kpts)
+    
+    elif hasattr(mc_or_mf_mol, 'kpts'):
+        nkpts = len(mc_or_mf_mol.kpts)
 
+    else:
+        raise NotImplementedError ("The input object does not have kpts attribute")
+    
+    if nkpts > 1:
+        raise ValueError ("Only supercell calculations can be performend with MCPDFT")
+    
+    
     
