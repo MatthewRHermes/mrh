@@ -189,7 +189,7 @@ def periodicpdft(mc_or_mf_mol, ot):
     from pyscf.pbc import gto
     if isinstance(mol, gto.cell.Cell):
         from mrh.my_pyscf.mcpdft.otfnalperiodic import _get_transfnal
-        return _get_transfnal(mol, ot)
+        return _get_transfnal(mc_or_mf_mol, ot)
     else:
         return ot
 

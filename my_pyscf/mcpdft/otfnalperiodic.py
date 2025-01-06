@@ -3,6 +3,8 @@ from pyscf.lib import logger
 from pyscf.mcpdft import _dms
 from pyscf.mcpdft.otpd import get_ontop_pair_density
 from pyscf.mcpdft.otfnal import otfnal
+from mrh.my_pyscf.mcpdft import _getmole
+from pyscf.mcpdft.otfnal import get_transfnal
 from pyscf import __config__
 
 def redefine_fnal(original_class, new_parent):
@@ -77,23 +79,42 @@ class otfnalperiodic(otfnal):
             self.mol = mol
         # A hack to reset the grids for the new cell object.
         self.grids.reset (mol) 
-    
-def _get_transfnal (mol, otxc):
+
+
+def sanity_check_for_df(mc_or_mf_mol):
+    '''
+    A function to check whether the density fitting is GDF, MDF or FFTDF
+    and initialize the appropriate KS object for the periodic MCPDFT calculations.
+    '''
+    from pyscf.pbc import dft
+    mol = _getmole (mc_or_mf_mol)
+    if hasattr(mc_or_mf_mol, 'with_df'):
+        dfclass = mc_or_mf_mol.with_df.__class__.__name__
+    else:
+        raise ValueError ("The input object does not have with_df attribute. \
+                          Start with Mean-field object")
+    if dfclass == 'GDF':
+        ks = dft.RKS(mol).density_fit()
+    elif dfclass == 'MDF':
+        ks = dft.RKS(mol).mix_density_fit()
+    else:
+        raise NotImplementedError ("PBD-MCPDFT is yet not implemented for FFTDF")
+    return ks
+
+def _get_transfnal (mc_or_mf_mol, otxc):
     '''
     This is wrapper function to get the appropriate fnal class for the given cell object
     '''
-    from pyscf.mcpdft.otfnal import get_transfnal
+  
+
+    mol = _getmole (mc_or_mf_mol)
     fnal_class = get_transfnal (mol, otxc)
     fnal_class_type = fnal_class.__class__.__name__
     
     assert isinstance(otxc, str), "The otxc should be a string"
     xc_base = fnal_class.otxc
 
-    # Remember to write a sanity check that if this density_fit is not
-    # GDF then raise an error.
-
-    from pyscf.pbc import dft
-    ks = dft.RKS(mol).density_fit()
+    ks = sanity_check_for_df(mc_or_mf_mol)
     
     if fnal_class_type == 'transfnal':
         from pyscf.mcpdft.otfnal import transfnal
@@ -115,7 +136,3 @@ def _get_transfnal (mol, otxc):
 
     logger.info(mol, 'Periodic OT-FNAL class is used')
     return new_func_class
-
-
-
-            
