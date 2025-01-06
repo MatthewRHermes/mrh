@@ -1,9 +1,8 @@
-from pyscf.mcpdft.otfnal import otfnal
-
 import numpy as np
 from pyscf.lib import logger
 from pyscf.mcpdft import _dms
 from pyscf.mcpdft.otpd import get_ontop_pair_density
+from pyscf.mcpdft.otfnal import otfnal
 from pyscf import __config__
 
 def redefine_fnal(original_class, new_parent):
@@ -121,7 +120,7 @@ def _get_transfnal (mol, otxc):
         raise ValueError ("The fnal class is not recognized")
     
     ks.xc = xc_base
-
+    logger.info(mol, 'Periodic OT-FNAL class is used')
     return new_func_class(ks)
 
 

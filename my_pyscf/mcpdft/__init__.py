@@ -26,7 +26,7 @@ def _MCPDFT(mc_class, mc_or_mf_or_mol, ot, ncas, nelecas, ncore=None, frozen=Non
         mf_or_mol = mc_or_mf_or_mol
 
     # Redefine the otfnal class for periodic systems
-    ot = periodicpdft(mf_or_mol.mol, ot)
+    ot = periodicpdft(mc_or_mf_or_mol, ot)
 
     if isinstance(mf_or_mol, gto.Mole) and mf_or_mol.symmetry:
         logger.warn(mf_or_mol,
@@ -69,6 +69,10 @@ def _laspdftEnergy(mc_class, mc_or_mf_or_mol, ot, ncas_sub, nelecas_sub, DoLASSI
     else:
         mc0 = None
         mf_or_mol = mc_or_mf_or_mol
+
+    # Redefine the otfnal class for periodic systems
+    ot = periodicpdft(mc_or_mf_or_mol, ot)
+
     if isinstance(mf_or_mol, gto.Mole) and mf_or_mol.symmetry:
         logger.warn(mf_or_mol,
                     'Initializing MC-SCF with a symmetry-adapted Mole object may not work!')
@@ -104,6 +108,9 @@ def _lassipdftEnergy(mc_class, mc_or_mf_or_mol, ot, ncas_sub, nelecas_sub, DoLAS
         raise "Requires lassi instance"
 
     mc1 = mc_class(mf_or_mol, ncas_sub, nelecas_sub, ncore=ncore, spin_sub=spin_sub)
+
+    # Redefine the otfnal class for periodic systems
+    ot = periodicpdft(mc_or_mf_or_mol, ot)
 
     from mrh.my_pyscf.mcpdft.laspdft import get_mcpdft_child_class
     mc2 = get_mcpdft_child_class(mc1, ot, DoLASSI=DoLASSI, states=states, **kwargs)
@@ -151,8 +158,19 @@ def CIMCPDFT_SCF(*args, **kwargs):
     from mrh.my_pyscf.mcpdft.var_mcpdft import CIMCPDFT as fn
     return fn(mcscf.CASSCF, *args, **kwargs)
 
+def _getmole(mc_or_mf_mol):
+    '''
+    A function to get the mol object from the mc_or_mf_mol object
+    '''
+    if isinstance(mc_or_mf_mol, (mc1step.CASSCF, casci.CASCI)):
+        return mc_or_mf_mol._scf.mol
+    elif isinstance(mc_or_mf_mol, gto.Mole) or isinstance(mc_or_mf_mol, gto.cell.Cell):
+        return mc_or_mf_mol
+    else:
+        return mc_or_mf_mol.mol
+    
 
-def periodicpdft(mol, ot):
+def periodicpdft(mc_or_mf_mol, ot):
     """
     A wrapper function to check whether the mol is cell object or not.
     if yes, then the otfnal class will be modified.
@@ -165,6 +183,7 @@ def periodicpdft(mol, ot):
     Args:
         mc: mcscf object
     """
+    mol = _getmole(mc_or_mf_mol)
     assert isinstance(ot, str), "The ot should be a string"
     from pyscf.pbc import gto
     if isinstance(mol, gto.cell.Cell):
@@ -172,3 +191,6 @@ def periodicpdft(mol, ot):
         return _get_transfnal(mol, ot)
     else:
         return ot
+
+
+    
