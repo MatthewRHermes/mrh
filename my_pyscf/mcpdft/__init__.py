@@ -162,9 +162,10 @@ def _getmole(mc_or_mf_mol):
     '''
     A function to get the mol object from the mc_or_mf_mol object
     '''
+    from pyscf.pbc import gto as pbcgto
     if isinstance(mc_or_mf_mol, (mc1step.CASSCF, casci.CASCI)):
         return mc_or_mf_mol._scf.mol
-    elif isinstance(mc_or_mf_mol, gto.Mole) or isinstance(mc_or_mf_mol, gto.cell.Cell):
+    elif isinstance(mc_or_mf_mol, gto.Mole) or isinstance(mc_or_mf_mol, pbcgto.cell.Cell):
         return mc_or_mf_mol
     else:
         return mc_or_mf_mol.mol
