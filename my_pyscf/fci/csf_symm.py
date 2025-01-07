@@ -32,7 +32,7 @@ class FCISolver (CSFFCISolver, direct_spin1_symm.FCISolver):
         ''' Over the top of the existing kernel, I just need to set the parameters and cache values related to spin.
 
         ...and electron configuration point group '''
-        log = new_logger (self, self.verbose)
+        log = logger.new_logger (self, self.verbose)
         gpname = getattr (self.mol, 'groupname', None)
         if gpname in ('Dooh', 'Coov'):
             log.warn ('Wfn symmetry for Dooh/Coov not supported. Wfn symmetry is mapped to D2h/C2v group.')
