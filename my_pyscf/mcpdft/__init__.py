@@ -203,6 +203,9 @@ def sanity_check_for_kpts(mc_or_mf_mol):
     if hasattr(mc_or_mf_mol, '_scf'):
         nkpts = len(mc_or_mf_mol._scf.kpts)
     
+    elif hasattr(mc_or_mf_mol, '_las'):
+        nkpts = len(mc_or_mf_mol._las._scf.kpts)
+
     elif hasattr(mc_or_mf_mol, 'kpts'):
         nkpts = len(mc_or_mf_mol.kpts)
 
