@@ -24,7 +24,7 @@ if (MKL)
 endif (MKL)
 link_directories ($ENV{LD_LIBRARY_PATH})
 
-find_package (LAPACK REQUIRED)
+#find_package (LAPACK REQUIRED)
 
 # OpenMP
 find_package (OpenMP)
