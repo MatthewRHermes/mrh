@@ -86,7 +86,6 @@ def get_h2eff_gpu (las,mo_coeff):
     t0 = (lib.logger.process_clock (), lib.logger.perf_counter ())
     eri1 = np.empty((nmo, int(ncas*ncas*(ncas+1)/2)),dtype='d')
     for cderi in las.with_df.loop (blksize=blksize):
-        t1 = lib.logger.timer (las, 'Sparsedf', *t0)
         naux = cderi.shape[0]
         if DEBUG and gpu:
             libgpu.libgpu_get_h2eff_df_v1(gpu, cderi, nao, nmo, ncas, naux, ncore,eri1, count, id(las.with_df))
@@ -108,9 +107,9 @@ def get_h2eff_gpu (las,mo_coeff):
             eri1 = np.tensordot (mo_coeff.conjugate (), eri1, axes=((0),(0)))
             eri1 = lib.pack_tril (eri1.reshape (nmo*ncas, ncas, ncas)).reshape (nmo, -1)
             cderi = bPmn = bmuP1 = buvP = None
-        t1 = lib.logger.timer (las, 'contract1 gpu', *t1)
         count+=1
         eri +=eri1
+    t0 = lib.logger.timer (las, 'las_ao2mo', *t0)
     eri1= None
     return eri
 
