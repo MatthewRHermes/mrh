@@ -91,6 +91,10 @@ def sanity_check_for_df(mc_or_mf_mol):
     mol = _getmole (mc_or_mf_mol)
     if hasattr(mc_or_mf_mol, 'with_df'):
         dfclass = mc_or_mf_mol.with_df.__class__.__name__
+    
+    elif hasattr(mc_or_mf_mol, '_las'):
+        dfclass = mc_or_mf_mol._las.with_df.__class__.__name__
+
     else:
         raise ValueError ("The input object does not have with_df attribute. \
                           Start with Mean-field object")
