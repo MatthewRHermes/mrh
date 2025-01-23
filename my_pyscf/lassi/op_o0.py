@@ -12,6 +12,7 @@ from itertools import combinations
 from mrh.my_pyscf.mcscf import soc_int as soc_int
 from mrh.my_pyscf.lassi import dms as lassi_dms
 from mrh.my_pyscf.fci.csf import unpack_h1e_cs
+from mrh.my_pyscf.lassi.citools import _fake_gen_contract_ham_si_hdiag
 
 def memcheck (las, ci, soc=None):
     '''Check if the system has enough memory to run these functions! ONLY checks
@@ -980,5 +981,7 @@ if __name__ == '__main__':
         nelec_fr.append ([_unpack_nelec (fcibox._get_nelec (solver, ne)) for solver in fcibox.fcisolvers])
     ham_eff = slow_ham (las.mol, h1, h2, las.ci, las.ncas_sub, nelec_fr)[0]
     print (las.converged, e_states - (e0 + np.diag (ham_eff)))
+
+gen_contract_ham_si_hdiag = functools.partial (_fake_gen_contract_ham_si_hdiag, ham)
 
 

@@ -181,4 +181,11 @@ def get_orth_basis (ci_fr, norb_f, nelec_frs, _get_ovlp=None):
 
     return raw2orth, orth2raw
 
+def _fake_gen_contract_ham_si_hdiag (matrix_builder, las, h1, h2, ci_fr, nelec_frs, soc=0, orbsym=None, wfnsym=None):
+    ham = matrix_builder (las, h1, h2, ci_fr, nelec_frs, soc=soc, orbsym=orbsym, wfnsym=wfnsym)[0]
+    def contract_ham_si (x):
+        return ham @ x
+    hdiag = np.diagonal (ham)
+    return contract_ham_si, hdiag
+
 
