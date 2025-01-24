@@ -268,7 +268,6 @@ def lassi (las, mo_coeff=None, ci=None, veff_c=None, h2eff_sub=None, orbsym=None
     s2_roots = []
     rootsym = []
     si = []
-    s2_mat = []
     idx_allprods = []
     dtype = complex if soc else np.float64
 
@@ -288,7 +287,6 @@ def lassi (las, mo_coeff=None, ci=None, veff_c=None, h2eff_sub=None, orbsym=None
             lib.logger.debug (las, 'Only one state in this symmetry block')
             e_roots.extend (las1.e_states - e0)
             si.append (np.ones ((1,1), dtype=dtype))
-            s2_mat.append (s2_states[idx_space]*np.ones((1,1)))
             s2_roots.extend (s2_states[idx_space])
             rootsym.extend ([sym,])
             continue
@@ -296,20 +294,15 @@ def lassi (las, mo_coeff=None, ci=None, veff_c=None, h2eff_sub=None, orbsym=None
         las.converged_si, e, c, s2_blk = _eig_block (las1, e0, h1, h2, ci_blk, nelec_blk, soc, opt,
                                                      davidson_only=davidson_only,
                                                      max_memory=max_memory)
-        s2_mat.append (s2_blk)
         si.append (c)
-        s2_blk = c.conj ().T @ s2_blk @ c
-        lib.logger.debug2 (las, 'Block S**2 in adiabat basis:')
-        lib.logger.debug2 (las, '{}'.format (s2_blk))
         e_roots.extend (list(e))
-        s2_roots.extend (list (np.diag (s2_blk)))
+        s2_roots.extend (list (s2_blk))
         rootsym.extend ([sym,]*c.shape[1])
 
     # The matrix blocks were evaluated in idx_allprods order
     # Therefore, I need to ~invert~ idx_allprods to get the proper order
     idx_allprods = np.argsort (idx_allprods)
     si = linalg.block_diag (*si)[idx_allprods,:]
-    s2_mat = linalg.block_diag (*s2_mat)[np.ix_(idx_allprods,idx_allprods)]
 
     # Sort results by energy
     idx = np.argsort (e_roots)
@@ -327,7 +320,7 @@ def lassi (las, mo_coeff=None, ci=None, veff_c=None, h2eff_sub=None, orbsym=None
 
     # Results tagged on si array....
     si = si[:,idx]
-    si = tag_array (si, s2=s2_roots, s2_mat=s2_mat, nelec=nelec_roots, wfnsym=wfnsym_roots,
+    si = tag_array (si, s2=s2_roots, nelec=nelec_roots, wfnsym=wfnsym_roots,
                     rootsym=rootsym, break_symmetry=break_symmetry, soc=soc)
 
     # I/O
@@ -495,6 +488,7 @@ def _eig_block_incore (las, e0, h1, h2, ci_blk, nelec_blk, soc, opt):
             raise RuntimeError ("LASSI lindep prescreening failure; orth err = {}".format (err))
         else: raise (err) from None
     c = orth2raw (c)
+    s2_blk = ((s2_blk @ c) * c.conj ()).sum (0)
     return True, e, c, s2_blk
 
 def make_stdm12s (las, ci=None, orbsym=None, soc=False, break_symmetry=False, opt=1):
@@ -792,11 +786,10 @@ class LASSI(lib.StreamObject):
         self.stdout, self.verbose, self.chkfile = las.stdout, las.verbose, las.chkfile
         # General config data from las parent
         self.max_memory = las.max_memory
-        keys = set(('e_roots', 'si', 's2', 's2_mat', 'nelec', 'wfnsym', 'rootsym', 'break_symmetry', 'soc', 'opt'))
+        keys = set(('e_roots', 'si', 's2', 'nelec', 'wfnsym', 'rootsym', 'break_symmetry', 'soc', 'opt'))
         self.e_roots = None
         self.si = None
         self.s2 = None
-        self.s2_mat = None
         self.nelec = None
         self.wfnsym = None
         self.rootsym = None
@@ -820,8 +813,8 @@ class LASSI(lib.StreamObject):
         e_roots, si = lassi(self, mo_coeff=mo_coeff, ci=ci, veff_c=veff_c, h2eff_sub=h2eff_sub, orbsym=orbsym, \
                             soc=soc, break_symmetry=break_symmetry, opt=opt)
         self.e_roots = e_roots
-        self.si, self.s2, self.s2_mat, self.nelec, self.wfnsym, self.rootsym, self.break_symmetry, self.soc  = \
-            si, si.s2, si.s2_mat, si.nelec, si.wfnsym, si.rootsym, si.break_symmetry, si.soc
+        self.si, self.s2, self.nelec, self.wfnsym, self.rootsym, self.break_symmetry, self.soc  = \
+            si, si.s2, si.nelec, si.wfnsym, si.rootsym, si.break_symmetry, si.soc
         log.timer ('LASSI matrix-diagonalization kernel', *t0)
         return self.e_roots, self.si
 
