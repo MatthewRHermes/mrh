@@ -362,7 +362,6 @@ def _eig_block (las, e0, h1, h2, ci_blk, nelec_blk, soc, opt, max_memory=2000,
     return _eig_block_incore (las, e0, h1, h2, ci_blk, nelec_blk, soc, opt)
 
 def _eig_block_Davidson (las, e0, h1, h2, ci_blk, nelec_blk, soc, opt):
-    raise NotImplementedError
     # si0
     # nroots_si
     # level_shift
@@ -373,8 +372,13 @@ def _eig_block_Davidson (las, e0, h1, h2, ci_blk, nelec_blk, soc, opt):
     contract_ham, contract_s2, contract_ovlp, hdiag, get_ovlp = op[opt].gen_contract_op_si_hdiag (
         las, h1, h2, ci_blk, nelec_blk, soc=soc
     )
-    precond = lib.make_diag_precond (hdiag, level_shift=level_shift)
+    raw2orth, orth2raw = citools.get_orth_basis (ci_blk, las.ncas_sub, nelec_blk,
+                                                 _get_ovlp=get_ovlp)
+    precond_raw = lib.make_diag_precond (hdiag, level_shift=level_shift)
+    def precond (x):
+        return orth2raw (raw2orth (precond_raw (x)))
     si0 = get_init_guess (hdiag, nroots_si, si0)
+    si0 = [orth2raw (raw2orth (x)) for x in si0]
     conv, e, si1 = lib.davidson1 (contract_ham, si0, precond, nroots=nroots_si)
     conv = all (conv)
     s2 = np.array ([np.dot (x.conj (), contract_s2 (x)) for x in si1.T])
