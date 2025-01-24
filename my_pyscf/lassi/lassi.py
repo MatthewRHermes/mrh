@@ -292,8 +292,7 @@ def lassi (las, mo_coeff=None, ci=None, veff_c=None, h2eff_sub=None, orbsym=None
             continue
         wfnsym = None if break_symmetry else sym[-1]
         e, c, s2_blk = _eig_block (las1, e0, h1, h2, ci_blk, nelec_blk, soc,
-                                   orbsym, wfnsym, opt,
-                                   davidson_only=davidson_only,
+                                   opt, davidson_only=davidson_only,
                                    max_memory=max_memory)
         s2_mat.append (s2_blk)
         si.append (c)
@@ -355,7 +354,7 @@ def lassi (las, mo_coeff=None, ci=None, veff_c=None, h2eff_sub=None, orbsym=None
             break
     return e_roots, si
 
-def _eig_block (las, e0, h1, h2, ci_blk, nelec_blk, soc, orbsym, wfnsym, opt, max_memory=2000,
+def _eig_block (las, e0, h1, h2, ci_blk, nelec_blk, soc, opt, max_memory=2000,
                 davidson_only=False):
     nstates = np.prod (get_lroots (ci_blk), axis=0).sum ()
     req_memory = 24*nstates*nstates/1e6
@@ -364,10 +363,10 @@ def _eig_block (las, e0, h1, h2, ci_blk, nelec_blk, soc, orbsym, wfnsym, opt, ma
         lib.logger.info ("Need %f MB of %f MB avail for incore LASSI diag; Davidson alg forced",
                          req_memory, max_memory-current_memory)
     if davidson_only or current_memory+req_memory > max_memory:
-        return _eig_block_Davidson (las, e0, h1, h2, ci_blk, nelec_blk, soc, orbsym, wfnsym, opt)
-    return _eig_block_incore (las, e0, h1, h2, ci_blk, nelec_blk, soc, orbsym, wfnsym, opt)
+        return _eig_block_Davidson (las, e0, h1, h2, ci_blk, nelec_blk, soc, opt)
+    return _eig_block_incore (las, e0, h1, h2, ci_blk, nelec_blk, soc, opt)
 
-def _eig_block_Davidson (las, e0, h1, h2, ci_blk, nelec_blk, soc, orbsym, wfnsym, opt):
+def _eig_block_Davidson (las, e0, h1, h2, ci_blk, nelec_blk, soc, opt):
     raise NotImplementedError
     # si0
     # nroots_si
@@ -376,7 +375,7 @@ def _eig_block_Davidson (las, e0, h1, h2, ci_blk, nelec_blk, soc, orbsym, wfnsym
     level_shift = 1e-8
     nroots_si = 1
     contract_ham_si, hdiag = op[opt].gen_contract_ham_si_hdiag (
-        las, h1, h2, ci_blk, nelec_blk, soc=soc, orbsym=orbsym, wfnsym=wfnsym
+        las, h1, h2, ci_blk, nelec_blk, soc=soc
     )
     hdiag += e0
     precond = lib.make_diag_precond (hdiag, level_shift=level_shift)
@@ -387,21 +386,19 @@ def _eig_block_Davidson (las, e0, h1, h2, ci_blk, nelec_blk, soc, orbsym, wfnsym
 def get_init_guess_si (hdiag, nroots, si0):
     raise NotImplementedError
 
-def _eig_block_incore (las, e0, h1, h2, ci_blk, nelec_blk, soc, orbsym, wfnsym, opt):
+def _eig_block_incore (las, e0, h1, h2, ci_blk, nelec_blk, soc, opt):
     # TODO: simplify
     t0 = (lib.logger.process_clock (), lib.logger.perf_counter ())
     o0_memcheck = op_o0.memcheck (las, ci_blk, soc=soc)
     if (las.verbose > lib.logger.INFO) and (o0_memcheck):
-        ham_ref, s2_ref, ovlp_ref = op_o0.ham (las, h1, h2, ci_blk, nelec_blk, soc=soc,
-                                               orbsym=orbsym, wfnsym=wfnsym)[:3]
+        ham_ref, s2_ref, ovlp_ref = op_o0.ham (las, h1, h2, ci_blk, nelec_blk, soc=soc)[:3]
         t0 = lib.logger.timer (las, 'LASSI diagonalizer CI algorithm', *t0)
 
         h1_sf = h1
         if soc:
             h1_sf = (h1[0:las.ncas,0:las.ncas]
                      - h1[las.ncas:2*las.ncas,las.ncas:2*las.ncas]).real/2
-        ham_blk, s2_blk, ovlp_blk, get_ovlp = op[opt].ham (las, h1_sf, h2, ci_blk, nelec_blk,
-                                                           orbsym=orbsym, wfnsym=wfnsym)
+        ham_blk, s2_blk, ovlp_blk, get_ovlp = op[opt].ham (las, h1_sf, h2, ci_blk, nelec_blk)
         t0 = lib.logger.timer (las, 'LASSI diagonalizer TDM algorithm', *t0)
         lib.logger.debug (las,
             'LASSI diagonalizer ham o0-o1 algorithm disagreement = {}'.format (
@@ -423,8 +420,7 @@ def _eig_block_incore (las, e0, h1, h2, ci_blk, nelec_blk, soc, orbsym, wfnsym, 
     else:
         if (las.verbose > lib.logger.INFO): lib.logger.debug (
             las, 'Insufficient memory to test against o0 LASSI algorithm')
-        ham_blk, s2_blk, ovlp_blk, get_ovlp = op[opt].ham (las, h1, h2, ci_blk, nelec_blk, soc=soc,
-                                                           orbsym=orbsym, wfnsym=wfnsym)
+        ham_blk, s2_blk, ovlp_blk, get_ovlp = op[opt].ham (las, h1, h2, ci_blk, nelec_blk, soc=soc)
         t0 = lib.logger.timer (las, 'LASSI H build', *t0)
     log_debug = lib.logger.debug2 if las.nroots>10 else lib.logger.debug
     if np.iscomplexobj (ham_blk):
@@ -787,6 +783,9 @@ class LASSI(lib.StreamObject):
         self.break_symmetry = break_symmetry
         self.soc = soc
         self.opt = opt
+        self.level_shift_si = getattr (__config__, 'lassi_level_shift_si', 1.0e-8)
+        self.nroots_si = 1
+        self.converged_si = False
         self._keys = set((self.__dict__.keys())).union(keys)
 
     def kernel(self, mo_coeff=None, ci=None, veff_c=None, h2eff_sub=None, orbsym=None, soc=None,\
