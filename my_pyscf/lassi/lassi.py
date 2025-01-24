@@ -25,6 +25,8 @@ from pyscf import __config__
 # temporary environment.
 
 LINDEP_THRESH = getattr (__config__, 'lassi_lindep_thresh', 1.0e-5)
+LEVEL_SHIFT_SI = getattr (__config__, 'lassi_level_shift_si', 1.0e-8)
+NROOTS_SI = 1
 
 op = (op_o0, op_o1)
 
@@ -291,9 +293,9 @@ def lassi (las, mo_coeff=None, ci=None, veff_c=None, h2eff_sub=None, orbsym=None
             rootsym.extend ([sym,])
             continue
         wfnsym = None if break_symmetry else sym[-1]
-        e, c, s2_blk = _eig_block (las1, e0, h1, h2, ci_blk, nelec_blk, soc,
-                                   opt, davidson_only=davidson_only,
-                                   max_memory=max_memory)
+        las.converged_si, e, c, s2_blk = _eig_block (las1, e0, h1, h2, ci_blk, nelec_blk, soc, opt,
+                                                     davidson_only=davidson_only,
+                                                     max_memory=max_memory)
         s2_mat.append (s2_blk)
         si.append (c)
         s2_blk = c.conj ().T @ s2_blk @ c
@@ -371,20 +373,38 @@ def _eig_block_Davidson (las, e0, h1, h2, ci_blk, nelec_blk, soc, opt):
     # si0
     # nroots_si
     # level_shift
-    si0 = None
-    level_shift = 1e-8
-    nroots_si = 1
+    si0 = getattr (las, 'si', None)
+    level_shift = getattr (las, 'level_shift_si', LEVEL_SHIFT_SI)
+    nroots_si = getattr (las, 'nroots_si', NROOTS_SI)
+    get_init_guess = getattr (las, 'get_init_guess_si', get_init_guess_si)
     contract_ham_si, hdiag = op[opt].gen_contract_ham_si_hdiag (
         las, h1, h2, ci_blk, nelec_blk, soc=soc
     )
-    hdiag += e0
     precond = lib.make_diag_precond (hdiag, level_shift=level_shift)
-    si0 = get_init_guess_si (hdiag, nroots_si, si0)
-    # TODO: converged or not logic
-    return lib.davidson1 (contract_ham_si, si0, precond, nroots=nroots_si)[1:]
+    si0 = get_init_guess (hdiag, nroots_si, si0)
+    conv, e, si1 = lib.davidson1 (contract_ham_si, si0, precond, nroots=nroots_si)
+    conv = all (conv)
+    return conv, e, si1, None
 
-def get_init_guess_si (hdiag, nroots, si0):
-    raise NotImplementedError
+def get_init_guess_si (hdiag, nroots, si1):
+    nprod = hdiag.size
+    si0 = []
+    if nprod <= nroots:
+        addrs = numpy.arange(nprod)
+    else:
+        addrs = numpy.argpartition(hdiag, nroots-1)[:nroots]
+    for addr in addrs:
+        x = numpy.zeros((nprod))
+        x[addr] = 1
+        si0.append(x)
+    # Add noise
+    si0[0][0 ] += 1e-5
+    si0[0][-1] -= 1e-5
+    if si1 is not None:
+        si1 = si1.reshape (nprod,-1)
+        for i in range (min (si1.shape[1], nroots)):
+            si0[i] = si1[:,i]
+    return si0
 
 def _eig_block_incore (las, e0, h1, h2, ci_blk, nelec_blk, soc, opt):
     # TODO: simplify
@@ -475,7 +495,7 @@ def _eig_block_incore (las, e0, h1, h2, ci_blk, nelec_blk, soc, opt):
             raise RuntimeError ("LASSI lindep prescreening failure; orth err = {}".format (err))
         else: raise (err) from None
     c = orth2raw (c)
-    return e, c, s2_blk
+    return True, e, c, s2_blk
 
 def make_stdm12s (las, ci=None, orbsym=None, soc=False, break_symmetry=False, opt=1):
     ''' Evaluate <I|p'q|J> and <I|p'r'sq|J> where |I>, |J> are LAS states.
@@ -783,8 +803,8 @@ class LASSI(lib.StreamObject):
         self.break_symmetry = break_symmetry
         self.soc = soc
         self.opt = opt
-        self.level_shift_si = getattr (__config__, 'lassi_level_shift_si', 1.0e-8)
-        self.nroots_si = 1
+        self.level_shift_si = LEVEL_SHIFT_SI
+        self.nroots_si = NROOTS_SI
         self.converged_si = False
         self._keys = set((self.__dict__.keys())).union(keys)
 
@@ -870,4 +890,7 @@ class LASSI(lib.StreamObject):
 
     dump_chk = chkfile.dump_lsi
     load_chk = load_chk_ = chkfile.load_lsi_
+
+    def get_init_guess_si (self, hdiag, nroots, si1):
+        return get_init_guess_si (hdiag, nroots, si1)
 
