@@ -291,8 +291,8 @@ def lassi (las, mo_coeff=None, ci=None, veff_c=None, h2eff_sub=None, orbsym=None
             rootsym.extend ([sym,])
             continue
         wfnsym = None if break_symmetry else sym[-1]
-        e, c, s2_blk = _eig_block (las1, e0, h1, h2, ci_blk, nelec_blk, sym, soc,
-                                   orbsym, wfnsym, o0_memcheck, opt,
+        e, c, s2_blk = _eig_block (las1, e0, h1, h2, ci_blk, nelec_blk, soc,
+                                   orbsym, wfnsym, opt,
                                    davidson_only=davidson_only,
                                    max_memory=max_memory)
         s2_mat.append (s2_blk)
@@ -355,8 +355,8 @@ def lassi (las, mo_coeff=None, ci=None, veff_c=None, h2eff_sub=None, orbsym=None
             break
     return e_roots, si
 
-def _eig_block (las, e0, h1, h2, ci_blk, nelec_blk, rootsym, soc, orbsym, wfnsym, o0_memcheck,
-                opt, max_memory=2000, davidson_only=False):
+def _eig_block (las, e0, h1, h2, ci_blk, nelec_blk, soc, orbsym, wfnsym, opt, max_memory=2000,
+                davidson_only=False):
     nstates = np.prod (get_lroots (ci_blk), axis=0).sum ()
     req_memory = 24*nstates*nstates/1e6
     current_memory = lib.current_memory ()[0]
@@ -364,24 +364,37 @@ def _eig_block (las, e0, h1, h2, ci_blk, nelec_blk, rootsym, soc, orbsym, wfnsym
         lib.logger.info ("Need %f MB of %f MB avail for incore LASSI diag; Davidson alg forced",
                          req_memory, max_memory-current_memory)
     if davidson_only or current_memory+req_memory > max_memory:
-        return _eig_block_Davidson (las, e0, h1, h2, ci_blk, nelec_blk, rootsym, soc, orbsym,
-                                    wfnsym, o0_memcheck, opt)
-    return _eig_block_incore (las, e0, h1, h2, ci_blk, nelec_blk, rootsym, soc, orbsym, wfnsym,
-                              o0_memcheck, opt)
+        return _eig_block_Davidson (las, e0, h1, h2, ci_blk, nelec_blk, soc, orbsym, wfnsym, opt)
+    return _eig_block_incore (las, e0, h1, h2, ci_blk, nelec_blk, soc, orbsym, wfnsym, opt)
 
-def _eig_block_Davidson (las, e0, h1, h2, ci_blk, nelec_blk, rootsym, soc, orbsym, wfnsym,
-                         o0_memcheck, opt):
+def _eig_block_Davidson (las, e0, h1, h2, ci_blk, nelec_blk, soc, orbsym, wfnsym, opt):
+    raise NotImplementedError
+    # si0
+    # nroots_si
+    # level_shift
+    si0 = None
+    level_shift = 1e-8
+    nroots_si = 1
+    contract_ham_si, hdiag = op[opt].gen_contract_ham_si_hdiag (
+        las, h1, h2, ci_blk, nelec_blk, soc=soc, orbsym=orbsym, wfnsym=wfnsym
+    )
+    hdiag += e0
+    precond = lib.make_diag_precond (hdiag, level_shift=level_shift)
+    si0 = get_init_guess_si (hdiag, nroots_si, si0)
+    # TODO: converged or not logic
+    return lib.davidson1 (contract_ham_si, si0, precond, nroots=nroots_si)[1:]
+
+def get_init_guess_si (hdiag, nroots, si0):
     raise NotImplementedError
 
-def _eig_block_incore (las, e0, h1, h2, ci_blk, nelec_blk, rootsym, soc, orbsym, wfnsym,
-                       o0_memcheck, opt):
+def _eig_block_incore (las, e0, h1, h2, ci_blk, nelec_blk, soc, orbsym, wfnsym, opt):
     # TODO: simplify
     t0 = (lib.logger.process_clock (), lib.logger.perf_counter ())
+    o0_memcheck = op_o0.memcheck (las, ci_blk, soc=soc)
     if (las.verbose > lib.logger.INFO) and (o0_memcheck):
         ham_ref, s2_ref, ovlp_ref = op_o0.ham (las, h1, h2, ci_blk, nelec_blk, soc=soc,
                                                orbsym=orbsym, wfnsym=wfnsym)[:3]
-        t0 = lib.logger.timer (las, 'LASSI diagonalizer rootsym {} CI algorithm'.format (
-            rootsym), *t0)
+        t0 = lib.logger.timer (las, 'LASSI diagonalizer CI algorithm', *t0)
 
         h1_sf = h1
         if soc:
@@ -389,17 +402,16 @@ def _eig_block_incore (las, e0, h1, h2, ci_blk, nelec_blk, rootsym, soc, orbsym,
                      - h1[las.ncas:2*las.ncas,las.ncas:2*las.ncas]).real/2
         ham_blk, s2_blk, ovlp_blk, get_ovlp = op[opt].ham (las, h1_sf, h2, ci_blk, nelec_blk,
                                                            orbsym=orbsym, wfnsym=wfnsym)
-        t0 = lib.logger.timer (las, 'LASSI diagonalizer rootsym {} TDM algorithm'.format (
-            rootsym), *t0)
+        t0 = lib.logger.timer (las, 'LASSI diagonalizer TDM algorithm', *t0)
         lib.logger.debug (las,
-            'LASSI diagonalizer rootsym {}: ham o0-o1 algorithm disagreement = {}'.format (
-                rootsym, linalg.norm (ham_blk - ham_ref))) 
+            'LASSI diagonalizer ham o0-o1 algorithm disagreement = {}'.format (
+                linalg.norm (ham_blk - ham_ref))) 
         lib.logger.debug (las,
-            'LASSI diagonalizer rootsym {}: S2 o0-o1 algorithm disagreement = {}'.format (
-                rootsym, linalg.norm (s2_blk - s2_ref))) 
+            'LASSI diagonalizer S2 o0-o1 algorithm disagreement = {}'.format (
+                linalg.norm (s2_blk - s2_ref))) 
         lib.logger.debug (las,
-            'LASSI diagonalizer rootsym {}: ovlp o0-o1 algorithm disagreement = {}'.format (
-                rootsym, linalg.norm (ovlp_blk - ovlp_ref))) 
+            'LASSI diagonalizer ovlp o0-o1 algorithm disagreement = {}'.format (
+                linalg.norm (ovlp_blk - ovlp_ref))) 
         errvec = np.concatenate ([(ham_blk-ham_ref).ravel (), (s2_blk-s2_ref).ravel (),
                                   (ovlp_blk-ovlp_ref).ravel ()])
         if np.amax (np.abs (errvec)) > 1e-8 and soc == False: # tmp until SOC in op_o1
@@ -413,7 +425,7 @@ def _eig_block_incore (las, e0, h1, h2, ci_blk, nelec_blk, rootsym, soc, orbsym,
             las, 'Insufficient memory to test against o0 LASSI algorithm')
         ham_blk, s2_blk, ovlp_blk, get_ovlp = op[opt].ham (las, h1, h2, ci_blk, nelec_blk, soc=soc,
                                                            orbsym=orbsym, wfnsym=wfnsym)
-        t0 = lib.logger.timer (las, 'LASSI H build rootsym {}'.format (rootsym), *t0)
+        t0 = lib.logger.timer (las, 'LASSI H build', *t0)
     log_debug = lib.logger.debug2 if las.nroots>10 else lib.logger.debug
     if np.iscomplexobj (ham_blk):
         log_debug (las, 'Block Hamiltonian - ecore (real):')
