@@ -375,12 +375,14 @@ def _eig_block_Davidson (las, e0, h1, h2, ci_blk, nelec_blk, soc, opt):
     raw2orth, orth2raw = citools.get_orth_basis (ci_blk, las.ncas_sub, nelec_blk,
                                                  _get_ovlp=get_ovlp)
     precond_raw = lib.make_diag_precond (hdiag, level_shift=level_shift)
-    def precond (x):
-        return orth2raw (raw2orth (precond_raw (x)))
+    def precond (dx, e, *args):
+        return orth2raw (raw2orth (precond_raw (dx, e, *args)))
     si0 = get_init_guess (hdiag, nroots_si, si0)
     si0 = [orth2raw (raw2orth (x)) for x in si0]
-    conv, e, si1 = lib.davidson1 (contract_ham, si0, precond, nroots=nroots_si)
+    conv, e, si1 = lib.davidson1 (lambda xs: [contract_ham (x) for x in xs],
+                                  si0, precond, nroots=nroots_si)
     conv = all (conv)
+    si1 = np.stack (si1, axis=-1)
     s2 = np.array ([np.dot (x.conj (), contract_s2 (x)) for x in si1.T])
     return conv, e, si1, s2
 
@@ -388,11 +390,11 @@ def get_init_guess_si (hdiag, nroots, si1):
     nprod = hdiag.size
     si0 = []
     if nprod <= nroots:
-        addrs = numpy.arange(nprod)
+        addrs = np.arange(nprod)
     else:
-        addrs = numpy.argpartition(hdiag, nroots-1)[:nroots]
+        addrs = np.argpartition(hdiag, nroots-1)[:nroots]
     for addr in addrs:
-        x = numpy.zeros((nprod))
+        x = np.zeros((nprod))
         x[addr] = 1
         si0.append(x)
     # Add noise
