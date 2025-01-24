@@ -370,14 +370,15 @@ def _eig_block_Davidson (las, e0, h1, h2, ci_blk, nelec_blk, soc, opt):
     level_shift = getattr (las, 'level_shift_si', LEVEL_SHIFT_SI)
     nroots_si = getattr (las, 'nroots_si', NROOTS_SI)
     get_init_guess = getattr (las, 'get_init_guess_si', get_init_guess_si)
-    contract_ham, contract_s2, contract_ovlp, hdiag = op[opt].gen_contract_op_si_hdiag (
+    contract_ham, contract_s2, contract_ovlp, hdiag, get_ovlp = op[opt].gen_contract_op_si_hdiag (
         las, h1, h2, ci_blk, nelec_blk, soc=soc
     )
     precond = lib.make_diag_precond (hdiag, level_shift=level_shift)
     si0 = get_init_guess (hdiag, nroots_si, si0)
     conv, e, si1 = lib.davidson1 (contract_ham, si0, precond, nroots=nroots_si)
     conv = all (conv)
-    return conv, e, si1, None
+    s2 = np.array ([np.dot (x.conj (), contract_s2 (x)) for x in si1.T])
+    return conv, e, si1, s2
 
 def get_init_guess_si (hdiag, nroots, si1):
     nprod = hdiag.size
