@@ -338,6 +338,7 @@ private:
 /*--------------------------------------------*/
 #ifdef _SIMPLE_TIMER
   double * t_array;
+  int * count_array;
 #endif
 
   int num_threads;
