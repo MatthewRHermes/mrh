@@ -59,7 +59,6 @@ class sparsedf_array (np.ndarray):
         metric = linalg.norm (self, axis=0)
         if metric.ndim == 1: metric = lib.unpack_tril (metric)
         metric = metric > thresh
-        print('sparsity: ',np.sum(metric)/metric.size)
         self.iao_nent = np.count_nonzero (metric, axis=1).astype (np.int32)
         self.nent_max = np.amax (self.iao_nent)
         self.iao_entlist = -np.ones ((self.nmo[0], self.nent_max), dtype=np.int32)
@@ -89,13 +88,7 @@ class sparsedf_array (np.ndarray):
         if self.nent_max is None: self.get_sparsity_ ()
         vPuv = np.zeros ((nao, nmo, self.naux), dtype=self.dtype).view (sparsedf_array)
         wrk = np.zeros ((lib.num_threads (), self.nent_max, (self.naux+nmo)), dtype = self.dtype).view (sparsedf_array)
-        #print('iao_nent',self.iao_nent.shape)
-        #print(self.iao_nent, np.average(self.iao_nent))
-        #print('iao_entlist',self.iao_entlist.shape)
-        #print ("Sparsity calculation time: {} clock ; {} wall".format (lib.logger.process_clock () - t0, lib.logger.perf_counter () - w0))
         t0, w0 = lib.logger.process_clock (), lib.logger.perf_counter ()
-        #t0 = lib.logger.timer (las, 'Sparsity calculation', *t0)
-        #print(self.iao_entlist)
         libsint.SINT_SDCDERI_DDMAT (self.ctypes.data_as (ctypes.c_void_p),
             cmat.ctypes.data_as (ctypes.c_void_p),
             vPuv.ctypes.data_as (ctypes.c_void_p),
