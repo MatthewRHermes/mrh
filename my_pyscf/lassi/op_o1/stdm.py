@@ -411,6 +411,54 @@ class LSTDM (object):
         wgt *= self.fermion_frag_shuffle (ket, uniq_frags)
         return wgt
 
+    def crunch_ovlp (self, bra, ket):
+        i = self.ints[-1]
+        b, k = i.unique_root[bra], i.unique_root[ket]
+        o = i.ovlp[b][k] / (1 + int (bra==ket))
+        for i in self.ints[-2::-1]:
+            b, k = i.unique_root[bra], i.unique_root[ket]
+            o = np.multiply.outer (o, i.ovlp[b][k]).transpose (0,2,1,3)
+            o = o.reshape (o.shape[0]*o.shape[1], o.shape[2]*o.shape[3])
+        o *= self.spin_shuffle[bra]
+        o *= self.spin_shuffle[ket]
+        return o
+
+    def get_ovlp (self, rootidx=None):
+        lroots = self.lroots.copy ()
+        exc_null = self.exc_null
+        offs_lroots = self.offs_lroots.copy ()
+        nstates = self.nstates
+        if rootidx is not None:
+            rootidx = np.atleast_1d (rootidx)
+            bra_null = np.isin (self.exc_null[:,0], rootidx)
+            ket_null = np.isin (self.exc_null[:,1], rootidx)
+            exc_null = exc_null[bra_null&ket_null,:]
+            lroots = lroots[:,rootidx]
+            nprods = np.prod (lroots, axis=0)
+            offs1 = np.cumsum (nprods)
+            offs0 = offs1 - nprods
+            for i, iroot in enumerate (rootidx):
+                offs_lroots[iroot,:] = [offs0[i], offs1[i]]
+            nstates = offs1[-1]
+        ovlp = np.zeros ([nstates,]*2, dtype=self.dtype)
+        for bra, ket in exc_null:
+            i0, i1 = offs_lroots[bra]
+            j0, j1 = offs_lroots[ket]
+            ovlp[i0:i1,j0:j1] = self.crunch_ovlp (bra, ket)
+        ovlp += ovlp.T
+        for ifrag, inti in enumerate (self.ints):
+            iroot_ids = iroot_poss = inti.umat_root.keys ()
+            if rootidx is not None:
+                iroot_ids = np.asarray (list (iroot_ids))
+                idx = np.isin (rootidx, iroot_ids)
+                iroot_ids = rootidx[idx]
+                iroot_poss = np.where (idx)[0]
+            for iroot_id, iroot_pos in zip (iroot_ids, iroot_poss):
+                umat = inti.umat_root[iroot_id]
+                ovlp = umat_dot_1frag_(ovlp, umat, lroots, ifrag, iroot_pos, axis=0)
+                ovlp = umat_dot_1frag_(ovlp, umat, lroots, ifrag, iroot_pos, axis=1)
+        return ovlp 
+
     def _get_addr_range (self, raddr, *inv, _profile=True):
         '''Get the integer offsets for successive ENVs in a particular rootspace in which some
         fragments are frozen in the zero state.
