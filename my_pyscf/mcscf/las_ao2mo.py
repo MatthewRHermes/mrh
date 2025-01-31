@@ -12,8 +12,8 @@ def get_h2eff_df (las, mo_coeff):
     ncore, ncas = las.ncore, las.ncas
     nocc = ncore + ncas
     mo_cas = mo_coeff[:,ncore:nocc]
-    if gpu: 
-        libgpu.libgpu_push_mo_coeff(gpu,mo_cas.copy(),mo_cas.size)
+    #if gpu: 
+    #    libgpu.libgpu_push_mo_coeff(gpu,mo_cas.copy(),mo_cas.size)
     naux = las.with_df.get_naoaux ()
     log.debug2 ("LAS DF ERIs: %d MB used of %d MB total available", lib.current_memory ()[0], las.max_memory)
     mem_eris = 8*(nao+nmo)*ncas*ncas*ncas / 1e6
@@ -21,6 +21,7 @@ def get_h2eff_df (las, mo_coeff):
     mem_av = las.max_memory - lib.current_memory ()[0] - mem_eris
     mem_int = 16*naux*ncas*nao / 1e6
     mem_enough_int = mem_av > mem_int
+    t0 = (lib.logger.process_clock (), lib.logger.perf_counter ())
     if mem_enough_int:
         mem_av -= mem_int
         bmuP = []
@@ -44,13 +45,11 @@ def get_h2eff_df (las, mo_coeff):
     log.debug2 ("LAS DF ERI blksize = %d, mem_av = %d MB, mem_per_aux = %d MB", blksize, mem_av, mem_per_aux)
     log.debug2 ("LAS DF ERI naux = %d, nao = %d, nmo = %d", naux, nao, nmo)
     eri = 0
-    t0 = (lib.logger.process_clock (), lib.logger.perf_counter ())
     for cderi in las.with_df.loop (blksize=blksize):
-        t1 = lib.logger.timer (las, 'Sparsedf', *t0)
+        #t1 = lib.logger.timer (las, 'Sparsedf', *t0)
         bPmn = sparsedf_array (cderi)
         bmuP1 = bPmn.contract1 (mo_cas)
-        #bmuP1 = np.einsum('Pmn,nu->muP',unpack_tril(bPmn),mo_cas)
-        t1 = lib.logger.timer (las, 'contract1', *t1)
+        #t1 = lib.logger.timer (las, 'contract1', *t1)
         log.debug2 ("LAS DF ERI bPmn shape = %s; shares memory? %s %s; C_CONTIGUOUS? %s",
                  str (bPmn.shape), str (np.shares_memory (bPmn, cderi)),
                  str (np.may_share_memory (bPmn, cderi)),
@@ -61,13 +60,15 @@ def get_h2eff_df (las, mo_coeff):
         eri1 = np.tensordot (mo_coeff.conjugate (), eri1, axes=((0),(0)))
         eri += lib.pack_tril (eri1.reshape (nmo*ncas, ncas, ncas)).reshape (nmo, -1)
         cderi = bPmn = bmuP1 = buvP = eri1 = None
-        t1 = lib.logger.timer (las, 'rest of the calculation', *t1)
-    if mem_enough_int and not gpu: eri = lib.tag_array (eri, bmPu=np.concatenate (bmuP, axis=-1).transpose (0,2,1))
+        #t1 = lib.logger.timer (las, 'rest of the calculation', *t1)
+    #if mem_enough_int and not gpu: eri = lib.tag_array (eri, bmPu=np.concatenate (bmuP, axis=-1).transpose (0,2,1))
+    if mem_enough_int : eri = lib.tag_array (eri, bmPu=np.concatenate (bmuP, axis=-1).transpose (0,2,1))
     if las.verbose > lib.logger.DEBUG:
         eri_comp = las.with_df.ao2mo (mo_coeff, compact=True)
         eri_comp = eri_comp[:,ncore:nocc,ncore:nocc,ncore:nocc]
         eri_comp = lib.pack_tril (eri_comp.reshape (nmo*ncas, ncas, ncas)).reshape (nmo, -1)
         lib.logger.debug(las,"CDERI two-step error: {}".format(linalg.norm(eri-eri_comp)))
+    t0 = lib.logger.timer (las, 'las_ao2mo', *t0)
     return eri
 
 def get_h2eff_gpu (las,mo_coeff):
