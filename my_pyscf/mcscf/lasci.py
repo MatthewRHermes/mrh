@@ -18,6 +18,8 @@ from scipy import linalg
 import numpy as np
 import copy
 
+from mrh.my_pyscf.gpu import libgpu
+
 def LASCI (mf_or_mol, ncas_sub, nelecas_sub, **kwargs):
     if isinstance(mf_or_mol, gto.Mole):
         mf = scf.RHF(mf_or_mol)
@@ -880,6 +882,7 @@ def get_nelec_frs (las):
 class LASCINoSymm (casci.CASCI):
 
     def __init__(self, mf, ncas, nelecas, ncore=None, spin_sub=None, frozen=None, frozen_ci=None, **kwargs):
+        self.use_gpu = kwargs.get('use_gpu', None)
         if isinstance(ncas,int):
             ncas = [ncas]
         ncas_tot = sum (ncas)
@@ -2249,16 +2252,17 @@ class LASCINoSymm (casci.CASCI):
         ncas = sum (ncas_sub)
         nocc = ncore + ncas
         nao, nmo = mo_coeff.shape
-
+        gpu=self.use_gpu
         mo_cas = mo_coeff[:,ncore:nocc]
         moH_cas = mo_cas.conjugate ().T
         moH_coeff = mo_coeff.conjugate ().T
         dma = linalg.block_diag (*[dm[0] for dm in casdm1s_sub])
         dmb = linalg.block_diag (*[dm[1] for dm in casdm1s_sub])
         casdm1s = np.stack ([dma, dmb], axis=0)
-        if not (isinstance (self, _DFLASCI)):
+        if gpu or not (isinstance (self, _DFLASCI)):
             dm1s = np.dot (mo_cas, np.dot (casdm1s, moH_cas)).transpose (1,0,2)
-            return self.get_veff (dm1s = dm1s, spin_sep=True)
+            if not _full: dm1s = dm1s[0]+dm1s[1]
+            return self.get_veff (dm1s = dm1s, spin_sep=_full)
         casdm1 = casdm1s.sum (0)
         dm1 = np.dot (mo_cas, np.dot (casdm1, moH_cas))
         bPmn = sparsedf_array (self.with_df._cderi)
