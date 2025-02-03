@@ -15,7 +15,7 @@ def _M(self, use_gpu=None, **kwargs):
     >>> mol = gto.M(atom='H 0 0 0; F 0 0 1', basis='6-31g')
     '''
     
-    print("Inside mrh::mole.py")
+    print("Inside mrh::mole.py adding use_gpu flag")
     
     mol = Mole()
     mol.build(**kwargs)
