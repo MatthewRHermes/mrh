@@ -1,7 +1,7 @@
 def run_gpu(nfrags,basis):
     import pyscf
     import numpy as np 
-    from geometry_generator import generator
+    from mrh.tests.gpu.geometry_generator import generator
     from pyscf import gto, scf, tools, mcscf, lib
     from mrh.my_pyscf.mcscf.lasscf_async import LASSCF
     from pyscf.mcscf import avas	

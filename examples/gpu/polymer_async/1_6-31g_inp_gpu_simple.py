@@ -3,7 +3,7 @@ from mrh.my_pyscf.gpu import libgpu
 import pyscf 
 from gpu4pyscf import patch_pyscf
 
-from geometry_generator import generator
+from mrh.tests.gpu.geometry_generator import generator
 from pyscf import gto, scf, tools, mcscf, lib
 from mrh.my_pyscf.mcscf.lasscf_async import LASSCF
 from pyscf.mcscf import avas	
