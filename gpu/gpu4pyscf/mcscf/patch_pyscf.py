@@ -4,7 +4,7 @@ from pyscf.mcscf.df import _ERIS
 
 from gpu4pyscf.lib.utils import patch_cpu_kernel
 
-print(f'{__init__} monkey-patched')
+print(f'{__init__} inside CASSCF DF ERIS monkey-patched to GPU accelerated version')
 
 _ERIS.__init__ = patch_cpu_kernel(_ERIS.__init__)(__init__)
 
