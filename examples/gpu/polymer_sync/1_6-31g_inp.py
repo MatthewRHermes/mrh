@@ -1,5 +1,5 @@
 import pyscf 
-from geometry_generator import generator
+from mrh.tests.gpu.geometry_generator import generator
 from pyscf import gto, scf, tools, mcscf
 from mrh.my_pyscf.mcscf.lasscf_o0 import LASSCF
 from pyscf.mcscf import avas	

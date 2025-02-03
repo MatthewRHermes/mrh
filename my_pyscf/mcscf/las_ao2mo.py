@@ -71,6 +71,7 @@ def get_h2eff_df (las, mo_coeff):
     t0 = lib.logger.timer (las, 'las_ao2mo', *t0)
     return eri
 
+#gpu accelerated version 
 def get_h2eff_gpu (las,mo_coeff):
     log = lib.logger.new_logger (las, las.verbose)
     gpu=las.use_gpu
@@ -114,6 +115,7 @@ def get_h2eff_gpu (las,mo_coeff):
     eri1= None
     return eri
 
+#even faster gpu accelerated version currently, currently not working. 
 def get_h2eff_gpu_v2 (las,mo_coeff):
     log = lib.logger.new_logger (las, las.verbose)
     gpu=las.use_gpu

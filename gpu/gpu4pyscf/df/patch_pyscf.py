@@ -7,7 +7,7 @@ from pyscf.df.df import DF
 
 from gpu4pyscf.lib.utils import patch_cpu_kernel
 
-print(f'{df_jk} monkey-patched')
+print(f'{df_jk} monkey-patched to GPU accelerated version')
 df_jk.get_jk = patch_cpu_kernel(df_jk.get_jk)(_get_jk)
 
 ao2mo=df.DF.ao2mo

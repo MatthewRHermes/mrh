@@ -78,8 +78,6 @@ class sparsedf_array (np.ndarray):
         Returns:
             vPuv : np.ndarray of shape (nao, nmo, naux) stored in row-major order
         '''
-        #t0 = (lib.logger.process_clock (), lib.logger.perf_counter ())
-        t0, w0 = lib.logger.process_clock (), lib.logger.perf_counter ()
         if self.ndim == 3: return self.pack_mo ()
         if not self.flags['C_CONTIGUOUS']: self = self.naux_slow ()
         cmat = np.ascontiguousarray (cmat)
@@ -88,7 +86,6 @@ class sparsedf_array (np.ndarray):
         if self.nent_max is None: self.get_sparsity_ ()
         vPuv = np.zeros ((nao, nmo, self.naux), dtype=self.dtype).view (sparsedf_array)
         wrk = np.zeros ((lib.num_threads (), self.nent_max, (self.naux+nmo)), dtype = self.dtype).view (sparsedf_array)
-        t0, w0 = lib.logger.process_clock (), lib.logger.perf_counter ()
         libsint.SINT_SDCDERI_DDMAT (self.ctypes.data_as (ctypes.c_void_p),
             cmat.ctypes.data_as (ctypes.c_void_p),
             vPuv.ctypes.data_as (ctypes.c_void_p),
@@ -99,8 +96,6 @@ class sparsedf_array (np.ndarray):
             ctypes.c_int (nao), ctypes.c_int (self.naux),
             ctypes.c_int (nmo), ctypes.c_int (self.nent_max))
         wrk = None
-        #print ("Second C function time: {} clock ; {} wall".format (lib.logger.process_clock () - t0, lib.logger.perf_counter () - w0))
-        #t0 = lib.logger.timer (las, 'C function call', *t0)
         return vPuv
 
     def contract2 (self, vPuv):
