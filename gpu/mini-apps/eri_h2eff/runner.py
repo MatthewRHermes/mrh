@@ -1,3 +1,18 @@
+#miniapp to debug and test performance of h2eff versions
+'''
+all versions do the following
+   b_{u1p2}^P = b^P_{u1u2}m^{p2}_{u2}        ---- 1
+   b_{p1p2}^P = b^P_{u1p2}m^{p1}_{u1}        ---- 2
+   g^{p1pa2}_{a1a2} = b^P_{p1a2}b^P_{a1a2}    ---- 3
+   
+  
+   gpu does 1,2 and 3 using pageable memory and with fewer initializations
+   gpu_v1 does 1,2 and 3 using pageable memory 
+   gpu_v2 does 1,2 and 3 using pageable memory (not yet working) 
+
+''' 
+
+
 gpu_run=1
 DEBUG=1
 import time
@@ -24,8 +39,6 @@ mf=scf.RHF(mol)
 mf=mf.density_fit()#auxbasis='weigend')
 mf.run()
 las=LASSCF(mf, list((2,)*nfrags),list((2,)*nfrags),verbose=4)#, use_gpu=gpu)
-#if gpu_run:las=LASSCF(mf, list((2,)*nfrags),list((2,)*nfrags), use_gpu=gpu,verbose=4)
-#frag_atom_list=[list(range(1+4*nfrag,3+4*nfrag)) for nfrag in range(nfrags)]
 if gpu_run:las=LASSCF(mf, list((2,)*4),list((2,)*4), use_gpu=gpu,verbose=4)
 frag_atom_list=[list(range(1+4*nfrag,3+4*nfrag)) for nfrag in range(4)]
 ncas,nelecas,guess_mo_coeff=avas.kernel(mf, ["C 2pz"])
@@ -233,8 +246,6 @@ def get_h2eff_gpu_v2 (las,mo_coeff):
     libgpu.libgpu_pull_eri_h2eff(gpu, eri, nao, ncas)
     if DEBUG and gpu:
         if np.allclose(eri, eri_cpu): print("h2eff_v2 working")
-        #else: print("h2eff not working");exit()#print('eri'); print(eri);print('eri_cpu'); print(eri_cpu);exit()
-        #else: print("h2eff not working");print('eri'); print(eri);print('eri_cpu'); print(eri_cpu);exit()
         else: print("h2eff not working");print('eri_diff'); print(np.max(np.abs(eri-eri_cpu)));exit()#print('eri_cpu'); print(eri_cpu);exit()
     eri1= None
     return eri
@@ -247,10 +258,3 @@ t0=time.time()
 for _ in range(1):  get_h2eff_gpu_v1 (las, mf.mo_coeff)
 t1=time.time()
 if gpu_run:libgpu.libgpu_destroy_device(gpu)
-#print("fxpp check", numpy.allclose(fxpp,fxpp2))
-#print(numpy.max(fxpp-fxpp2))
-#print(fxpp-fxpp2)
-#print(fxpp2)
-#print("bufpa check", numpy.allclose(bufpa, bufpa2))
-#print("j_pc check", numpy.allclose(j_pc, j_pc2))
-#print("k_pc check", numpy.allclose(k_pc, k_pc2))
