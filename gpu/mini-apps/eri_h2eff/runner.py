@@ -1,14 +1,15 @@
 #miniapp to debug and test performance of h2eff versions
 '''
 all versions do the following
-   b_{u1p2}^P = b^P_{u1u2}m^{p2}_{u2}        ---- 1
-   b_{p1p2}^P = b^P_{u1p2}m^{p1}_{u1}        ---- 2
-   g^{p1pa2}_{a1a2} = b^P_{p1a2}b^P_{a1a2}    ---- 3
+   b_{u1a2}^P = b^P_{u1u2}m^{a2}_{u2}           ---- 1
+   b_{a1a2}^P = b^P_{u1a2}m^{a1}_{u1}           ---- 2
+   g^{u1a2}_{a3a4} = b^P_{p1a2}b^P_{a3a4}       ---- 3
+   g^{p1a2}_{a3a4} = g^{u1a2}_{a3a4}m^{p1}_{u1} ---- 4 
    
   
-   gpu does 1,2 and 3 using pageable memory and with fewer initializations
-   gpu_v1 does 1,2 and 3 using pageable memory 
-   gpu_v2 does 1,2 and 3 using pageable memory (not yet working) 
+   gpu does 1, 2, 3 and 4 using pageable memory and with fewer initializations
+   gpu_v1 does 1, 2, 3 and 4 using pageable memory 
+   gpu_v2 does 1, 2, 3 and 4 using pageable memory (not yet working) 
 
 ''' 
 
@@ -22,7 +23,7 @@ import sys
 import numpy as np
 np.set_printoptions(threshold=sys.maxsize)
 if gpu_run:from gpu4pyscf import patch_pyscf
-from geometry_generator import generator
+from mrh.tests.gpu.geometry_generator import generator
 from pyscf import gto, scf, tools, mcscf, lib
 from mrh.my_pyscf.mcscf.lasscf_async import LASSCF
 from pyscf import ao2mo, lib
