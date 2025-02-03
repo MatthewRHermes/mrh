@@ -31,6 +31,10 @@ Makefile
 profile*
 report*
 
+#running scripts
+submit_polaris.sh
+submit_aurora.sh
+
 # assorted garbage
 test_all.sh
 *.status
