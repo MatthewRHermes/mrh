@@ -364,7 +364,7 @@ def _eig_block (las, e0, h1, h2, ci_blk, nelec_blk, rootsym, soc, orbsym, wfnsym
         if soc:
             h1_sf = (h1[0:las.ncas,0:las.ncas]
                      - h1[las.ncas:2*las.ncas,las.ncas:2*las.ncas]).real/2
-        ham_blk, s2_blk, ovlp_blk, raw2orth, orth2raw = op[opt].ham (
+        ham_blk, s2_blk, ovlp_blk, raw2orth = op[opt].ham (
             las, h1_sf, h2, ci_blk, nelec_blk, orbsym=orbsym, wfnsym=wfnsym)
         t0 = lib.logger.timer (las, 'LASSI diagonalizer rootsym {} TDM algorithm'.format (
             rootsym), *t0)
@@ -388,7 +388,7 @@ def _eig_block (las, e0, h1, h2, ci_blk, nelec_blk, rootsym, soc, orbsym, wfnsym
     else:
         if (las.verbose > lib.logger.INFO): lib.logger.debug (
             las, 'Insufficient memory to test against o0 LASSI algorithm')
-        ham_blk, s2_blk, ovlp_blk, raw2orth, orth2raw = op[opt].ham (
+        ham_blk, s2_blk, ovlp_blk, raw2orth = op[opt].ham (
             las, h1, h2, ci_blk, nelec_blk, soc=soc, orbsym=orbsym, wfnsym=wfnsym)
         t0 = lib.logger.timer (las, 'LASSI H build rootsym {}'.format (rootsym), *t0)
     log_debug = lib.logger.debug2 if las.nroots>10 else lib.logger.debug
@@ -441,7 +441,7 @@ def _eig_block (las, e0, h1, h2, ci_blk, nelec_blk, rootsym, soc, orbsym, wfnsym
             err = np.trace (x_err)
             raise RuntimeError ("LASSI lindep prescreening failure; orth err = {}".format (err))
         else: raise (err) from None
-    c = orth2raw (c)
+    c = raw2orth.H (c)
     return e, c, s2_blk
 
 def make_stdm12s (las, ci=None, orbsym=None, soc=False, break_symmetry=False, opt=1):

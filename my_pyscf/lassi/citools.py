@@ -1,5 +1,6 @@
 import numpy as np
 import functools
+from scipy.sparse import linalg as sparse_linalg
 from pyscf.scf.addons import canonical_orth_
 from pyscf import __config__
 
@@ -127,19 +128,20 @@ def get_orth_basis (ci_fr, norb_f, nelec_frs, _get_ovlp=None):
     nfrags, nroots = nelec_frs.shape[:2]
     unique, uniq_idx, inverse, cnts = np.unique (nelec_frs, axis=1, return_index=True,
                                                  return_inverse=True, return_counts=True)
-    if not np.count_nonzero (cnts>1): 
-        _get_ovlp = None
-        def raw2orth (rawarr):
-            return rawarr
-        def orth2raw (ortharr):
-            return ortharr
-        return raw2orth, orth2raw
     lroots_fr = np.array ([[1 if c.ndim<3 else c.shape[0]
                             for c in ci_r]
                            for ci_r in ci_fr])
     nprods_r = np.prod (lroots_fr, axis=0)
     offs1 = np.cumsum (nprods_r)
     offs0 = offs1 - nprods_r
+    nraw = offs1[-1]
+    dtype = np.float64 # TODO: complex-number support?
+
+    if not np.count_nonzero (cnts>1): 
+        _get_ovlp = None
+        return sparse_linalg.LinearOperator (shape=(nraw,nraw), dtype=dtype,
+                                             matvec=lambda x: x,
+                                             rmatvec=lambda x: x)
     uniq_prod_idx = []
     for i in uniq_idx[cnts==1]: uniq_prod_idx.extend (list(range(offs0[i],offs1[i])))
     manifolds_prod_idx = []
@@ -182,6 +184,8 @@ def get_orth_basis (ci_fr, norb_f, nelec_frs, _get_ovlp=None):
             i = j
         return rawarr
 
-    return raw2orth, orth2raw
+    return sparse_linalg.LinearOperator (shape=(north,nraw), dtype=dtype,
+                                         matvec=raw2orth,
+                                         rmatvec=orth2raw)
 
 
