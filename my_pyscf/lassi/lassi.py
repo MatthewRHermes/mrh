@@ -369,11 +369,9 @@ def _eig_block_Davidson (las, e0, h1, h2, ci_blk, nelec_blk, soc, opt):
     level_shift = getattr (las, 'level_shift_si', LEVEL_SHIFT_SI)
     nroots_si = getattr (las, 'nroots_si', NROOTS_SI)
     get_init_guess = getattr (las, 'get_init_guess_si', get_init_guess_si)
-    contract_ham, contract_s2, contract_ovlp, hdiag, get_ovlp = op[opt].gen_contract_op_si_hdiag (
+    contract_ham, contract_s2, contract_ovlp, hdiag, raw2orth, orth2raw = op[opt].gen_contract_op_si_hdiag (
         las, h1, h2, ci_blk, nelec_blk, soc=soc
     )
-    raw2orth, orth2raw = citools.get_orth_basis (ci_blk, las.ncas_sub, nelec_blk,
-                                                 _get_ovlp=get_ovlp)
     precond_raw = lib.make_diag_precond (hdiag, level_shift=level_shift)
     def precond (dx, e, *args):
         return orth2raw (raw2orth (precond_raw (dx, e, *args)))

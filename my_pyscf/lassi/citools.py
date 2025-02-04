@@ -185,8 +185,8 @@ def get_orth_basis (ci_fr, norb_f, nelec_frs, _get_ovlp=None):
     return raw2orth, orth2raw
 
 def _fake_gen_contract_op_si_hdiag (matrix_builder, las, h1, h2, ci_fr, nelec_frs, soc=0, orbsym=None, wfnsym=None):
-    ham, s2, ovlp, get_ovlp = matrix_builder (las, h1, h2, ci_fr, nelec_frs, soc=soc,
-                                              orbsym=orbsym, wfnsym=wfnsym)
+    ham, s2, ovlp, raw2orth, orth2raw = matrix_builder (las, h1, h2, ci_fr, nelec_frs, soc=soc,
+                                                        orbsym=orbsym, wfnsym=wfnsym)
     def contract_ham_si (x):
         return ham @ x
     def contract_s2 (x):
@@ -194,6 +194,6 @@ def _fake_gen_contract_op_si_hdiag (matrix_builder, las, h1, h2, ci_fr, nelec_fr
     def contract_ovlp (x):
         return ovlp @ x
     hdiag = np.diagonal (ham)
-    return contract_ham_si, contract_s2, contract_ovlp, hdiag, get_ovlp
+    return contract_ham_si, contract_s2, contract_ovlp, hdiag, raw2orth, orth2raw
 
 
