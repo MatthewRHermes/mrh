@@ -128,6 +128,7 @@ def get_orth_basis (ci_fr, norb_f, nelec_frs, _get_ovlp=None):
     unique, uniq_idx, inverse, cnts = np.unique (nelec_frs, axis=1, return_index=True,
                                                  return_inverse=True, return_counts=True)
     if not np.count_nonzero (cnts>1): 
+        _get_ovlp = None
         def raw2orth (rawarr):
             return rawarr
         def orth2raw (ortharr):
@@ -153,7 +154,9 @@ def get_orth_basis (ci_fr, norb_f, nelec_frs, _get_ovlp=None):
         xmat = canonical_orth_(ovlp, thr=LINDEP_THRESH)
         north += xmat.shape[1]
         manifolds_xmat.append (xmat)
-        
+
+    _get_ovlp = None
+
     nraw = offs1[-1]
     def raw2orth (rawarr):
         col_shape = rawarr.shape[1:]

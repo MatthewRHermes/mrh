@@ -476,6 +476,7 @@ def _eig_block_incore (las, e0, h1, h2, ci_blk, nelec_blk, soc, opt):
     # Error catch: linear dependencies in basis
     raw2orth, orth2raw = citools.get_orth_basis (ci_blk, las.ncas_sub, nelec_blk,
                                                  _get_ovlp=get_ovlp)
+    get_ovlp = None
     xhx = raw2orth (ham_blk.T).T
     lib.logger.info (las, '%d/%d linearly independent model states',
                      xhx.shape[1], xhx.shape[0])
