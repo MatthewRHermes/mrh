@@ -1,4 +1,4 @@
-
+#for running cuda code and get profiling information
 #./a.out
 
 #nsys profile --stats=true ./a.out
