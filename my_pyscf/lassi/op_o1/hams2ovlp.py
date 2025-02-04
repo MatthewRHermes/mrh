@@ -415,6 +415,9 @@ def ham (las, h1, h2, ci, nelec_frs, soc=0, nlas=None, _HamS2Ovlp_class=HamS2Ovl
             Spin-squared operator in LAS product state basis
         ovlp : ndarray of shape (nroots,nroots)
             Overlap matrix of LAS product states 
+        raw2orth : LinearOperator of shape (nroots_orth, nroots)
+            Projects SI vector columns into an orthonormal basis,
+            eliminating linear dependencies (nroots_orth <= nroots)
     '''     
     log = lib.logger.new_logger (las, las.verbose) 
     if nlas is None: nlas = las.ncas_sub
