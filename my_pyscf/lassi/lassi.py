@@ -364,8 +364,8 @@ def _eig_block (las, e0, h1, h2, ci_blk, nelec_blk, rootsym, soc, orbsym, wfnsym
         if soc:
             h1_sf = (h1[0:las.ncas,0:las.ncas]
                      - h1[las.ncas:2*las.ncas,las.ncas:2*las.ncas]).real/2
-        ham_blk, s2_blk, ovlp_blk, get_ovlp = op[opt].ham (las, h1_sf, h2, ci_blk, nelec_blk,
-                                                           orbsym=orbsym, wfnsym=wfnsym)
+        ham_blk, s2_blk, ovlp_blk, raw2orth, orth2raw = op[opt].ham (
+            las, h1_sf, h2, ci_blk, nelec_blk, orbsym=orbsym, wfnsym=wfnsym)
         t0 = lib.logger.timer (las, 'LASSI diagonalizer rootsym {} TDM algorithm'.format (
             rootsym), *t0)
         lib.logger.debug (las,
@@ -388,8 +388,8 @@ def _eig_block (las, e0, h1, h2, ci_blk, nelec_blk, rootsym, soc, orbsym, wfnsym
     else:
         if (las.verbose > lib.logger.INFO): lib.logger.debug (
             las, 'Insufficient memory to test against o0 LASSI algorithm')
-        ham_blk, s2_blk, ovlp_blk, get_ovlp = op[opt].ham (las, h1, h2, ci_blk, nelec_blk, soc=soc,
-                                                           orbsym=orbsym, wfnsym=wfnsym)
+        ham_blk, s2_blk, ovlp_blk, raw2orth, orth2raw = op[opt].ham (
+            las, h1, h2, ci_blk, nelec_blk, soc=soc, orbsym=orbsym, wfnsym=wfnsym)
         t0 = lib.logger.timer (las, 'LASSI H build rootsym {}'.format (rootsym), *t0)
     log_debug = lib.logger.debug2 if las.nroots>10 else lib.logger.debug
     if np.iscomplexobj (ham_blk):
@@ -423,9 +423,6 @@ def _eig_block (las, e0, h1, h2, ci_blk, nelec_blk, rootsym, soc, orbsym, wfnsym
             lib.logger.warn (las, 'LAS states in basis may not be converged (%s = %e)',
                              'max(|Hdiag-e_states|)', maxerr)
     # Error catch: linear dependencies in basis
-    raw2orth, orth2raw = citools.get_orth_basis (ci_blk, las.ncas_sub, nelec_blk,
-                                                 _get_ovlp=get_ovlp)
-    get_ovlp = None
     xhx = raw2orth (ham_blk.T).T
     lib.logger.info (las, '%d/%d linearly independent model states',
                      xhx.shape[1], xhx.shape[0])

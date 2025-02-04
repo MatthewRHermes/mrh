@@ -4,6 +4,7 @@ from pyscf import lib
 from pyscf.lib import logger
 from itertools import product
 from mrh.my_pyscf.fci.csf import unpack_h1e_ab
+from mrh.my_pyscf.lassi import citools
 from mrh.my_pyscf.lassi.op_o1 import frag, stdm
 from mrh.my_pyscf.lassi.op_o1.utilities import *
 
@@ -468,6 +469,8 @@ def ham (las, h1, h2, ci, nelec_frs, soc=0, nlas=None, _HamS2Ovlp_class=HamS2Ovl
     if las.verbose >= lib.logger.TIMER_LEVEL:
         lib.logger.info (las, 'LASSI Hamiltonian crunching profile:\n%s', outerprod.sprint_profile ())
 
-    return ham, s2, ovlp, outerprod.get_ovlp
+    raw2orth, orth2raw = citools.get_orth_basis (ci, las.ncas_sub, nelec_frs,
+                                                 _get_ovlp=outerprod.get_ovlp)
+    return ham, s2, ovlp, raw2orth, orth2raw
 
 
