@@ -28,11 +28,9 @@ def kernel (las, mo_coeff=None, ci0=None, conv_tol_grad=1e-4,
     imporb_builders = [get_impurity_space_constructor (las, i, frag_orbs=frag_orbs)
                        for i, frag_orbs in enumerate (frags_orbs)]
     nfrags = len (las.ncas_sub)
-    t_setup = log.timer( "LASSCF setup", *t_setup)
     t0 = (lib.logger.process_clock(), lib.logger.perf_counter())
     kf0 = las.get_keyframe (mo_coeff, ci0) 
     las._flas_stdout = None # TODO: more elegant model for this
-    t_setup = log.timer("LASSCF get first keyframe", *t_setup)
 
     ###############################################################################################
     ################################## Begin actual kernel logic ##################################
@@ -49,6 +47,7 @@ def kernel (las, mo_coeff=None, ci0=None, conv_tol_grad=1e-4,
                   for i, builder in enumerate (imporb_builders)]
     ugg = las.get_ugg ()
     t1 = log.timer_debug1 ('impurity solver construction', *t0)
+    t_setup = log.timer( "LASSCF setup", *t_setup)
     # GRAND CHALLENGE: replace rigid algorithm below with dynamic task scheduling
     for it in range (las.max_cycle_macro):
 
