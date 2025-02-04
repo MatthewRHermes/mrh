@@ -523,6 +523,9 @@ def ham (las, h1, h2, ci_fr, nelec_frs, soc=0, orbsym=None, wfnsym=None):
             S2 operator matrix in state-interaction basis
         ovlp_eff : square ndarray of length (ndim)
             Overlap matrix in state-interaction basis
+        raw2orth : LinearOperator of shape (ndim_orth, ndim)
+            Projects SI vector columns into an orthonormal basis,
+            eliminating linear dependencies (ndim_orth <= ndim).
     '''
     if soc>1:
         raise NotImplementedError ("Two-electron spin-orbit coupling")
