@@ -369,9 +369,10 @@ def _eig_block_Davidson (las, e0, h1, h2, ci_blk, nelec_blk, soc, opt):
     level_shift = getattr (las, 'level_shift_si', LEVEL_SHIFT_SI)
     nroots_si = getattr (las, 'nroots_si', NROOTS_SI)
     get_init_guess = getattr (las, 'get_init_guess_si', get_init_guess_si)
-    contract_ham, contract_s2, contract_ovlp, hdiag, raw2orth, orth2raw = op[opt].gen_contract_op_si_hdiag (
+    contract_ham, contract_s2, contract_ovlp, hdiag, raw2orth = op[opt].gen_contract_op_si_hdiag (
         las, h1, h2, ci_blk, nelec_blk, soc=soc
     )
+    orth2raw = raw2orth.H
     precond_raw = lib.make_diag_precond (hdiag, level_shift=level_shift)
     def precond (dx, e, *args):
         return orth2raw (raw2orth (precond_raw (dx, e, *args)))
@@ -416,7 +417,7 @@ def _eig_block_incore (las, e0, h1, h2, ci_blk, nelec_blk, soc, opt):
         if soc:
             h1_sf = (h1[0:las.ncas,0:las.ncas]
                      - h1[las.ncas:2*las.ncas,las.ncas:2*las.ncas]).real/2
-        ham_blk, s2_blk, ovlp_blk, raw2orth, orth2raw = op[opt].ham (
+        ham_blk, s2_blk, ovlp_blk, raw2orth = op[opt].ham (
             las, h1_sf, h2, ci_blk, nelec_blk)
         t0 = lib.logger.timer (las, 'LASSI diagonalizer TDM algorithm', *t0)
         lib.logger.debug (las,
@@ -439,7 +440,7 @@ def _eig_block_incore (las, e0, h1, h2, ci_blk, nelec_blk, soc, opt):
     else:
         if (las.verbose > lib.logger.INFO): lib.logger.debug (
             las, 'Insufficient memory to test against o0 LASSI algorithm')
-        ham_blk, s2_blk, ovlp_blk, raw2orth, orth2raw = op[opt].ham (
+        ham_blk, s2_blk, ovlp_blk, raw2orth = op[opt].ham (
             las, h1, h2, ci_blk, nelec_blk, soc=soc)
         t0 = lib.logger.timer (las, 'LASSI H build', *t0)
     log_debug = lib.logger.debug2 if las.nroots>10 else lib.logger.debug
@@ -492,7 +493,7 @@ def _eig_block_incore (las, e0, h1, h2, ci_blk, nelec_blk, soc, opt):
             err = np.trace (x_err)
             raise RuntimeError ("LASSI lindep prescreening failure; orth err = {}".format (err))
         else: raise (err) from None
-    c = orth2raw (c)
+    c = raw2orth.H (c)
     s2_blk = ((s2_blk @ c) * c.conj ()).sum (0)
     return True, e, c, s2_blk
 
