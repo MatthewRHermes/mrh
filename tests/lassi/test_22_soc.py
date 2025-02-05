@@ -130,6 +130,13 @@ class KnownValues(unittest.TestCase):
                 with self.subTest ("casdm2s"):
                     self.assertAlmostEqual (lib.fp (lasdm2s), lib.fp (casdm2s), 4)
 
+    def test_davidson (self):
+        lsi1 = LASSI (lsi._las, soc=1, break_symmetry=True).run (davidson_only=True)
+        self.assertAlmostEqual (lsi1.e_roots[0], lsi.e_roots[0], 8)
+        ovlp = np.dot (lsi1.si[:,0], lsi.si[:,0].conj ())
+        ovlp = ovlp.conj () * ovlp
+        self.assertAlmostEqual (ovlp, 1.0, 4)
+
     #def test_lassirq (self):
     #    lsi1 = LASSIrq (las, 2, 3).run ()
     #    self.assertAlmostEqual (lsi1.e_roots[0], mc.e_tot, 8)
