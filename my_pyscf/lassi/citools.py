@@ -122,6 +122,8 @@ def _umat_dot_1frag (target, umat, lroots, ifrag):
     return target.reshape (*old_shape2)
 
 def get_orth_basis (ci_fr, norb_f, nelec_frs, _get_ovlp=None):
+    # TODO: Fix spurious ComplexWarning caused by _get_ovlp pointlessly "promoting" a real
+    # matrix to complex dtype due to earlier laziness
     if _get_ovlp is None:
         from mrh.my_pyscf.lassi.op_o0 import get_ovlp
         _get_ovlp = functools.partial (get_ovlp, ci_fr, norb_f, nelec_frs)
