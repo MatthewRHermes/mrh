@@ -369,20 +369,22 @@ def _eig_block_Davidson (las, e0, h1, h2, ci_blk, nelec_blk, soc, opt):
     level_shift = getattr (las, 'level_shift_si', LEVEL_SHIFT_SI)
     nroots_si = getattr (las, 'nroots_si', NROOTS_SI)
     get_init_guess = getattr (las, 'get_init_guess_si', get_init_guess_si)
-    contract_ham, contract_s2, contract_ovlp, hdiag, raw2orth = op[opt].gen_contract_op_si_hdiag (
+    h_op_raw, s2_op, ovlp_op, hdiag, raw2orth = op[opt].gen_contract_op_si_hdiag (
         las, h1, h2, ci_blk, nelec_blk, soc=soc
     )
-    orth2raw = raw2orth.H
-    precond_raw = lib.make_diag_precond (hdiag, level_shift=level_shift)
-    def precond (dx, e, *args):
-        return orth2raw (raw2orth (precond_raw (dx, e, *args)))
+    precond_op_raw = lib.make_diag_precond (hdiag, level_shift=level_shift)
     si0 = get_init_guess (hdiag, nroots_si, si0)
-    si0 = [orth2raw (raw2orth (x)) for x in si0]
-    conv, e, si1 = lib.davidson1 (lambda xs: [contract_ham (x) for x in xs],
-                                  si0, precond, nroots=nroots_si)
+    orth2raw = raw2orth.H
+    def precond_op (dx, e, *args):
+        return raw2orth (precond_op_raw (orth2raw (dx), e, *args))
+    def h_op (x):
+        return raw2orth (h_op_raw (orth2raw (x)))
+    x0 = [raw2orth (x) for x in si0]
+    conv, e, x1 = lib.davidson1 (lambda xs: [h_op (x) for x in xs],
+                                  x0, precond_op, nroots=nroots_si)
     conv = all (conv)
-    si1 = np.stack (si1, axis=-1)
-    s2 = np.array ([np.dot (x.conj (), contract_s2 (x)) for x in si1.T])
+    si1 = np.stack ([orth2raw (x) for x in x1], axis=-1)
+    s2 = np.array ([np.dot (x.conj (), s2_op (x)) for x in si1.T])
     return conv, e, si1, s2
 
 def get_init_guess_si (hdiag, nroots, si1):
