@@ -355,6 +355,9 @@ def _eig_block (las, e0, h1, h2, ci_blk, nelec_blk, soc, opt, max_memory=2000,
     req_memory = 24*nstates*nstates/1e6
     current_memory = lib.current_memory ()[0]
     if current_memory+req_memory > max_memory:
+        # TODO: Efficient LASSI op_o2 h_op sivec 
+        raise MemoryError ("Need %f MB of %f MB avail (N.B.: Davidson implementation is fake)",
+                           req_memory, max_memory-current_memory)
         lib.logger.info ("Need %f MB of %f MB avail for incore LASSI diag; Davidson alg forced",
                          req_memory, max_memory-current_memory)
     if davidson_only or current_memory+req_memory > max_memory:
