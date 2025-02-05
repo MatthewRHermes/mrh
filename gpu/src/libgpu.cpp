@@ -25,6 +25,10 @@ void * libgpu_init()
 
   int device_id = 0;
   libgpu_set_device(ptr, device_id);
+
+  int num_devices = ptr->get_num_devices();
+
+  ptr->get_dev_properties(num_devices);
   
   return (void *) ptr;
 }
