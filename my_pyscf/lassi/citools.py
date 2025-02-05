@@ -135,7 +135,8 @@ def get_orth_basis (ci_fr, norb_f, nelec_frs, _get_ovlp=None):
     offs1 = np.cumsum (nprods_r)
     offs0 = offs1 - nprods_r
     nraw = offs1[-1]
-    dtype = np.float64 # TODO: complex-number support?
+    is_complex = any ([any ([np.iscomplexobj (c) for c in ci_r]) for ci_r in ci_fr])
+    dtype = np.complex128 if is_complex else np.float64 
 
     if not np.count_nonzero (cnts>1): 
         _get_ovlp = None
@@ -161,9 +162,11 @@ def get_orth_basis (ci_fr, norb_f, nelec_frs, _get_ovlp=None):
 
     nraw = offs1[-1]
     def raw2orth (rawarr):
+        is_out_complex = is_complex or np.iscomplexobj (rawarr)
+        my_dtype = np.complex128 if is_out_complex else np.float64
         col_shape = rawarr.shape[1:]
         orth_shape = [north,] + list (col_shape)
-        ortharr = np.zeros (orth_shape, dtype=rawarr.dtype)
+        ortharr = np.zeros (orth_shape, dtype=my_dtype)
         ortharr[:nuniq_prod] = rawarr[uniq_prod_idx]
         i = nuniq_prod
         for prod_idx, xmat in zip (manifolds_prod_idx, manifolds_xmat):
@@ -173,9 +176,11 @@ def get_orth_basis (ci_fr, norb_f, nelec_frs, _get_ovlp=None):
         return ortharr
 
     def orth2raw (ortharr):
+        is_out_complex = is_complex or np.iscomplexobj (ortharr)
+        my_dtype = np.complex128 if is_out_complex else np.float64
         col_shape = ortharr.shape[1:]
         raw_shape = [nraw,] + list (col_shape)
-        rawarr = np.zeros (raw_shape, dtype=ortharr.dtype)
+        rawarr = np.zeros (raw_shape, dtype=my_dtype)
         rawarr[uniq_prod_idx] = ortharr[:nuniq_prod]
         i = nuniq_prod
         for prod_idx, xmat in zip (manifolds_prod_idx, manifolds_xmat):
