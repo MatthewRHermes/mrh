@@ -39,7 +39,7 @@ class CSFTransformer (lib.StreamObject):
         self.orbsym = orbsym
 
     def project_civec (self, detarr, order='C', normalize=True, return_norm=False):
-        pass
+        raise NotImplementedError
 
     def vec_det2csf (self, civec, order='C', normalize=True, return_norm=False):
         vec_on_cols = (order.upper () == 'F')
@@ -59,10 +59,10 @@ class CSFTransformer (lib.StreamObject):
         return civec
 
     def mat_det2csf (self, mat):
-        pass
+        raise NotImplementedError
 
     def mat_csf2det (self, mat):
-        pass
+        raise NotImplementedError
 
     def mat_det2csf_confspace (self, mat, confs):
         mat, csf_addr = transform_opmat_det2csf_pspace (mat, confs, self._norb, self._neleca,

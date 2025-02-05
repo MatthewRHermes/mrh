@@ -59,7 +59,6 @@ class sparsedf_array (np.ndarray):
         metric = linalg.norm (self, axis=0)
         if metric.ndim == 1: metric = lib.unpack_tril (metric)
         metric = metric > thresh
-        print('sparsity: ',np.sum(metric)/metric.size)
         self.iao_nent = np.count_nonzero (metric, axis=1).astype (np.int32)
         self.nent_max = np.amax (self.iao_nent)
         self.iao_entlist = -np.ones ((self.nmo[0], self.nent_max), dtype=np.int32)
@@ -79,8 +78,6 @@ class sparsedf_array (np.ndarray):
         Returns:
             vPuv : np.ndarray of shape (nao, nmo, naux) stored in row-major order
         '''
-        #t0 = (lib.logger.process_clock (), lib.logger.perf_counter ())
-        t0, w0 = lib.logger.process_clock (), lib.logger.perf_counter ()
         if self.ndim == 3: return self.pack_mo ()
         if not self.flags['C_CONTIGUOUS']: self = self.naux_slow ()
         cmat = np.ascontiguousarray (cmat)
@@ -89,13 +86,6 @@ class sparsedf_array (np.ndarray):
         if self.nent_max is None: self.get_sparsity_ ()
         vPuv = np.zeros ((nao, nmo, self.naux), dtype=self.dtype).view (sparsedf_array)
         wrk = np.zeros ((lib.num_threads (), self.nent_max, (self.naux+nmo)), dtype = self.dtype).view (sparsedf_array)
-        #print('iao_nent',self.iao_nent.shape)
-        #print(self.iao_nent, np.average(self.iao_nent))
-        #print('iao_entlist',self.iao_entlist.shape)
-        #print ("Sparsity calculation time: {} clock ; {} wall".format (lib.logger.process_clock () - t0, lib.logger.perf_counter () - w0))
-        t0, w0 = lib.logger.process_clock (), lib.logger.perf_counter ()
-        #t0 = lib.logger.timer (las, 'Sparsity calculation', *t0)
-        #print(self.iao_entlist)
         libsint.SINT_SDCDERI_DDMAT (self.ctypes.data_as (ctypes.c_void_p),
             cmat.ctypes.data_as (ctypes.c_void_p),
             vPuv.ctypes.data_as (ctypes.c_void_p),
@@ -106,8 +96,6 @@ class sparsedf_array (np.ndarray):
             ctypes.c_int (nao), ctypes.c_int (self.naux),
             ctypes.c_int (nmo), ctypes.c_int (self.nent_max))
         wrk = None
-        #print ("Second C function time: {} clock ; {} wall".format (lib.logger.process_clock () - t0, lib.logger.perf_counter () - w0))
-        #t0 = lib.logger.timer (las, 'C function call', *t0)
         return vPuv
 
     def contract2 (self, vPuv):

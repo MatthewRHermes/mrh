@@ -14,7 +14,7 @@ set (MRH_EMAIL          "MatthewRobertHermes@gmail.com")
 set (MRH_URL            "https://github.com/MatthewRHermes/mrh")
 set (MRH_LICENSE        "GNU General Public License, version 2")
 
-cmake_minimum_required (VERSION 2.8.11)
+cmake_minimum_required (VERSION 3.5)
 set (CMAKE_VERBOSE_MAKEFILE OFF)
 
 # Whether or not to compile with MKL
@@ -133,4 +133,3 @@ set_target_properties (clib_mrh_lassi PROPERTIES
     CLEAN_DIRECT_OUTPUT 1
     LIBRARY_OUTPUT_DIRECTORY ${PROJECT_SOURCE_DIR}
     OUTPUT_NAME "lassi")
-

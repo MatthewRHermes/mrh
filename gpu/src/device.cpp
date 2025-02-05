@@ -5,6 +5,7 @@
 #include "device.h"
 
 #define _NUM_SIMPLE_TIMER 11
+#define _NUM_SIMPLE_COUNTER 7
 
 #define _DEBUG_OPENMP
 
@@ -148,6 +149,8 @@ Device::Device()
 #ifdef _SIMPLE_TIMER
   t_array = (double* ) malloc(_NUM_SIMPLE_TIMER * sizeof(double));
   for(int i=0; i<_NUM_SIMPLE_TIMER; ++i) t_array[i] = 0.0;
+  count_array = (int* ) malloc(_NUM_SIMPLE_COUNTER * sizeof(int));
+  for(int i=0; i<_NUM_SIMPLE_COUNTER; ++i) count_array[i] = 0;
 #endif
 }
 
@@ -183,32 +186,58 @@ Device::~Device()
   
   printf("\nLIBGPU :: SIMPLE_TIMER\n");
   printf("\nLIBGPU :: SIMPLE_TIMER :: get_jk\n");
-  printf("LIBGPU :: SIMPLE_TIMER :: i= %i  name= init_get_jk()      time= %f s\n",0,t_array[0]);
-  printf("LIBGPU :: SIMPLE_TIMER :: i= %i  name= pull_get_jk()      time= %f s\n",1,t_array[1]);
-  printf("LIBGPU :: SIMPLE_TIMER :: i= %i  name= get_jk()           time= %f s\n",2,t_array[2]);
+  printf("LIBGPU :: SIMPLE_TIMER :: i= %i  name= init_get_jk()            time= %f s\n",0,t_array[0]);
+  printf("LIBGPU :: SIMPLE_TIMER :: i= %i  name= pull_get_jk()            time= %f s\n",1,t_array[1]);
+  printf("LIBGPU :: SIMPLE_TIMER :: i= %i  name= get_jk()                 time= %f s\n",2,t_array[2]);
     
   printf("\nLIBGPU :: SIMPLE_TIMER :: hessop\n");
-  printf("LIBGPU :: SIMPLE_TIMER :: i= %i  name= hessop_get_veff()  time= %f s\n",3,t_array[3]);
+  printf("LIBGPU :: SIMPLE_TIMER :: i= %i  name= hessop_get_veff()        time= %f s\n",3,t_array[3]);
   
   printf("\nLIBGPU :: SIMPLE_TIMER :: orbital_response\n");
-  printf("LIBGPU :: SIMPLE_TIMER :: i= %i  name= orbital_response() time= %f s\n",4,t_array[4]);
+  printf("LIBGPU :: SIMPLE_TIMER :: i= %i  name= orbital_response()       time= %f s\n",4,t_array[4]);
 
   
   printf("\nLIBGPU :: SIMPLE_TIMER :: _update_h2eff\n");
-  printf("LIBGPU :: SIMPLE_TIMER :: i= %i  name= update_h2eff_sub() time= %f s\n",5,t_array[5]);
+  printf("LIBGPU :: SIMPLE_TIMER :: i= %i  name= update_h2eff_sub()       time= %f s\n",5,t_array[5]);
 
   printf("\nLIBGPU :: SIMPLE_TIMER :: _h2eff_df \n");
-  printf("LIBGPU :: SIMPLE_TIMER :: i= %i  name= h2eff_df() time= %f s\n",6,t_array[6]);
+  printf("LIBGPU :: SIMPLE_TIMER :: i= %i  name= h2eff_df()               time= %f s\n",6,t_array[6]);
  
   printf("\nLIBGPU :: SIMPLE_TIMER :: transfer_mo_coeff \n");
-  printf("LIBGPU :: SIMPLE_TIMER :: i= %i  name= transfer_mo_coeff() time= %f s\n",7,t_array[7]);
+  printf("LIBGPU :: SIMPLE_TIMER :: i= %i  name= transfer_mo_coeff()      time= %f s\n",7,t_array[7]);
   
   printf("\nLIBGPU :: SIMPLE_TIMER :: df_ao2mo_pass1\n");
-  printf("LIBGPU :: SIMPLE_TIMER :: i= %i  name= init_ints_and_jkpc() time= %f s\n",8,t_array[8]);
-  printf("LIBGPU :: SIMPLE_TIMER :: i= %i  name= compute_ints_and_jkpc() time= %f s\n",9,t_array[9]);
-  printf("LIBGPU :: SIMPLE_TIMER :: i= %i  name= pull_ints_and_jkpc() time= %f s\n",10,t_array[10]);
+  printf("LIBGPU :: SIMPLE_TIMER :: i= %i  name= init_ints_and_jkpc()     time= %f s\n",8,t_array[8]);
+  printf("LIBGPU :: SIMPLE_TIMER :: i= %i  name= compute_ints_and_jkpc()  time= %f s\n",9,t_array[9]);
+  printf("LIBGPU :: SIMPLE_TIMER :: i= %i  name= pull_ints_and_jkpc()     time= %f s\n",10,t_array[10]);
   printf("LIBGPU :: SIMPLE_TIMER :: total= %f s\n",total);
   free(t_array);
+
+  
+  printf("\nLIBGPU :: SIMPLE_COUNTER\n");
+  printf("\nLIBGPU :: SIMPLE_COUNTER :: get_jk\n");
+  printf("LIBGPU :: SIMPLE_COUNTER :: i= %i  name= get_jk()             counts= %i \n",0,count_array[0]);
+    
+  printf("\nLIBGPU :: SIMPLE_COUNTER :: hessop\n");
+  printf("LIBGPU :: SIMPLE_COUNTER :: i= %i  name= hessop_get_veff()    counts= %i \n",1,count_array[1]);
+  
+  printf("\nLIBGPU :: SIMPLE_COUNTER :: orbital_response\n");
+  printf("LIBGPU :: SIMPLE_COUNTER :: i= %i  name= orbital_response()   counts= %i \n",2,count_array[2]);
+
+  printf("\nLIBGPU :: SIMPLE_COUNTER :: update_h2eff_sub\n");
+  printf("LIBGPU :: SIMPLE_COUNTER :: i= %i  name= update_h2eff_sub()   counts= %i \n",3,count_array[3]);
+
+  printf("\nLIBGPU :: SIMPLE_COUNTER :: _h2eff_df\n");
+  printf("LIBGPU :: SIMPLE_COUNTER :: i= %i  name= h2eff_df()           counts= %i \n",4,count_array[4]);
+ 
+  printf("\nLIBGPU :: SIMPLE_COUNTER :: transfer_mo_coeff\n");
+  printf("LIBGPU :: SIMPLE_COUNTER :: i= %i  name= transfer_mo_coeff()  counts= %i \n",5,count_array[5]);
+  
+  printf("\nLIBGPU :: SIMPLE_COUNTER :: ao2mo\n");
+  printf("LIBGPU :: SIMPLE_COUNTER :: i= %i  name=ao2mo_pass_v3()       counts= %i \n",6,count_array[6]);
+
+  free(count_array);
+
 #endif
 
   // print summary of cached eri blocks
@@ -545,6 +574,7 @@ void Device::init_get_jk(py::array_t<double> _eri1, py::array_t<double> _dmtril,
 #ifdef _SIMPLE_TIMER
   double t1 = omp_get_wtime();
   t_array[0] += t1 - t0;
+ //counts in pull_get_jk
 #endif
 
 #ifdef _DEBUG_DEVICE
@@ -662,6 +692,7 @@ void Device::get_jk(int naux, int nao, int nset,
 #ifdef _SIMPLE_TIMER
     double t1 = omp_get_wtime();
     t_array[2] += t1 - t0;
+// counts in pull_jk
 #endif
     
 #ifdef _DEBUG_DEVICE
@@ -759,6 +790,7 @@ void Device::get_jk(int naux, int nao, int nset,
 #ifdef _SIMPLE_TIMER
   double t1 = omp_get_wtime();
   t_array[2] += t1 - t0;
+  // counts in pull jk
 #endif
     
 #ifdef _DEBUG_DEVICE
@@ -869,6 +901,7 @@ void Device::pull_get_jk(py::array_t<double> _vj, py::array_t<double> _vk, int n
 #ifdef _SIMPLE_TIMER
   double t1 = omp_get_wtime();
   t_array[1] += t1 - t0;
+  count_array[0]+=1; // just doing this addition in pull, not in init or compute
 #endif
     
 #ifdef _DEBUG_DEVICE
@@ -1218,6 +1251,7 @@ void Device::push_mo_coeff(py::array_t<double> _mo_coeff, int _size_mo_coeff)
 #ifdef _SIMPLE_TIMER
   double t1 = omp_get_wtime();
   t_array[7] += t1 - t0;
+  count_array[5] +=1;
 #endif
 }
 
@@ -1267,6 +1301,7 @@ void Device::init_jk_ao2mo(int ncore, int nmo)
 #ifdef _SIMPLE_TIMER
   double t1 = omp_get_wtime();
   t_array[8] += t1 - t0;
+  // counts in pull ppaa
 #endif
 }
 
@@ -1295,6 +1330,7 @@ void Device::init_ints_ao2mo(int naoaux, int nmo, int ncas)
 #ifdef _SIMPLE_TIMER
   double t1 = omp_get_wtime();
   t_array[8] += t1 - t0;
+  // counts in pull ppaa
 #endif
 }
 
@@ -1316,6 +1352,7 @@ void Device::init_ints_ao2mo_v3(int naoaux, int nmo, int ncas)
 #ifdef _SIMPLE_TIMER
   double t1 = omp_get_wtime();
   t_array[8] += t1 - t0;
+  // counts in pull ppaa
 #endif
 }
 /* ---------------------------------------------------------------------- */
@@ -1335,6 +1372,7 @@ void Device::init_ppaa_ao2mo( int nmo, int ncas)
 #ifdef _SIMPLE_TIMER
   double t1 = omp_get_wtime();
   t_array[8] += t1 - t0;
+  // counts in pull ppaa
 #endif
 }
 /* ---------------------------------------------------------------------- */
@@ -1371,6 +1409,7 @@ void Device::init_eri_h2eff(int nmo, int ncas)
 #ifdef _SIMPLE_TIMER
   double t1 = omp_get_wtime();
   t_array[8] += t1 - t0;
+  // counts in pull ppaa
 #endif
 }
 /* ---------------------------------------------------------------------- */
@@ -1483,6 +1522,7 @@ void Device::pull_jk_ao2mo(py::array_t<double> _j_pc, py::array_t<double> _k_pc,
 #ifdef _SIMPLE_TIMER
   double t1 = omp_get_wtime();
   t_array[10] += t1 - t0;
+  // counts in pull ppaa
 #endif
 }
 
@@ -1526,6 +1566,7 @@ void Device::pull_ints_ao2mo(py::array_t<double> _fxpp, py::array_t<double> _buf
 #ifdef _SIMPLE_TIMER
   double t1 = omp_get_wtime();
   t_array[10] += t1 - t0;
+  // counts in pull ppaa
 #endif
 }
 
@@ -1544,6 +1585,7 @@ void Device::pull_ints_ao2mo_v3(py::array_t<double> _bufpa, int blksize, int nao
 #ifdef _SIMPLE_TIMER
   double t1 = omp_get_wtime();
   t_array[10] += t1 - t0;
+  // counts in pull ppaa
 #endif
 }
 
@@ -1591,6 +1633,7 @@ void Device::pull_ppaa_ao2mo(py::array_t<double> _ppaa, int nmo, int ncas)
 #ifdef _SIMPLE_TIMER
   double t1 = omp_get_wtime();
   t_array[10] += t1 - t0;
+  count_array[6] += 1; //doing this in ppaa pull, not in any inits or computes
 #endif
 }
 
@@ -1763,6 +1806,7 @@ void Device::df_ao2mo_pass1_v2 (int blksize, int nmo, int nao, int ncore, int nc
 #ifdef _SIMPLE_TIMER
   double t1 = omp_get_wtime();
   t_array[9] += t1 - t0;
+  // counts in pull ppaa
 #endif
 }
 /* ---------------------------------------------------------------------- */
@@ -1988,6 +2032,7 @@ void Device::df_ao2mo_v3 (int blksize, int nmo, int nao, int ncore, int ncas, in
 #ifdef _SIMPLE_TIMER
   double t1 = omp_get_wtime();
   t_array[9] += t1 - t0;
+  // counts in pull ppaa
 #endif
 }
 
@@ -2210,6 +2255,7 @@ void Device::update_h2eff_sub(int ncore, int ncas, int nocc, int nmo,
 #ifdef _SIMPLE_TIMER
   double t1 = omp_get_wtime();
   t_array[5] += t1 - t0;
+  count_array[3] += 1;
 #endif
 }
 
@@ -2429,12 +2475,7 @@ void Device::get_h2eff_df_v1(py::array_t<double> _cderi,
 #endif
   double * eri = static_cast<double*>(info_eri.ptr);
   double * d_mo_coeff = dd->d_mo_coeff;
-#if 0 
-  double * d_mo_cas = (double*) pm->dev_malloc_async(_size_mo_cas*sizeof(double));
-  get_mo_cas(d_mo_coeff, d_mo_cas, ncas, ncore, nao);
-#else
   double * d_mo_cas = dd->d_mo_cas; 
-#endif
   
   py::buffer_info info_cderi = _cderi.request(); // 2D array blksize * nao_pair
   double * cderi = static_cast<double*>(info_cderi.ptr);
@@ -2453,12 +2494,8 @@ void Device::get_h2eff_df_v1(py::array_t<double> _cderi,
 
     pm->dev_push_async(d_cderi, cderi, _size_cderi * sizeof(double));
   }
-#if 0
- double * d_cderi_unpacked = (double*) pm->dev_malloc_async( _size_cderi_unpacked * sizeof(double));
-#else
- double * d_cderi_unpacked = dd->d_buf1;
-#endif
 
+  double * d_cderi_unpacked = dd->d_buf1;
 
   int * d_my_unpack_map_ptr = dd_fetch_pumap(dd, nao, _PUMAP_2D_UNPACK);
 
@@ -2473,104 +2510,59 @@ void Device::get_h2eff_df_v1(py::array_t<double> _cderi,
   int ncas_nao = ncas * nao;
   int ncas2 = ncas * ncas;
   const int _size_bPmu = naux*ncas*nao;
-#if 0  
-  double * d_bPmu = (double*) pm->dev_malloc_async(_size_bPmu *sizeof(double));
-#else
+
   double * d_bPmu = dd->d_buf2;
-#endif
   
   ml->set_handle();
   ml->gemm_batch((char *) "N", (char *) "N", &nao, &ncas, &nao,
 		 &alpha, d_cderi_unpacked, &nao, &nao2, d_mo_cas, &nao, &zero, &beta, d_bPmu, &nao, &ncas_nao, &naux);
   const int _size_bPvu = naux*ncas*ncas;
   //bPvu = np.einsum('mv,Pmu->Pvu',mo_cas.conjugate(),bPmu)
-#if 0 
-  pm->dev_free_async(d_cderi_unpacked);
-  double * d_bPvu = (double*) pm->dev_malloc_async(_size_bPvu *sizeof(double));
-#else
+
   double * d_bPvu= dd->d_buf2 + naux*ncas*nao;
-#endif
+
   ml->set_handle();
   ml->gemm_batch((char *) "T", (char *) "N", &ncas, &ncas, &nao,
 		 &alpha, d_mo_cas, &nao, &zero, d_bPmu, &nao, &ncas_nao, &beta, d_bPvu, &ncas, &ncas2, &naux);
   
   //eri = np.einsum('Pmw,Pvu->mwvu', bPmu, bPvu)
   //transpose bPmu
-#if 0  
-  double * d_bumP = (double*) pm->dev_malloc_async(_size_bPmu *sizeof(double));
-#else
   double * d_bumP = dd->d_buf1;
-#endif
   transpose_120(d_bPmu, d_bumP, naux, ncas, nao, 1); // this call distributes work items differently 
-#if 0  
-  pm->dev_free_async(d_bPmu);
-
-  double * d_buvP = (double*) pm->dev_malloc_async(_size_bPvu *sizeof(double));
-#else
   double * d_buvP = dd->d_buf1+naux*ncas*nao;
-#endif
   //transpose bPvu
-
   transpose_210(d_bPvu, d_buvP, naux, ncas, ncas);
 
   const int _size_mwvu = nao*ncas*ncas*ncas;
-#if 0
-  pm->dev_free_async(d_bPvu);
-
-  //h_vuwm[i*ncas*nao+j]+=h_bvuP[i*naux + k]*h_bumP[j*naux+k];
-  //dgemm (probably just simple, not strided/batched, contracted dimension = P)
-
-  double * d_vuwm = (double*) pm ->dev_malloc_async( _size_mwvu*sizeof(double));
-#else
   double * d_vuwm = dd->d_buf2; 
-#endif
   ml->gemm((char *) "T", (char *) "N", &ncas_nao, &ncas2, &naux,
 	   &alpha, d_bumP, &naux, d_buvP, &naux, &beta, d_vuwm, &ncas_nao);
-#if 0
-  pm->dev_free_async(d_bumP);
-  pm->dev_free_async(d_buvP);
-
-  //eri = np.einsum('mM,mwvu->Mwvu', mo_coeff.conjugate(),eri)
-  //gemm_batch(batch = v*u, contracted dimenion = m)
-  
-  double * d_vuwM = (double*) pm ->dev_malloc_async(_size_mwvu*sizeof(double));
-#else
   double * d_vuwM = dd->d_buf1;
-#endif
   ml->gemm_batch((char *) "T", (char *) "T", &ncas, &nao, &nao,
 		 &alpha, d_vuwm, &nao, &ncas_nao, d_mo_coeff, &nao, &zero, &beta, d_vuwM, &ncas, &ncas_nao, &ncas2);
-#if 0  
-  pm->dev_free_async(d_vuwm);
-#endif
-#if 0
-  double * d_eri = (double*) pm->dev_malloc_async(_size_eri*sizeof(double));
-#else
   double * d_eri = dd->d_buf2;
-#endif
   int * my_d_tril_map_ptr = dd_fetch_pumap(dd, ncas, _PUMAP_2D_UNPACK);
 
   pack_d_vuwM(d_vuwM, d_eri, my_d_tril_map_ptr, nmo, ncas, ncas_pair);
   pm->dev_pull_async(d_eri, eri, _size_eri*sizeof(double));
-#if 0
-  pm->dev_free_async(d_vuwM);
-  pm->dev_free_async(d_eri);
-#endif
-  pm->dev_stream_wait();
+
+  //pm->dev_stream_wait();
   
   profile_stop();
 #ifdef _SIMPLE_TIMER
   double t1 = omp_get_wtime();
   t_array[6] += t1 - t0;//TODO: add the array size
+  count_array[4] += 1; // doing this in compute instead of pull because v2 is not complete
 #endif
 }
 
 
 /* ---------------------------------------------------------------------- */
+
 void Device::get_h2eff_df_v2(py::array_t<double> _cderi, 
                                 int nao, int nmo, int ncas, int naux, int ncore, 
                                 py::array_t<double> _eri, int count, size_t addr_dfobj) 
 {
-//cderi is just ao basis eri - I am using cderi because there is already eri to be returned
 #ifdef _SIMPLE_TIMER
   double t0 = omp_get_wtime();
 #endif
@@ -2580,12 +2572,12 @@ void Device::get_h2eff_df_v2(py::array_t<double> _cderi,
   printf("LIBGPU:: dfobj= %#012x count= %i combined= %#012x %p update_dfobj= %i\n",addr_dfobj,count,addr_dfobj+count,addr_dfobj+count,update_dfobj);
 #endif 
   
-  //profile_start("h2eff df setup");
-  //printf("Starting h2eff_df_v2\n");
+  profile_start("h2eff df setup");
   
-  py::buffer_info info_eri = _eri.request(); //
+  py::buffer_info info_eri = _eri.request(); //2D array nao * ncas * ncas_pair
   
   const int device_id = count % num_devices;
+  
   pm->dev_set_device(device_id);
   
   my_device_data * dd = &(device_data[device_id]);
@@ -2594,10 +2586,12 @@ void Device::get_h2eff_df_v2(py::array_t<double> _cderi,
   const int ncas_pair = ncas * (ncas+1)/2;
   const int _size_eri = nmo*ncas*ncas_pair;
   const int _size_cderi = naux*nao_pair;
+  const int _size_mo_cas = nao*ncas;
 
   const int eri_size = naux * nao * nao;
   const int bump_buvp = naux * ncas * (ncas + nao); 
   const int size_vuwm = ncas * ncas * ncas * nao;
+#if 1
   #if 1
   // assume nao>ncas
   int _size_cderi_unpacked = 0;
@@ -2624,27 +2618,16 @@ void Device::get_h2eff_df_v2(py::array_t<double> _cderi,
   dd->d_buf1 = (double *) pm->dev_malloc_async ( dd->size_eri_unpacked * sizeof(double));
   dd->d_buf2 = (double *) pm->dev_malloc_async ( dd->size_eri_unpacked * sizeof(double));
   }
-  //printf("ncas = %i, nao = %i, dd->size_eri_unpacked = %i, eri_size = %i, bump_buvp = %i, size_vuwm = %i\n",ncas, nao, dd->size_eri_unpacked, eri_size, bump_buvp, size_vuwm); 
-  // buf1 for cderi unpacked
-  // buf2 for bPmu, bPvu (xam+xa^2 vs xm^2)
-  // buf1 for bumP, buvP (xam+xa^2 vs xm^2)
+#endif
   double * eri = static_cast<double*>(info_eri.ptr);
   double * d_mo_coeff = dd->d_mo_coeff;
+  double * d_mo_cas = dd->d_mo_cas; 
+  
   py::buffer_info info_cderi = _cderi.request(); // 2D array blksize * nao_pair
   double * cderi = static_cast<double*>(info_cderi.ptr);
 
-  const int _size_mo_cas = nao*ncas;
-#if 0
-  double * d_mo_cas = (double*) pm->dev_malloc_async(_size_mo_cas*sizeof(double), dd->stream);
-  {
-    dim3 block_size(1,1,1);
-    dim3 grid_size(_TILE(ncas, block_size.x), _TILE(nao, block_size.y));
-    extract_mo_cas<<<grid_size, block_size, 0, dd->stream>>>(d_mo_coeff, d_mo_cas, ncas, ncore, nao);
-  }
-#else
-  double * d_mo_cas = dd->d_mo_cas;
-#endif
   double * d_cderi = nullptr;
+  
   if(use_eri_cache) {
     d_cderi = dd_fetch_eri(dd, cderi, naux, nao_pair, addr_dfobj, count);
   } else {
@@ -2657,212 +2640,70 @@ void Device::get_h2eff_df_v2(py::array_t<double> _cderi,
 
     pm->dev_push_async(d_cderi, cderi, _size_cderi * sizeof(double));
   }
-  //printf("retreived packed cderi\n");
-#if 0
-  double * d_cderi_unpacked=(double*) pm->dev_malloc_async( _size_cderi_unpacked * sizeof(double), dd->stream);
-#else
- double * d_cderi_unpacked = dd->d_buf1;
-#endif
-#if 0
-  int * d_my_unpack_map_ptr = dd_fetch_pumap(dd, nao);
 
-  {
-    dim3 block_size(_UNPACK_BLOCK_SIZE, _UNPACK_BLOCK_SIZE, 1);
-    dim3 grid_size(_TILE(naux,_UNPACK_BLOCK_SIZE), _TILE(nao,_UNPACK_BLOCK_SIZE));
-    _getjk_unpack_buf2<<<grid_size,block_size, 0, dd->stream>>>(d_cderi_unpacked,d_cderi,d_my_unpack_map_ptr,naux, nao, nao_pair);
-    _CUDA_CHECK_ERRORS();
-  }
-#else
+  double * d_cderi_unpacked = dd->d_buf1;
+
   int * d_my_unpack_map_ptr = dd_fetch_pumap(dd, nao, _PUMAP_2D_UNPACK);
 
   getjk_unpack_buf2(d_cderi_unpacked,d_cderi,d_my_unpack_map_ptr,naux, nao, nao_pair);
-#endif
-  //printf("unpacked cderi\n");
-//bPmu = np.einsum('Pmn,nu->Pmu',cderi,mo_cas)
-  const double alpha=1.0;
-  const double beta=0.0;
+  
+  //bPmu = np.einsum('Pmn,nu->Pmu',cderi,mo_cas)
+  
+  const double alpha = 1.0;
+  const double beta = 0.0;
   int zero = 0;
   int nao2 = nao * nao;
   int ncas_nao = ncas * nao;
   int ncas2 = ncas * ncas;
-#if 0
-  //don't need because over writing
-  const int _size_bPmu = naux*ncas*nao; 
-  double * d_bPmu = (double*) pm->dev_malloc_async(_size_bPmu *sizeof(double), dd->stream);
-#else 
+  const int _size_bPmu = naux*ncas*nao;
+
   double * d_bPmu = dd->d_buf2;
-#endif
-#if 0
-  //remove for general version
-  cublasDgemmStridedBatched(dd->handle,CUBLAS_OP_N, CUBLAS_OP_N, 
-			    nao, ncas, nao,
-			    &alpha, d_cderi_unpacked, nao, nao*nao, d_mo_cas, nao, 0,
-			    &beta, d_bPmu, nao, ncas*nao, naux);
-  _CUDA_CHECK_ERRORS();
-#else
+  
   ml->set_handle();
   ml->gemm_batch((char *) "N", (char *) "N", &nao, &ncas, &nao,
 		 &alpha, d_cderi_unpacked, &nao, &nao2, d_mo_cas, &nao, &zero, &beta, d_bPmu, &nao, &ncas_nao, &naux);
-#endif
-  //printf("bPmu created\n");
-  //pm->dev_free_async(d_cderi_unpacked, dd->stream);//don't need because overwriting
-
-//bPvu = np.einsum('mv,Pmu->Pvu',mo_cas.conjugate(),bPmu)
-#if 0
   const int _size_bPvu = naux*ncas*ncas;
-  double * d_bPvu = (double*) pm->dev_malloc_async(_size_bPvu *sizeof(double), dd->stream);
-#else 
-  double * d_bPvu = dd->d_buf2 + naux*ncas*nao;//add size of bPmu 
-#endif
-#if 0
-  //remove for general version
-  cublasDgemmStridedBatched (dd->handle, CUBLAS_OP_C, CUBLAS_OP_N,
-                             ncas, ncas, nao, 
-                             &alpha, d_mo_cas, nao, 0,
-                             d_bPmu, nao, ncas*nao, 
-                             &beta, d_bPvu, ncas, ncas*ncas, naux); 
-#else
+  //bPvu = np.einsum('mv,Pmu->Pvu',mo_cas.conjugate(),bPmu)
+
+  double * d_bPvu= dd->d_buf2 + naux*ncas*nao;
+
   ml->set_handle();
   ml->gemm_batch((char *) "T", (char *) "N", &ncas, &ncas, &nao,
 		 &alpha, d_mo_cas, &nao, &zero, d_bPmu, &nao, &ncas_nao, &beta, d_bPvu, &ncas, &ncas2, &naux);
-#endif
-//eri = np.einsum('Pmw,Pvu->mwvu', bPmu, bPvu)
-  //transpose bPmu 
-#if 0
-  double * d_bumP = (double*) pm->dev_malloc_async(_size_bPmu *sizeof(double), dd->stream);
-#else
+  
+  //eri = np.einsum('Pmw,Pvu->mwvu', bPmu, bPvu)
+  //transpose bPmu
   double * d_bumP = dd->d_buf1;
-#endif
-#if 0 
-  //remove for general version
-  {
-    //dim3 block_size(1,1,1);
-    dim3 block_size(_UNPACK_BLOCK_SIZE,_UNPACK_BLOCK_SIZE,1);
-    dim3 grid_size(_TILE(naux, block_size.x),_TILE(nao, block_size.y),_TILE(ncas, block_size.z));
-    
-    transpose_120<<<grid_size, block_size, 0, dd->stream>>>(d_bPmu, d_bumP, naux, ncas, nao);
-
-#ifdef _DEBUG_DEVICE
-    printf("LIBGPU ::  -- get_h2eff_df::transpose_120 :: naux= %i  nao= %i  ncas= %i  grid_size= %i %i %i  block_size= %i %i %i\n",
-	   naux, nao, ncas, grid_size.x,grid_size.y,grid_size.z,block_size.x,block_size.y,block_size.z);
-    _CUDA_CHECK_ERRORS();
-#endif
-  }
-#else
   transpose_120(d_bPmu, d_bumP, naux, ncas, nao, 1); // this call distributes work items differently 
-#endif
-  //pm->dev_free_async(d_bPmu, dd->stream);
-#if 0
-  // remove because using same memory
-  double * d_buvP = (double*) pm->dev_malloc_async(_size_bPvu *sizeof(double), dd->stream);
-#else
-  double * d_buvP = dd->d_buf1 + naux*ncas*nao;//add size of bumP
-#endif
+  double * d_buvP = dd->d_buf1+naux*ncas*nao;
   //transpose bPvu
-#if 0
-  // see bPmu ->bumP transformation
-  {
-    //dim3 block_size(_UNPACK_BLOCK_SIZE,_UNPACK_BLOCK_SIZE,_UNPACK_BLOCK_SIZE);
-    dim3 block_size(1,1,1);
-    dim3 grid_size(_TILE(naux, block_size.x),_TILE(ncas, block_size.y),_TILE(ncas, block_size.z));
-    
-    transpose_210<<<grid_size, block_size, 0, dd->stream>>>(d_bPvu, d_buvP, naux, ncas, ncas);
-    _CUDA_CHECK_ERRORS();
-
-#ifdef _DEBUG_DEVICE
-    printf("LIBGPU ::  -- get_h2eff_df::transpose_210 :: naux= %i  ncas= %i  grid_size= %i %i %i  block_size= %i %i %i\n",
-	   naux, ncas, grid_size.x,grid_size.y,grid_size.z,block_size.x,block_size.y,block_size.z);
-#endif
-  }
-#else
   transpose_210(d_bPvu, d_buvP, naux, ncas, ncas);
-#endif
-  //pm->dev_free_async(d_bPvu, dd->stream);//grow logic
 
-  //h_vuwm[i*ncas*nao+j]+=h_bvuP[i*naux + k]*h_bumP[j*naux+k];
-  //dgemm (probably just simple, not strided/batched, contracted dimension = P)
   const int _size_mwvu = nao*ncas*ncas*ncas;
-#if 0
-  // reusing arrays
-  double * d_vuwm = (double*) pm ->dev_malloc_async( _size_mwvu*sizeof(double), dd->stream);
-#else
-  double * d_vuwm = dd->d_buf2;
-#endif
-#if 0
-  cublasDgemm(dd->handle, CUBLAS_OP_T, CUBLAS_OP_N,
-              ncas*nao, ncas*ncas, naux,
-              &alpha, 
-              d_bumP, naux,
-              d_buvP, naux,
-              &beta, 
-              d_vuwm, ncas*nao);
-#else
+  double * d_vuwm = dd->d_buf2; 
   ml->gemm((char *) "T", (char *) "N", &ncas_nao, &ncas2, &naux,
 	   &alpha, d_bumP, &naux, d_buvP, &naux, &beta, d_vuwm, &ncas_nao);
-#endif
-  //pm->dev_free_async(d_bumP, dd->stream);
-  //pm->dev_free_async(d_buvP, dd->stream);
-
-//eri = np.einsum('mM,mwvu->Mwvu', mo_coeff.conjugate(),eri)
-  //cublasDgemmStridedBatched (batch = v*u, contracted dimenion = m)
-#if 0
-  double * d_vuwM = (double*) pm ->dev_malloc_async(_size_mwvu*sizeof(double), dd->stream);
-#else
-  double * d_vuwM = dd->d_buf1;//using same arrays
-#endif
-#if 0
-  cublasDgemmStridedBatched(dd->handle, CUBLAS_OP_T, CUBLAS_OP_C, 
-                            ncas, nao, nao, 
-                            &alpha, 
-                            d_vuwm, nao, ncas*nao,
-                            d_mo_coeff, nao, 0,
-                            &beta, 
-                            d_vuwM, ncas, ncas*nao, ncas*ncas);
-#else
+  double * d_vuwM = dd->d_buf1;
   ml->gemm_batch((char *) "T", (char *) "T", &ncas, &nao, &nao,
 		 &alpha, d_vuwm, &nao, &ncas_nao, d_mo_coeff, &nao, &zero, &beta, d_vuwM, &ncas, &ncas_nao, &ncas2);
-#endif
-  //pm->dev_free_async(d_vuwm, dd->stream);
-#if 0
-  double * d_eri = (double*) pm->dev_malloc_async(_size_eri*sizeof(double), dd->stream);
-#else
-  double * d_eri = dd->d_eri_h2eff;//already created
-#endif
-#if 0
-  int * my_d_tril_map_ptr = dd_fetch_pumap(dd, ncas);
-  {
-    dim3 block_size(_UNPACK_BLOCK_SIZE, _UNPACK_BLOCK_SIZE, 1);
-    //dim3 block_size(1,1, 1);
-    dim3 grid_size(_TILE(nmo*ncas,block_size.x), _TILE(ncas*ncas,block_size.y));
-    pack_d_vuwM<<<grid_size,block_size, 0, dd->stream>>>(d_vuwM,d_eri,nmo, ncas, ncas_pair, my_d_tril_map_ptr);
-    _CUDA_CHECK_ERRORS();
-  }
-#else
+  double * d_eri = dd->d_buf2;
   int * my_d_tril_map_ptr = dd_fetch_pumap(dd, ncas, _PUMAP_2D_UNPACK);
+  
+  int init = (count < num_devices) ? 1 : 0;
   if (count < num_devices){
   pack_d_vuwM(d_vuwM, d_eri, my_d_tril_map_ptr, nmo, ncas, ncas_pair);
   } else{
   printf("num_devices: %i",num_devices);
   pack_d_vuwM_add(d_vuwM, d_eri, my_d_tril_map_ptr, nmo, ncas, ncas_pair);
   }
-#endif
+
   profile_stop();
-#if 1
-  printf("ncas %i, nao %i, size_eri_h2eff %i\n",ncas, nao, dd->size_eri_h2eff);
-  double * h_eri = (double*) pm->dev_malloc_host(dd->size_eri_h2eff*sizeof(double));
-  pm->dev_pull(d_eri, h_eri, dd->size_eri_h2eff*sizeof(double));
-  for (int i =0; i<nao; ++i){
-    for (int j = 0; j<ncas*ncas*(ncas+1)/2; ++j){
-      printf("%f\t",h_eri[i*ncas*ncas*(ncas+1)/2+j]);} printf("\n");
-  }
-  pm->dev_free_host(h_eri);
-#endif  
 #ifdef _SIMPLE_TIMER
   double t1 = omp_get_wtime();
-  //t_array[7] += t1 - t0;//TODO: clean the array size
+  t_array[6] += t1 - t0;//TODO: add the array size
+  count_array[4] += 1; // see v1 comment
 #endif
 }
-
 
 
 /* ---------------------------------------------------------------------- */
@@ -3267,6 +3108,7 @@ void Device::orbital_response(py::array_t<double> _f1_prime,
 #ifdef _SIMPLE_TIMER
   double t1 = omp_get_wtime();
   t_array[4]  += t1  - t0;
+  count_array[2] += 1; 
 #endif
   
 #if 0

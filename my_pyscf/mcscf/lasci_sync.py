@@ -537,16 +537,13 @@ class LASCISymm_UnitaryGroupGenerators (LASCI_UnitaryGroupGenerators):
 
 def _init_df_(h_op):
     from mrh.my_pyscf.mcscf.lasci import _DFLASCI
-    gpu=h_op.las.use_gpu
     if isinstance (h_op.las, _DFLASCI):
         h_op.with_df = h_op.las.with_df
-        if gpu:
-           print('passing bPpj construction in gpu branch')
+        if h_op.las.use_gpu:
            pass
-        elif h_op.bPpj is None:
-            h_op.bPpj = np.ascontiguousarray (
+        elif h_op.bPpj is None: h_op.bPpj = np.ascontiguousarray (
                 h_op.las.cderi_ao2mo (h_op.mo_coeff, h_op.mo_coeff[:,:h_op.nocc],
-                                      compact=False))
+                compact=False))
 
 # TODO: local state-average generalization
 class LASCI_HessianOperator (sparse_linalg.LinearOperator):
@@ -1026,14 +1023,10 @@ class LASCI_HessianOperator (sparse_linalg.LinearOperator):
         moH = mo.conjugate ().T
         nmo = mo.shape[-1]
         dm1_mo = dm1s_mo.sum (0)
-        #if gpu:
-        #    dm1_ao=np.dot(mo,np.dot(dm1_mo,moH))
-        #    veff_ao=np.squeeze(self.las.get_veff(dm1s=dm1_ao))
-        #    return np.dot(moH,np.dot(veff_ao,mo))
-        if self.las.use_gpu or (getattr (self, 'bPpj', None) is None):
-            dm1_ao = np.dot (mo, np.dot (dm1_mo, moH))
-            veff_ao = np.squeeze (self.las.get_veff (dm1s=dm1_ao))
-            return np.dot (moH, np.dot (veff_ao, mo)) 
+        if self.las.use_gpu or (getattr(self, 'bPpj', None) is None):
+            dm1_ao=np.dot(mo,np.dot(dm1_mo,moH))
+            veff_ao=np.squeeze(self.las.get_veff(dm1s=dm1_ao))
+            return np.dot(moH,np.dot(veff_ao,mo))
         ncore, nocc, ncas = self.ncore, self.nocc, self.ncas
         # vj
         t0 = (lib.logger.process_clock (), lib.logger.perf_counter ())

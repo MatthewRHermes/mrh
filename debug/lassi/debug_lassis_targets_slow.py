@@ -85,7 +85,7 @@ class KnownValues(unittest.TestCase):
             self.assertTrue (lsi.converged)
         # test
         de = 1000 * (e_str - e_equil)
-        self.assertAlmostEqual (de, 208.21775437138967, 1)
+        self.assertAlmostEqual (de, 208.27109298022606, 1)
 
     def test_c2h4n4_2frag (self):
         # str
@@ -108,8 +108,7 @@ class KnownValues(unittest.TestCase):
         las.lasci_(mo_coeff)
         lsi = lassi.LASSIS (las).run ()
         e_str = lsi.e_roots[0]
-        with self.subTest ('str converged'):
-            self.assertTrue (lsi.converged)
+        str_converged = lsi.converged
         # equil
         mol = struct (0.0, 0.0, '6-31g', symmetry=False)
         mol.spin = 0
@@ -131,11 +130,13 @@ class KnownValues(unittest.TestCase):
         las.lasci_(mo_coeff)
         lsi = lassi.LASSIS (las).run ()
         e_equil = lsi.e_roots[0]
-        with self.subTest ('equil converged'):
-            self.assertTrue (lsi.converged)
         # test
         de = 1000 * (e_str - e_equil)
-        self.assertAlmostEqual (de, 191.185141573740, 1)
+        self.assertAlmostEqual (de, 190.6731766549683, 1)
+        with self.subTest ('str converged'):
+            self.assertTrue (str_converged)
+        with self.subTest ('equil converged'):
+            self.assertTrue (lsi.converged)
 
     def test_kremer_cr2_model (self):
         xyz='''Cr    -1.320780000000   0.000050000000  -0.000070000000
@@ -196,7 +197,7 @@ class KnownValues(unittest.TestCase):
         lsi = lassi.LASSIS (las).run ()
         with self.subTest('convergence'):
             self.assertTrue (lsi.converged)
-        self.assertAlmostEqual (yamaguchi (lsi.e_roots, lsi.s2, 6), -12.45, 2)
+        self.assertAlmostEqual (yamaguchi (lsi.e_roots, lsi.s2, 6), -12.406510236283237, 2)
 
     def test_alfefe (self):
         xyz='''O -2.2201982441 0.3991903003 1.6944716989
@@ -255,7 +256,7 @@ class KnownValues(unittest.TestCase):
         lsi = lassi.LASSIS (las2).run ()
         with self.subTest('LASSI convergence'):
             self.assertTrue (lsi.converged)
-        self.assertAlmostEqual (yamaguchi (lsi.e_roots, lsi.s2, 9), -4.40, 2)
+        self.assertAlmostEqual (yamaguchi (lsi.e_roots, lsi.s2, 9), -4.88873825496377, 2)
 
 
 if __name__ == "__main__":

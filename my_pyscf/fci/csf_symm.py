@@ -32,6 +32,10 @@ class FCISolver (CSFFCISolver, direct_spin1_symm.FCISolver):
         ''' Over the top of the existing kernel, I just need to set the parameters and cache values related to spin.
 
         ...and electron configuration point group '''
+        log = logger.new_logger (self, self.verbose)
+        gpname = getattr (self.mol, 'groupname', None)
+        if gpname in ('Dooh', 'Coov'):
+            log.warn ('Wfn symmetry for Dooh/Coov not supported. Wfn symmetry is mapped to D2h/C2v group.')
         if 'nroots' not in kwargs:
             nroots = self.nroots
             kwargs['nroots'] = nroots
@@ -58,6 +62,8 @@ class FCISolver (CSFFCISolver, direct_spin1_symm.FCISolver):
         kwargs['wfnsym'] = wfnsym
         self.check_transformer_cache ()
         self.log_transformer_cache (logger.DEBUG)
+        if self.transformer.wfnsym > 9:
+            raise NotImplementedError ('High-momentum point groups in Dooh/Coov')
 
         idx_sym = self.transformer.confsym[self.transformer.econf_csf_mask] == wfnsym
         e, c = kernel (self, h1e, eri, norb, nelec, smult=self.smult, idx_sym=idx_sym, ci0=ci0,

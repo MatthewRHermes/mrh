@@ -1,3 +1,5 @@
+#file to check usability of multiple gpus with pyscf imported
+
 from mrh.my_pyscf.gpu import libgpu
 
 import pyscf   # -- this is contaminating a path preventing an OpenMP runtime that supports GPUs from being picked up

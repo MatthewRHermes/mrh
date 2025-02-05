@@ -1,3 +1,16 @@
+#miniapp to debug and test performance of ao2mo versions
+'''
+all versions do the following
+   b_{u1p2}^P = b^P_{u1u2}m^{p2}_{u2}        ---- 1
+   b_{p1p2}^P = b^P_{u1p2}m^{p1}_{u1}        ---- 2
+   g^{p1p2}_{a1a2} = b^P_{p1p2}b^P_{a1a2}    ---- 3
+   
+  
+   gpu_v2 does 1 and 2 using pinned memory and pulls back b^P_{p1p2} and b^P_{p1a1}
+   gpu_v3 does 1, 2 and 3 and pulls back g^{p1p2}_{a1a2} and b^P_{p1a1}
+
+''' 
+
 gpu_run=1
 N=0
 if gpu_run:from mrh.my_pyscf.gpu import libgpu
@@ -5,7 +18,7 @@ import pyscf
 import numpy 
 import ctypes
 if gpu_run:from gpu4pyscf import patch_pyscf
-from geometry_generator import generator
+from mrh.tests.gpu.geometry_generator import generator
 from pyscf import gto, scf, tools, mcscf, lib
 from mrh.my_pyscf.mcscf.lasscf_async import LASSCF
 from pyscf.mcscf import avas	
@@ -34,9 +47,6 @@ naoaux = with_df.get_naoaux()
 blksize = with_df.blockdim
 
 def init_eri_cpu (mo, casscf, with_df):
-    '''  
-        This is only for testing ao2mo for calculating fxpp. 
-    '''
     mo = numpy.asarray(mo, order='F')
     fxpp = numpy.empty ((nmo, nmo, naoaux))
     bufpa = numpy.empty((naoaux,nmo,ncas))
@@ -73,7 +83,17 @@ def init_eri_cpu (mo, casscf, with_df):
     #bufs1 = bufpp = None
     k_pc_cpu = k_cp.T.copy()
     bufaa = bufpa[:,ncore:nocc,:].copy()#.reshape(-1,ncas**2)
-    ppaa_cpu=numpy.einsum('ijk,klm->ijlm',fxpp,bufaa)
+    for p0, p1 in prange(0, nmo, nblk):
+        nrow = p1 - p0
+        buf = bufs1[:nrow]
+        tmp = bufs2[:nrow].reshape(-1,ncas**2)
+        for key, col0, col1 in fxpp_keys:
+        #buf[:nrow,:,col0:col1] = fxpp[key][p0:p1]
+            buf[:nrow,:,col0:col1] = fxpp[:,:,col0:col1][p0:p1]
+        lib.dot(buf.reshape(-1,naoaux), bufaa, 1, tmp)
+        ppaa_cpu[p0:p1] = tmp.reshape(p1-p0,nmo,ncas,ncas)
+  
+
     return j_pc_cpu, k_pc_cpu, fxpp, ppaa_cpu
 
 def init_eri_gpu_v2 (mo, casscf, with_df):
@@ -124,26 +144,8 @@ def init_eri_gpu_v2 (mo, casscf, with_df):
         lib.dot(buf.reshape(-1,naoaux), bufaa, 1, tmp)
         ppaa[p0:p1] = tmp.reshape(p1-p0,nmo,ncas,ncas)
   
-    #nblk=100
-    #bufs1 = numpy.empty((nblk,ncas,nmo,ncas))
-    #dgemm = lib.numpy_helper._dgemm
-    #for p0, p1 in prange(0, nmo, nblk):
-    #    tmp = numpy.dot(bufpa[:,p0:p1].reshape(naoaux,-1).T,
-    #                    bufpa.reshape(naoaux,-1))
-        #tmp = bufs1[:p1-p0]
-        #dgemm('T', 'N', (p1-p0)*ncas, nmo*ncas, naoaux,
-        #      bufpa.reshape(naoaux,-1), bufpa.reshape(naoaux,-1),
-        #      tmp.reshape(-1,nmo*ncas), 1, 0, p0*ncas, 0, 0)
-    #    papa[p0:p1] = tmp.reshape(p1-p0,ncas,nmo,ncas)
-    #for row in bufaa: 
-    #    print(row.flatten())
     bufs1 = bufs2 = buf = None
-    #ppaa=numpy.einsum('ijk,klm->ijlm',fxpp,bufaa)
-    #for row in range(nmo): for column in range(nmo): print(ppaa[row,column])
-    #dm_core = numpy.dot(mo[:,:ncore], mo[:,:ncore].T)
-    #vj, vk = casscf.get_jk(mol, dm_core)
-    #self.vhf_c = reduce(numpy.dot, (mo.T, vj*2-vk, mo))
-    #fxpp=None
+    #removed papa as that is not accelerated currently. 
     return j_pc, k_pc, fxpp, ppaa
 
 def prange(start, end, step):
@@ -212,15 +214,3 @@ for _ in range(nruns): j_pc_v3, k_pc_v3, ppaa_v3 = init_eri_gpu_v3 (mf.mo_coeff,
 t2=time.time()
 print("Time v2", round(t1-t0,2))
 print("Time v3", round(t2-t1,2))
-#for row in ppaa_v3: 
-#    for column in row: 
-#        print(column.flatten())
-#print(ppaa_v3)
-#j_pc_cpu, k_pc_cpu, fxpp_cpu, ppaa_cpu = init_eri_cpu (mf.mo_coeff, mc, with_df) 
-#print(j_pc_cpu)
-#print(fxpp_v2)
-#j_pc_v3, k_pc_v3, ppaa_v3 = init_eri_gpu_v3 (mf.mo_coeff, mc, with_df) 
-
-#print('j_pc',numpy.allclose(j_pc_v2,j_pc_v3))
-#print('k_pc',numpy.allclose(k_pc_v2,k_pc_v3))
-#print('ppaa',numpy.allclose(ppaa_v2,ppaa_v3))
