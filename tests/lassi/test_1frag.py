@@ -50,25 +50,33 @@ class KnownValues(unittest.TestCase):
         las = LASSCF (mf, (4,), (4,), spin_sub=(1,)).set (conv_tol_grad=1e-5).run ()
         e_o0,si_o0=las.lassi(opt=0)
         e_o1,si_o1=las.lassi(opt=1)
+        lsi = lassi.LASSI (las).run (davidson_only=True)
         self.assertAlmostEqual (e_o0[0], mc_ss.e_tot, 7)
         self.assertAlmostEqual (e_o1[0], mc_ss.e_tot, 7)
+        self.assertAlmostEqual (lsi.e_roots[0], mc_ss.e_tot, 7)
 
     def test_sa (self):
         las = LASSCF (mf, (4,), (4,), spin_sub=(1,)).set (conv_tol_grad=1e-5)
         las.state_average_(weights=[0.5,0.5], spins=[0,2]).run ()
+        nroots = len (mc_sa.e_states)
         e_o0,si_o0=las.lassi(opt=0)
         e_o1,si_o1=las.lassi(opt=1)
-        for e_si0, e_si1, e_mc in zip (e_o0, e_o1, mc_sa.e_states):
+        lsi = lassi.LASSI (las).run (davidson_only=True, nroots_si=nroots)
+        for e_si0, e_si1, ed, e_mc in zip (e_o0, e_o1, lsi.e_roots, mc_sa.e_states):
             self.assertAlmostEqual (e_si0, e_mc, 7)
             self.assertAlmostEqual (e_si1, e_mc, 7)
+            self.assertAlmostEqual (ed, e_mc, 7)
 
     def test_exc (self):
         las = las_exc
+        nroots = len (mc_exc.e_tot)
         e_o0,si_o0=las.lassi(opt=0)
         e_o1,si_o1=las.lassi(opt=1)
-        for e_si0, e_si1, e_mc in zip (e_o0, e_o1, mc_exc.e_tot):
+        lsi = lassi.LASSI (las).run (davidson_only=True, nroots_si=nroots)
+        for e_si0, e_si1, ed, e_mc in zip (e_o0, e_o1, lsi.e_roots, mc_exc.e_tot):
             self.assertAlmostEqual (e_si0, e_mc, 7)
             self.assertAlmostEqual (e_si1, e_mc, 7)
+            self.assertAlmostEqual (ed, e_mc, 7)
 
     def test_fdm1 (self):
         fdm1 = get_fdm1_maker (lsi, lsi.ci, lsi.get_nelec_frs (), lsi.si) (0,0)
