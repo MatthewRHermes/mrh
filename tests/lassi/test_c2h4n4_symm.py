@@ -62,6 +62,13 @@ def tearDownModule():
     del lsi, rdm1s, rdm2s
 
 class KnownValues(unittest.TestCase):
+
+    def test_davidson (self):
+        lsi1 = LASSI (lsi._las).run (davidson_only=True)
+        self.assertAlmostEqual (lsi1.e_roots[0], lsi.e_roots[0], 8)
+        ovlp = np.dot (lsi1.si[:,0], lsi.si[:,0].conj ()) ** 2.0
+        self.assertAlmostEqual (ovlp, 1.0, 4)
+
     def test_evals (self):
         self.assertAlmostEqual (lib.fp (lsi.e_roots), 34.35944449251133, 6)
 

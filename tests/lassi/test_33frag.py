@@ -32,7 +32,9 @@ class KnownValues(unittest.TestCase):
 
     def test_lassi01 (self):
         lsi = LASSIrq (las, 0, 1).run ()
+        lsid = LASSIrq (las, 0, 1).run (davidson_only=True)
         rdm1s, rdm2s = lassi.root_make_rdm12s(lsi, lsi.ci, lsi.si, state=0)
+        rdm1s, rdm2s = lassi.root_make_rdm12s(lsid, lsid.ci, lsid.si, state=0)
 
 if __name__ == "__main__":
     print("Full Tests for LASSI 33-fragment calculation")

@@ -22,7 +22,7 @@ from pyscf.tools import molden
 from mrh.tests.lasscf.c2h4n4_struct import structure as struct
 from mrh.my_pyscf.mcscf.lasscf_o0 import LASSCF
 from mrh.my_pyscf.lassi.lassi import roots_make_rdm12s, root_make_rdm12s, make_stdm12s, ham_2q
-from mrh.my_pyscf.lassi import LASSI
+from mrh.my_pyscf.lassi import LASSI, LASSIS
 from mrh.tests.lassi.addons import case_contract_hlas_ci, case_lassis_fbf_2_model_state
 from mrh.tests.lassi.addons import case_lassis_fbfdm
 topdir = os.path.abspath (os.path.join (__file__, '..'))
@@ -162,16 +162,20 @@ class KnownValues(unittest.TestCase):
     def test_lassis (self):
         for opt in (0,1):
             with self.subTest (opt=opt):
-                from mrh.my_pyscf.lassi.lassis import LASSIS
                 las1 = LASSCF (las._scf, (4,4), (4,4), spin_sub=(1,1))
                 las1.mo_coeff = las.mo_coeff
                 las1.lasci ()
                 lsis = LASSIS (las1).run (opt=opt, max_cycle_macro=1)
                 case_lassis_fbf_2_model_state (self, lsis)
                 case_lassis_fbfdm (self, lsis)
+        with self.subTest ('davidson_only'):
+            las1 = LASSCF (las._scf, (4,4), (4,4), spin_sub=(1,1))
+            las1.mo_coeff = las.mo_coeff
+            las1.lasci ()
+            lsis = LASSIS (las1).run (davidson_only=True, max_cycle_macro=1)
+
 
     def test_lassis_slow (self):
-        from mrh.my_pyscf.lassi.lassis import LASSIS
         # TODO: optimize implementation and eventually merge with test_lassis
         mol = struct (2.0, 2.0, '6-31g', symmetry=False)
         mol.output = '/dev/null'
@@ -182,28 +186,29 @@ class KnownValues(unittest.TestCase):
         las1 = LASSCF (mf, (5,5), ((3,2),(2,3)), spin_sub=(2,2))
         mo_coeff = las1.localize_init_guess ((list (range (5)), list (range (5,10))))
         las1.kernel (mo_coeff)
-        for opt in (0,1):
-            with self.subTest (opt=opt):
-                lsis = LASSIS (las1).run (opt=opt)
-                self.assertTrue (lsis.converged)
-                self.assertAlmostEqual (lsis.e_roots[0], -295.52185731568903, 7)
-                case_lassis_fbf_2_model_state (self, lsis)
-                case_lassis_fbfdm (self, lsis)
-        with self.subTest ('as_scanner'):
-            lsis_scanner = lsis.as_scanner ()
-            mol2 = struct (1.9, 1.9, '6-31g', symmetry=False)
-            mol2.verbose = 0
-            mol2.output = '/dev/null'
-            mol2.build ()
-            lsis_scanner (mol2)
-            self.assertTrue (lsis_scanner.converged)
-            mf2 = scf.RHF (mol2).run ()
-            las2 = LASSCF (mf2, (5,5), ((3,2),(2,3)), spin_sub=(2,2))
-            las2.mo_coeff = lsis_scanner.mo_coeff
-            las2.lasci ()
-            lsis2 = LASSIS (las2).run ()
-            self.assertTrue (lsis2.converged)
-            self.assertAlmostEqual (lsis_scanner.e_roots[0], lsis2.e_roots[0], 5)
+        for dson in (False, True):
+            for opt in (0,1):
+                with self.subTest (opt=opt, davidson_only=dson):
+                    lsis = LASSIS (las1).run (opt=opt, davidson_only=dson)
+                    self.assertTrue (lsis.converged)
+                    self.assertAlmostEqual (lsis.e_roots[0], -295.52185731568903, 7)
+                    case_lassis_fbf_2_model_state (self, lsis)
+                    case_lassis_fbfdm (self, lsis)
+            with self.subTest ('as_scanner', davidson_only=dson):
+                lsis_scanner = lsis.as_scanner ()
+                mol2 = struct (1.9, 1.9, '6-31g', symmetry=False)
+                mol2.verbose = 0
+                mol2.output = '/dev/null'
+                mol2.build ()
+                lsis_scanner (mol2)
+                self.assertTrue (lsis_scanner.converged)
+                mf2 = scf.RHF (mol2).run ()
+                las2 = LASSCF (mf2, (5,5), ((3,2),(2,3)), spin_sub=(2,2))
+                las2.mo_coeff = lsis_scanner.mo_coeff
+                las2.lasci ()
+                lsis2 = LASSIS (las2).run (davidson_only=dson)
+                self.assertTrue (lsis2.converged)
+                self.assertAlmostEqual (lsis_scanner.e_roots[0], lsis2.e_roots[0], 5)
 
 
     def test_contract_hlas_ci (self):
