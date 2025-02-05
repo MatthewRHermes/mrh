@@ -89,7 +89,7 @@ Device::Device()
     device_data[i].size_h2eff = 0;
     device_data[i].size_mo_coeff = 0;
     device_data[i].size_mo_cas = 0;
-    device_data[i].size_eri_unpacked = 0;
+    device_data[i].size_eri_unpacked = 0; // this variable is not needed
     device_data[i].size_j_pc = 0;
     device_data[i].size_k_pc = 0;
     device_data[i].size_bufd = 0;
@@ -1685,9 +1685,11 @@ void Device::df_ao2mo_pass1_v2 (int blksize, int nmo, int nao, int ncore, int nc
     
     if(dd->d_buf1) pm->dev_free_async(dd->d_buf1);
     if(dd->d_buf2) pm->dev_free_async(dd->d_buf2);
+    if(dd->d_buf3) pm->dev_free_async(dd->d_buf3);
     
     dd->d_buf1 = (double *) pm->dev_malloc_async(dd->size_buf * sizeof(double));// use for (eri@mo)
     dd->d_buf2 = (double *) pm->dev_malloc_async(dd->size_buf * sizeof(double));//use for eri_unpacked, then for bufpp_t
+    dd->d_buf3 = (double *) pm->dev_malloc_async(dd->size_buf * sizeof(double));
   }
   
   double * d_buf = dd->d_buf1; //for eri*mo_coeff (don't pull or push) 
@@ -2083,9 +2085,11 @@ void Device::update_h2eff_sub(int ncore, int ncas, int nocc, int nmo,
 
     if(dd->d_buf1) pm->dev_free_async(dd->d_buf1);
     if(dd->d_buf2) pm->dev_free_async(dd->d_buf2);
+    if(dd->d_buf3) pm->dev_free_async(dd->d_buf3);
 
     dd->d_buf1 = (double *) pm->dev_malloc_async(dd->size_buf * sizeof(double));
     dd->d_buf2 = (double *) pm->dev_malloc_async(dd->size_buf * sizeof(double));
+    dd->d_buf3 = (double *) pm->dev_malloc_async(dd->size_buf * sizeof(double));
   }
 
   double * d_h2eff_unpacked = dd->d_buf1;
@@ -2445,34 +2449,39 @@ void Device::get_h2eff_df_v1(py::array_t<double> _cderi,
   const int eri_size = naux * nao * nao;
   const int bump_buvp = naux * ncas * (ncas + nao); 
   const int size_vuwm = ncas * ncas * ncas * nao;
+  
 #if 1
-  #if 1
+
+#if 1
   // assume nao>ncas
-  int _size_cderi_unpacked = 0;
-  if (eri_size>=bump_buvp)
-     {
-     if (eri_size>=size_vuwm){_size_cderi_unpacked = eri_size;}
-     else {_size_cderi_unpacked = size_vuwm;}
-     }
-  else 
-     {
-     if (bump_buvp>=size_vuwm){ _size_cderi_unpacked = bump_buvp;}
-     else {_size_cderi_unpacked = size_vuwm;}
-     }
-  // the above exercise is done so as to avoid new memory allocations during the calculations and allocate the largest needed arrays. bump and buvp is done together because they need to exist simultaneously.     naux*nao^2 vs naux*ncas*(nao+ncas) vs nmo*ncas^3 
-  #else
+  
+  int _size_cderi_unpacked = eri_size;
+  if(bump_buvp > _size_cderi_unpacked) _size_cderi_unpacked = bump_buvp;
+  if(size_vuwm > _size_cderi_unpacked) _size_cderi_unpacked = size_vuwm;
+  
+  // the above exercise is done so as to avoid new memory allocations during the calculations and allocate the largest needed arrays.
+  // bump and buvp is done together because they need to exist simultaneously. naux*nao^2 vs naux*ncas*(nao+ncas) vs nmo*ncas^3 
+#else
   // doing this because naux*nao**2 > nao*ncas**3 and naux*nao**2 > naux*ncas*(ncas+nao)
   const int _size_cderi_unpacked = naux * nao * nao; 
-  #endif
-  if (_size_cderi_unpacked > dd->size_eri_unpacked){
+#endif
+  
+  if(_size_cderi_unpacked > dd->size_buf) {
   //printf("Size ERI in h2eff v2: %i", dd->size_eri_unpacked);
-  dd->size_eri_unpacked = _size_cderi_unpacked;
-  if (dd->d_buf1) pm->dev_free_async(dd->d_buf1);
-  if (dd->d_buf2) pm->dev_free_async(dd->d_buf2);
-  dd->d_buf1 = (double *) pm->dev_malloc_async ( dd->size_eri_unpacked * sizeof(double));
-  dd->d_buf2 = (double *) pm->dev_malloc_async ( dd->size_eri_unpacked * sizeof(double));
+    
+    dd->size_eri_unpacked = _size_cderi_unpacked;
+    dd->size_buf = _size_cderi_unpacked;
+  
+    if (dd->d_buf1) pm->dev_free_async(dd->d_buf1);
+    if (dd->d_buf2) pm->dev_free_async(dd->d_buf2);
+    if (dd->d_buf3) pm->dev_free_async(dd->d_buf3);
+    
+    dd->d_buf1 = (double *) pm->dev_malloc_async ( dd->size_buf * sizeof(double));
+    dd->d_buf2 = (double *) pm->dev_malloc_async ( dd->size_buf * sizeof(double));
+    dd->d_buf3 = (double *) pm->dev_malloc_async ( dd->size_buf * sizeof(double));
   }
 #endif
+  
   double * eri = static_cast<double*>(info_eri.ptr);
   double * d_mo_coeff = dd->d_mo_coeff;
   double * d_mo_cas = dd->d_mo_cas; 
@@ -2517,6 +2526,7 @@ void Device::get_h2eff_df_v1(py::array_t<double> _cderi,
   ml->gemm_batch((char *) "N", (char *) "N", &nao, &ncas, &nao,
 		 &alpha, d_cderi_unpacked, &nao, &nao2, d_mo_cas, &nao, &zero, &beta, d_bPmu, &nao, &ncas_nao, &naux);
   const int _size_bPvu = naux*ncas*ncas;
+  
   //bPvu = np.einsum('mv,Pmu->Pvu',mo_cas.conjugate(),bPmu)
 
   double * d_bPvu= dd->d_buf2 + naux*ncas*nao;
@@ -2526,27 +2536,39 @@ void Device::get_h2eff_df_v1(py::array_t<double> _cderi,
 		 &alpha, d_mo_cas, &nao, &zero, d_bPmu, &nao, &ncas_nao, &beta, d_bPvu, &ncas, &ncas2, &naux);
   
   //eri = np.einsum('Pmw,Pvu->mwvu', bPmu, bPvu)
+
   //transpose bPmu
   double * d_bumP = dd->d_buf1;
+
   transpose_120(d_bPmu, d_bumP, naux, ncas, nao, 1); // this call distributes work items differently 
+
   double * d_buvP = dd->d_buf1+naux*ncas*nao;
+
   //transpose bPvu
+
   transpose_210(d_bPvu, d_buvP, naux, ncas, ncas);
 
   const int _size_mwvu = nao*ncas*ncas*ncas;
-  double * d_vuwm = dd->d_buf2; 
+  
+  double * d_vuwm = dd->d_buf2;
+  
   ml->gemm((char *) "T", (char *) "N", &ncas_nao, &ncas2, &naux,
 	   &alpha, d_bumP, &naux, d_buvP, &naux, &beta, d_vuwm, &ncas_nao);
+  
   double * d_vuwM = dd->d_buf1;
+  
   ml->gemm_batch((char *) "T", (char *) "T", &ncas, &nao, &nao,
 		 &alpha, d_vuwm, &nao, &ncas_nao, d_mo_coeff, &nao, &zero, &beta, d_vuwM, &ncas, &ncas_nao, &ncas2);
+  
   double * d_eri = dd->d_buf2;
+  
   int * my_d_tril_map_ptr = dd_fetch_pumap(dd, ncas, _PUMAP_2D_UNPACK);
 
   pack_d_vuwM(d_vuwM, d_eri, my_d_tril_map_ptr, nmo, ncas, ncas_pair);
+  
   pm->dev_pull_async(d_eri, eri, _size_eri*sizeof(double));
 
-  //pm->dev_stream_wait();
+  pm->dev_stream_wait(); // this is required because 1) eri immediately consumed on python side and 2) all devices would write to same array
   
   profile_stop();
 #ifdef _SIMPLE_TIMER
