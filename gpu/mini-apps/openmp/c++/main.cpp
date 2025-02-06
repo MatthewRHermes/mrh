@@ -1,3 +1,5 @@
+//Test file to run vector addition with MPI
+
 #include <stdio.h>
 #include <stdlib.h>
 #include <math.h>
