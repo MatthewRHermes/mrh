@@ -16,17 +16,33 @@ def p_counts(file_names, parameter, analytic):
 		return round(float(total),8)
 	except:
 		return 0
+def p_counts_combined(file_names, parameter,combined_parameters, analytic):
+	position=analytic_position_dict[analytic]
+	total=0
+	try:
+		for combined_parameter in combined_parameters:
+			for file_name in file_names:
+				print(file_name)
+				lines = open(file_name).readlines()
+				total+=sum([float(line.split()[position]) for i,line in enumerate(lines) if (parameter in line) and ((combined_parameter in lines[i+1]) and (i+1<len(lines)))])
+				#[print(line) for i,line in enumerate(lines) if (parameter in line) and ((excluded_parameter in lines[i+1]) and (i+1<len(lines)))]
+		return round(float(total),8)
+	except:
+		return 0
+
 
 def fetch_fragment_files(logfile,fragments):
 	all_files = glob(logfile+"*")
 	fragment_files=[logfile+'.'+str(i) for i in range(fragments)]
 	flas_files=[ x for x in all_files if x not in fragment_files+[logfile]]
-	print(fragment_files, flas_files)
+	#print(fragment_files, flas_files)
 	return fragment_files,flas_files
 def fetch_flas_file(logfile):
 	return logfile+'.flas'
 def provide_combinations():
-	combine_dict = {'df vj and vk': 'density fitting ao2mo  '}
+	combine_dict = {'df vj and vk ': ['LASSCF macro','init E','cycle= '],
+                        'df vj and vk': ['density fitting ao2mo  ']
+                         }
 	return combine_dict
 def create_parameter_file_dict(logfile,fragments):
 	fragment_files, flas_files=fetch_fragment_files(logfile,fragments)
@@ -35,14 +51,23 @@ def create_parameter_file_dict(logfile,fragments):
 				'LASSCF energy':[logfile],
                  		'LASSCF kernel': [logfile],
                                 #'contract1': [logfile],
-                                'las_ao2mo': [logfile],
-                 		#'df vj and vk ':flas_files,
                  		'LASCI kernel': flas_files,
+                                'las_ao2mo': flas_files,
+                 		#'df vj and vk ':[logfile],
+                 		#'df vj and vk':fragment_files,
+                 		' df vj and vk':flas_files,
+				'vj_mo in microcycle':flas_files,#[flas_file],     
+                                'vk_mo vPpj in microcycle':flas_files,#[flas_file],   
+                                'vk_mo (bb|jj) in microcycle':flas_files,#[flas_file],
+                                'vk_mo (bi|aj) in microcycle':flas_files,#[flas_file],
+                                'update_h2eff_sub':flas_files,#[flas_file],
                                 
                  		'LASSCF setup':[logfile],
-                 		'Pull keyframe for fragment':[logfile],
+                 		#'Pull keyframe for fragment':[logfile],
+                 		#'Push keyframe for fragment':[logfile],
+                 		'keyframe for fragment':[logfile],
                  		'Fragment CASSCF':[logfile],
-                 		'Push keyframe for fragment':[logfile],
+                 		#'Push keyframe for fragment':[logfile],
                  		'Energy and gradient calculation':[logfile],
                  		'for 1-step CASSCF':fragment_files,
 			        #'density fitting ao2mo pass1 ': fragment_files,                                  
@@ -58,10 +83,6 @@ def create_parameter_file_dict(logfile,fragments):
 				#'Hessian operator 1':flas_files,#[flas_file],
 				#'Hessian operator 2':flas_files,#[flas_file],
                                 #'LASCI get_veff_Heff 1':flas_files,#[flas_file],
-				#'vj_mo in microcycle':flas_files,#[flas_file],     
-                                #'vk_mo vPpj in microcycle':flas_files,#[flas_file],   
-                                #'vk_mo (bb|jj) in microcycle':flas_files,#[flas_file],
-                                #'vk_mo (bi|aj) in microcycle':flas_files,#[flas_file],
                                 #'LASCI get_veff_Heff 2':flas_files,#[flas_file],
                                 #'LASCI get_veff_Heff 3':flas_files,#[flas_file],     
                                 #'LASCI get_veff_Heff 4':flas_files,#[flas_file],      
@@ -88,10 +109,10 @@ def do_system_and_create_row(sys_desc,active_space,processor_type,analytic,param
 	combine_dict = provide_combinations()
 	for parameter,file_names in parameter_file_dict.items():
 		results=p_counts(file_names,parameter,analytic)
-		for parameter_2,combined_parameter in combine_dict.items():
+		for parameter_2,combined_parameters in combine_dict.items():
 			if parameter_2 == parameter:
-				print('combined parameter found, subtracting ', parameter, 'from', combined_parameter)
-				#results -=p_counts_combined(file_names, parameter, combined_parameter, analytic)
+				print('combined parameter found, subtracting ', parameter, 'from', combined_parameters)
+				#results -=p_counts_combined(file_names, parameter, combined_parameters, analytic)
 		row.append(results)
 	if row[-1]==0:
 		print(row,' did not finish - check errors')
