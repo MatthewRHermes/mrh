@@ -6,7 +6,6 @@ from pyscf import lib, gto, scf
 from pyscf.lo import orth
 from mrh.my_pyscf.mcscf import lasscf_o0
 from mrh.my_pyscf.lassi import LASSIrq, LASSIS, lassi
-from mrh.my_pyscf import mcpdft
 
 # The purpose of this test is to make sure the LASSI kernel doesn't try to build an array with
 # nfrags dimensions at any point in the calculation.

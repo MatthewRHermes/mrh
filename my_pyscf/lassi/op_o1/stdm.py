@@ -423,6 +423,11 @@ class LSTDM (object):
         o *= self.spin_shuffle[ket]
         return o
 
+    def get_ci_dtype (self):
+        for inti in self.ints:
+            if inti.dtype == np.complex128: return np.complex128
+        return np.float64
+
     def get_ovlp (self, rootidx=None):
         lroots = self.lroots.copy ()
         exc_null = self.exc_null
@@ -440,7 +445,7 @@ class LSTDM (object):
             for i, iroot in enumerate (rootidx):
                 offs_lroots[iroot,:] = [offs0[i], offs1[i]]
             nstates = offs1[-1]
-        ovlp = np.zeros ([nstates,]*2, dtype=self.dtype)
+        ovlp = np.zeros ([nstates,]*2, dtype=self.get_ci_dtype ())
         for bra, ket in exc_null:
             i0, i1 = offs_lroots[bra]
             j0, j1 = offs_lroots[ket]
@@ -588,7 +593,7 @@ class LSTDM (object):
         bra_rng = self._get_addr_range (rbra, *spec, _profile=False)
         ket_rng = self._get_addr_range (rket, *spec, _profile=False)
         specints = [self.ints[i] for i in spec]
-        o = fac * np.ones ((1,1), dtype=self.dtype)
+        o = fac * np.ones ((1,1), dtype=self.get_ci_dtype ())
         for i in specints:
             b, k = i.unique_root[rbra], i.unique_root[rket]
             o = np.multiply.outer (i.ovlp[b][k], o).transpose (0,2,1,3)

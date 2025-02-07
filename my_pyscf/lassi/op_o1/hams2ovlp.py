@@ -65,7 +65,7 @@ class HamS2Ovlp (stdm.LSTDM):
         t0 = (lib.logger.process_clock (), lib.logger.perf_counter ())
         self.init_profiling ()
         self.ham = np.zeros ([self.nstates,]*2, dtype=self.dtype)
-        self.s2 = np.zeros ([self.nstates,]*2, dtype=self.dtype)
+        self.s2 = np.zeros ([self.nstates,]*2, dtype=self.get_ci_dtype ())
         self._crunch_all_()
         t1, w1 = lib.logger.process_clock (), lib.logger.perf_counter ()
         ovlp = self.get_ovlp ()
