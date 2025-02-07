@@ -10,8 +10,6 @@ from pyscf.mcscf import avas
 
 lib.logger.TIMER_LEVEL=lib.logger.INFO
 
-# -- this should all be inside constructor
-
 # this gives you more details about the system settings. 
 # see 1_631g_inp_gpu_simple.py for black box option
 gpu = libgpu.libgpu_create_device()
