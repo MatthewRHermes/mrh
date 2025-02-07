@@ -27,9 +27,6 @@ class HamS2Ovlp (stdm.LSTDM):
         h2 : ndarray of size ncas**4
             Contains 2-electron Hamiltonian amplitudes in second quantization
     '''
-    # TODO: SO-LASSI o1 implementation: the one-body spin-orbit coupling part of the
-    # Hamiltonian in addition to h1 and h2, which are spin-symmetric
-
     def __init__(self, ints, nlas, hopping_index, lroots, h1, h2, mask_bra_space=None,
                  mask_ket_space=None, log=None, max_memory=2000, dtype=np.float64):
         stdm.LSTDM.__init__(self, ints, nlas, hopping_index, lroots,
