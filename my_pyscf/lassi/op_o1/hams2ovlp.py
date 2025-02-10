@@ -378,6 +378,33 @@ class HamS2Ovlp (stdm.LSTDM):
         self.dt_2c, self.dw_2c = self.dt_2c + dt, self.dw_2c + dw
         return ham, s2, (l, j, i, k)
 
+
+def soc_context (h1, h2, ci, nelec_frs, soc, nlas):
+    nfrags, nroots = nelec_frs.shape[:2]
+    spin_shuffle_fac = None
+    n = sum (nlas)
+    nelec_rs = [tuple (x) for x in nelec_frs.sum (0)]
+    spin_pure = len (set (nelec_rs)) == 1
+    if soc and spin_pure: # In this scenario, the off-diagonal sector of h1 is pointless
+        h1 = np.stack ([h1[:n,:n], h1[n:,n:]], axis=0)
+    elif soc: # Engage the ``spinless mapping''
+        ix = np.argsort (spin_shuffle_idx (nlas))
+        h1 = h1[np.ix_(ix,ix)]
+        h2_ = np.zeros ([2*n,]*4, dtype=h2.dtype)
+        h2_[:n,:n,:n,:n] = h2[:]
+        h2_[:n,:n,n:,n:] = h2[:]
+        h2_[n:,n:,:n,:n] = h2[:]
+        h2_[n:,n:,n:,n:] = h2[:]
+        h2 = h2_[np.ix_(ix,ix,ix,ix)]
+        ci = ci_map2spinless (ci, nlas, nelec_frs)
+        nlas = [2*x for x in nlas]
+        spin_shuffle_fac = [fermion_spin_shuffle (nelec_frs[:,i,0], nelec_frs[:,i,1])
+                            for i in range (nroots)]
+        nelec_frs[:,:,0] += nelec_frs[:,:,1]
+        nelec_frs[:,:,1] = 0
+    return spin_pure, h1, h2, ci, nelec_frs, nlas, spin_shuffle_fac
+
+
 def ham (las, h1, h2, ci, nelec_frs, soc=0, nlas=None, _HamS2Ovlp_class=HamS2Ovlp, _do_kernel=True,
          **kwargs):
     ''' Build Hamiltonian, spin-squared, and overlap matrices in LAS product state basis
@@ -424,27 +451,9 @@ def ham (las, h1, h2, ci, nelec_frs, soc=0, nlas=None, _HamS2Ovlp_class=HamS2Ovl
     if soc>1: raise NotImplementedError ("Spin-orbit coupling of second order")
 
     # Handle possible SOC
-    n = sum (nlas)
-    nelec_rs = [tuple (x) for x in nelec_frs.sum (0)]
-    spin_pure = len (set (nelec_rs)) == 1
-    if soc and spin_pure: # In this scenario, the off-diagonal sector of h1 is pointless
-        h1 = np.stack ([h1[:n,:n], h1[n:,n:]], axis=0)
-    elif soc: # Engage the ``spinless mapping''
-        ix = np.argsort (spin_shuffle_idx (nlas))
-        h1 = h1[np.ix_(ix,ix)]
-        h2_ = np.zeros ([2*n,]*4, dtype=h2.dtype)
-        h2_[:n,:n,:n,:n] = h2[:]
-        h2_[:n,:n,n:,n:] = h2[:]
-        h2_[n:,n:,:n,:n] = h2[:]
-        h2_[n:,n:,n:,n:] = h2[:]
-        h2 = h2_[np.ix_(ix,ix,ix,ix)]
-        ci = ci_map2spinless (ci, nlas, nelec_frs)
-        nlas = [2*x for x in nlas]
-        spin_shuffle_fac = [fermion_spin_shuffle (nelec_frs[:,i,0], nelec_frs[:,i,1])
-                            for i in range (nroots)]
-        nelec_frs[:,:,0] += nelec_frs[:,:,1]
-        nelec_frs[:,:,1] = 0
-        
+    spin_pure, h1, h2, ci, nelec_frs, nlas, spin_shuffle_fac = soc_context (
+        h1, h2, ci, nelec_frs, soc, nlas)
+
     # First pass: single-fragment intermediates
     hopping_index, ints, lroots = frag.make_ints (las, ci, nelec_frs, nlas=nlas)
     nstates = np.sum (np.prod (lroots, axis=0))

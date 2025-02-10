@@ -1,6 +1,6 @@
 import numpy as np
 from scipy.sparse import linalg as sparse_linalg
-from mrh.my_pyscf.lassi.op_o1.hams2ovlp import HamS2Ovlp, ham
+from mrh.my_pyscf.lassi.op_o1.hams2ovlp import HamS2Ovlp, ham, soc_context
 from mrh.my_pyscf.lassi.citools import _fake_gen_contract_op_si_hdiag
 from mrh.my_pyscf.lassi.op_o1.utilities import *
 import functools
@@ -47,8 +47,21 @@ class HamS2OvlpOperators (HamS2Ovlp):
         self._put_ox_(row[0], row[1], op, *inv)
 
     def _put_ox_(self, bra, ket, op, *inv):
-        # TODO
-        pass
+        # TODO: transpose the nested loops and vectorize the ix, (bra1, ket1) loop
+        bra_rng = self._get_addr_range (bra, *inv) # profiled as idx
+        ket_rng = self._get_addr_range (ket, *inv) # profiled as idx
+        t0, w0 = logger.process_clock (), logger.perf_counter ()
+        ham = ham.flat
+        for ix, (bra1, ket1) in enumerate (product (bra_rng, ket_rng)):
+            bra2, ket2, wgt = self._get_spec_addr_ovlp (bra1, ket1, *inv)
+            t1, w1 = logger.process_clock (), logger.perf_counter ()
+            for bra3, ket3, w in zip (bra2, ket2, wgt):
+                self.ox[bra3] += w * op[ix] * self.x[ket3]
+                self.ox[ket3] += w * op[ix].conj () * self.x[bra3]
+            dt, dw = logger.process_clock () - t1, logger.perf_counter () - w1
+            self.dt_s, self.dw_s = self.dt_s + dt, self.dw_s + dw
+        dt, dw = logger.process_clock () - t0, logger.perf_counter () - w0
+        self.dt_p, self.dw_p = self.dt_p + dt, self.dw_p + dw
 
     def _ham_op (self, x):
         self.x = x
@@ -102,4 +115,76 @@ class HamS2OvlpOperators (HamS2Ovlp):
         pass
 
 gen_contract_op_si_hdiag = functools.partial (_fake_gen_contract_op_si_hdiag, ham)
+
+def gen_contract_op_si_hdiag_o1 (las, h1, h2, ci, nelec_frs, soc=0, nlas=None,
+                                 _HamS2Ovlp_class=HamS2OvlpOperators, _do_kernel=True, **kwargs):
+    ''' Build Hamiltonian, spin-squared, and overlap matrices in LAS product state basis
+
+    Args:
+        las : instance of :class:`LASCINoSymm`
+        h1 : ndarray of size ncas**2
+            Contains effective 1-electron Hamiltonian amplitudes in second quantization
+        h2 : ndarray of size ncas**4
+            Contains 2-electron Hamiltonian amplitudes in second quantization
+        ci : list of list of ndarrays
+            Contains all CI vectors
+        nelec_frs : ndarray of shape (nfrags,nroots,2)
+            Number of electrons of each spin in each rootspace in each
+            fragment
+
+    Kwargs:
+        soc : integer
+            Order of spin-orbit coupling included in the Hamiltonian
+        nlas : sequence of length (nfrags)
+            Number of orbitals in each fragment
+        _HamS2Ovlp_class : class
+            The main intermediate class
+        _do_kernel : logical
+            If false, return the main intermediate object before running kernel, instead of the
+            operator matrices
+        
+    Returns: 
+        ham_op : LinearOperator of shape (nstates,nstates)
+            Hamiltonian in LAS product state basis
+        s2_op : LinearOperator of shape (nstates,nstates)
+            Spin-squared operator in LAS product state basis
+        ovlp_op : LinearOperator of shape (nstates,nstates)
+            Overlap matrix of LAS product states 
+        hdiag : ndarray of shape (nstates,)
+            Diagonal element of Hamiltonian matrix
+        raw2orth : LinearOperator of shape (nstates_orth, nstates)
+            Projects SI vector columns into an orthonormal basis,
+            eliminating linear dependencies (nstates_orth <= nstates)
+    '''
+    log = lib.logger.new_logger (las, las.verbose)
+    if nlas is None: nlas = las.ncas_sub
+    max_memory = getattr (las, 'max_memory', las.mol.max_memory)
+    dtype = h1.dtype
+    nfrags, nroots = nelec_frs.shape[:2]
+    if soc>1: raise NotImplementedError ("Spin-orbit coupling of second order")
+
+    # Handle possible SOC
+    spin_pure, h1, h2, ci, nelec_frs, nlas, spin_shuffle_fac = soc_context (
+        h1, h2, ci, nelec_frs, soc, nlas)
+
+    # First pass: single-fragment intermediates
+    hopping_index, ints, lroots = frag.make_ints (las, ci, nelec_frs, nlas=nlas)
+    nstates = np.sum (np.prod (lroots, axis=0))
+
+    # Second pass: upper-triangle
+    t0 = (lib.logger.process_clock (), lib.logger.perf_counter ())
+    outerprod = _HamS2Ovlp_class (ints, nlas, hopping_index, lroots, h1, h2, dtype=dtype,
+                                     max_memory=max_memory, log=log)
+    if soc and not spin_pure:
+        outerprod.spin_shuffle = spin_shuffle_fac
+    lib.logger.timer (las, 'LASSI Hamiltonian second intermediate indexing setup', *t0)
+    if not _do_kernel: return outerprod
+
+    ham_op = outerprod.get_ham_op ()
+    s2_op = outerprod.get_s2_op ()
+    ovlp_op = outerprod.get_ovlp_op ()
+    hdiag = outerprod.get_hdiag ()
+    raw2orth = citools.get_orth_basis (ci, las.ncas_sub, nelec_frs,
+                                       _get_ovlp=outerprod.get_ovlp)
+    return ham_op, s2_op, ovlp_op, hdiag, raw2orth
 
