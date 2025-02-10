@@ -28,7 +28,7 @@ class HamS2OvlpOperators (HamS2Ovlp):
         HamS2Ovlp.__init__(self, ints, nlas, hopping_index, lroots, h1, h2,
                            mask_bra_space=mask_bra_space, mask_ket_space=mask_ket_space,
                            log=log, max_memory=max_memory, dtype=dtype)
-        self.x = np.zeros (self.nstates, self.get_ci_dtype ())
+        self.x = np.zeros (self.nstates, self.dtype)
         self.ox = np.zeros (self.nstates, self.dtype)
 
     def _umat_linequiv_(self, ifrag, iroot, umat, ivec, *args):
@@ -69,7 +69,7 @@ class HamS2OvlpOperators (HamS2Ovlp):
         self.dt_p, self.dw_p = self.dt_p + dt, self.dw_p + dw
 
     def _ham_op (self, x):
-        self.x = x
+        self.x[:] = x[:]
         self.ox[:] = 0
         self._umat_linequiv_loop_(0) # U.conj () @ x
         for row in self.exc_1d: self._crunch_ox_env_(self._crunch_1d_, 0, *row)
@@ -83,16 +83,17 @@ class HamS2OvlpOperators (HamS2Ovlp):
         return self.ox.copy ()
 
     def _s2_op (self, x):
-        self.x = x
+        self.x[:] = x[:]
         self.ox[:] = 0
         self._umat_linequiv_loop_(0) # U.conj () @ x
         for row in self.exc_1d: self._crunch_ox_env_(self._crunch_1d_, 1, *row)
         for row in self.exc_2d: self._crunch_ox_env_(self._crunch_2d_, 1, *row)
+        for row in self.exc_1s: self._crunch_ox_env_(self._crunch_1s_, 1, *row)
         self._umat_linequiv_loop_(1) # U.T @ ox
         return self.ox.copy ()
 
     def _ovlp_op (self, x):
-        self.x = x
+        self.x[:] = x[:]
         self.ox[:] = 0
         self._umat_linequiv_loop_(0) # U.conj () @ x
         for bra, ket in self.exc_null:
@@ -109,11 +110,11 @@ class HamS2OvlpOperators (HamS2Ovlp):
                                              matvec=self._ham_op)
 
     def get_s2_op (self):
-        return sparse_linalg.LinearOperator ([self.nstates,]*2, dtype=self.get_ci_dtype (),
+        return sparse_linalg.LinearOperator ([self.nstates,]*2, dtype=self.dtype,
                                              matvec=self._s2_op)
 
     def get_ovlp_op (self):
-        return sparse_linalg.LinearOperator ([self.nstates,]*2, dtype=self.get_ci_dtype (),
+        return sparse_linalg.LinearOperator ([self.nstates,]*2, dtype=self.dtype,
                                              matvec=self._ovlp_op)
 
     def get_hdiag (self):
@@ -127,8 +128,8 @@ class HamS2OvlpOperators (HamS2Ovlp):
             hdiag[i] = ham_op (x)[i]
         return hdiag
 
-gen_contract_op_si_hdiag = functools.partial (_fake_gen_contract_op_si_hdiag, ham)
-def gen_contract_op_si_hdiag_o1 (las, h1, h2, ci, nelec_frs, soc=0, nlas=None,
+#gen_contract_op_si_hdiag = functools.partial (_fake_gen_contract_op_si_hdiag, ham)
+def gen_contract_op_si_hdiag (las, h1, h2, ci, nelec_frs, soc=0, nlas=None,
                               _HamS2Ovlp_class=HamS2OvlpOperators, _do_kernel=True, **kwargs):
     ''' Build Hamiltonian, spin-squared, and overlap matrices in LAS product state basis
 
