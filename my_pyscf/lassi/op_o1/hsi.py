@@ -1,9 +1,14 @@
 import numpy as np
 from scipy.sparse import linalg as sparse_linalg
+from pyscf import lib
+from pyscf.lib import logger
+from mrh.my_pyscf.lassi import citools
+from mrh.my_pyscf.lassi.op_o1 import frag
 from mrh.my_pyscf.lassi.op_o1.hams2ovlp import HamS2Ovlp, ham, soc_context
 from mrh.my_pyscf.lassi.citools import _fake_gen_contract_op_si_hdiag
 from mrh.my_pyscf.lassi.op_o1.utilities import *
 import functools
+from itertools import product
 
 class HamS2OvlpOperators (HamS2Ovlp):
     __doc__ = HamS2Ovlp.__doc__ + '''
@@ -51,7 +56,7 @@ class HamS2OvlpOperators (HamS2Ovlp):
         bra_rng = self._get_addr_range (bra, *inv) # profiled as idx
         ket_rng = self._get_addr_range (ket, *inv) # profiled as idx
         t0, w0 = logger.process_clock (), logger.perf_counter ()
-        ham = ham.flat
+        op = op.flat
         for ix, (bra1, ket1) in enumerate (product (bra_rng, ket_rng)):
             bra2, ket2, wgt = self._get_spec_addr_ovlp (bra1, ket1, *inv)
             t1, w1 = logger.process_clock (), logger.perf_counter ()
@@ -75,7 +80,7 @@ class HamS2OvlpOperators (HamS2Ovlp):
         for row in self.exc_1s1c: self._crunch_ox_env_(self._crunch_1s1c_, 0, *row)
         for row in self.exc_2c: self._crunch_ox_env_(self._crunch_2c_, 0, *row)
         self._umat_linequiv_loop_(1) # U.T @ ox
-        return self.ox
+        return self.ox.copy ()
 
     def _s2_op (self, x):
         self.x = x
@@ -84,7 +89,7 @@ class HamS2OvlpOperators (HamS2Ovlp):
         for row in self.exc_1d: self._crunch_ox_env_(self._crunch_1d_, 1, *row)
         for row in self.exc_2d: self._crunch_ox_env_(self._crunch_2d_, 1, *row)
         self._umat_linequiv_loop_(1) # U.T @ ox
-        return self.ox
+        return self.ox.copy ()
 
     def _ovlp_op (self, x):
         self.x = x
@@ -94,30 +99,37 @@ class HamS2OvlpOperators (HamS2Ovlp):
             i0, i1 = self.offs_lroots[bra]
             j0, j1 = self.offs_lroots[ket]
             ovlp = self.crunch_ovlp (bra, ket)
-            self.ox[i0:i1] = np.dot (ovlp, self.x[j0:j1])
-            self.ox[j0:j1] = np.dot (ovlp.conj ().T, self.x[i0:i1])
+            self.ox[i0:i1] += np.dot (ovlp, self.x[j0:j1])
+            self.ox[j0:j1] += np.dot (ovlp.conj ().T, self.x[i0:i1])
         self._umat_linequiv_loop_(1) # U.T @ ox
-        return self.ox
+        return self.ox.copy ()
 
     def get_ham_op (self):
-        return sparse_linalg.LinearOperator ([self.nstates,]*2, self.dtype, matvec=self._ham_op)
+        return sparse_linalg.LinearOperator ([self.nstates,]*2, dtype=self.dtype,
+                                             matvec=self._ham_op)
 
     def get_s2_op (self):
-        return sparse_linalg.LinearOperator ([self.nstates,]*2, self.get_ci_dtype (),
+        return sparse_linalg.LinearOperator ([self.nstates,]*2, dtype=self.get_ci_dtype (),
                                              matvec=self._s2_op)
 
     def get_ovlp_op (self):
-        return sparse_linalg.LinearOperator ([self.nstates,]*2, self.get_ci_dtype (),
+        return sparse_linalg.LinearOperator ([self.nstates,]*2, dtype=self.get_ci_dtype (),
                                              matvec=self._ovlp_op)
 
     def get_hdiag (self):
-        # TODO
-        pass
+        # TODO: make this not stupid
+        ham_op = self.get_ham_op ()
+        hdiag = np.zeros_like (self.ox)
+        x = np.zeros_like (self.x)
+        for i in range (self.nstates):
+            x[:] = 0
+            x[i] = 1.0
+            hdiag[i] = ham_op (x)[i]
+        return hdiag
 
 gen_contract_op_si_hdiag = functools.partial (_fake_gen_contract_op_si_hdiag, ham)
-
 def gen_contract_op_si_hdiag_o1 (las, h1, h2, ci, nelec_frs, soc=0, nlas=None,
-                                 _HamS2Ovlp_class=HamS2OvlpOperators, _do_kernel=True, **kwargs):
+                              _HamS2Ovlp_class=HamS2OvlpOperators, _do_kernel=True, **kwargs):
     ''' Build Hamiltonian, spin-squared, and overlap matrices in LAS product state basis
 
     Args:
