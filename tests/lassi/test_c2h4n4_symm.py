@@ -23,7 +23,7 @@ from mrh.tests.lasscf.c2h4n4_struct import structure as struct
 from mrh.my_pyscf.mcscf.lasscf_o0 import LASSCF
 from mrh.my_pyscf.lassi.lassi import roots_make_rdm12s, make_stdm12s, ham_2q
 from mrh.my_pyscf.lassi import LASSI
-from mrh.tests.lassi.addons import case_contract_hlas_ci
+from mrh.tests.lassi.addons import case_contract_hlas_ci, case_contract_op_si
 
 def setUpModule ():
     global lsi, rdm1s, rdm2s
@@ -135,6 +135,13 @@ class KnownValues(unittest.TestCase):
         ci = [c[:4] for c in las.ci] # No SOC yet
         nelec_frs = nelec_frs[:,:4,:] # No SOC yet
         case_contract_hlas_ci (self, las, h0, h1, h2, ci, nelec_frs)
+
+    def test_contract_op_si (self):
+        las, nelec_frs = lsi._las, lsi.get_nelec_frs ()
+        h0, h1, h2 = lsi.ham_2q ()
+        ci = [c[:4] for c in las.ci] # No SOC yet
+        nelec_frs = nelec_frs[:,:4,:] # No SOC yet
+        case_contract_op_si (self, las, h1, h2, ci, nelec_frs)
 
 if __name__ == "__main__":
     print("Full Tests for SA-LASSI of c2h4n4 molecule with pointgroup symmetry")

@@ -30,7 +30,7 @@ from mrh.my_pyscf.lassi.lassi import roots_make_rdm12s, make_stdm12s, ham_2q
 from mrh.my_pyscf.lassi.citools import get_lroots, get_rootaddr_fragaddr
 from mrh.my_pyscf.lassi import op_o0
 from mrh.my_pyscf.lassi import op_o1
-from mrh.tests.lassi.addons import case_contract_hlas_ci
+from mrh.tests.lassi.addons import case_contract_hlas_ci, case_contract_op_si
 
 op = (op_o0, op_o1)
 
@@ -186,6 +186,10 @@ class KnownValues(unittest.TestCase):
     def test_contract_hlas_ci (self):
         h0, h1, h2 = ham_2q (las, las.mo_coeff)
         case_contract_hlas_ci (self, las, h0, h1, h2, las.ci, nelec_frs)
+
+    def test_contract_op_si (self):
+        h0, h1, h2 = ham_2q (las, las.mo_coeff)
+        case_contract_op_si (self, las, h1, h2, las.ci, nelec_frs)
 
 
 

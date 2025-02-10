@@ -11,7 +11,7 @@ from mrh.my_pyscf.lassi.sitools import make_sdm1
 from mrh.my_pyscf.lassi.lassi import roots_make_rdm12s
 from mrh.my_pyscf.lassi.op_o1 import get_fdm1_maker
 from mrh.my_pyscf.lassi import op_o0, op_o1
-from mrh.tests.lassi.addons import case_contract_hlas_ci
+from mrh.tests.lassi.addons import case_contract_hlas_ci, case_contract_op_si
 
 op = (op_o0, op_o1)
 
@@ -98,6 +98,11 @@ class KnownValues(unittest.TestCase):
         e_roots, si, las = lsi.e_roots, lsi.si, lsi._las
         h0, h1, h2 = lsi.ham_2q ()
         case_contract_hlas_ci (self, las, h0, h1, h2, las.ci, lsi.get_nelec_frs ())
+
+    def test_contract_op_si (self):
+        e_roots, si, las = lsi.e_roots, lsi.si, lsi._las
+        h0, h1, h2 = lsi.ham_2q ()
+        case_contract_op_si (self, las, h1, h2, las.ci, lsi.get_nelec_frs ())
 
 if __name__ == "__main__":
     print("Full Tests for LASSI single-fragment edge case")

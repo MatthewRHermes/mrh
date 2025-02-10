@@ -400,6 +400,7 @@ def soc_context (h1, h2, ci, nelec_frs, soc, nlas):
         nlas = [2*x for x in nlas]
         spin_shuffle_fac = [fermion_spin_shuffle (nelec_frs[:,i,0], nelec_frs[:,i,1])
                             for i in range (nroots)]
+        nelec_frs = nelec_frs.copy ()
         nelec_frs[:,:,0] += nelec_frs[:,:,1]
         nelec_frs[:,:,1] = 0
     return spin_pure, h1, h2, ci, nelec_frs, nlas, spin_shuffle_fac

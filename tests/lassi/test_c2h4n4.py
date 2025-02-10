@@ -24,7 +24,7 @@ from mrh.my_pyscf.mcscf.lasscf_o0 import LASSCF
 from mrh.my_pyscf.lassi.lassi import roots_make_rdm12s, root_make_rdm12s, make_stdm12s, ham_2q
 from mrh.my_pyscf.lassi import LASSI, LASSIS
 from mrh.tests.lassi.addons import case_contract_hlas_ci, case_lassis_fbf_2_model_state
-from mrh.tests.lassi.addons import case_lassis_fbfdm
+from mrh.tests.lassi.addons import case_lassis_fbfdm, case_contract_op_si
 topdir = os.path.abspath (os.path.join (__file__, '..'))
 
 def setUpModule ():
@@ -217,6 +217,13 @@ class KnownValues(unittest.TestCase):
         ci = [c[:4] for c in las.ci] # No SOC yet
         nelec_frs = nelec_frs[:,:4,:] # No SOC yet
         case_contract_hlas_ci (self, las, h0, h1, h2, ci, nelec_frs)
+
+    def test_contract_op_si (self):
+        las, nelec_frs = lsi._las, lsi.get_nelec_frs ()
+        h0, h1, h2 = lsi.ham_2q ()
+        ci = [c[:4] for c in las.ci] # No SOC yet
+        nelec_frs = nelec_frs[:,:4,:] # No SOC yet
+        case_contract_op_si (self, las, h1, h2, ci, nelec_frs)
 
 if __name__ == "__main__":
     print("Full Tests for SA-LASSI of c2h4n4 molecule")

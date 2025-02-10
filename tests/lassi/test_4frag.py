@@ -33,7 +33,7 @@ from mrh.my_pyscf.lassi import LASSIS
 from mrh.my_pyscf.lassi.op_o1 import get_fdm1_maker
 from mrh.my_pyscf.lassi.sitools import make_sdm1
 from mrh.tests.lassi.addons import case_contract_hlas_ci, case_lassis_fbf_2_model_state
-from mrh.tests.lassi.addons import case_lassis_fbfdm
+from mrh.tests.lassi.addons import case_lassis_fbfdm, case_contract_op_si
 
 def setUpModule ():
     global mol, mf, las, nroots, nelec_frs, si
@@ -200,6 +200,10 @@ class KnownValues(unittest.TestCase):
     def test_contract_hlas_ci (self):
         h0, h1, h2 = ham_2q (las, las.mo_coeff)
         case_contract_hlas_ci (self, las, h0, h1, h2, las.ci, nelec_frs)        
+
+    def test_contract_op_si (self):
+        h0, h1, h2 = ham_2q (las, las.mo_coeff)
+        case_contract_op_si (self, las, h1, h2, las.ci, nelec_frs)        
 
 
 if __name__ == "__main__":

@@ -25,7 +25,7 @@ from mrh.my_pyscf.mcscf.lasci import get_space_info
 from mrh.my_pyscf.lassi import op_o0, op_o1, lassis
 from mrh.my_pyscf.lassi.op_o1 import get_fdm1_maker
 from mrh.my_pyscf.lassi.sitools import make_sdm1
-from mrh.tests.lassi.addons import case_contract_hlas_ci
+from mrh.tests.lassi.addons import case_contract_hlas_ci, case_contract_op_si
 
 def setUpModule ():
     global mol, mf, lsi, las, mc, op, old_compute_hso
@@ -136,6 +136,11 @@ class KnownValues(unittest.TestCase):
         ovlp = np.dot (lsi1.si[:,0], lsi.si[:,0].conj ())
         ovlp = ovlp.conj () * ovlp
         self.assertAlmostEqual (ovlp, 1.0, 4)
+
+    def test_contract_op_si (self):
+        e_roots, si, las = lsi.e_roots, lsi.si, lsi._las
+        h0, h1, h2 = lsi.ham_2q (soc=1)
+        case_contract_op_si (self, las, h1, h2, las.ci, lsi.get_nelec_frs (), soc=1)
 
     #def test_lassirq (self):
     #    lsi1 = LASSIrq (las, 2, 3).run ()

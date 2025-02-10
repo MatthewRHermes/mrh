@@ -64,6 +64,23 @@ def case_contract_hlas_ci (ks, las, h0, h1, h2, ci_fr, nelec_frs):
                                        dnelecb=nelec[:,r,1]-nelec[:,s,1]):
                         ks.assertAlmostEqual (lib.fp (hket_pq_s), lib.fp (hket_ref_s), 8)
 
+def case_contract_op_si (ks, las, h1, h2, ci_fr, nelec_frs, soc=0):
+    ham, s2, ovlp = op[1].ham (las, h1, h2, ci_fr, nelec_frs, soc=soc)[:3]
+    ops = op[1].gen_contract_op_si_hdiag (las, h1, h2, ci_fr, nelec_frs, soc=soc)
+    ham_op, s2_op, ovlp_op, ham_diag = ops[:4]
+    with ks.subTest ('hdiag'):
+        ks.assertAlmostEqual (lib.fp (ham.diagonal ()), lib.fp (ham_diag), 7)
+    nstates = ham.shape[0]
+    x = np.random.rand (nstates)
+    if soc:
+        x = x + 1j*np.random.rand (nstates)
+    with ks.subTest ('ham_op'):
+        ks.assertAlmostEqual (lib.fp (ham_op (x)), lib.fp (ham @ x), 7)
+    with ks.subTest ('s2_op'):
+        ks.assertAlmostEqual (lib.fp (s2_op (x)), lib.fp (s2 @ x), 7)
+    with ks.subTest ('ovlp_op'):
+        ks.assertAlmostEqual (lib.fp (ovlp_op (x)), lib.fp (ovlp @ x), 7)
+
 def case_lassis_fbf_2_model_state (ks, lsi):
     seen_fr = np.zeros ((lsi.nfrags,lsi.nroots), dtype=int)
     nlas = lsi.ncas_sub
