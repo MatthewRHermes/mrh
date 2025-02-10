@@ -181,7 +181,6 @@ class KnownValues(unittest.TestCase):
         for ifrag in range (len (las0.ci)):
             las0.ci[ifrag][0] = las0.ci[ifrag][0][0]
         for dson in (False,True):
-            if dson: continue
             with self.subTest (davidson_only=dson):
                 lsi = LASSIS (las0).run (davidson_only=dson)
                 self.assertTrue (lsi.converged)
