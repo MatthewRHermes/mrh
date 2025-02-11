@@ -55,7 +55,11 @@ def get_jk(dfobj, dm, hermi=1, with_j=True, with_k=True, direct_scf_tol=1e-13):
         dmtril[:,idx*(idx+1)//2+idx] *= .5
         #t3 = lib.logger.timer(dfobj, 'get_jk with_j',*t2)
 
-    vj = numpy.zeros_like(dmtril)
+        vj = numpy.zeros_like(dmtril)
+    else:
+        dmtril = numpy.zeros((nset, int(nao*(nao+1)/2))) # shouldn't have to do this; bug in libgpu side
+        vj = numpy.zeros((nset, int(nao*(nao+1)/2))) # shouldn't have to do this; bug in libgpu side
+        
     dms = [numpy.asarray(x, order='F') for x in dms]
     
     if not with_k:
@@ -141,7 +145,7 @@ def get_jk(dfobj, dm, hermi=1, with_j=True, with_k=True, direct_scf_tol=1e-13):
         buf = numpy.empty((2,blksize,nao,nao))
         
         count = 0
-        vj = numpy.zeros_like(dmtril)
+        vj = numpy.zeros_like(dmtril) # redundant? 
 
         #t3 = lib.logger.timer(dfobj, 'get_jk with_k setup',*t2)
 
@@ -245,7 +249,11 @@ def get_jk_debug(dfobj, dm, hermi=1, with_j=True, with_k=True, direct_scf_tol=1e
         dmtril = lib.pack_tril(dms + dms.conj().transpose(0,2,1))
         dmtril[:,idx*(idx+1)//2+idx] *= .5
     
-    vj = numpy.zeros_like(dmtril)
+        vj = numpy.zeros_like(dmtril)
+    else:
+        dmtril = numpy.zeros((nset, int(nao*(nao+1)/2))) # shouldn't have to do this; bug in libgpu side
+        vj = numpy.zeros((nset, int(nao*(nao+1)/2))) # shouldn't have to do this; bug in libgpu side
+        
     dms = [numpy.asarray(x, order='F') for x in dms]
     
     if not with_k:
