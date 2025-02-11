@@ -69,7 +69,7 @@ class HamS2OvlpOperators (HamS2Ovlp):
         self.dt_p, self.dw_p = self.dt_p + dt, self.dw_p + dw
 
     def _ham_op (self, x):
-        self.x[:] = x[:]
+        self.x[:] = x.flat[:]
         self.ox[:] = 0
         self._umat_linequiv_loop_(0) # U.conj () @ x
         for row in self.exc_1d: self._crunch_ox_env_(self._crunch_1d_, 0, *row)
@@ -83,7 +83,7 @@ class HamS2OvlpOperators (HamS2Ovlp):
         return self.ox.copy ()
 
     def _s2_op (self, x):
-        self.x[:] = x[:]
+        self.x[:] = x.flat[:]
         self.ox[:] = 0
         self._umat_linequiv_loop_(0) # U.conj () @ x
         for row in self.exc_1d: self._crunch_ox_env_(self._crunch_1d_, 1, *row)
@@ -93,7 +93,7 @@ class HamS2OvlpOperators (HamS2Ovlp):
         return self.ox.copy ()
 
     def _ovlp_op (self, x):
-        self.x[:] = x[:]
+        self.x[:] = x.flat[:]
         self.ox[:] = 0
         self._umat_linequiv_loop_(0) # U.conj () @ x
         for bra, ket in self.exc_null:
