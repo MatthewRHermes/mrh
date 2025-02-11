@@ -157,7 +157,7 @@ class HamS2OvlpOperators (HamS2Ovlp):
 
 #gen_contract_op_si_hdiag = functools.partial (_fake_gen_contract_op_si_hdiag, ham)
 def gen_contract_op_si_hdiag (las, h1, h2, ci, nelec_frs, soc=0, nlas=None,
-                              _HamS2Ovlp_class=HamS2OvlpOperators, _do_kernel=True, **kwargs):
+                              _HamS2Ovlp_class=HamS2OvlpOperators, _return_int=False, **kwargs):
     ''' Build Hamiltonian, spin-squared, and overlap matrices in LAS product state basis
 
     Args:
@@ -179,8 +179,8 @@ def gen_contract_op_si_hdiag (las, h1, h2, ci, nelec_frs, soc=0, nlas=None,
             Number of orbitals in each fragment
         _HamS2Ovlp_class : class
             The main intermediate class
-        _do_kernel : logical
-            If false, return the main intermediate object before running kernel, instead of the
+        _return_int : logical
+            If True, return the main intermediate object instead of the
             operator matrices
         
     Returns: 
@@ -219,7 +219,8 @@ def gen_contract_op_si_hdiag (las, h1, h2, ci, nelec_frs, soc=0, nlas=None,
     if soc and not spin_pure:
         outerprod.spin_shuffle = spin_shuffle_fac
     lib.logger.timer (las, 'LASSI Hamiltonian second intermediate indexing setup', *t0)
-    if not _do_kernel: return outerprod
+
+    if _return_int: return outerprod
 
     ham_op = outerprod.get_ham_op ()
     s2_op = outerprod.get_s2_op ()
