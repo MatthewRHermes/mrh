@@ -145,11 +145,11 @@ class HamS2Ovlp (stdm.LSTDM):
         p, q = self.get_range (i)
         r, s = self.get_range (j)
         if len (inv) == 2:
-            return np.ascontiguousarray (self.h1[:,p:q,r:s])
+            return np.ascontiguousarray (self.h1[:,p:q,r:s]).copy ()
         k, l = inv[2:]
         t, u = self.get_range (k)
         v, w = self.get_range (l)
-        return np.ascontiguousarray (self.h2[p:q,r:s,t:u,v:w])
+        return np.ascontiguousarray (self.h2[p:q,r:s,t:u,v:w]).copy ()
 
     def _crunch_1d_(self, bra, ket, i):
         '''Compute a single-fragment density fluctuation, for both the 1- and 2-RDMs.'''
