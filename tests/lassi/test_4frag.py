@@ -190,11 +190,9 @@ class KnownValues(unittest.TestCase):
             with self.subTest (davidson_only=dson):
                 lsi = LASSIS (las0).set (davidson_only=dson)
                 if dson:
-                    # hdiag still too slow for this!
-                    continue
-                    #lsi.prepare_states_()
-                    #h0, h1, h2 = ham_2q (las0, las0.mo_coeff)
-                    #case_contract_op_si (self, las, h1, h2, lsi.ci, lsi.get_nelec_frs ())
+                    lsi.prepare_states_()
+                    h0, h1, h2 = ham_2q (las0, las0.mo_coeff)
+                    case_contract_op_si (self, las, h1, h2, lsi.ci, lsi.get_nelec_frs ())
                 else:
                     lsi.kernel ()
                     self.assertTrue (lsi.converged)

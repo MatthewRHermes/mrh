@@ -32,6 +32,7 @@ class HamS2OvlpOperators (HamS2Ovlp):
         self.ox = np.zeros (self.nstates, self.dtype)
 
     def _umat_linequiv_(self, ifrag, iroot, umat, ivec, *args):
+        assert (False)
         if ivec==0:
             self.x = umat_dot_1frag_(self.x, umat.conj ().T, self.lroots, ifrag, iroot)
         elif ivec==1:
@@ -63,6 +64,36 @@ class HamS2OvlpOperators (HamS2Ovlp):
             for bra3, ket3, w in zip (bra2, ket2, wgt):
                 self.ox[bra3] += w * op[ix] * self.x[ket3]
                 self.ox[ket3] += w * op[ix].conj () * self.x[bra3]
+            dt, dw = logger.process_clock () - t1, logger.perf_counter () - w1
+            self.dt_s, self.dw_s = self.dt_s + dt, self.dw_s + dw
+        dt, dw = logger.process_clock () - t0, logger.perf_counter () - w0
+        self.dt_p, self.dw_p = self.dt_p + dt, self.dw_p + dw
+
+    def _crunch_hdiag_env_(self, _crunch_fn, *row): 
+        if row[0] != row[1]: return
+        if self._fn_row_has_spin (_crunch_fn):
+            inv = row[2:-1]     
+        else:
+            inv = row[2:]
+        self._prepare_spec_addr_ovlp_(row[0], row[1], *inv)
+        ham, s2, ninv = _crunch_fn (*row)
+        ham = self.canonical_operator_order (ham, ninv)
+        self._put_hdiag_(row[0], row[1], ham, *inv)
+
+    def _put_hdiag_(self, bra, ket, op, *inv):
+        # TODO: transpose the nested loops and vectorize the ix, (bra1, ket1) loop
+        bra_rng = self._get_addr_range (bra, *inv) # profiled as idx
+        ket_rng = self._get_addr_range (ket, *inv) # profiled as idx
+        t0, w0 = logger.process_clock (), logger.perf_counter ()
+        op = op.flat
+        for ix, (bra1, ket1) in enumerate (product (bra_rng, ket_rng)):
+            if bra1 != ket1: continue
+            bra2, ket2, wgt = self._get_spec_addr_ovlp (bra1, ket1, *inv)
+            t1, w1 = logger.process_clock (), logger.perf_counter ()
+            for bra3, ket3, w in zip (bra2, ket2, wgt):
+                if bra3 != ket3: continue
+                self.ox[bra3] += w * op[ix] 
+                self.ox[ket3] += w * op[ix].conj ()
             dt, dw = logger.process_clock () - t1, logger.perf_counter () - w1
             self.dt_s, self.dw_s = self.dt_s + dt, self.dw_s + dw
         dt, dw = logger.process_clock () - t0, logger.perf_counter () - w0
@@ -118,15 +149,11 @@ class HamS2OvlpOperators (HamS2Ovlp):
                                              matvec=self._ovlp_op)
 
     def get_hdiag (self):
-        # TODO: make this not stupid
-        ham_op = self.get_ham_op ()
-        hdiag = np.zeros_like (self.ox)
-        x = np.zeros_like (self.x)
-        for i in range (self.nstates):
-            x[:] = 0
-            x[i] = 1.0
-            hdiag[i] = ham_op (x)[i]
-        return hdiag
+        # TODO: make this compatible with screen_linequiv somehow
+        self.ox[:] = 0
+        for row in self.exc_1d: self._crunch_hdiag_env_(self._crunch_1d_, *row)
+        for row in self.exc_2d: self._crunch_hdiag_env_(self._crunch_2d_, *row)
+        return self.ox.copy ()
 
 #gen_contract_op_si_hdiag = functools.partial (_fake_gen_contract_op_si_hdiag, ham)
 def gen_contract_op_si_hdiag (las, h1, h2, ci, nelec_frs, soc=0, nlas=None,
@@ -181,7 +208,8 @@ def gen_contract_op_si_hdiag (las, h1, h2, ci, nelec_frs, soc=0, nlas=None,
         h1, h2, ci, nelec_frs, soc, nlas)
 
     # First pass: single-fragment intermediates
-    hopping_index, ints, lroots = frag.make_ints (las, ci, nelec_frs, nlas=nlas)
+    hopping_index, ints, lroots = frag.make_ints (las, ci, nelec_frs, nlas=nlas,
+                                                  screen_linequiv=False)
     nstates = np.sum (np.prod (lroots, axis=0))
 
     # Second pass: upper-triangle
