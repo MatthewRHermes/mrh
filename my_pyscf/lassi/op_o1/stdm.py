@@ -595,8 +595,7 @@ class LSTDM (object):
         specints = [self.ints[i] for i in spec]
         o = fac * np.ones ((1,1), dtype=self.get_ci_dtype ())
         for i in specints:
-            b, k = i.unique_root[rbra], i.unique_root[rket]
-            o = np.multiply.outer (i.ovlp[b][k], o).transpose (0,2,1,3)
+            o = np.multiply.outer (i.get_ovlp (rbra, rket), o).transpose (0,2,1,3)
             o = o.reshape (o.shape[0]*o.shape[1], o.shape[2]*o.shape[3])
         idx = np.abs(o) > 1e-8
         if (rbra==rket): # not bra==ket because _loop_lroots_ doesn't restrict to tril

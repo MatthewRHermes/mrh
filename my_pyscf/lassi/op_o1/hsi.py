@@ -137,19 +137,17 @@ class HamS2OvlpOperators (HamS2Ovlp):
         self._put_hdiag_(row[0], row[1], ham, *inv)
 
     def _put_hdiag_(self, bra, ket, op, *inv):
-        # TODO: transpose the nested loops and vectorize the ix, (bra1, ket1) loop
         bra_rng = self._get_addr_range (bra, *inv) # profiled as idx
-        ket_rng = self._get_addr_range (ket, *inv) # profiled as idx
         t0, w0 = logger.process_clock (), logger.perf_counter ()
-        op = op.flat
-        for ix, (bra1, ket1) in enumerate (product (bra_rng, ket_rng)):
-            if bra1 != ket1: continue
-            bra2, ket2, wgt = self._get_spec_addr_ovlp (bra1, ket1, *inv)
+        op_nbra = np.prod (op.shape[:op.ndim//2])
+        op_nket = np.prod (op.shape[op.ndim//2:])
+        op = op.reshape (op_nbra, op_nket).diagonal ()
+        op = op + op.conj ()
+        for ix, bra1 in enumerate (bra_rng):
+            bra2, ket2, wgt = self._get_spec_addr_ovlp (bra1, bra1, *inv)
+            idx = (bra2==ket2)
             t1, w1 = logger.process_clock (), logger.perf_counter ()
-            for bra3, ket3, w in zip (bra2, ket2, wgt):
-                if bra3 != ket3: continue
-                self.ox[bra3] += w * op[ix] 
-                self.ox[ket3] += w * op[ix].conj ()
+            self.ox[bra2[idx]] += wgt[idx] * op[ix]
             dt, dw = logger.process_clock () - t1, logger.perf_counter () - w1
             self.dt_s, self.dw_s = self.dt_s + dt, self.dw_s + dw
         dt, dw = logger.process_clock () - t0, logger.perf_counter () - w0
