@@ -40,6 +40,30 @@ class HamS2OvlpOperators (HamS2Ovlp):
         else:
             raise RuntimeError ("Invalid ivec = {}; must be 0 or 1".format (ivec))
 
+    def _ham_op (self, x):
+        self.x[:] = x.flat[:]
+        self.ox[:] = 0
+        self._umat_linequiv_loop_(0) # U.conj () @ x
+        for row in self.exc_1d: self._crunch_ox_env_(self._crunch_1d_, 0, *row)
+        for row in self.exc_2d: self._crunch_ox_env_(self._crunch_2d_, 0, *row)
+        for row in self.exc_1c: self._crunch_ox_env_(self._crunch_1c_, 0, *row)
+        for row in self.exc_1c1d: self._crunch_ox_env_(self._crunch_1c1d_, 0, *row)
+        for row in self.exc_1s: self._crunch_ox_env_(self._crunch_1s_, 0, *row)
+        for row in self.exc_1s1c: self._crunch_ox_env_(self._crunch_1s1c_, 0, *row)
+        for row in self.exc_2c: self._crunch_ox_env_(self._crunch_2c_, 0, *row)
+        self._umat_linequiv_loop_(1) # U.T @ ox
+        return self.ox.copy ()
+
+    def _s2_op (self, x):
+        self.x[:] = x.flat[:]
+        self.ox[:] = 0
+        self._umat_linequiv_loop_(0) # U.conj () @ x
+        for row in self.exc_1d: self._crunch_ox_env_(self._crunch_1d_, 1, *row)
+        for row in self.exc_2d: self._crunch_ox_env_(self._crunch_2d_, 1, *row)
+        for row in self.exc_1s: self._crunch_ox_env_(self._crunch_1s_, 1, *row)
+        self._umat_linequiv_loop_(1) # U.T @ ox
+        return self.ox.copy ()
+
     def _crunch_ox_env_(self, _crunch_fn, opid, *row): 
         if self._fn_row_has_spin (_crunch_fn):
             inv = row[2:-1]     
@@ -68,60 +92,6 @@ class HamS2OvlpOperators (HamS2Ovlp):
             self.dt_s, self.dw_s = self.dt_s + dt, self.dw_s + dw
         dt, dw = logger.process_clock () - t0, logger.perf_counter () - w0
         self.dt_p, self.dw_p = self.dt_p + dt, self.dw_p + dw
-
-    def _crunch_hdiag_env_(self, _crunch_fn, *row): 
-        if row[0] != row[1]: return
-        if self._fn_row_has_spin (_crunch_fn):
-            inv = row[2:-1]     
-        else:
-            inv = row[2:]
-        self._prepare_spec_addr_ovlp_(row[0], row[1], *inv)
-        ham, s2, ninv = _crunch_fn (*row)
-        ham = self.canonical_operator_order (ham, ninv)
-        self._put_hdiag_(row[0], row[1], ham, *inv)
-
-    def _put_hdiag_(self, bra, ket, op, *inv):
-        # TODO: transpose the nested loops and vectorize the ix, (bra1, ket1) loop
-        bra_rng = self._get_addr_range (bra, *inv) # profiled as idx
-        ket_rng = self._get_addr_range (ket, *inv) # profiled as idx
-        t0, w0 = logger.process_clock (), logger.perf_counter ()
-        op = op.flat
-        for ix, (bra1, ket1) in enumerate (product (bra_rng, ket_rng)):
-            if bra1 != ket1: continue
-            bra2, ket2, wgt = self._get_spec_addr_ovlp (bra1, ket1, *inv)
-            t1, w1 = logger.process_clock (), logger.perf_counter ()
-            for bra3, ket3, w in zip (bra2, ket2, wgt):
-                if bra3 != ket3: continue
-                self.ox[bra3] += w * op[ix] 
-                self.ox[ket3] += w * op[ix].conj ()
-            dt, dw = logger.process_clock () - t1, logger.perf_counter () - w1
-            self.dt_s, self.dw_s = self.dt_s + dt, self.dw_s + dw
-        dt, dw = logger.process_clock () - t0, logger.perf_counter () - w0
-        self.dt_p, self.dw_p = self.dt_p + dt, self.dw_p + dw
-
-    def _ham_op (self, x):
-        self.x[:] = x.flat[:]
-        self.ox[:] = 0
-        self._umat_linequiv_loop_(0) # U.conj () @ x
-        for row in self.exc_1d: self._crunch_ox_env_(self._crunch_1d_, 0, *row)
-        for row in self.exc_2d: self._crunch_ox_env_(self._crunch_2d_, 0, *row)
-        for row in self.exc_1c: self._crunch_ox_env_(self._crunch_1c_, 0, *row)
-        for row in self.exc_1c1d: self._crunch_ox_env_(self._crunch_1c1d_, 0, *row)
-        for row in self.exc_1s: self._crunch_ox_env_(self._crunch_1s_, 0, *row)
-        for row in self.exc_1s1c: self._crunch_ox_env_(self._crunch_1s1c_, 0, *row)
-        for row in self.exc_2c: self._crunch_ox_env_(self._crunch_2c_, 0, *row)
-        self._umat_linequiv_loop_(1) # U.T @ ox
-        return self.ox.copy ()
-
-    def _s2_op (self, x):
-        self.x[:] = x.flat[:]
-        self.ox[:] = 0
-        self._umat_linequiv_loop_(0) # U.conj () @ x
-        for row in self.exc_1d: self._crunch_ox_env_(self._crunch_1d_, 1, *row)
-        for row in self.exc_2d: self._crunch_ox_env_(self._crunch_2d_, 1, *row)
-        for row in self.exc_1s: self._crunch_ox_env_(self._crunch_1s_, 1, *row)
-        self._umat_linequiv_loop_(1) # U.T @ ox
-        return self.ox.copy ()
 
     def _ovlp_op (self, x):
         self.x[:] = x.flat[:]
@@ -154,6 +124,36 @@ class HamS2OvlpOperators (HamS2Ovlp):
         for row in self.exc_1d: self._crunch_hdiag_env_(self._crunch_1d_, *row)
         for row in self.exc_2d: self._crunch_hdiag_env_(self._crunch_2d_, *row)
         return self.ox.copy ()
+
+    def _crunch_hdiag_env_(self, _crunch_fn, *row): 
+        if row[0] != row[1]: return
+        if self._fn_row_has_spin (_crunch_fn):
+            inv = row[2:-1]     
+        else:
+            inv = row[2:]
+        self._prepare_spec_addr_ovlp_(row[0], row[1], *inv)
+        ham, s2, ninv = _crunch_fn (*row)
+        ham = self.canonical_operator_order (ham, ninv)
+        self._put_hdiag_(row[0], row[1], ham, *inv)
+
+    def _put_hdiag_(self, bra, ket, op, *inv):
+        # TODO: transpose the nested loops and vectorize the ix, (bra1, ket1) loop
+        bra_rng = self._get_addr_range (bra, *inv) # profiled as idx
+        ket_rng = self._get_addr_range (ket, *inv) # profiled as idx
+        t0, w0 = logger.process_clock (), logger.perf_counter ()
+        op = op.flat
+        for ix, (bra1, ket1) in enumerate (product (bra_rng, ket_rng)):
+            if bra1 != ket1: continue
+            bra2, ket2, wgt = self._get_spec_addr_ovlp (bra1, ket1, *inv)
+            t1, w1 = logger.process_clock (), logger.perf_counter ()
+            for bra3, ket3, w in zip (bra2, ket2, wgt):
+                if bra3 != ket3: continue
+                self.ox[bra3] += w * op[ix] 
+                self.ox[ket3] += w * op[ix].conj ()
+            dt, dw = logger.process_clock () - t1, logger.perf_counter () - w1
+            self.dt_s, self.dw_s = self.dt_s + dt, self.dw_s + dw
+        dt, dw = logger.process_clock () - t0, logger.perf_counter () - w0
+        self.dt_p, self.dw_p = self.dt_p + dt, self.dw_p + dw
 
 #gen_contract_op_si_hdiag = functools.partial (_fake_gen_contract_op_si_hdiag, ham)
 def gen_contract_op_si_hdiag (las, h1, h2, ci, nelec_frs, soc=0, nlas=None,
