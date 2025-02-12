@@ -132,9 +132,45 @@ class HamS2OvlpOperators (HamS2Ovlp):
         else:
             inv = row[2:]
         self._prepare_spec_addr_ovlp_(row[0], row[1], *inv)
-        ham, s2, ninv = _crunch_fn (*row)
-        ham = self.canonical_operator_order (ham, ninv)
-        self._put_hdiag_(row[0], row[1], ham, *inv)
+        ham, s2, sinv = _crunch_fn (*row)
+        # Eliminate repeated fragment indices while preserving order
+        invset = set ()
+        sinv = [i for i in sinv if not (i in invset or invset.add (i))]
+        key = tuple ((row[0], row[1])) + inv
+        for bra, ket in self.nonuniq_exc[key]:
+            if bra != ket: continue
+            hdiag_nonspec = self.get_hdiag_nonspectator (ham, bra, *sinv)
+            hdiag_spec = self.hdiag_spectator_ovlp (bra, *sinv)
+            hdiag = np.multiply.outer (hdiag_nonspec, hdiag_spec)
+            hdiag = transpose_sivec_with_slow_fragments (hdiag, self.lroots[:,bra], *sinv)
+            i, j = self.offs_lroots[bra]
+            self.ox[i:j] += hdiag.ravel ()
+        #ham = self.canonical_operator_order (ham, ninv)
+        #self._put_hdiag_(row[0], row[1], ham, *inv)
+
+    def get_hdiag_nonspectator (self, ham, bra, *inv):
+        for i in inv[::-1]:
+            ubra = self.ints[i].umat_root.get (bra, np.eye (ham.shape[-1]))
+            uket = ubra
+            ham = np.tensordot (uket, ham, axes=((0,),(-1,)))
+            ham = np.tensordot (ubra.conj (), ham, axes=((0,),(-1)))
+            ham = np.diagonal (ham, axis1=0, axis2=1)
+            ham = np.moveaxis (ham, -1, 0)
+        return ham
+
+    def hdiag_spectator_ovlp (self, rbra, *inv):
+        fac = self.spin_shuffle[rbra] * self.spin_shuffle[rbra]
+        fac *= self.fermion_frag_shuffle (rbra, inv)
+        fac *= self.fermion_frag_shuffle (rbra, inv)
+        spec = np.ones (self.nfrags, dtype=bool)
+        for i in inv: spec[i] = False
+        spec = np.where (spec)[0]
+        specints = [self.ints[i] for i in spec]
+        o = fac * np.ones ((1,1), dtype=self.dtype)
+        for i in specints:
+            o = np.multiply.outer (i.get_ovlp_inpbasis (rbra, rbra).diagonal (), o)
+            o = o.ravel ()
+        return o
 
     def _put_hdiag_(self, bra, ket, op, *inv):
         bra_rng = self._get_addr_range (bra, *inv) # profiled as idx

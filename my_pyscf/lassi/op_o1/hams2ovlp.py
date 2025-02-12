@@ -169,7 +169,7 @@ class HamS2Ovlp (stdm.LSTDM):
         s2 -= m2.sum ((2,3)) / 2
         dt, dw = logger.process_clock () - t0, logger.perf_counter () - w0
         self.dt_1d, self.dw_1d = self.dt_1d + dt, self.dw_1d + dw
-        return ham, s2, (i)
+        return ham, s2, (i,)
     
     def _crunch_2d_(self, bra, ket, i, j):
         '''Compute a two-fragment density fluctuation.'''

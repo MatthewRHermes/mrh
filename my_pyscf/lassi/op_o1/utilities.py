@@ -183,5 +183,74 @@ def spin_shuffle_idx (norb_f):
         idxb.extend (list (range (2*i-j,2*i)))
     return idxa + idxb
 
+def transpose_sivec_make_fragments_slow (vec, lroots, *inv):
+    '''A single-rootspace slice of the SI vectors, transposed so that involved fragments
+    are slower-moving
+
+    Args:
+        vec: ndarray of shape (nroots_si, np.prod (lroots))
+            Single-rootspace sivec
+        lroots: ndarray of shape (nfrags)
+            Number of fragment states
+        *inv: integers 
+            Indices of nonspectator fragments
+
+    Returns:
+        vec: ndarray of shape (nroots_si, nrows, ncols)
+            SI vectors with the faster dimension iterating over states of fragments not in
+            inv and the slower dimension iterating over states of fragments in inv 
+    '''
+    nprods = np.prod (lroots)
+    rdim = nroots_si = vec.size // nprods
+    assert ((vec.size % nprods) == 0), 'lroots does not match vec size'
+    nrows = np.prod (lroots[list (inv)])
+    ncols = nprods // nrows
+    lroots = lroots.copy ()
+    for i in list (inv)[::-1]:
+        lrl = np.prod (lroots[:i])
+        lrc = lroots[i]
+        lrr = np.prod (lroots[i+1:])
+        vec = vec.reshape ((lrl,lrc,lrr,rdim), order='F')
+        vec = vec.transpose (0,2,1,3)
+        vec = vec.reshape ((lrl*lrr,lrc*rdim), order='F')
+        rdim = rdim * lrc
+        lroots[i] = 1
+    return np.asfortranarray (vec).reshape ((ncols, nrows, nroots_si), order='F').T
+
+def transpose_sivec_with_slow_fragments (vec, lroots, *inv):
+    '''The inverse operation of transpose_sivec_make_fragments_slow.
+
+    Args:
+        vec: ndarray of shape (nroots_si, nrows, ncols)
+            Single-rootspace sivec, where nrows are the dimensions of the fragments inv
+        lroots: ndarray of shape (nfrags)
+            Number of fragment states
+        *inv: integers 
+            Indices of slow-moving fragments
+
+    Returns:
+        vec: ndarray of shape (nroots_si, np.prod (lroots))
+            SI vectors in canonical fragment order
+    '''
+    nfrags = len (lroots)
+    nprods = np.prod (lroots)
+    rdim = nroots_si = vec.size // nprods
+    assert ((vec.size % nprods) == 0), 'lroots does not match vec size'
+    lroots = lroots.copy ()
+    lroots_slow = lroots[list (inv)].copy ()
+    rdim *= np.prod (lroots_slow)
+    lroots[list (inv)] = 1
+    for i, lrc in zip (list (inv), lroots_slow):
+        lrl = np.prod (lroots[:i])
+        lrr = np.prod (lroots[i+1:])
+        assert ((rdim % lrc) == 0)
+        rdim = rdim // lrc
+        vec = vec.reshape ((lrl,lrr,lrc,rdim), order='F')
+        vec = vec.transpose (0,2,1,3)
+        vec = vec.reshape ((lrl*lrc*lrr,rdim), order='F')
+        lroots[i] = lrc
+    return np.asfortranarray (vec).reshape ((nprods, nroots_si), order='F').T
+
+
 
 
