@@ -150,7 +150,6 @@ class LRRDM (stdm.LSTDM):
                 inv and the slower dimension iterating over states of fragments in inv 
         '''
         sivec = self.get_single_rootspace_sivec (iroot)
-        lroots = self.lroots[:,iroot].copy ()
         return transpose_sivec_make_fragments_slow (sivec, self.lroots[:,iroot], *inv)
 
     def get_fdm (self, rbra, rket, *inv, keyorder=None):

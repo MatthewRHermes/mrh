@@ -99,6 +99,7 @@ def debug_contract_op_si (ks, las, h1, h2, ci_fr, nelec_frs, soc=0):
     for r in range (nroots):
         i, j = ni[r], nj[r]
         with ks.subTest ('hdiag', root=r, nelec_fs=nelec_frs[:,r,:]):
+            #print (ham.diagonal ()[i:j], ham_diag[i:j])
             ks.assertAlmostEqual (lib.fp (ham.diagonal ()[i:j]), lib.fp (ham_diag[i:j]), 7)
     x = np.random.rand (nstates)
     if soc:

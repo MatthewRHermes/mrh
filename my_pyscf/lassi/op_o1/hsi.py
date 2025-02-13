@@ -136,20 +136,21 @@ class HamS2OvlpOperators (HamS2Ovlp):
         # Eliminate repeated fragment indices while preserving order
         invset = set ()
         sinv = [i for i in sinv if not (i in invset or invset.add (i))]
+        sinv = sinv[::-1]
         key = tuple ((row[0], row[1])) + inv
         for bra, ket in self.nonuniq_exc[key]:
             if bra != ket: continue
             hdiag_nonspec = self.get_hdiag_nonspectator (ham, bra, *sinv)
             hdiag_spec = self.hdiag_spectator_ovlp (bra, *sinv)
             hdiag = np.multiply.outer (hdiag_nonspec, hdiag_spec)
-            hdiag = transpose_sivec_with_slow_fragments (hdiag, self.lroots[:,bra], *sinv)
-            i, j = self.offs_lroots[bra]
+            hdiag = transpose_sivec_with_slow_fragments (hdiag.ravel (), self.lroots[:,bra], *sinv)
+            i, j = self.offs_lroots[bra] 
             self.ox[i:j] += hdiag.ravel ()
         #ham = self.canonical_operator_order (ham, ninv)
         #self._put_hdiag_(row[0], row[1], ham, *inv)
 
     def get_hdiag_nonspectator (self, ham, bra, *inv):
-        for i in inv[::-1]:
+        for i in inv:
             n = self.lroots[i,bra]
             umat = self.ints[i].umat_root.get (bra, np.eye (n))
             umat = (umat[None,:,:] * umat[:,None,:]).reshape (n*n, n)

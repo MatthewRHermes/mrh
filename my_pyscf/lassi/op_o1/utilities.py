@@ -194,46 +194,23 @@ def transpose_sivec_make_fragments_slow (vec, lroots, *inv):
         lroots: ndarray of shape (nfrags)
             Number of fragment states
         *inv: integers 
-            Indices of nonspectator fragments
+            Indices of nonspectator fragments, which are placed to the right in column-major order.
 
     Returns:
         vec: ndarray of shape (nroots_si, nrows, ncols)
             SI vectors with the faster dimension iterating over states of fragments not in
             inv and the slower dimension iterating over states of fragments in inv 
     '''
-    inp_vec = vec.copy (order='K')
+    nfrags = len (lroots)
     nprods = np.prod (lroots)
-    rdim = nroots_si = vec.size // nprods
+    nroots_si = vec.size // nprods
     assert ((vec.size % nprods) == 0), 'lroots does not match vec size'
     nrows = np.prod (lroots[list (inv)])
     ncols = nprods // nrows
-    nfrags = len (lroots)
     axes = [i for i in range (nfrags) if i not in inv] + list (inv) + [nfrags,]
     shape = list (lroots) + [nroots_si,]
-    lroots = lroots.copy ()
-    for i in list (inv)[::-1]:
-        lrl = np.prod (lroots[:i])
-        lrc = lroots[i]
-        lrr = np.prod (lroots[i+1:])
-        vec = vec.reshape ((lrl,lrc,lrr,rdim), order='F')
-        vec = vec.transpose (0,2,1,3)
-        vec = vec.reshape ((lrl*lrr,lrc*rdim), order='F')
-        rdim = rdim * lrc
-        lroots[i] = 1
-    test_vec = bigdim.transpose (inp_vec, shape=shape, axes=axes, order='F')
-    return test_vec.reshape ((ncols, nrows, nroots_si), order='F').T
-    vec = np.asfortranarray (vec).reshape ((ncols, nrows, nroots_si), order='F').T
-    print ("input vector")
-    print (np.ravel (inp_vec, order='K'))
-    print ("correctly transposed vector")
-    print (inv)
-    print (np.ravel (vec, order='K'))
-    print ("test vector")
-    print (shape, axes)
-    print (np.ravel (test_vec, order='K'))
-    assert (np.amax (np.abs (vec.ravel () - test_vec.ravel ())) < 1e-8)
-    #return vec.reshape ((ncols, nrows, nroots_si), order='F').T
-    return vec
+    vec = bigdim.transpose (vec, shape=shape, axes=axes, order='F')
+    return vec.reshape ((ncols, nrows, nroots_si), order='F').T
 
 def transpose_sivec_with_slow_fragments (vec, lroots, *inv):
     '''The inverse operation of transpose_sivec_make_fragments_slow.
@@ -244,33 +221,21 @@ def transpose_sivec_with_slow_fragments (vec, lroots, *inv):
         lroots: ndarray of shape (nfrags)
             Number of fragment states
         *inv: integers 
-            Indices of slow-moving fragments
+            Indices of slow-moving fragments, assuming they have been placed in column-major order.
 
     Returns:
         vec: ndarray of shape (nroots_si, np.prod (lroots))
             SI vectors in canonical fragment order
     '''
-    vec = vec.ravel ()
     nfrags = len (lroots)
     nprods = np.prod (lroots)
+    axes = [i for i in range (nfrags) if i not in inv] + list (inv) + [nfrags,]
     rdim = nroots_si = vec.size // nprods
     assert ((vec.size % nprods) == 0), 'lroots does not match vec size'
-    lroots = lroots.copy ()
-    inv = list (inv)[::-1]
-    lroots_slow = lroots[inv].copy ()
-    rdim *= np.prod (lroots_slow)
-    lroots[inv] = 1
-    for i, lrc in zip (inv, lroots_slow):
-        lrl = np.prod (lroots[:i])
-        lrr = np.prod (lroots[i+1:])
-        assert ((rdim % lrc) == 0)
-        rdim = rdim // lrc
-        vec = vec.reshape ((lrl,lrr,lrc,rdim), order='F')
-        vec = vec.transpose (0,2,1,3)
-        vec = vec.reshape ((lrl*lrc*lrr,rdim), order='F')
-        lroots[i] = lrc
-    return np.asfortranarray (vec).reshape ((nprods, nroots_si), order='F').T
-
+    shape = list (lroots[axes[:-1]]) + [nroots_si,]
+    axes = np.argsort (axes)
+    vec = bigdim.transpose (vec, shape=shape, axes=axes, order='F')
+    return vec.reshape ((nprods, nroots_si), order='F').T
 
 
 
