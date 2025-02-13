@@ -4,6 +4,7 @@ from pyscf import lib
 from pyscf.lib import logger
 from mrh.my_pyscf.lassi import citools
 from mrh.my_pyscf.lassi.op_o1 import frag
+from mrh.my_pyscf.lassi.op_o1.rdm import LRRDM
 from mrh.my_pyscf.lassi.op_o1.hams2ovlp import HamS2Ovlp, ham, soc_context
 from mrh.my_pyscf.lassi.citools import _fake_gen_contract_op_si_hdiag
 from mrh.my_pyscf.lassi.op_o1.utilities import *
@@ -28,8 +29,11 @@ class HamS2OvlpOperators (HamS2Ovlp):
         HamS2Ovlp.__init__(self, ints, nlas, hopping_index, lroots, h1, h2,
                            mask_bra_space=mask_bra_space, mask_ket_space=mask_ket_space,
                            log=log, max_memory=max_memory, dtype=dtype)
-        self.x = np.zeros (self.nstates, self.dtype)
+        self.x = self.si = np.zeros (self.nstates, self.dtype)
         self.ox = np.zeros (self.nstates, self.dtype)
+
+    get_single_rootspace_x = LRRDM.get_single_rootspace_sivec
+    get_frag_transposed_x = LRRDM.get_frag_transposed_sivec
 
     def _umat_linequiv_(self, ifrag, iroot, umat, ivec, *args):
         if ivec==0:
@@ -71,9 +75,23 @@ class HamS2OvlpOperators (HamS2Ovlp):
         self._prepare_spec_addr_ovlp_(row[0], row[1], *inv)
         data = _crunch_fn (*row)
         op = data[opid]
-        ninv = data[2]
-        op = self.canonical_operator_order (op, ninv)
+        sinv = data[2]
+        op = self.canonical_operator_order (op, sinv)
+        inv = list (np.sort (inv))
         self._put_ox_(row[0], row[1], op, *inv)
+        return
+        opbralen = np.prod (self.lroots[inv,row[0]])
+        opketlen = np.prod (self.lroots[inv,row[1]])
+        op = op.reshape ((opbralen, opketlen), order='C')
+        for bra, ket in self.nonuniq_exc[key]:
+            vec = self.get_frag_transposed_x (ket, *inv)
+            vec = self.ox_olvp_part (vec, *inv)
+            vec = vec.reshape ((opketlen,-1), order='F')
+            vec = lib.einsum ('bk,kr->rb', op, vec)
+            vec = transpose_sivec_with_slow_fragments (vec.ravel (), self.lroots[:,bra], *inv)
+            i, j = self.offs_lroots[bra]
+            self.ox[i:j] += vec.ravel ()
+        return
 
     def _put_ox_(self, bra, ket, op, *inv):
         # TODO: transpose the nested loops and vectorize the ix, (bra1, ket1) loop
@@ -131,10 +149,7 @@ class HamS2OvlpOperators (HamS2Ovlp):
             inv = row[2:]
         self._prepare_spec_addr_ovlp_(row[0], row[1], *inv)
         ham, s2, sinv = _crunch_fn (*row)
-        # Eliminate repeated fragment indices while preserving order
-        invset = set ()
-        sinv = [i for i in sinv if not (i in invset or invset.add (i))]
-        sinv = sinv[::-1]
+        sinv = self.inv_unique (sinv)[::-1]
         key = tuple ((row[0], row[1])) + inv
         for bra, ket in self.nonuniq_exc[key]:
             if bra != ket: continue

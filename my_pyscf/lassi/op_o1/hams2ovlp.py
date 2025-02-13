@@ -71,6 +71,11 @@ class HamS2Ovlp (stdm.LSTDM):
         self._umat_linequiv_loop_()
         return self.ham, self.s2, ovlp, t0
 
+    def inv_unique (self, inv):
+        invset = set ()
+        inv = [i for i in inv if not (i in invset or invset.add (i))]
+        return inv
+
     def canonical_operator_order (self, arr, inv):
         ''' Transpose an operator array for an interaction involving a single pair of rootspaces
         from fragment-major to fragment-minor (bra-ket major) order with decreasing fragment index
@@ -90,8 +95,7 @@ class HamS2Ovlp (stdm.LSTDM):
         '''
         if arr is None or arr.ndim < 3: return arr
         assert ((arr.ndim % 2) == 0)
-        invset = set ()
-        inv = [i for i in inv if not (i in invset or invset.add (i))]
+        inv = self.inv_unique (inv)
         ndim = arr.ndim // 2
         # sort by fragments
         axesorder = np.arange (arr.ndim, dtype=int).reshape (ndim, 2)
