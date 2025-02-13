@@ -118,6 +118,8 @@ namespace PM_NS {
     std::vector<sycl::queue> my_queues;
     sycl::queue * current_queue;
     int current_queue_id;
+
+    int num_devices;
   };
 
 }
