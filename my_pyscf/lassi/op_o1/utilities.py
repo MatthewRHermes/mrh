@@ -1,4 +1,5 @@
 import numpy as np
+from mrh.util import bigdim
 from mrh.my_pyscf.lassi.citools import umat_dot_1frag_
 from mrh.my_pyscf.lassi.op_o0 import civec_spinless_repr
 
@@ -200,11 +201,15 @@ def transpose_sivec_make_fragments_slow (vec, lroots, *inv):
             SI vectors with the faster dimension iterating over states of fragments not in
             inv and the slower dimension iterating over states of fragments in inv 
     '''
+    inp_vec = vec.copy (order='K')
     nprods = np.prod (lroots)
     rdim = nroots_si = vec.size // nprods
     assert ((vec.size % nprods) == 0), 'lroots does not match vec size'
     nrows = np.prod (lroots[list (inv)])
     ncols = nprods // nrows
+    nfrags = len (lroots)
+    axes = [i for i in range (nfrags) if i not in inv] + list (inv) + [nfrags,]
+    shape = list (lroots) + [nroots_si,]
     lroots = lroots.copy ()
     for i in list (inv)[::-1]:
         lrl = np.prod (lroots[:i])
@@ -215,7 +220,20 @@ def transpose_sivec_make_fragments_slow (vec, lroots, *inv):
         vec = vec.reshape ((lrl*lrr,lrc*rdim), order='F')
         rdim = rdim * lrc
         lroots[i] = 1
-    return np.asfortranarray (vec).reshape ((ncols, nrows, nroots_si), order='F').T
+    test_vec = bigdim.transpose (inp_vec, shape=shape, axes=axes, order='F')
+    return test_vec.reshape ((ncols, nrows, nroots_si), order='F').T
+    vec = np.asfortranarray (vec).reshape ((ncols, nrows, nroots_si), order='F').T
+    print ("input vector")
+    print (np.ravel (inp_vec, order='K'))
+    print ("correctly transposed vector")
+    print (inv)
+    print (np.ravel (vec, order='K'))
+    print ("test vector")
+    print (shape, axes)
+    print (np.ravel (test_vec, order='K'))
+    assert (np.amax (np.abs (vec.ravel () - test_vec.ravel ())) < 1e-8)
+    #return vec.reshape ((ncols, nrows, nroots_si), order='F').T
+    return vec
 
 def transpose_sivec_with_slow_fragments (vec, lroots, *inv):
     '''The inverse operation of transpose_sivec_make_fragments_slow.
