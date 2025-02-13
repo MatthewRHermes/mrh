@@ -103,14 +103,16 @@ void print_matrix(real_t * data, int num_rows, int num_cols, const char * name)
 
 // ----------------------------------------------------------------
 
-void print_summary(double t, int num_rows_a, int num_cols_a, int num_cols_b, int num_iter, const char * name)
+double print_summary(double t, int num_rows_a, int num_cols_a, int num_cols_b, int num_iter, const char * name)
 {
-  double flop = num_rows_a * num_cols_b * (2.0 * num_cols_a - 1.0) / 1024.0 / 1024.0 / 1024.0; // GFlop
+  double flop = num_rows_a * num_cols_b * (2.0 * num_cols_a - 1.0) / 1024.0 / 1024.0 / 1024.0; // TFlop
 
   double flops = flop * num_iter / t; // GFlop/s
 
-  printf("\nMatrix[%s] : mnk= %i %i %i  num_iter= %i  time= %f  [ms]  flops= %f  [GB/s]\n",
+  printf("\nMatrix[%s] : mnk= %i %i %i  num_iter= %i  time= %f  [ms]  flops= %f  [GFlops/s]\n",
 	 name, num_rows_a, num_cols_b, num_cols_a, num_iter, t*1000.0, flops);
+
+  return flops;
 }
 
 // ----------------------------------------------------------------
@@ -299,12 +301,14 @@ int main( int argc, char* argv[] )
 
   t = MPI_Wtime() - t0;
 
+  double total_flops = 0.0;
+  
   for(int i=0; i<num_devices; ++i) {
     pm->dev_set_device(i);
     
     pm->dev_pull(d_c[i], c, _NUM_ROWS_A * _NUM_COLS_B * sizeof(real_t));
   
-    print_summary(t, _NUM_ROWS_A, _NUM_COLS_A, _NUM_COLS_B, _NUM_ITERATIONS_GPU, "MATHLIB gemm");
+    total_flops += print_summary(t, _NUM_ROWS_A, _NUM_COLS_A, _NUM_COLS_B, _NUM_ITERATIONS_GPU, "MATHLIB gemm");
 
     check_result(r, c, _NUM_ROWS_A*_NUM_COLS_B, "gemm_gpu");
 
@@ -312,6 +316,8 @@ int main( int argc, char* argv[] )
   
     //  print_matrix(c, _NUM_ROWS_A, _NUM_COLS_B, "Output c");
   }
+
+  printf("\n[MATHLIB gemm] Total flops= %f TFlops/s\n",total_flops / 1000.0);
   
   // ----------------------------------------------------------------
   
