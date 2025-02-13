@@ -32,7 +32,6 @@ class HamS2OvlpOperators (HamS2Ovlp):
         self.ox = np.zeros (self.nstates, self.dtype)
 
     def _umat_linequiv_(self, ifrag, iroot, umat, ivec, *args):
-        assert (False)
         if ivec==0:
             self.x = umat_dot_1frag_(self.x, umat.conj ().T, self.lroots, ifrag, iroot)
         elif ivec==1:
@@ -119,7 +118,6 @@ class HamS2OvlpOperators (HamS2Ovlp):
                                              matvec=self._ovlp_op)
 
     def get_hdiag (self):
-        # TODO: make this compatible with screen_linequiv somehow
         self.ox[:] = 0
         for row in self.exc_1d: self._crunch_hdiag_env_(self._crunch_1d_, *row)
         for row in self.exc_2d: self._crunch_hdiag_env_(self._crunch_2d_, *row)
@@ -243,8 +241,7 @@ def gen_contract_op_si_hdiag (las, h1, h2, ci, nelec_frs, soc=0, nlas=None,
         h1, h2, ci, nelec_frs, soc, nlas)
 
     # First pass: single-fragment intermediates
-    hopping_index, ints, lroots = frag.make_ints (las, ci, nelec_frs, nlas=nlas,
-                                                  screen_linequiv=False)
+    hopping_index, ints, lroots = frag.make_ints (las, ci, nelec_frs, nlas=nlas)
     nstates = np.sum (np.prod (lroots, axis=0))
 
     # Second pass: upper-triangle
