@@ -150,12 +150,12 @@ class HamS2OvlpOperators (HamS2Ovlp):
 
     def get_hdiag_nonspectator (self, ham, bra, *inv):
         for i in inv[::-1]:
-            ubra = self.ints[i].umat_root.get (bra, np.eye (ham.shape[-1]))
-            uket = ubra
-            ham = np.tensordot (uket, ham, axes=((0,),(-1,)))
-            ham = np.tensordot (ubra.conj (), ham, axes=((0,),(-1)))
-            ham = np.diagonal (ham, axis1=0, axis2=1)
-            ham = np.moveaxis (ham, -1, 0)
+            n = self.lroots[i,bra]
+            umat = self.ints[i].umat_root.get (bra, np.eye (n))
+            umat = (umat[None,:,:] * umat[:,None,:]).reshape (n*n, n)
+            umat = np.ascontiguousarray (umat.T)
+            ham = ham.reshape (-1, n*n)
+            ham = np.dot (umat, ham.T)
         return ham
 
     def hdiag_spectator_ovlp (self, rbra, *inv):

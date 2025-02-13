@@ -232,15 +232,17 @@ def transpose_sivec_with_slow_fragments (vec, lroots, *inv):
         vec: ndarray of shape (nroots_si, np.prod (lroots))
             SI vectors in canonical fragment order
     '''
+    vec = vec.ravel ()
     nfrags = len (lroots)
     nprods = np.prod (lroots)
     rdim = nroots_si = vec.size // nprods
     assert ((vec.size % nprods) == 0), 'lroots does not match vec size'
     lroots = lroots.copy ()
-    lroots_slow = lroots[list (inv)].copy ()
+    inv = list (inv)[::-1]
+    lroots_slow = lroots[inv].copy ()
     rdim *= np.prod (lroots_slow)
-    lroots[list (inv)] = 1
-    for i, lrc in zip (list (inv), lroots_slow):
+    lroots[inv] = 1
+    for i, lrc in zip (inv, lroots_slow):
         lrl = np.prod (lroots[:i])
         lrr = np.prod (lroots[i+1:])
         assert ((rdim % lrc) == 0)
