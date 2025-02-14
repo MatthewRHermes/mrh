@@ -135,8 +135,8 @@ class HamS2OvlpOperators (HamS2Ovlp):
         fac = self.spin_shuffle[bra] * self.spin_shuffle[ket]
         fac *= self.fermion_frag_shuffle (bra, inv)
         fac *= self.fermion_frag_shuffle (ket, inv)
-        #vec = fac * self.get_single_rootspace_x (ket)
-        vec = fac * self.get_frag_transposed_x (ket, *inv)
+        vec = fac * self.get_single_rootspace_x (ket)
+        #vec = fac * self.get_frag_transposed_x (ket, *inv)
         spec = np.ones (self.nfrags, dtype=bool)
         spec[inv] = False
         spec = np.where (spec)[0]
@@ -145,12 +145,12 @@ class HamS2OvlpOperators (HamS2Ovlp):
         for i in spec:
             lr = np.prod (self.lroots[inv[inv<i],ket])
             lket = self.lroots[i,ket]
-            #vec = vec.reshape (-1,lket,lr)
-            vec = vec.reshape (-1,lket)
+            vec = vec.reshape (-1,lket,lr)
+            #vec = vec.reshape (-1,lket)
             o = self.ints[i].get_ovlp (bra, ket)
             if _conj: o = o.conj ()
-            #vec = lib.einsum ('pq,lqr->plr', o, vec)
-            vec = lib.dot (o, vec.T)
+            vec = lib.einsum ('pq,lqr->plr', o, vec)
+            #vec = lib.dot (o, vec.T)
         return vec
 
     def _ovlp_op (self, x):
