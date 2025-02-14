@@ -31,6 +31,7 @@ class HamS2OvlpOperators (HamS2Ovlp):
                            log=log, max_memory=max_memory, dtype=dtype)
         self.x = self.si = np.zeros (self.nstates, self.dtype)
         self.ox = np.zeros (self.nstates, self.dtype)
+        self.log.verbose = logger.DEBUG1
 
     get_single_rootspace_x = LRRDM.get_single_rootspace_sivec
     get_frag_transposed_x = LRRDM.get_frag_transposed_sivec
@@ -44,6 +45,7 @@ class HamS2OvlpOperators (HamS2Ovlp):
             raise RuntimeError ("Invalid ivec = {}; must be 0 or 1".format (ivec))
 
     def _ham_op (self, x):
+        t0 = (logger.process_clock (), logger.perf_counter ())
         self.x[:] = x.flat[:]
         self.ox[:] = 0
         self._umat_linequiv_loop_(0) # U.conj () @ x
@@ -55,9 +57,11 @@ class HamS2OvlpOperators (HamS2Ovlp):
         for row in self.exc_1s1c: self._crunch_ox_env_(self._crunch_1s1c_, 0, *row)
         for row in self.exc_2c: self._crunch_ox_env_(self._crunch_2c_, 0, *row)
         self._umat_linequiv_loop_(1) # U.T @ ox
+        self.log.timer_debug1 ('HamS2OvlpOperators._ham_op', *t0)
         return self.ox.copy ()
 
     def _s2_op (self, x):
+        t0 = (logger.process_clock (), logger.perf_counter ())
         self.x[:] = x.flat[:]
         self.ox[:] = 0
         self._umat_linequiv_loop_(0) # U.conj () @ x
@@ -65,6 +69,7 @@ class HamS2OvlpOperators (HamS2Ovlp):
         for row in self.exc_2d: self._crunch_ox_env_(self._crunch_2d_, 1, *row)
         for row in self.exc_1s: self._crunch_ox_env_(self._crunch_1s_, 1, *row)
         self._umat_linequiv_loop_(1) # U.T @ ox
+        self.log.timer_debug1 ('HamS2OvlpOperators._ham_op', *t0)
         return self.ox.copy ()
 
     def _crunch_ox_env_(self, _crunch_fn, opid, *row): 
@@ -77,21 +82,41 @@ class HamS2OvlpOperators (HamS2Ovlp):
         op = data[opid]
         sinv = data[2]
         op = self.canonical_operator_order (op, sinv)
-        inv = list (np.sort (inv))
+        inv = list (set (inv))
         self._put_ox_(row[0], row[1], op, *inv)
         return
         opbralen = np.prod (self.lroots[inv,row[0]])
         opketlen = np.prod (self.lroots[inv,row[1]])
         op = op.reshape ((opbralen, opketlen), order='C')
         for bra, ket in self.nonuniq_exc[key]:
-            vec = self.get_frag_transposed_x (ket, *inv)
-            vec = self.ox_olvp_part (vec, *inv)
-            vec = vec.reshape ((opketlen,-1), order='F')
-            vec = lib.einsum ('bk,kr->rb', op, vec)
-            vec = transpose_sivec_with_slow_fragments (vec.ravel (), self.lroots[:,bra], *inv)
-            i, j = self.offs_lroots[bra]
-            self.ox[i:j] += vec.ravel ()
+            self._put_ox_2_(bra, ket, op, inv, _conj=False)
+            self._put_ox_2_(ket, bra, op.conj ().T, inv, _conj=True)
         return
+
+    def _put_ox_2_(self, bra, ket, op, inv, _conj=False):
+        vec = self.get_frag_transposed_x (ket, *inv)
+        vec = self.ox_ovlp_part (bra, ket, inv, _conj=_conj)
+        vec = vec.reshape ((-1,opketlen), order='C')
+        vec = lib.dot (op, vec.T)
+        vec = transpose_sivec_with_slow_fragments (vec.ravel (), self.lroots[:,bra], *inv)
+        i, j = self.offs_lroots[bra]
+        self.ox[i:j] += vec.ravel ()
+
+    def ox_ovlp_part (self, bra, ket, inv, _conj=False):
+        fac = self.spin_shuffle[rbra] * self.spin_shuffle[rket]
+        fac *= self.fermion_frag_shuffle (rbra, inv)
+        fac *= self.fermion_frag_shuffle (rket, inv)
+        vec = fac * self.get_frag_transposed_x (ket, *inv)
+        spec = np.ones (self.nfrags, dtype=bool)
+        spec[inv] = False
+        spec = np.where (spec)[0]
+        for i in spec:
+            lket = self.lroots[i,ket]
+            vec = vec.reshape (-1,lket)
+            o = self.ints[i].get_ovlp (bra, ket)
+            if _conj: o = o.conj ()
+            vec = lib.dot (o, vec.T)
+        return vec
 
     def _put_ox_(self, bra, ket, op, *inv):
         # TODO: transpose the nested loops and vectorize the ix, (bra1, ket1) loop
@@ -111,6 +136,7 @@ class HamS2OvlpOperators (HamS2Ovlp):
         self.dt_p, self.dw_p = self.dt_p + dt, self.dw_p + dw
 
     def _ovlp_op (self, x):
+        t0 = (logger.process_clock (), logger.perf_counter ())
         self.x[:] = x.flat[:]
         self.ox[:] = 0
         self._umat_linequiv_loop_(0) # U.conj () @ x
@@ -121,6 +147,7 @@ class HamS2OvlpOperators (HamS2Ovlp):
             self.ox[i0:i1] += np.dot (ovlp, self.x[j0:j1])
             self.ox[j0:j1] += np.dot (ovlp.conj ().T, self.x[i0:i1])
         self._umat_linequiv_loop_(1) # U.T @ ox
+        self.log.timer_debug1 ('HamS2OvlpOperators._ovlp_op', *t0)
         return self.ox.copy ()
 
     def get_ham_op (self):
@@ -136,9 +163,11 @@ class HamS2OvlpOperators (HamS2Ovlp):
                                              matvec=self._ovlp_op)
 
     def get_hdiag (self):
+        t0 = (logger.process_clock (), logger.perf_counter ())
         self.ox[:] = 0
         for row in self.exc_1d: self._crunch_hdiag_env_(self._crunch_1d_, *row)
         for row in self.exc_2d: self._crunch_hdiag_env_(self._crunch_2d_, *row)
+        self.log.timer_debug1 ('HamS2OvlpOperators.get_hdiag', *t0)
         return self.ox.copy ()
 
     def _crunch_hdiag_env_(self, _crunch_fn, *row): 
