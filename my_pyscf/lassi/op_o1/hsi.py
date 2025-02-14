@@ -87,17 +87,15 @@ class HamS2OvlpOperators (HamS2Ovlp):
         op = self.canonical_operator_order (op, sinv)
         key = tuple ((row[0], row[1])) + inv
         inv = list (set (inv))
-        #self._put_ox_(row[0], row[1], op, *inv)
-        #return
         opbralen = np.prod (self.lroots[inv,row[0]])
         opketlen = np.prod (self.lroots[inv,row[1]])
         op = op.reshape ((opbralen, opketlen), order='C')
         for bra, ket in self.nonuniq_exc[key]:
-            self._put_ox_2_(bra, ket, op, inv, _conj=False)
-            if bra != ket: self._put_ox_2_(ket, bra, op.conj ().T, inv, _conj=True)
+            self._put_ox_(bra, ket, op, inv, _conj=False)
+            if bra != ket: self._put_ox_(ket, bra, op.conj ().T, inv, _conj=True)
         return
 
-    def _put_ox_2_(self, bra, ket, op, inv, _conj=False):
+    def _put_ox_(self, bra, ket, op, inv, _conj=False):
         vec = self.get_frag_transposed_x (ket, *inv)
         vec = self.ox_ovlp_part (bra, ket, inv, _conj=_conj)
         opketlen = np.prod (self.lroots[inv,ket])
@@ -122,23 +120,6 @@ class HamS2OvlpOperators (HamS2Ovlp):
             if _conj: o = o.conj ()
             vec = lib.dot (o, vec.T)
         return vec
-
-    def _put_ox_(self, bra, ket, op, *inv):
-        # TODO: transpose the nested loops and vectorize the ix, (bra1, ket1) loop
-        bra_rng = self._get_addr_range (bra, *inv) # profiled as idx
-        ket_rng = self._get_addr_range (ket, *inv) # profiled as idx
-        t0, w0 = logger.process_clock (), logger.perf_counter ()
-        op = op.flat
-        for ix, (bra1, ket1) in enumerate (product (bra_rng, ket_rng)):
-            bra2, ket2, wgt = self._get_spec_addr_ovlp (bra1, ket1, *inv)
-            t1, w1 = logger.process_clock (), logger.perf_counter ()
-            for bra3, ket3, w in zip (bra2, ket2, wgt):
-                self.ox[bra3] += w * op[ix] * self.x[ket3]
-                self.ox[ket3] += w * op[ix].conj () * self.x[bra3]
-            dt, dw = logger.process_clock () - t1, logger.perf_counter () - w1
-            self.dt_s, self.dw_s = self.dt_s + dt, self.dw_s + dw
-        dt, dw = logger.process_clock () - t0, logger.perf_counter () - w0
-        self.dt_p, self.dw_p = self.dt_p + dt, self.dw_p + dw
 
     def _ovlp_op (self, x):
         t0 = (logger.process_clock (), logger.perf_counter ())
