@@ -55,7 +55,10 @@ class HamS2OvlpOperators (HamS2Ovlp):
                                    '_crunch_1c1d_': tzero.copy (),
                                    '_crunch_1s_': tzero.copy (),
                                    '_crunch_1s1c_': tzero.copy (),
-                                   '_crunch_2c_': tzero.copy ()}
+                                   '_crunch_2c_': tzero.copy (),
+                                   ' get_vecs ': tzero.copy (),
+                                   ' opdot ': tzero.copy (),
+                                   ' put_vecs ': tzero.copy ()}
 
     def _ham_op (self, x):
         t0 = (logger.process_clock (), logger.perf_counter ())
@@ -113,28 +116,40 @@ class HamS2OvlpOperators (HamS2Ovlp):
         return
 
     def _put_ox_(self, bra, ket, op, inv, _conj=False):
-        vec = self.get_frag_transposed_x (ket, *inv)
+        t0 = np.array ([logger.process_clock (), logger.perf_counter ()])
         vec = self.ox_ovlp_part (bra, ket, inv, _conj=_conj)
+        t1 = np.array ([logger.process_clock (), logger.perf_counter ()])
+        self.crunch_put_profile[' get_vecs '] += (t1-t0)
         opketlen = np.prod (self.lroots[inv,ket])
         vec = vec.reshape ((-1,opketlen), order='C')
         vec = lib.dot (op, vec.T)
+        t2 = np.array ([logger.process_clock (), logger.perf_counter ()])
+        self.crunch_put_profile[' opdot '] += (t2-t1)
         vec = transpose_sivec_with_slow_fragments (vec.ravel (), self.lroots[:,bra], *inv)
         i, j = self.offs_lroots[bra]
         self.ox[i:j] += vec.ravel ()
+        t3 = np.array ([logger.process_clock (), logger.perf_counter ()])
+        self.crunch_put_profile[' put_vecs '] += (t3-t2)
 
     def ox_ovlp_part (self, bra, ket, inv, _conj=False):
         fac = self.spin_shuffle[bra] * self.spin_shuffle[ket]
         fac *= self.fermion_frag_shuffle (bra, inv)
         fac *= self.fermion_frag_shuffle (ket, inv)
+        #vec = fac * self.get_single_rootspace_x (ket)
         vec = fac * self.get_frag_transposed_x (ket, *inv)
         spec = np.ones (self.nfrags, dtype=bool)
         spec[inv] = False
         spec = np.where (spec)[0]
+        inv = np.sort (inv)
+        lroots_inv = self.lroots[inv,ket]
         for i in spec:
+            lr = np.prod (self.lroots[inv[inv<i],ket])
             lket = self.lroots[i,ket]
+            #vec = vec.reshape (-1,lket,lr)
             vec = vec.reshape (-1,lket)
             o = self.ints[i].get_ovlp (bra, ket)
             if _conj: o = o.conj ()
+            #vec = lib.einsum ('pq,lqr->plr', o, vec)
             vec = lib.dot (o, vec.T)
         return vec
 
