@@ -33,7 +33,10 @@ class HamS2OvlpOperators (HamS2Ovlp):
         self.ox = np.zeros (self.nstates, self.dtype)
         self.log.verbose = logger.DEBUG1
 
-    get_single_rootspace_x = LRRDM.get_single_rootspace_sivec
+    def get_single_rootspace_x (self, iroot):
+        i, j = self.offs_lroots[iroot]
+        return self.x[i:j]
+    get_single_rootspace_sivec = get_single_rootspace_x
     get_frag_transposed_x = LRRDM.get_frag_transposed_sivec
 
     def _umat_linequiv_(self, ifrag, iroot, umat, ivec, *args):
@@ -82,20 +85,22 @@ class HamS2OvlpOperators (HamS2Ovlp):
         op = data[opid]
         sinv = data[2]
         op = self.canonical_operator_order (op, sinv)
+        key = tuple ((row[0], row[1])) + inv
         inv = list (set (inv))
-        self._put_ox_(row[0], row[1], op, *inv)
-        return
+        #self._put_ox_(row[0], row[1], op, *inv)
+        #return
         opbralen = np.prod (self.lroots[inv,row[0]])
         opketlen = np.prod (self.lroots[inv,row[1]])
         op = op.reshape ((opbralen, opketlen), order='C')
         for bra, ket in self.nonuniq_exc[key]:
             self._put_ox_2_(bra, ket, op, inv, _conj=False)
-            self._put_ox_2_(ket, bra, op.conj ().T, inv, _conj=True)
+            if bra != ket: self._put_ox_2_(ket, bra, op.conj ().T, inv, _conj=True)
         return
 
     def _put_ox_2_(self, bra, ket, op, inv, _conj=False):
         vec = self.get_frag_transposed_x (ket, *inv)
         vec = self.ox_ovlp_part (bra, ket, inv, _conj=_conj)
+        opketlen = np.prod (self.lroots[inv,ket])
         vec = vec.reshape ((-1,opketlen), order='C')
         vec = lib.dot (op, vec.T)
         vec = transpose_sivec_with_slow_fragments (vec.ravel (), self.lroots[:,bra], *inv)
@@ -103,9 +108,9 @@ class HamS2OvlpOperators (HamS2Ovlp):
         self.ox[i:j] += vec.ravel ()
 
     def ox_ovlp_part (self, bra, ket, inv, _conj=False):
-        fac = self.spin_shuffle[rbra] * self.spin_shuffle[rket]
-        fac *= self.fermion_frag_shuffle (rbra, inv)
-        fac *= self.fermion_frag_shuffle (rket, inv)
+        fac = self.spin_shuffle[bra] * self.spin_shuffle[ket]
+        fac *= self.fermion_frag_shuffle (bra, inv)
+        fac *= self.fermion_frag_shuffle (ket, inv)
         vec = fac * self.get_frag_transposed_x (ket, *inv)
         spec = np.ones (self.nfrags, dtype=bool)
         spec[inv] = False
