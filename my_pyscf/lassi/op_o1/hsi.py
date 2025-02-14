@@ -47,8 +47,19 @@ class HamS2OvlpOperators (HamS2Ovlp):
         else:
             raise RuntimeError ("Invalid ivec = {}; must be 0 or 1".format (ivec))
 
+    def _init_crunch_put_profile (self):
+        tzero = np.array ([0.0,0.0])
+        self.crunch_put_profile = {'_crunch_1d_': tzero.copy (),
+                                   '_crunch_2d_': tzero.copy (),
+                                   '_crunch_1c_': tzero.copy (),
+                                   '_crunch_1c1d_': tzero.copy (),
+                                   '_crunch_1s_': tzero.copy (),
+                                   '_crunch_1s1c_': tzero.copy (),
+                                   '_crunch_2c_': tzero.copy ()}
+
     def _ham_op (self, x):
         t0 = (logger.process_clock (), logger.perf_counter ())
+        self._init_crunch_put_profile ()
         self.x[:] = x.flat[:]
         self.ox[:] = 0
         self._umat_linequiv_loop_(0) # U.conj () @ x
@@ -60,11 +71,13 @@ class HamS2OvlpOperators (HamS2Ovlp):
         for row in self.exc_1s1c: self._crunch_ox_env_(self._crunch_1s1c_, 0, *row)
         for row in self.exc_2c: self._crunch_ox_env_(self._crunch_2c_, 0, *row)
         self._umat_linequiv_loop_(1) # U.T @ ox
+        self.log.debug1 (str (self.crunch_put_profile))
         self.log.timer_debug1 ('HamS2OvlpOperators._ham_op', *t0)
         return self.ox.copy ()
 
     def _s2_op (self, x):
         t0 = (logger.process_clock (), logger.perf_counter ())
+        self._init_crunch_put_profile ()
         self.x[:] = x.flat[:]
         self.ox[:] = 0
         self._umat_linequiv_loop_(0) # U.conj () @ x
@@ -72,7 +85,8 @@ class HamS2OvlpOperators (HamS2Ovlp):
         for row in self.exc_2d: self._crunch_ox_env_(self._crunch_2d_, 1, *row)
         for row in self.exc_1s: self._crunch_ox_env_(self._crunch_1s_, 1, *row)
         self._umat_linequiv_loop_(1) # U.T @ ox
-        self.log.timer_debug1 ('HamS2OvlpOperators._ham_op', *t0)
+        self.log.debug1 (str (self.crunch_put_profile))
+        self.log.timer_debug1 ('HamS2OvlpOperators._s2_op', *t0)
         return self.ox.copy ()
 
     def _crunch_ox_env_(self, _crunch_fn, opid, *row): 
@@ -80,7 +94,6 @@ class HamS2OvlpOperators (HamS2Ovlp):
             inv = row[2:-1]     
         else:
             inv = row[2:]
-        self._prepare_spec_addr_ovlp_(row[0], row[1], *inv)
         data = _crunch_fn (*row)
         op = data[opid]
         sinv = data[2]
@@ -90,9 +103,13 @@ class HamS2OvlpOperators (HamS2Ovlp):
         opbralen = np.prod (self.lroots[inv,row[0]])
         opketlen = np.prod (self.lroots[inv,row[1]])
         op = op.reshape ((opbralen, opketlen), order='C')
+        tab = self.nonuniq_exc[key]
+        t0 = np.array ([logger.process_clock (), logger.perf_counter ()])
         for bra, ket in self.nonuniq_exc[key]:
             self._put_ox_(bra, ket, op, inv, _conj=False)
             if bra != ket: self._put_ox_(ket, bra, op.conj ().T, inv, _conj=True)
+        t1 = np.array ([logger.process_clock (), logger.perf_counter ()])
+        self.crunch_put_profile[_crunch_fn.__name__] += (t1-t0)
         return
 
     def _put_ox_(self, bra, ket, op, inv, _conj=False):
