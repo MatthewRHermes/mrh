@@ -106,6 +106,7 @@ class HamS2OvlpOperators (HamS2Ovlp):
 
     def _s2_op (self, x):
         t0 = (logger.process_clock (), logger.perf_counter ())
+        self.init_profiling ()
         self._init_crunch_put_profile ()
         self.x[:] = x.flat[:]
         self.ox[:] = 0
@@ -114,6 +115,7 @@ class HamS2OvlpOperators (HamS2Ovlp):
         for row in self.exc_2d: self._crunch_ox_env_(self._crunch_2d_, 1, *row)
         for row in self.exc_1s: self._crunch_ox_env_(self._crunch_1s_, 1, *row)
         self._umat_linequiv_loop_(1) # U.T @ ox
+        self.log.debug1 (self.sprint_profile ())
         self.log.debug1 (str (self.crunch_put_profile))
         self.log.timer_debug1 ('HamS2OvlpOperators._s2_op', *t0)
         return self.ox.copy ()
