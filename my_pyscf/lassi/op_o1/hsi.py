@@ -135,6 +135,7 @@ class HamS2OvlpOperators (HamS2Ovlp):
                                    '_crunch_1s1c_': tzero.copy (),
                                    '_crunch_2c_': tzero.copy (),
                                    ' get_vecs ': tzero.copy (),
+                                   ' opdot ': tzero.copy (),
                                    ' ovlpdot ': tzero.copy (),
                                    ' put_vecs ': tzero.copy (),
                                    ' op_data_transpose ': tzero.copy ()}
@@ -206,21 +207,23 @@ class HamS2OvlpOperators (HamS2Ovlp):
         p0 = np.array ([logger.process_clock (), logger.perf_counter ()])
         uniq_kets, invrs_ket = np.unique (kets, return_inverse=True)
         uniq_bras, invrs_bra = np.unique (bras, return_inverse=True)
-        ketvecs = [lib.dot (op, self.transpose_get (ket, *inv).T)
-                   for ket in uniq_kets]
+        ketvecs = [self.transpose_get (ket, *inv) for ket in uniq_kets]
         p1 = np.array ([logger.process_clock (), logger.perf_counter ()])
         self.crunch_put_profile[' get_vecs '] += (p1-p0)
+        ketvecs = [lib.dot (op, vec.T) for vec in ketvecs]
+        p2 = np.array ([logger.process_clock (), logger.perf_counter ()])
+        self.crunch_put_profile[' opdot '] += (p2-p1)
         bravecs = [0.0 for u in uniq_bras]
         for i in range (len (bras)):
             bra, ket, vec = bras[i], kets[i], ketvecs[invrs_ket[i]]
             vec = self.ox_ovlp_part (bra, ket, vec, inv, _conj=_conj)
             bravecs[invrs_bra[i]] += vec
-        p2 = np.array ([logger.process_clock (), logger.perf_counter ()])
-        self.crunch_put_profile[' ovlpdot '] += (p2-p1)
+        p3 = np.array ([logger.process_clock (), logger.perf_counter ()])
+        self.crunch_put_profile[' ovlpdot '] += (p3-p2)
         for bra, vec in zip (uniq_bras, bravecs):
             self.transpose_put_(vec.ravel (), bra, *inv)
-        p3 = np.array ([logger.process_clock (), logger.perf_counter ()])
-        self.crunch_put_profile[' put_vecs '] += (p3-p2)
+        p4 = np.array ([logger.process_clock (), logger.perf_counter ()])
+        self.crunch_put_profile[' put_vecs '] += (p4-p3)
         dt, dw = logger.process_clock () - t0, logger.perf_counter () - w0
         self.dt_p, self.dw_p = self.dt_p + dt, self.dw_p + dw
 
