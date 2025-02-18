@@ -26,38 +26,27 @@ CUDA_CXXFLAGS += -shared -Xcompiler -fPIC
 LDFLAGS += -fPIC -shared
 
 # -- subset of src files with cuda kernels
-CUDA_SRC = pm_cuda.cpp device_cuda.cpp
+CUDA_SRC = pm/pm_cuda.cpp pm/device_cuda.cpp
 CUDA_OBJ = $(CUDA_SRC:.cpp=.o)
 
-CSRC = $(filter-out $(CUDA_SRC), $(wildcard *.cpp))
-INC = $(wildcard *.h)
+CSRC = $(wildcard *.cpp) $(filter-out $(CUDA_SRC), $(wildcard pm/*.cpp)) $(wildcard mathlib/*.cpp)
+INC = $(wildcard *.h) $(wildcard pm/*.h) $(wildcard mathlib/*.h)
 COBJ = $(CSRC:.cpp=.o)
-
-FSRC = $(wildcard *.F)
-MOD = $(FSRC:.F=.mod)
-FOBJ = $(FSRC:.F=.o)
 
 #
 # -- target : 	Dependencies
 # --		Rule to create target
 
-$(EXE): $(COBJ) $(CUDA_OBJ) $(FOBJ) $(MOD)
+$(EXE): $(COBJ) $(CUDA_OBJ)
 	$(LD) $(LDFLAGS) -o $@ $(COBJ) $(CUDA_OBJ) $(LIB)
 
 install: $(EXE)
 	 cp $(EXE) $(INSTALL)
-#	 cp $(MOD) $(FOBJ) $(INSTALL)/include
 
 ####################################################################
 
 $(COBJ): %.o: %.cpp
 	$(CXX) $(CXXFLAGS) -c $<
-
-$(FOBJ): %.o: %.F90
-	$(FC) $(FCFLAGS) -c $<
-
-$(MOD): %.mod: %.F90
-	$(FC) $(FCFLAGS) -c $<
 
 $(CUDA_OBJ): %.o: %.cpp
 	$(CUDA_CXX) -x cu $(CUDA_CXXFLAGS) -c $< -o $@
@@ -82,10 +71,19 @@ realclean:
 libgpu.o : libgpu.cpp libgpu.h
 
 pm_cuda.o : pm_cuda.cpp pm_cuda.h pm.h
-pm_host.o : pm_host.cpp pm_host.h pm.h
+pm_sycl.o : pm_sycl.cpp pm_sycl.h pm.h
+pm_hip.o : pm_hip.cpp pm_hip.h pm.h
 pm_openmp.o : pm_openmp.cpp pm_openmp.h pm.h
+pm_host.o : pm_host.cpp pm_host.h pm.h
 
-device_cuda.o : device_cuda.cpp device.h
-device_host.o : device_host.cpp device.h
-device_openmp.o : device_openmp.cpp device.h
-device.o : device.cpp device.h
+device.o : device.cpp device_* pm*
+device_cuda.o : device_cuda.cpp device.h pm*
+device_sycl.o : device_sycl.cpp device.h pm*
+device_hip.o : devie_hip.cpp device.h pm*
+device_openmp.o : device_openmp.cpp device.h pm*
+device_host.o : device_host.cpp device.h pm*
+
+mathlib_cublas.o : mathlib_cublas.cpp mathlib_cublas.h mathlib.h pm*
+mathlib_mkl.o : mathlib_mkl.cpp mathlib_mkl.h mathlib.h pm*
+mathlib_rocm.o : mathlib_rocm.cpp mathlib_rocm.h mathlib.h pm*
+mathlib_host.o : mathlib_host.cpp mathlib_host.h mathlib.h pm*
