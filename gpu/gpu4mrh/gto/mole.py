@@ -2,7 +2,7 @@
 
 from pyscf.gto.mole import *
 
-from gpu4pyscf.lib.utils import patch_cpu_kernel
+from gpu4mrh.lib.utils import patch_cpu_kernel
 
 def _M(self, use_gpu=None, **kwargs):
     r'''This is a shortcut to build up Mole object.

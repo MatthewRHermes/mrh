@@ -13,7 +13,7 @@ las = LASSCF (mf, (4,2,4), ((2,2),(1,1),(2,2)), spin_sub=(1,1,1))
 mo_coeff = las.sort_mo ([7,8,16,18,22,23,24,26,33,34])
 mo_coeff = las.set_fragments_([[0,1,2],[3,4,5,6],[7,8,9]], mo_coeff=mo_coeff)
 
-# Note that just importing the patch_kernel function doesn't do anything, unlike the gpu4pyscf
+# Note that just importing the patch_kernel function doesn't do anything, unlike the gpu4mrh
 # "patch_*" functions. I prefer not to do things in imports and I hate global variables, so
 # instead, patch_kernel is a function that returns a patched version of that specific method
 # instance.

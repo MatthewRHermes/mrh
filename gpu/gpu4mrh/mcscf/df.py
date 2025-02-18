@@ -6,7 +6,7 @@ from pyscf.lib import logger
 from pyscf.ao2mo import _ao2mo
 from pyscf.mcscf.casci import CASCI
 from pyscf import df
-from gpu4pyscf.lib.utils import patch_cpu_kernel
+from gpu4mrh.lib.utils import patch_cpu_kernel
 from mrh.my_pyscf.gpu import libgpu
 
 # Setting DEBUG = True will execute both CPU (original) and GPU (new) paths checking for consistency 
@@ -57,6 +57,7 @@ class _ERIS:
             libgpu.libgpu_init_jk_ao2mo(gpu, ncore, nmo) 
             libgpu.libgpu_init_ints_ao2mo_v3(gpu, naoaux, nmo, ncas) #initializes bufpa on pinned memory
             libgpu.libgpu_init_ppaa_ao2mo(gpu, nmo, ncas) #initializes ppaa on pinned memory
+            print(naoaux, nmo, ncas)
             t1 = log.timer('init_ao2mo', *t1)
             count = 0
             for k, eri1 in enumerate(with_df.loop(blksize)):

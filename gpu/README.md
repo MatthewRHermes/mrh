@@ -6,10 +6,10 @@ The following is a short summary of documenting how to build and run LASSCF (and
 
 The standalone gpu package consists of two primary components: a Python module for monkey-patching PySCF code and a C/C++ library for executing select functionality on CPUs and GPUs. 
 
-- Monkey Patch Layer: mrh/gpu/gpu4pyscf
+- Monkey Patch Layer: mrh/gpu/gpu4mrh
 - C/C++ Library: mrh/gpu/src
   
-The organization of gpu4pyscf very much follows that of the original [version](https://github.com/pyscf/gpu4pyscf), but supports different functionality.
+The organization of gpu4mrh very much follows that of [gpu4pyscf](https://github.com/pyscf/gpu4pyscf), but supports different functionality.
 
 Several backends for the library are currently in development. The `Host` backend is primarily used today for debugging and preparing code for GPU offload using either `CUDA` or `OpenMP`. 
 
@@ -213,7 +213,7 @@ Usage will evolve as the code develops, but the following is the `1_6-31g_inp_gp
 ```
 $ cat ./1_6-31g_inp_gpu_simple.py
 import pyscf 
-from gpu4pyscf import patch_pyscf
+from gpu4mrh import patch_pyscf
 
 from geometry_generator import generator
 from pyscf import gto, scf, tools, mcscf, lib
@@ -247,7 +247,7 @@ libgpu.libgpu_destroy_device(gpu)
 ```
 
 Key modifications to a "normal" LASSCF input file are as follows.
-- `from gpu4pyscf import patch_pyscf` : enable monkey patching for a select number of PySCF source files, such as updating the Molecule object to track a new `use_gpu` variable.
+- `from gpu4mrh import patch_pyscf` : enable monkey patching for a select number of PySCF source files, such as updating the Molecule object to track a new `use_gpu` variable.
 - `from mrh.my_pyscf.gpu import libgpu` : enable access to the gpu library interface functions 
 - `gpu = libgpu.libgpu_init()` : initialize the gpu library and return a handle. This gpu handle is to be passed to a small number of functions (and likely made smaller in the future).
 - `mol=gto.M(use_gpu=gpu, atom=...` : this is the key usage of the gpu handle by which most of the underlying code and algorithms can access the gpu library.

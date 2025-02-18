@@ -9,7 +9,7 @@ from pyscf import lib
 from pyscf import scf
 from pyscf.lib import logger
 from pyscf.ao2mo import _ao2mo
-from gpu4pyscf.lib.utils import patch_cpu_kernel
+from gpu4mrh.lib.utils import patch_cpu_kernel
 
 from mrh.my_pyscf.gpu import libgpu
 
@@ -346,7 +346,7 @@ def get_jk_debug(dfobj, dm, hermi=1, with_j=True, with_k=True, direct_scf_tol=1e
 #                    vk[k] += lib.dot(buf1.T, buf1)
 #            t1 = log.timer_debug1('jk', *t1)
     else:
-#        print(" -- -- Inside else branch inside mrh/gpu/gpu4pyscf/df/df_jk.py::get_jk()")
+#        print(" -- -- Inside else branch inside mrh/gpu/gpu4mrh/df/df_jk.py::get_jk()")
         #:vk = numpy.einsum('pij,jk->pki', cderi, dm)
         #:vk = numpy.einsum('pki,pkj->ij', cderi, vk)
         rargs = (ctypes.c_int(nao), (ctypes.c_int*4)(0, nao, 0, nao),
