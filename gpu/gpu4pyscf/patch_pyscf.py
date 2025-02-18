@@ -1,4 +1,1 @@
-from gpu4pyscf.df import patch_pyscf
-from gpu4pyscf.gto import patch_pyscf
-from gpu4pyscf.mcscf import patch_pyscf
-del patch_pyscf
+raise RuntimeError("ERROR: You're attempting to use the gpu4pyscf within MRH. Please replace gpu4pyscf with gpu4mrh in your script")

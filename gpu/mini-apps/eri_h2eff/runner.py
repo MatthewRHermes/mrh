@@ -22,7 +22,7 @@ import pyscf
 import sys
 import numpy as np
 np.set_printoptions(threshold=sys.maxsize)
-if gpu_run:from gpu4pyscf import patch_pyscf
+if gpu_run:from gpu4mrh import patch_pyscf
 from mrh.tests.gpu.geometry_generator import generator
 from pyscf import gto, scf, tools, mcscf, lib
 from mrh.my_pyscf.mcscf.lasscf_async import LASSCF

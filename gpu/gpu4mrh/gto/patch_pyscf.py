@@ -1,6 +1,6 @@
-from gpu4pyscf import gto as mrh_gto
+from gpu4mrh import gto as mrh_gto
 from pyscf import gto
-from gpu4pyscf.lib.utils import patch_cpu_kernel
+from gpu4mrh.lib.utils import patch_cpu_kernel
 
 import types
 
