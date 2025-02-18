@@ -1,4 +1,4 @@
-#
+
 # Definition of MACROS
 
 BINROOT=./
@@ -8,55 +8,76 @@ CXX = g++
 CXXFLAGS=
 FC=gfortran
 FCFLAGS=
-LD = g++
+LD = $(CXX)
 LDFLAGS = -fPIC -shared
 AR = ar rcs
-CPP=cpp -P -traditional
+CPP = cpp -P -traditional
 INSTALL=../
 
-ARCH ?= polaris-cpu-gnu
+ARCH ?= aurora
 include arch/$(ARCH)
 
 # couple more flags to build shared library (allows arch files to be used for general app building)
 CXXFLAGS += -fPIC
-CUDA_CXXFLAGS += -shared -Xcompiler -fPIC
 LDFLAGS += -fPIC -shared
 
-$(info ARCH is [${ARCH}])
+# -- subset of src files with cuda kernels
+C_SRC = $(wildcard *.cpp)
+C_INC = $(wildcard *.h)
+C_OBJ = $(C_SRC:.cpp=.o)
 
-CSRC = $(wildcard *.cpp) $(wildcard pm/*.cpp) $(wildcard mathlib/*.cpp)
-INC = $(wildcard *.h) $(wildcard pm/*.h) $(wildcard mathlib/*.h)
-COBJ = $(CSRC:.cpp=.o)
+PM_SRC = $(filter-out $(CUDA_SRC), $(wildcard pm/*.cpp))
+PM_INC = $(wildcard pm/*.h)
+TMP1 = $(PM_SRC:pm/%=%)
+PM_OBJ = $(TMP1:.cpp=.o)
 
-#$(info CSRC is [${CSRC}])
-#$(info INC is [${INC}])
-#$(info COBJ is [${COBJ}])
+ML_SRC = $(wildcard mathlib/*.cpp)
+ML_INC = $(wildcard mathlib/*.h)
+TMP2 = $(ML_SRC:mathlib/%=%)
+ML_OBJ = $(TMP2:.cpp=.o)
 
+$(info C_SRC is [${C_SRC}])
+$(info C_INC is [${C_INC}])
+$(info C_OBJ is [${C_OBJ}])
+
+$(info PM_SRC is [${PM_SRC}])
+$(info PM_INC is [${PM_INC}])
+$(info PM_OBJ is [${PM_OBJ}])
+
+$(info ML_SRC is [${ML_SRC}])
+$(info ML_INC is [${ML_INC}])
+$(info ML_OBJ is [${ML_OBJ}])
 #
 # -- target : 	Dependencies
 # --		Rule to create target
 
-$(EXE):	$(COBJ) 
-	$(LD) $(LDFLAGS) -o $@ $(COBJ) $(LIB)
+$(EXE): $(C_OBJ) $(PM_OBJ) $(ML_OBJ)
+	$(LD) $(LDFLAGS) -o $@ $(C_OBJ) $(PM_OBJ) $(ML_OBJ) $(LIB)
 
 install: $(EXE)
-	cp $(EXE) $(INSTALL)
+	 cp $(EXE) $(INSTALL)
 
 ####################################################################
 
-$(COBJ): %.o: %.cpp
+$(C_OBJ): %.o: %.cpp
+	$(CXX) $(CXXFLAGS) -c $<
+
+$(PM_OBJ): %.o: pm/%.cpp
+	$(CXX) $(CXXFLAGS) -c $<
+
+$(ML_OBJ): %.o: mathlib/%.cpp
 	$(CXX) $(CXXFLAGS) -c $<
 
 #
 # -- Remove *.o and *~ from the directory
 clean:
-	rm -f *.o *.mod *~ $(EXE)
+	rm -f *.o *~ ./$(EXE)
 	rm -f $(INSTALL)/$(EXE)
 	rm -rf $(EXE).dSYM
 #
 # -- Remove *.o, *~, and executable from the directory
 realclean:
-	rm -f *.o *.mod *~ $(EXE)
+	rm -f *.o *~ ./$(EXE)
 	rm -f $(INSTALL)/$(EXE)
 	rm -rf $(EXE).dSYM
 	rm -f *.optrpt
@@ -66,20 +87,20 @@ realclean:
 
 libgpu.o : libgpu.cpp libgpu.h
 
-pm_cuda.o : pm_cuda.cpp pm_cuda.h pm.h
-pm_sycl.o : pm_sycl.cpp pm_sycl.h pm.h
-pm_hip.o : pm_hip.cpp pm_hip.h pm.h
-pm_openmp.o : pm_openmp.cpp pm_openmp.h pm.h
-pm_host.o : pm_host.cpp pm_host.h pm.h
+pm_cuda.o : pm/pm_cuda.cpp pm/pm_cuda.h pm/pm/pm.h
+pm_sycl.o : pm/pm_sycl.cpp pm/pm_sycl.h pm/pm.h
+pm_hip.o : pm/pm_hip.cpp pm/pm_hip.h pm/pm.h
+pm_openmp.o : pm/pm_openmp.cpp pm/pm_openmp.h pm.h
+pm_host.o : pm/pm_host.cpp pm/pm_host.h pm.h
 
-device.o : device.cpp device_* pm*
-device_cuda.o : device_cuda.cpp device.h pm*
-device_sycl.o : device_sycl.cpp device.h pm*
-device_hip.o : devie_hip.cpp device.h pm*
-device_openmp.o : device_openmp.cpp device.h pm*
-device_host.o : device_host.cpp device.h pm*
+device.o : device.cpp pm/device_cuda.cpp pm/device_sycl.cpp pm/device_hip.cpp pm/device_openmp.cpp pm/device_host.cpp
+device_cuda.o : pm/device_cuda.cpp pm/device.h pm/pm_cuda.o
+device_sycl.o : pm/device_sycl.cpp pm/device.h pm/pm_sycl.o
+device_hip.o : pm/device_hip.cpp pm/device.h pm/pm_hip.o
+device_openmp.o : pm/device_openmp.cpp pm/device.h pm/pm_openmp.o
+device_host.o : pm/device_host.cpp pm/device.h pm/pm_host.o
 
-mathlib_cublas.o : mathlib_cublas.cpp mathlib_cublas.h mathlib.h pm*
-mathlib_mkl.o : mathlib_mkl.cpp mathlib_mkl.h mathlib.h pm*
-mathlib_rocm.o : mathlib_rocm.cpp mathlib_rocm.h mathlib.h pm*
-mathlib_host.o : mathlib_host.cpp mathlib_host.h mathlib.h pm*
+mathlib_cublas.o : mathlib/mathlib_cublas.cpp mathlib/mathlib_cublas.h mathlib/mathlib.h pm/pm_cuda.o
+mathlib_mkl.o : mathlib/mathlib_mkl.cpp mathlib/mathlib_mkl.h mathlib/mathlib.h pm/pm_cuda.o pm/pm_sycl.o
+mathlib_rocm.o : mathlib/mathlib_rocm.cpp mathlib/mathlib_rocm.h mathlib/mathlib.h pm/pm_hip.o
+mathlib_host.o : mathlib/mathlib_host.cpp mathlib/mathlib_host.h mathlib/mathlib.h pm/pm_host.o

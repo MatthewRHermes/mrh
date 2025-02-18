@@ -87,13 +87,13 @@ $(CUDA_OBJ): %.o: pm/%.cpp
 #
 # -- Remove *.o and *~ from the directory
 clean:
-	rm -f *.o *.mod *~ ./$(EXE)
+	rm -f *.o *~ ./$(EXE)
 	rm -f $(INSTALL)/$(EXE)
 	rm -rf $(EXE).dSYM
 #
 # -- Remove *.o, *~, and executable from the directory
 realclean:
-	rm -f *.o *.mod *~ ./$(EXE)
+	rm -f *.o *~ ./$(EXE)
 	rm -f $(INSTALL)/$(EXE)
 	rm -rf $(EXE).dSYM
 	rm -f *.optrpt
@@ -116,7 +116,7 @@ device_hip.o : pm/device_hip.cpp pm/device.h pm/pm_hip.o
 device_openmp.o : pm/device_openmp.cpp pm/device.h pm/pm_openmp.o
 device_host.o : pm/device_host.cpp pm/device.h pm/pm_host.o
 
-#mathlib_cublas.o : mathlib_cublas.cpp mathlib_cublas.h mathlib.h pm_cuda.o
-#mathlib_mkl.o : mathlib_mkl.cpp mathlib_mkl.h mathlib.h pm_cuda.o pm_sycl.o
-#mathlib_rocm.o : mathlib_rocm.cpp mathlib_rocm.h mathlib.h pm_hip.o
-#mathlib_host.o : mathlib_host.cpp mathlib_host.h mathlib.h pm_host.o
+mathlib_cublas.o : mathlib/mathlib_cublas.cpp mathlib/mathlib_cublas.h mathlib/mathlib.h pm/pm_cuda.o
+mathlib_mkl.o : mathlib/mathlib_mkl.cpp mathlib/mathlib_mkl.h mathlib/mathlib.h pm/pm_cuda.o pm/pm_sycl.o
+mathlib_rocm.o : mathlib/mathlib_rocm.cpp mathlib/mathlib_rocm.h mathlib/mathlib.h pm/pm_hip.o
+mathlib_host.o : mathlib/mathlib_host.cpp mathlib/mathlib_host.h mathlib/mathlib.h pm/pm_host.o
