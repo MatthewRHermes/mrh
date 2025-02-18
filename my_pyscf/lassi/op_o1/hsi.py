@@ -39,39 +39,12 @@ class HamS2OvlpOperators (HamS2Ovlp):
         return self.x[i:j]
 
     def transpose_get (self, iroot, *inv):
-        '''A single-rootspace slice of the SI vectors, transposed so that involved fragments
-        are faster-moving
-        
-        Args:                   
-            iroot: integer      
-                Rootspace index 
-            *inv: integers      
-                Indices of nonspectator fragments
-        
-        Returns:
-            xvec: ndarray 
-                SI vectors with the faster dimensions iterating over states of fragments in
-                inv and the slower dimensions iterating over states of fragments not in inv 
-        '''
-        inv = np.asarray (inv)
         xvec = self.get_single_rootspace_x (iroot)
-        lroots = self.lroots[:,iroot]
-        lroots_inv = lroots[inv]
-        newshape = np.atleast_1d (np.cumprod (lroots)[inv])
-        if len (inv) > 1:
-            newshape[1:] = newshape[1:] // newshape[:-1]
-        newshape = newshape // lroots_inv
-        newshape = np.stack ((newshape, np.atleast_1d (lroots_inv)), axis=0).T.flatten ()
-        newshape = np.append (newshape, [-1,])
-        newinv = list (range (1,2*len(inv),2)) 
-        xvec = xvec.reshape (newshape, order='F')
-        xvec = np.moveaxis (xvec, newinv, list (range (len (newinv))))
-        return xvec.T
+        return xvec
 
     def transpose_put_(self, vec, iroot, *inv):
-        ninv = [i for i in range (self.nfrags) if i not in inv]
         i, j = self.offs_lroots[iroot]
-        self.ox[i:j] += transpose_sivec_with_slow_fragments (vec, self.lroots[:,iroot], *ninv)[0]
+        self.ox[i:j] += transpose_sivec_with_slow_fragments (vec, self.lroots[:,iroot], *inv)[0]
         return
 
     def _umat_linequiv_(self, ifrag, iroot, umat, ivec, *args):
@@ -91,11 +64,11 @@ class HamS2OvlpOperators (HamS2Ovlp):
                                    '_crunch_1s_': tzero.copy (),
                                    '_crunch_1s1c_': tzero.copy (),
                                    '_crunch_2c_': tzero.copy (),
+                                   ' op_data_transpose ': tzero.copy (),
                                    ' get_vecs ': tzero.copy (),
                                    ' opdot ': tzero.copy (),
                                    ' ovlpdot ': tzero.copy (),
                                    ' put_vecs ': tzero.copy ()}
-                                   #' op_data_transpose ': tzero.copy ()}
 
     def _ham_op (self, x):
         t0 = (logger.process_clock (), logger.perf_counter ())
@@ -144,19 +117,17 @@ class HamS2OvlpOperators (HamS2Ovlp):
         op = self.canonical_operator_order (op, sinv)
         key = tuple ((row[0], row[1])) + inv
         inv = list (set (inv))
-        #t0 = np.array ([logger.process_clock (), logger.perf_counter ()])
-        #opbralen = np.prod (self.lroots[inv,row[0]])
-        #opketlen = np.prod (self.lroots[inv,row[1]])
-        #op = op.reshape ((opbralen, opketlen), order='C')
-        #t1 = np.array ([logger.process_clock (), logger.perf_counter ()])
-        #self.crunch_put_profile[' op_data_transpose '] += (t1-t0)
+        t0 = np.array ([logger.process_clock (), logger.perf_counter ()])
+        opbralen = np.prod (self.lroots[inv,row[0]])
+        opketlen = np.prod (self.lroots[inv,row[1]])
+        op = op.reshape ((opbralen, opketlen), order='C')
+        t1 = np.array ([logger.process_clock (), logger.perf_counter ()])
+        self.crunch_put_profile[' op_data_transpose '] += (t1-t0)
         tab = self.nonuniq_exc[key]
         t0 = np.array ([logger.process_clock (), logger.perf_counter ()])
         bras, kets = self.nonuniq_exc[key].T
         self._put_ox_(bras, kets, op, inv, _conj=False)
-        ninv = len (inv)
-        taxes = list (range (ninv, 2*ninv)) + list (range (ninv))
-        self._put_ox_(kets, bras, op.conj ().transpose (*taxes), inv, _conj=True)
+        self._put_ox_(kets, bras, op.conj ().T, inv, _conj=True)
         t1 = np.array ([logger.process_clock (), logger.perf_counter ()])
         self.crunch_put_profile[_crunch_fn.__name__] += (t1-t0)
         return
@@ -164,25 +135,27 @@ class HamS2OvlpOperators (HamS2Ovlp):
     def _put_ox_(self, bras, kets, op, inv, _conj=False):
         t0, w0 = logger.process_clock (), logger.perf_counter ()
         p0 = np.array ([logger.process_clock (), logger.perf_counter ()])
-        uniq_kets, invrs_ket = np.unique (kets, return_inverse=True)
-        uniq_bras, invrs_bra = np.unique (bras, return_inverse=True)
-        ketvecs = [self.transpose_get (ket, *inv) for ket in uniq_kets]
+
+        ketvecs = {ket: self.transpose_get (ket, *inv) for ket in set (kets)}
+
         p1 = np.array ([logger.process_clock (), logger.perf_counter ()])
         self.crunch_put_profile[' get_vecs '] += (p1-p0)
-        myaxes = tuple (range (-1, -(len(inv)+1), -1))
-        myaxes = (myaxes, myaxes)
-        ketvecs = [np.tensordot (op, vec, axes=myaxes).ravel () for vec in ketvecs]
+
+        bravecs = {bra: 0.0 for bra in set (bras)}
+        for bra, ket in zip (bras, kets):
+            bravecs[bra] += self.ox_ovlp_part (bra, ket, ketvecs[ket], inv, _conj=_conj)
+
         p2 = np.array ([logger.process_clock (), logger.perf_counter ()])
-        self.crunch_put_profile[' opdot '] += (p2-p1)
-        bravecs = [0.0 for u in uniq_bras]
-        for i in range (len (bras)):
-            bra, ket, vec = bras[i], kets[i], ketvecs[invrs_ket[i]]
-            vec = self.ox_ovlp_part (bra, ket, vec, inv, _conj=_conj)
-            bravecs[invrs_bra[i]] += vec
+        self.crunch_put_profile[' ovlpdot '] += (p2-p1)
+
+        bravecs = {bra: lib.dot (op, vec.T) for bra, vec in bravecs.items ()}
+
         p3 = np.array ([logger.process_clock (), logger.perf_counter ()])
-        self.crunch_put_profile[' ovlpdot '] += (p3-p2)
-        for bra, vec in zip (uniq_bras, bravecs):
+        self.crunch_put_profile[' opdot '] += (p3-p2)
+
+        for bra, vec in bravecs.items ():
             self.transpose_put_(vec.ravel (), bra, *inv)
+
         p4 = np.array ([logger.process_clock (), logger.perf_counter ()])
         self.crunch_put_profile[' put_vecs '] += (p4-p3)
         dt, dw = logger.process_clock () - t0, logger.perf_counter () - w0
@@ -196,14 +169,16 @@ class HamS2OvlpOperators (HamS2Ovlp):
         vec = fac * vec
         spec = np.ones (self.nfrags, dtype=bool)
         spec[inv] = False
-        spec = np.where (spec)[0]
-        for i in spec:
+        lr = 1
+        for i in range (self.nfrags):
             lket = self.lroots[i,ket]
-            vec = vec.reshape (-1,lket)
-            o = self.ints[i].get_ovlp (bra, ket)
-            if _conj: o = o.conj ()
-            vec = lib.einsum ('pq,lq->pl', o, vec)
-        return vec
+            if spec[i]:
+                vec = vec.reshape (-1,lket,lr)
+                o = self.ints[i].get_ovlp (bra, ket)
+                vec = lib.einsum ('pq,lqr->plr', o, vec)
+            else:
+                lr = lr * lket
+        return vec.reshape (-1,lr)
 
     def _ovlp_op (self, x):
         t0 = (logger.process_clock (), logger.perf_counter ())
