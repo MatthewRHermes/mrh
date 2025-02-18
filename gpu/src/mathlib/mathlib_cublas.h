@@ -3,7 +3,7 @@
 #ifndef MATHLIB_CUBLAS_H
 #define MATHLIB_CUBLAS_H
 
-#include "pm.h"
+#include "../pm/pm.h"
 
 #include <cuda_runtime_api.h>
 #include "cublas_v2.h"

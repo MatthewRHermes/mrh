@@ -11,9 +11,9 @@
 
 namespace py = pybind11;
 
-#include "pm.h"
-#include "mathlib.h"
-#include "dev_array.h"
+#include "pm/pm.h"
+#include "mathlib/mathlib.h"
+#include "pm/dev_array.h"
 
 using namespace PM_NS;
 using namespace MATHLIB_NS;

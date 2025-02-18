@@ -3,7 +3,7 @@
 #ifndef MATHLIB_MKL_H
 #define MATHLIB_MKL_H
 
-#include "pm.h"
+#include "../pm/pm.h"
 
 #if defined(_GPU_SYCL_CUDA)
 #include "oneapi/mkl.hpp"

@@ -3,7 +3,7 @@
 #ifndef MATHLIB_HOST_H
 #define MATHLIB_HOST_H
 
-#include "pm.h"
+#include "../pm/pm.h"
 
 namespace MATHLIB_NS {
 

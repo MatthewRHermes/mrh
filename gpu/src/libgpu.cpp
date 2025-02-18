@@ -3,7 +3,7 @@
 #include <cmath>
 
 #include "libgpu.h"
-#include "pm.h"
+#include "pm/pm.h"
 
 // Fortran
 //  :: allocate(N, M)

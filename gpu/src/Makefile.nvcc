@@ -27,28 +27,61 @@ LDFLAGS += -fPIC -shared
 
 # -- subset of src files with cuda kernels
 CUDA_SRC = pm/pm_cuda.cpp pm/device_cuda.cpp
-CUDA_OBJ = $(CUDA_SRC:.cpp=.o)
+CUDA_INC = $(CUDA_SRC:.cpp=.h)
+TMP0 = $(CUDA_SRC:pm/%=%)
+CUDA_OBJ = $(TMP0:.cpp=.o)
 
-CSRC = $(wildcard *.cpp) $(filter-out $(CUDA_SRC), $(wildcard pm/*.cpp)) $(wildcard mathlib/*.cpp)
-INC = $(wildcard *.h) $(wildcard pm/*.h) $(wildcard mathlib/*.h)
-COBJ = $(CSRC:.cpp=.o)
+C_SRC = $(wildcard *.cpp)
+C_INC = $(wildcard *.h)
+C_OBJ = $(C_SRC:.cpp=.o)
 
+PM_SRC = $(filter-out $(CUDA_SRC), $(wildcard pm/*.cpp))
+PM_INC = $(wildcard pm/*.h)
+TMP1 = $(PM_SRC:pm/%=%)
+PM_OBJ = $(TMP1:.cpp=.o)
+
+ML_SRC = $(wildcard mathlib/*.cpp)
+ML_INC = $(wildcard mathlib/*.h)
+TMP2 = $(ML_SRC:mathlib/%=%)
+ML_OBJ = $(TMP2:.cpp=.o)
+
+$(info CUDA_SRC is [${CUDA_SRC}])
+$(info CUDA_INC is [${CUDA_INC}])
+$(info CUDA_OBJ is [${CUDA_OBJ}])
+
+$(info C_SRC is [${C_SRC}])
+$(info C_INC is [${C_INC}])
+$(info C_OBJ is [${C_OBJ}])
+
+$(info PM_SRC is [${PM_SRC}])
+$(info PM_INC is [${PM_INC}])
+$(info PM_OBJ is [${PM_OBJ}])
+
+$(info ML_SRC is [${ML_SRC}])
+$(info ML_INC is [${ML_INC}])
+$(info ML_OBJ is [${ML_OBJ}])
 #
 # -- target : 	Dependencies
 # --		Rule to create target
 
-$(EXE): $(COBJ) $(CUDA_OBJ)
-	$(LD) $(LDFLAGS) -o $@ $(COBJ) $(CUDA_OBJ) $(LIB)
+$(EXE): $(C_OBJ) $(CUDA_OBJ) $(PM_OBJ) $(ML_OBJ)
+	$(LD) $(LDFLAGS) -o $@ $(C_OBJ) $(CUDA_OBJ) $(PM_OBJ) $(ML_OBJ) $(LIB)
 
 install: $(EXE)
 	 cp $(EXE) $(INSTALL)
 
 ####################################################################
 
-$(COBJ): %.o: %.cpp
+$(C_OBJ): %.o: %.cpp
 	$(CXX) $(CXXFLAGS) -c $<
 
-$(CUDA_OBJ): %.o: %.cpp
+$(PM_OBJ): %.o: pm/%.cpp
+	$(CXX) $(CXXFLAGS) -c $<
+
+$(ML_OBJ): %.o: mathlib/%.cpp
+	$(CXX) $(CXXFLAGS) -c $<
+
+$(CUDA_OBJ): %.o: pm/%.cpp
 	$(CUDA_CXX) -x cu $(CUDA_CXXFLAGS) -c $< -o $@
 
 #
@@ -70,20 +103,20 @@ realclean:
 
 libgpu.o : libgpu.cpp libgpu.h
 
-pm_cuda.o : pm_cuda.cpp pm_cuda.h pm.h
-pm_sycl.o : pm_sycl.cpp pm_sycl.h pm.h
-pm_hip.o : pm_hip.cpp pm_hip.h pm.h
-pm_openmp.o : pm_openmp.cpp pm_openmp.h pm.h
-pm_host.o : pm_host.cpp pm_host.h pm.h
+pm_cuda.o : pm/pm_cuda.cpp pm/pm_cuda.h pm/pm/pm.h
+pm_sycl.o : pm/pm_sycl.cpp pm/pm_sycl.h pm/pm.h
+pm_hip.o : pm/pm_hip.cpp pm/pm_hip.h pm/pm.h
+pm_openmp.o : pm/pm_openmp.cpp pm/pm_openmp.h pm.h
+pm_host.o : pm/pm_host.cpp pm/pm_host.h pm.h
 
-device.o : device.cpp device_* pm*
-device_cuda.o : device_cuda.cpp device.h pm*
-device_sycl.o : device_sycl.cpp device.h pm*
-device_hip.o : devie_hip.cpp device.h pm*
-device_openmp.o : device_openmp.cpp device.h pm*
-device_host.o : device_host.cpp device.h pm*
+device.o : device.cpp pm/device_cuda.cpp pm/device_sycl.cpp pm/device_hip.cpp pm/device_openmp.cpp pm/device_host.cpp
+device_cuda.o : pm/device_cuda.cpp pm/device.h pm/pm_cuda.o
+device_sycl.o : pm/device_sycl.cpp pm/device.h pm/pm_sycl.o
+device_hip.o : pm/device_hip.cpp pm/device.h pm/pm_hip.o
+device_openmp.o : pm/device_openmp.cpp pm/device.h pm/pm_openmp.o
+device_host.o : pm/device_host.cpp pm/device.h pm/pm_host.o
 
-mathlib_cublas.o : mathlib_cublas.cpp mathlib_cublas.h mathlib.h pm*
-mathlib_mkl.o : mathlib_mkl.cpp mathlib_mkl.h mathlib.h pm*
-mathlib_rocm.o : mathlib_rocm.cpp mathlib_rocm.h mathlib.h pm*
-mathlib_host.o : mathlib_host.cpp mathlib_host.h mathlib.h pm*
+#mathlib_cublas.o : mathlib_cublas.cpp mathlib_cublas.h mathlib.h pm_cuda.o
+#mathlib_mkl.o : mathlib_mkl.cpp mathlib_mkl.h mathlib.h pm_cuda.o pm_sycl.o
+#mathlib_rocm.o : mathlib_rocm.cpp mathlib_rocm.h mathlib.h pm_hip.o
+#mathlib_host.o : mathlib_host.cpp mathlib_host.h mathlib.h pm_host.o
