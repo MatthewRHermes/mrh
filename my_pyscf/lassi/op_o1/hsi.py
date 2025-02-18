@@ -11,37 +11,6 @@ from mrh.my_pyscf.lassi.op_o1.utilities import *
 import functools
 from itertools import product
 
-def combine_dimensions (lroots, inv):
-    lroots = list (lroots).copy ()
-    inv = list (inv).copy ()
-    # Eliminate singleton dimensions
-    i = 0
-    nfrags = len (lroots)
-    for j in range (nfrags):
-        if lroots[i] == 1:
-            lroots.pop (i)
-            if i in inv:
-                inv.pop (inv.index (i))
-            for l in range (len (inv)):
-                if inv[l] > i:
-                    inv[l] -= 1
-        else:
-            i = i + 1
-    # Combine adjacent dimensions
-    i = 0
-    ninv = len (inv)
-    for j in range (ninv-1):
-        if inv[i+1] == inv[i]+1:
-            k = inv[i]
-            lroots[k] = lroots[k] * lroots[k+1]
-            lroots.pop (k+1)
-            inv.pop (i+1)
-            for k in range (i+1, len (inv)):
-                inv[k] -= 1
-        else:
-            i = i + 1
-    return lroots, inv
-
 class HamS2OvlpOperators (HamS2Ovlp):
     __doc__ = HamS2Ovlp.__doc__ + '''
 
@@ -80,40 +49,24 @@ class HamS2OvlpOperators (HamS2Ovlp):
                 Indices of nonspectator fragments
         
         Returns:
-            xvec: ndarray of shape (nrows, ncols)
-                SI vectors with the faster dimension iterating over states of fragments in
-                inv and the slower dimension iterating over states of fragments not in inv 
+            xvec: ndarray 
+                SI vectors with the faster dimensions iterating over states of fragments in
+                inv and the slower dimensions iterating over states of fragments not in inv 
         '''
-        inv = np.asarray (inv)#.copy ()
+        inv = np.asarray (inv)
         xvec = self.get_single_rootspace_x (iroot)
-        lroots = self.lroots[:,iroot]#.copy ()
+        lroots = self.lroots[:,iroot]
         lroots_inv = lroots[inv]
-        #ncols = np.prod (lroots[inv])
-        #nrows = np.prod (lroots) // ncols
         newshape = np.atleast_1d (np.cumprod (lroots)[inv])
         if len (inv) > 1:
             newshape[1:] = newshape[1:] // newshape[:-1]
         newshape = newshape // lroots_inv
         newshape = np.stack ((newshape, np.atleast_1d (lroots_inv)), axis=0).T.flatten ()
-        newshape = np.append (newshape, [-1,])#np.prod (lroots[inv[-1]:]) // lroots[inv[-1]],])
+        newshape = np.append (newshape, [-1,])
         newinv = list (range (1,2*len(inv),2)) 
-        #newshape, newinv = combine_dimensions (newshape, newinv)
-        #newaxes = newinv + [i for i in range (len (newshape)) if i not in newinv]
-        xvec = xvec.reshape (newshape, order='F')#.transpose (*newaxes)
+        xvec = xvec.reshape (newshape, order='F')
         xvec = np.moveaxis (xvec, newinv, list (range (len (newinv))))
         return xvec.T
-        #return xvec.reshape ((ncols, nrows), order='F').T
-        #print (lroots, xvec.size)
-        #print (inv)
-        #print (newshape, newaxes, newinv)
-        #xvec_test = xvec.copy ().reshape (newshape, order='F').transpose (*newaxes)
-        #xvec_test = xvec_test.reshape ((ncols, nrows), order='F').T
-        #ninv = [i for i in range (self.nfrags) if i not in inv]
-        #xvec_ref = transpose_sivec_make_fragments_slow (xvec, self.lroots[:,iroot], *ninv)[0]
-        #print (xvec_test)
-        #print (xvec_ref)
-        #assert (np.amax (np.abs (xvec_test-xvec_ref)) < 1e-8)
-        #return xvec_ref
 
     def transpose_put_(self, vec, iroot, *inv):
         ninv = [i for i in range (self.nfrags) if i not in inv]
@@ -218,7 +171,6 @@ class HamS2OvlpOperators (HamS2Ovlp):
         self.crunch_put_profile[' get_vecs '] += (p1-p0)
         myaxes = tuple (range (-1, -(len(inv)+1), -1))
         myaxes = (myaxes, myaxes)
-        #ketvecs = [lib.dot (op, vec.T) for vec in ketvecs]
         ketvecs = [np.tensordot (op, vec, axes=myaxes).ravel () for vec in ketvecs]
         p2 = np.array ([logger.process_clock (), logger.perf_counter ()])
         self.crunch_put_profile[' opdot '] += (p2-p1)
