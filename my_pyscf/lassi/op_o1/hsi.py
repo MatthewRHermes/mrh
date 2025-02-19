@@ -32,7 +32,26 @@ class HamS2OvlpOperators (HamS2Ovlp):
         self.x = self.si = np.zeros (self.nstates, self.dtype)
         self.ox = np.zeros (self.nstates, self.dtype)
         #self.log.verbose = logger.DEBUG1
+        self.excgroups0 = {}
+        for exc, fn in zip ((self.exc_1d, self.exc_2d, self.exc_1s),
+                            (self._crunch_1d_, self._crunch_2d_, self._crunch_1s_)):
+            self._groupexc_(self.excgroups0, exc, fn)
+        self.excgroups1 = {}
+        for exc, fn in zip ((self.exc_1c, self.exc_1c1d, self.exc_1s1c, self.exc_2c),
+                            (self._crunch_1c_, self._crunch_1c1d_, self._crunch_1s1c_, 
+                             self._crunch_2c_)):
+            self._groupexc_(self.excgroups1, exc, fn)
 
+    def _groupexc_(self, group, exc, fn):
+        for row in exc:
+            if self._fn_row_has_spin (fn):
+                inv = row[2:-1]
+            else:
+                inv = row[2:]
+            key = tuple (set (inv))
+            val = group.get (key, [])
+            val.append ([fn, row])
+            group[key] = val
 
     def init_profiling (self):
         self.dt_1d, self.dw_1d = 0.0, 0.0
@@ -105,13 +124,15 @@ class HamS2OvlpOperators (HamS2Ovlp):
         self.x[:] = x.flat[:]
         self.ox[:] = 0
         self._umat_linequiv_loop_(0) # U.conj () @ x
-        for row in self.exc_1d: self._crunch_ox_env_(self._crunch_1d_, 0, *row)
-        for row in self.exc_2d: self._crunch_ox_env_(self._crunch_2d_, 0, *row)
-        for row in self.exc_1c: self._crunch_ox_env_(self._crunch_1c_, 0, *row)
-        for row in self.exc_1c1d: self._crunch_ox_env_(self._crunch_1c1d_, 0, *row)
-        for row in self.exc_1s: self._crunch_ox_env_(self._crunch_1s_, 0, *row)
-        for row in self.exc_1s1c: self._crunch_ox_env_(self._crunch_1s1c_, 0, *row)
-        for row in self.exc_2c: self._crunch_ox_env_(self._crunch_2c_, 0, *row)
+        for group in self.excgroups0.values (): self._crunch_group_(0, group)
+        for group in self.excgroups1.values (): self._crunch_group_(0, group)
+        #for row in self.exc_1d: self._crunch_ox_env_(self._crunch_1d_, 0, *row)
+        #for row in self.exc_2d: self._crunch_ox_env_(self._crunch_2d_, 0, *row)
+        #for row in self.exc_1c: self._crunch_ox_env_(self._crunch_1c_, 0, *row)
+        #for row in self.exc_1c1d: self._crunch_ox_env_(self._crunch_1c1d_, 0, *row)
+        #for row in self.exc_1s: self._crunch_ox_env_(self._crunch_1s_, 0, *row)
+        #for row in self.exc_1s1c: self._crunch_ox_env_(self._crunch_1s1c_, 0, *row)
+        #for row in self.exc_2c: self._crunch_ox_env_(self._crunch_2c_, 0, *row)
         self._umat_linequiv_loop_(1) # U.T @ ox
         self.log.debug1 (self.sprint_profile ())
         self.log.timer_debug1 ('HamS2OvlpOperators._ham_op', *t0)
@@ -123,13 +144,18 @@ class HamS2OvlpOperators (HamS2Ovlp):
         self.x[:] = x.flat[:]
         self.ox[:] = 0
         self._umat_linequiv_loop_(0) # U.conj () @ x
-        for row in self.exc_1d: self._crunch_ox_env_(self._crunch_1d_, 1, *row)
-        for row in self.exc_2d: self._crunch_ox_env_(self._crunch_2d_, 1, *row)
-        for row in self.exc_1s: self._crunch_ox_env_(self._crunch_1s_, 1, *row)
+        for group in self.excgroups0.values (): self._crunch_group_(1, group)
+        #for row in self.exc_1d: self._crunch_ox_env_(self._crunch_1d_, 1, *row)
+        #for row in self.exc_2d: self._crunch_ox_env_(self._crunch_2d_, 1, *row)
+        #for row in self.exc_1s: self._crunch_ox_env_(self._crunch_1s_, 1, *row)
         self._umat_linequiv_loop_(1) # U.T @ ox
         self.log.debug1 (self.sprint_profile ())
         self.log.timer_debug1 ('HamS2OvlpOperators._s2_op', *t0)
         return self.ox.copy ()
+
+    def _crunch_group_(self, opid, group):
+        for fn, row in group:
+            self._crunch_ox_env_(fn, opid, *row)
 
     def _crunch_ox_env_(self, _crunch_fn, opid, *row): 
         if self._fn_row_has_spin (_crunch_fn):
