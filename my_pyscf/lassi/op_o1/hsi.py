@@ -126,8 +126,8 @@ class HamS2OvlpOperators (HamS2Ovlp):
         self.x[:] = x.flat[:]
         self.ox[:] = 0
         self._umat_linequiv_loop_(0) # U.conj () @ x
-        for inv, group in self.excgroups0.items (): self._crunch_group_(0, inv, group)
-        for inv, group in self.excgroups1.items (): self._crunch_group_(0, inv, group)
+        for inv, group in self.excgroups0.items (): self._opuniq_x_group_(0, inv, group)
+        for inv, group in self.excgroups1.items (): self._opuniq_x_group_(0, inv, group)
         self._umat_linequiv_loop_(1) # U.T @ ox
         self.log.debug1 (self.sprint_profile ())
         self.log.timer_debug1 ('HamS2OvlpOperators._ham_op', *t0)
@@ -139,17 +139,18 @@ class HamS2OvlpOperators (HamS2Ovlp):
         self.x[:] = x.flat[:]
         self.ox[:] = 0
         self._umat_linequiv_loop_(0) # U.conj () @ x
-        for inv, group in self.excgroups0.items (): self._crunch_group_(1, inv, group)
+        for inv, group in self.excgroups0.items (): self._opuniq_x_group_(1, inv, group)
         self._umat_linequiv_loop_(1) # U.T @ ox
         self.log.debug1 (self.sprint_profile ())
         self.log.timer_debug1 ('HamS2OvlpOperators._s2_op', *t0)
         return self.ox.copy ()
 
-    def _crunch_group_(self, opid, inv, group):
+    def _opuniq_x_group_(self, opid, inv, group):
+        '''All unique operations which have a set of nonspectator fragments in common'''
         self.ox1[:] = 0
         allbras = set ()
         for fn, row in group:
-            newbras = self._crunch_ox_env_(fn, opid, *row)
+            newbras = self._opuniq_x_(fn, opid, *row)
             allbras = allbras.union (newbras)
         t0, w0 = logger.process_clock (), logger.perf_counter ()
         for bra in allbras:
@@ -163,7 +164,9 @@ class HamS2OvlpOperators (HamS2Ovlp):
         self.dt_p += (t1-t0)
         self.dw_p += (w1-w0)
 
-    def _crunch_ox_env_(self, _crunch_fn, opid, *row): 
+    def _opuniq_x_(self, _crunch_fn, opid, *row):
+        '''All operations which are unique in that a given set of fragment bra statelets are
+        coupled to a given set of fragment ket statelets'''
         if self._fn_row_has_spin (_crunch_fn):
             inv = row[2:-1]     
         else:
@@ -183,11 +186,11 @@ class HamS2OvlpOperators (HamS2Ovlp):
         self.dw_oT += (w1-w0)
         tab = self.nonuniq_exc[key]
         bras, kets = self.nonuniq_exc[key].T
-        self._put_ox_(bras, kets, op, inv, _conj=False)
-        self._put_ox_(kets, bras, op.conj ().T, inv, _conj=True)
+        self._op_x_(bras, kets, op, inv)
+        self._op_x_(kets, bras, op.conj ().T, inv)
         return set (bras).union (set (kets))
 
-    def _put_ox_(self, bras, kets, op, inv, _conj=False):
+    def _op_x_(self, bras, kets, op, inv):
         t0, w0 = logger.process_clock (), logger.perf_counter ()
 
         ketvecs = {ket: self.get_xvec (ket, *inv) for ket in set (kets)}
@@ -198,7 +201,7 @@ class HamS2OvlpOperators (HamS2Ovlp):
 
         bravecs = {bra: 0.0 for bra in set (bras)}
         for bra, ket in zip (bras, kets):
-            bravecs[bra] += self.ox_ovlp_part (bra, ket, ketvecs[ket], inv, _conj=_conj)
+            bravecs[bra] += self.ox_ovlp_part (bra, ket, ketvecs[ket], inv)
 
         t2, w2 = logger.process_clock (), logger.perf_counter ()
         self.dt_sX += (t2-t1)
@@ -219,7 +222,7 @@ class HamS2OvlpOperators (HamS2Ovlp):
         dt, dw = logger.process_clock () - t0, logger.perf_counter () - w0
         self.dt_p, self.dw_p = self.dt_p + dt, self.dw_p + dw
 
-    def ox_ovlp_part (self, bra, ket, vec, inv, _conj=False):
+    def ox_ovlp_part (self, bra, ket, vec, inv):
         if (bra==ket): vec = vec * 0.5
         spec = np.ones (self.nfrags, dtype=bool)
         spec[inv] = False
