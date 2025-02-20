@@ -33,6 +33,7 @@ class HamS2OvlpOperators (HamS2Ovlp):
         self.ox = np.zeros (self.nstates, self.dtype)
         self.ox1 = np.zeros (self.nstates, self.dtype)
         self.log.verbose = logger.DEBUG1
+        self.init_profiling ()
         self.excgroups_s = {}
         self.excgroups_h = {}
         for exc, fn in zip ((self.exc_1d, self.exc_2d, self.exc_1s),
@@ -49,13 +50,32 @@ class HamS2OvlpOperators (HamS2Ovlp):
                 inv = row[2:-1]
             else:
                 inv = row[2:]
-            key = tuple (set (inv))
+            data = fn (*row)
+            bra, ket = row[:2]
+            row = inv.copy ()
+            sinv = data[2]
+            inv = list (set (inv))
+            t0, w0 = logger.process_clock (), logger.perf_counter ()
+            op = self.canonical_operator_order (data[0], sinv)
+            opbralen = np.prod (self.lroots[inv,bra])
+            opketlen = np.prod (self.lroots[inv,ket])
+            op = op.reshape ((opbralen, opketlen), order='C')
+            t1, w1 = logger.process_clock (), logger.perf_counter ()
+            self.dt_oT += (t1-t0)
+            self.dw_oT += (w1-w0)
+            key = tuple (inv)
             val = self.excgroups_h.get (key, [])
-            val.append ([fn, row])
+            val.append ([op, bra, ket, row])
             self.excgroups_h[key] = val
             if has_s:
+                t0, w0 = logger.process_clock (), logger.perf_counter ()
+                op = self.canonical_operator_order (data[1], sinv)
+                op = op.reshape ((opbralen, opketlen), order='C')
+                t1, w1 = logger.process_clock (), logger.perf_counter ()
+                self.dt_oT += (t1-t0)
+                self.dw_oT += (w1-w0)
                 val = self.excgroups_s.get (key, [])
-                val.append ([fn, row])
+                val.append ([op, bra, ket, row])
                 self.excgroups_s[key] = val
 
 
@@ -128,7 +148,7 @@ class HamS2OvlpOperators (HamS2Ovlp):
         self.x[:] = x.flat[:]
         self.ox[:] = 0
         self._umat_linequiv_loop_(0) # U.conj () @ x
-        for inv, group in self.excgroups_h.items (): self._opuniq_x_group_(0, inv, group)
+        for inv, group in self.excgroups_h.items (): self._opuniq_x_group_(inv, group)
         self._umat_linequiv_loop_(1) # U.T @ ox
         self.log.debug1 (self.sprint_profile ())
         self.log.timer_debug1 ('HamS2OvlpOperators._ham_op', *t0)
@@ -140,18 +160,18 @@ class HamS2OvlpOperators (HamS2Ovlp):
         self.x[:] = x.flat[:]
         self.ox[:] = 0
         self._umat_linequiv_loop_(0) # U.conj () @ x
-        for inv, group in self.excgroups_s.items (): self._opuniq_x_group_(1, inv, group)
+        for inv, group in self.excgroups_s.items (): self._opuniq_x_group_(inv, group)
         self._umat_linequiv_loop_(1) # U.T @ ox
         self.log.debug1 (self.sprint_profile ())
         self.log.timer_debug1 ('HamS2OvlpOperators._s2_op', *t0)
         return self.ox.copy ()
 
-    def _opuniq_x_group_(self, opid, inv, group):
+    def _opuniq_x_group_(self, inv, group):
         '''All unique operations which have a set of nonspectator fragments in common'''
         self.ox1[:] = 0
         allbras = set ()
-        for fn, row in group:
-            newbras = self._opuniq_x_(fn, opid, *row)
+        for op, bra, ket, myinv in group:
+            newbras = self._opuniq_x_(op, bra, ket, *myinv)
             allbras = allbras.union (newbras)
         t0, w0 = logger.process_clock (), logger.perf_counter ()
         for bra in allbras:
@@ -165,26 +185,11 @@ class HamS2OvlpOperators (HamS2Ovlp):
         self.dt_p += (t1-t0)
         self.dw_p += (w1-w0)
 
-    def _opuniq_x_(self, _crunch_fn, opid, *row):
+    def _opuniq_x_(self, op, bra, ket, *inv):
         '''All operations which are unique in that a given set of fragment bra statelets are
         coupled to a given set of fragment ket statelets'''
-        if self._fn_row_has_spin (_crunch_fn):
-            inv = row[2:-1]     
-        else:
-            inv = row[2:]
-        data = _crunch_fn (*row)
-        op = data[opid]
-        sinv = data[2]
-        key = tuple ((row[0], row[1])) + inv
+        key = tuple ((bra, ket)) + inv
         inv = list (set (inv))
-        t0, w0 = logger.process_clock (), logger.perf_counter ()
-        op = self.canonical_operator_order (op, sinv)
-        opbralen = np.prod (self.lroots[inv,row[0]])
-        opketlen = np.prod (self.lroots[inv,row[1]])
-        op = op.reshape ((opbralen, opketlen), order='C')
-        t1, w1 = logger.process_clock (), logger.perf_counter ()
-        self.dt_oT += (t1-t0)
-        self.dw_oT += (w1-w0)
         tab = self.nonuniq_exc[key]
         bras, kets = self.nonuniq_exc[key].T
         self._op_x_(bras, kets, op, inv)
