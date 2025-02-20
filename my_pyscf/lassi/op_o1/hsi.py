@@ -176,12 +176,10 @@ class HamS2OvlpOperators (HamS2Ovlp):
     def _opuniq_x_group_(self, inv, group):
         '''All unique operations which have a set of nonspectator fragments in common'''
         self.ox1[:] = 0
-        allbras = set ()
         for op, bra, ket, myinv in group:
-            newbras = self._opuniq_x_(op, bra, ket, *myinv)
-            allbras = allbras.union (newbras)
+            self._opuniq_x_(op, bra, ket, *myinv)
         t0, w0 = logger.process_clock (), logger.perf_counter ()
-        for bra in allbras:
+        for bra in range (self.nroots):
             i, j = self.offs_lroots[bra]
             self.ox[i:j] += transpose_sivec_with_slow_fragments (
                 self.ox1[i:j], self.lroots[:,bra], *inv
@@ -199,7 +197,7 @@ class HamS2OvlpOperators (HamS2Ovlp):
         bras, kets = self.nonuniq_exc[key].T
         self._op_x_(bras, kets, op, inv)
         self._op_x_(kets, bras, op.conj ().T, inv)
-        return set (bras).union (set (kets))
+        return 
 
     def _op_x_(self, bras, kets, op, inv):
         t0, w0 = logger.process_clock (), logger.perf_counter ()
