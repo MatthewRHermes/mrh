@@ -33,7 +33,11 @@ class HamS2OvlpOperators (HamS2Ovlp):
         self.ox = np.zeros (self.nstates, self.dtype)
         self.ox1 = np.zeros (self.nstates, self.dtype)
         self.log.verbose = logger.DEBUG1
-        self.init_profiling ()
+        self._init_cache_()
+
+    def _init_cache_(self):
+        t0 = (logger.process_clock (), logger.perf_counter ())
+        self.init_cache_profiling ()
         self.excgroups_s = {}
         self.excgroups_h = {}
         for exc, fn in zip ((self.exc_1d, self.exc_2d, self.exc_1s),
@@ -43,6 +47,8 @@ class HamS2OvlpOperators (HamS2Ovlp):
                             (self._crunch_1c_, self._crunch_1c1d_, self._crunch_1s1c_, 
                              self._crunch_2c_)):
             self._groupexc_(exc, fn, has_s=False)
+        self.log.debug1 (self.sprint_cache_profile ())
+        self.log.timer_debug1 ('HamS2OvlpOperators operator cacheing', *t0)
 
     def _groupexc_(self, exc, fn, has_s=False):
         for row in exc:
@@ -78,8 +84,7 @@ class HamS2OvlpOperators (HamS2Ovlp):
                 val.append ([op, bra, ket, row])
                 self.excgroups_s[key] = val
 
-
-    def init_profiling (self):
+    def init_cache_profiling (self):
         self.dt_1d, self.dw_1d = 0.0, 0.0
         self.dt_2d, self.dw_2d = 0.0, 0.0
         self.dt_1c, self.dw_1c = 0.0, 0.0
@@ -89,15 +94,16 @@ class HamS2OvlpOperators (HamS2Ovlp):
         self.dt_2c, self.dw_2c = 0.0, 0.0
         self.dt_o, self.dw_o = 0.0, 0.0
         self.dt_u, self.dw_u = 0.0, 0.0
-        self.dt_p, self.dw_p = 0.0, 0.0
         self.dt_i, self.dw_i = 0.0, 0.0
         self.dt_oT, self.dw_oT = 0.0, 0.0
+
+    def init_profiling (self):
         self.dt_gX, self.dw_gX = 0.0, 0.0
         self.dt_sX, self.dw_sX = 0.0, 0.0
         self.dt_oX, self.dw_oX = 0.0, 0.0
         self.dt_pX, self.dw_pX = 0.0, 0.0
 
-    def sprint_profile (self):
+    def sprint_cache_profile (self):
         fmt_str = '{:>5s} CPU: {:9.2f} ; wall: {:9.2f}'
         profile = fmt_str.format ('1d', self.dt_1d, self.dw_1d)
         profile += '\n' + fmt_str.format ('2d', self.dt_2d, self.dw_2d)
@@ -108,16 +114,17 @@ class HamS2OvlpOperators (HamS2Ovlp):
         profile += '\n' + fmt_str.format ('2c', self.dt_2c, self.dw_2c)
         profile += '\n' + fmt_str.format ('ovlp', self.dt_o, self.dw_o)
         profile += '\n' + fmt_str.format ('umat', self.dt_u, self.dw_u)
-        profile += '\n' + fmt_str.format ('put', self.dt_p, self.dw_p)
         profile += '\n' + fmt_str.format ('idx', self.dt_i, self.dw_i)
         profile += '\n' + fmt_str.format ('opT', self.dt_oT, self.dw_oT)
-        profile += '\n' + 'Decomposing put:'
-        profile += '\n' + fmt_str.format ('getX', self.dt_gX, self.dw_gX)
+        return profile
+
+    def sprint_profile (self):
+        fmt_str = '{:>5s} CPU: {:9.2f} ; wall: {:9.2f}'
+        profile = fmt_str.format ('getX', self.dt_gX, self.dw_gX)
         profile += '\n' + fmt_str.format ('olpX', self.dt_sX, self.dw_sX)
         profile += '\n' + fmt_str.format ('opX', self.dt_oX, self.dw_oX)
         profile += '\n' + fmt_str.format ('putX', self.dt_pX, self.dw_pX)
         return profile
-
 
     def get_single_rootspace_x (self, iroot):
         i, j = self.offs_lroots[iroot]
@@ -182,8 +189,6 @@ class HamS2OvlpOperators (HamS2Ovlp):
         t1, w1 = logger.process_clock (), logger.perf_counter ()
         self.dt_pX += (t1-t0)
         self.dw_pX += (w1-w0)
-        self.dt_p += (t1-t0)
-        self.dw_p += (w1-w0)
 
     def _opuniq_x_(self, op, bra, ket, *inv):
         '''All operations which are unique in that a given set of fragment bra statelets are
@@ -225,8 +230,6 @@ class HamS2OvlpOperators (HamS2Ovlp):
         t4, w4 = logger.process_clock (), logger.perf_counter ()
         self.dt_pX += (t4-t3)
         self.dw_pX += (w4-w3)
-        dt, dw = logger.process_clock () - t0, logger.perf_counter () - w0
-        self.dt_p, self.dw_p = self.dt_p + dt, self.dw_p + dw
 
     def ox_ovlp_part (self, bra, ket, vec, inv):
         if (bra==ket): vec = vec * 0.5
@@ -338,7 +341,7 @@ class HamS2OvlpOperators (HamS2Ovlp):
             dt, dw = logger.process_clock () - t1, logger.perf_counter () - w1
             self.dt_s, self.dw_s = self.dt_s + dt, self.dw_s + dw
         dt, dw = logger.process_clock () - t0, logger.perf_counter () - w0
-        self.dt_p, self.dw_p = self.dt_p + dt, self.dw_p + dw
+        #self.dt_p, self.dw_p = self.dt_p + dt, self.dw_p + dw
 
 #gen_contract_op_si_hdiag = functools.partial (_fake_gen_contract_op_si_hdiag, ham)
 def gen_contract_op_si_hdiag (las, h1, h2, ci, nelec_frs, soc=0, nlas=None,
