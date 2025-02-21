@@ -101,16 +101,13 @@ class HamS2OvlpOperators (HamS2Ovlp):
         return groups
 
     def get_nonuniq_exc_square (self, key):
-        tab = self.nonuniq_exc[key]
-        n0 = len (tab)
-        tab = np.append (tab, tab[:,::-1], axis=0)
-        _, idx_uniq = np.unique (tab, return_index=True, axis=0)
-        tab = np.append (tab, np.ones ((len(tab),1),dtype=int), axis=1)
-        tab[:n0,2] = 0
-        brakets = tab[idx_uniq,:2]
-        _, idx_uniq = np.unique (tab[:,0], return_index=True, axis=0)
-        braopids = tab[:,[0,2]][idx_uniq,:]
-        return brakets, braopids
+        tab_bk = self.nonuniq_exc[key]
+        idx_equal = tab_bk[:,0]==tab_bk[:,1]
+        tab_kb = tab_bk[~idx_equal,::-1]
+        brakets = np.append (tab_bk, tab_kb, axis=0)
+        bras = set (tab_bk[:,0])
+        braHs = set (tab_kb[:,0]) - bras
+        return brakets, list (bras), list (braHs)
 
     def init_cache_profiling (self):
         self.dt_1d, self.dw_1d = 0.0, 0.0
@@ -235,15 +232,18 @@ class HamS2OvlpOperators (HamS2Ovlp):
         coupled to a given set of fragment ket statelets'''
         key = tuple ((bra, ket)) + inv
         inv = list (set (inv))
-        bras, kets = self.nonuniq_exc[key].T
-        brakets, braopids = self.get_nonuniq_exc_square (key)
-        bravecs = {bra: 0.0 for bra in braopids[:,0]}
+        brakets, bras, braHs = self.get_nonuniq_exc_square (key)
+        bravecs = {bra: 0.0 for bra in bras+braHs}
         for bra, ket in brakets:
             bravecs[bra] += ovecs[tuple ((ket,)) + self.ox_ovlp_urootstr (bra, ket, inv)]
-        op = (op, op.conj ().T)
-        for bra, opid in braopids:
+        for bra in bras:
             vec = bravecs[bra]
-            self.put_oxvec_(lib.dot (op[opid], vec.T).ravel (), bra, *inv)
+            self.put_oxvec_(lib.dot (op, vec.T).ravel (), bra, *inv)
+        if len (braHs):
+            op = op.conj ().T
+            for bra in braHs:
+                vec = bravecs[bra]
+                self.put_oxvec_(lib.dot (op, vec.T).ravel (), bra, *inv)
         return
 
     def ox_ovlp_urootstr (self, bra, ket, inv):
