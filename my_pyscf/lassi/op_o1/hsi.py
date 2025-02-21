@@ -256,6 +256,7 @@ class HamS2OvlpOperators (HamS2Ovlp):
         return tuple (urootstr)
 
     def ox_ovlp_part (self, brastr, ketstr, vec, inv):
+        # TODO: factorize this as much as possible
         spec = np.ones (self.nfrags, dtype=bool)
         spec[list(inv)] = False
         lr = 1
