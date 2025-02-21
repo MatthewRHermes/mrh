@@ -89,6 +89,7 @@ class HamS2OvlpOperators (HamS2Ovlp):
                 self.excgroups_s[key] = val
 
     def _prepare_urootstr (self, groups):
+        t0, w0 = logger.process_clock (), logger.perf_counter ()
         for inv, group in groups.items ():
             tab = np.zeros ((0,2), dtype=int)
             for op, bra, ket, myinv in group:
@@ -98,6 +99,9 @@ class HamS2OvlpOperators (HamS2Ovlp):
             ovlplinkstr = [[ket,] + list (self.ox_ovlp_urootstr (bra, ket, inv)) for bra, ket in tab]
             ovlplinkstr = np.unique (ovlplinkstr, axis=0)
             groups[inv] = (group, np.asarray (ovlplinkstr))
+        t1, w1 = logger.process_clock (), logger.perf_counter ()
+        self.dt_i += (t1-t0)
+        self.dw_i += (w1-w0)
         return groups
 
     def get_nonuniq_exc_square (self, key):
@@ -117,13 +121,12 @@ class HamS2OvlpOperators (HamS2Ovlp):
         self.dt_1s, self.dw_1s = 0.0, 0.0
         self.dt_1s1c, self.dw_1s1c = 0.0, 0.0
         self.dt_2c, self.dw_2c = 0.0, 0.0
-        self.dt_o, self.dw_o = 0.0, 0.0
-        self.dt_u, self.dw_u = 0.0, 0.0
         self.dt_i, self.dw_i = 0.0, 0.0
+        self.dt_o, self.dw_o = 0.0, 0.0
         self.dt_oT, self.dw_oT = 0.0, 0.0
 
     def init_profiling (self):
-        self.dt_gX, self.dw_gX = 0.0, 0.0
+        self.dt_u, self.dw_u = 0.0, 0.0
         self.dt_sX, self.dw_sX = 0.0, 0.0
         self.dt_oX, self.dw_oX = 0.0, 0.0
         self.dt_pX, self.dw_pX = 0.0, 0.0
@@ -137,15 +140,13 @@ class HamS2OvlpOperators (HamS2Ovlp):
         profile += '\n' + fmt_str.format ('1s', self.dt_1s, self.dw_1s)
         profile += '\n' + fmt_str.format ('1s1c', self.dt_1s1c, self.dw_1s1c)
         profile += '\n' + fmt_str.format ('2c', self.dt_2c, self.dw_2c)
-        profile += '\n' + fmt_str.format ('ovlp', self.dt_o, self.dw_o)
-        profile += '\n' + fmt_str.format ('umat', self.dt_u, self.dw_u)
         profile += '\n' + fmt_str.format ('idx', self.dt_i, self.dw_i)
         profile += '\n' + fmt_str.format ('opT', self.dt_oT, self.dw_oT)
         return profile
 
     def sprint_profile (self):
         fmt_str = '{:>5s} CPU: {:9.2f} ; wall: {:9.2f}'
-        profile = fmt_str.format ('getX', self.dt_gX, self.dw_gX)
+        profile = fmt_str.format ('umat', self.dt_u, self.dw_u)
         profile += '\n' + fmt_str.format ('olpX', self.dt_sX, self.dw_sX)
         profile += '\n' + fmt_str.format ('opX', self.dt_oX, self.dw_oX)
         profile += '\n' + fmt_str.format ('putX', self.dt_pX, self.dw_pX)
