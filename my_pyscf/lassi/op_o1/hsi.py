@@ -29,28 +29,30 @@ class HamS2OvlpOperators (HamS2Ovlp):
         HamS2Ovlp.__init__(self, ints, nlas, hopping_index, lroots, h1, h2,
                            mask_bra_space=mask_bra_space, mask_ket_space=mask_ket_space,
                            log=log, max_memory=max_memory, dtype=dtype)
+        self.rootsigs = np.asarray ([[i.unique_root[r] for i in self.ints]
+                                     for r in range (self.nroots)])
         self.x = self.si = np.zeros (self.nstates, self.dtype)
         self.ox = np.zeros (self.nstates, self.dtype)
         self.ox1 = np.zeros (self.nstates, self.dtype)
         self.log.verbose = logger.DEBUG1
-        self._init_cache_()
+        self._cache_operatorpart_()
 
-    def _init_cache_(self):
+    def _cache_operatorpart_(self):
         t0 = (logger.process_clock (), logger.perf_counter ())
         self.init_cache_profiling ()
         self.excgroups_s = {}
         self.excgroups_h = {}
         for exc, fn in zip ((self.exc_1d, self.exc_2d, self.exc_1s),
                             (self._crunch_1d_, self._crunch_2d_, self._crunch_1s_)):
-            self._groupexc_(exc, fn, has_s=True)
+            self._crunch_oppart_(exc, fn, has_s=True)
         for exc, fn in zip ((self.exc_1c, self.exc_1c1d, self.exc_1s1c, self.exc_2c),
                             (self._crunch_1c_, self._crunch_1c1d_, self._crunch_1s1c_, 
                              self._crunch_2c_)):
-            self._groupexc_(exc, fn, has_s=False)
+            self._crunch_oppart_(exc, fn, has_s=False)
         self.log.debug1 (self.sprint_cache_profile ())
         self.log.timer_debug1 ('HamS2OvlpOperators operator cacheing', *t0)
 
-    def _groupexc_(self, exc, fn, has_s=False):
+    def _crunch_oppart_(self, exc, fn, has_s=False):
         for row in exc:
             if self._fn_row_has_spin (fn):
                 inv = row[2:-1]
@@ -126,14 +128,10 @@ class HamS2OvlpOperators (HamS2Ovlp):
         profile += '\n' + fmt_str.format ('putX', self.dt_pX, self.dw_pX)
         return profile
 
-    def get_single_rootspace_x (self, iroot):
-        i, j = self.offs_lroots[iroot]
-        return self.x[i:j]
-
     def get_xvec (self, iroot, *inv):
         fac = self.spin_shuffle[iroot] * self.fermion_frag_shuffle (iroot, inv)
-        xvec = self.get_single_rootspace_x (iroot)
-        return fac * xvec
+        i, j = self.offs_lroots[iroot]
+        return fac * self.x[i:j]
 
     def put_oxvec_(self, vec, iroot, *inv):
         fac = self.spin_shuffle[iroot] * self.fermion_frag_shuffle (iroot, inv)
@@ -196,8 +194,11 @@ class HamS2OvlpOperators (HamS2Ovlp):
         tab = self.nonuniq_exc[key]
         bras, kets = self.nonuniq_exc[key].T
         self._op_x_(bras, kets, op, inv)
+        idx = bras==kets
+        bras = bras[~idx]
+        kets = kets[~idx]
         self._op_x_(kets, bras, op.conj ().T, inv)
-        return 
+        return
 
     def _op_x_(self, bras, kets, op, inv):
         t0, w0 = logger.process_clock (), logger.perf_counter ()
@@ -228,9 +229,10 @@ class HamS2OvlpOperators (HamS2Ovlp):
         t4, w4 = logger.process_clock (), logger.perf_counter ()
         self.dt_pX += (t4-t3)
         self.dw_pX += (w4-w3)
+        return
 
     def ox_ovlp_part (self, bra, ket, vec, inv):
-        if (bra==ket): vec = vec * 0.5
+        #if (bra==ket): vec = vec * 0.5
         spec = np.ones (self.nfrags, dtype=bool)
         spec[inv] = False
         lr = 1
