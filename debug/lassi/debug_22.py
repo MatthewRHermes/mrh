@@ -26,8 +26,7 @@ from mrh.my_pyscf.lassi import op_o0, op_o1, lassis
 from mrh.my_pyscf.lassi.op_o1 import get_fdm1_maker
 from mrh.my_pyscf.lassi.sitools import make_sdm1
 from mrh.tests.lassi.addons import case_contract_hlas_ci, case_lassis_fbf_2_model_state
-from mrh.tests.lassi.addons import case_lassis_fbfdm, case_contract_op_si
-from mrh.tests.lassi.addons import debug_contract_op_si
+from mrh.tests.lassi.addons import case_lassis_fbfdm, case_contract_op_si, debug_contract_op_si
 
 def setUpModule ():
     global mol, mf, lsi, las, mc, op
@@ -128,8 +127,9 @@ class KnownValues(unittest.TestCase):
     def test_contract_op_si (self):
         e_roots, si, las = lsi.e_roots, lsi.si, lsi._las
         h0, h1, h2 = lsi.ham_2q ()
-        h1[:] = h2[:2,:2,:2,:2] = h2[2:,2:,2:,2:] = 0.0
-        #h2[:] = 0.0
+        h2[:] = 0
+        #h2[:2,:2,:2,:2] = 0
+        #h2[2:,2:,2:,2:] = 0
         debug_contract_op_si (self, las, h1, h2, las.ci, lsi.get_nelec_frs ())
 
     #def test_lassis (self):
