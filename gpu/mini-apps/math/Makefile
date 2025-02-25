@@ -89,13 +89,13 @@ $(ML_OBJ): %.o: mathlib/%.cpp
 # -- Remove *.o and *~ from the directory
 clean:
 	rm -f *.o *~ ./$(EXE)
-	rm -f $(INSTALL)/$(EXE)
+	rm -f $(EXE)
 	rm -rf $(EXE).dSYM
 #
 # -- Remove *.o, *~, and executable from the directory
 realclean:
 	rm -f *.o *~ ./$(EXE)
-	rm -f $(INSTALL)/$(EXE)
+	rm -f $(EXE)
 	rm -rf $(EXE).dSYM
 	rm -f *.optrpt
 	rm -r pm
