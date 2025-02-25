@@ -73,6 +73,7 @@ public :
   void get_dev_properties(int);
   void set_device(int);
   void disable_eri_cache_();
+  void set_verbose_(int);
 
   void init_get_jk(py::array_t<double>, py::array_t<double>, int, int, int, int, int);
   void get_jk(int, int, int,
@@ -160,6 +161,8 @@ private:
   void profile_stop();
   void profile_next(const char *);
 
+  int verbose_level;
+  
   size_t grid_size, block_size;
   
   // get_jk

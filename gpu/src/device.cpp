@@ -7,24 +7,20 @@
 #define _NUM_SIMPLE_TIMER 11
 #define _NUM_SIMPLE_COUNTER 7
 
-#define _DEBUG_OPENMP
-
-#ifdef _DEBUG_OPENMP
 #include <unistd.h>
 #include <string.h>
 #include <sched.h>
-#endif
 
 /* ---------------------------------------------------------------------- */
 
 Device::Device()
-{
-  printf("LIBGPU: created device\n");
-  
+{  
   pm = new PM();
 
   ml = new MATHLIB(pm);
 
+  verbose_level = 0;
+  
   update_dfobj = 0;
   
   rho = nullptr;
@@ -130,35 +126,17 @@ Device::Device()
     ml->create_handle();
   }
 
-#ifdef _DEBUG_OPENMP
-  char nname[16];
-  gethostname(nname, 16);
-  int rnk = 0;
-  
-#pragma omp parallel for ordered
-  for(int it=0; it<num_threads; ++it) {
-    char list_cores[7*CPU_SETSIZE];
-    get_cores(list_cores);
-#pragma omp ordered
-    printf("LIBGPU: To affinity and beyond!! nname= %s  rnk= %d  tid= %d: list_cores= (%s)\n",
-	   nname, rnk, omp_get_thread_num(), list_cores);
-  }
-
-#endif
-  
-#ifdef _SIMPLE_TIMER
   t_array = (double* ) malloc(_NUM_SIMPLE_TIMER * sizeof(double));
   for(int i=0; i<_NUM_SIMPLE_TIMER; ++i) t_array[i] = 0.0;
   count_array = (int* ) malloc(_NUM_SIMPLE_COUNTER * sizeof(int));
   for(int i=0; i<_NUM_SIMPLE_COUNTER; ++i) count_array[i] = 0;
-#endif
 }
 
 /* ---------------------------------------------------------------------- */
 
 Device::~Device()
 {
-  printf("LIBGPU: destroying device\n");
+  if(verbose_level) printf("LIBGPU: destroying device\n");
 
   pm->dev_free_host(rho);
   //pm->dev_free_host(vj);
@@ -179,74 +157,76 @@ Device::~Device()
   pm->dev_free_host(pin_fxpp);
   pm->dev_free_host(pin_bufpa);//remove when ao2mo_v3 is running
 
+  if(verbose_level) get_dev_properties(num_devices);
 
-#ifdef _SIMPLE_TIMER
-  double total = 0.0;
-  for(int i=0; i<_NUM_SIMPLE_TIMER; ++i) total += t_array[i];
+  if(verbose_level) { // this needs to be cleaned up and generalized...
+    double total = 0.0;
+    for(int i=0; i<_NUM_SIMPLE_TIMER; ++i) total += t_array[i];
   
-  printf("\nLIBGPU :: SIMPLE_TIMER\n");
-  printf("\nLIBGPU :: SIMPLE_TIMER :: get_jk\n");
-  printf("LIBGPU :: SIMPLE_TIMER :: i= %i  name= init_get_jk()            time= %f s\n",0,t_array[0]);
-  printf("LIBGPU :: SIMPLE_TIMER :: i= %i  name= pull_get_jk()            time= %f s\n",1,t_array[1]);
-  printf("LIBGPU :: SIMPLE_TIMER :: i= %i  name= get_jk()                 time= %f s\n",2,t_array[2]);
+    printf("\nLIBGPU :: SIMPLE_TIMER\n");
+    printf("\nLIBGPU :: SIMPLE_TIMER :: get_jk\n");
+    printf("LIBGPU :: SIMPLE_TIMER :: i= %i  name= init_get_jk()            time= %f s\n",0,t_array[0]);
+    printf("LIBGPU :: SIMPLE_TIMER :: i= %i  name= pull_get_jk()            time= %f s\n",1,t_array[1]);
+    printf("LIBGPU :: SIMPLE_TIMER :: i= %i  name= get_jk()                 time= %f s\n",2,t_array[2]);
     
-  printf("\nLIBGPU :: SIMPLE_TIMER :: hessop\n");
-  printf("LIBGPU :: SIMPLE_TIMER :: i= %i  name= hessop_get_veff()        time= %f s\n",3,t_array[3]);
-  
-  printf("\nLIBGPU :: SIMPLE_TIMER :: orbital_response\n");
-  printf("LIBGPU :: SIMPLE_TIMER :: i= %i  name= orbital_response()       time= %f s\n",4,t_array[4]);
-
-  
-  printf("\nLIBGPU :: SIMPLE_TIMER :: _update_h2eff\n");
-  printf("LIBGPU :: SIMPLE_TIMER :: i= %i  name= update_h2eff_sub()       time= %f s\n",5,t_array[5]);
-
-  printf("\nLIBGPU :: SIMPLE_TIMER :: _h2eff_df \n");
-  printf("LIBGPU :: SIMPLE_TIMER :: i= %i  name= h2eff_df()               time= %f s\n",6,t_array[6]);
- 
-  printf("\nLIBGPU :: SIMPLE_TIMER :: transfer_mo_coeff \n");
-  printf("LIBGPU :: SIMPLE_TIMER :: i= %i  name= transfer_mo_coeff()      time= %f s\n",7,t_array[7]);
-  
-  printf("\nLIBGPU :: SIMPLE_TIMER :: df_ao2mo_pass1\n");
-  printf("LIBGPU :: SIMPLE_TIMER :: i= %i  name= init_ints_and_jkpc()     time= %f s\n",8,t_array[8]);
-  printf("LIBGPU :: SIMPLE_TIMER :: i= %i  name= compute_ints_and_jkpc()  time= %f s\n",9,t_array[9]);
-  printf("LIBGPU :: SIMPLE_TIMER :: i= %i  name= pull_ints_and_jkpc()     time= %f s\n",10,t_array[10]);
-  printf("LIBGPU :: SIMPLE_TIMER :: total= %f s\n",total);
-  free(t_array);
-
-  
-  printf("\nLIBGPU :: SIMPLE_COUNTER\n");
-  printf("\nLIBGPU :: SIMPLE_COUNTER :: get_jk\n");
-  printf("LIBGPU :: SIMPLE_COUNTER :: i= %i  name= get_jk()             counts= %i \n",0,count_array[0]);
+    printf("\nLIBGPU :: SIMPLE_TIMER :: hessop\n");
+    printf("LIBGPU :: SIMPLE_TIMER :: i= %i  name= hessop_get_veff()        time= %f s\n",3,t_array[3]);
     
-  printf("\nLIBGPU :: SIMPLE_COUNTER :: hessop\n");
-  printf("LIBGPU :: SIMPLE_COUNTER :: i= %i  name= hessop_get_veff()    counts= %i \n",1,count_array[1]);
-  
-  printf("\nLIBGPU :: SIMPLE_COUNTER :: orbital_response\n");
-  printf("LIBGPU :: SIMPLE_COUNTER :: i= %i  name= orbital_response()   counts= %i \n",2,count_array[2]);
-
-  printf("\nLIBGPU :: SIMPLE_COUNTER :: update_h2eff_sub\n");
-  printf("LIBGPU :: SIMPLE_COUNTER :: i= %i  name= update_h2eff_sub()   counts= %i \n",3,count_array[3]);
-
-  printf("\nLIBGPU :: SIMPLE_COUNTER :: _h2eff_df\n");
-  printf("LIBGPU :: SIMPLE_COUNTER :: i= %i  name= h2eff_df()           counts= %i \n",4,count_array[4]);
- 
-  printf("\nLIBGPU :: SIMPLE_COUNTER :: transfer_mo_coeff\n");
-  printf("LIBGPU :: SIMPLE_COUNTER :: i= %i  name= transfer_mo_coeff()  counts= %i \n",5,count_array[5]);
-  
-  printf("\nLIBGPU :: SIMPLE_COUNTER :: ao2mo\n");
-  printf("LIBGPU :: SIMPLE_COUNTER :: i= %i  name=ao2mo_pass_v3()       counts= %i \n",6,count_array[6]);
-
-  free(count_array);
-
-#endif
+    printf("\nLIBGPU :: SIMPLE_TIMER :: orbital_response\n");
+    printf("LIBGPU :: SIMPLE_TIMER :: i= %i  name= orbital_response()       time= %f s\n",4,t_array[4]);
+    
+    
+    printf("\nLIBGPU :: SIMPLE_TIMER :: _update_h2eff\n");
+    printf("LIBGPU :: SIMPLE_TIMER :: i= %i  name= update_h2eff_sub()       time= %f s\n",5,t_array[5]);
+    
+    printf("\nLIBGPU :: SIMPLE_TIMER :: _h2eff_df \n");
+    printf("LIBGPU :: SIMPLE_TIMER :: i= %i  name= h2eff_df()               time= %f s\n",6,t_array[6]);
+    
+    printf("\nLIBGPU :: SIMPLE_TIMER :: transfer_mo_coeff \n");
+    printf("LIBGPU :: SIMPLE_TIMER :: i= %i  name= transfer_mo_coeff()      time= %f s\n",7,t_array[7]);
+    
+    printf("\nLIBGPU :: SIMPLE_TIMER :: df_ao2mo_pass1\n");
+    printf("LIBGPU :: SIMPLE_TIMER :: i= %i  name= init_ints_and_jkpc()     time= %f s\n",8,t_array[8]);
+    printf("LIBGPU :: SIMPLE_TIMER :: i= %i  name= compute_ints_and_jkpc()  time= %f s\n",9,t_array[9]);
+    printf("LIBGPU :: SIMPLE_TIMER :: i= %i  name= pull_ints_and_jkpc()     time= %f s\n",10,t_array[10]);
+    printf("LIBGPU :: SIMPLE_TIMER :: total= %f s\n",total);
+    free(t_array);
+    
+    
+    printf("\nLIBGPU :: SIMPLE_COUNTER\n");
+    printf("\nLIBGPU :: SIMPLE_COUNTER :: get_jk\n");
+    printf("LIBGPU :: SIMPLE_COUNTER :: i= %i  name= get_jk()             counts= %i \n",0,count_array[0]);
+    
+    printf("\nLIBGPU :: SIMPLE_COUNTER :: hessop\n");
+    printf("LIBGPU :: SIMPLE_COUNTER :: i= %i  name= hessop_get_veff()    counts= %i \n",1,count_array[1]);
+    
+    printf("\nLIBGPU :: SIMPLE_COUNTER :: orbital_response\n");
+    printf("LIBGPU :: SIMPLE_COUNTER :: i= %i  name= orbital_response()   counts= %i \n",2,count_array[2]);
+    
+    printf("\nLIBGPU :: SIMPLE_COUNTER :: update_h2eff_sub\n");
+    printf("LIBGPU :: SIMPLE_COUNTER :: i= %i  name= update_h2eff_sub()   counts= %i \n",3,count_array[3]);
+    
+    printf("\nLIBGPU :: SIMPLE_COUNTER :: _h2eff_df\n");
+    printf("LIBGPU :: SIMPLE_COUNTER :: i= %i  name= h2eff_df()           counts= %i \n",4,count_array[4]);
+    
+    printf("\nLIBGPU :: SIMPLE_COUNTER :: transfer_mo_coeff\n");
+    printf("LIBGPU :: SIMPLE_COUNTER :: i= %i  name= transfer_mo_coeff()  counts= %i \n",5,count_array[5]);
+    
+    printf("\nLIBGPU :: SIMPLE_COUNTER :: ao2mo\n");
+    printf("LIBGPU :: SIMPLE_COUNTER :: i= %i  name=ao2mo_pass_v3()       counts= %i \n",6,count_array[6]);
+    
+    free(count_array);
+  }
 
   // print summary of cached eri blocks
 
   if(use_eri_cache) {
-    printf("\nLIBGPU :: eri cache statistics :: count= %zu\n",eri_list.size());
-    for(int i=0; i<eri_list.size(); ++i)
-      printf("LIBGPU :: %i : eri= %p  Mbytes= %f  count= %i  update= %i device= %i\n", i, eri_list[i],
-	     eri_size[i]*sizeof(double)/1024./1024., eri_count[i], eri_update[i], eri_device[i]);
+    if(verbose_level) {
+      printf("\nLIBGPU :: eri cache statistics :: count= %zu\n",eri_list.size());
+      for(int i=0; i<eri_list.size(); ++i)
+	printf("LIBGPU :: %i : eri= %p  Mbytes= %f  count= %i  update= %i device= %i\n", i, eri_list[i],
+	       eri_size[i]*sizeof(double)/1024./1024., eri_count[i], eri_update[i], eri_device[i]);
+    }
     
     eri_count.clear();
     eri_size.clear();
@@ -293,7 +273,7 @@ Device::~Device()
     dd->d_pumap.clear();
   }
 
-  printf("LIBGPU :: Finished\n");
+  if(verbose_level) printf("LIBGPU :: Finished\n");
 #endif
 
   delete [] device_data;
@@ -343,7 +323,7 @@ void Device::get_cores(char *str)
 
 int Device::get_num_devices()
 {
-  printf("LIBGPU: getting number of devices\n");
+  if(verbose_level) printf("LIBGPU: getting number of devices\n");
   return pm->dev_num_devices();
 }
 
@@ -352,6 +332,20 @@ int Device::get_num_devices()
 void Device::get_dev_properties(int N)
 {
   printf("LIBGPU: reporting device properties N= %i\n",N);
+  
+  char nname[16];
+  gethostname(nname, 16);
+  int rnk = 0;
+  
+#pragma omp parallel for ordered
+  for(int it=0; it<num_threads; ++it) {
+    char list_cores[7*CPU_SETSIZE];
+    get_cores(list_cores);
+#pragma omp ordered
+    printf("LIBGPU: To affinity and beyond!! nname= %s  rnk= %d  tid= %d: list_cores= (%s)\n",
+	   nname, rnk, omp_get_thread_num(), list_cores);
+  }
+  
   pm->dev_properties(N);
 }
 
@@ -359,7 +353,7 @@ void Device::get_dev_properties(int N)
     
 void Device::set_device(int id)
 {
-  printf("LIBGPU: setting device id= %i\n",id);
+  if(verbose_level) printf("LIBGPU: setting device id= %i\n",id);
   pm->dev_set_device(id);
 }
 
@@ -377,6 +371,13 @@ void Device::disable_eri_cache_()
   use_eri_cache = false;
   printf("LIBGPU :: Error : Not able to disable eri caching as additional support needs to be added to track eri_extra array.");
   exit(1);
+}
+
+/* ---------------------------------------------------------------------- */
+    
+void Device::set_verbose_(int _verbose)
+{
+  verbose_level = _verbose; // setting nonzero prints affinity + timing info
 }
 
 /* ---------------------------------------------------------------------- */
@@ -472,9 +473,7 @@ void Device::init_get_jk(py::array_t<double> _eri1, py::array_t<double> _dmtril,
 
   profile_start("init_get_jk");
   
-#ifdef _SIMPLE_TIMER
   double t0 = omp_get_wtime();
-#endif
 
   const int device_id = count % num_devices;
   
@@ -571,11 +570,9 @@ void Device::init_get_jk(py::array_t<double> _eri1, py::array_t<double> _dmtril,
   
   profile_stop();
     
-#ifdef _SIMPLE_TIMER
   double t1 = omp_get_wtime();
   t_array[0] += t1 - t0;
  //counts in pull_get_jk
-#endif
 
 #ifdef _DEBUG_DEVICE
   printf("LIBGPU :: -- Leaving Device::init_get_jk()\n");
@@ -595,9 +592,7 @@ void Device::get_jk(int naux, int nao, int nset,
   printf("LIBGPU :: Inside Device::get_jk() w/ with_k= %i\n",with_k);
 #endif
   
-#ifdef _SIMPLE_TIMER
   double t0 = omp_get_wtime();
-#endif
 
   profile_start("get_jk :: init");
 
@@ -689,11 +684,9 @@ void Device::get_jk(int naux, int nao, int nset,
     
   if(!with_k) {
     
-#ifdef _SIMPLE_TIMER
     double t1 = omp_get_wtime();
     t_array[2] += t1 - t0;
 // counts in pull_jk
-#endif
     
 #ifdef _DEBUG_DEVICE
     printf("LIBGPU ::  -- Leaving Device::get_jk()\n");
@@ -715,9 +708,7 @@ void Device::get_jk(int naux, int nao, int nset,
   
   for(int indxK=0; indxK<nset; ++indxK) {
 
-#ifdef _SIMPLE_TIMER
     double t4 = omp_get_wtime();
-#endif
     
     py::array_t<double> _dms = static_cast<py::array_t<double>>(_dms_list[indxK]); // element of 3D array (nset, nao, nao)
     py::buffer_info info_dms = _dms.request(); // 2D
@@ -787,11 +778,9 @@ void Device::get_jk(int naux, int nao, int nset,
   
   profile_stop();
     
-#ifdef _SIMPLE_TIMER
   double t1 = omp_get_wtime();
   t_array[2] += t1 - t0;
   // counts in pull jk
-#endif
     
 #ifdef _DEBUG_DEVICE
   printf("LIBGPU ::  -- finished\n");
@@ -807,9 +796,7 @@ void Device::pull_get_jk(py::array_t<double> _vj, py::array_t<double> _vk, int n
   printf("LIBGPU :: -- Inside Device::pull_get_jk()\n");
 #endif
 
-#ifdef _SIMPLE_TIMER
   double t0 = omp_get_wtime();
-#endif
     
   profile_start("pull_get_jk");
   
@@ -898,11 +885,9 @@ void Device::pull_get_jk(py::array_t<double> _vj, py::array_t<double> _vk, int n
 
   profile_stop();
   
-#ifdef _SIMPLE_TIMER
   double t1 = omp_get_wtime();
   t_array[1] += t1 - t0;
   count_array[0]+=1; // just doing this addition in pull, not in init or compute
-#endif
     
 #ifdef _DEBUG_DEVICE
   printf("LIBGPU :: -- Leaving Device::pull_get_jk()\n");
@@ -1223,9 +1208,7 @@ double * Device::dd_fetch_eri_debug(my_device_data * dd, double * eri1, int naux
 
 void Device::push_mo_coeff(py::array_t<double> _mo_coeff, int _size_mo_coeff)
 {
-#ifdef _SIMPLE_TIMER
   double t0 = omp_get_wtime();
-#endif
   
   py::buffer_info info_mo_coeff = _mo_coeff.request(); // 2D array (naux, nao_pair)
 
@@ -1248,21 +1231,19 @@ void Device::push_mo_coeff(py::array_t<double> _mo_coeff, int _size_mo_coeff)
     pm->dev_push_async(dd->d_mo_coeff, mo_coeff, _size_mo_coeff*sizeof(double));
   }
   
-#ifdef _SIMPLE_TIMER
   double t1 = omp_get_wtime();
   t_array[7] += t1 - t0;
   count_array[5] +=1;
-#endif
 }
 
 /* ---------------------------------------------------------------------- */
 
 void Device::init_jk_ao2mo(int ncore, int nmo)
 {
-#ifdef _SIMPLE_TIMER
   double t0 = omp_get_wtime();
-#endif
-  // host initializes on each device 
+
+  // host initializes on each device
+  
   for(int id=0; id<num_devices; ++id) {
     pm->dev_set_device(id);
     
@@ -1298,20 +1279,16 @@ void Device::init_jk_ao2mo(int ncore, int nmo)
     buf_k_pc = (double *) pm->dev_malloc_host(_size_buf_k_pc*sizeof(double));
     }
   
-#ifdef _SIMPLE_TIMER
   double t1 = omp_get_wtime();
   t_array[8] += t1 - t0;
   // counts in pull ppaa
-#endif
 }
 
 /* ---------------------------------------------------------------------- */
 
 void Device::init_ints_ao2mo(int naoaux, int nmo, int ncas)
 {
-#ifdef _SIMPLE_TIMER
   double t0 = omp_get_wtime();
-#endif
   
   int _size_fxpp = naoaux*nmo*nmo;
   if (_size_fxpp > size_fxpp){
@@ -1327,20 +1304,16 @@ void Device::init_ints_ao2mo(int naoaux, int nmo, int ncas)
     pin_bufpa = (double *) pm->dev_malloc_host(_size_bufpa*sizeof(double));
   }
   
-#ifdef _SIMPLE_TIMER
   double t1 = omp_get_wtime();
   t_array[8] += t1 - t0;
   // counts in pull ppaa
-#endif
 }
 
 /* ---------------------------------------------------------------------- */
 
 void Device::init_ints_ao2mo_v3(int naoaux, int nmo, int ncas)
 {
-#ifdef _SIMPLE_TIMER
   double t0 = omp_get_wtime();
-#endif
   
   int _size_bufpa = naoaux*nmo*ncas;
   if (_size_bufpa > size_bufpa){
@@ -1349,18 +1322,15 @@ void Device::init_ints_ao2mo_v3(int naoaux, int nmo, int ncas)
     pin_bufpa = (double *) pm->dev_malloc_host(_size_bufpa*sizeof(double));
   }
   
-#ifdef _SIMPLE_TIMER
   double t1 = omp_get_wtime();
   t_array[8] += t1 - t0;
   // counts in pull ppaa
-#endif
 }
 /* ---------------------------------------------------------------------- */
 void Device::init_ppaa_ao2mo( int nmo, int ncas)
 {
-#ifdef _SIMPLE_TIMER
   double t0 = omp_get_wtime();
-#endif
+
   // initializing only cpu side, gpu ppaa will be a buffer array (dd->d_buf3) 
   int _size_buf_ppaa = num_devices*nmo*nmo*ncas*ncas;
   if(_size_buf_ppaa > size_buf_ppaa) {
@@ -1369,19 +1339,16 @@ void Device::init_ppaa_ao2mo( int nmo, int ncas)
     buf_ppaa = (double *) pm->dev_malloc_host(_size_buf_ppaa*sizeof(double));
   }
   
-#ifdef _SIMPLE_TIMER
   double t1 = omp_get_wtime();
   t_array[8] += t1 - t0;
   // counts in pull ppaa
-#endif
 }
 /* ---------------------------------------------------------------------- */
 
 void Device::init_eri_h2eff(int nmo, int ncas)
 {
-#ifdef _SIMPLE_TIMER
   double t0 = omp_get_wtime();
-#endif
+  
   // host initializes on each device 
 
   int ncas_pair = ncas*(ncas+1)/2;
@@ -1393,7 +1360,7 @@ void Device::init_eri_h2eff(int nmo, int ncas)
     my_device_data * dd = &(device_data[id]);
 
     if (size_eri_h2eff > dd->size_eri_h2eff){
-      printf("setting size\n");
+      //      printf("setting size\n");
       dd->size_eri_h2eff = size_eri_h2eff;
       if (dd->d_eri_h2eff) pm->dev_free_async(dd->d_eri_h2eff);
       dd->d_eri_h2eff = (double *) pm->dev_malloc_async(dd->size_eri_h2eff*sizeof(double));
@@ -1406,18 +1373,16 @@ void Device::init_eri_h2eff(int nmo, int ncas)
     if(buf_eri_h2eff) pm->dev_free_host(buf_eri_h2eff);
     buf_eri_h2eff = (double *) pm->dev_malloc_host(size_buf_eri_h2eff*sizeof(double));
     }
-#ifdef _SIMPLE_TIMER
+  
   double t1 = omp_get_wtime();
   t_array[8] += t1 - t0;
   // counts in pull ppaa
-#endif
 }
 /* ---------------------------------------------------------------------- */
 void Device::extract_mo_cas(int ncas, int ncore, int nao)
 {
-#ifdef _SIMPLE_TIMER
   double t0 = omp_get_wtime();
-#endif
+  
   const int _size_mo_cas = ncas*nao; 
   for(int id=0; id<num_devices; ++id) {
     pm->dev_set_device(id);
@@ -1436,20 +1401,15 @@ void Device::extract_mo_cas(int ncas, int ncore, int nao)
     #endif
   }
   
-#ifdef _SIMPLE_TIMER
   double t1 = omp_get_wtime();
   t_array[7] += t1 - t0;
-#endif
-
 }
 
 /* ---------------------------------------------------------------------- */
 
 void Device::pull_jk_ao2mo(py::array_t<double> _j_pc, py::array_t<double> _k_pc, int nmo, int ncore)
 {
-#ifdef _SIMPLE_TIMER
   double t0 = omp_get_wtime();
-#endif
 
   py::buffer_info info_j_pc = _j_pc.request(); //2D array (nmo*ncore)
   double * j_pc = static_cast<double*>(info_j_pc.ptr);
@@ -1519,20 +1479,16 @@ void Device::pull_jk_ao2mo(py::array_t<double> _j_pc, py::array_t<double> _k_pc,
     }
   }
     
-#ifdef _SIMPLE_TIMER
   double t1 = omp_get_wtime();
   t_array[10] += t1 - t0;
   // counts in pull ppaa
-#endif
 }
 
 /* ---------------------------------------------------------------------- */
 
 void Device::pull_ints_ao2mo(py::array_t<double> _fxpp, py::array_t<double> _bufpa, int blksize, int naoaux, int nmo, int ncas)
 {
-#ifdef _SIMPLE_TIMER
   double t0 = omp_get_wtime();
-#endif
   
   py::buffer_info info_fxpp = _fxpp.request(); //3D array (nmo*nmo*naoaux)
   double * fxpp = static_cast<double*>(info_fxpp.ptr);
@@ -1563,38 +1519,30 @@ void Device::pull_ints_ao2mo(py::array_t<double> _fxpp, py::array_t<double> _buf
   //printf("size_bufpa %i\n", size_bufpa);
   std::memcpy(bufpa, pin_bufpa, size_bufpa*sizeof(double));
   
-#ifdef _SIMPLE_TIMER
   double t1 = omp_get_wtime();
   t_array[10] += t1 - t0;
   // counts in pull ppaa
-#endif
 }
 
 /* ---------------------------------------------------------------------- */
 void Device::pull_ints_ao2mo_v3(py::array_t<double> _bufpa, int blksize, int naoaux, int nmo, int ncas)
 {
-#ifdef _SIMPLE_TIMER
   double t0 = omp_get_wtime();
-#endif
   
   py::buffer_info info_bufpa = _bufpa.request(); //3D array (naoaux*nmo*ncas)
   double * bufpa = static_cast<double*>(info_bufpa.ptr);
   //printf("size_bufpa %i\n", size_bufpa);
   std::memcpy(bufpa, pin_bufpa, size_bufpa*sizeof(double));
   
-#ifdef _SIMPLE_TIMER
   double t1 = omp_get_wtime();
   t_array[10] += t1 - t0;
   // counts in pull ppaa
-#endif
 }
 
 /* ---------------------------------------------------------------------- */
 void Device::pull_ppaa_ao2mo(py::array_t<double> _ppaa, int nmo, int ncas)
 {
-#ifdef _SIMPLE_TIMER
   double t0 = omp_get_wtime();
-#endif
 
   py::buffer_info info_ppaa = _ppaa.request(); //2D array (nmo*ncore)
   double * ppaa = static_cast<double*>(info_ppaa.ptr);
@@ -1630,11 +1578,9 @@ void Device::pull_ppaa_ao2mo(py::array_t<double> _ppaa, int nmo, int ncas)
     }
   }
   
-#ifdef _SIMPLE_TIMER
   double t1 = omp_get_wtime();
   t_array[10] += t1 - t0;
   count_array[6] += 1; //doing this in ppaa pull, not in any inits or computes
-#endif
 }
 
 /* ---------------------------------------------------------------------- */
@@ -1645,9 +1591,7 @@ void Device::df_ao2mo_pass1_v2 (int blksize, int nmo, int nao, int ncore, int nc
 				  py::array_t<double> _eri1,
 				  int count, size_t addr_dfobj)
 {
-#ifdef _SIMPLE_TIMER
   double t0 = omp_get_wtime();
-#endif
   
   profile_start("AO2MO v2");
 
@@ -1805,11 +1749,9 @@ void Device::df_ao2mo_pass1_v2 (int blksize, int nmo, int nao, int ncore, int nc
   
   profile_stop();
   
-#ifdef _SIMPLE_TIMER
   double t1 = omp_get_wtime();
   t_array[9] += t1 - t0;
   // counts in pull ppaa
-#endif
 }
 /* ---------------------------------------------------------------------- */
 
@@ -1817,9 +1759,7 @@ void Device::df_ao2mo_v3 (int blksize, int nmo, int nao, int ncore, int ncas, in
 				  py::array_t<double> _eri1,
 				  int count, size_t addr_dfobj)
 {
-#ifdef _SIMPLE_TIMER
   double t0 = omp_get_wtime();
-#endif
   
   profile_start("AO2MO v3");
 
@@ -2035,11 +1975,9 @@ void Device::df_ao2mo_v3 (int blksize, int nmo, int nao, int ncore, int ncas, in
   
   profile_stop();
   
-#ifdef _SIMPLE_TIMER
   double t1 = omp_get_wtime();
   t_array[9] += t1 - t0;
   // counts in pull ppaa
-#endif
 }
 
 
@@ -2048,9 +1986,7 @@ void Device::df_ao2mo_v3 (int blksize, int nmo, int nao, int ncore, int ncas, in
 void Device::update_h2eff_sub(int ncore, int ncas, int nocc, int nmo,
                               py::array_t<double> _umat, py::array_t<double> _h2eff_sub)
 {
-#ifdef _SIMPLE_TIMER
   double t0 = omp_get_wtime();
-#endif
 
 #ifdef _DEBUG_DEVICE
   printf("LIBGPU :: Inside Device :: Starting update_h2eff_sub function\n");
@@ -2260,11 +2196,9 @@ void Device::update_h2eff_sub(int ncore, int ncas, int nocc, int nmo,
 #endif
 #endif
   
-#ifdef _SIMPLE_TIMER
   double t1 = omp_get_wtime();
   t_array[5] += t1 - t0;
   count_array[3] += 1;
-#endif
 }
 
 /* ---------------------------------------------------------------------- */
@@ -2273,9 +2207,7 @@ void Device::get_h2eff_df(py::array_t<double> _cderi,
                                 int nao, int nmo, int ncas, int naux, int ncore, 
                                 py::array_t<double> _eri, int count, size_t addr_dfobj) 
 {
-#ifdef _SIMPLE_TIMER
   double t0 = omp_get_wtime();
-#endif
 
 #ifdef _DEBUG_DEVICE
   printf("LIBGPU :: Inside Device :: Starting h2eff_df_contract1 function");
@@ -2414,10 +2346,9 @@ void Device::get_h2eff_df(py::array_t<double> _cderi,
   pm->dev_stream_wait();
   
   profile_stop();
-#ifdef _SIMPLE_TIMER
+  
   double t1 = omp_get_wtime();
   t_array[6] += t1 - t0;//TODO: add the array size
-#endif
 }
 /* ---------------------------------------------------------------------- */
 
@@ -2425,9 +2356,7 @@ void Device::get_h2eff_df_v1(py::array_t<double> _cderi,
                                 int nao, int nmo, int ncas, int naux, int ncore, 
                                 py::array_t<double> _eri, int count, size_t addr_dfobj) 
 {
-#ifdef _SIMPLE_TIMER
   double t0 = omp_get_wtime();
-#endif
 
 #ifdef _DEBUG_DEVICE
   printf("LIBGPU :: Inside Device :: Starting h2eff_df_contract1 function");
@@ -2575,11 +2504,10 @@ void Device::get_h2eff_df_v1(py::array_t<double> _cderi,
   pm->dev_stream_wait(); // this is required because 1) eri immediately consumed on python side and 2) all devices would write to same array
   
   profile_stop();
-#ifdef _SIMPLE_TIMER
+  
   double t1 = omp_get_wtime();
   t_array[6] += t1 - t0;//TODO: add the array size
   count_array[4] += 1; // doing this in compute instead of pull because v2 is not complete
-#endif
 }
 
 
@@ -2589,9 +2517,7 @@ void Device::get_h2eff_df_v2(py::array_t<double> _cderi,
                                 int nao, int nmo, int ncas, int naux, int ncore, 
                                 py::array_t<double> _eri, int count, size_t addr_dfobj) 
 {
-#ifdef _SIMPLE_TIMER
   double t0 = omp_get_wtime();
-#endif
 
 #ifdef _DEBUG_DEVICE
   printf("LIBGPU :: Inside Device :: Starting h2eff_df_contract1 function");
@@ -2724,11 +2650,10 @@ void Device::get_h2eff_df_v2(py::array_t<double> _cderi,
   }
 
   profile_stop();
-#ifdef _SIMPLE_TIMER
+  
   double t1 = omp_get_wtime();
   t_array[6] += t1 - t0;//TODO: add the array size
   count_array[4] += 1; // see v1 comment
-#endif
 }
 
 
@@ -2785,10 +2710,7 @@ void Device::orbital_response(py::array_t<double> _f1_prime,
 			      py::array_t<double> _ocm2, py::array_t<double> _tcm2, py::array_t<double> _gorb,
 			      int ncore, int nocc, int nmo)
 {
-  
-#ifdef _SIMPLE_TIMER
   double t0 = omp_get_wtime();
-#endif
     
   py::buffer_info info_ppaa = _ppaa.request(); // 4D array (26, 26, 2, 2)
   py::buffer_info info_papa = _papa.request(); // 4D array (26, 2, 26, 2)
@@ -3131,11 +3053,9 @@ void Device::orbital_response(py::array_t<double> _f1_prime,
 
   for(int i=0; i<nmo*nmo; ++i) res[i] = g_f1_prime[i];
 
-#ifdef _SIMPLE_TIMER
   double t1 = omp_get_wtime();
   t_array[4]  += t1  - t0;
   count_array[2] += 1; 
-#endif
   
 #if 0
   pm->dev_free_host(ar_global);

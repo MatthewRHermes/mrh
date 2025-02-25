@@ -36,17 +36,17 @@ ML_INC = $(wildcard mathlib/*.h)
 TMP2 = $(ML_SRC:mathlib/%=%)
 ML_OBJ = $(TMP2:.cpp=.o)
 
-$(info C_SRC is [${C_SRC}])
-$(info C_INC is [${C_INC}])
-$(info C_OBJ is [${C_OBJ}])
+#$(info C_SRC is [${C_SRC}])
+#$(info C_INC is [${C_INC}])
+#$(info C_OBJ is [${C_OBJ}])
 
-$(info PM_SRC is [${PM_SRC}])
-$(info PM_INC is [${PM_INC}])
-$(info PM_OBJ is [${PM_OBJ}])
+#$(info PM_SRC is [${PM_SRC}])
+#$(info PM_INC is [${PM_INC}])
+#$(info PM_OBJ is [${PM_OBJ}])
 
-$(info ML_SRC is [${ML_SRC}])
-$(info ML_INC is [${ML_INC}])
-$(info ML_OBJ is [${ML_OBJ}])
+#$(info ML_SRC is [${ML_SRC}])
+#$(info ML_INC is [${ML_INC}])
+#$(info ML_OBJ is [${ML_OBJ}])
 #
 # -- target : 	Dependencies
 # --		Rule to create target
