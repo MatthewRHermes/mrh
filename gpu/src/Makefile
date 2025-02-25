@@ -87,18 +87,18 @@ realclean:
 
 libgpu.o : libgpu.cpp libgpu.h
 
-pm_cuda.o : pm/pm_cuda.cpp pm/pm_cuda.h pm/pm/pm.h
+pm_cuda.o : pm/pm_cuda.cpp pm/pm_cuda.h pm/pm.h
 pm_sycl.o : pm/pm_sycl.cpp pm/pm_sycl.h pm/pm.h
 pm_hip.o : pm/pm_hip.cpp pm/pm_hip.h pm/pm.h
-pm_openmp.o : pm/pm_openmp.cpp pm/pm_openmp.h pm.h
-pm_host.o : pm/pm_host.cpp pm/pm_host.h pm.h
+pm_openmp.o : pm/pm_openmp.cpp pm/pm_openmp.h pm/pm.h
+pm_host.o : pm/pm_host.cpp pm/pm_host.h pm/pm.h
 
-device.o : device.cpp pm/device_cuda.cpp pm/device_sycl.cpp pm/device_hip.cpp pm/device_openmp.cpp pm/device_host.cpp
-device_cuda.o : pm/device_cuda.cpp pm/device.h pm/pm_cuda.o
-device_sycl.o : pm/device_sycl.cpp pm/device.h pm/pm_sycl.o
-device_hip.o : pm/device_hip.cpp pm/device.h pm/pm_hip.o
-device_openmp.o : pm/device_openmp.cpp pm/device.h pm/pm_openmp.o
-device_host.o : pm/device_host.cpp pm/device.h pm/pm_host.o
+device.o : device.cpp device.h pm/device_cuda.cpp pm/device_sycl.cpp pm/device_hip.cpp pm/device_openmp.cpp pm/device_host.cpp
+device_cuda.o : pm/device_cuda.cpp device.h pm/pm_cuda.o
+device_sycl.o : pm/device_sycl.cpp device.h pm/pm_sycl.o
+device_hip.o : pm/device_hip.cpp device.h pm/pm_hip.o
+device_openmp.o : pm/device_openmp.cpp device.h pm/pm_openmp.o
+device_host.o : pm/device_host.cpp device.h pm/pm_host.o
 
 mathlib_cublas.o : mathlib/mathlib_cublas.cpp mathlib/mathlib_cublas.h mathlib/mathlib.h pm/pm_cuda.o
 mathlib_mkl.o : mathlib/mathlib_mkl.cpp mathlib/mathlib_mkl.h mathlib/mathlib.h pm/pm_cuda.o pm/pm_sycl.o
