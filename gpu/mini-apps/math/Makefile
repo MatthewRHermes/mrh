@@ -104,8 +104,6 @@ realclean:
 #
 # -- Simple dependencies
 
-libgpu.o : libgpu.cpp libgpu.h
-
 pm_cuda.o : pm/pm_cuda.cpp pm/pm_cuda.h pm/pm.h
 pm_sycl.o : pm/pm_sycl.cpp pm/pm_sycl.h pm/pm.h
 pm_hip.o : pm/pm_hip.cpp pm/pm_hip.h pm/pm.h
