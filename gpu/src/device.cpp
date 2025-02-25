@@ -1842,10 +1842,12 @@ void Device::df_ao2mo_v3 (int blksize, int nmo, int nao, int ncore, int ncas, in
   }
 
 #ifdef _DEBUG_DEVICE
+#if defined (_GPU_CUDA)
   size_t freeMem;size_t totalMem;
   freeMem=0;totalMem=0;
   cudaMemGetInfo(&freeMem, &totalMem);
   printf("Starting ao2mo Free memory %lu bytes, total memory %lu bytes\n",freeMem,totalMem);
+#endif
 #endif
 
   if(_size_eri_unpacked > dd->size_buf) {
@@ -2024,9 +2026,11 @@ void Device::df_ao2mo_v3 (int blksize, int nmo, int nao, int ncore, int ncas, in
 #endif
 
 #ifdef _DEBUG_DEVICE
+#if defined (_GPU_CUDA)
   printf("LIBGPU :: Leaving Device::df_ao2mo_pass1_fdrv()\n"); 
   cudaMemGetInfo(&freeMem, &totalMem);
   printf("Ending ao2mo fdrv Free memory %lu bytes, total memory %lu bytes\n",freeMem,totalMem);
+#endif
 #endif
   
   profile_stop();
