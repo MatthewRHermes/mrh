@@ -7,8 +7,8 @@
 #include <mpi.h>
 #include <omp.h>
 
-#include "pm.h"
-#include "mathlib.h"
+#include "pm/pm.h"
+#include "mathlib/mathlib.h"
 
 #define _NUM_BATCHES 100
 
