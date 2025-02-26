@@ -10,7 +10,6 @@ CXXFLAGS = -g -O3 -fopenmp
 CXXFLAGS += $(PYTHON_INC)
 
 CXXFLAGS += -D_USE_CPU
-CXXFLAGS += -D_SIMPLE_TIMER
 
 LD = $(FC)
 LDFLAGS = -fopenmp

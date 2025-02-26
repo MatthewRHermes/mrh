@@ -12,8 +12,6 @@ CXX = mpicxx-mpich-gcc13
 CXXFLAGS = -g -O3 -fopenmp -D_USE_CPU
 CXXFLAGS += $(PYTHON_INC)
 
-#CXXFLAGS += -D_SIMPLE_TIMER
-
 #CXXFLAGS += -I$(BLAS)/include
 
 LD = $(CXX)
