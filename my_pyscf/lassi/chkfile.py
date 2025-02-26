@@ -2,7 +2,7 @@ from mrh.my_pyscf.mcscf import chkfile as las_chkfile
 
 KEYS_CONFIG_LASSI = las_chkfile.KEYS_CONFIG_LASSCF + ['nfrags', 'break_symmetry', 'soc', 'opt']
 KEYS_SACONSTR_LASSI = las_chkfile.KEYS_SACONSTR_LASSCF
-KEYS_RESULTS_LASSI = ['e_states', 'e_roots', 'si', 's2', 's2_mat', 'nelec', 'wfnsym', 'rootsym']
+KEYS_RESULTS_LASSI = ['e_states', 'e_roots', 'si', 's2', 'nelec', 'wfnsym', 'rootsym']
 
 def load_lsi_(lsi, chkfile=None, method_key='lsi',
               keys_config=KEYS_CONFIG_LASSI,
