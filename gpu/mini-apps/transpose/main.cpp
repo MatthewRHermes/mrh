@@ -7,7 +7,7 @@
 #include <mpi.h>
 #include <omp.h>
 
-#include "pm.h"
+#include "pm/pm.h"
 
 // polymer_async : 6-31g
 // -- nfrags = 16 :: nrow= 85,440  ncol= 356 copy_naive= 426 GB/s  transpose_naive= 151 GB/s  transpose_gpu= 383 GB/s  transpose_gpu_2= 538 GB/s

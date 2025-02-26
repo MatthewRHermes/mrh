@@ -6,7 +6,7 @@
 #include <iostream>
 #include <cassert>
 
-#include "pm.h"
+#include "../pm/pm.h"
 
 #define _TRANSPOSE_BLOCK_SIZE 16
 #define _TRANSPOSE_NUM_ROWS 16
