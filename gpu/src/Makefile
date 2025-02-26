@@ -85,7 +85,8 @@ $(ML_OBJ): %.o: mathlib/%.cpp
 	$(CXX) $(CXXFLAGS) -c $<
 
 $(CUDA_OBJ): %.o: pm/%.cpp
-	$(CUDA_CXX) -x cu $(CUDA_CXXFLAGS) -c $< -o $@
+	$(CUDA_CXX) $(CUDA_CXXFLAGS) -c $< -o $@
+	#$(CUDA_CXX) -x cu $(CUDA_CXXFLAGS) -c $< -o $@
 
 #
 # -- Remove *.o and *~ from the directory
