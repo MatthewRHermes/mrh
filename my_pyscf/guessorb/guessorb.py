@@ -1,5 +1,5 @@
 import copy
-import pickle
+import json
 import scipy
 import numpy as np
 from scipy import linalg
@@ -38,9 +38,9 @@ def loadorbitalenergy():
     '''
     '''
     orbitalenergyfile = os.path.join(os.path.dirname(mrh.__file__),\
-            'my_pyscf/guessorb/orbitalenergy.pkl')
-    with open(orbitalenergyfile, 'rb') as f:
-        orbenergy = pickle.load(f)
+            'my_pyscf/guessorb/orbitalenergy.json')
+    with open(orbitalenergyfile, 'r') as f:
+        orbenergy = json.load(f)
     return orbenergy
 
 def get_model_fock_atom(atm1, atm2, symb):
@@ -77,12 +77,11 @@ def get_model_fock_atom(atm1, atm2, symb):
 
     # Load the orbital energies of given atom in reference basis.
     orbital_energies = loadorbitalenergy()
-
     for nctr, l in enumerate(l_shell_ref.keys()):
         nctr_l = nctr_per_l_ref[nctr]
         deg = 2*l + 1
         fock_l = np.zeros([deg*nctr_l, deg*nctr_l], dtype=s1.dtype)
-        orb_ene = orbital_energies[symb][l]
+        orb_ene = orbital_energies[symb][str(l)]
 
         for ml in range(deg):
             for i in range(len(orb_ene)):
