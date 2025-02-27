@@ -157,7 +157,7 @@ class HamS2OvlpOperators (HamS2Ovlp):
         i, j = self.offs_lroots[iroot]
         return fac * self.x[i:j]
 
-    def put_oxvec_(self, vec, iroot, *inv):
+    def put_ox1_(self, vec, iroot, *inv):
         fac = self.spin_shuffle[iroot] * self.fermion_frag_shuffle (iroot, inv)
         i, j = self.offs_lroots[iroot]
         self.ox1[i:j] += fac * vec
@@ -239,12 +239,12 @@ class HamS2OvlpOperators (HamS2Ovlp):
             bravecs[bra] += ovecs[tuple ((ket,)) + self.ox_ovlp_urootstr (bra, ket, inv)]
         for bra in bras:
             vec = bravecs[bra]
-            self.put_oxvec_(lib.dot (op, vec.T).ravel (), bra, *inv)
+            self.put_ox1_(lib.dot (op, vec.T).ravel (), bra, *inv)
         if len (braHs):
             op = op.conj ().T
             for bra in braHs:
                 vec = bravecs[bra]
-                self.put_oxvec_(lib.dot (op, vec.T).ravel (), bra, *inv)
+                self.put_ox1_(lib.dot (op, vec.T).ravel (), bra, *inv)
         return
 
     def ox_ovlp_urootstr (self, bra, ket, inv):
