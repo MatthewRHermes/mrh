@@ -12,12 +12,14 @@
 #if defined(_USE_GPU)
 
 // set default based on backend if one not explicitly set
-#if !defined(_GPU_CUBLAS) && !defined(_GPU_MKL)
+#if !defined(_GPU_CUBLAS) && !defined(_GPU_MKL) && !defined(_GPU_HIPBLAS)
 
 #if defined(_GPU_CUDA) || defined(_GPU_SYCL_CUDA)
 #error "Did you forget to set -D_GPU_CUBLAS?"
 #elif defined(_GPU_SYCL)
 #error "Did you forget to set -D_GPU_MKL?"
+#elif defined(_GPU_HIP)
+#error "Did you forget to set -D_GPU_HIPBLAS?"
 #endif
 
 #endif
@@ -28,6 +30,8 @@
 #include "mathlib_cublas.h"
 #elif defined(_GPU_MKL)
 #include "mathlib_mkl.h"
+#elif defined(_GPU_HIPBLAS)
+#include "hipblas.h"
 #endif
 
 #elif defined(_USE_CPU)
