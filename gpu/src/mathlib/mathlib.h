@@ -31,7 +31,7 @@
 #elif defined(_GPU_MKL)
 #include "mathlib_mkl.h"
 #elif defined(_GPU_HIPBLAS)
-#include "hipblas.h"
+#include "mathlib_hipblas.h"
 #endif
 
 #elif defined(_USE_CPU)

@@ -310,6 +310,9 @@ private:
 #if defined _GPU_CUBLAS
     cublasHandle_t handle;
     cudaStream_t stream;
+#elif defined _GPU_HIPBLAS
+    hipblasHandle_t handle;
+    hipStream_t stream;
 #elif defined _GPU_MKL
     int * handle;
     sycl::queue * stream;

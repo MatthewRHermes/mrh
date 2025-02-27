@@ -75,16 +75,16 @@ void PM::dev_properties(int ndev)
 #endif
   
   for(int i=0; i<ndev; ++i) {
-    hipDeviceProp prop;
+    hipDeviceProp_t prop;
     hipGetDeviceProperties(&prop, i);
     _HIP_CHECK_ERRORS();
 
     char name[256];
     strcpy(name, prop.name);
 
-    printf("LIBGPU ::  [%i] Platform[ Nvidia ] Type[ GPU ] Device[ %s ]  uuid= ", i, name);
+    printf("LIBGPU ::  [%i] Platform[ AMD ] Type[ GPU ] Device[ %s ]  uuid= ", i, name);
     uuid_print(prop.uuid);
-    printf("\n");
+    //printf("\n");
   }
 
 #ifdef _DEBUG_PM
@@ -393,7 +393,7 @@ void PM::dev_check_pointer(int rnk, const char * name, void * ptr)
   printf("Inside PM::dev_check_pointer()\n");
 #endif
   
-  hipPointerAttributes attributes;
+  hipPointerAttribute_t attributes;
   hipPointerGetAttributes(&attributes, ptr);
   if(attributes.devicePointer != NULL) printf("(%i) ptr %s is devicePointer\n",rnk,name);
   if(attributes.hostPointer != NULL) printf("(%i) ptr %s is hostPointer\n",rnk,name);

@@ -16,7 +16,7 @@ namespace PM_NS {
   
 #define _HIP_CHECK_ERRORS()               \
   {					   \
-    hipError err = hipGetLastError();	   \
+    hipError_t err = hipGetLastError();	   \
     if(err != hipSuccess) {		   \
       std::cout				   \
 	<< "HIP error with code "	   \
@@ -30,7 +30,7 @@ namespace PM_NS {
   
 #define _HIP_CHECK_ERRORS2()               \
   {					   \
-    hipError err = hipGetLastError();	   \
+    hipError_t err = hipGetLastError();	   \
     if(err != hipSuccess) {		   \
       std::cout				   \
 	<< "HIP error with code "	   \
