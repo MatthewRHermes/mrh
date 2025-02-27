@@ -1,7 +1,7 @@
 import numpy as np
 from pyscf import lib
 from pyscf.lib import logger
-from itertools import product
+from itertools import product, combinations
 from mrh.my_pyscf.lassi.citools import get_rootaddr_fragaddr, umat_dot_1frag_
 from mrh.my_pyscf.lassi.op_o1 import frag
 from mrh.my_pyscf.lassi.op_o1.utilities import *
@@ -107,6 +107,9 @@ class LSTDM (object):
                              for nelec_sf in self.nelec_rf]
         self.nelec_rf = self.nelec_rf.sum (1)
 
+        self.urootstr = np.asarray ([[i.unique_root[r] for i in self.ints]
+                                     for r in range (self.nroots)]).T
+
         exc = self.make_exc_tables (hopping_index)
         self.nonuniq_exc = {}
         self.exc_null = self.mask_exc_table_(exc['null'], 'null', mask_bra_space, mask_ket_space)
@@ -135,6 +138,12 @@ class LSTDM (object):
             self._put_SD2_c_fn = liblassi.LASSIRDMzputSD2
         else:
             raise NotImplementedError (self.dtype)
+
+    def interaction_fprint (self, bra, ket, frags):
+        fprint = -1 * np.ones ((self.nfrags,2), dtype=int)
+        fprint[frags,0] = self.urootstr[frags,bra]
+        fprint[frags,1] = self.urootstr[frags,ket]
+        return fprint
 
     def init_profiling (self):
         self.dt_1d, self.dw_1d = 0.0, 0.0
@@ -341,13 +350,9 @@ class LSTDM (object):
         excp = exc[:,:-1] if ulblu in self.interaction_has_spin else exc
         fprint = []
         for row in excp:
-            frow = []
             bra, ket = row[:2]
             frags = row[2:]
-            for frag in frags:
-                intf = self.ints[frag]
-                frow.extend ([frag, intf.unique_root[bra], intf.unique_root[ket]])
-            fprint.append (frow)
+            fprint.append (self.interaction_fprint (bra, ket, frags).ravel ())
         fprint = np.asarray (fprint)
         nexc = len (exc)
         _, idx, inv = np.unique (fprint, axis=0, return_index=True, return_inverse=True)
@@ -360,7 +365,25 @@ class LSTDM (object):
             braket_images = exc[np.ix_(uniq_idxs,[0,1])]
             self.nonuniq_exc[tuple(row_uniq)] = braket_images
         exc = exc[idx]
-        nuniq = len (idx)
+        excp = exc[:,:-1] if ulblu in self.interaction_has_spin else exc
+        # Part 3: combine conjugate-transpose equivalencies that the previous step missed
+        if not self.all_interactions_full_square: # TODO: why do I need this?
+            idx = np.ones (len (exc), dtype=bool)
+            for i, j in combinations (range (len (excp)), 2):
+                fi = self.interaction_fprint (excp[i,0], excp[i,1], excp[i,2:])
+                fj = self.interaction_fprint (excp[j,0], excp[j,1], excp[j,2:])
+                assert (not np.all (fi==fj))
+                if np.all (fi==fj[:,::-1]):
+                    assert (idx[j])
+                    idx[j] = False
+                    ki = tuple(excp[i])
+                    kj = tuple(excp[j])
+                    vi = self.nonuniq_exc[ki]
+                    vj = self.nonuniq_exc[kj]
+                    self.nonuniq_exc[ki] = np.append (vi,vj[:,::-1], axis=0)
+                    del self.nonuniq_exc[kj]
+            exc = exc[idx]
+        nuniq = len (exc)
         self.log.debug ('%d/%d unique interactions of %s type',
                         nuniq, nexc, lbl)
         return exc

@@ -192,11 +192,12 @@ class KnownValues(unittest.TestCase):
                     lsi.prepare_states_()
                     h0, h1, h2 = ham_2q (las0, las0.mo_coeff)
                     case_contract_op_si (self, las, h1, h2, lsi.ci, lsi.get_nelec_frs ())
-                lsi.kernel ()
-                self.assertTrue (lsi.converged)
-                self.assertAlmostEqual (lsi.e_roots[0], -304.5372586630968, 3)
-                case_lassis_fbf_2_model_state (self, lsi)
-                #case_lassis_fbfdm (self, lsi)
+                else:
+                    lsi.kernel ()
+                    self.assertTrue (lsi.converged)
+                    self.assertAlmostEqual (lsi.e_roots[0], -304.5372586630968, 3)
+                    case_lassis_fbf_2_model_state (self, lsi)
+                    #case_lassis_fbfdm (self, lsi)
 
     def test_fdm1 (self):
         make_fdm1 = get_fdm1_maker (las, las.ci, nelec_frs, si)

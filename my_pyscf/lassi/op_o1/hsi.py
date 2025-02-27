@@ -29,8 +29,6 @@ class HamS2OvlpOperators (HamS2Ovlp):
         HamS2Ovlp.__init__(self, ints, nlas, hopping_index, lroots, h1, h2,
                            mask_bra_space=mask_bra_space, mask_ket_space=mask_ket_space,
                            log=log, max_memory=max_memory, dtype=dtype)
-        self.urootstr = np.asarray ([[i.unique_root[r] for i in self.ints]
-                                     for r in range (self.nroots)]).T
         self.x = self.si = np.zeros (self.nstates, self.dtype)
         self.ox = np.zeros (self.nstates, self.dtype)
         self.ox1 = np.zeros (self.nstates, self.dtype)
