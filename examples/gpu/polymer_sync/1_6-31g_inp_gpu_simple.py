@@ -1,7 +1,7 @@
 from mrh.my_pyscf.gpu import libgpu
 
 import pyscf
-from gpu4pyscf import patch_pyscf
+from gpu4mrh import patch_pyscf
 
 from mrh.tests.gpu.geometry_generator import generator
 from pyscf import gto, scf, tools, mcscf

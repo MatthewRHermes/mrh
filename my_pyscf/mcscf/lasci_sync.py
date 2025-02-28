@@ -1054,6 +1054,7 @@ class LASCI_HessianOperator (sparse_linalg.LinearOperator):
         bPbi = self.bPpj[:,ncore:,:ncore]
         vk_bj += np.tensordot (bPbi, vPji, axes=((0,2),(0,2)))                    
         t1 = lib.logger.timer (self.las, 'vk_mo (bi|aj) in microcycle', *t1)
+        t0 = lib.logger.timer (self.las, 'vj and vk mo', *t0)
 
         # veff
         vj_bj = vj_pj[ncore:,:]

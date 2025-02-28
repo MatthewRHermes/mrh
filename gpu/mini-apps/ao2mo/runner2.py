@@ -12,12 +12,11 @@ all versions do the following
 ''' 
 
 gpu_run=1
-N=0
 if gpu_run:from mrh.my_pyscf.gpu import libgpu
 import pyscf
 import numpy 
 import ctypes
-if gpu_run:from gpu4pyscf import patch_pyscf
+if gpu_run:from gpu4mrh import patch_pyscf
 from mrh.tests.gpu.geometry_generator import generator
 from pyscf import gto, scf, tools, mcscf, lib
 from mrh.my_pyscf.mcscf.lasscf_async import LASSCF
@@ -29,9 +28,6 @@ if gpu_run:gpu = libgpu.libgpu_init()
 lib.logger.TIMER_LEVEL=lib.logger.INFO
 
 nfrags=8;basis='ccpvdz';
-#atom='''H 0.0 0.0 0.0;
-#Li 0.0 0.0 1.0'''
-#if gpu_run:mol=gto.M(use_gpu=gpu,atom=atom,basis=basis)#,verbose=4,output=outputfile,max_memory=160000)
 if gpu_run:mol=gto.M(use_gpu=gpu, atom=generator(nfrags),basis=basis)#,verbose=4,output=outputfile,max_memory=160000)
 #else: mol=gto.M(atom=generator(nfrags),basis=basis)
 mf=scf.RHF(mol)

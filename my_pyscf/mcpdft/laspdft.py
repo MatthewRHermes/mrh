@@ -53,7 +53,7 @@ class _LASPDFT(_PDFT):
         if getattr(self._scf, '_eri', None) is not None:
             eri = ao2mo.full(self._scf._eri, mo_coeff,
                              max_memory=self.max_memory)
-        elif self.with_df:
+        elif getattr (self, 'with_df', False):
             eri = self.with_df.ao2mo(mo_coeff)
 
         else:

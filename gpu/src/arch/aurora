@@ -9,7 +9,6 @@ CXXFLAGS += -I$(MKL_ROOT)/include
 CXXFLAGS += $(PYTHON_INC)
 
 CXXFLAGS += -D_USE_GPU -D_GPU_SYCL -D_GPU_MKL
-CXXFLAGS += -D_SIMPLE_TIMER
 
 LD = $(CXX)
 LDFLAGS = $(CXXFLAGS) -Xsycl-target-backend "-device pvc"

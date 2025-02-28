@@ -580,10 +580,13 @@ class ImpuritySolver ():
         output_shape = list (dm1rs_ext.shape[:-2]) + [self.mol.nao (), self.mol.nao ()]
         dm1 = dm1rs_ext.reshape (-1, mo_ext.shape[1], mo_ext.shape[1])
         if bmPu is not None:
+            log = logger.new_logger (self, self.verbose)
+            t_vj = (logger.process_clock(), logger.perf_counter())
             bPuu = np.tensordot (bmPu, mo_ext, axes=((0),(0)))
             rho = np.tensordot (dm1, bPuu, axes=((1,2),(1,2)))
             bPii = self._scf._cderi
             vj = lib.unpack_tril (np.tensordot (rho, bPii, axes=((-1),(0))))
+            t_vj = log.timer("vj ext", *t_vj)    
         else: # Safety case: AO-basis SCF driver
             imporb_coeff = self.mol.get_imporb_coeff ()
             dm1 = np.dot (mo_ext, np.dot (dm1, mo_ext.conj().T)).transpose (1,0,2)
@@ -596,9 +599,12 @@ class ImpuritySolver ():
         dm1 = dm1rs_ext.reshape (-1, mo_ext.shape[1], mo_ext.shape[1])
         imporb_coeff = self.mol.get_imporb_coeff ()
         if bmPu is not None:
+            log = logger.new_logger (self, self.verbose)
+            t_vk = (logger.process_clock(), logger.perf_counter())
             biPu = np.tensordot (imporb_coeff, bmPu, axes=((0),(0)))
             vuiP = np.tensordot (dm1, biPu, axes=((-1),(-1)))
             vk = np.tensordot (vuiP, biPu, axes=((-3,-1),(-1,-2)))
+            t_vk = log.timer("vk ext", *t_vk)    
         else: # Safety case: AO-basis SCF driver
             dm1 = np.dot (mo_ext, np.dot (dm1, mo_ext.conj().T)).transpose (1,0,2)
             #vk = self.mol._las._scf.get_k (dm=dm1) 

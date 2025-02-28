@@ -11,9 +11,9 @@
 
 namespace py = pybind11;
 
-#include "pm.h"
-#include "mathlib.h"
-#include "dev_array.h"
+#include "pm/pm.h"
+#include "mathlib/mathlib.h"
+#include "pm/dev_array.h"
 
 using namespace PM_NS;
 using namespace MATHLIB_NS;
@@ -73,6 +73,7 @@ public :
   void get_dev_properties(int);
   void set_device(int);
   void disable_eri_cache_();
+  void set_verbose_(int);
 
   void init_get_jk(py::array_t<double>, py::array_t<double>, int, int, int, int, int);
   void get_jk(int, int, int,
@@ -160,6 +161,8 @@ private:
   void profile_stop();
   void profile_next(const char *);
 
+  int verbose_level;
+  
   size_t grid_size, block_size;
   
   // get_jk
@@ -307,6 +310,9 @@ private:
 #if defined _GPU_CUBLAS
     cublasHandle_t handle;
     cudaStream_t stream;
+#elif defined _GPU_HIPBLAS
+    hipblasHandle_t handle;
+    hipStream_t stream;
 #elif defined _GPU_MKL
     int * handle;
     sycl::queue * stream;
@@ -336,10 +342,8 @@ private:
   void NPdsymm_triu(int, double *, int);
   void NPdunpack_tril(int, double *, double *, int);
 /*--------------------------------------------*/
-#ifdef _SIMPLE_TIMER
   double * t_array;
   int * count_array;
-#endif
 
   int num_threads;
   int num_devices;
