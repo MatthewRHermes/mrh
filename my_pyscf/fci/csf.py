@@ -67,6 +67,7 @@ def make_hdiag_det (fci, h1e, eri, norb, nelec):
     return direct_uhf.make_hdiag (unpack_h1e_ab (h1e), [eri, eri, eri], norb, nelec)
 
 def make_hdiag_csf (h1e, eri, norb, nelec, transformer, hdiag_det=None, max_memory=None):
+    m0 = lib.current_memory ()[0]
     smult = transformer.smult
     if hdiag_det is None:
         hdiag_det = make_hdiag_det (None, h1e, eri, norb, nelec)
@@ -93,11 +94,8 @@ def make_hdiag_csf (h1e, eri, norb, nelec, transformer, hdiag_det=None, max_memo
         csd_offset = npair_csd_offset[ipair]
         det_addr = transformer.csd_mask[csd_offset:][:nconf*ndet]
         # mem safety
-        # Issue #54: PySCF wants "max_memory" on entrance to FCI to be "remaining memory". However,
-        # the first few lines of this function consume some memory, so that's difficult to
-        # implement consistently. "max_memory" here is currently the config parameter for the whole
-        # calculation.
-        mem_remaining = max_memory - lib.current_memory ()[0]
+        deltam = lib.current_memory ()[0] - m0
+        mem_remaining = max_memory - deltam
         safety_factor = 1.2
         nfloats = float(nconf)*ndet*ndet + float(det_addr.size)
         mem_floats = nfloats * np.dtype (float).itemsize / 1e6
@@ -249,6 +247,7 @@ def pspace (fci, h1e, eri, norb, nelec, transformer, hdiag_det=None, hdiag_csf=N
     until I write code than can evaluate Hamiltonian matrix elements of CSFs directly. On the other hand
     a pspace of determinants contains many redundant degrees of freedom for the same reason. Therefore I have
     reduced the default pspace size by a factor of 2.'''
+    m0 = lib.current_memory ()[0]
     if norb > 63:
         raise NotImplementedError('norb > 63')
     if max_memory is None: max_memory=fci.max_memory
@@ -289,10 +288,8 @@ def pspace (fci, h1e, eri, norb, nelec, transformer, hdiag_det=None, hdiag_csf=N
     safety_factor = 1.2
     nfloats_h0 = (npsp_det+npsp)**2.0
     mem_h0 = safety_factor * nfloats_h0 * np.dtype (float).itemsize / 1e6
-    # Issue #54: PySCF wants "max_memory" on entrance to FCI to be "remaining memory". However,
-    # the earlier lines of this function consume some memory, so that's difficult to implement
-    # consistently. "max_memory" here is currently the config parameter for the whole calculation.
-    mem_remaining = max_memory - lib.current_memory ()[0]
+    deltam = lib.current_memory ()[0] - m0
+    mem_remaining = max_memory - deltam
     memstr = ("pspace_size of {} CSFs -> {} determinants requires {} MB, cf {} MB "
               "remaining memory").format (npsp, npsp_det, mem_h0, mem_remaining)
     if mem_h0 > mem_remaining:

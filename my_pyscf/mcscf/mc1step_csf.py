@@ -58,10 +58,9 @@ def solve_approx_ci_csf (mc, h1, h2, ci0, ecore, e_cas, envs):
     if mc.ci_response_space > 7:
         logger.debug(mc, 'CI step by full response')
         # full response
-        #max_memory = max(400, mc.max_memory-lib.current_memory()[0])
-        # Issue #54: count memory here, or in fcisolver?
+        max_memory = max(400, mc.max_memory-lib.current_memory()[0])
         e, ci1 = mc.fcisolver.kernel(h1, h2, ncas, nelecas, ecore=ecore,
-                                       ci0=ci0, tol=tol)#, max_memory=max_memory)
+                                     ci0=ci0, tol=tol, max_memory=max_memory)
     else:
         # MRH 03/24/2019: this is where I intervene to enforce CSFs
         fci = mc.fcisolver
