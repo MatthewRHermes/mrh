@@ -139,12 +139,12 @@ class LSTDM (object):
         else:
             raise NotImplementedError (self.dtype)
 
-    def interaction_fprint (self, bra, ket, frags):
+    def interaction_fprint (self, bra, ket, frags, ltri=False):
         frags = np.sort (frags)
-        fprint = np.stack ([frags,
-                            self.urootstr[frags,bra],
-                            self.urootstr[frags,ket]],
-                           axis=0)
+        brastr = self.urootstr[frags,bra]
+        ketstr = self.urootstr[frags,ket]
+        if ltri: brastr, ketstr = sorted ([list(brastr),list(ketstr)])
+        fprint = np.stack ([frags, brastr, ketstr], axis=0)
         return fprint
 
     def init_profiling (self):
@@ -337,6 +337,7 @@ class LSTDM (object):
 
     all_interactions_full_square = False
     interaction_has_spin = ('_1c_', '_1c1d_', '_2c_')
+    ltri_ambiguous = True
 
     def mask_exc_table_(self, exc, lbl, mask_bra_space=None, mask_ket_space=None):
         # Part 1: restrict to the caller-specified rectangle
@@ -350,45 +351,30 @@ class LSTDM (object):
         if lbl=='null': return exc
         ulblu = '_' + lbl + '_'
         excp = exc[:,:-1] if ulblu in self.interaction_has_spin else exc
+        fprintLT = []
         fprint = []
         for row in excp:
             bra, ket = row[:2]
             frags = row[2:]
-            fp = self.interaction_fprint (bra, ket, frags)
+            fpLT = self.interaction_fprint (bra, ket, frags, ltri=self.ltri_ambiguous)
+            fprintLT.append (fpLT.ravel ())
+            fp = self.interaction_fprint (bra, ket, frags, ltri=False)
             fprint.append (fp.ravel ())
+        fprintLT = np.asarray (fprintLT)
         fprint = np.asarray (fprint)
         nexc = len (exc)
-        fprint, idx, inv = np.unique (fprint, axis=0, return_index=True, return_inverse=True)
+        fprintLT, idx, inv = np.unique (fprintLT, axis=0, return_index=True, return_inverse=True)
         # for some reason this squeeze is necessary for some versions of numpy; however...
         eqmap = np.squeeze (idx[inv])
-        for uniq_idx in idx:
+        for fpLT, uniq_idx in zip (fprintLT, idx):
             row_uniq = excp[uniq_idx]
             # ...numpy.where (0==0) triggers a DeprecationWarning, so I have to atleast_1d it
             uniq_idxs = np.where (np.atleast_1d (eqmap==uniq_idx))[0]
             braket_images = exc[np.ix_(uniq_idxs,[0,1])]
+            iT = np.any (fprint[uniq_idx][None,:]!=fprint[uniq_idxs], axis=1)
+            braket_images[iT,:] = braket_images[iT,::-1]
             self.nonuniq_exc[tuple(row_uniq)] = braket_images
         exc = exc[idx]
-        excp = exc[:,:-1] if ulblu in self.interaction_has_spin else exc
-        # Part 3: combine conjugate-transpose equivalencies that the previous step missed
-        if not self.all_interactions_full_square: # TODO: why do I need this?
-            idx = np.ones (len (exc), dtype=bool)
-            for i, j in combinations (range (len (excp)), 2):
-                if not idx[i]: continue
-                if not idx[j]: continue
-                fi, fj = fprint[i].reshape (3,-1), fprint[j].reshape (3,-1)
-                if not np.all (fi[0] == fj[0]): continue
-                frags = fi[0]
-                assert (not np.all (fi==fj))
-                fi, fj = fi[1:], fj[1:]
-                if np.all (fi==fj[::-1]):
-                    idx[j] = False
-                    ki = tuple(excp[i])
-                    kj = tuple(excp[j])
-                    vi = self.nonuniq_exc[ki]
-                    vj = self.nonuniq_exc[kj]
-                    self.nonuniq_exc[ki] = np.append (vi,vj[:,::-1], axis=0)
-                    del self.nonuniq_exc[kj]
-            exc = exc[idx]
         nuniq = len (exc)
         self.log.debug ('%d/%d unique interactions of %s type',
                         nuniq, nexc, lbl)

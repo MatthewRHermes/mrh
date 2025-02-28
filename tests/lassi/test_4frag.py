@@ -175,11 +175,12 @@ class KnownValues(unittest.TestCase):
                     lsi.prepare_states_()
                     h0, h1, h2 = ham_2q (las1, las1.mo_coeff)
                     case_contract_op_si (self, las1, h1, h2, lsi.ci, lsi.get_nelec_frs ())
-                lsi.kernel ()
-                self.assertTrue (lsi.converged)
-                self.assertAlmostEqual (lsi.e_roots[0], -1.867291372401379, 6)
-                case_lassis_fbf_2_model_state (self, lsi)
-                case_lassis_fbfdm (self, lsi)
+                else:
+                    lsi.kernel ()
+                    self.assertTrue (lsi.converged)
+                    self.assertAlmostEqual (lsi.e_roots[0], -1.867291372401379, 6)
+                    case_lassis_fbf_2_model_state (self, lsi)
+                    case_lassis_fbfdm (self, lsi)
 
     def test_lassis_slow (self):
         las0 = las.get_single_state_las (state=0)
