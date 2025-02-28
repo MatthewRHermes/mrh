@@ -140,9 +140,11 @@ class LSTDM (object):
             raise NotImplementedError (self.dtype)
 
     def interaction_fprint (self, bra, ket, frags):
-        fprint = -1 * np.ones ((self.nfrags,2), dtype=int)
-        fprint[frags,0] = self.urootstr[frags,bra]
-        fprint[frags,1] = self.urootstr[frags,ket]
+        frags = np.sort (frags)
+        fprint = np.stack ([frags,
+                            self.urootstr[frags,bra],
+                            self.urootstr[frags,ket]],
+                           axis=0)
         return fprint
 
     def init_profiling (self):
@@ -352,10 +354,11 @@ class LSTDM (object):
         for row in excp:
             bra, ket = row[:2]
             frags = row[2:]
-            fprint.append (self.interaction_fprint (bra, ket, frags).ravel ())
+            fp = self.interaction_fprint (bra, ket, frags)
+            fprint.append (fp.ravel ())
         fprint = np.asarray (fprint)
         nexc = len (exc)
-        _, idx, inv = np.unique (fprint, axis=0, return_index=True, return_inverse=True)
+        fprint, idx, inv = np.unique (fprint, axis=0, return_index=True, return_inverse=True)
         # for some reason this squeeze is necessary for some versions of numpy; however...
         eqmap = np.squeeze (idx[inv])
         for uniq_idx in idx:
@@ -370,11 +373,14 @@ class LSTDM (object):
         if not self.all_interactions_full_square: # TODO: why do I need this?
             idx = np.ones (len (exc), dtype=bool)
             for i, j in combinations (range (len (excp)), 2):
-                fi = self.interaction_fprint (excp[i,0], excp[i,1], excp[i,2:])
-                fj = self.interaction_fprint (excp[j,0], excp[j,1], excp[j,2:])
+                if not idx[i]: continue
+                if not idx[j]: continue
+                fi, fj = fprint[i].reshape (3,-1), fprint[j].reshape (3,-1)
+                if not np.all (fi[0] == fj[0]): continue
+                frags = fi[0]
                 assert (not np.all (fi==fj))
-                if np.all (fi==fj[:,::-1]):
-                    assert (idx[j])
+                fi, fj = fi[1:], fj[1:]
+                if np.all (fi==fj[::-1]):
                     idx[j] = False
                     ki = tuple(excp[i])
                     kj = tuple(excp[j])
