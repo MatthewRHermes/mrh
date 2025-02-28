@@ -295,7 +295,7 @@ def ci_cycle (las, mo, ci0, veff, h2eff_sub, casdm1frs, log):
         if isub not in frozen_ci:
             e_sub, fcivec = fcibox.kernel(h1e, eri_cas, ncas, nelecas,
                                           ci0=fcivec, verbose=log,
-                                          max_memory = max_memory
+                                          max_memory = max_memory,
                                           ecore=e0, orbsym=orbsym)
         else:
             e_sub = 0 # TODO: proper energy calculation (probably doesn't matter tho)
