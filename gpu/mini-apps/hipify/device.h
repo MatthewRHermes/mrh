@@ -11,9 +11,9 @@
 
 namespace py = pybind11;
 
-#include "pm/pm.h"
-#include "mathlib/mathlib.h"
-#include "pm/dev_array.h"
+#include "pm.h"
+#include "mathlib.h"
+#include "dev_array.h"
 
 using namespace PM_NS;
 using namespace MATHLIB_NS;
@@ -310,9 +310,6 @@ private:
 #if defined _GPU_CUBLAS
     cublasHandle_t handle;
     cudaStream_t stream;
-#elif defined _GPU_HIPBLAS
-    hipblasHandle_t handle;
-    hipStream_t stream;
 #elif defined _GPU_MKL
     int * handle;
     sycl::queue * stream;

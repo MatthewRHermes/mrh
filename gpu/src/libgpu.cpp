@@ -3,7 +3,7 @@
 #include <cmath>
 
 #include "libgpu.h"
-#include "pm.h"
+#include "pm/pm.h"
 
 // Fortran
 //  :: allocate(N, M)
@@ -25,10 +25,6 @@ void * libgpu_init()
 
   int device_id = 0;
   libgpu_set_device(ptr, device_id);
-
-  int num_devices = ptr->get_num_devices();
-
-  ptr->get_dev_properties(num_devices);
   
   return (void *) ptr;
 }
@@ -47,6 +43,14 @@ void libgpu_destroy_device(void * ptr)
 {
   Device * dev = (Device *) ptr;
   delete dev;
+}
+
+/* ---------------------------------------------------------------------- */
+
+void libgpu_set_verbose_(void * ptr, int verbose)
+{ 
+  Device * dev = (Device *) ptr;
+  dev->set_verbose_(verbose);
 }
 
 /* ---------------------------------------------------------------------- */
