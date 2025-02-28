@@ -6,7 +6,7 @@
 #define MIN(X, Y)       ((X) < (Y) ? (X) : (Y))
 #define MAX(X, Y)       ((X) > (Y) ? (X) : (Y))
 
-#include <omp.h>
+//#include <omp.h>
 
 #if defined(_USE_GPU)
 

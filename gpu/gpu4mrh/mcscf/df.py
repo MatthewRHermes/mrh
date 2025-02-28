@@ -57,7 +57,6 @@ class _ERIS:
             libgpu.libgpu_init_jk_ao2mo(gpu, ncore, nmo) 
             libgpu.libgpu_init_ints_ao2mo_v3(gpu, naoaux, nmo, ncas) #initializes bufpa on pinned memory
             libgpu.libgpu_init_ppaa_ao2mo(gpu, nmo, ncas) #initializes ppaa on pinned memory
-            print(naoaux, nmo, ncas)
             t1 = log.timer('init_ao2mo', *t1)
             count = 0
             for k, eri1 in enumerate(with_df.loop(blksize)):

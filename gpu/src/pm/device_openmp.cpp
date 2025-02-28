@@ -2,7 +2,7 @@
 
 #if defined(_GPU_OPENMP)
 
-#include "device.h"
+#include "../device.h"
 
 #include <stdio.h>
 

@@ -15,7 +15,7 @@
 #include <mpi.h>
 #include <omp.h>
 
-#include "pm.h"
+#include "pm/pm.h"
 
 using namespace PM_NS;
 

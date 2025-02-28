@@ -10,6 +10,7 @@
 #include "pm.h"
 
 //#define _DEBUG_PM
+#define _ENABLE_INTEL_CCS
 
 using namespace PM_NS;
 
@@ -21,18 +22,79 @@ PM::PM()
   // initialize main queue/stream for each device as in-order
 
   sycl::property_list q_prop{sycl::property::queue::in_order()};
-  
+
+#if defined(_ENABLE_INTEL_CCS) // expecting Intel PVC GPUs on Aurora
   std::vector<sycl::platform> platforms = sycl::platform::get_platforms();
+
+  int num_plat = 0;
+  int num_dev = 0;
+  
+  for (const auto &plat : platforms) {   
+    std::vector<sycl::device> devices = plat.get_devices();
+    
+    for (const auto &dev : devices) {
+
+      auto part_prop = dev.get_info<sycl::info::device::partition_properties>();
+
+      // part_prop will show numa domains for single GPU
+      // part_prop will be empty for single tile if ZEX_NUMBER_OF_CCS not set
+      // part_prop will show cslice for single tile if ZEX_NUMBER_OF_CCS set
+	
+      if(part_prop.empty()) {
+	
+	sycl::queue q(dev, q_prop);
+	my_queues.push_back(q);	
+	num_dev++;
+	
+      } else {
+	
+	for(int i=0; i<part_prop.size(); ++i) {
+	  // can device be partitioned into cslices?
+	
+	  if(part_prop[i] == sycl::info::partition_property::partition_by_affinity_domain) {
+	    
+	    sycl::queue q(dev, q_prop);
+	    my_queues.push_back(q);
+	    num_dev++;
+	    
+	    break;
+	  } else if(part_prop[i] == sycl::info::partition_property::ext_intel_partition_by_cslice) {
+	    auto sub_devices = dev.create_sub_devices<sycl::info::partition_property::ext_intel_partition_by_cslice>();
+	  
+	    for(int j=0; j<sub_devices.size(); ++j) {
+	    
+	      sycl::queue q(sub_devices[j], q_prop);
+	      my_queues.push_back(q);	      
+	      num_dev++;
+	      
+	    }
+	    break;
+	  } // if(partition_by_affinity_domain || cslice)
+	} // for(part_prop.size())
+      } // if(prop_prop.empty)
+
+    } // for(dev)
+    num_plat++;
+  } // for(plat)
+
+  num_devices = num_dev;
+#else
+  std::vector<sycl::platform> platforms = sycl::platform::get_platforms();
+
+  num_devices = 0;
   
   for (const auto &plat : platforms) {
     std::vector<sycl::device> devices = plat.get_devices();
 
+    num_devices += devices.size();
+  
     for (const auto &dev : devices) {
       sycl::queue q(dev, q_prop);
       if(dev.is_gpu()) my_queues.push_back(q);
     }
     
   }
+#endif
 }
 
 void PM::uuid_print(std::array<unsigned char, 16>  a){
@@ -52,19 +114,19 @@ int PM::dev_num_devices()
   printf("Inside PM::dev_num_devices()\n");
 #endif
   
-  std::vector<sycl::platform> platforms = sycl::platform::get_platforms();
+  // std::vector<sycl::platform> platforms = sycl::platform::get_platforms();
 
-  int num_devices = 0;
+  // num_devices = 0;
   
-  for (const auto &plat : platforms) {
-    std::vector<sycl::device> devices = plat.get_devices();
+  // for (const auto &plat : platforms) {
+  //   std::vector<sycl::device> devices = plat.get_devices();
 
-    for (const auto &dev : devices) {
-      sycl::queue q(dev);
-      if(dev.is_gpu()) num_devices++;
-    }
-  }
-
+  //   for (const auto &dev : devices) {
+  //     sycl::queue q(dev);
+  //     if(dev.is_gpu()) num_devices++;
+  //   }
+  // }
+  
 #ifdef _DEBUG_PM
   printf(" -- Leaving PM::dev_num_devices() : num_devices= %i\n",num_devices);
 #endif
@@ -80,6 +142,95 @@ void PM::dev_properties(int ndev)
   
   std::cout << "LIBGPU :: List Platforms and Devices" << std::endl;
   
+#if defined(_ENABLE_INTEL_CCS)  
+  std::vector<sycl::platform> platforms = sycl::platform::get_platforms();
+
+  int num_plat = 0;
+  
+  for (const auto &plat : platforms) {
+    std::cout << "LIBGPU :: [" << num_plat << "] Platform Name[ "
+	      << plat.get_info<sycl::info::platform::name>() << " ] Vendor ["
+	      << plat.get_info<sycl::info::platform::vendor>() << " ] Version [ "
+	      << plat.get_info<sycl::info::platform::version>() << " ]" << std::endl;
+    
+    std::vector<sycl::device> devices = plat.get_devices();
+
+    //    std::cout << "# of devices= " << devices.size() << std::endl;
+    
+    int num_dev = 0;
+    for (const auto &dev : devices) {
+
+      auto part_prop = dev.get_info<sycl::info::device::partition_properties>();
+
+      // part_prop will show numa domains for single GPU
+      // part_prop will be empty for single tile if ZEX_NUMBER_OF_CCS not set
+      // part_prop will show cslice for single tile if ZEX_NUMBER_OF_CCS set
+      
+      //std::cout << " # of partition propertiess= " << part_prop.size() << std::endl;
+      
+      if(part_prop.empty()) {
+	//std::cout << "No partition properties\n";
+	
+	sycl::queue q(dev);	  
+	std::cout << "LIBGPU :: -- [" << num_dev << "] Device[ "
+		  << dev.get_info<sycl::info::device::name>() << " ] Type[ "
+		  << (dev.is_gpu() ? "GPU" : "CPU") << " Tile ] Device[ ";
+	
+	if(dev.is_gpu()) uuid_print(q.get_device().get_info<sycl::ext::intel::info::device::uuid>());
+	std::cout << " ]" << std::endl;
+	
+	num_dev++;
+	
+      } else {
+	
+	for(int i=0; i<part_prop.size(); ++i) {
+	  // can device be partitioned into cslices
+	
+	  if(part_prop[i] == sycl::info::partition_property::partition_by_affinity_domain) {
+	    auto sub_devices = dev.create_sub_devices<
+	      sycl::info::partition_property::partition_by_affinity_domain>(sycl::info::partition_affinity_domain::numa);
+	    
+	    //std::cout << "# of domain sub_devices= " << sub_devices.size() << std::endl;
+
+	    sycl::queue q(dev);	  
+	    std::cout << "LIBGPU :: -- [" << num_dev << "] Device[ "
+		      << dev.get_info<sycl::info::device::name>() << " ] Type[ "
+		      << (dev.is_gpu() ? "GPU" : "CPU") << " " << sub_devices.size() << "-Tile ] Device[ ";
+	    
+	    if(dev.is_gpu()) uuid_print(q.get_device().get_info<sycl::ext::intel::info::device::uuid>());
+	    std::cout << " ]" << std::endl;
+	    
+	    num_dev++;
+	    
+	    break;
+	  } else if(part_prop[i] == sycl::info::partition_property::ext_intel_partition_by_cslice) {
+	    auto sub_devices = dev.create_sub_devices<sycl::info::partition_property::ext_intel_partition_by_cslice>();
+	  
+	    //std::cout << "# of cslice sub_devices= " << sub_devices.size() << std::endl;
+	    for(int j=0; j<sub_devices.size(); ++j) {
+	    
+	      sycl::queue q(sub_devices[j]);
+	      std::cout << "LIBGPU :: -- [" << num_dev << "] Device[ "
+			<< sub_devices[j].get_info<sycl::info::device::name>() << " ] Type[ "
+			<< (sub_devices[j].is_gpu() ? "GPU" : "CPU") << " CCS ] Device[ ";
+	    
+	      if(sub_devices[j].is_gpu()) uuid_print(q.get_device().get_info<sycl::ext::intel::info::device::uuid>());
+	      std::cout << " ]" << std::endl;
+	      
+	      num_dev++;
+	    }
+	    break;
+	  } else {
+	    //std::cout << "No ext_intel_partition_by_cslice or partition_by_affinity_domain\n";
+	    
+	  } // if(partition_by_affinity_domain || cslice)
+	} // for(part_prop.size())
+      }
+
+    }
+    num_plat++;
+  }
+#else
   std::vector<sycl::platform> platforms = sycl::platform::get_platforms();
 
   int num_plat = 0;
@@ -105,6 +256,7 @@ void PM::dev_properties(int ndev)
     }
     num_plat++;
   }
+#endif
   
 #ifdef _DEBUG_PM
   printf(" -- Leaving PM::dev_properties()\n");

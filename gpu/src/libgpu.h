@@ -16,6 +16,8 @@ extern "C"
   void * libgpu_create_device();
   void libgpu_destroy_device(void *);
   
+  void libgpu_set_verbose_(void *, int);
+  
   int libgpu_get_num_devices(void *);
   void libgpu_dev_properties(void *, int);
   void libgpu_set_device(void *, int);
@@ -97,6 +99,7 @@ PYBIND11_MODULE(libgpu, m) {
   m.def("libgpu_create_device", &libgpu_create_device, py::return_value_policy::reference, "create Device object");
   m.def("libgpu_destroy_device", &libgpu_destroy_device, "destroy Device object");
   
+  m.def("libgpu_set_verbose_", &libgpu_set_verbose_, "set verbosity level");
   m.def("libgpu_get_num_devices", &libgpu_get_num_devices, "return number of devices present");
   m.def("libgpu_dev_properties", &libgpu_dev_properties, "info on available devices");
   m.def("libgpu_set_device", &libgpu_set_device, "select device");

@@ -2,7 +2,7 @@
 
 #if defined(_USE_CPU)
 
-#include "device.h"
+#include "../device.h"
 
 #include <stdio.h>
 

@@ -2,6 +2,8 @@
 
 #if defined(_GPU_CUDA)
 
+
+#include <hip/hip_runtime.h>
 #include "device.h"
 
 #include <stdio.h>
@@ -106,7 +108,7 @@ __global__ void _getjk_rho(double * rho, double * dmtril, double * eri1, int nse
 }
 
 #else
-
+/*
 __global__ void _getjk_rho(double * rho, double * dmtril, double * eri1, int nset, int naux, int nao_pair)
 {
   const int i = blockIdx.x * blockDim.x + threadIdx.x;
@@ -120,6 +122,7 @@ __global__ void _getjk_rho(double * rho, double * dmtril, double * eri1, int nse
   
   rho[i * naux + j] = val;
 }
+*/
 #endif
 
 /* ---------------------------------------------------------------------- */
@@ -159,7 +162,7 @@ __global__ void _getjk_unpack_buf2(double * buf2, double * eri1, int * map, int 
 }
 
 #else
-
+/*
 __global__ void _getjk_unpack_buf2(double * buf2, double * eri1, int * map, int naux, int nao, int nao_pair)
 {
   const int i = blockIdx.x * blockDim.x + threadIdx.x;
@@ -173,6 +176,7 @@ __global__ void _getjk_unpack_buf2(double * buf2, double * eri1, int * map, int 
 
   buf[j] = tril[ map[j] ];
 }
+*/
 #endif
 
 /* ---------------------------------------------------------------------- */
@@ -215,7 +219,7 @@ __global__ void _transpose(double * out, double * in, int nrow, int ncol)
 }
 
 #else
-
+/*
 __global__ void _transpose(double * buf3, double * buf1, int nrow, int ncol)
 {
   const int i = blockIdx.x * blockDim.x + threadIdx.x;
@@ -230,7 +234,7 @@ __global__ void _transpose(double * buf3, double * buf1, int nrow, int ncol)
   }
   
 }
-
+*/
 #endif
 
 __global__ void _get_bufd( const double* bufpp, double* bufd, int naux, int nmo){
@@ -440,11 +444,11 @@ void Device::getjk_rho(double * rho, double * dmtril, double * eri, int nset, in
   dim3 grid_size(nset, naux, 1);
   dim3 block_size(1, 1, _RHO_BLOCK_SIZE);
 #else
-  dim3 grid_size(nset, (naux + (_RHO_BLOCK_SIZE - 1)) / _RHO_BLOCK_SIZE, 1);
-  dim3 block_size(1, _RHO_BLOCK_SIZE, 1);
+//  dim3 grid_size(nset, (naux + (_RHO_BLOCK_SIZE - 1)) / _RHO_BLOCK_SIZE, 1);
+//  dim3 block_size(1, _RHO_BLOCK_SIZE, 1);
 #endif
 
-  cudaStream_t s = *(pm->dev_get_queue());
+  hipStream_t s = *(pm->dev_get_queue());
   
   _getjk_rho<<<grid_size, block_size, 0, s>>>(rho, dmtril, eri, nset, naux, nao_pair);
   
@@ -462,7 +466,7 @@ void Device::getjk_vj(double * vj, double * rho, double * eri, int nset, int nao
   dim3 grid_size(nset, (nao_pair + (_DOT_BLOCK_SIZE - 1)) / _DOT_BLOCK_SIZE, 1);
   dim3 block_size(1, _DOT_BLOCK_SIZE, 1);
   
-  cudaStream_t s = *(pm->dev_get_queue());
+  hipStream_t s = *(pm->dev_get_queue());
   
   _getjk_vj<<<grid_size, block_size, 0, s>>>(vj, rho, eri, nset, nao_pair, naux, init);
   
@@ -481,11 +485,11 @@ void Device::getjk_unpack_buf2(double * buf2, double * eri, int * map, int naux,
   dim3 grid_size(naux, _TILE(nao, _UNPACK_BLOCK_SIZE), 1);
   dim3 block_size(1, _UNPACK_BLOCK_SIZE, 1);
 #else
-  dim3 grid_size(naux, _TILE(nao*nao, _UNPACK_BLOCK_SIZE), 1);
-  dim3 block_size(1, _UNPACK_BLOCK_SIZE, 1);
+//  dim3 grid_size(naux, _TILE(nao*nao, _UNPACK_BLOCK_SIZE), 1);
+//  dim3 block_size(1, _UNPACK_BLOCK_SIZE, 1);
 #endif
   
-  cudaStream_t s = *(pm->dev_get_queue());
+  hipStream_t s = *(pm->dev_get_queue());
   
   _getjk_unpack_buf2<<<grid_size, block_size, 0, s>>>(buf2, eri, map, naux, nao, nao_pair);
   
@@ -508,11 +512,11 @@ void Device::transpose(double * out, double * in, int nrow, int ncol)
   dim3 grid_size( _TILE(nrow, _TRANSPOSE_BLOCK_SIZE), _TILE(ncol, _TRANSPOSE_BLOCK_SIZE), 1);
   dim3 block_size(_TRANSPOSE_BLOCK_SIZE, _TRANSPOSE_NUM_ROWS, 1);
 #else
-  dim3 grid_size(nrow, 1, 1);
-  dim3 block_size(1, _TRANSPOSE_BLOCK_SIZE, 1);
+//  dim3 grid_size(nrow, 1, 1);
+//  dim3 block_size(1, _TRANSPOSE_BLOCK_SIZE, 1);
 #endif
   
-  cudaStream_t s = *(pm->dev_get_queue());
+  hipStream_t s = *(pm->dev_get_queue());
   
   _transpose<<<grid_size, block_size, 0, s>>>(out, in, nrow, ncol);
 
@@ -545,7 +549,7 @@ void Device::get_bufpa(const double* bufpp, double* bufpa, int naux, int nmo, in
   dim3 block_size(_UNPACK_BLOCK_SIZE,_UNPACK_BLOCK_SIZE,1);
   dim3 grid_size (_TILE(naux, block_size.x), _TILE(nmo, block_size.y), ncas);
   
-  cudaStream_t s = *(pm->dev_get_queue());
+  hipStream_t s = *(pm->dev_get_queue());
   
   _get_bufpa<<<grid_size, block_size, 0, s>>>(bufpp, bufpa, naux, nmo, ncore, ncas);
 }
@@ -556,7 +560,7 @@ void Device::get_bufaa(const double* bufpp, double* bufaa, int naux, int nmo, in
   dim3 block_size(_UNPACK_BLOCK_SIZE,1,1);
   dim3 grid_size (_TILE(naux, block_size.x), ncas, ncas);
   
-  cudaStream_t s = *(pm->dev_get_queue());
+  hipStream_t s = *(pm->dev_get_queue());
   
   _get_bufaa<<<grid_size, block_size, 0, s>>>(bufpp, bufaa, naux, nmo, ncore, ncas);
 }
@@ -566,7 +570,7 @@ void Device::get_bufaa(const double* bufpp, double* bufaa, int naux, int nmo, in
 
 void Device::transpose_120(double * in, double * out, int naux, int nao, int ncas, int order)
 {
-  cudaStream_t s = *(pm->dev_get_queue());
+  hipStream_t s = *(pm->dev_get_queue());
 
   int na = nao;
   int nb = ncas;
@@ -589,7 +593,7 @@ void Device::get_bufd( const double* bufpp, double* bufd, int naux, int nmo)
   dim3 block_size (_UNPACK_BLOCK_SIZE,_UNPACK_BLOCK_SIZE,1);
   dim3 grid_size (_TILE(naux, block_size.x),_TILE(nmo, block_size.y),1);
   
-  cudaStream_t s = *(pm->dev_get_queue());
+  hipStream_t s = *(pm->dev_get_queue());
   
   _get_bufd<<<grid_size, block_size, 0, s>>>(bufpp, bufd, naux, nmo);
 }
@@ -601,7 +605,7 @@ void Device::transpose_210(double * in, double * out, int naux, int nao, int nca
   dim3 block_size(_UNPACK_BLOCK_SIZE, 1, _UNPACK_BLOCK_SIZE);
   dim3 grid_size(_TILE(naux,block_size.x), _TILE(ncas,block_size.y), _TILE(nao,block_size.z));
   
-  cudaStream_t s = *(pm->dev_get_queue());
+  hipStream_t s = *(pm->dev_get_queue());
   
   _transpose_210<<<grid_size,block_size, 0, s>>>(in, out, naux, nao, ncas);
   
@@ -619,7 +623,7 @@ void Device::extract_submatrix(const double* big_mat, double* small_mat, int nca
   dim3 block_size(_UNPACK_BLOCK_SIZE, _UNPACK_BLOCK_SIZE);
   dim3 grid_size(_TILE(ncas,block_size.x), _TILE(ncas,block_size.y));
     
-  cudaStream_t s = *(pm->dev_get_queue());
+  hipStream_t s = *(pm->dev_get_queue());
   
   _extract_submatrix<<<grid_size, block_size, 0, s>>>(big_mat, small_mat, ncas, ncore, nmo);
   
@@ -637,7 +641,7 @@ void Device::unpack_h2eff_2d(double * in, double * out, int * map, int nmo, int 
   dim3 block_size(_UNPACK_BLOCK_SIZE, _UNPACK_BLOCK_SIZE, 1);
   dim3 grid_size(_TILE(nmo*ncas,_UNPACK_BLOCK_SIZE), _TILE(ncas*ncas,_UNPACK_BLOCK_SIZE), 1);
 
-  cudaStream_t s = *(pm->dev_get_queue());
+  hipStream_t s = *(pm->dev_get_queue());
   
   _unpack_h2eff_2d<<<grid_size, block_size, 0>>>(in, out, map, nmo, ncas, ncas_pair);
   
@@ -655,7 +659,7 @@ void Device::transpose_2310(double * in, double * out, int nmo, int ncas)
   dim3 block_size(1,1,_DEFAULT_BLOCK_SIZE);
   dim3 grid_size(_TILE(nmo,block_size.x),_TILE(ncas,block_size.y),_TILE(ncas,block_size.z));
   
-  cudaStream_t s = *(pm->dev_get_queue());
+  hipStream_t s = *(pm->dev_get_queue());
   
   _transpose_2310<<<grid_size, block_size, 0, s>>>(in, out, nmo, ncas);
   
@@ -673,7 +677,7 @@ void Device::transpose_3210(double* in, double* out, int nmo, int ncas)
   dim3 block_size(1,1,_DEFAULT_BLOCK_SIZE);
   dim3 grid_size(_TILE(ncas,block_size.x),_TILE(ncas,block_size.y),_TILE(ncas,block_size.z));
   
-  cudaStream_t s = *(pm->dev_get_queue());
+  hipStream_t s = *(pm->dev_get_queue());
   
   _transpose_3210<<<grid_size, block_size, 0, s>>>(in, out, nmo, ncas);
   
@@ -691,7 +695,7 @@ void Device::pack_h2eff_2d(double * in, double * out, int * map, int nmo, int nc
   dim3 block_size(1, 1, _UNPACK_BLOCK_SIZE);
   dim3 grid_size(nmo, ncas, _TILE(ncas_pair, _DEFAULT_BLOCK_SIZE));
   
-  cudaStream_t s = *(pm->dev_get_queue());
+  hipStream_t s = *(pm->dev_get_queue());
   
   _pack_h2eff_2d<<<grid_size, block_size, 0, s>>>(in, out, map, nmo, ncas, ncas_pair);
   
@@ -709,7 +713,7 @@ void Device::get_mo_cas(const double* big_mat, double* small_mat, int ncas, int 
   dim3 block_size(1,1,1);
   dim3 grid_size(_TILE(ncas, block_size.x), _TILE(nao, block_size.y));
   
-  cudaStream_t s = *(pm->dev_get_queue());
+  hipStream_t s = *(pm->dev_get_queue());
   
   _get_mo_cas<<<grid_size, block_size, 0, s>>>(big_mat, small_mat, ncas, ncore, nao);
   
@@ -727,7 +731,7 @@ void Device::pack_d_vuwM(const double * in, double * out, int * map, int nmo, in
   dim3 block_size(_UNPACK_BLOCK_SIZE, _UNPACK_BLOCK_SIZE, 1);
   dim3 grid_size(_TILE(nmo*ncas,block_size.x), _TILE(ncas*ncas,block_size.y));
   
-  cudaStream_t s = *(pm->dev_get_queue());
+  hipStream_t s = *(pm->dev_get_queue());
   
   _pack_d_vuwM<<<grid_size,block_size, 0, s>>>(in, out, map, nmo, ncas, ncas_pair);
   
@@ -743,7 +747,7 @@ void Device::pack_d_vuwM_add(const double * in, double * out, int * map, int nmo
   dim3 block_size(_UNPACK_BLOCK_SIZE, _UNPACK_BLOCK_SIZE, 1);
   dim3 grid_size(_TILE(nmo*ncas,block_size.x), _TILE(ncas*ncas,block_size.y));
   
-  cudaStream_t s = *(pm->dev_get_queue());
+  hipStream_t s = *(pm->dev_get_queue());
   
   _pack_d_vuwM_add<<<grid_size,block_size, 0, s>>>(in, out, map, nmo, ncas, ncas_pair);
   
