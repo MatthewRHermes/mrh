@@ -1,6 +1,6 @@
 import unittest
 from pyscf import gto, scf, tools, mcscf,lib
-from mrh.my_pyscf.mcscf import lasscf_async as LASSCF
+from mrh.my_pyscf.mcscf.lasscf_async import LASSCF
 from pyscf.mcscf import avas
 from mrh.tests.gpu.geometry_generator import generator
 

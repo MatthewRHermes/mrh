@@ -81,7 +81,7 @@ class _ERIS:
             fxpp_keys = []
             b0 = 0
             bufs1 = numpy.empty((blksize,nmo,nmo))
-            for k, eri in enumerate(with_df.loop(blksize)):
+            for k, eri1 in enumerate(with_df.loop(blksize)):
                 naux = eri1.shape[0]
                 bufpp = bufs1[:naux]
                 fdrv(ftrans, fmmm,
