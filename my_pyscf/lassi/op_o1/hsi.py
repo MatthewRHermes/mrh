@@ -200,12 +200,12 @@ class HamS2OvlpOperators (HamS2Ovlp):
         t0, w0 = logger.process_clock (), logger.perf_counter ()
         kets = np.unique (ovlplink[:,0])
         ketvecs = {ket: self.get_xvec (ket, *inv) for ket in set (kets)}
-        ovecs = {tuple(row):0 for row in ovlplink}
+        ovecs = {tuple(row[1:]):0 for row in ovlplink}
         for row in ovlplink:
             xvec = ketvecs[row[0]]
             midstr = row[1:]
             ketstr = self.urootstr[:,row[0]]
-            ovecs[tuple(row)] += self.ox_ovlp_part (midstr, ketstr, xvec, inv)
+            ovecs[tuple(midstr)] += self.ox_ovlp_part (midstr, ketstr, xvec, inv)
         t1, w1 = logger.process_clock (), logger.perf_counter ()
         self.dt_sX += (t1-t0)
         self.dw_sX += (w1-w0)
@@ -226,22 +226,19 @@ class HamS2OvlpOperators (HamS2Ovlp):
         self.dt_pX += (t3-t2)
         self.dw_pX += (w3-w2)
 
-    def _opuniq_x_(self, op, bra, ket, ovecs, *inv):
+    def _opuniq_x_(self, op, obra, oket, ovecs, *inv):
         '''All operations which are unique in that a given set of fragment bra statelets are
         coupled to a given set of fragment ket statelets'''
-        key = tuple ((bra, ket)) + inv
+        key = tuple ((obra, oket)) + inv
         inv = list (set (inv))
         brakets, bras, braHs = self.get_nonuniq_exc_square (key)
-        bravecs = {bra: 0.0 for bra in bras+braHs}
-        for bra, ket in brakets:
-            bravecs[bra] += ovecs[tuple ((ket,)) + self.ox_ovlp_urootstr (bra, ket, inv)]
         for bra in bras:
-            vec = bravecs[bra]
+            vec = ovecs[self.ox_ovlp_urootstr (bra, oket, inv)]
             self.put_ox1_(lib.dot (op, vec.T).ravel (), bra, *inv)
         if len (braHs):
             op = op.conj ().T
             for bra in braHs:
-                vec = bravecs[bra]
+                vec = ovecs[self.ox_ovlp_urootstr (bra, obra, inv)]
                 self.put_ox1_(lib.dot (op, vec.T).ravel (), bra, *inv)
         return
 
