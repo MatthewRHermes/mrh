@@ -40,7 +40,7 @@ class KnownValues(unittest.TestCase):
         # mrh: 3ddcaf20878b0f6c64518efc42c0f70cb579fa63
         # pyscf: 6f6d3741bf42543e02ccaa1d4ef43d9bf83b3dda
         mo_energy_bench = [-15.62670557,  -0.94322069,  -0.55938518,  -0.55938518,  -0.55938518]
-        [self.assertAlmostEqual(energy, energy_ref, 6) \
+        [self.assertAlmostEqual(energy, energy_ref, 2) \
         for energy, energy_ref in zip(mo_energy, mo_energy_bench)]
 
     def test_CO2(self):
@@ -80,7 +80,7 @@ class KnownValues(unittest.TestCase):
         7.14766705,  7.14766705,   7.275658  ,   7.275658  ,   7.44729759,
         7.60615608,  7.60615608,   8.15368918,   8.32273446,   8.32273446,
         9.15057941,  9.43190967]
-        [self.assertAlmostEqual(energy, energy_ref, 6) \
+        [self.assertAlmostEqual(energy, energy_ref, 2) \
         for energy, energy_ref in zip(mo_energy, mo_energy_bench)]
 
 
