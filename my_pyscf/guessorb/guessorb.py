@@ -11,15 +11,11 @@ import os
 
 # Some standard cutoffs required for the guessorb
 VIR_E_CUTOFF = -1e-3 # In Hartree
-REF_BASIS = 'minao' # Basis
+REF_BASIS = 'ano-rcc' # Basis
 VIR_E_SHIFT = 3.0 # In Hartree
 
 # List of atoms. It should be somewhere in pyscf or mrh then it will
 # be straightforward import.
-"""
-For the given mole object, it will create the model
-fock matrix as done in OpenMolcas GuessOrb module.
-"""
 element_symbols = [
     "H", "He", "Li", "Be", "B", "C", "N", "O", "F", "Ne",
     "Na", "Mg", "Al", "Si", "P", "S", "Cl", "Ar", "K", "Ca",
@@ -36,6 +32,8 @@ element_symbols = [
 
 def loadorbitalenergy():
     '''
+    Load the orbital energies listed in the basis set file of OpenMolcas
+    and extracted in json file.
     '''
     orbitalenergyfile = os.path.join(os.path.dirname(mrh.__file__),\
             'my_pyscf/guessorb/orbitalenergy.json')
@@ -68,32 +66,30 @@ def get_model_fock_atom(atm1, atm2, symb):
                         if l_shell_ref[l] > 1 else 0)
                         for i, l in enumerate(l_shell_ref.keys())]
 
-     # Get the overlap matrices
-    s1 = atm1.intor('int1e_ovlp')
+    # Get the overlap matrices
+    s1 = atm1.intor_symmetric('int1e_ovlp')
     s1_inv = np.linalg.inv(s1)
     s12 = gto.intor_cross('int1e_ovlp', atm1, atm2)
  
-    ModelFockFinal = []
-
     # Load the orbital energies of given atom in reference basis.
     orbital_energies = loadorbitalenergy()
+
+    ModelFockFinal = []
     for nctr, l in enumerate(l_shell_ref.keys()):
         nctr_l = nctr_per_l_ref[nctr]
         deg = 2*l + 1
         fock_l = np.zeros([deg*nctr_l, deg*nctr_l], dtype=s1.dtype)
         orb_ene = orbital_energies[symb][str(l)]
-
-        for ml in range(deg):
-            for i in range(len(orb_ene)):
-                fock_l[i+ml, i+ml] += orb_ene[i]
+        orbene_l = np.array(orb_ene * deg)
+        np.fill_diagonal(fock_l[:len(orbene_l)], np.sort(orbene_l))
         ModelFockFinal.append(fock_l)
 
     # Project the Model Fock matrix from the ref basis to
     # original basis. 
     modelFock  = linalg.block_diag(*ModelFockFinal)
     modelFock_ = reduce(np.dot, (s12, modelFock, s12.T))
-    modelFock  = reduce(np.dot, (s1_inv.T, modelFock_, s1_inv.T))
-
+    modelFock  = reduce(np.dot, (s1_inv, modelFock_, s1_inv))
+    
     del ModelFockFinal, modelFock_, orbital_energies
     
     return modelFock
@@ -118,7 +114,7 @@ def get_model_fock(mol):
         # Spin argument doesn't matter but has to give it to use the mol object
         atomicno = element_symbols.index(symb) + 1
         atm1 = gto.M(atom=[[symb, atomcoord]], basis={purssymb:atombasis}, spin=atomicno%2)
-        atm2 = gto.M(atom=[[symb, atomcoord]], basis='ano-rcc', spin=atomicno%2)
+        atm2 = gto.M(atom=[[symb, atomcoord]], basis=REF_BASIS, spin=atomicno%2)
 
         modelfockao = get_model_fock_atom(atm1, atm2, symb)
         atoms_fock.append(modelfockao)
@@ -126,6 +122,7 @@ def get_model_fock(mol):
     fock_ao = linalg.block_diag(*atoms_fock)
 
     del atoms_fock
+
     return fock_ao
 
 def get_modified_virtuals(mol, mo_energy, mo_coeff):
@@ -146,28 +143,30 @@ def get_modified_virtuals(mol, mo_energy, mo_coeff):
             virtual orbitals has been updated for these set of mo_coeff.
     """
 
-    # Define the virtual orbitals
-    cvir = mo_coeff[:, mo_energy > VIR_E_CUTOFF]
-    
-    # Get the kinetic energy intergals and diagonalize them.
-    t = mol.intor('int1e_kin')
-    t_mo = reduce(np.dot, (cvir.T, t, cvir))
-    e, u = scipy.linalg.eigh(t_mo)
+    if np.any(mo_energy > VIR_E_CUTOFF):
+        # Define the virtual orbitals
+        cvir = mo_coeff[:, mo_energy > VIR_E_CUTOFF]
 
-    # Shift the energy of virtual orbitals
-    e += 3.0 # Shift the energies
+        # Get the kinetic energy intergals and diagonalize them.
+        t = mol.intor_symmetric('int1e_kin')
+        t_mo = reduce(np.dot, (cvir.T, t, cvir))
+        e, u = linalg.eigh(t_mo)
+        
+        # Shift the energy of virtual orbitals
+        e += VIR_E_SHIFT
 
-    # Transform the orbitals basis
-    cvir_modified = np.dot(cvir, u)
-    
-    # Update the mo_energies and mo_coeffs
-    mo_coeff[:, mo_energy > VIR_E_CUTOFF] = cvir_modified
-    mo_energy[mo_energy > VIR_E_CUTOFF] = e
+        # Transform the orbitals basis
+        cvir_modified = np.dot(cvir, u)
+
+        # Update the mo_energies and mo_coeffs
+        mo_coeff[:, mo_energy > VIR_E_CUTOFF] = cvir_modified
+        mo_energy[mo_energy > VIR_E_CUTOFF] = e
+
     return mo_energy, mo_coeff
 
 def _orthonormalization(mol, fock):
     """
-    It solves the FC=SCe. Check if I can get it from pyscf.
+    Diagonalize the fock to obtain the mo_energy and mo_coeff
     args:
         mol:
 
@@ -179,11 +178,22 @@ def _orthonormalization(mol, fock):
         mo_coeff: nao * nao
             molecular orbital coeffs
     """
-    fock = get_model_fock(mol)
-    s = mol.intor('int1e_ovlp')
-    e, c = linalg.eigh(fock, s)
 
-    del fock, s
+    s = mol.intor_symmetric('int1e_ovlp')
+
+    sval, svec = linalg.eigh(s)
+    
+    lmat = np.dot(svec, np.diag(1/np.sqrt(sval)))
+    fockm = reduce(np.dot, (s, fock, s))
+    fock = reduce(np.dot, (lmat.T, fockm, lmat))
+    
+    e, c = linalg.eigh(fock)
+
+    e = e[np.argsort(e)]
+    c = c[: , np.argsort(e)]
+    c  = lmat @ c
+
+    del fock, s, sval, svec, lmat
 
     return e, c
 
@@ -194,7 +204,7 @@ def sanity_check_for_orthonormality(mol, mo_coeff):
         mol:
         mo_coeff:
     """
-    s = mol.intor('int1e_ovlp')
+    s = mol.intor_symmetric('int1e_ovlp')
     vtv = reduce(np.dot, (mo_coeff.T, s, mo_coeff))
     assert np.max(abs(vtv-np.eye(s.shape[0]))) < 1e-8, \
     "Orbitals are not orthonormal"
@@ -212,20 +222,25 @@ def _finalize(mol):
     modelfock = get_model_fock(mol)
     e, c = _orthonormalization(mol, modelfock)
     mo_energy, mo_coeff = get_modified_virtuals(mol, e, c)
-
+    
     sanity_check_for_orthonormality(mol, mo_coeff)
 
     return mo_energy, mo_coeff 
 
 # Try to put these functions in a class. and make it pyscf standard.
-guessorb = _finalize
+get_guessorb = _finalize
 
 if __name__ == "__main__":
-    mol = gto.M(atom='''Ne 0 0 0''',basis='CC-PVDZ')
-    mo_energy, mo_coeff = guessorb(mol)
-    
-    print(mo_energy)
+    mol = gto.M()
+    mol.atom='''
+    N 0.000000 0.000000 0.000000
+    '''
+    mol.basis='sto-3g'
+    mol.spin = 3
+    mol.build()
 
-    #from pyscf.tools import molden
-    #molden.from_mo(mol, 'guessorb.molden', mo_coeff)
+    mo_energy, mo_coeff = get_guessorb(mol)
+    
+    from pyscf.tools import molden
+    molden.from_mo(mol, 'guessorb.molden', mo_coeff)
 
