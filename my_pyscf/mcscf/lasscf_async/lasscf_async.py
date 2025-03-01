@@ -9,6 +9,8 @@ from mrh.my_pyscf.mcscf.lasscf_async import keyframe, combine
 from mrh.my_pyscf.mcscf.lasscf_async.split import get_impurity_space_constructor
 from mrh.my_pyscf.mcscf.lasscf_async.crunch import get_impurity_casscf
 
+from mrh.my_pyscf.gpu import libgpu
+
 def kernel (las, mo_coeff=None, ci0=None, conv_tol_grad=1e-4,
             assert_no_dupes=False, verbose=lib.logger.NOTE, frags_orbs=None,
             **kwargs):
@@ -49,13 +51,14 @@ def kernel (las, mo_coeff=None, ci0=None, conv_tol_grad=1e-4,
     for it in range (las.max_cycle_macro):
         # 1. Divide into fragments
         for impurity in impurities: impurity._pull_keyframe_(kf1)
-
+        
         # 2. CASSCF on each fragment
         kf2_list = []
         for impurity in impurities:
             impurity.kernel ()
             kf2_list.append (impurity._push_keyframe (kf1))
 
+            
         # 3. Combine from fragments. It should not be necessary to do this in any particular order,
         #    and the below does it March Madness tournament style; e.g.:
         #
@@ -280,6 +283,9 @@ class LASSCFSymm (lasci.LASCISymm):
     dump_flags = LASSCFNoSymm.dump_flags
 
 def LASSCF (mf_or_mol, ncas_sub, nelecas_sub, **kwargs):
+    # try grabbing gpu handle from mf_or_mol instead of additional argument
+    use_gpu = kwargs.get('use_gpu', None)
+    
     from pyscf import gto, scf
     if isinstance(mf_or_mol, gto.Mole):
         mf = scf.RHF(mf_or_mol)
