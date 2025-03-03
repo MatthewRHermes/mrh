@@ -11,6 +11,7 @@ lib/build/
 CMakeCache.txt
 CMakeFiles
 Makefile
+*.o
 
 # Example file outputs
 *.molden
@@ -22,6 +23,13 @@ Makefile
 *.err
 *.swp
 *.chk
+
+# OSX
+.DS_Store
+
+# Profiling
+profile*
+report*
 
 # assorted garbage
 test_all.sh
