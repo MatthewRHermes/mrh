@@ -1,7 +1,7 @@
 import numpy as np
 from pyscf import lib
 from pyscf.lib import logger
-from itertools import product
+from itertools import product, combinations
 from mrh.my_pyscf.lassi.citools import get_rootaddr_fragaddr, umat_dot_1frag_
 from mrh.my_pyscf.lassi.op_o1 import frag
 from mrh.my_pyscf.lassi.op_o1.utilities import *
@@ -107,6 +107,9 @@ class LSTDM (object):
                              for nelec_sf in self.nelec_rf]
         self.nelec_rf = self.nelec_rf.sum (1)
 
+        self.urootstr = np.asarray ([[i.unique_root[r] for i in self.ints]
+                                     for r in range (self.nroots)]).T
+
         exc = self.make_exc_tables (hopping_index)
         self.nonuniq_exc = {}
         self.exc_null = self.mask_exc_table_(exc['null'], 'null', mask_bra_space, mask_ket_space)
@@ -135,6 +138,14 @@ class LSTDM (object):
             self._put_SD2_c_fn = liblassi.LASSIRDMzputSD2
         else:
             raise NotImplementedError (self.dtype)
+
+    def interaction_fprint (self, bra, ket, frags, ltri=False):
+        frags = np.sort (frags)
+        brastr = self.urootstr[frags,bra]
+        ketstr = self.urootstr[frags,ket]
+        if ltri: brastr, ketstr = sorted ([list(brastr),list(ketstr)])
+        fprint = np.stack ([frags, brastr, ketstr], axis=0)
+        return fprint
 
     def init_profiling (self):
         self.dt_1d, self.dw_1d = 0.0, 0.0
@@ -326,6 +337,7 @@ class LSTDM (object):
 
     all_interactions_full_square = False
     interaction_has_spin = ('_1c_', '_1c1d_', '_2c_')
+    ltri_ambiguous = True
 
     def mask_exc_table_(self, exc, lbl, mask_bra_space=None, mask_ket_space=None):
         # Part 1: restrict to the caller-specified rectangle
@@ -339,28 +351,31 @@ class LSTDM (object):
         if lbl=='null': return exc
         ulblu = '_' + lbl + '_'
         excp = exc[:,:-1] if ulblu in self.interaction_has_spin else exc
+        fprintLT = []
         fprint = []
         for row in excp:
-            frow = []
             bra, ket = row[:2]
             frags = row[2:]
-            for frag in frags:
-                intf = self.ints[frag]
-                frow.extend ([frag, intf.unique_root[bra], intf.unique_root[ket]])
-            fprint.append (frow)
+            fpLT = self.interaction_fprint (bra, ket, frags, ltri=self.ltri_ambiguous)
+            fprintLT.append (fpLT.ravel ())
+            fp = self.interaction_fprint (bra, ket, frags, ltri=False)
+            fprint.append (fp.ravel ())
+        fprintLT = np.asarray (fprintLT)
         fprint = np.asarray (fprint)
         nexc = len (exc)
-        _, idx, inv = np.unique (fprint, axis=0, return_index=True, return_inverse=True)
+        fprintLT, idx, inv = np.unique (fprintLT, axis=0, return_index=True, return_inverse=True)
         # for some reason this squeeze is necessary for some versions of numpy; however...
         eqmap = np.squeeze (idx[inv])
-        for uniq_idx in idx:
+        for fpLT, uniq_idx in zip (fprintLT, idx):
             row_uniq = excp[uniq_idx]
             # ...numpy.where (0==0) triggers a DeprecationWarning, so I have to atleast_1d it
             uniq_idxs = np.where (np.atleast_1d (eqmap==uniq_idx))[0]
             braket_images = exc[np.ix_(uniq_idxs,[0,1])]
+            iT = np.any (fprint[uniq_idx][None,:]!=fprint[uniq_idxs], axis=1)
+            braket_images[iT,:] = braket_images[iT,::-1]
             self.nonuniq_exc[tuple(row_uniq)] = braket_images
         exc = exc[idx]
-        nuniq = len (idx)
+        nuniq = len (exc)
         self.log.debug ('%d/%d unique interactions of %s type',
                         nuniq, nexc, lbl)
         return exc
