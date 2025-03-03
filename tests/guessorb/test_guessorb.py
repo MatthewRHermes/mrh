@@ -1,6 +1,6 @@
 import unittest
 import numpy as np
-from pyscf import gto
+from pyscf import gto, scf, mcscf
 from mrh.my_pyscf.guessorb import guessorb
 
 '''
@@ -29,6 +29,7 @@ and current implementation.
 '''
 
 class KnownValues(unittest.TestCase):
+
     def test_NAtom(self):
         mol = gto.M(atom = '''N 0 0 0''',
         basis = 'STO-3G',
@@ -113,6 +114,46 @@ class KnownValues(unittest.TestCase):
         fockao = guessorb.get_model_fock(mol)
 
         self.assertTrue(np.allclose(fockao, fockao_ref, 4))
+
+        # Compare the CASCI energy with guessorb of PySCF and OpenMolcas
+        # Generated with same basis, active space size, geometry and 
+        # version mentioned above.
+
+        mf = scf.ROHF(mol)
+        mc = mcscf.CASCI(mf, 4, 4)
+        ecas = mc.kernel(mo_coeff)[0]
+
+        ecas_ref = -184.78640101
+        
+        self.assertAlmostEqual(ecas, ecas_ref, 6)
+
+    def test_N2(self):
+        mol = gto.M(atom = '''N 0 0 0; N 0 0 1.09''',
+        basis = '6-31G',
+        verbose = 1)
+        mol.output = '/dev/null'
+        mol.build()
+
+        mo_energy, mo_coeff  = guessorb.get_guessorb(mol)
+
+        mo_energy_ref = [-15.66507407, -15.62194473,  -1.51387075,  -0.80731501,  -0.7582136,
+        -0.7582136,   -0.5644942,   -0.38238077,  -0.38238077,  -0.12537335,
+        4.58137904,   4.99190833,   5.14751353,   5.14751353,   5.55005882,
+        5.55005882,   5.63943822,   5.84893376]
+
+        # This has the virtual orbital energies as well.
+        [self.assertAlmostEqual(energy, energy_ref, 2) 
+        for energy, energy_ref in zip(mo_energy, mo_energy_ref)]
+        
+        # CASCI Energy with all the virtual orbitals
+        # With 6-31G basis, N2 has 11 virtuals.
+        mf = scf.ROHF(mol)
+        mc = mcscf.CASCI(mf, 12, 2)
+        ecas = mc.kernel(mo_coeff)[0]
+
+        ecas_ref = -108.80022003
+        
+        self.assertAlmostEqual(ecas, ecas_ref, 6)
 
 if __name__ == "__main__":
     print("Full Tests for GuessOrb")
