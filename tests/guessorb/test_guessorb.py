@@ -77,6 +77,7 @@ class KnownValues(unittest.TestCase):
 
         mo_energy, mo_coeff = guessorb.get_guessorb(mol)
        
+        # Calculated from OpenMolcas: 082a19c42dded5cb87a081429237d2937ecec3fd
         mo_energy_ref = [-20.6800278, -20.67878  , -11.3383716, -1.60247219, -1.45419645,
                         -0.76608563, -0.71940002, -0.71940002, -0.67930921, -0.61218369,
                         -0.61218369, -0.32625724, -0.32625724, -0.21767392, -0.10280624]
@@ -94,6 +95,8 @@ class KnownValues(unittest.TestCase):
         [self.assertAlmostEqual(energy, energy_ref, 2) \
         for energy, energy_ref in zip(mo_energy, mo_energy_bench)]
 
+        # This fockao_ref value is obtained from *.guessorb.h5 calculated with
+        # OpenMolcas version: 082a19c42dded5cb87a081429237d2937ecec3fd
         fockao_ref = np.array([
             [-11.25544661,  -0.03267994,   0.,   0.,   0.,   0.,   0.,   0.,   0.,   0.,   0.,   0.,   0.,   0.,   0.],
             [-0.03267994,  -0.75369347,   0.,   0.,   0.,   0.,   0.,   0.,   0.,   0.,   0.,   0.,   0.,   0.,   0.],
@@ -118,11 +121,12 @@ class KnownValues(unittest.TestCase):
         # Compare the CASCI energy with guessorb of PySCF and OpenMolcas
         # Generated with same basis, active space size, geometry and 
         # version mentioned above.
-
         mf = scf.ROHF(mol)
         mc = mcscf.CASCI(mf, 4, 4)
         ecas = mc.kernel(mo_coeff)[0]
 
+        # This ecas_ref value is calculated with same geometry, basis and active space from
+        # OpenMolcas version: 082a19c42dded5cb87a081429237d2937ecec3fd
         ecas_ref = -184.78640101
         
         self.assertAlmostEqual(ecas, ecas_ref, 6)
@@ -136,6 +140,7 @@ class KnownValues(unittest.TestCase):
 
         mo_energy, mo_coeff  = guessorb.get_guessorb(mol)
 
+        # Calculated from OpenMolcas: 082a19c42dded5cb87a081429237d2937ecec3fd
         mo_energy_ref = [-15.66507407, -15.62194473,  -1.51387075,  -0.80731501,  -0.7582136,
         -0.7582136,   -0.5644942,   -0.38238077,  -0.38238077,  -0.12537335,
         4.58137904,   4.99190833,   5.14751353,   5.14751353,   5.55005882,
@@ -151,6 +156,8 @@ class KnownValues(unittest.TestCase):
         mc = mcscf.CASCI(mf, 12, 2)
         ecas = mc.kernel(mo_coeff)[0]
 
+        # This ecas_ref value is calculated with same geometry, basis and active space from
+        # OpenMolcas version: 082a19c42dded5cb87a081429237d2937ecec3fd
         ecas_ref = -108.80022003
         
         self.assertAlmostEqual(ecas, ecas_ref, 6)
