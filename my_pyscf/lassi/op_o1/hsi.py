@@ -32,7 +32,6 @@ class HamS2OvlpOperators (HamS2Ovlp):
         self.x = self.si = np.zeros (self.nstates, self.dtype)
         self.ox = np.zeros (self.nstates, self.dtype)
         self.ox1 = np.zeros (self.nstates, self.dtype)
-        self.log.verbose = logger.DEBUG1
         self._cache_operatorpart_()
 
     def _cache_operatorpart_(self):
