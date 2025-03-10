@@ -9,15 +9,6 @@ from pyscf import df
 from gpu4mrh.lib.utils import patch_cpu_kernel
 from mrh.my_pyscf.gpu import libgpu
 
-# Setting DEBUG = True will execute both CPU (original) and GPU (new) paths checking for consistency 
-DEBUG = False
-
-if DEBUG:
-    import math
-    import traceback
-    import sys
-
-
 class _ERIS:
     def __init__(self, casscf, mo, with_df):
         log = logger.Logger(casscf.stdout, casscf.verbose)
