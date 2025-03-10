@@ -198,7 +198,8 @@ class HamS2OvlpOperators (HamS2Ovlp):
         oplink, ovlplink = group
 
         t0, w0 = logger.process_clock (), logger.perf_counter ()
-        vecs = {self.urootstr[:,ket]: self.get_xvec (ket, *inv).reshape (-1,1) for ket in set (ovlplink[:,0])}
+        vecs = {tuple(self.urootstr[:,ket]): self.get_xvec (ket, *inv).reshape (-1,1)
+                for ket in set (ovlplink[:,0])}
         for ifrag in range (self.nfrags):
             if ifrag in inv:
                 for ket, vec in vecs.items ():
@@ -256,21 +257,21 @@ class HamS2OvlpOperators (HamS2Ovlp):
         vecstr[:,:ifrag] = ovlplink[:,1:][:,:ifrag]
         ovecstr = vecstr.copy ()
         ovecstr[:,ifrag] = ovlplink[:,1:][:,ifrag]
-        vecstr = np.unique (np.append (vecstr, ovecstr, axis=1), axis=1).reshape (-1,2,self.nfrags)
+        vecstr = np.unique (np.append (vecstr, ovecstr, axis=1), axis=0).reshape (-1,2,self.nfrags)
         vecstr, ovecstr = vecstr.transpose (1,0,2)
         return ovecstr, vecstr
 
     def ox_ovlp_frag (self, ovlplink, vecs, ifrag):
         ovecstr, vecstr = self.ox_ovlp_uniq_str (ovlplink, ifrag)
-        ovecs = {os: 0 for os in np.unique (ovecstr, axis=1)}
+        ovecs = {tuple(os): 0 for os in np.unique (ovecstr, axis=0)}
         for os, s in zip (ovecstr, vecstr):
-            vec = vecs[s]
+            vec = vecs[tuple(s)]
             lr = vec.shape[-1]
             bra, ket = os[ifrag], s[ifrag]
             o = self.ints[ifrag].get_ovlp (bra, ket)
             lket = o.shape[1]
             vec = vec.reshape (-1,lket,lr)
-            ovecs[os] += lib.einsum ('pq,lqr->plr', o, vec).reshape (-1,lr)
+            ovecs[tuple(os)] += lib.einsum ('pq,lqr->plr', o, vec).reshape (-1,lr)
         return ovecs
 
 
