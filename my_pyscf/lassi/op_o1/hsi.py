@@ -46,8 +46,8 @@ class HamS2OvlpOperators (HamS2Ovlp):
                             (self._crunch_1c_, self._crunch_1c1d_, self._crunch_1s1c_, 
                              self._crunch_2c_)):
             self._crunch_oppart_(exc, fn, has_s=False)
-        self.excgroups_s = self._prepare_urootstr (self.excgroups_s)
-        self.excgroups_h = self._prepare_urootstr (self.excgroups_h)
+        self.excgroups_s = self._index_ovlppart (self.excgroups_s)
+        self.excgroups_h = self._index_ovlppart (self.excgroups_h)
         self.log.debug1 (self.sprint_cache_profile ())
         self.log.timer_debug1 ('HamS2OvlpOperators operator cacheing', *t0)
 
@@ -85,7 +85,8 @@ class HamS2OvlpOperators (HamS2Ovlp):
                 val.append ([op, bra, ket, row])
                 self.excgroups_s[key] = val
 
-    def _prepare_urootstr (self, groups):
+    def _index_ovlppart (self, groups):
+        # TODO: redesign this in a scalable graph-theoretic way
         t0, w0 = logger.process_clock (), logger.perf_counter ()
         for inv, group in groups.items ():
             tab = np.zeros ((0,2), dtype=int)
@@ -197,21 +198,22 @@ class HamS2OvlpOperators (HamS2Ovlp):
         oplink, ovlplink = group
 
         t0, w0 = logger.process_clock (), logger.perf_counter ()
-        kets = np.unique (ovlplink[:,0])
-        ketvecs = {ket: self.get_xvec (ket, *inv) for ket in set (kets)}
-        ovecs = {tuple(row[1:]):0 for row in ovlplink}
-        for row in ovlplink:
-            xvec = ketvecs[row[0]]
-            midstr = row[1:]
-            ketstr = self.urootstr[:,row[0]]
-            ovecs[tuple(midstr)] += self.ox_ovlp_part (midstr, ketstr, xvec, inv)
+        vecs = {self.urootstr[:,ket]: self.get_xvec (ket, *inv).reshape (-1,1) for ket in set (ovlplink[:,0])}
+        for ifrag in range (self.nfrags):
+            if ifrag in inv:
+                for ket, vec in vecs.items ():
+                    lket = self.ints[ifrag].get_lroots (ket[ifrag])
+                    lr = vec.shape[-1]
+                    vecs[ket] = vec.reshape (-1,lr*lket)
+            else:
+                vecs = self.ox_ovlp_frag (ovlplink, vecs, ifrag)
         t1, w1 = logger.process_clock (), logger.perf_counter ()
         self.dt_sX += (t1-t0)
         self.dw_sX += (w1-w0)
 
         self.ox1[:] = 0
         for op, bra, ket, myinv in oplink:
-            self._opuniq_x_(op, bra, ket, ovecs, *myinv)
+            self._opuniq_x_(op, bra, ket, vecs, *myinv)
         t2, w2 = logger.process_clock (), logger.perf_counter ()
         self.dt_oX += (t2-t1)
         self.dw_oX += (w2-w1)
@@ -248,6 +250,29 @@ class HamS2OvlpOperators (HamS2Ovlp):
         inv = list (inv)
         urootstr[inv] = self.urootstr[inv,ket]
         return tuple (urootstr)
+
+    def ox_ovlp_uniq_str (self, ovlplink, ifrag):
+        vecstr = self.urootstr[:,ovlplink[:,0]].copy ()
+        vecstr[:,:ifrag] = ovlplink[:,1:][:,:ifrag]
+        ovecstr = vecstr.copy ()
+        ovecstr[:,ifrag] = ovlplink[:,1:][:,ifrag]
+        vecstr = np.unique (np.append (vecstr, ovecstr, axis=1), axis=1).reshape (-1,2,self.nfrags)
+        vecstr, ovecstr = vecstr.transpose (1,0,2)
+        return ovecstr, vecstr
+
+    def ox_ovlp_frag (self, ovlplink, vecs, ifrag):
+        ovecstr, vecstr = self.ox_ovlp_uniq_str (ovlplink, ifrag)
+        ovecs = {os: 0 for os in np.unique (ovecstr, axis=1)}
+        for os, s in zip (ovecstr, vecstr):
+            vec = vecs[s]
+            lr = vec.shape[-1]
+            bra, ket = os[ifrag], s[ifrag]
+            o = self.ints[ifrag].get_ovlp (bra, ket)
+            lket = o.shape[1]
+            vec = vec.reshape (-1,lket,lr)
+            ovecs[os] += lib.einsum ('pq,lqr->plr', o, vec).reshape (-1,lr)
+        return ovecs
+
 
     def ox_ovlp_part (self, brastr, ketstr, vec, inv):
         # TODO: factorize this as much as possible
