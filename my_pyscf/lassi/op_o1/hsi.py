@@ -200,6 +200,8 @@ class HamS2OvlpOperators (HamS2Ovlp):
         t0, w0 = logger.process_clock (), logger.perf_counter ()
         vecs = {tuple(self.urootstr[:,ket]): self.get_xvec (ket, *inv).reshape (-1,1)
                 for ket in set (ovlplink[:,0])}
+        vecstr = np.unique ([list (key) for key in vecs.keys ()], axis=0)
+        vecs = {tuple(key): vecs[tuple(key)] for key in vecstr}
         for ifrag in range (self.nfrags):
             if ifrag in inv:
                 for ket, vec in vecs.items ():
@@ -253,10 +255,10 @@ class HamS2OvlpOperators (HamS2Ovlp):
         return tuple (urootstr)
 
     def ox_ovlp_uniq_str (self, ovlplink, ifrag):
-        vecstr = self.urootstr[:,ovlplink[:,0]].copy ()
-        vecstr[:,:ifrag] = ovlplink[:,1:][:,:ifrag]
+        vecstr = self.urootstr[:,ovlplink[:,0]].T
+        vecstr[:,:ifrag] = ovlplink[:,1:ifrag+1]
         ovecstr = vecstr.copy ()
-        ovecstr[:,ifrag] = ovlplink[:,1:][:,ifrag]
+        ovecstr[:,ifrag] = ovlplink[:,ifrag+1]
         vecstr = np.unique (np.append (vecstr, ovecstr, axis=1), axis=0).reshape (-1,2,self.nfrags)
         vecstr, ovecstr = vecstr.transpose (1,0,2)
         return ovecstr, vecstr
@@ -273,7 +275,6 @@ class HamS2OvlpOperators (HamS2Ovlp):
             vec = vec.reshape (-1,lket,lr)
             ovecs[tuple(os)] += lib.einsum ('pq,lqr->plr', o, vec).reshape (-1,lr)
         return ovecs
-
 
     def ox_ovlp_part (self, brastr, ketstr, vec, inv):
         # TODO: factorize this as much as possible
