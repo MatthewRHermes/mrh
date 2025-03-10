@@ -219,9 +219,7 @@ def get_jk(dfobj, dm, hermi=1, with_j=True, with_k=True, direct_scf_tol=1e-13):
     return vj, vk
 
 def get_jk_debug(dfobj, dm, hermi=1, with_j=True, with_k=True, direct_scf_tol=1e-13):
-    '''
-    DEBUG version of get_jk that executes both CPU and GPU paths and checks for consistency.
-    '''
+    ''' Function that runs get_jk with both cpu and gpu. Checks if sum of square of difference of all elements is below threshold [(vj_cpu-vj_gpu)*(vj_cpu-vj_gpu)]  '''
     #traceback.print_stack(file=sys.stdout)
     gpu = dfobj.mol.use_gpu
     
