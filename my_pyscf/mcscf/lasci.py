@@ -512,7 +512,8 @@ def get_init_guess_ci (las, mo_coeff=None, h2eff_sub=None, ci0=None, eri_cas=Non
             nelec = fcibox._get_nelec (solver, nelecas)
             if hasattr (mo_coeff, 'orbsym'):
                 solver.orbsym = mo_coeff.orbsym[ncore+i:ncore+j]
-            hdiag_csf = solver.make_hdiag_csf (h1e, eri, norb, nelec, max_memory=las.max_memory)
+            max_memory = max (400, las.max_memory - lib.current_memory()[0])
+            hdiag_csf = solver.make_hdiag_csf (h1e, eri, norb, nelec, max_memory=max_memory)
             ci0g = solver.get_init_guess (norb, nelec, solver.nroots, hdiag_csf)
             ci0[ix][iy] = las._combine_init_guess_ci (ci0[ix][iy], ci0g, norb, nelec,
                                                       solver.nroots)

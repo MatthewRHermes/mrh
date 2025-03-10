@@ -1,5 +1,6 @@
 import numpy as np
 import functools
+from scipy.sparse import linalg as sparse_linalg
 from pyscf.scf.addons import canonical_orth_
 from pyscf import __config__
 
@@ -127,19 +128,21 @@ def get_orth_basis (ci_fr, norb_f, nelec_frs, _get_ovlp=None):
     nfrags, nroots = nelec_frs.shape[:2]
     unique, uniq_idx, inverse, cnts = np.unique (nelec_frs, axis=1, return_index=True,
                                                  return_inverse=True, return_counts=True)
-    if not np.count_nonzero (cnts>1): 
-        _get_ovlp = None
-        def raw2orth (rawarr):
-            return rawarr
-        def orth2raw (ortharr):
-            return ortharr
-        return raw2orth, orth2raw
     lroots_fr = np.array ([[1 if c.ndim<3 else c.shape[0]
                             for c in ci_r]
                            for ci_r in ci_fr])
     nprods_r = np.prod (lroots_fr, axis=0)
     offs1 = np.cumsum (nprods_r)
     offs0 = offs1 - nprods_r
+    nraw = offs1[-1]
+    is_complex = any ([any ([np.iscomplexobj (c) for c in ci_r]) for ci_r in ci_fr])
+    dtype = np.complex128 if is_complex else np.float64 
+
+    if not np.count_nonzero (cnts>1): 
+        _get_ovlp = None
+        return sparse_linalg.LinearOperator (shape=(nraw,nraw), dtype=dtype,
+                                             matvec=lambda x: x,
+                                             rmatvec=lambda x: x)
     uniq_prod_idx = []
     for i in uniq_idx[cnts==1]: uniq_prod_idx.extend (list(range(offs0[i],offs1[i])))
     manifolds_prod_idx = []
@@ -159,9 +162,11 @@ def get_orth_basis (ci_fr, norb_f, nelec_frs, _get_ovlp=None):
 
     nraw = offs1[-1]
     def raw2orth (rawarr):
+        is_out_complex = is_complex or np.iscomplexobj (rawarr)
+        my_dtype = np.complex128 if is_out_complex else np.float64
         col_shape = rawarr.shape[1:]
         orth_shape = [north,] + list (col_shape)
-        ortharr = np.zeros (orth_shape, dtype=rawarr.dtype)
+        ortharr = np.zeros (orth_shape, dtype=my_dtype)
         ortharr[:nuniq_prod] = rawarr[uniq_prod_idx]
         i = nuniq_prod
         for prod_idx, xmat in zip (manifolds_prod_idx, manifolds_xmat):
@@ -171,9 +176,11 @@ def get_orth_basis (ci_fr, norb_f, nelec_frs, _get_ovlp=None):
         return ortharr
 
     def orth2raw (ortharr):
+        is_out_complex = is_complex or np.iscomplexobj (ortharr)
+        my_dtype = np.complex128 if is_out_complex else np.float64
         col_shape = ortharr.shape[1:]
         raw_shape = [nraw,] + list (col_shape)
-        rawarr = np.zeros (raw_shape, dtype=ortharr.dtype)
+        rawarr = np.zeros (raw_shape, dtype=my_dtype)
         rawarr[uniq_prod_idx] = ortharr[:nuniq_prod]
         i = nuniq_prod
         for prod_idx, xmat in zip (manifolds_prod_idx, manifolds_xmat):
@@ -182,6 +189,21 @@ def get_orth_basis (ci_fr, norb_f, nelec_frs, _get_ovlp=None):
             i = j
         return rawarr
 
-    return raw2orth, orth2raw
+    return sparse_linalg.LinearOperator (shape=(north,nraw), dtype=dtype,
+                                         matvec=raw2orth,
+                                         rmatvec=orth2raw)
+
+def _fake_gen_contract_op_si_hdiag (matrix_builder, las, h1, h2, ci_fr, nelec_frs, soc=0,
+                                    orbsym=None, wfnsym=None):
+    ham, s2, ovlp, raw2orth = matrix_builder (las, h1, h2, ci_fr, nelec_frs, soc=soc,
+                                              orbsym=orbsym, wfnsym=wfnsym)
+    def contract_ham_si (x):
+        return ham @ x
+    def contract_s2 (x):
+        return s2 @ x
+    def contract_ovlp (x):
+        return ovlp @ x
+    hdiag = np.diagonal (ham)
+    return contract_ham_si, contract_s2, contract_ovlp, hdiag, raw2orth
 
 

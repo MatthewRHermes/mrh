@@ -12,7 +12,7 @@ from mrh.my_pyscf.lassi.lassi import LINDEP_THRESH
 from pyscf.scf.addons import canonical_orth_
 op = (op_o0, op_o1)
 
-def case_contract_hlas_ci (ks, las, h0, h1, h2, ci_fr, nelec_frs):
+def describe_interactions (nelec_frs):
     hopping_index, zerop_index, onep_index = lst_hopping_index (nelec_frs)
     symm_index = np.all (hopping_index.sum (0) == 0, axis=0)
     twop_index = symm_index & (np.abs (hopping_index).sum ((0,1)) == 4)
@@ -26,7 +26,10 @@ def case_contract_hlas_ci (ks, las, h0, h1, h2, ci_fr, nelec_frs):
     interidx = (onep_index.astype (int) + 2*ones_index.astype (int)
                 + 3*ocos_index.astype (int) + 4*twoc2_index.astype (int)
                 + 5*twoc3_index.astype (int) + 6*twoc4_index.astype (int))
+    return interactions, interidx
 
+def case_contract_hlas_ci (ks, las, h0, h1, h2, ci_fr, nelec_frs):
+    interactions, interidx = describe_interactions (nelec_frs)
     nelec = nelec_frs
 
     spaces = [SingleLASRootspace (las, m, s, c, 0) for c,m,s,w in zip (*get_space_info (las))]
@@ -63,6 +66,51 @@ def case_contract_hlas_ci (ks, las, h0, h1, h2, ci_fr, nelec_frs):
                                        dneleca=nelec[:,r,0]-nelec[:,s,0],
                                        dnelecb=nelec[:,r,1]-nelec[:,s,1]):
                         ks.assertAlmostEqual (lib.fp (hket_pq_s), lib.fp (hket_ref_s), 8)
+
+def case_contract_op_si (ks, las, h1, h2, ci_fr, nelec_frs, soc=0):
+    ham, s2, ovlp = op[1].ham (las, h1, h2, ci_fr, nelec_frs, soc=soc)[:3]
+    ops = op[1].gen_contract_op_si_hdiag (las, h1, h2, ci_fr, nelec_frs, soc=soc)
+    ham_op, s2_op, ovlp_op, ham_diag = ops[:4]
+    with ks.subTest ('hdiag'):
+        ks.assertAlmostEqual (lib.fp (ham.diagonal ()), lib.fp (ham_diag), 7)
+    nstates = ham.shape[0]
+    x = np.random.rand (nstates)
+    if soc:
+        x = x + 1j*np.random.rand (nstates)
+    with ks.subTest ('ham_op'):
+        ks.assertAlmostEqual (lib.fp (ham_op (x)), lib.fp (ham @ x), 7)
+    with ks.subTest ('s2_op'):
+        ks.assertAlmostEqual (lib.fp (s2_op (x)), lib.fp (s2 @ x), 7)
+    with ks.subTest ('ovlp_op'):
+        ks.assertAlmostEqual (lib.fp (ovlp_op (x)), lib.fp (ovlp @ x), 7)
+
+def debug_contract_op_si (ks, las, h1, h2, ci_fr, nelec_frs, soc=0):
+    nroots = nelec_frs.shape[1]
+    interactions, interidx = describe_interactions (nelec_frs)
+    ham, s2, ovlp = op[1].ham (las, h1, h2, ci_fr, nelec_frs, soc=soc)[:3]
+    np.save ('nelec_frs.npy', nelec_frs)
+    ops = op[1].gen_contract_op_si_hdiag (las, h1, h2, ci_fr, nelec_frs, soc=soc)
+    ham_op, s2_op, ovlp_op, ham_diag = ops[:4]
+    lroots = get_lroots (ci_fr)
+    lroots_prod = np.prod (lroots, axis=0)
+    nj = np.cumsum (lroots_prod)
+    ni = nj - lroots_prod    
+    nstates = ham.shape[0]
+    for r in range (nroots):
+        i, j = ni[r], nj[r]
+        with ks.subTest ('hdiag', root=r, nelec_fs=nelec_frs[:,r,:]):
+            #print (ham.diagonal ()[i:j], ham_diag[i:j])
+            ks.assertAlmostEqual (lib.fp (ham.diagonal ()[i:j]), lib.fp (ham_diag[i:j]), 7)
+    x = np.random.rand (nstates)
+    if soc:
+        x = x + 1j*np.random.rand (nstates)
+    for myop, ref, lbl in ((ham_op, ham, 'ham'), (s2_op, s2, 's2'), (ovlp_op, ovlp, 'ovlp')):
+        test = myop (np.eye (nstates))
+        for r,s in itertools.product (range (nroots), repeat=2):
+            i, j = ni[r], nj[r]
+            k, l = ni[s], nj[s]
+            with ks.subTest (lbl, blk=(r,s), intyp=interactions[interidx[r,s]]):
+                ks.assertAlmostEqual (lib.fp (test[i:j,k:l]), lib.fp (ref[i:j,k:l]), 7)
 
 def case_lassis_fbf_2_model_state (ks, lsi):
     seen_fr = np.zeros ((lsi.nfrags,lsi.nroots), dtype=int)

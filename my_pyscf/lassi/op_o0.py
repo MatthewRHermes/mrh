@@ -10,8 +10,10 @@ from pyscf.fci.spin_op import contract_ss, spin_square
 from pyscf.data import nist
 from itertools import combinations
 from mrh.my_pyscf.mcscf import soc_int as soc_int
+from mrh.my_pyscf.lassi import citools
 from mrh.my_pyscf.lassi import dms as lassi_dms
 from mrh.my_pyscf.fci.csf import unpack_h1e_cs
+from mrh.my_pyscf.lassi.citools import _fake_gen_contract_op_si_hdiag
 
 def memcheck (las, ci, soc=None):
     '''Check if the system has enough memory to run these functions! ONLY checks
@@ -521,6 +523,9 @@ def ham (las, h1, h2, ci_fr, nelec_frs, soc=0, orbsym=None, wfnsym=None):
             S2 operator matrix in state-interaction basis
         ovlp_eff : square ndarray of length (ndim)
             Overlap matrix in state-interaction basis
+        raw2orth : LinearOperator of shape (ndim_orth, ndim)
+            Projects SI vector columns into an orthonormal basis,
+            eliminating linear dependencies (ndim_orth <= ndim).
     '''
     if soc>1:
         raise NotImplementedError ("Two-electron spin-orbit coupling")
@@ -587,7 +592,8 @@ def ham (las, h1, h2, ci_fr, nelec_frs, soc=0, orbsym=None, wfnsym=None):
         ham_eff[i,:] = dotter (hket, nelec_ket, spinless2ss=spinless2ss, iket=i, oporder=2)
     
     _get_ovlp = functools.partial (get_ovlp, ci_fr, norb_f, nelec_frs)
-    return ham_eff, s2_eff, ovlp_eff, _get_ovlp
+    raw2orth = citools.get_orth_basis (ci_fr, norb_f, nelec_frs, _get_ovlp=_get_ovlp)
+    return ham_eff, s2_eff, ovlp_eff, raw2orth
 
 def contract_ham_ci (las, h1, h2, ci_fr_ket, nelec_frs_ket, ci_fr_bra, nelec_frs_bra, 
                      soc=0, orbsym=None, wfnsym=None):
@@ -980,5 +986,7 @@ if __name__ == '__main__':
         nelec_fr.append ([_unpack_nelec (fcibox._get_nelec (solver, ne)) for solver in fcibox.fcisolvers])
     ham_eff = slow_ham (las.mol, h1, h2, las.ci, las.ncas_sub, nelec_fr)[0]
     print (las.converged, e_states - (e0 + np.diag (ham_eff)))
+
+gen_contract_op_si_hdiag = functools.partial (_fake_gen_contract_op_si_hdiag, ham)
 
 

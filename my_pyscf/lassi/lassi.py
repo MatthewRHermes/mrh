@@ -25,6 +25,8 @@ from pyscf import __config__
 # temporary environment.
 
 LINDEP_THRESH = getattr (__config__, 'lassi_lindep_thresh', 1.0e-5)
+LEVEL_SHIFT_SI = getattr (__config__, 'lassi_level_shift_si', 1.0e-8)
+NROOTS_SI = 1
 
 op = (op_o0, op_o1)
 
@@ -236,7 +238,7 @@ class LASSIOop01DisagreementError (RuntimeError):
         return self.message
 
 def lassi (las, mo_coeff=None, ci=None, veff_c=None, h2eff_sub=None, orbsym=None, soc=False,
-           break_symmetry=False, opt=1):
+           break_symmetry=False, opt=1, davidson_only=None):
     ''' Diagonalize the state-interaction matrix of LASSCF '''
     if mo_coeff is None: mo_coeff = las.mo_coeff
     if ci is None: ci = las.ci
@@ -246,6 +248,8 @@ def lassi (las, mo_coeff=None, ci=None, veff_c=None, h2eff_sub=None, orbsym=None
             orbsym = las.label_symmetry_(las.mo_coeff).orbsym
         if orbsym is not None:
             orbsym = orbsym[las.ncore:las.ncore+las.ncas]
+    if davidson_only is None: davidson_only = getattr (las, 'davidson_only', False)
+    max_memory = getattr (las, 'max_memory', 2000)
     o0_memcheck = op_o0.memcheck (las, ci, soc=soc)
     if opt == 0 and o0_memcheck == False:
         raise RuntimeError ('Insufficient memory to use o0 LASSI algorithm')
@@ -264,7 +268,6 @@ def lassi (las, mo_coeff=None, ci=None, veff_c=None, h2eff_sub=None, orbsym=None
     s2_roots = []
     rootsym = []
     si = []
-    s2_mat = []
     idx_allprods = []
     dtype = complex if soc else np.float64
 
@@ -284,27 +287,22 @@ def lassi (las, mo_coeff=None, ci=None, veff_c=None, h2eff_sub=None, orbsym=None
             lib.logger.debug (las, 'Only one state in this symmetry block')
             e_roots.extend (las1.e_states - e0)
             si.append (np.ones ((1,1), dtype=dtype))
-            s2_mat.append (s2_states[idx_space]*np.ones((1,1)))
             s2_roots.extend (s2_states[idx_space])
             rootsym.extend ([sym,])
             continue
         wfnsym = None if break_symmetry else sym[-1]
-        e, c, s2_blk = _eig_block (las1, e0, h1, h2, ci_blk, nelec_blk, sym, soc,
-                                   orbsym, wfnsym, o0_memcheck, opt)
-        s2_mat.append (s2_blk)
+        las.converged_si, e, c, s2_blk = _eig_block (las1, e0, h1, h2, ci_blk, nelec_blk, soc, opt,
+                                                     davidson_only=davidson_only,
+                                                     max_memory=max_memory)
         si.append (c)
-        s2_blk = c.conj ().T @ s2_blk @ c
-        lib.logger.debug2 (las, 'Block S**2 in adiabat basis:')
-        lib.logger.debug2 (las, '{}'.format (s2_blk))
         e_roots.extend (list(e))
-        s2_roots.extend (list (np.diag (s2_blk)))
+        s2_roots.extend (list (s2_blk))
         rootsym.extend ([sym,]*c.shape[1])
 
     # The matrix blocks were evaluated in idx_allprods order
     # Therefore, I need to ~invert~ idx_allprods to get the proper order
     idx_allprods = np.argsort (idx_allprods)
     si = linalg.block_diag (*si)[idx_allprods,:]
-    s2_mat = linalg.block_diag (*s2_mat)[np.ix_(idx_allprods,idx_allprods)]
 
     # Sort results by energy
     idx = np.argsort (e_roots)
@@ -322,7 +320,7 @@ def lassi (las, mo_coeff=None, ci=None, veff_c=None, h2eff_sub=None, orbsym=None
 
     # Results tagged on si array....
     si = si[:,idx]
-    si = tag_array (si, s2=s2_roots, s2_mat=s2_mat, nelec=nelec_roots, wfnsym=wfnsym_roots,
+    si = tag_array (si, s2=s2_roots, nelec=nelec_roots, wfnsym=wfnsym_roots,
                     rootsym=rootsym, break_symmetry=break_symmetry, soc=soc)
 
     # I/O
@@ -351,32 +349,91 @@ def lassi (las, mo_coeff=None, ci=None, veff_c=None, h2eff_sub=None, orbsym=None
             break
     return e_roots, si
 
-def _eig_block (las, e0, h1, h2, ci_blk, nelec_blk, rootsym, soc, orbsym, wfnsym, o0_memcheck, opt):
+def _eig_block (las, e0, h1, h2, ci_blk, nelec_blk, soc, opt, max_memory=2000,
+                davidson_only=False):
+    nstates = np.prod (get_lroots (ci_blk), axis=0).sum ()
+    req_memory = 24*nstates*nstates/1e6
+    current_memory = lib.current_memory ()[0]
+    if current_memory+req_memory > max_memory:
+        # TODO: Efficient LASSI op_o2 h_op sivec 
+        raise MemoryError ("Need %f MB of %f MB avail (N.B.: Davidson implementation is fake)",
+                           req_memory, max_memory-current_memory)
+        lib.logger.info ("Need %f MB of %f MB avail for incore LASSI diag; Davidson alg forced",
+                         req_memory, max_memory-current_memory)
+    if davidson_only or current_memory+req_memory > max_memory:
+        return _eig_block_Davidson (las, e0, h1, h2, ci_blk, nelec_blk, soc, opt)
+    return _eig_block_incore (las, e0, h1, h2, ci_blk, nelec_blk, soc, opt)
+
+def _eig_block_Davidson (las, e0, h1, h2, ci_blk, nelec_blk, soc, opt):
+    # si0
+    # nroots_si
+    # level_shift
+    si0 = getattr (las, 'si', None)
+    level_shift = getattr (las, 'level_shift_si', LEVEL_SHIFT_SI)
+    nroots_si = getattr (las, 'nroots_si', NROOTS_SI)
+    get_init_guess = getattr (las, 'get_init_guess_si', get_init_guess_si)
+    h_op_raw, s2_op, ovlp_op, hdiag, raw2orth = op[opt].gen_contract_op_si_hdiag (
+        las, h1, h2, ci_blk, nelec_blk, soc=soc
+    )
+    precond_op_raw = lib.make_diag_precond (hdiag, level_shift=level_shift)
+    si0 = get_init_guess (hdiag, nroots_si, si0)
+    orth2raw = raw2orth.H
+    def precond_op (dx, e, *args):
+        return raw2orth (precond_op_raw (orth2raw (dx), e, *args))
+    def h_op (x):
+        return raw2orth (h_op_raw (orth2raw (x)))
+    x0 = [raw2orth (x) for x in si0]
+    conv, e, x1 = lib.davidson1 (lambda xs: [h_op (x) for x in xs],
+                                  x0, precond_op, nroots=nroots_si)
+    conv = all (conv)
+    si1 = np.stack ([orth2raw (x) for x in x1], axis=-1)
+    s2 = np.array ([np.dot (x.conj (), s2_op (x)) for x in si1.T])
+    return conv, e, si1, s2
+
+def get_init_guess_si (hdiag, nroots, si1):
+    nprod = hdiag.size
+    si0 = []
+    if nprod <= nroots:
+        addrs = np.arange(nprod)
+    else:
+        addrs = np.argpartition(hdiag, nroots-1)[:nroots]
+    for addr in addrs:
+        x = np.zeros((nprod))
+        x[addr] = 1
+        si0.append(x)
+    # Add noise
+    si0[0][0 ] += 1e-5
+    si0[0][-1] -= 1e-5
+    if si1 is not None:
+        si1 = si1.reshape (nprod,-1)
+        for i in range (min (si1.shape[1], nroots)):
+            si0[i] = si1[:,i]
+    return si0
+
+def _eig_block_incore (las, e0, h1, h2, ci_blk, nelec_blk, soc, opt):
     # TODO: simplify
     t0 = (lib.logger.process_clock (), lib.logger.perf_counter ())
+    o0_memcheck = op_o0.memcheck (las, ci_blk, soc=soc)
     if (las.verbose > lib.logger.INFO) and (o0_memcheck):
-        ham_ref, s2_ref, ovlp_ref = op_o0.ham (las, h1, h2, ci_blk, nelec_blk, soc=soc,
-                                               orbsym=orbsym, wfnsym=wfnsym)[:3]
-        t0 = lib.logger.timer (las, 'LASSI diagonalizer rootsym {} CI algorithm'.format (
-            rootsym), *t0)
+        ham_ref, s2_ref, ovlp_ref = op_o0.ham (las, h1, h2, ci_blk, nelec_blk, soc=soc)[:3]
+        t0 = lib.logger.timer (las, 'LASSI diagonalizer CI algorithm', *t0)
 
         h1_sf = h1
         if soc:
             h1_sf = (h1[0:las.ncas,0:las.ncas]
                      - h1[las.ncas:2*las.ncas,las.ncas:2*las.ncas]).real/2
-        ham_blk, s2_blk, ovlp_blk, get_ovlp = op[opt].ham (las, h1_sf, h2, ci_blk, nelec_blk,
-                                                           orbsym=orbsym, wfnsym=wfnsym)
-        t0 = lib.logger.timer (las, 'LASSI diagonalizer rootsym {} TDM algorithm'.format (
-            rootsym), *t0)
+        ham_blk, s2_blk, ovlp_blk, raw2orth = op[opt].ham (
+            las, h1_sf, h2, ci_blk, nelec_blk)
+        t0 = lib.logger.timer (las, 'LASSI diagonalizer TDM algorithm', *t0)
         lib.logger.debug (las,
-            'LASSI diagonalizer rootsym {}: ham o0-o1 algorithm disagreement = {}'.format (
-                rootsym, linalg.norm (ham_blk - ham_ref))) 
+            'LASSI diagonalizer ham o0-o1 algorithm disagreement = {}'.format (
+                linalg.norm (ham_blk - ham_ref))) 
         lib.logger.debug (las,
-            'LASSI diagonalizer rootsym {}: S2 o0-o1 algorithm disagreement = {}'.format (
-                rootsym, linalg.norm (s2_blk - s2_ref))) 
+            'LASSI diagonalizer S2 o0-o1 algorithm disagreement = {}'.format (
+                linalg.norm (s2_blk - s2_ref))) 
         lib.logger.debug (las,
-            'LASSI diagonalizer rootsym {}: ovlp o0-o1 algorithm disagreement = {}'.format (
-                rootsym, linalg.norm (ovlp_blk - ovlp_ref))) 
+            'LASSI diagonalizer ovlp o0-o1 algorithm disagreement = {}'.format (
+                linalg.norm (ovlp_blk - ovlp_ref))) 
         errvec = np.concatenate ([(ham_blk-ham_ref).ravel (), (s2_blk-s2_ref).ravel (),
                                   (ovlp_blk-ovlp_ref).ravel ()])
         if np.amax (np.abs (errvec)) > 1e-8 and soc == False: # tmp until SOC in op_o1
@@ -388,9 +445,9 @@ def _eig_block (las, e0, h1, h2, ci_blk, nelec_blk, rootsym, soc, orbsym, wfnsym
     else:
         if (las.verbose > lib.logger.INFO): lib.logger.debug (
             las, 'Insufficient memory to test against o0 LASSI algorithm')
-        ham_blk, s2_blk, ovlp_blk, get_ovlp = op[opt].ham (las, h1, h2, ci_blk, nelec_blk, soc=soc,
-                                                           orbsym=orbsym, wfnsym=wfnsym)
-        t0 = lib.logger.timer (las, 'LASSI H build rootsym {}'.format (rootsym), *t0)
+        ham_blk, s2_blk, ovlp_blk, raw2orth = op[opt].ham (
+            las, h1, h2, ci_blk, nelec_blk, soc=soc)
+        t0 = lib.logger.timer (las, 'LASSI H build', *t0)
     log_debug = lib.logger.debug2 if las.nroots>10 else lib.logger.debug
     if np.iscomplexobj (ham_blk):
         log_debug (las, 'Block Hamiltonian - ecore (real):')
@@ -423,9 +480,6 @@ def _eig_block (las, e0, h1, h2, ci_blk, nelec_blk, rootsym, soc, orbsym, wfnsym
             lib.logger.warn (las, 'LAS states in basis may not be converged (%s = %e)',
                              'max(|Hdiag-e_states|)', maxerr)
     # Error catch: linear dependencies in basis
-    raw2orth, orth2raw = citools.get_orth_basis (ci_blk, las.ncas_sub, nelec_blk,
-                                                 _get_ovlp=get_ovlp)
-    get_ovlp = None
     xhx = raw2orth (ham_blk.T).T
     lib.logger.info (las, '%d/%d linearly independent model states',
                      xhx.shape[1], xhx.shape[0])
@@ -444,8 +498,9 @@ def _eig_block (las, e0, h1, h2, ci_blk, nelec_blk, rootsym, soc, orbsym, wfnsym
             err = np.trace (x_err)
             raise RuntimeError ("LASSI lindep prescreening failure; orth err = {}".format (err))
         else: raise (err) from None
-    c = orth2raw (c)
-    return e, c, s2_blk
+    c = raw2orth.H (c)
+    s2_blk = ((s2_blk @ c) * c.conj ()).sum (0)
+    return True, e, c, s2_blk
 
 def make_stdm12s (las, ci=None, orbsym=None, soc=False, break_symmetry=False, opt=1):
     ''' Evaluate <I|p'q|J> and <I|p'r'sq|J> where |I>, |J> are LAS states.
@@ -742,17 +797,19 @@ class LASSI(lib.StreamObject):
         self.stdout, self.verbose, self.chkfile = las.stdout, las.verbose, las.chkfile
         # General config data from las parent
         self.max_memory = las.max_memory
-        keys = set(('e_roots', 'si', 's2', 's2_mat', 'nelec', 'wfnsym', 'rootsym', 'break_symmetry', 'soc', 'opt'))
+        keys = set(('e_roots', 'si', 's2', 'nelec', 'wfnsym', 'rootsym', 'break_symmetry', 'soc', 'opt'))
         self.e_roots = None
         self.si = None
         self.s2 = None
-        self.s2_mat = None
         self.nelec = None
         self.wfnsym = None
         self.rootsym = None
         self.break_symmetry = break_symmetry
         self.soc = soc
         self.opt = opt
+        self.level_shift_si = LEVEL_SHIFT_SI
+        self.nroots_si = NROOTS_SI
+        self.converged_si = False
         self._keys = set((self.__dict__.keys())).union(keys)
 
     def kernel(self, mo_coeff=None, ci=None, veff_c=None, h2eff_sub=None, orbsym=None, soc=None,\
@@ -767,8 +824,8 @@ class LASSI(lib.StreamObject):
         e_roots, si = lassi(self, mo_coeff=mo_coeff, ci=ci, veff_c=veff_c, h2eff_sub=h2eff_sub, orbsym=orbsym, \
                             soc=soc, break_symmetry=break_symmetry, opt=opt)
         self.e_roots = e_roots
-        self.si, self.s2, self.s2_mat, self.nelec, self.wfnsym, self.rootsym, self.break_symmetry, self.soc  = \
-            si, si.s2, si.s2_mat, si.nelec, si.wfnsym, si.rootsym, si.break_symmetry, si.soc
+        self.si, self.s2, self.nelec, self.wfnsym, self.rootsym, self.break_symmetry, self.soc  = \
+            si, si.s2, si.nelec, si.wfnsym, si.rootsym, si.break_symmetry, si.soc
         log.timer ('LASSI matrix-diagonalization kernel', *t0)
         return self.e_roots, self.si
 
@@ -837,4 +894,7 @@ class LASSI(lib.StreamObject):
 
     dump_chk = chkfile.dump_lsi
     load_chk = load_chk_ = chkfile.load_lsi_
+
+    def get_init_guess_si (self, hdiag, nroots, si1):
+        return get_init_guess_si (hdiag, nroots, si1)
 

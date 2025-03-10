@@ -150,21 +150,7 @@ class LRRDM (stdm.LSTDM):
                 inv and the slower dimension iterating over states of fragments in inv 
         '''
         sivec = self.get_single_rootspace_sivec (iroot)
-        rdim = self.nroots_si
-        lroots = self.lroots[:,iroot].copy ()
-        for i in list (inv)[::-1]:
-            lrl = np.prod (lroots[:i])
-            lrc = lroots[i]
-            lrr = np.prod (lroots[i+1:])
-            sivec = sivec.reshape ((lrl,lrc,lrr,rdim), order='F')
-            sivec = sivec.transpose (0,2,1,3)
-            sivec = sivec.reshape ((lrl*lrr,lrc*rdim), order='F')
-            rdim = rdim * lrc
-            lroots[i] = 1
-        nprods = np.prod (self.lroots[:,iroot])
-        nrows = np.prod (self.lroots[inv,iroot])
-        ncols = nprods // nrows
-        return np.asfortranarray (sivec).reshape ((ncols, nrows, self.nroots_si), order='F').T
+        return transpose_sivec_make_fragments_slow (sivec, self.lroots[:,iroot], *inv)
 
     def get_fdm (self, rbra, rket, *inv, keyorder=None):
         '''Get the n-fragment density matrices for the fragments identified by inv in the bra and
@@ -239,8 +225,7 @@ class LRRDM (stdm.LSTDM):
         specints = [self.ints[i] for i in spec]
         o = fac * np.ones ((1,1), dtype=self.dtype)
         for i in specints:
-            b, k = i.unique_root[rbra], i.unique_root[rket]
-            o = np.multiply.outer (i.ovlp[b][k], o).transpose (0,2,1,3)
+            o = np.multiply.outer (i.get_ovlp (rbra, rket), o).transpose (0,2,1,3)
             o = o.reshape (o.shape[0]*o.shape[1], o.shape[2]*o.shape[3])
         idx = np.abs(o) > 1e-8
         if self._lowertri and (rbra==rket): # not bra==ket because _loop_lroots_ doesn't restrict to tril
