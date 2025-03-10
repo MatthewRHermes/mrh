@@ -1,3 +1,4 @@
+// A mini app to do matrix multiplication on cpu and gpu
 #include <stdio.h>
 #include <stdlib.h>
 #include <math.h>
