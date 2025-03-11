@@ -198,10 +198,12 @@ class HamS2OvlpOperators (HamS2Ovlp):
         oplink, ovlplink = group
 
         t0, w0 = logger.process_clock (), logger.perf_counter ()
-        vecs = {tuple(self.urootstr[:,ket]): self.get_xvec (ket, *inv).reshape (-1,1)
-                for ket in set (ovlplink[:,0])}
-        vecstr = np.unique ([list (key) for key in vecs.keys ()], axis=0)
-        vecs = {tuple(key): vecs[tuple(key)] for key in vecstr}
+        # Some rootspaces are redundant: same urootstr for different ket indices.
+        # Those vector sections must be added together here.
+        vecs = {}
+        for ket in set (ovlplink[:,0]):
+            key = tuple(self.urootstr[:,ket])
+            vecs[key] = self.get_xvec (ket, *inv).reshape (-1,1) + vecs.get (key, 0)
         for ifrag in range (self.nfrags):
             if ifrag in inv:
                 for ket, vec in vecs.items ():
