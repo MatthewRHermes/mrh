@@ -5,6 +5,14 @@ from scipy.sparse import linalg as sparse_linalg
 from scipy import linalg 
 import numpy as np
 
+from mrh.my_pyscf.gpu import libgpu
+
+# Setting DEBUG = True will execute both CPU (original) and GPU (new) paths checking for consistency 
+DEBUG = False
+
+if DEBUG:
+    import math
+
 # This must be locked to CSF solver for the forseeable future, because I know of no other way to
 # handle spin-breaking potentials while retaining spin constraint
 
@@ -19,7 +27,7 @@ def kernel (las, mo_coeff=None, ci0=None, casdm0_fr=None, conv_tol_grad=1e-4,
     log = lib.logger.new_logger(las, verbose)
     t0 = (lib.logger.process_clock(), lib.logger.perf_counter())
     log.debug('Start LASCI')
-
+    gpu=las.use_gpu
     h2eff_sub = las.get_h2eff (mo_coeff)
     t1 = log.timer('integral transformation to LAS space', *t0)
 
@@ -133,6 +141,8 @@ def kernel (las, mo_coeff=None, ci0=None, casdm0_fr=None, conv_tol_grad=1e-4,
             and (it>=las.min_cycle_macro)):
                 converged = True
                 break
+        if gpu:
+            log.info('bPpj construction is bypassed in Hessian constructor')
         H_op._init_eri_() 
         # ^ This is down here to save time in case I am already converged at initialization
         t1 = log.timer ('LASCI Hessian constructor', *t1)
@@ -528,9 +538,11 @@ def _init_df_(h_op):
     from mrh.my_pyscf.mcscf.lasci import _DFLASCI
     if isinstance (h_op.las, _DFLASCI):
         h_op.with_df = h_op.las.with_df
-        if h_op.bPpj is None: h_op.bPpj = np.ascontiguousarray (
-            h_op.las.cderi_ao2mo (h_op.mo_coeff, h_op.mo_coeff[:,:h_op.nocc],
-            compact=False))
+        if h_op.las.use_gpu:
+           pass
+        elif h_op.bPpj is None: h_op.bPpj = np.ascontiguousarray (
+                h_op.las.cderi_ao2mo (h_op.mo_coeff, h_op.mo_coeff[:,:h_op.nocc],
+                compact=False))
 
 # TODO: local state-average generalization
 class LASCI_HessianOperator (sparse_linalg.LinearOperator):
@@ -928,16 +940,20 @@ class LASCI_HessianOperator (sparse_linalg.LinearOperator):
                 omits double-counting).
         '''
 
+        t0 = (lib.logger.process_clock (), lib.logger.perf_counter ())
         ncore, nocc, nroots = self.ncore, self.nocc, self.nroots
         tdm1s_sa = np.einsum ('rspq,r->spq', tdm1rs, self.weights)
         dm1s_mo = odm1s + odm1s.transpose (0,2,1)
         dm1s_mo[:,ncore:nocc,ncore:nocc] += tdm1s_sa
         mo = self.mo_coeff
         moH = mo.conjugate ().T
-
+        t1 = lib.logger.timer (self.las, 'LASCI get_veff_Heff 1', *t0)
+        
         # Overall veff for gradient: the one and only jk call per microcycle that I will allow.
         veff_mo = self.get_veff (dm1s_mo=dm1s_mo)
+        t2 = lib.logger.timer (self.las, 'LASCI get_veff_Heff 2', *t1)
         veff_mo = self.split_veff (veff_mo, dm1s_mo)
+        t3 = lib.logger.timer (self.las, 'LASCI get_veff_Heff 3', *t2)
 
         # Core-orbital-effect only for individual CI problems
         odm1s_core = np.copy (odm1s)
@@ -954,6 +970,7 @@ class LASCI_HessianOperator (sparse_linalg.LinearOperator):
         veff_ci += veff_ci.transpose (0,2,1)
         veff_ci /= 2.0
         veff_ci += veff_mo[:,ncore:nocc,ncore:nocc]
+        t4 = lib.logger.timer (self.las, 'LASCI get_veff_Heff 4', *t3)
         
         # SO, individual CI problems!
         # 1) There is NO constant term. Constant terms immediately drop out via the ugg defs!
@@ -979,9 +996,10 @@ class LASCI_HessianOperator (sparse_linalg.LinearOperator):
             #err_h1rs += err_h1rs[:,::-1] # ja + jb
             #err_h1rs -= np.tensordot (err_dm1rs, self.eri_cas, axes=((2,3),(0,3)))
             h1frs[isub][:,:,:,:] += err_h1rs[:,:,i:j,i:j]
-
+        t5 = lib.logger.timer (self.las, 'LASCI get_veff_Heff 5', *t4)
+        
         return veff_mo, h1frs
-
+        
     def get_veff (self, dm1s_mo=None):
         '''THIS FUNCTION IS OVERWRITTEN WITH A CALL TO LAS.GET_VEFF IN THE LASSCF_O0 CLASS. IT IS
         ONLY RELEVANT TO THE "LASCI" STEP OF THE OLDER, DEPRECATED, DMET-BASED ALGORITHM.
@@ -999,14 +1017,15 @@ class LASCI_HessianOperator (sparse_linalg.LinearOperator):
             veff_mo : ndarray of shape (nmo,nmo)
                 Spin-symmetric effective potential in the MO basis
         '''
+
         mo = self.mo_coeff
         moH = mo.conjugate ().T
         nmo = mo.shape[-1]
         dm1_mo = dm1s_mo.sum (0)
-        if getattr (self, 'bPpj', None) is None:
-            dm1_ao = np.dot (mo, np.dot (dm1_mo, moH))
-            veff_ao = np.squeeze (self.las.get_veff (dm1s=dm1_ao))
-            return np.dot (moH, np.dot (veff_ao, mo)) 
+        if self.las.use_gpu or (getattr(self, 'bPpj', None) is None):
+            dm1_ao=np.dot(mo,np.dot(dm1_mo,moH))
+            veff_ao=np.squeeze(self.las.get_veff(dm1s=dm1_ao))
+            return np.dot(moH,np.dot(veff_ao,mo))
         ncore, nocc, ncas = self.ncore, self.nocc, self.ncas
         # vj
         t0 = (lib.logger.process_clock (), lib.logger.perf_counter ())
@@ -1021,6 +1040,7 @@ class LASCI_HessianOperator (sparse_linalg.LinearOperator):
         vPpj = np.ascontiguousarray (self.las.cderi_ao2mo (mo, mo[:,ncore:]@dm_bj, compact=False))
         # Don't ask my why this is faster than doing the two degrees of freedom separately...
         t1 = lib.logger.timer (self.las, 'vk_mo vPpj in microcycle', *t1)
+
         # vk (aa|ii), (uv|xy), (ua|iv), (au|vi)
         vPbj = vPpj[:,ncore:,:] #np.dot (self.bPpq[:,ncore:,ncore:], dm_ai)
         vk_bj = np.tensordot (vPbj, self.bPpj[:,:nocc,:], axes=((0,2),(0,1)))
@@ -1031,8 +1051,10 @@ class LASCI_HessianOperator (sparse_linalg.LinearOperator):
         # I think this works only because there is no dm_ui in this case, so I've eliminated all
         # the dm_uv by choosing this range
         bPbi = self.bPpj[:,ncore:,:ncore]
-        vk_bj += np.tensordot (bPbi, vPji, axes=((0,2),(0,2)))
+        vk_bj += np.tensordot (bPbi, vPji, axes=((0,2),(0,2)))                    
         t1 = lib.logger.timer (self.las, 'vk_mo (bi|aj) in microcycle', *t1)
+        t0 = lib.logger.timer (self.las, 'vj and vk mo', *t0)
+
         # veff
         vj_bj = vj_pj[ncore:,:]
         veff_mo[ncore:,:nocc] = vj_bj - 0.5*vk_bj
@@ -1061,7 +1083,8 @@ class LASCI_HessianOperator (sparse_linalg.LinearOperator):
 
     def _matvec (self, x):
         log = lib.logger.new_logger (self.las, self.las.verbose)
-        extra_timing = getattr (self.las, '_extra_hessian_timing', False)
+#        extra_timing = getattr (self.las, '_extra_hessian_timing', False)
+        extra_timing = getattr (self.las, '_extra_hessian_timing', True)
         extra_timer = log.timer if extra_timing else log.timer_debug1
         t0 = (lib.logger.process_clock(), lib.logger.perf_counter())
         kappa1, ci1 = self.ugg.unpack (x)
@@ -1303,15 +1326,31 @@ class LASCI_HessianOperator (sparse_linalg.LinearOperator):
         return np.concatenate ([self._get_Horb_diag ()] + self._get_Hci_diag ())
 
     def update_mo_ci_eri (self, x, h2eff_sub):
+        log = lib.logger.new_logger(self.las, self.las.verbose)
+        t0 = (lib.logger.process_clock(), lib.logger.perf_counter())
         kappa, dci = self.ugg.unpack (x)
         umat = linalg.expm (kappa/2)
+        t0=log.timer('update_init',*t0)
         # The 1/2 here is because my actual variables are just the lower-triangular
         # part of kappa, or equivalently 1/2 k^p_q (E^p_q - E^q_p). I can simplify
         # this to k^p_q E^p_q when evaluating derivatives, but not when exponentiating,
         # because the operator part has to be anti-hermitian.
         mo1 = self._update_mo (umat)
+        t0=log.timer('update_mo',*t0)
         ci1 = self._update_ci (dci)
-        h2eff_sub = self._update_h2eff_sub (mo1, umat, h2eff_sub)
+        t0=log.timer('update_ci',*t0)
+        gpu=self.las.use_gpu
+        if DEBUG and gpu:
+          h2eff_sub_c = h2eff_sub.copy()
+          h2eff_sub2 = self._update_h2eff_sub_debug (mo1, umat, h2eff_sub_c) 
+          h2eff_sub = self._update_h2eff_sub_gpu (gpu, mo1, umat, h2eff_sub) 
+          if(np.allclose(h2eff_sub,h2eff_sub2,atol=1e-13)): print('H2eff test passed')
+          else:print('H2eff gpu kernel is not working');print(np.max((h2eff_sub-h2eff_sub2)*(h2eff_sub-h2eff_sub2)));exit()
+        elif gpu:
+          h2eff_sub = self._update_h2eff_sub_gpu (gpu, mo1, umat, h2eff_sub)
+        else:
+          h2eff_sub = self._update_h2eff_sub (mo1, umat, h2eff_sub)
+        t0=log.timer('update_h2eff_sub',*t0)
         return mo1, ci1, h2eff_sub
 
     def _update_mo (self, umat):
@@ -1336,11 +1375,40 @@ class LASCI_HessianOperator (sparse_linalg.LinearOperator):
             ci1.append (ci1_r)
         return ci1
 
+    def _update_h2eff_sub_gpu(self,gpu,mo1,umat,h2eff_sub):
+        ncore, ncas, nocc, nmo = self.ncore, self.ncas, self.nocc, self.nmo
+        #ucas = umat[ncore:nocc, ncore:nocc]
+        bmPu = None
+        #if hasattr (h2eff_sub, 'bmPu'): bmPu = h2eff_sub.bmPu
+        libgpu.libgpu_update_h2eff_sub(gpu,ncore,ncas,nocc,nmo,umat, h2eff_sub)
+        #if bmPu is not None:
+        #    bmPu = np.dot (bmPu, ucas)
+        #    h2eff_sub = lib.tag_array (h2eff_sub, bmPu = bmPu)
+        return h2eff_sub 
+      
+    def _update_h2eff_sub_debug(self, mo1, umat, h2eff_sub):
+        # This code is outlining the algorithm taken in the GPU branch.
+        ncore, ncas, nocc, nmo = self.ncore, self.ncas, self.nocc, self.nmo
+        ucas = umat[ncore:nocc, ncore:nocc]
+        h2eff_sub = h2eff_sub.reshape (nmo*ncas, ncas*(ncas+1)//2)
+        h2eff_sub = lib.numpy_helper.unpack_tril (h2eff_sub)
+        h2eff_sub = h2eff_sub.reshape (nmo, ncas, ncas, ncas)
+        h2eff_sub = np.tensordot (h2eff_sub, ucas, axes=((2),(0))) # qbab
+        h2eff_sub = np.tensordot (h2eff_sub, ucas, axes=((2),(0))) # qbbb
+        h2eff_sub=h2eff_sub.transpose((2,3,1,0))#new  #gpu code does qbab and qbbb lines first, and then does the next four lines because batching is easier.
+        h2eff_sub=np.einsum('iI,JKip->JKIp',ucas,h2eff_sub)#,ucas)
+        h2eff_sub=np.einsum('JKIp,pP->JKIP',h2eff_sub,umat)#new
+        h2eff_sub=h2eff_sub.transpose((3,2,0,1))#new
+        ix_i, ix_j = np.tril_indices (ncas)
+        h2eff_sub = h2eff_sub.reshape (nmo, ncas, ncas*ncas)
+        h2eff_sub = h2eff_sub[:,:,(ix_i*ncas)+ix_j]
+        h2eff_sub = h2eff_sub.reshape (nmo, -1)
+        return h2eff_sub
     def _update_h2eff_sub (self, mo1, umat, h2eff_sub):
         ncore, ncas, nocc, nmo = self.ncore, self.ncas, self.nocc, self.nmo
         ucas = umat[ncore:nocc, ncore:nocc]
         bmPu = None
-        if hasattr (h2eff_sub, 'bmPu'): bmPu = h2eff_sub.bmPu
+        if hasattr (h2eff_sub, 'bmPu'):bmPu = h2eff_sub.bmPu
         h2eff_sub = h2eff_sub.reshape (nmo*ncas, ncas*(ncas+1)//2)
         h2eff_sub = lib.numpy_helper.unpack_tril (h2eff_sub)
         h2eff_sub = h2eff_sub.reshape (nmo, ncas, ncas, ncas)
@@ -1366,5 +1434,6 @@ class LASCI_HessianOperator (sparse_linalg.LinearOperator):
         gorb = self.fock1 - self.fock1.T
         gx = gorb[self.ugg.get_gx_idx ()]
         return gx
+
 
 

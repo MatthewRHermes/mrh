@@ -1,0 +1,2908 @@
+---
+MainSourceFile:  '/lus/grand/projects/LASSCF_gpudev/knight/soft/mrh/gpu/mini-apps/syclomatic/device/MainSrcFiles_placehold'
+Replacements:
+  - FilePath:        '/lus/grand/projects/LASSCF_gpudev/knight/soft/mrh/gpu/mini-apps/syclomatic/device/device_cuda.cpp'
+    Offset:          43
+    Length:          0
+    ReplacementText: "#include <sycl/sycl.hpp>\n#include <dpct/dpct.hpp>\n"
+    ConstantFlag:    ''
+    ConstantOffset:  0
+    InitStr:         ''
+    NewHostVarName:  ''
+    BlockLevelFormatFlag: false
+  - FilePath:        '/lus/grand/projects/LASSCF_gpudev/knight/soft/mrh/gpu/mini-apps/syclomatic/device/device_cuda.cpp'
+    Offset:          1666
+    Length:          11
+    ReplacementText: ''
+    ConstantFlag:    ''
+    ConstantOffset:  0
+    InitStr:         ''
+    NewHostVarName:  ''
+    BlockLevelFormatFlag: false
+  - FilePath:        '/lus/grand/projects/LASSCF_gpudev/knight/soft/mrh/gpu/mini-apps/syclomatic/device/device_cuda.cpp'
+    Offset:          1771
+    Length:          0
+    ReplacementText: ",\n                const sycl::nd_item<3> &item_ct1, double *cache"
+    ConstantFlag:    ''
+    ConstantOffset:  0
+    InitStr:         ''
+    NewHostVarName:  ''
+    BlockLevelFormatFlag: false
+  - FilePath:        '/lus/grand/projects/LASSCF_gpudev/knight/soft/mrh/gpu/mini-apps/syclomatic/device/device_cuda.cpp'
+    Offset:          1791
+    Length:          10
+    ReplacementText: 'item_ct1.get_group(2)'
+    ConstantFlag:    ''
+    ConstantOffset:  0
+    InitStr:         ''
+    NewHostVarName:  ''
+    BlockLevelFormatFlag: false
+  - FilePath:        '/lus/grand/projects/LASSCF_gpudev/knight/soft/mrh/gpu/mini-apps/syclomatic/device/device_cuda.cpp'
+    Offset:          1804
+    Length:          10
+    ReplacementText: 'item_ct1.get_local_range(2)'
+    ConstantFlag:    ''
+    ConstantOffset:  0
+    InitStr:         ''
+    NewHostVarName:  ''
+    BlockLevelFormatFlag: false
+  - FilePath:        '/lus/grand/projects/LASSCF_gpudev/knight/soft/mrh/gpu/mini-apps/syclomatic/device/device_cuda.cpp'
+    Offset:          1817
+    Length:          11
+    ReplacementText: 'item_ct1.get_local_id(2)'
+    ConstantFlag:    ''
+    ConstantOffset:  0
+    InitStr:         ''
+    NewHostVarName:  ''
+    BlockLevelFormatFlag: false
+  - FilePath:        '/lus/grand/projects/LASSCF_gpudev/knight/soft/mrh/gpu/mini-apps/syclomatic/device/device_cuda.cpp'
+    Offset:          1846
+    Length:          10
+    ReplacementText: 'item_ct1.get_group(1)'
+    ConstantFlag:    ''
+    ConstantOffset:  0
+    InitStr:         ''
+    NewHostVarName:  ''
+    BlockLevelFormatFlag: false
+  - FilePath:        '/lus/grand/projects/LASSCF_gpudev/knight/soft/mrh/gpu/mini-apps/syclomatic/device/device_cuda.cpp'
+    Offset:          1859
+    Length:          10
+    ReplacementText: 'item_ct1.get_local_range(1)'
+    ConstantFlag:    ''
+    ConstantOffset:  0
+    InitStr:         ''
+    NewHostVarName:  ''
+    BlockLevelFormatFlag: false
+  - FilePath:        '/lus/grand/projects/LASSCF_gpudev/knight/soft/mrh/gpu/mini-apps/syclomatic/device/device_cuda.cpp'
+    Offset:          1872
+    Length:          11
+    ReplacementText: 'item_ct1.get_local_id(1)'
+    ConstantFlag:    ''
+    ConstantOffset:  0
+    InitStr:         ''
+    NewHostVarName:  ''
+    BlockLevelFormatFlag: false
+  - FilePath:        '/lus/grand/projects/LASSCF_gpudev/knight/soft/mrh/gpu/mini-apps/syclomatic/device/device_cuda.cpp'
+    Offset:          1937
+    Length:          41
+    ReplacementText: ''
+    ConstantFlag:    ''
+    ConstantOffset:  0
+    InitStr:         ''
+    NewHostVarName:  ''
+    BlockLevelFormatFlag: false
+  - FilePath:        '/lus/grand/projects/LASSCF_gpudev/knight/soft/mrh/gpu/mini-apps/syclomatic/device/device_cuda.cpp'
+    Offset:          1990
+    Length:          10
+    ReplacementText: 'item_ct1.get_group(0)'
+    ConstantFlag:    ''
+    ConstantOffset:  0
+    InitStr:         ''
+    NewHostVarName:  ''
+    BlockLevelFormatFlag: false
+  - FilePath:        '/lus/grand/projects/LASSCF_gpudev/knight/soft/mrh/gpu/mini-apps/syclomatic/device/device_cuda.cpp'
+    Offset:          2003
+    Length:          10
+    ReplacementText: 'item_ct1.get_local_range(0)'
+    ConstantFlag:    ''
+    ConstantOffset:  0
+    InitStr:         ''
+    NewHostVarName:  ''
+    BlockLevelFormatFlag: false
+  - FilePath:        '/lus/grand/projects/LASSCF_gpudev/knight/soft/mrh/gpu/mini-apps/syclomatic/device/device_cuda.cpp'
+    Offset:          2016
+    Length:          11
+    ReplacementText: 'item_ct1.get_local_id(0)'
+    ConstantFlag:    ''
+    ConstantOffset:  0
+    InitStr:         ''
+    NewHostVarName:  ''
+    BlockLevelFormatFlag: false
+  - FilePath:        '/lus/grand/projects/LASSCF_gpudev/knight/soft/mrh/gpu/mini-apps/syclomatic/device/device_cuda.cpp'
+    Offset:          2046
+    Length:          11
+    ReplacementText: 'item_ct1.get_local_id(0)'
+    ConstantFlag:    ''
+    ConstantOffset:  0
+    InitStr:         ''
+    NewHostVarName:  ''
+    BlockLevelFormatFlag: false
+  - FilePath:        '/lus/grand/projects/LASSCF_gpudev/knight/soft/mrh/gpu/mini-apps/syclomatic/device/device_cuda.cpp'
+    Offset:          2257
+    Length:          10
+    ReplacementText: 'item_ct1.get_local_range(0)'
+    ConstantFlag:    ''
+    ConstantOffset:  0
+    InitStr:         ''
+    NewHostVarName:  ''
+    BlockLevelFormatFlag: false
+  - FilePath:        '/lus/grand/projects/LASSCF_gpudev/knight/soft/mrh/gpu/mini-apps/syclomatic/device/device_cuda.cpp'
+    Offset:          2353
+    Length:          15
+    ReplacementText: 'item_ct1.barrier(sycl::access::fence_space::local_space)'
+    ConstantFlag:    ''
+    ConstantOffset:  0
+    InitStr:         ''
+    NewHostVarName:  ''
+    BlockLevelFormatFlag: false
+  - FilePath:        '/lus/grand/projects/LASSCF_gpudev/knight/soft/mrh/gpu/mini-apps/syclomatic/device/device_cuda.cpp'
+    Offset:          2436
+    Length:          10
+    ReplacementText: 'item_ct1.get_local_range(0)'
+    ConstantFlag:    ''
+    ConstantOffset:  0
+    InitStr:         ''
+    NewHostVarName:  ''
+    BlockLevelFormatFlag: false
+  - FilePath:        '/lus/grand/projects/LASSCF_gpudev/knight/soft/mrh/gpu/mini-apps/syclomatic/device/device_cuda.cpp'
+    Offset:          2539
+    Length:          0
+    ReplacementText: "    /*\n    DPCT1118:0: SYCL group functions and algorithms must be encountered in converged control flow. You may need to adjust the code.\n    */\n"
+    ConstantFlag:    ''
+    ConstantOffset:  0
+    InitStr:         ''
+    NewHostVarName:  ''
+    BlockLevelFormatFlag: false
+  - FilePath:        '/lus/grand/projects/LASSCF_gpudev/knight/soft/mrh/gpu/mini-apps/syclomatic/device/device_cuda.cpp'
+    Offset:          2543
+    Length:          15
+    ReplacementText: 'item_ct1.barrier(sycl::access::fence_space::local_space)'
+    ConstantFlag:    ''
+    ConstantOffset:  0
+    InitStr:         ''
+    NewHostVarName:  ''
+    BlockLevelFormatFlag: false
+  - FilePath:        '/lus/grand/projects/LASSCF_gpudev/knight/soft/mrh/gpu/mini-apps/syclomatic/device/device_cuda.cpp'
+    Offset:          3175
+    Length:          11
+    ReplacementText: ''
+    ConstantFlag:    ''
+    ConstantOffset:  0
+    InitStr:         ''
+    NewHostVarName:  ''
+    BlockLevelFormatFlag: false
+  - FilePath:        '/lus/grand/projects/LASSCF_gpudev/knight/soft/mrh/gpu/mini-apps/syclomatic/device/device_cuda.cpp'
+    Offset:          3285
+    Length:          0
+    ReplacementText: ",\n               const sycl::nd_item<3> &item_ct1"
+    ConstantFlag:    ''
+    ConstantOffset:  0
+    InitStr:         ''
+    NewHostVarName:  ''
+    BlockLevelFormatFlag: false
+  - FilePath:        '/lus/grand/projects/LASSCF_gpudev/knight/soft/mrh/gpu/mini-apps/syclomatic/device/device_cuda.cpp'
+    Offset:          3305
+    Length:          10
+    ReplacementText: 'item_ct1.get_group(2)'
+    ConstantFlag:    ''
+    ConstantOffset:  0
+    InitStr:         ''
+    NewHostVarName:  ''
+    BlockLevelFormatFlag: false
+  - FilePath:        '/lus/grand/projects/LASSCF_gpudev/knight/soft/mrh/gpu/mini-apps/syclomatic/device/device_cuda.cpp'
+    Offset:          3318
+    Length:          10
+    ReplacementText: 'item_ct1.get_local_range(2)'
+    ConstantFlag:    ''
+    ConstantOffset:  0
+    InitStr:         ''
+    NewHostVarName:  ''
+    BlockLevelFormatFlag: false
+  - FilePath:        '/lus/grand/projects/LASSCF_gpudev/knight/soft/mrh/gpu/mini-apps/syclomatic/device/device_cuda.cpp'
+    Offset:          3331
+    Length:          11
+    ReplacementText: 'item_ct1.get_local_id(2)'
+    ConstantFlag:    ''
+    ConstantOffset:  0
+    InitStr:         ''
+    NewHostVarName:  ''
+    BlockLevelFormatFlag: false
+  - FilePath:        '/lus/grand/projects/LASSCF_gpudev/knight/soft/mrh/gpu/mini-apps/syclomatic/device/device_cuda.cpp'
+    Offset:          3360
+    Length:          10
+    ReplacementText: 'item_ct1.get_group(1)'
+    ConstantFlag:    ''
+    ConstantOffset:  0
+    InitStr:         ''
+    NewHostVarName:  ''
+    BlockLevelFormatFlag: false
+  - FilePath:        '/lus/grand/projects/LASSCF_gpudev/knight/soft/mrh/gpu/mini-apps/syclomatic/device/device_cuda.cpp'
+    Offset:          3373
+    Length:          10
+    ReplacementText: 'item_ct1.get_local_range(1)'
+    ConstantFlag:    ''
+    ConstantOffset:  0
+    InitStr:         ''
+    NewHostVarName:  ''
+    BlockLevelFormatFlag: false
+  - FilePath:        '/lus/grand/projects/LASSCF_gpudev/knight/soft/mrh/gpu/mini-apps/syclomatic/device/device_cuda.cpp'
+    Offset:          3386
+    Length:          11
+    ReplacementText: 'item_ct1.get_local_id(1)'
+    ConstantFlag:    ''
+    ConstantOffset:  0
+    InitStr:         ''
+    NewHostVarName:  ''
+    BlockLevelFormatFlag: false
+  - FilePath:        '/lus/grand/projects/LASSCF_gpudev/knight/soft/mrh/gpu/mini-apps/syclomatic/device/device_cuda.cpp'
+    Offset:          3718
+    Length:          11
+    ReplacementText: ''
+    ConstantFlag:    ''
+    ConstantOffset:  0
+    InitStr:         ''
+    NewHostVarName:  ''
+    BlockLevelFormatFlag: false
+  - FilePath:        '/lus/grand/projects/LASSCF_gpudev/knight/soft/mrh/gpu/mini-apps/syclomatic/device/device_cuda.cpp'
+    Offset:          3825
+    Length:          0
+    ReplacementText: ",\n                        const sycl::nd_item<3> &item_ct1"
+    ConstantFlag:    ''
+    ConstantOffset:  0
+    InitStr:         ''
+    NewHostVarName:  ''
+    BlockLevelFormatFlag: false
+  - FilePath:        '/lus/grand/projects/LASSCF_gpudev/knight/soft/mrh/gpu/mini-apps/syclomatic/device/device_cuda.cpp'
+    Offset:          3845
+    Length:          10
+    ReplacementText: 'item_ct1.get_group(2)'
+    ConstantFlag:    ''
+    ConstantOffset:  0
+    InitStr:         ''
+    NewHostVarName:  ''
+    BlockLevelFormatFlag: false
+  - FilePath:        '/lus/grand/projects/LASSCF_gpudev/knight/soft/mrh/gpu/mini-apps/syclomatic/device/device_cuda.cpp'
+    Offset:          3858
+    Length:          10
+    ReplacementText: 'item_ct1.get_local_range(2)'
+    ConstantFlag:    ''
+    ConstantOffset:  0
+    InitStr:         ''
+    NewHostVarName:  ''
+    BlockLevelFormatFlag: false
+  - FilePath:        '/lus/grand/projects/LASSCF_gpudev/knight/soft/mrh/gpu/mini-apps/syclomatic/device/device_cuda.cpp'
+    Offset:          3871
+    Length:          11
+    ReplacementText: 'item_ct1.get_local_id(2)'
+    ConstantFlag:    ''
+    ConstantOffset:  0
+    InitStr:         ''
+    NewHostVarName:  ''
+    BlockLevelFormatFlag: false
+  - FilePath:        '/lus/grand/projects/LASSCF_gpudev/knight/soft/mrh/gpu/mini-apps/syclomatic/device/device_cuda.cpp'
+    Offset:          3900
+    Length:          10
+    ReplacementText: 'item_ct1.get_group(1)'
+    ConstantFlag:    ''
+    ConstantOffset:  0
+    InitStr:         ''
+    NewHostVarName:  ''
+    BlockLevelFormatFlag: false
+  - FilePath:        '/lus/grand/projects/LASSCF_gpudev/knight/soft/mrh/gpu/mini-apps/syclomatic/device/device_cuda.cpp'
+    Offset:          3913
+    Length:          10
+    ReplacementText: 'item_ct1.get_local_range(1)'
+    ConstantFlag:    ''
+    ConstantOffset:  0
+    InitStr:         ''
+    NewHostVarName:  ''
+    BlockLevelFormatFlag: false
+  - FilePath:        '/lus/grand/projects/LASSCF_gpudev/knight/soft/mrh/gpu/mini-apps/syclomatic/device/device_cuda.cpp'
+    Offset:          3926
+    Length:          11
+    ReplacementText: 'item_ct1.get_local_id(1)'
+    ConstantFlag:    ''
+    ConstantOffset:  0
+    InitStr:         ''
+    NewHostVarName:  ''
+    BlockLevelFormatFlag: false
+  - FilePath:        '/lus/grand/projects/LASSCF_gpudev/knight/soft/mrh/gpu/mini-apps/syclomatic/device/device_cuda.cpp'
+    Offset:          4801
+    Length:          11
+    ReplacementText: ''
+    ConstantFlag:    ''
+    ConstantOffset:  0
+    InitStr:         ''
+    NewHostVarName:  ''
+    BlockLevelFormatFlag: false
+  - FilePath:        '/lus/grand/projects/LASSCF_gpudev/knight/soft/mrh/gpu/mini-apps/syclomatic/device/device_cuda.cpp'
+    Offset:          4873
+    Length:          0
+    ReplacementText: ",\n                const sycl::nd_item<3> &item_ct1,\n                sycl::local_accessor<double, 2> cache"
+    ConstantFlag:    ''
+    ConstantOffset:  0
+    InitStr:         ''
+    NewHostVarName:  ''
+    BlockLevelFormatFlag: false
+  - FilePath:        '/lus/grand/projects/LASSCF_gpudev/knight/soft/mrh/gpu/mini-apps/syclomatic/device/device_cuda.cpp'
+    Offset:          4879
+    Length:          72
+    ReplacementText: ''
+    ConstantFlag:    ''
+    ConstantOffset:  0
+    InitStr:         ''
+    NewHostVarName:  ''
+    BlockLevelFormatFlag: false
+  - FilePath:        '/lus/grand/projects/LASSCF_gpudev/knight/soft/mrh/gpu/mini-apps/syclomatic/device/device_cuda.cpp'
+    Offset:          4968
+    Length:          10
+    ReplacementText: 'item_ct1.get_group(2)'
+    ConstantFlag:    ''
+    ConstantOffset:  0
+    InitStr:         ''
+    NewHostVarName:  ''
+    BlockLevelFormatFlag: false
+  - FilePath:        '/lus/grand/projects/LASSCF_gpudev/knight/soft/mrh/gpu/mini-apps/syclomatic/device/device_cuda.cpp'
+    Offset:          5005
+    Length:          11
+    ReplacementText: 'item_ct1.get_local_id(2)'
+    ConstantFlag:    ''
+    ConstantOffset:  0
+    InitStr:         ''
+    NewHostVarName:  ''
+    BlockLevelFormatFlag: false
+  - FilePath:        '/lus/grand/projects/LASSCF_gpudev/knight/soft/mrh/gpu/mini-apps/syclomatic/device/device_cuda.cpp'
+    Offset:          5031
+    Length:          10
+    ReplacementText: 'item_ct1.get_group(1)'
+    ConstantFlag:    ''
+    ConstantOffset:  0
+    InitStr:         ''
+    NewHostVarName:  ''
+    BlockLevelFormatFlag: false
+  - FilePath:        '/lus/grand/projects/LASSCF_gpudev/knight/soft/mrh/gpu/mini-apps/syclomatic/device/device_cuda.cpp'
+    Offset:          5068
+    Length:          11
+    ReplacementText: 'item_ct1.get_local_id(1)'
+    ConstantFlag:    ''
+    ConstantOffset:  0
+    InitStr:         ''
+    NewHostVarName:  ''
+    BlockLevelFormatFlag: false
+  - FilePath:        '/lus/grand/projects/LASSCF_gpudev/knight/soft/mrh/gpu/mini-apps/syclomatic/device/device_cuda.cpp'
+    Offset:          5292
+    Length:          11
+    ReplacementText: 'item_ct1.get_local_id(1)'
+    ConstantFlag:    ''
+    ConstantOffset:  0
+    InitStr:         ''
+    NewHostVarName:  ''
+    BlockLevelFormatFlag: false
+  - FilePath:        '/lus/grand/projects/LASSCF_gpudev/knight/soft/mrh/gpu/mini-apps/syclomatic/device/device_cuda.cpp'
+    Offset:          5309
+    Length:          11
+    ReplacementText: 'item_ct1.get_local_id(2)'
+    ConstantFlag:    ''
+    ConstantOffset:  0
+    InitStr:         ''
+    NewHostVarName:  ''
+    BlockLevelFormatFlag: false
+  - FilePath:        '/lus/grand/projects/LASSCF_gpudev/knight/soft/mrh/gpu/mini-apps/syclomatic/device/device_cuda.cpp'
+    Offset:          5436
+    Length:          15
+    ReplacementText: 'item_ct1.barrier(sycl::access::fence_space::local_space)'
+    ConstantFlag:    ''
+    ConstantOffset:  0
+    InitStr:         ''
+    NewHostVarName:  ''
+    BlockLevelFormatFlag: false
+  - FilePath:        '/lus/grand/projects/LASSCF_gpudev/knight/soft/mrh/gpu/mini-apps/syclomatic/device/device_cuda.cpp'
+    Offset:          5484
+    Length:          10
+    ReplacementText: 'item_ct1.get_group(1)'
+    ConstantFlag:    ''
+    ConstantOffset:  0
+    InitStr:         ''
+    NewHostVarName:  ''
+    BlockLevelFormatFlag: false
+  - FilePath:        '/lus/grand/projects/LASSCF_gpudev/knight/soft/mrh/gpu/mini-apps/syclomatic/device/device_cuda.cpp'
+    Offset:          5521
+    Length:          11
+    ReplacementText: 'item_ct1.get_local_id(2)'
+    ConstantFlag:    ''
+    ConstantOffset:  0
+    InitStr:         ''
+    NewHostVarName:  ''
+    BlockLevelFormatFlag: false
+  - FilePath:        '/lus/grand/projects/LASSCF_gpudev/knight/soft/mrh/gpu/mini-apps/syclomatic/device/device_cuda.cpp'
+    Offset:          5543
+    Length:          10
+    ReplacementText: 'item_ct1.get_group(2)'
+    ConstantFlag:    ''
+    ConstantOffset:  0
+    InitStr:         ''
+    NewHostVarName:  ''
+    BlockLevelFormatFlag: false
+  - FilePath:        '/lus/grand/projects/LASSCF_gpudev/knight/soft/mrh/gpu/mini-apps/syclomatic/device/device_cuda.cpp'
+    Offset:          5580
+    Length:          11
+    ReplacementText: 'item_ct1.get_local_id(1)'
+    ConstantFlag:    ''
+    ConstantOffset:  0
+    InitStr:         ''
+    NewHostVarName:  ''
+    BlockLevelFormatFlag: false
+  - FilePath:        '/lus/grand/projects/LASSCF_gpudev/knight/soft/mrh/gpu/mini-apps/syclomatic/device/device_cuda.cpp'
+    Offset:          5818
+    Length:          11
+    ReplacementText: 'item_ct1.get_local_id(2)'
+    ConstantFlag:    ''
+    ConstantOffset:  0
+    InitStr:         ''
+    NewHostVarName:  ''
+    BlockLevelFormatFlag: false
+  - FilePath:        '/lus/grand/projects/LASSCF_gpudev/knight/soft/mrh/gpu/mini-apps/syclomatic/device/device_cuda.cpp'
+    Offset:          5831
+    Length:          11
+    ReplacementText: 'item_ct1.get_local_id(1)'
+    ConstantFlag:    ''
+    ConstantOffset:  0
+    InitStr:         ''
+    NewHostVarName:  ''
+    BlockLevelFormatFlag: false
+  - FilePath:        '/lus/grand/projects/LASSCF_gpudev/knight/soft/mrh/gpu/mini-apps/syclomatic/device/device_cuda.cpp'
+    Offset:          6261
+    Length:          11
+    ReplacementText: ''
+    ConstantFlag:    ''
+    ConstantOffset:  0
+    InitStr:         ''
+    NewHostVarName:  ''
+    BlockLevelFormatFlag: false
+  - FilePath:        '/lus/grand/projects/LASSCF_gpudev/knight/soft/mrh/gpu/mini-apps/syclomatic/device/device_cuda.cpp'
+    Offset:          6340
+    Length:          0
+    ReplacementText: ",\n                const sycl::nd_item<3> &item_ct1"
+    ConstantFlag:    ''
+    ConstantOffset:  0
+    InitStr:         ''
+    NewHostVarName:  ''
+    BlockLevelFormatFlag: false
+  - FilePath:        '/lus/grand/projects/LASSCF_gpudev/knight/soft/mrh/gpu/mini-apps/syclomatic/device/device_cuda.cpp'
+    Offset:          6366
+    Length:          10
+    ReplacementText: 'item_ct1.get_group(1)'
+    ConstantFlag:    ''
+    ConstantOffset:  0
+    InitStr:         ''
+    NewHostVarName:  ''
+    BlockLevelFormatFlag: false
+  - FilePath:        '/lus/grand/projects/LASSCF_gpudev/knight/soft/mrh/gpu/mini-apps/syclomatic/device/device_cuda.cpp'
+    Offset:          6379
+    Length:          10
+    ReplacementText: 'item_ct1.get_local_range(1)'
+    ConstantFlag:    ''
+    ConstantOffset:  0
+    InitStr:         ''
+    NewHostVarName:  ''
+    BlockLevelFormatFlag: false
+  - FilePath:        '/lus/grand/projects/LASSCF_gpudev/knight/soft/mrh/gpu/mini-apps/syclomatic/device/device_cuda.cpp'
+    Offset:          6392
+    Length:          11
+    ReplacementText: 'item_ct1.get_local_id(1)'
+    ConstantFlag:    ''
+    ConstantOffset:  0
+    InitStr:         ''
+    NewHostVarName:  ''
+    BlockLevelFormatFlag: false
+  - FilePath:        '/lus/grand/projects/LASSCF_gpudev/knight/soft/mrh/gpu/mini-apps/syclomatic/device/device_cuda.cpp'
+    Offset:          6423
+    Length:          10
+    ReplacementText: 'item_ct1.get_group(2)'
+    ConstantFlag:    ''
+    ConstantOffset:  0
+    InitStr:         ''
+    NewHostVarName:  ''
+    BlockLevelFormatFlag: false
+  - FilePath:        '/lus/grand/projects/LASSCF_gpudev/knight/soft/mrh/gpu/mini-apps/syclomatic/device/device_cuda.cpp'
+    Offset:          6436
+    Length:          10
+    ReplacementText: 'item_ct1.get_local_range(2)'
+    ConstantFlag:    ''
+    ConstantOffset:  0
+    InitStr:         ''
+    NewHostVarName:  ''
+    BlockLevelFormatFlag: false
+  - FilePath:        '/lus/grand/projects/LASSCF_gpudev/knight/soft/mrh/gpu/mini-apps/syclomatic/device/device_cuda.cpp'
+    Offset:          6449
+    Length:          11
+    ReplacementText: 'item_ct1.get_local_id(2)'
+    ConstantFlag:    ''
+    ConstantOffset:  0
+    InitStr:         ''
+    NewHostVarName:  ''
+    BlockLevelFormatFlag: false
+  - FilePath:        '/lus/grand/projects/LASSCF_gpudev/knight/soft/mrh/gpu/mini-apps/syclomatic/device/device_cuda.cpp'
+    Offset:          6636
+    Length:          11
+    ReplacementText: ''
+    ConstantFlag:    ''
+    ConstantOffset:  0
+    InitStr:         ''
+    NewHostVarName:  ''
+    BlockLevelFormatFlag: false
+  - FilePath:        '/lus/grand/projects/LASSCF_gpudev/knight/soft/mrh/gpu/mini-apps/syclomatic/device/device_cuda.cpp'
+    Offset:          6738
+    Length:          0
+    ReplacementText: ",\n                 const sycl::nd_item<3> &item_ct1"
+    ConstantFlag:    ''
+    ConstantOffset:  0
+    InitStr:         ''
+    NewHostVarName:  ''
+    BlockLevelFormatFlag: false
+  - FilePath:        '/lus/grand/projects/LASSCF_gpudev/knight/soft/mrh/gpu/mini-apps/syclomatic/device/device_cuda.cpp'
+    Offset:          6757
+    Length:          10
+    ReplacementText: 'item_ct1.get_group(2)'
+    ConstantFlag:    ''
+    ConstantOffset:  0
+    InitStr:         ''
+    NewHostVarName:  ''
+    BlockLevelFormatFlag: false
+  - FilePath:        '/lus/grand/projects/LASSCF_gpudev/knight/soft/mrh/gpu/mini-apps/syclomatic/device/device_cuda.cpp'
+    Offset:          6770
+    Length:          10
+    ReplacementText: 'item_ct1.get_local_range(2)'
+    ConstantFlag:    ''
+    ConstantOffset:  0
+    InitStr:         ''
+    NewHostVarName:  ''
+    BlockLevelFormatFlag: false
+  - FilePath:        '/lus/grand/projects/LASSCF_gpudev/knight/soft/mrh/gpu/mini-apps/syclomatic/device/device_cuda.cpp'
+    Offset:          6783
+    Length:          11
+    ReplacementText: 'item_ct1.get_local_id(2)'
+    ConstantFlag:    ''
+    ConstantOffset:  0
+    InitStr:         ''
+    NewHostVarName:  ''
+    BlockLevelFormatFlag: false
+  - FilePath:        '/lus/grand/projects/LASSCF_gpudev/knight/soft/mrh/gpu/mini-apps/syclomatic/device/device_cuda.cpp'
+    Offset:          6812
+    Length:          10
+    ReplacementText: 'item_ct1.get_group(1)'
+    ConstantFlag:    ''
+    ConstantOffset:  0
+    InitStr:         ''
+    NewHostVarName:  ''
+    BlockLevelFormatFlag: false
+  - FilePath:        '/lus/grand/projects/LASSCF_gpudev/knight/soft/mrh/gpu/mini-apps/syclomatic/device/device_cuda.cpp'
+    Offset:          6825
+    Length:          10
+    ReplacementText: 'item_ct1.get_local_range(1)'
+    ConstantFlag:    ''
+    ConstantOffset:  0
+    InitStr:         ''
+    NewHostVarName:  ''
+    BlockLevelFormatFlag: false
+  - FilePath:        '/lus/grand/projects/LASSCF_gpudev/knight/soft/mrh/gpu/mini-apps/syclomatic/device/device_cuda.cpp'
+    Offset:          6838
+    Length:          11
+    ReplacementText: 'item_ct1.get_local_id(1)'
+    ConstantFlag:    ''
+    ConstantOffset:  0
+    InitStr:         ''
+    NewHostVarName:  ''
+    BlockLevelFormatFlag: false
+  - FilePath:        '/lus/grand/projects/LASSCF_gpudev/knight/soft/mrh/gpu/mini-apps/syclomatic/device/device_cuda.cpp'
+    Offset:          6867
+    Length:          10
+    ReplacementText: 'item_ct1.get_group(0)'
+    ConstantFlag:    ''
+    ConstantOffset:  0
+    InitStr:         ''
+    NewHostVarName:  ''
+    BlockLevelFormatFlag: false
+  - FilePath:        '/lus/grand/projects/LASSCF_gpudev/knight/soft/mrh/gpu/mini-apps/syclomatic/device/device_cuda.cpp'
+    Offset:          6880
+    Length:          10
+    ReplacementText: 'item_ct1.get_local_range(0)'
+    ConstantFlag:    ''
+    ConstantOffset:  0
+    InitStr:         ''
+    NewHostVarName:  ''
+    BlockLevelFormatFlag: false
+  - FilePath:        '/lus/grand/projects/LASSCF_gpudev/knight/soft/mrh/gpu/mini-apps/syclomatic/device/device_cuda.cpp'
+    Offset:          6893
+    Length:          11
+    ReplacementText: 'item_ct1.get_local_id(0)'
+    ConstantFlag:    ''
+    ConstantOffset:  0
+    InitStr:         ''
+    NewHostVarName:  ''
+    BlockLevelFormatFlag: false
+  - FilePath:        '/lus/grand/projects/LASSCF_gpudev/knight/soft/mrh/gpu/mini-apps/syclomatic/device/device_cuda.cpp'
+    Offset:          7191
+    Length:          11
+    ReplacementText: ''
+    ConstantFlag:    ''
+    ConstantOffset:  0
+    InitStr:         ''
+    NewHostVarName:  ''
+    BlockLevelFormatFlag: false
+  - FilePath:        '/lus/grand/projects/LASSCF_gpudev/knight/soft/mrh/gpu/mini-apps/syclomatic/device/device_cuda.cpp'
+    Offset:          7293
+    Length:          0
+    ReplacementText: ",\n                 const sycl::nd_item<3> &item_ct1"
+    ConstantFlag:    ''
+    ConstantOffset:  0
+    InitStr:         ''
+    NewHostVarName:  ''
+    BlockLevelFormatFlag: false
+  - FilePath:        '/lus/grand/projects/LASSCF_gpudev/knight/soft/mrh/gpu/mini-apps/syclomatic/device/device_cuda.cpp'
+    Offset:          7312
+    Length:          10
+    ReplacementText: 'item_ct1.get_group(2)'
+    ConstantFlag:    ''
+    ConstantOffset:  0
+    InitStr:         ''
+    NewHostVarName:  ''
+    BlockLevelFormatFlag: false
+  - FilePath:        '/lus/grand/projects/LASSCF_gpudev/knight/soft/mrh/gpu/mini-apps/syclomatic/device/device_cuda.cpp'
+    Offset:          7325
+    Length:          10
+    ReplacementText: 'item_ct1.get_local_range(2)'
+    ConstantFlag:    ''
+    ConstantOffset:  0
+    InitStr:         ''
+    NewHostVarName:  ''
+    BlockLevelFormatFlag: false
+  - FilePath:        '/lus/grand/projects/LASSCF_gpudev/knight/soft/mrh/gpu/mini-apps/syclomatic/device/device_cuda.cpp'
+    Offset:          7338
+    Length:          11
+    ReplacementText: 'item_ct1.get_local_id(2)'
+    ConstantFlag:    ''
+    ConstantOffset:  0
+    InitStr:         ''
+    NewHostVarName:  ''
+    BlockLevelFormatFlag: false
+  - FilePath:        '/lus/grand/projects/LASSCF_gpudev/knight/soft/mrh/gpu/mini-apps/syclomatic/device/device_cuda.cpp'
+    Offset:          7367
+    Length:          10
+    ReplacementText: 'item_ct1.get_group(1)'
+    ConstantFlag:    ''
+    ConstantOffset:  0
+    InitStr:         ''
+    NewHostVarName:  ''
+    BlockLevelFormatFlag: false
+  - FilePath:        '/lus/grand/projects/LASSCF_gpudev/knight/soft/mrh/gpu/mini-apps/syclomatic/device/device_cuda.cpp'
+    Offset:          7380
+    Length:          10
+    ReplacementText: 'item_ct1.get_local_range(1)'
+    ConstantFlag:    ''
+    ConstantOffset:  0
+    InitStr:         ''
+    NewHostVarName:  ''
+    BlockLevelFormatFlag: false
+  - FilePath:        '/lus/grand/projects/LASSCF_gpudev/knight/soft/mrh/gpu/mini-apps/syclomatic/device/device_cuda.cpp'
+    Offset:          7393
+    Length:          11
+    ReplacementText: 'item_ct1.get_local_id(1)'
+    ConstantFlag:    ''
+    ConstantOffset:  0
+    InitStr:         ''
+    NewHostVarName:  ''
+    BlockLevelFormatFlag: false
+  - FilePath:        '/lus/grand/projects/LASSCF_gpudev/knight/soft/mrh/gpu/mini-apps/syclomatic/device/device_cuda.cpp'
+    Offset:          7422
+    Length:          10
+    ReplacementText: 'item_ct1.get_group(0)'
+    ConstantFlag:    ''
+    ConstantOffset:  0
+    InitStr:         ''
+    NewHostVarName:  ''
+    BlockLevelFormatFlag: false
+  - FilePath:        '/lus/grand/projects/LASSCF_gpudev/knight/soft/mrh/gpu/mini-apps/syclomatic/device/device_cuda.cpp'
+    Offset:          7435
+    Length:          10
+    ReplacementText: 'item_ct1.get_local_range(0)'
+    ConstantFlag:    ''
+    ConstantOffset:  0
+    InitStr:         ''
+    NewHostVarName:  ''
+    BlockLevelFormatFlag: false
+  - FilePath:        '/lus/grand/projects/LASSCF_gpudev/knight/soft/mrh/gpu/mini-apps/syclomatic/device/device_cuda.cpp'
+    Offset:          7448
+    Length:          11
+    ReplacementText: 'item_ct1.get_local_id(0)'
+    ConstantFlag:    ''
+    ConstantOffset:  0
+    InitStr:         ''
+    NewHostVarName:  ''
+    BlockLevelFormatFlag: false
+  - FilePath:        '/lus/grand/projects/LASSCF_gpudev/knight/soft/mrh/gpu/mini-apps/syclomatic/device/device_cuda.cpp'
+    Offset:          7758
+    Length:          11
+    ReplacementText: ''
+    ConstantFlag:    ''
+    ConstantOffset:  0
+    InitStr:         ''
+    NewHostVarName:  ''
+    BlockLevelFormatFlag: false
+  - FilePath:        '/lus/grand/projects/LASSCF_gpudev/knight/soft/mrh/gpu/mini-apps/syclomatic/device/device_cuda.cpp'
+    Offset:          7843
+    Length:          0
+    ReplacementText: ",\n                    const sycl::nd_item<3> &item_ct1"
+    ConstantFlag:    ''
+    ConstantOffset:  0
+    InitStr:         ''
+    NewHostVarName:  ''
+    BlockLevelFormatFlag: false
+  - FilePath:        '/lus/grand/projects/LASSCF_gpudev/knight/soft/mrh/gpu/mini-apps/syclomatic/device/device_cuda.cpp'
+    Offset:          7874
+    Length:          10
+    ReplacementText: 'item_ct1.get_group(2)'
+    ConstantFlag:    ''
+    ConstantOffset:  0
+    InitStr:         ''
+    NewHostVarName:  ''
+    BlockLevelFormatFlag: false
+  - FilePath:        '/lus/grand/projects/LASSCF_gpudev/knight/soft/mrh/gpu/mini-apps/syclomatic/device/device_cuda.cpp'
+    Offset:          7887
+    Length:          10
+    ReplacementText: 'item_ct1.get_local_range(2)'
+    ConstantFlag:    ''
+    ConstantOffset:  0
+    InitStr:         ''
+    NewHostVarName:  ''
+    BlockLevelFormatFlag: false
+  - FilePath:        '/lus/grand/projects/LASSCF_gpudev/knight/soft/mrh/gpu/mini-apps/syclomatic/device/device_cuda.cpp'
+    Offset:          7900
+    Length:          11
+    ReplacementText: 'item_ct1.get_local_id(2)'
+    ConstantFlag:    ''
+    ConstantOffset:  0
+    InitStr:         ''
+    NewHostVarName:  ''
+    BlockLevelFormatFlag: false
+  - FilePath:        '/lus/grand/projects/LASSCF_gpudev/knight/soft/mrh/gpu/mini-apps/syclomatic/device/device_cuda.cpp'
+    Offset:          7925
+    Length:          10
+    ReplacementText: 'item_ct1.get_group(1)'
+    ConstantFlag:    ''
+    ConstantOffset:  0
+    InitStr:         ''
+    NewHostVarName:  ''
+    BlockLevelFormatFlag: false
+  - FilePath:        '/lus/grand/projects/LASSCF_gpudev/knight/soft/mrh/gpu/mini-apps/syclomatic/device/device_cuda.cpp'
+    Offset:          7938
+    Length:          10
+    ReplacementText: 'item_ct1.get_local_range(1)'
+    ConstantFlag:    ''
+    ConstantOffset:  0
+    InitStr:         ''
+    NewHostVarName:  ''
+    BlockLevelFormatFlag: false
+  - FilePath:        '/lus/grand/projects/LASSCF_gpudev/knight/soft/mrh/gpu/mini-apps/syclomatic/device/device_cuda.cpp'
+    Offset:          7951
+    Length:          11
+    ReplacementText: 'item_ct1.get_local_id(1)'
+    ConstantFlag:    ''
+    ConstantOffset:  0
+    InitStr:         ''
+    NewHostVarName:  ''
+    BlockLevelFormatFlag: false
+  - FilePath:        '/lus/grand/projects/LASSCF_gpudev/knight/soft/mrh/gpu/mini-apps/syclomatic/device/device_cuda.cpp'
+    Offset:          7976
+    Length:          10
+    ReplacementText: 'item_ct1.get_group(0)'
+    ConstantFlag:    ''
+    ConstantOffset:  0
+    InitStr:         ''
+    NewHostVarName:  ''
+    BlockLevelFormatFlag: false
+  - FilePath:        '/lus/grand/projects/LASSCF_gpudev/knight/soft/mrh/gpu/mini-apps/syclomatic/device/device_cuda.cpp'
+    Offset:          7989
+    Length:          10
+    ReplacementText: 'item_ct1.get_local_range(0)'
+    ConstantFlag:    ''
+    ConstantOffset:  0
+    InitStr:         ''
+    NewHostVarName:  ''
+    BlockLevelFormatFlag: false
+  - FilePath:        '/lus/grand/projects/LASSCF_gpudev/knight/soft/mrh/gpu/mini-apps/syclomatic/device/device_cuda.cpp'
+    Offset:          8002
+    Length:          11
+    ReplacementText: 'item_ct1.get_local_id(0)'
+    ConstantFlag:    ''
+    ConstantOffset:  0
+    InitStr:         ''
+    NewHostVarName:  ''
+    BlockLevelFormatFlag: false
+  - FilePath:        '/lus/grand/projects/LASSCF_gpudev/knight/soft/mrh/gpu/mini-apps/syclomatic/device/device_cuda.cpp'
+    Offset:          8303
+    Length:          11
+    ReplacementText: ''
+    ConstantFlag:    ''
+    ConstantOffset:  0
+    InitStr:         ''
+    NewHostVarName:  ''
+    BlockLevelFormatFlag: false
+  - FilePath:        '/lus/grand/projects/LASSCF_gpudev/knight/soft/mrh/gpu/mini-apps/syclomatic/device/device_cuda.cpp'
+    Offset:          8401
+    Length:          0
+    ReplacementText: ",\n                 const sycl::nd_item<3> &item_ct1"
+    ConstantFlag:    ''
+    ConstantOffset:  0
+    InitStr:         ''
+    NewHostVarName:  ''
+    BlockLevelFormatFlag: false
+  - FilePath:        '/lus/grand/projects/LASSCF_gpudev/knight/soft/mrh/gpu/mini-apps/syclomatic/device/device_cuda.cpp'
+    Offset:          8423
+    Length:          10
+    ReplacementText: 'item_ct1.get_group(1)'
+    ConstantFlag:    ''
+    ConstantOffset:  0
+    InitStr:         ''
+    NewHostVarName:  ''
+    BlockLevelFormatFlag: false
+  - FilePath:        '/lus/grand/projects/LASSCF_gpudev/knight/soft/mrh/gpu/mini-apps/syclomatic/device/device_cuda.cpp'
+    Offset:          8436
+    Length:          10
+    ReplacementText: 'item_ct1.get_local_range(1)'
+    ConstantFlag:    ''
+    ConstantOffset:  0
+    InitStr:         ''
+    NewHostVarName:  ''
+    BlockLevelFormatFlag: false
+  - FilePath:        '/lus/grand/projects/LASSCF_gpudev/knight/soft/mrh/gpu/mini-apps/syclomatic/device/device_cuda.cpp'
+    Offset:          8449
+    Length:          11
+    ReplacementText: 'item_ct1.get_local_id(1)'
+    ConstantFlag:    ''
+    ConstantOffset:  0
+    InitStr:         ''
+    NewHostVarName:  ''
+    BlockLevelFormatFlag: false
+  - FilePath:        '/lus/grand/projects/LASSCF_gpudev/knight/soft/mrh/gpu/mini-apps/syclomatic/device/device_cuda.cpp'
+    Offset:          8480
+    Length:          10
+    ReplacementText: 'item_ct1.get_group(2)'
+    ConstantFlag:    ''
+    ConstantOffset:  0
+    InitStr:         ''
+    NewHostVarName:  ''
+    BlockLevelFormatFlag: false
+  - FilePath:        '/lus/grand/projects/LASSCF_gpudev/knight/soft/mrh/gpu/mini-apps/syclomatic/device/device_cuda.cpp'
+    Offset:          8493
+    Length:          10
+    ReplacementText: 'item_ct1.get_local_range(2)'
+    ConstantFlag:    ''
+    ConstantOffset:  0
+    InitStr:         ''
+    NewHostVarName:  ''
+    BlockLevelFormatFlag: false
+  - FilePath:        '/lus/grand/projects/LASSCF_gpudev/knight/soft/mrh/gpu/mini-apps/syclomatic/device/device_cuda.cpp'
+    Offset:          8506
+    Length:          11
+    ReplacementText: 'item_ct1.get_local_id(2)'
+    ConstantFlag:    ''
+    ConstantOffset:  0
+    InitStr:         ''
+    NewHostVarName:  ''
+    BlockLevelFormatFlag: false
+  - FilePath:        '/lus/grand/projects/LASSCF_gpudev/knight/soft/mrh/gpu/mini-apps/syclomatic/device/device_cuda.cpp'
+    Offset:          8696
+    Length:          11
+    ReplacementText: ''
+    ConstantFlag:    ''
+    ConstantOffset:  0
+    InitStr:         ''
+    NewHostVarName:  ''
+    BlockLevelFormatFlag: false
+  - FilePath:        '/lus/grand/projects/LASSCF_gpudev/knight/soft/mrh/gpu/mini-apps/syclomatic/device/device_cuda.cpp'
+    Offset:          8781
+    Length:          0
+    ReplacementText: ",\n                    const sycl::nd_item<3> &item_ct1"
+    ConstantFlag:    ''
+    ConstantOffset:  0
+    InitStr:         ''
+    NewHostVarName:  ''
+    BlockLevelFormatFlag: false
+  - FilePath:        '/lus/grand/projects/LASSCF_gpudev/knight/soft/mrh/gpu/mini-apps/syclomatic/device/device_cuda.cpp'
+    Offset:          8812
+    Length:          10
+    ReplacementText: 'item_ct1.get_group(2)'
+    ConstantFlag:    ''
+    ConstantOffset:  0
+    InitStr:         ''
+    NewHostVarName:  ''
+    BlockLevelFormatFlag: false
+  - FilePath:        '/lus/grand/projects/LASSCF_gpudev/knight/soft/mrh/gpu/mini-apps/syclomatic/device/device_cuda.cpp'
+    Offset:          8825
+    Length:          10
+    ReplacementText: 'item_ct1.get_local_range(2)'
+    ConstantFlag:    ''
+    ConstantOffset:  0
+    InitStr:         ''
+    NewHostVarName:  ''
+    BlockLevelFormatFlag: false
+  - FilePath:        '/lus/grand/projects/LASSCF_gpudev/knight/soft/mrh/gpu/mini-apps/syclomatic/device/device_cuda.cpp'
+    Offset:          8838
+    Length:          11
+    ReplacementText: 'item_ct1.get_local_id(2)'
+    ConstantFlag:    ''
+    ConstantOffset:  0
+    InitStr:         ''
+    NewHostVarName:  ''
+    BlockLevelFormatFlag: false
+  - FilePath:        '/lus/grand/projects/LASSCF_gpudev/knight/soft/mrh/gpu/mini-apps/syclomatic/device/device_cuda.cpp'
+    Offset:          8863
+    Length:          10
+    ReplacementText: 'item_ct1.get_group(1)'
+    ConstantFlag:    ''
+    ConstantOffset:  0
+    InitStr:         ''
+    NewHostVarName:  ''
+    BlockLevelFormatFlag: false
+  - FilePath:        '/lus/grand/projects/LASSCF_gpudev/knight/soft/mrh/gpu/mini-apps/syclomatic/device/device_cuda.cpp'
+    Offset:          8876
+    Length:          10
+    ReplacementText: 'item_ct1.get_local_range(1)'
+    ConstantFlag:    ''
+    ConstantOffset:  0
+    InitStr:         ''
+    NewHostVarName:  ''
+    BlockLevelFormatFlag: false
+  - FilePath:        '/lus/grand/projects/LASSCF_gpudev/knight/soft/mrh/gpu/mini-apps/syclomatic/device/device_cuda.cpp'
+    Offset:          8889
+    Length:          11
+    ReplacementText: 'item_ct1.get_local_id(1)'
+    ConstantFlag:    ''
+    ConstantOffset:  0
+    InitStr:         ''
+    NewHostVarName:  ''
+    BlockLevelFormatFlag: false
+  - FilePath:        '/lus/grand/projects/LASSCF_gpudev/knight/soft/mrh/gpu/mini-apps/syclomatic/device/device_cuda.cpp'
+    Offset:          8914
+    Length:          10
+    ReplacementText: 'item_ct1.get_group(0)'
+    ConstantFlag:    ''
+    ConstantOffset:  0
+    InitStr:         ''
+    NewHostVarName:  ''
+    BlockLevelFormatFlag: false
+  - FilePath:        '/lus/grand/projects/LASSCF_gpudev/knight/soft/mrh/gpu/mini-apps/syclomatic/device/device_cuda.cpp'
+    Offset:          8927
+    Length:          10
+    ReplacementText: 'item_ct1.get_local_range(0)'
+    ConstantFlag:    ''
+    ConstantOffset:  0
+    InitStr:         ''
+    NewHostVarName:  ''
+    BlockLevelFormatFlag: false
+  - FilePath:        '/lus/grand/projects/LASSCF_gpudev/knight/soft/mrh/gpu/mini-apps/syclomatic/device/device_cuda.cpp'
+    Offset:          8940
+    Length:          11
+    ReplacementText: 'item_ct1.get_local_id(0)'
+    ConstantFlag:    ''
+    ConstantOffset:  0
+    InitStr:         ''
+    NewHostVarName:  ''
+    BlockLevelFormatFlag: false
+  - FilePath:        '/lus/grand/projects/LASSCF_gpudev/knight/soft/mrh/gpu/mini-apps/syclomatic/device/device_cuda.cpp'
+    Offset:          9242
+    Length:          11
+    ReplacementText: ''
+    ConstantFlag:    ''
+    ConstantOffset:  0
+    InitStr:         ''
+    NewHostVarName:  ''
+    BlockLevelFormatFlag: false
+  - FilePath:        '/lus/grand/projects/LASSCF_gpudev/knight/soft/mrh/gpu/mini-apps/syclomatic/device/device_cuda.cpp'
+    Offset:          9347
+    Length:          0
+    ReplacementText: ",\n                        const sycl::nd_item<3> &item_ct1"
+    ConstantFlag:    ''
+    ConstantOffset:  0
+    InitStr:         ''
+    NewHostVarName:  ''
+    BlockLevelFormatFlag: false
+  - FilePath:        '/lus/grand/projects/LASSCF_gpudev/knight/soft/mrh/gpu/mini-apps/syclomatic/device/device_cuda.cpp'
+    Offset:          9367
+    Length:          10
+    ReplacementText: 'item_ct1.get_group(2)'
+    ConstantFlag:    ''
+    ConstantOffset:  0
+    InitStr:         ''
+    NewHostVarName:  ''
+    BlockLevelFormatFlag: false
+  - FilePath:        '/lus/grand/projects/LASSCF_gpudev/knight/soft/mrh/gpu/mini-apps/syclomatic/device/device_cuda.cpp'
+    Offset:          9380
+    Length:          10
+    ReplacementText: 'item_ct1.get_local_range(2)'
+    ConstantFlag:    ''
+    ConstantOffset:  0
+    InitStr:         ''
+    NewHostVarName:  ''
+    BlockLevelFormatFlag: false
+  - FilePath:        '/lus/grand/projects/LASSCF_gpudev/knight/soft/mrh/gpu/mini-apps/syclomatic/device/device_cuda.cpp'
+    Offset:          9393
+    Length:          11
+    ReplacementText: 'item_ct1.get_local_id(2)'
+    ConstantFlag:    ''
+    ConstantOffset:  0
+    InitStr:         ''
+    NewHostVarName:  ''
+    BlockLevelFormatFlag: false
+  - FilePath:        '/lus/grand/projects/LASSCF_gpudev/knight/soft/mrh/gpu/mini-apps/syclomatic/device/device_cuda.cpp'
+    Offset:          9422
+    Length:          10
+    ReplacementText: 'item_ct1.get_group(1)'
+    ConstantFlag:    ''
+    ConstantOffset:  0
+    InitStr:         ''
+    NewHostVarName:  ''
+    BlockLevelFormatFlag: false
+  - FilePath:        '/lus/grand/projects/LASSCF_gpudev/knight/soft/mrh/gpu/mini-apps/syclomatic/device/device_cuda.cpp'
+    Offset:          9435
+    Length:          10
+    ReplacementText: 'item_ct1.get_local_range(1)'
+    ConstantFlag:    ''
+    ConstantOffset:  0
+    InitStr:         ''
+    NewHostVarName:  ''
+    BlockLevelFormatFlag: false
+  - FilePath:        '/lus/grand/projects/LASSCF_gpudev/knight/soft/mrh/gpu/mini-apps/syclomatic/device/device_cuda.cpp'
+    Offset:          9448
+    Length:          11
+    ReplacementText: 'item_ct1.get_local_id(1)'
+    ConstantFlag:    ''
+    ConstantOffset:  0
+    InitStr:         ''
+    NewHostVarName:  ''
+    BlockLevelFormatFlag: false
+  - FilePath:        '/lus/grand/projects/LASSCF_gpudev/knight/soft/mrh/gpu/mini-apps/syclomatic/device/device_cuda.cpp'
+    Offset:          9666
+    Length:          11
+    ReplacementText: ''
+    ConstantFlag:    ''
+    ConstantOffset:  0
+    InitStr:         ''
+    NewHostVarName:  ''
+    BlockLevelFormatFlag: false
+  - FilePath:        '/lus/grand/projects/LASSCF_gpudev/knight/soft/mrh/gpu/mini-apps/syclomatic/device/device_cuda.cpp'
+    Offset:          9742
+    Length:          0
+    ReplacementText: ",\n                     const sycl::nd_item<3> &item_ct1"
+    ConstantFlag:    ''
+    ConstantOffset:  0
+    InitStr:         ''
+    NewHostVarName:  ''
+    BlockLevelFormatFlag: false
+  - FilePath:        '/lus/grand/projects/LASSCF_gpudev/knight/soft/mrh/gpu/mini-apps/syclomatic/device/device_cuda.cpp'
+    Offset:          9785
+    Length:          10
+    ReplacementText: 'item_ct1.get_group(2)'
+    ConstantFlag:    ''
+    ConstantOffset:  0
+    InitStr:         ''
+    NewHostVarName:  ''
+    BlockLevelFormatFlag: false
+  - FilePath:        '/lus/grand/projects/LASSCF_gpudev/knight/soft/mrh/gpu/mini-apps/syclomatic/device/device_cuda.cpp'
+    Offset:          9798
+    Length:          10
+    ReplacementText: 'item_ct1.get_local_range(2)'
+    ConstantFlag:    ''
+    ConstantOffset:  0
+    InitStr:         ''
+    NewHostVarName:  ''
+    BlockLevelFormatFlag: false
+  - FilePath:        '/lus/grand/projects/LASSCF_gpudev/knight/soft/mrh/gpu/mini-apps/syclomatic/device/device_cuda.cpp'
+    Offset:          9811
+    Length:          11
+    ReplacementText: 'item_ct1.get_local_id(2)'
+    ConstantFlag:    ''
+    ConstantOffset:  0
+    InitStr:         ''
+    NewHostVarName:  ''
+    BlockLevelFormatFlag: false
+  - FilePath:        '/lus/grand/projects/LASSCF_gpudev/knight/soft/mrh/gpu/mini-apps/syclomatic/device/device_cuda.cpp'
+    Offset:          9836
+    Length:          10
+    ReplacementText: 'item_ct1.get_group(1)'
+    ConstantFlag:    ''
+    ConstantOffset:  0
+    InitStr:         ''
+    NewHostVarName:  ''
+    BlockLevelFormatFlag: false
+  - FilePath:        '/lus/grand/projects/LASSCF_gpudev/knight/soft/mrh/gpu/mini-apps/syclomatic/device/device_cuda.cpp'
+    Offset:          9849
+    Length:          10
+    ReplacementText: 'item_ct1.get_local_range(1)'
+    ConstantFlag:    ''
+    ConstantOffset:  0
+    InitStr:         ''
+    NewHostVarName:  ''
+    BlockLevelFormatFlag: false
+  - FilePath:        '/lus/grand/projects/LASSCF_gpudev/knight/soft/mrh/gpu/mini-apps/syclomatic/device/device_cuda.cpp'
+    Offset:          9862
+    Length:          11
+    ReplacementText: 'item_ct1.get_local_id(1)'
+    ConstantFlag:    ''
+    ConstantOffset:  0
+    InitStr:         ''
+    NewHostVarName:  ''
+    BlockLevelFormatFlag: false
+  - FilePath:        '/lus/grand/projects/LASSCF_gpudev/knight/soft/mrh/gpu/mini-apps/syclomatic/device/device_cuda.cpp'
+    Offset:          9887
+    Length:          10
+    ReplacementText: 'item_ct1.get_group(0)'
+    ConstantFlag:    ''
+    ConstantOffset:  0
+    InitStr:         ''
+    NewHostVarName:  ''
+    BlockLevelFormatFlag: false
+  - FilePath:        '/lus/grand/projects/LASSCF_gpudev/knight/soft/mrh/gpu/mini-apps/syclomatic/device/device_cuda.cpp'
+    Offset:          9900
+    Length:          10
+    ReplacementText: 'item_ct1.get_local_range(0)'
+    ConstantFlag:    ''
+    ConstantOffset:  0
+    InitStr:         ''
+    NewHostVarName:  ''
+    BlockLevelFormatFlag: false
+  - FilePath:        '/lus/grand/projects/LASSCF_gpudev/knight/soft/mrh/gpu/mini-apps/syclomatic/device/device_cuda.cpp'
+    Offset:          9913
+    Length:          11
+    ReplacementText: 'item_ct1.get_local_id(0)'
+    ConstantFlag:    ''
+    ConstantOffset:  0
+    InitStr:         ''
+    NewHostVarName:  ''
+    BlockLevelFormatFlag: false
+  - FilePath:        '/lus/grand/projects/LASSCF_gpudev/knight/soft/mrh/gpu/mini-apps/syclomatic/device/device_cuda.cpp'
+    Offset:          10282
+    Length:          11
+    ReplacementText: ''
+    ConstantFlag:    ''
+    ConstantOffset:  0
+    InitStr:         ''
+    NewHostVarName:  ''
+    BlockLevelFormatFlag: false
+  - FilePath:        '/lus/grand/projects/LASSCF_gpudev/knight/soft/mrh/gpu/mini-apps/syclomatic/device/device_cuda.cpp'
+    Offset:          10356
+    Length:          0
+    ReplacementText: ",\n                     const sycl::nd_item<3> &item_ct1"
+    ConstantFlag:    ''
+    ConstantOffset:  0
+    InitStr:         ''
+    NewHostVarName:  ''
+    BlockLevelFormatFlag: false
+  - FilePath:        '/lus/grand/projects/LASSCF_gpudev/knight/soft/mrh/gpu/mini-apps/syclomatic/device/device_cuda.cpp'
+    Offset:          10418
+    Length:          10
+    ReplacementText: 'item_ct1.get_group(2)'
+    ConstantFlag:    ''
+    ConstantOffset:  0
+    InitStr:         ''
+    NewHostVarName:  ''
+    BlockLevelFormatFlag: false
+  - FilePath:        '/lus/grand/projects/LASSCF_gpudev/knight/soft/mrh/gpu/mini-apps/syclomatic/device/device_cuda.cpp'
+    Offset:          10431
+    Length:          10
+    ReplacementText: 'item_ct1.get_local_range(2)'
+    ConstantFlag:    ''
+    ConstantOffset:  0
+    InitStr:         ''
+    NewHostVarName:  ''
+    BlockLevelFormatFlag: false
+  - FilePath:        '/lus/grand/projects/LASSCF_gpudev/knight/soft/mrh/gpu/mini-apps/syclomatic/device/device_cuda.cpp'
+    Offset:          10444
+    Length:          11
+    ReplacementText: 'item_ct1.get_local_id(2)'
+    ConstantFlag:    ''
+    ConstantOffset:  0
+    InitStr:         ''
+    NewHostVarName:  ''
+    BlockLevelFormatFlag: false
+  - FilePath:        '/lus/grand/projects/LASSCF_gpudev/knight/soft/mrh/gpu/mini-apps/syclomatic/device/device_cuda.cpp'
+    Offset:          10469
+    Length:          10
+    ReplacementText: 'item_ct1.get_group(1)'
+    ConstantFlag:    ''
+    ConstantOffset:  0
+    InitStr:         ''
+    NewHostVarName:  ''
+    BlockLevelFormatFlag: false
+  - FilePath:        '/lus/grand/projects/LASSCF_gpudev/knight/soft/mrh/gpu/mini-apps/syclomatic/device/device_cuda.cpp'
+    Offset:          10482
+    Length:          10
+    ReplacementText: 'item_ct1.get_local_range(1)'
+    ConstantFlag:    ''
+    ConstantOffset:  0
+    InitStr:         ''
+    NewHostVarName:  ''
+    BlockLevelFormatFlag: false
+  - FilePath:        '/lus/grand/projects/LASSCF_gpudev/knight/soft/mrh/gpu/mini-apps/syclomatic/device/device_cuda.cpp'
+    Offset:          10495
+    Length:          11
+    ReplacementText: 'item_ct1.get_local_id(1)'
+    ConstantFlag:    ''
+    ConstantOffset:  0
+    InitStr:         ''
+    NewHostVarName:  ''
+    BlockLevelFormatFlag: false
+  - FilePath:        '/lus/grand/projects/LASSCF_gpudev/knight/soft/mrh/gpu/mini-apps/syclomatic/device/device_cuda.cpp'
+    Offset:          10520
+    Length:          10
+    ReplacementText: 'item_ct1.get_group(0)'
+    ConstantFlag:    ''
+    ConstantOffset:  0
+    InitStr:         ''
+    NewHostVarName:  ''
+    BlockLevelFormatFlag: false
+  - FilePath:        '/lus/grand/projects/LASSCF_gpudev/knight/soft/mrh/gpu/mini-apps/syclomatic/device/device_cuda.cpp'
+    Offset:          10533
+    Length:          10
+    ReplacementText: 'item_ct1.get_local_range(0)'
+    ConstantFlag:    ''
+    ConstantOffset:  0
+    InitStr:         ''
+    NewHostVarName:  ''
+    BlockLevelFormatFlag: false
+  - FilePath:        '/lus/grand/projects/LASSCF_gpudev/knight/soft/mrh/gpu/mini-apps/syclomatic/device/device_cuda.cpp'
+    Offset:          10546
+    Length:          11
+    ReplacementText: 'item_ct1.get_local_id(0)'
+    ConstantFlag:    ''
+    ConstantOffset:  0
+    InitStr:         ''
+    NewHostVarName:  ''
+    BlockLevelFormatFlag: false
+  - FilePath:        '/lus/grand/projects/LASSCF_gpudev/knight/soft/mrh/gpu/mini-apps/syclomatic/device/device_cuda.cpp'
+    Offset:          10910
+    Length:          11
+    ReplacementText: ''
+    ConstantFlag:    ''
+    ConstantOffset:  0
+    InitStr:         ''
+    NewHostVarName:  ''
+    BlockLevelFormatFlag: false
+  - FilePath:        '/lus/grand/projects/LASSCF_gpudev/knight/soft/mrh/gpu/mini-apps/syclomatic/device/device_cuda.cpp'
+    Offset:          11011
+    Length:          0
+    ReplacementText: ",\n                    const sycl::nd_item<3> &item_ct1"
+    ConstantFlag:    ''
+    ConstantOffset:  0
+    InitStr:         ''
+    NewHostVarName:  ''
+    BlockLevelFormatFlag: false
+  - FilePath:        '/lus/grand/projects/LASSCF_gpudev/knight/soft/mrh/gpu/mini-apps/syclomatic/device/device_cuda.cpp'
+    Offset:          11031
+    Length:          10
+    ReplacementText: 'item_ct1.get_group(2)'
+    ConstantFlag:    ''
+    ConstantOffset:  0
+    InitStr:         ''
+    NewHostVarName:  ''
+    BlockLevelFormatFlag: false
+  - FilePath:        '/lus/grand/projects/LASSCF_gpudev/knight/soft/mrh/gpu/mini-apps/syclomatic/device/device_cuda.cpp'
+    Offset:          11044
+    Length:          10
+    ReplacementText: 'item_ct1.get_local_range(2)'
+    ConstantFlag:    ''
+    ConstantOffset:  0
+    InitStr:         ''
+    NewHostVarName:  ''
+    BlockLevelFormatFlag: false
+  - FilePath:        '/lus/grand/projects/LASSCF_gpudev/knight/soft/mrh/gpu/mini-apps/syclomatic/device/device_cuda.cpp'
+    Offset:          11057
+    Length:          11
+    ReplacementText: 'item_ct1.get_local_id(2)'
+    ConstantFlag:    ''
+    ConstantOffset:  0
+    InitStr:         ''
+    NewHostVarName:  ''
+    BlockLevelFormatFlag: false
+  - FilePath:        '/lus/grand/projects/LASSCF_gpudev/knight/soft/mrh/gpu/mini-apps/syclomatic/device/device_cuda.cpp'
+    Offset:          11086
+    Length:          10
+    ReplacementText: 'item_ct1.get_group(1)'
+    ConstantFlag:    ''
+    ConstantOffset:  0
+    InitStr:         ''
+    NewHostVarName:  ''
+    BlockLevelFormatFlag: false
+  - FilePath:        '/lus/grand/projects/LASSCF_gpudev/knight/soft/mrh/gpu/mini-apps/syclomatic/device/device_cuda.cpp'
+    Offset:          11099
+    Length:          10
+    ReplacementText: 'item_ct1.get_local_range(1)'
+    ConstantFlag:    ''
+    ConstantOffset:  0
+    InitStr:         ''
+    NewHostVarName:  ''
+    BlockLevelFormatFlag: false
+  - FilePath:        '/lus/grand/projects/LASSCF_gpudev/knight/soft/mrh/gpu/mini-apps/syclomatic/device/device_cuda.cpp'
+    Offset:          11112
+    Length:          11
+    ReplacementText: 'item_ct1.get_local_id(1)'
+    ConstantFlag:    ''
+    ConstantOffset:  0
+    InitStr:         ''
+    NewHostVarName:  ''
+    BlockLevelFormatFlag: false
+  - FilePath:        '/lus/grand/projects/LASSCF_gpudev/knight/soft/mrh/gpu/mini-apps/syclomatic/device/device_cuda.cpp'
+    Offset:          11141
+    Length:          10
+    ReplacementText: 'item_ct1.get_group(0)'
+    ConstantFlag:    ''
+    ConstantOffset:  0
+    InitStr:         ''
+    NewHostVarName:  ''
+    BlockLevelFormatFlag: false
+  - FilePath:        '/lus/grand/projects/LASSCF_gpudev/knight/soft/mrh/gpu/mini-apps/syclomatic/device/device_cuda.cpp'
+    Offset:          11154
+    Length:          10
+    ReplacementText: 'item_ct1.get_local_range(0)'
+    ConstantFlag:    ''
+    ConstantOffset:  0
+    InitStr:         ''
+    NewHostVarName:  ''
+    BlockLevelFormatFlag: false
+  - FilePath:        '/lus/grand/projects/LASSCF_gpudev/knight/soft/mrh/gpu/mini-apps/syclomatic/device/device_cuda.cpp'
+    Offset:          11167
+    Length:          11
+    ReplacementText: 'item_ct1.get_local_id(0)'
+    ConstantFlag:    ''
+    ConstantOffset:  0
+    InitStr:         ''
+    NewHostVarName:  ''
+    BlockLevelFormatFlag: false
+  - FilePath:        '/lus/grand/projects/LASSCF_gpudev/knight/soft/mrh/gpu/mini-apps/syclomatic/device/device_cuda.cpp'
+    Offset:          11483
+    Length:          11
+    ReplacementText: ''
+    ConstantFlag:    ''
+    ConstantOffset:  0
+    InitStr:         ''
+    NewHostVarName:  ''
+    BlockLevelFormatFlag: false
+  - FilePath:        '/lus/grand/projects/LASSCF_gpudev/knight/soft/mrh/gpu/mini-apps/syclomatic/device/device_cuda.cpp'
+    Offset:          11586
+    Length:          0
+    ReplacementText: ",\n                      const sycl::nd_item<3> &item_ct1"
+    ConstantFlag:    ''
+    ConstantOffset:  0
+    InitStr:         ''
+    NewHostVarName:  ''
+    BlockLevelFormatFlag: false
+  - FilePath:        '/lus/grand/projects/LASSCF_gpudev/knight/soft/mrh/gpu/mini-apps/syclomatic/device/device_cuda.cpp'
+    Offset:          11606
+    Length:          10
+    ReplacementText: 'item_ct1.get_group(2)'
+    ConstantFlag:    ''
+    ConstantOffset:  0
+    InitStr:         ''
+    NewHostVarName:  ''
+    BlockLevelFormatFlag: false
+  - FilePath:        '/lus/grand/projects/LASSCF_gpudev/knight/soft/mrh/gpu/mini-apps/syclomatic/device/device_cuda.cpp'
+    Offset:          11619
+    Length:          10
+    ReplacementText: 'item_ct1.get_local_range(2)'
+    ConstantFlag:    ''
+    ConstantOffset:  0
+    InitStr:         ''
+    NewHostVarName:  ''
+    BlockLevelFormatFlag: false
+  - FilePath:        '/lus/grand/projects/LASSCF_gpudev/knight/soft/mrh/gpu/mini-apps/syclomatic/device/device_cuda.cpp'
+    Offset:          11632
+    Length:          11
+    ReplacementText: 'item_ct1.get_local_id(2)'
+    ConstantFlag:    ''
+    ConstantOffset:  0
+    InitStr:         ''
+    NewHostVarName:  ''
+    BlockLevelFormatFlag: false
+  - FilePath:        '/lus/grand/projects/LASSCF_gpudev/knight/soft/mrh/gpu/mini-apps/syclomatic/device/device_cuda.cpp'
+    Offset:          11661
+    Length:          10
+    ReplacementText: 'item_ct1.get_group(1)'
+    ConstantFlag:    ''
+    ConstantOffset:  0
+    InitStr:         ''
+    NewHostVarName:  ''
+    BlockLevelFormatFlag: false
+  - FilePath:        '/lus/grand/projects/LASSCF_gpudev/knight/soft/mrh/gpu/mini-apps/syclomatic/device/device_cuda.cpp'
+    Offset:          11674
+    Length:          10
+    ReplacementText: 'item_ct1.get_local_range(1)'
+    ConstantFlag:    ''
+    ConstantOffset:  0
+    InitStr:         ''
+    NewHostVarName:  ''
+    BlockLevelFormatFlag: false
+  - FilePath:        '/lus/grand/projects/LASSCF_gpudev/knight/soft/mrh/gpu/mini-apps/syclomatic/device/device_cuda.cpp'
+    Offset:          11687
+    Length:          11
+    ReplacementText: 'item_ct1.get_local_id(1)'
+    ConstantFlag:    ''
+    ConstantOffset:  0
+    InitStr:         ''
+    NewHostVarName:  ''
+    BlockLevelFormatFlag: false
+  - FilePath:        '/lus/grand/projects/LASSCF_gpudev/knight/soft/mrh/gpu/mini-apps/syclomatic/device/device_cuda.cpp'
+    Offset:          11962
+    Length:          11
+    ReplacementText: ''
+    ConstantFlag:    ''
+    ConstantOffset:  0
+    InitStr:         ''
+    NewHostVarName:  ''
+    BlockLevelFormatFlag: false
+  - FilePath:        '/lus/grand/projects/LASSCF_gpudev/knight/soft/mrh/gpu/mini-apps/syclomatic/device/device_cuda.cpp'
+    Offset:          12067
+    Length:          0
+    ReplacementText: ",\n                  const sycl::nd_item<3> &item_ct1"
+    ConstantFlag:    ''
+    ConstantOffset:  0
+    InitStr:         ''
+    NewHostVarName:  ''
+    BlockLevelFormatFlag: false
+  - FilePath:        '/lus/grand/projects/LASSCF_gpudev/knight/soft/mrh/gpu/mini-apps/syclomatic/device/device_cuda.cpp'
+    Offset:          12083
+    Length:          10
+    ReplacementText: 'item_ct1.get_group(2)'
+    ConstantFlag:    ''
+    ConstantOffset:  0
+    InitStr:         ''
+    NewHostVarName:  ''
+    BlockLevelFormatFlag: false
+  - FilePath:        '/lus/grand/projects/LASSCF_gpudev/knight/soft/mrh/gpu/mini-apps/syclomatic/device/device_cuda.cpp'
+    Offset:          12096
+    Length:          10
+    ReplacementText: 'item_ct1.get_local_range(2)'
+    ConstantFlag:    ''
+    ConstantOffset:  0
+    InitStr:         ''
+    NewHostVarName:  ''
+    BlockLevelFormatFlag: false
+  - FilePath:        '/lus/grand/projects/LASSCF_gpudev/knight/soft/mrh/gpu/mini-apps/syclomatic/device/device_cuda.cpp'
+    Offset:          12109
+    Length:          11
+    ReplacementText: 'item_ct1.get_local_id(2)'
+    ConstantFlag:    ''
+    ConstantOffset:  0
+    InitStr:         ''
+    NewHostVarName:  ''
+    BlockLevelFormatFlag: false
+  - FilePath:        '/lus/grand/projects/LASSCF_gpudev/knight/soft/mrh/gpu/mini-apps/syclomatic/device/device_cuda.cpp'
+    Offset:          12134
+    Length:          10
+    ReplacementText: 'item_ct1.get_group(1)'
+    ConstantFlag:    ''
+    ConstantOffset:  0
+    InitStr:         ''
+    NewHostVarName:  ''
+    BlockLevelFormatFlag: false
+  - FilePath:        '/lus/grand/projects/LASSCF_gpudev/knight/soft/mrh/gpu/mini-apps/syclomatic/device/device_cuda.cpp'
+    Offset:          12147
+    Length:          10
+    ReplacementText: 'item_ct1.get_local_range(1)'
+    ConstantFlag:    ''
+    ConstantOffset:  0
+    InitStr:         ''
+    NewHostVarName:  ''
+    BlockLevelFormatFlag: false
+  - FilePath:        '/lus/grand/projects/LASSCF_gpudev/knight/soft/mrh/gpu/mini-apps/syclomatic/device/device_cuda.cpp'
+    Offset:          12160
+    Length:          11
+    ReplacementText: 'item_ct1.get_local_id(1)'
+    ConstantFlag:    ''
+    ConstantOffset:  0
+    InitStr:         ''
+    NewHostVarName:  ''
+    BlockLevelFormatFlag: false
+  - FilePath:        '/lus/grand/projects/LASSCF_gpudev/knight/soft/mrh/gpu/mini-apps/syclomatic/device/device_cuda.cpp'
+    Offset:          12456
+    Length:          11
+    ReplacementText: ''
+    ConstantFlag:    ''
+    ConstantOffset:  0
+    InitStr:         ''
+    NewHostVarName:  ''
+    BlockLevelFormatFlag: false
+  - FilePath:        '/lus/grand/projects/LASSCF_gpudev/knight/soft/mrh/gpu/mini-apps/syclomatic/device/device_cuda.cpp'
+    Offset:          12565
+    Length:          0
+    ReplacementText: ",\n                      const sycl::nd_item<3> &item_ct1"
+    ConstantFlag:    ''
+    ConstantOffset:  0
+    InitStr:         ''
+    NewHostVarName:  ''
+    BlockLevelFormatFlag: false
+  - FilePath:        '/lus/grand/projects/LASSCF_gpudev/knight/soft/mrh/gpu/mini-apps/syclomatic/device/device_cuda.cpp'
+    Offset:          12581
+    Length:          10
+    ReplacementText: 'item_ct1.get_group(2)'
+    ConstantFlag:    ''
+    ConstantOffset:  0
+    InitStr:         ''
+    NewHostVarName:  ''
+    BlockLevelFormatFlag: false
+  - FilePath:        '/lus/grand/projects/LASSCF_gpudev/knight/soft/mrh/gpu/mini-apps/syclomatic/device/device_cuda.cpp'
+    Offset:          12594
+    Length:          10
+    ReplacementText: 'item_ct1.get_local_range(2)'
+    ConstantFlag:    ''
+    ConstantOffset:  0
+    InitStr:         ''
+    NewHostVarName:  ''
+    BlockLevelFormatFlag: false
+  - FilePath:        '/lus/grand/projects/LASSCF_gpudev/knight/soft/mrh/gpu/mini-apps/syclomatic/device/device_cuda.cpp'
+    Offset:          12607
+    Length:          11
+    ReplacementText: 'item_ct1.get_local_id(2)'
+    ConstantFlag:    ''
+    ConstantOffset:  0
+    InitStr:         ''
+    NewHostVarName:  ''
+    BlockLevelFormatFlag: false
+  - FilePath:        '/lus/grand/projects/LASSCF_gpudev/knight/soft/mrh/gpu/mini-apps/syclomatic/device/device_cuda.cpp'
+    Offset:          12632
+    Length:          10
+    ReplacementText: 'item_ct1.get_group(1)'
+    ConstantFlag:    ''
+    ConstantOffset:  0
+    InitStr:         ''
+    NewHostVarName:  ''
+    BlockLevelFormatFlag: false
+  - FilePath:        '/lus/grand/projects/LASSCF_gpudev/knight/soft/mrh/gpu/mini-apps/syclomatic/device/device_cuda.cpp'
+    Offset:          12645
+    Length:          10
+    ReplacementText: 'item_ct1.get_local_range(1)'
+    ConstantFlag:    ''
+    ConstantOffset:  0
+    InitStr:         ''
+    NewHostVarName:  ''
+    BlockLevelFormatFlag: false
+  - FilePath:        '/lus/grand/projects/LASSCF_gpudev/knight/soft/mrh/gpu/mini-apps/syclomatic/device/device_cuda.cpp'
+    Offset:          12658
+    Length:          11
+    ReplacementText: 'item_ct1.get_local_id(1)'
+    ConstantFlag:    ''
+    ConstantOffset:  0
+    InitStr:         ''
+    NewHostVarName:  ''
+    BlockLevelFormatFlag: false
+  - FilePath:        '/lus/grand/projects/LASSCF_gpudev/knight/soft/mrh/gpu/mini-apps/syclomatic/device/device_cuda.cpp'
+    Offset:          13190
+    Length:          4
+    ReplacementText: 'sycl::range<3>'
+    ConstantFlag:    ''
+    ConstantOffset:  0
+    InitStr:         ''
+    NewHostVarName:  ''
+    BlockLevelFormatFlag: false
+  - FilePath:        '/lus/grand/projects/LASSCF_gpudev/knight/soft/mrh/gpu/mini-apps/syclomatic/device/device_cuda.cpp'
+    Offset:          13205
+    Length:          13
+    ReplacementText: 1, naux, nset
+    ConstantFlag:    ''
+    ConstantOffset:  0
+    InitStr:         ''
+    NewHostVarName:  ''
+    BlockLevelFormatFlag: false
+  - FilePath:        '/lus/grand/projects/LASSCF_gpudev/knight/soft/mrh/gpu/mini-apps/syclomatic/device/device_cuda.cpp'
+    Offset:          13223
+    Length:          4
+    ReplacementText: 'sycl::range<3>'
+    ConstantFlag:    ''
+    ConstantOffset:  0
+    InitStr:         ''
+    NewHostVarName:  ''
+    BlockLevelFormatFlag: false
+  - FilePath:        '/lus/grand/projects/LASSCF_gpudev/knight/soft/mrh/gpu/mini-apps/syclomatic/device/device_cuda.cpp'
+    Offset:          13239
+    Length:          21
+    ReplacementText: _RHO_BLOCK_SIZE, 1, 1
+    ConstantFlag:    ''
+    ConstantOffset:  0
+    InitStr:         ''
+    NewHostVarName:  ''
+    BlockLevelFormatFlag: false
+  - FilePath:        '/lus/grand/projects/LASSCF_gpudev/knight/soft/mrh/gpu/mini-apps/syclomatic/device/device_cuda.cpp'
+    Offset:          13398
+    Length:          12
+    ReplacementText: 'dpct::queue_ptr'
+    ConstantFlag:    ''
+    ConstantOffset:  0
+    InitStr:         ''
+    NewHostVarName:  ''
+    BlockLevelFormatFlag: false
+  - FilePath:        '/lus/grand/projects/LASSCF_gpudev/knight/soft/mrh/gpu/mini-apps/syclomatic/device/device_cuda.cpp'
+    Offset:          13444
+    Length:          83
+    ReplacementText: "{\n    dpct::has_capability_or_fail(s->get_device(), {sycl::aspect::fp64});\n\n    s->submit(\n      [&](sycl::handler &cgh) {\n        /*\n        DPCT1101:13: '_RHO_BLOCK_SIZE' expression was replaced with a value. Modify the code to use the original expression, provided in comments, if it is correct.\n        */\n        sycl::local_accessor<double, 1> cache_acc_ct1(sycl::range<1>(64/*_RHO_BLOCK_SIZE*/), cgh);\n\n        cgh.parallel_for(\n          sycl::nd_range<3>(grid_size * block_size, block_size), \n          [=](sycl::nd_item<3> item_ct1) {\n            _getjk_rho(rho, dmtril, eri, nset, naux, nao_pair, item_ct1, cache_acc_ct1.get_multi_ptr<sycl::access::decorated::no>().get());\n          });\n      });\n  }"
+    ConstantFlag:    ''
+    ConstantOffset:  0
+    InitStr:         ''
+    NewHostVarName:  ''
+    BlockLevelFormatFlag: true
+  - FilePath:        '/lus/grand/projects/LASSCF_gpudev/knight/soft/mrh/gpu/mini-apps/syclomatic/device/device_cuda.cpp'
+    Offset:          13527
+    Length:          1
+    ReplacementText: ''
+    ConstantFlag:    ''
+    ConstantOffset:  0
+    InitStr:         ''
+    NewHostVarName:  ''
+    BlockLevelFormatFlag: false
+  - FilePath:        '/lus/grand/projects/LASSCF_gpudev/knight/soft/mrh/gpu/mini-apps/syclomatic/device/device_cuda.cpp'
+    Offset:          14016
+    Length:          4
+    ReplacementText: 'sycl::range<3>'
+    ConstantFlag:    ''
+    ConstantOffset:  0
+    InitStr:         ''
+    NewHostVarName:  ''
+    BlockLevelFormatFlag: false
+  - FilePath:        '/lus/grand/projects/LASSCF_gpudev/knight/soft/mrh/gpu/mini-apps/syclomatic/device/device_cuda.cpp'
+    Offset:          14031
+    Length:          61
+    ReplacementText: '1, (nao_pair + (_DOT_BLOCK_SIZE - 1)) / _DOT_BLOCK_SIZE, nset'
+    ConstantFlag:    ''
+    ConstantOffset:  0
+    InitStr:         ''
+    NewHostVarName:  ''
+    BlockLevelFormatFlag: false
+  - FilePath:        '/lus/grand/projects/LASSCF_gpudev/knight/soft/mrh/gpu/mini-apps/syclomatic/device/device_cuda.cpp'
+    Offset:          14097
+    Length:          4
+    ReplacementText: 'sycl::range<3>'
+    ConstantFlag:    ''
+    ConstantOffset:  0
+    InitStr:         ''
+    NewHostVarName:  ''
+    BlockLevelFormatFlag: false
+  - FilePath:        '/lus/grand/projects/LASSCF_gpudev/knight/soft/mrh/gpu/mini-apps/syclomatic/device/device_cuda.cpp'
+    Offset:          14142
+    Length:          12
+    ReplacementText: 'dpct::queue_ptr'
+    ConstantFlag:    ''
+    ConstantOffset:  0
+    InitStr:         ''
+    NewHostVarName:  ''
+    BlockLevelFormatFlag: false
+  - FilePath:        '/lus/grand/projects/LASSCF_gpudev/knight/soft/mrh/gpu/mini-apps/syclomatic/device/device_cuda.cpp'
+    Offset:          14188
+    Length:          84
+    ReplacementText: "{\n    dpct::has_capability_or_fail(s->get_device(), {sycl::aspect::fp64});\n\n    s->parallel_for(\n      sycl::nd_range<3>(grid_size * block_size, block_size), \n      [=](sycl::nd_item<3> item_ct1) {\n        _getjk_vj(vj, rho, eri, nset, nao_pair, naux, init, item_ct1);\n      });\n  }"
+    ConstantFlag:    ''
+    ConstantOffset:  0
+    InitStr:         ''
+    NewHostVarName:  ''
+    BlockLevelFormatFlag: true
+  - FilePath:        '/lus/grand/projects/LASSCF_gpudev/knight/soft/mrh/gpu/mini-apps/syclomatic/device/device_cuda.cpp'
+    Offset:          14272
+    Length:          1
+    ReplacementText: ''
+    ConstantFlag:    ''
+    ConstantOffset:  0
+    InitStr:         ''
+    NewHostVarName:  ''
+    BlockLevelFormatFlag: false
+  - FilePath:        '/lus/grand/projects/LASSCF_gpudev/knight/soft/mrh/gpu/mini-apps/syclomatic/device/device_cuda.cpp'
+    Offset:          14771
+    Length:          4
+    ReplacementText: 'sycl::range<3>'
+    ConstantFlag:    ''
+    ConstantOffset:  0
+    InitStr:         ''
+    NewHostVarName:  ''
+    BlockLevelFormatFlag: false
+  - FilePath:        '/lus/grand/projects/LASSCF_gpudev/knight/soft/mrh/gpu/mini-apps/syclomatic/device/device_cuda.cpp'
+    Offset:          14786
+    Length:          39
+    ReplacementText: '1, _TILE(nao, _UNPACK_BLOCK_SIZE), naux'
+    ConstantFlag:    ''
+    ConstantOffset:  0
+    InitStr:         ''
+    NewHostVarName:  ''
+    BlockLevelFormatFlag: false
+  - FilePath:        '/lus/grand/projects/LASSCF_gpudev/knight/soft/mrh/gpu/mini-apps/syclomatic/device/device_cuda.cpp'
+    Offset:          14830
+    Length:          4
+    ReplacementText: 'sycl::range<3>'
+    ConstantFlag:    ''
+    ConstantOffset:  0
+    InitStr:         ''
+    NewHostVarName:  ''
+    BlockLevelFormatFlag: false
+  - FilePath:        '/lus/grand/projects/LASSCF_gpudev/knight/soft/mrh/gpu/mini-apps/syclomatic/device/device_cuda.cpp'
+    Offset:          14999
+    Length:          12
+    ReplacementText: 'dpct::queue_ptr'
+    ConstantFlag:    ''
+    ConstantOffset:  0
+    InitStr:         ''
+    NewHostVarName:  ''
+    BlockLevelFormatFlag: false
+  - FilePath:        '/lus/grand/projects/LASSCF_gpudev/knight/soft/mrh/gpu/mini-apps/syclomatic/device/device_cuda.cpp'
+    Offset:          15045
+    Length:          88
+    ReplacementText: "{\n    dpct::has_capability_or_fail(s->get_device(), {sycl::aspect::fp64});\n\n    s->parallel_for(\n      sycl::nd_range<3>(grid_size * block_size, block_size), \n      [=](sycl::nd_item<3> item_ct1) {\n        _getjk_unpack_buf2(buf2, eri, map, naux, nao, nao_pair, item_ct1);\n      });\n  }"
+    ConstantFlag:    ''
+    ConstantOffset:  0
+    InitStr:         ''
+    NewHostVarName:  ''
+    BlockLevelFormatFlag: true
+  - FilePath:        '/lus/grand/projects/LASSCF_gpudev/knight/soft/mrh/gpu/mini-apps/syclomatic/device/device_cuda.cpp'
+    Offset:          15133
+    Length:          1
+    ReplacementText: ''
+    ConstantFlag:    ''
+    ConstantOffset:  0
+    InitStr:         ''
+    NewHostVarName:  ''
+    BlockLevelFormatFlag: false
+  - FilePath:        '/lus/grand/projects/LASSCF_gpudev/knight/soft/mrh/gpu/mini-apps/syclomatic/device/device_cuda.cpp'
+    Offset:          15694
+    Length:          4
+    ReplacementText: 'sycl::range<3>'
+    ConstantFlag:    ''
+    ConstantOffset:  0
+    InitStr:         ''
+    NewHostVarName:  ''
+    BlockLevelFormatFlag: false
+  - FilePath:        '/lus/grand/projects/LASSCF_gpudev/knight/soft/mrh/gpu/mini-apps/syclomatic/device/device_cuda.cpp'
+    Offset:          15709
+    Length:          74
+    ReplacementText: '1, _TILE(ncol, _TRANSPOSE_BLOCK_SIZE), _TILE(nrow, _TRANSPOSE_BLOCK_SIZE)'
+    ConstantFlag:    ''
+    ConstantOffset:  0
+    InitStr:         ''
+    NewHostVarName:  ''
+    BlockLevelFormatFlag: false
+  - FilePath:        '/lus/grand/projects/LASSCF_gpudev/knight/soft/mrh/gpu/mini-apps/syclomatic/device/device_cuda.cpp'
+    Offset:          15788
+    Length:          4
+    ReplacementText: 'sycl::range<3>'
+    ConstantFlag:    ''
+    ConstantOffset:  0
+    InitStr:         ''
+    NewHostVarName:  ''
+    BlockLevelFormatFlag: false
+  - FilePath:        '/lus/grand/projects/LASSCF_gpudev/knight/soft/mrh/gpu/mini-apps/syclomatic/device/device_cuda.cpp'
+    Offset:          15804
+    Length:          45
+    ReplacementText: 1, _TRANSPOSE_NUM_ROWS, _TRANSPOSE_BLOCK_SIZE
+    ConstantFlag:    ''
+    ConstantOffset:  0
+    InitStr:         ''
+    NewHostVarName:  ''
+    BlockLevelFormatFlag: false
+  - FilePath:        '/lus/grand/projects/LASSCF_gpudev/knight/soft/mrh/gpu/mini-apps/syclomatic/device/device_cuda.cpp'
+    Offset:          15948
+    Length:          12
+    ReplacementText: 'dpct::queue_ptr'
+    ConstantFlag:    ''
+    ConstantOffset:  0
+    InitStr:         ''
+    NewHostVarName:  ''
+    BlockLevelFormatFlag: false
+  - FilePath:        '/lus/grand/projects/LASSCF_gpudev/knight/soft/mrh/gpu/mini-apps/syclomatic/device/device_cuda.cpp'
+    Offset:          15994
+    Length:          64
+    ReplacementText: "{\n    dpct::has_capability_or_fail(s->get_device(), {sycl::aspect::fp64});\n\n    s->submit(\n      [&](sycl::handler &cgh) {\n        /*\n        DPCT1101:14: '_TRANSPOSE_BLOCK_SIZE' expression was replaced with a value. Modify the code to use the original expression, provided in comments, if it is correct.\n        */\n        /*\n        DPCT1101:15: '_TRANSPOSE_BLOCK_SIZE+1' expression was replaced with a value. Modify the code to use the original expression, provided in comments, if it is correct.\n        */\n        sycl::local_accessor<double, 2> cache_acc_ct1(sycl::range<2>(16/*_TRANSPOSE_BLOCK_SIZE*/, 17/*_TRANSPOSE_BLOCK_SIZE+1*/), cgh);\n\n        cgh.parallel_for(\n          sycl::nd_range<3>(grid_size * block_size, block_size), \n          [=](sycl::nd_item<3> item_ct1) {\n            _transpose(out, in, nrow, ncol, item_ct1, cache_acc_ct1);\n          });\n      });\n  }"
+    ConstantFlag:    ''
+    ConstantOffset:  0
+    InitStr:         ''
+    NewHostVarName:  ''
+    BlockLevelFormatFlag: true
+  - FilePath:        '/lus/grand/projects/LASSCF_gpudev/knight/soft/mrh/gpu/mini-apps/syclomatic/device/device_cuda.cpp'
+    Offset:          16058
+    Length:          1
+    ReplacementText: ''
+    ConstantFlag:    ''
+    ConstantOffset:  0
+    InitStr:         ''
+    NewHostVarName:  ''
+    BlockLevelFormatFlag: false
+  - FilePath:        '/lus/grand/projects/LASSCF_gpudev/knight/soft/mrh/gpu/mini-apps/syclomatic/device/device_cuda.cpp'
+    Offset:          16483
+    Length:          11
+    ReplacementText: ''
+    ConstantFlag:    ''
+    ConstantOffset:  0
+    InitStr:         ''
+    NewHostVarName:  ''
+    BlockLevelFormatFlag: false
+  - FilePath:        '/lus/grand/projects/LASSCF_gpudev/knight/soft/mrh/gpu/mini-apps/syclomatic/device/device_cuda.cpp'
+    Offset:          16575
+    Length:          0
+    ReplacementText: ",\n               const sycl::nd_item<3> &item_ct1"
+    ConstantFlag:    ''
+    ConstantOffset:  0
+    InitStr:         ''
+    NewHostVarName:  ''
+    BlockLevelFormatFlag: false
+  - FilePath:        '/lus/grand/projects/LASSCF_gpudev/knight/soft/mrh/gpu/mini-apps/syclomatic/device/device_cuda.cpp'
+    Offset:          16591
+    Length:          10
+    ReplacementText: 'item_ct1.get_group(2)'
+    ConstantFlag:    ''
+    ConstantOffset:  0
+    InitStr:         ''
+    NewHostVarName:  ''
+    BlockLevelFormatFlag: false
+  - FilePath:        '/lus/grand/projects/LASSCF_gpudev/knight/soft/mrh/gpu/mini-apps/syclomatic/device/device_cuda.cpp'
+    Offset:          16604
+    Length:          10
+    ReplacementText: 'item_ct1.get_local_range(2)'
+    ConstantFlag:    ''
+    ConstantOffset:  0
+    InitStr:         ''
+    NewHostVarName:  ''
+    BlockLevelFormatFlag: false
+  - FilePath:        '/lus/grand/projects/LASSCF_gpudev/knight/soft/mrh/gpu/mini-apps/syclomatic/device/device_cuda.cpp'
+    Offset:          16617
+    Length:          11
+    ReplacementText: 'item_ct1.get_local_id(2)'
+    ConstantFlag:    ''
+    ConstantOffset:  0
+    InitStr:         ''
+    NewHostVarName:  ''
+    BlockLevelFormatFlag: false
+  - FilePath:        '/lus/grand/projects/LASSCF_gpudev/knight/soft/mrh/gpu/mini-apps/syclomatic/device/device_cuda.cpp'
+    Offset:          16642
+    Length:          10
+    ReplacementText: 'item_ct1.get_group(1)'
+    ConstantFlag:    ''
+    ConstantOffset:  0
+    InitStr:         ''
+    NewHostVarName:  ''
+    BlockLevelFormatFlag: false
+  - FilePath:        '/lus/grand/projects/LASSCF_gpudev/knight/soft/mrh/gpu/mini-apps/syclomatic/device/device_cuda.cpp'
+    Offset:          16655
+    Length:          10
+    ReplacementText: 'item_ct1.get_local_range(1)'
+    ConstantFlag:    ''
+    ConstantOffset:  0
+    InitStr:         ''
+    NewHostVarName:  ''
+    BlockLevelFormatFlag: false
+  - FilePath:        '/lus/grand/projects/LASSCF_gpudev/knight/soft/mrh/gpu/mini-apps/syclomatic/device/device_cuda.cpp'
+    Offset:          16668
+    Length:          11
+    ReplacementText: 'item_ct1.get_local_id(1)'
+    ConstantFlag:    ''
+    ConstantOffset:  0
+    InitStr:         ''
+    NewHostVarName:  ''
+    BlockLevelFormatFlag: false
+  - FilePath:        '/lus/grand/projects/LASSCF_gpudev/knight/soft/mrh/gpu/mini-apps/syclomatic/device/device_cuda.cpp'
+    Offset:          16693
+    Length:          10
+    ReplacementText: 'item_ct1.get_group(0)'
+    ConstantFlag:    ''
+    ConstantOffset:  0
+    InitStr:         ''
+    NewHostVarName:  ''
+    BlockLevelFormatFlag: false
+  - FilePath:        '/lus/grand/projects/LASSCF_gpudev/knight/soft/mrh/gpu/mini-apps/syclomatic/device/device_cuda.cpp'
+    Offset:          16706
+    Length:          10
+    ReplacementText: 'item_ct1.get_local_range(0)'
+    ConstantFlag:    ''
+    ConstantOffset:  0
+    InitStr:         ''
+    NewHostVarName:  ''
+    BlockLevelFormatFlag: false
+  - FilePath:        '/lus/grand/projects/LASSCF_gpudev/knight/soft/mrh/gpu/mini-apps/syclomatic/device/device_cuda.cpp'
+    Offset:          16719
+    Length:          11
+    ReplacementText: 'item_ct1.get_local_id(0)'
+    ConstantFlag:    ''
+    ConstantOffset:  0
+    InitStr:         ''
+    NewHostVarName:  ''
+    BlockLevelFormatFlag: false
+  - FilePath:        '/lus/grand/projects/LASSCF_gpudev/knight/soft/mrh/gpu/mini-apps/syclomatic/device/device_cuda.cpp'
+    Offset:          17144
+    Length:          4
+    ReplacementText: 'sycl::range<3>'
+    ConstantFlag:    ''
+    ConstantOffset:  0
+    InitStr:         ''
+    NewHostVarName:  ''
+    BlockLevelFormatFlag: false
+  - FilePath:        '/lus/grand/projects/LASSCF_gpudev/knight/soft/mrh/gpu/mini-apps/syclomatic/device/device_cuda.cpp'
+    Offset:          17160
+    Length:          39
+    ReplacementText: 1, _UNPACK_BLOCK_SIZE, _UNPACK_BLOCK_SIZE
+    ConstantFlag:    ''
+    ConstantOffset:  0
+    InitStr:         ''
+    NewHostVarName:  ''
+    BlockLevelFormatFlag: false
+  - FilePath:        '/lus/grand/projects/LASSCF_gpudev/knight/soft/mrh/gpu/mini-apps/syclomatic/device/device_cuda.cpp'
+    Offset:          17204
+    Length:          4
+    ReplacementText: 'sycl::range<3>'
+    ConstantFlag:    ''
+    ConstantOffset:  0
+    InitStr:         ''
+    NewHostVarName:  ''
+    BlockLevelFormatFlag: false
+  - FilePath:        '/lus/grand/projects/LASSCF_gpudev/knight/soft/mrh/gpu/mini-apps/syclomatic/device/device_cuda.cpp'
+    Offset:          17220
+    Length:          57
+    ReplacementText: 'ncas, _TILE(nmo, block_size[1]), _TILE(naux, block_size[2])'
+    ConstantFlag:    ''
+    ConstantOffset:  0
+    InitStr:         ''
+    NewHostVarName:  ''
+    BlockLevelFormatFlag: false
+  - FilePath:        '/lus/grand/projects/LASSCF_gpudev/knight/soft/mrh/gpu/mini-apps/syclomatic/device/device_cuda.cpp'
+    Offset:          17285
+    Length:          12
+    ReplacementText: 'dpct::queue_ptr'
+    ConstantFlag:    ''
+    ConstantOffset:  0
+    InitStr:         ''
+    NewHostVarName:  ''
+    BlockLevelFormatFlag: false
+  - FilePath:        '/lus/grand/projects/LASSCF_gpudev/knight/soft/mrh/gpu/mini-apps/syclomatic/device/device_cuda.cpp'
+    Offset:          17329
+    Length:          0
+    ReplacementText: "  /*\n  DPCT1049:1: The work-group size passed to the SYCL kernel may exceed the limit. To get the device limit, query info::device::max_work_group_size. Adjust the work-group size if needed.\n  */\n"
+    ConstantFlag:    ''
+    ConstantOffset:  0
+    InitStr:         ''
+    NewHostVarName:  ''
+    BlockLevelFormatFlag: false
+  - FilePath:        '/lus/grand/projects/LASSCF_gpudev/knight/soft/mrh/gpu/mini-apps/syclomatic/device/device_cuda.cpp'
+    Offset:          17331
+    Length:          81
+    ReplacementText: "{\n    dpct::has_capability_or_fail(s->get_device(), {sycl::aspect::fp64});\n\n    s->parallel_for(\n      sycl::nd_range<3>(grid_size * block_size, block_size), \n      [=](sycl::nd_item<3> item_ct1) {\n        _get_bufpa(bufpp, bufpa, naux, nmo, ncore, ncas, item_ct1);\n      });\n  }"
+    ConstantFlag:    ''
+    ConstantOffset:  0
+    InitStr:         ''
+    NewHostVarName:  ''
+    BlockLevelFormatFlag: true
+  - FilePath:        '/lus/grand/projects/LASSCF_gpudev/knight/soft/mrh/gpu/mini-apps/syclomatic/device/device_cuda.cpp'
+    Offset:          17412
+    Length:          1
+    ReplacementText: ''
+    ConstantFlag:    ''
+    ConstantOffset:  0
+    InitStr:         ''
+    NewHostVarName:  ''
+    BlockLevelFormatFlag: false
+  - FilePath:        '/lus/grand/projects/LASSCF_gpudev/knight/soft/mrh/gpu/mini-apps/syclomatic/device/device_cuda.cpp'
+    Offset:          17597
+    Length:          4
+    ReplacementText: 'sycl::range<3>'
+    ConstantFlag:    ''
+    ConstantOffset:  0
+    InitStr:         ''
+    NewHostVarName:  ''
+    BlockLevelFormatFlag: false
+  - FilePath:        '/lus/grand/projects/LASSCF_gpudev/knight/soft/mrh/gpu/mini-apps/syclomatic/device/device_cuda.cpp'
+    Offset:          17613
+    Length:          22
+    ReplacementText: 1, 1, _UNPACK_BLOCK_SIZE
+    ConstantFlag:    ''
+    ConstantOffset:  0
+    InitStr:         ''
+    NewHostVarName:  ''
+    BlockLevelFormatFlag: false
+  - FilePath:        '/lus/grand/projects/LASSCF_gpudev/knight/soft/mrh/gpu/mini-apps/syclomatic/device/device_cuda.cpp'
+    Offset:          17640
+    Length:          4
+    ReplacementText: 'sycl::range<3>'
+    ConstantFlag:    ''
+    ConstantOffset:  0
+    InitStr:         ''
+    NewHostVarName:  ''
+    BlockLevelFormatFlag: false
+  - FilePath:        '/lus/grand/projects/LASSCF_gpudev/knight/soft/mrh/gpu/mini-apps/syclomatic/device/device_cuda.cpp'
+    Offset:          17656
+    Length:          37
+    ReplacementText: 'ncas, ncas, _TILE(naux, block_size[2])'
+    ConstantFlag:    ''
+    ConstantOffset:  0
+    InitStr:         ''
+    NewHostVarName:  ''
+    BlockLevelFormatFlag: false
+  - FilePath:        '/lus/grand/projects/LASSCF_gpudev/knight/soft/mrh/gpu/mini-apps/syclomatic/device/device_cuda.cpp'
+    Offset:          17701
+    Length:          12
+    ReplacementText: 'dpct::queue_ptr'
+    ConstantFlag:    ''
+    ConstantOffset:  0
+    InitStr:         ''
+    NewHostVarName:  ''
+    BlockLevelFormatFlag: false
+  - FilePath:        '/lus/grand/projects/LASSCF_gpudev/knight/soft/mrh/gpu/mini-apps/syclomatic/device/device_cuda.cpp'
+    Offset:          17745
+    Length:          0
+    ReplacementText: "  /*\n  DPCT1049:2: The work-group size passed to the SYCL kernel may exceed the limit. To get the device limit, query info::device::max_work_group_size. Adjust the work-group size if needed.\n  */\n"
+    ConstantFlag:    ''
+    ConstantOffset:  0
+    InitStr:         ''
+    NewHostVarName:  ''
+    BlockLevelFormatFlag: false
+  - FilePath:        '/lus/grand/projects/LASSCF_gpudev/knight/soft/mrh/gpu/mini-apps/syclomatic/device/device_cuda.cpp'
+    Offset:          17747
+    Length:          81
+    ReplacementText: "{\n    dpct::has_capability_or_fail(s->get_device(), {sycl::aspect::fp64});\n\n    s->parallel_for(\n      sycl::nd_range<3>(grid_size * block_size, block_size), \n      [=](sycl::nd_item<3> item_ct1) {\n        _get_bufaa(bufpp, bufaa, naux, nmo, ncore, ncas, item_ct1);\n      });\n  }"
+    ConstantFlag:    ''
+    ConstantOffset:  0
+    InitStr:         ''
+    NewHostVarName:  ''
+    BlockLevelFormatFlag: true
+  - FilePath:        '/lus/grand/projects/LASSCF_gpudev/knight/soft/mrh/gpu/mini-apps/syclomatic/device/device_cuda.cpp'
+    Offset:          17828
+    Length:          1
+    ReplacementText: ''
+    ConstantFlag:    ''
+    ConstantOffset:  0
+    InitStr:         ''
+    NewHostVarName:  ''
+    BlockLevelFormatFlag: false
+  - FilePath:        '/lus/grand/projects/LASSCF_gpudev/knight/soft/mrh/gpu/mini-apps/syclomatic/device/device_cuda.cpp'
+    Offset:          18010
+    Length:          12
+    ReplacementText: 'dpct::queue_ptr'
+    ConstantFlag:    ''
+    ConstantOffset:  0
+    InitStr:         ''
+    NewHostVarName:  ''
+    BlockLevelFormatFlag: false
+  - FilePath:        '/lus/grand/projects/LASSCF_gpudev/knight/soft/mrh/gpu/mini-apps/syclomatic/device/device_cuda.cpp'
+    Offset:          18145
+    Length:          4
+    ReplacementText: 'sycl::range<3>'
+    ConstantFlag:    ''
+    ConstantOffset:  0
+    InitStr:         ''
+    NewHostVarName:  ''
+    BlockLevelFormatFlag: false
+  - FilePath:        '/lus/grand/projects/LASSCF_gpudev/knight/soft/mrh/gpu/mini-apps/syclomatic/device/device_cuda.cpp'
+    Offset:          18162
+    Length:          6
+    ReplacementText: 1, 1, 1
+    ConstantFlag:    ''
+    ConstantOffset:  0
+    InitStr:         ''
+    NewHostVarName:  ''
+    BlockLevelFormatFlag: false
+  - FilePath:        '/lus/grand/projects/LASSCF_gpudev/knight/soft/mrh/gpu/mini-apps/syclomatic/device/device_cuda.cpp'
+    Offset:          18173
+    Length:          4
+    ReplacementText: 'sycl::range<3>'
+    ConstantFlag:    ''
+    ConstantOffset:  0
+    InitStr:         ''
+    NewHostVarName:  ''
+    BlockLevelFormatFlag: false
+  - FilePath:        '/lus/grand/projects/LASSCF_gpudev/knight/soft/mrh/gpu/mini-apps/syclomatic/device/device_cuda.cpp'
+    Offset:          18189
+    Length:          33
+    ReplacementText: 'nb, na, _TILE(naux, block_size[2])'
+    ConstantFlag:    ''
+    ConstantOffset:  0
+    InitStr:         ''
+    NewHostVarName:  ''
+    BlockLevelFormatFlag: false
+  - FilePath:        '/lus/grand/projects/LASSCF_gpudev/knight/soft/mrh/gpu/mini-apps/syclomatic/device/device_cuda.cpp'
+    Offset:          18251
+    Length:          0
+    ReplacementText: "  /*\n  DPCT1049:3: The work-group size passed to the SYCL kernel may exceed the limit. To get the device limit, query info::device::max_work_group_size. Adjust the work-group size if needed.\n  */\n"
+    ConstantFlag:    ''
+    ConstantOffset:  0
+    InitStr:         ''
+    NewHostVarName:  ''
+    BlockLevelFormatFlag: false
+  - FilePath:        '/lus/grand/projects/LASSCF_gpudev/knight/soft/mrh/gpu/mini-apps/syclomatic/device/device_cuda.cpp'
+    Offset:          18253
+    Length:          73
+    ReplacementText: "{\n    dpct::has_capability_or_fail(s->get_device(), {sycl::aspect::fp64});\n\n    s->parallel_for(\n      sycl::nd_range<3>(grid_size * block_size, block_size), \n      [=](sycl::nd_item<3> item_ct1) {\n        _transpose_120(in, out, naux, nao, ncas, item_ct1);\n      });\n  }"
+    ConstantFlag:    ''
+    ConstantOffset:  0
+    InitStr:         ''
+    NewHostVarName:  ''
+    BlockLevelFormatFlag: true
+  - FilePath:        '/lus/grand/projects/LASSCF_gpudev/knight/soft/mrh/gpu/mini-apps/syclomatic/device/device_cuda.cpp'
+    Offset:          18326
+    Length:          1
+    ReplacementText: ''
+    ConstantFlag:    ''
+    ConstantOffset:  0
+    InitStr:         ''
+    NewHostVarName:  ''
+    BlockLevelFormatFlag: false
+  - FilePath:        '/lus/grand/projects/LASSCF_gpudev/knight/soft/mrh/gpu/mini-apps/syclomatic/device/device_cuda.cpp'
+    Offset:          18490
+    Length:          4
+    ReplacementText: 'sycl::range<3>'
+    ConstantFlag:    ''
+    ConstantOffset:  0
+    InitStr:         ''
+    NewHostVarName:  ''
+    BlockLevelFormatFlag: false
+  - FilePath:        '/lus/grand/projects/LASSCF_gpudev/knight/soft/mrh/gpu/mini-apps/syclomatic/device/device_cuda.cpp'
+    Offset:          18507
+    Length:          39
+    ReplacementText: 1, _UNPACK_BLOCK_SIZE, _UNPACK_BLOCK_SIZE
+    ConstantFlag:    ''
+    ConstantOffset:  0
+    InitStr:         ''
+    NewHostVarName:  ''
+    BlockLevelFormatFlag: false
+  - FilePath:        '/lus/grand/projects/LASSCF_gpudev/knight/soft/mrh/gpu/mini-apps/syclomatic/device/device_cuda.cpp'
+    Offset:          18551
+    Length:          4
+    ReplacementText: 'sycl::range<3>'
+    ConstantFlag:    ''
+    ConstantOffset:  0
+    InitStr:         ''
+    NewHostVarName:  ''
+    BlockLevelFormatFlag: false
+  - FilePath:        '/lus/grand/projects/LASSCF_gpudev/knight/soft/mrh/gpu/mini-apps/syclomatic/device/device_cuda.cpp'
+    Offset:          18567
+    Length:          52
+    ReplacementText: '1, _TILE(nmo, block_size[1]), _TILE(naux, block_size[2])'
+    ConstantFlag:    ''
+    ConstantOffset:  0
+    InitStr:         ''
+    NewHostVarName:  ''
+    BlockLevelFormatFlag: false
+  - FilePath:        '/lus/grand/projects/LASSCF_gpudev/knight/soft/mrh/gpu/mini-apps/syclomatic/device/device_cuda.cpp'
+    Offset:          18627
+    Length:          12
+    ReplacementText: 'dpct::queue_ptr'
+    ConstantFlag:    ''
+    ConstantOffset:  0
+    InitStr:         ''
+    NewHostVarName:  ''
+    BlockLevelFormatFlag: false
+  - FilePath:        '/lus/grand/projects/LASSCF_gpudev/knight/soft/mrh/gpu/mini-apps/syclomatic/device/device_cuda.cpp'
+    Offset:          18671
+    Length:          0
+    ReplacementText: "  /*\n  DPCT1049:4: The work-group size passed to the SYCL kernel may exceed the limit. To get the device limit, query info::device::max_work_group_size. Adjust the work-group size if needed.\n  */\n"
+    ConstantFlag:    ''
+    ConstantOffset:  0
+    InitStr:         ''
+    NewHostVarName:  ''
+    BlockLevelFormatFlag: false
+  - FilePath:        '/lus/grand/projects/LASSCF_gpudev/knight/soft/mrh/gpu/mini-apps/syclomatic/device/device_cuda.cpp'
+    Offset:          18673
+    Length:          66
+    ReplacementText: "{\n    dpct::has_capability_or_fail(s->get_device(), {sycl::aspect::fp64});\n\n    s->parallel_for(\n      sycl::nd_range<3>(grid_size * block_size, block_size), \n      [=](sycl::nd_item<3> item_ct1) {\n        _get_bufd(bufpp, bufd, naux, nmo, item_ct1);\n      });\n  }"
+    ConstantFlag:    ''
+    ConstantOffset:  0
+    InitStr:         ''
+    NewHostVarName:  ''
+    BlockLevelFormatFlag: true
+  - FilePath:        '/lus/grand/projects/LASSCF_gpudev/knight/soft/mrh/gpu/mini-apps/syclomatic/device/device_cuda.cpp'
+    Offset:          18739
+    Length:          1
+    ReplacementText: ''
+    ConstantFlag:    ''
+    ConstantOffset:  0
+    InitStr:         ''
+    NewHostVarName:  ''
+    BlockLevelFormatFlag: false
+  - FilePath:        '/lus/grand/projects/LASSCF_gpudev/knight/soft/mrh/gpu/mini-apps/syclomatic/device/device_cuda.cpp'
+    Offset:          18909
+    Length:          4
+    ReplacementText: 'sycl::range<3>'
+    ConstantFlag:    ''
+    ConstantOffset:  0
+    InitStr:         ''
+    NewHostVarName:  ''
+    BlockLevelFormatFlag: false
+  - FilePath:        '/lus/grand/projects/LASSCF_gpudev/knight/soft/mrh/gpu/mini-apps/syclomatic/device/device_cuda.cpp'
+    Offset:          18971
+    Length:          4
+    ReplacementText: 'sycl::range<3>'
+    ConstantFlag:    ''
+    ConstantOffset:  0
+    InitStr:         ''
+    NewHostVarName:  ''
+    BlockLevelFormatFlag: false
+  - FilePath:        '/lus/grand/projects/LASSCF_gpudev/knight/soft/mrh/gpu/mini-apps/syclomatic/device/device_cuda.cpp'
+    Offset:          18986
+    Length:          75
+    ReplacementText: '_TILE(nao,block_size[0]), _TILE(ncas,block_size[1]), _TILE(naux,block_size[2])'
+    ConstantFlag:    ''
+    ConstantOffset:  0
+    InitStr:         ''
+    NewHostVarName:  ''
+    BlockLevelFormatFlag: false
+  - FilePath:        '/lus/grand/projects/LASSCF_gpudev/knight/soft/mrh/gpu/mini-apps/syclomatic/device/device_cuda.cpp'
+    Offset:          19069
+    Length:          12
+    ReplacementText: 'dpct::queue_ptr'
+    ConstantFlag:    ''
+    ConstantOffset:  0
+    InitStr:         ''
+    NewHostVarName:  ''
+    BlockLevelFormatFlag: false
+  - FilePath:        '/lus/grand/projects/LASSCF_gpudev/knight/soft/mrh/gpu/mini-apps/syclomatic/device/device_cuda.cpp'
+    Offset:          19113
+    Length:          0
+    ReplacementText: "  /*\n  DPCT1049:5: The work-group size passed to the SYCL kernel may exceed the limit. To get the device limit, query info::device::max_work_group_size. Adjust the work-group size if needed.\n  */\n"
+    ConstantFlag:    ''
+    ConstantOffset:  0
+    InitStr:         ''
+    NewHostVarName:  ''
+    BlockLevelFormatFlag: false
+  - FilePath:        '/lus/grand/projects/LASSCF_gpudev/knight/soft/mrh/gpu/mini-apps/syclomatic/device/device_cuda.cpp'
+    Offset:          19115
+    Length:          72
+    ReplacementText: "{\n    dpct::has_capability_or_fail(s->get_device(), {sycl::aspect::fp64});\n\n    s->parallel_for(\n      sycl::nd_range<3>(grid_size * block_size, block_size), \n      [=](sycl::nd_item<3> item_ct1) {\n        _transpose_210(in, out, naux, nao, ncas, item_ct1);\n      });\n  }"
+    ConstantFlag:    ''
+    ConstantOffset:  0
+    InitStr:         ''
+    NewHostVarName:  ''
+    BlockLevelFormatFlag: true
+  - FilePath:        '/lus/grand/projects/LASSCF_gpudev/knight/soft/mrh/gpu/mini-apps/syclomatic/device/device_cuda.cpp'
+    Offset:          19187
+    Length:          1
+    ReplacementText: ''
+    ConstantFlag:    ''
+    ConstantOffset:  0
+    InitStr:         ''
+    NewHostVarName:  ''
+    BlockLevelFormatFlag: false
+  - FilePath:        '/lus/grand/projects/LASSCF_gpudev/knight/soft/mrh/gpu/mini-apps/syclomatic/device/device_cuda.cpp'
+    Offset:          19694
+    Length:          4
+    ReplacementText: 'sycl::range<3>'
+    ConstantFlag:    ''
+    ConstantOffset:  0
+    InitStr:         ''
+    NewHostVarName:  ''
+    BlockLevelFormatFlag: false
+  - FilePath:        '/lus/grand/projects/LASSCF_gpudev/knight/soft/mrh/gpu/mini-apps/syclomatic/device/device_cuda.cpp'
+    Offset:          19710
+    Length:          38
+    ReplacementText: 1, _UNPACK_BLOCK_SIZE, _UNPACK_BLOCK_SIZE
+    ConstantFlag:    ''
+    ConstantOffset:  0
+    InitStr:         ''
+    NewHostVarName:  ''
+    BlockLevelFormatFlag: false
+  - FilePath:        '/lus/grand/projects/LASSCF_gpudev/knight/soft/mrh/gpu/mini-apps/syclomatic/device/device_cuda.cpp'
+    Offset:          19753
+    Length:          4
+    ReplacementText: 'sycl::range<3>'
+    ConstantFlag:    ''
+    ConstantOffset:  0
+    InitStr:         ''
+    NewHostVarName:  ''
+    BlockLevelFormatFlag: false
+  - FilePath:        '/lus/grand/projects/LASSCF_gpudev/knight/soft/mrh/gpu/mini-apps/syclomatic/device/device_cuda.cpp'
+    Offset:          19768
+    Length:          50
+    ReplacementText: '1, _TILE(ncas,block_size[1]), _TILE(ncas,block_size[2])'
+    ConstantFlag:    ''
+    ConstantOffset:  0
+    InitStr:         ''
+    NewHostVarName:  ''
+    BlockLevelFormatFlag: false
+  - FilePath:        '/lus/grand/projects/LASSCF_gpudev/knight/soft/mrh/gpu/mini-apps/syclomatic/device/device_cuda.cpp'
+    Offset:          19828
+    Length:          12
+    ReplacementText: 'dpct::queue_ptr'
+    ConstantFlag:    ''
+    ConstantOffset:  0
+    InitStr:         ''
+    NewHostVarName:  ''
+    BlockLevelFormatFlag: false
+  - FilePath:        '/lus/grand/projects/LASSCF_gpudev/knight/soft/mrh/gpu/mini-apps/syclomatic/device/device_cuda.cpp'
+    Offset:          19872
+    Length:          0
+    ReplacementText: "  /*\n  DPCT1049:6: The work-group size passed to the SYCL kernel may exceed the limit. To get the device limit, query info::device::max_work_group_size. Adjust the work-group size if needed.\n  */\n"
+    ConstantFlag:    ''
+    ConstantOffset:  0
+    InitStr:         ''
+    NewHostVarName:  ''
+    BlockLevelFormatFlag: false
+  - FilePath:        '/lus/grand/projects/LASSCF_gpudev/knight/soft/mrh/gpu/mini-apps/syclomatic/device/device_cuda.cpp'
+    Offset:          19874
+    Length:          89
+    ReplacementText: "{\n    dpct::has_capability_or_fail(s->get_device(), {sycl::aspect::fp64});\n\n    s->parallel_for(\n      sycl::nd_range<3>(grid_size * block_size, block_size), \n      [=](sycl::nd_item<3> item_ct1) {\n        _extract_submatrix(big_mat, small_mat, ncas, ncore, nmo, item_ct1);\n      });\n  }"
+    ConstantFlag:    ''
+    ConstantOffset:  0
+    InitStr:         ''
+    NewHostVarName:  ''
+    BlockLevelFormatFlag: true
+  - FilePath:        '/lus/grand/projects/LASSCF_gpudev/knight/soft/mrh/gpu/mini-apps/syclomatic/device/device_cuda.cpp'
+    Offset:          19963
+    Length:          1
+    ReplacementText: ''
+    ConstantFlag:    ''
+    ConstantOffset:  0
+    InitStr:         ''
+    NewHostVarName:  ''
+    BlockLevelFormatFlag: false
+  - FilePath:        '/lus/grand/projects/LASSCF_gpudev/knight/soft/mrh/gpu/mini-apps/syclomatic/device/device_cuda.cpp'
+    Offset:          20436
+    Length:          4
+    ReplacementText: 'sycl::range<3>'
+    ConstantFlag:    ''
+    ConstantOffset:  0
+    InitStr:         ''
+    NewHostVarName:  ''
+    BlockLevelFormatFlag: false
+  - FilePath:        '/lus/grand/projects/LASSCF_gpudev/knight/soft/mrh/gpu/mini-apps/syclomatic/device/device_cuda.cpp'
+    Offset:          20452
+    Length:          41
+    ReplacementText: 1, _UNPACK_BLOCK_SIZE, _UNPACK_BLOCK_SIZE
+    ConstantFlag:    ''
+    ConstantOffset:  0
+    InitStr:         ''
+    NewHostVarName:  ''
+    BlockLevelFormatFlag: false
+  - FilePath:        '/lus/grand/projects/LASSCF_gpudev/knight/soft/mrh/gpu/mini-apps/syclomatic/device/device_cuda.cpp'
+    Offset:          20498
+    Length:          4
+    ReplacementText: 'sycl::range<3>'
+    ConstantFlag:    ''
+    ConstantOffset:  0
+    InitStr:         ''
+    NewHostVarName:  ''
+    BlockLevelFormatFlag: false
+  - FilePath:        '/lus/grand/projects/LASSCF_gpudev/knight/soft/mrh/gpu/mini-apps/syclomatic/device/device_cuda.cpp'
+    Offset:          20513
+    Length:          74
+    ReplacementText: '1, _TILE(ncas*ncas,_UNPACK_BLOCK_SIZE), _TILE(nmo*ncas,_UNPACK_BLOCK_SIZE)'
+    ConstantFlag:    ''
+    ConstantOffset:  0
+    InitStr:         ''
+    NewHostVarName:  ''
+    BlockLevelFormatFlag: false
+  - FilePath:        '/lus/grand/projects/LASSCF_gpudev/knight/soft/mrh/gpu/mini-apps/syclomatic/device/device_cuda.cpp'
+    Offset:          20593
+    Length:          12
+    ReplacementText: 'dpct::queue_ptr'
+    ConstantFlag:    ''
+    ConstantOffset:  0
+    InitStr:         ''
+    NewHostVarName:  ''
+    BlockLevelFormatFlag: false
+  - FilePath:        '/lus/grand/projects/LASSCF_gpudev/knight/soft/mrh/gpu/mini-apps/syclomatic/device/device_cuda.cpp'
+    Offset:          20637
+    Length:          0
+    ReplacementText: "  /*\n  DPCT1049:7: The work-group size passed to the SYCL kernel may exceed the limit. To get the device limit, query info::device::max_work_group_size. Adjust the work-group size if needed.\n  */\n"
+    ConstantFlag:    ''
+    ConstantOffset:  0
+    InitStr:         ''
+    NewHostVarName:  ''
+    BlockLevelFormatFlag: false
+  - FilePath:        '/lus/grand/projects/LASSCF_gpudev/knight/soft/mrh/gpu/mini-apps/syclomatic/device/device_cuda.cpp'
+    Offset:          20639
+    Length:          82
+    ReplacementText: "{\n    dpct::has_capability_or_fail(dpct::get_in_order_queue().get_device(), {sycl::aspect::fp64});\n\n    dpct::get_in_order_queue().parallel_for(\n      sycl::nd_range<3>(grid_size * block_size, block_size), \n      [=](sycl::nd_item<3> item_ct1) {\n        _unpack_h2eff_2d(in, out, map, nmo, ncas, ncas_pair, item_ct1);\n      });\n  }"
+    ConstantFlag:    ''
+    ConstantOffset:  0
+    InitStr:         ''
+    NewHostVarName:  ''
+    BlockLevelFormatFlag: true
+  - FilePath:        '/lus/grand/projects/LASSCF_gpudev/knight/soft/mrh/gpu/mini-apps/syclomatic/device/device_cuda.cpp'
+    Offset:          20721
+    Length:          1
+    ReplacementText: ''
+    ConstantFlag:    ''
+    ConstantOffset:  0
+    InitStr:         ''
+    NewHostVarName:  ''
+    BlockLevelFormatFlag: false
+  - FilePath:        '/lus/grand/projects/LASSCF_gpudev/knight/soft/mrh/gpu/mini-apps/syclomatic/device/device_cuda.cpp'
+    Offset:          21200
+    Length:          4
+    ReplacementText: 'sycl::range<3>'
+    ConstantFlag:    ''
+    ConstantOffset:  0
+    InitStr:         ''
+    NewHostVarName:  ''
+    BlockLevelFormatFlag: false
+  - FilePath:        '/lus/grand/projects/LASSCF_gpudev/knight/soft/mrh/gpu/mini-apps/syclomatic/device/device_cuda.cpp'
+    Offset:          21216
+    Length:          23
+    ReplacementText: _DEFAULT_BLOCK_SIZE, 1, 1
+    ConstantFlag:    ''
+    ConstantOffset:  0
+    InitStr:         ''
+    NewHostVarName:  ''
+    BlockLevelFormatFlag: false
+  - FilePath:        '/lus/grand/projects/LASSCF_gpudev/knight/soft/mrh/gpu/mini-apps/syclomatic/device/device_cuda.cpp'
+    Offset:          21244
+    Length:          4
+    ReplacementText: 'sycl::range<3>'
+    ConstantFlag:    ''
+    ConstantOffset:  0
+    InitStr:         ''
+    NewHostVarName:  ''
+    BlockLevelFormatFlag: false
+  - FilePath:        '/lus/grand/projects/LASSCF_gpudev/knight/soft/mrh/gpu/mini-apps/syclomatic/device/device_cuda.cpp'
+    Offset:          21259
+    Length:          73
+    ReplacementText: '_TILE(ncas,block_size[0]), _TILE(ncas,block_size[1]), _TILE(nmo,block_size[2])'
+    ConstantFlag:    ''
+    ConstantOffset:  0
+    InitStr:         ''
+    NewHostVarName:  ''
+    BlockLevelFormatFlag: false
+  - FilePath:        '/lus/grand/projects/LASSCF_gpudev/knight/soft/mrh/gpu/mini-apps/syclomatic/device/device_cuda.cpp'
+    Offset:          21340
+    Length:          12
+    ReplacementText: 'dpct::queue_ptr'
+    ConstantFlag:    ''
+    ConstantOffset:  0
+    InitStr:         ''
+    NewHostVarName:  ''
+    BlockLevelFormatFlag: false
+  - FilePath:        '/lus/grand/projects/LASSCF_gpudev/knight/soft/mrh/gpu/mini-apps/syclomatic/device/device_cuda.cpp'
+    Offset:          21384
+    Length:          0
+    ReplacementText: "  /*\n  DPCT1049:8: The work-group size passed to the SYCL kernel may exceed the limit. To get the device limit, query info::device::max_work_group_size. Adjust the work-group size if needed.\n  */\n"
+    ConstantFlag:    ''
+    ConstantOffset:  0
+    InitStr:         ''
+    NewHostVarName:  ''
+    BlockLevelFormatFlag: false
+  - FilePath:        '/lus/grand/projects/LASSCF_gpudev/knight/soft/mrh/gpu/mini-apps/syclomatic/device/device_cuda.cpp'
+    Offset:          21386
+    Length:          68
+    ReplacementText: "{\n    dpct::has_capability_or_fail(s->get_device(), {sycl::aspect::fp64});\n\n    s->parallel_for(\n      sycl::nd_range<3>(grid_size * block_size, block_size), \n      [=](sycl::nd_item<3> item_ct1) {\n        _transpose_2310(in, out, nmo, ncas, item_ct1);\n      });\n  }"
+    ConstantFlag:    ''
+    ConstantOffset:  0
+    InitStr:         ''
+    NewHostVarName:  ''
+    BlockLevelFormatFlag: true
+  - FilePath:        '/lus/grand/projects/LASSCF_gpudev/knight/soft/mrh/gpu/mini-apps/syclomatic/device/device_cuda.cpp'
+    Offset:          21454
+    Length:          1
+    ReplacementText: ''
+    ConstantFlag:    ''
+    ConstantOffset:  0
+    InitStr:         ''
+    NewHostVarName:  ''
+    BlockLevelFormatFlag: false
+  - FilePath:        '/lus/grand/projects/LASSCF_gpudev/knight/soft/mrh/gpu/mini-apps/syclomatic/device/device_cuda.cpp'
+    Offset:          21929
+    Length:          4
+    ReplacementText: 'sycl::range<3>'
+    ConstantFlag:    ''
+    ConstantOffset:  0
+    InitStr:         ''
+    NewHostVarName:  ''
+    BlockLevelFormatFlag: false
+  - FilePath:        '/lus/grand/projects/LASSCF_gpudev/knight/soft/mrh/gpu/mini-apps/syclomatic/device/device_cuda.cpp'
+    Offset:          21945
+    Length:          23
+    ReplacementText: _DEFAULT_BLOCK_SIZE, 1, 1
+    ConstantFlag:    ''
+    ConstantOffset:  0
+    InitStr:         ''
+    NewHostVarName:  ''
+    BlockLevelFormatFlag: false
+  - FilePath:        '/lus/grand/projects/LASSCF_gpudev/knight/soft/mrh/gpu/mini-apps/syclomatic/device/device_cuda.cpp'
+    Offset:          21973
+    Length:          4
+    ReplacementText: 'sycl::range<3>'
+    ConstantFlag:    ''
+    ConstantOffset:  0
+    InitStr:         ''
+    NewHostVarName:  ''
+    BlockLevelFormatFlag: false
+  - FilePath:        '/lus/grand/projects/LASSCF_gpudev/knight/soft/mrh/gpu/mini-apps/syclomatic/device/device_cuda.cpp'
+    Offset:          21988
+    Length:          74
+    ReplacementText: '_TILE(ncas,block_size[0]), _TILE(ncas,block_size[1]), _TILE(ncas,block_size[2])'
+    ConstantFlag:    ''
+    ConstantOffset:  0
+    InitStr:         ''
+    NewHostVarName:  ''
+    BlockLevelFormatFlag: false
+  - FilePath:        '/lus/grand/projects/LASSCF_gpudev/knight/soft/mrh/gpu/mini-apps/syclomatic/device/device_cuda.cpp'
+    Offset:          22070
+    Length:          12
+    ReplacementText: 'dpct::queue_ptr'
+    ConstantFlag:    ''
+    ConstantOffset:  0
+    InitStr:         ''
+    NewHostVarName:  ''
+    BlockLevelFormatFlag: false
+  - FilePath:        '/lus/grand/projects/LASSCF_gpudev/knight/soft/mrh/gpu/mini-apps/syclomatic/device/device_cuda.cpp'
+    Offset:          22114
+    Length:          0
+    ReplacementText: "  /*\n  DPCT1049:9: The work-group size passed to the SYCL kernel may exceed the limit. To get the device limit, query info::device::max_work_group_size. Adjust the work-group size if needed.\n  */\n"
+    ConstantFlag:    ''
+    ConstantOffset:  0
+    InitStr:         ''
+    NewHostVarName:  ''
+    BlockLevelFormatFlag: false
+  - FilePath:        '/lus/grand/projects/LASSCF_gpudev/knight/soft/mrh/gpu/mini-apps/syclomatic/device/device_cuda.cpp'
+    Offset:          22116
+    Length:          68
+    ReplacementText: "{\n    dpct::has_capability_or_fail(s->get_device(), {sycl::aspect::fp64});\n\n    s->parallel_for(\n      sycl::nd_range<3>(grid_size * block_size, block_size), \n      [=](sycl::nd_item<3> item_ct1) {\n        _transpose_3210(in, out, nmo, ncas, item_ct1);\n      });\n  }"
+    ConstantFlag:    ''
+    ConstantOffset:  0
+    InitStr:         ''
+    NewHostVarName:  ''
+    BlockLevelFormatFlag: true
+  - FilePath:        '/lus/grand/projects/LASSCF_gpudev/knight/soft/mrh/gpu/mini-apps/syclomatic/device/device_cuda.cpp'
+    Offset:          22184
+    Length:          1
+    ReplacementText: ''
+    ConstantFlag:    ''
+    ConstantOffset:  0
+    InitStr:         ''
+    NewHostVarName:  ''
+    BlockLevelFormatFlag: false
+  - FilePath:        '/lus/grand/projects/LASSCF_gpudev/knight/soft/mrh/gpu/mini-apps/syclomatic/device/device_cuda.cpp'
+    Offset:          22672
+    Length:          4
+    ReplacementText: 'sycl::range<3>'
+    ConstantFlag:    ''
+    ConstantOffset:  0
+    InitStr:         ''
+    NewHostVarName:  ''
+    BlockLevelFormatFlag: false
+  - FilePath:        '/lus/grand/projects/LASSCF_gpudev/knight/soft/mrh/gpu/mini-apps/syclomatic/device/device_cuda.cpp'
+    Offset:          22688
+    Length:          24
+    ReplacementText: _UNPACK_BLOCK_SIZE, 1, 1
+    ConstantFlag:    ''
+    ConstantOffset:  0
+    InitStr:         ''
+    NewHostVarName:  ''
+    BlockLevelFormatFlag: false
+  - FilePath:        '/lus/grand/projects/LASSCF_gpudev/knight/soft/mrh/gpu/mini-apps/syclomatic/device/device_cuda.cpp'
+    Offset:          22717
+    Length:          4
+    ReplacementText: 'sycl::range<3>'
+    ConstantFlag:    ''
+    ConstantOffset:  0
+    InitStr:         ''
+    NewHostVarName:  ''
+    BlockLevelFormatFlag: false
+  - FilePath:        '/lus/grand/projects/LASSCF_gpudev/knight/soft/mrh/gpu/mini-apps/syclomatic/device/device_cuda.cpp'
+    Offset:          22732
+    Length:          48
+    ReplacementText: '_TILE(ncas_pair, _DEFAULT_BLOCK_SIZE), ncas, nmo'
+    ConstantFlag:    ''
+    ConstantOffset:  0
+    InitStr:         ''
+    NewHostVarName:  ''
+    BlockLevelFormatFlag: false
+  - FilePath:        '/lus/grand/projects/LASSCF_gpudev/knight/soft/mrh/gpu/mini-apps/syclomatic/device/device_cuda.cpp'
+    Offset:          22788
+    Length:          12
+    ReplacementText: 'dpct::queue_ptr'
+    ConstantFlag:    ''
+    ConstantOffset:  0
+    InitStr:         ''
+    NewHostVarName:  ''
+    BlockLevelFormatFlag: false
+  - FilePath:        '/lus/grand/projects/LASSCF_gpudev/knight/soft/mrh/gpu/mini-apps/syclomatic/device/device_cuda.cpp'
+    Offset:          22834
+    Length:          83
+    ReplacementText: "{\n    dpct::has_capability_or_fail(s->get_device(), {sycl::aspect::fp64});\n\n    s->parallel_for(\n      sycl::nd_range<3>(grid_size * block_size, block_size), \n      [=](sycl::nd_item<3> item_ct1) {\n        _pack_h2eff_2d(in, out, map, nmo, ncas, ncas_pair, item_ct1);\n      });\n  }"
+    ConstantFlag:    ''
+    ConstantOffset:  0
+    InitStr:         ''
+    NewHostVarName:  ''
+    BlockLevelFormatFlag: true
+  - FilePath:        '/lus/grand/projects/LASSCF_gpudev/knight/soft/mrh/gpu/mini-apps/syclomatic/device/device_cuda.cpp'
+    Offset:          22917
+    Length:          1
+    ReplacementText: ''
+    ConstantFlag:    ''
+    ConstantOffset:  0
+    InitStr:         ''
+    NewHostVarName:  ''
+    BlockLevelFormatFlag: false
+  - FilePath:        '/lus/grand/projects/LASSCF_gpudev/knight/soft/mrh/gpu/mini-apps/syclomatic/device/device_cuda.cpp'
+    Offset:          23414
+    Length:          4
+    ReplacementText: 'sycl::range<3>'
+    ConstantFlag:    ''
+    ConstantOffset:  0
+    InitStr:         ''
+    NewHostVarName:  ''
+    BlockLevelFormatFlag: false
+  - FilePath:        '/lus/grand/projects/LASSCF_gpudev/knight/soft/mrh/gpu/mini-apps/syclomatic/device/device_cuda.cpp'
+    Offset:          23430
+    Length:          5
+    ReplacementText: 1, 1, 1
+    ConstantFlag:    ''
+    ConstantOffset:  0
+    InitStr:         ''
+    NewHostVarName:  ''
+    BlockLevelFormatFlag: false
+  - FilePath:        '/lus/grand/projects/LASSCF_gpudev/knight/soft/mrh/gpu/mini-apps/syclomatic/device/device_cuda.cpp'
+    Offset:          23440
+    Length:          4
+    ReplacementText: 'sycl::range<3>'
+    ConstantFlag:    ''
+    ConstantOffset:  0
+    InitStr:         ''
+    NewHostVarName:  ''
+    BlockLevelFormatFlag: false
+  - FilePath:        '/lus/grand/projects/LASSCF_gpudev/knight/soft/mrh/gpu/mini-apps/syclomatic/device/device_cuda.cpp'
+    Offset:          23455
+    Length:          51
+    ReplacementText: '1, _TILE(nao, block_size[1]), _TILE(ncas, block_size[2])'
+    ConstantFlag:    ''
+    ConstantOffset:  0
+    InitStr:         ''
+    NewHostVarName:  ''
+    BlockLevelFormatFlag: false
+  - FilePath:        '/lus/grand/projects/LASSCF_gpudev/knight/soft/mrh/gpu/mini-apps/syclomatic/device/device_cuda.cpp'
+    Offset:          23514
+    Length:          12
+    ReplacementText: 'dpct::queue_ptr'
+    ConstantFlag:    ''
+    ConstantOffset:  0
+    InitStr:         ''
+    NewHostVarName:  ''
+    BlockLevelFormatFlag: false
+  - FilePath:        '/lus/grand/projects/LASSCF_gpudev/knight/soft/mrh/gpu/mini-apps/syclomatic/device/device_cuda.cpp'
+    Offset:          23558
+    Length:          0
+    ReplacementText: "  /*\n  DPCT1049:10: The work-group size passed to the SYCL kernel may exceed the limit. To get the device limit, query info::device::max_work_group_size. Adjust the work-group size if needed.\n  */\n"
+    ConstantFlag:    ''
+    ConstantOffset:  0
+    InitStr:         ''
+    NewHostVarName:  ''
+    BlockLevelFormatFlag: false
+  - FilePath:        '/lus/grand/projects/LASSCF_gpudev/knight/soft/mrh/gpu/mini-apps/syclomatic/device/device_cuda.cpp'
+    Offset:          23560
+    Length:          82
+    ReplacementText: "{\n    dpct::has_capability_or_fail(s->get_device(), {sycl::aspect::fp64});\n\n    s->parallel_for(\n      sycl::nd_range<3>(grid_size * block_size, block_size), \n      [=](sycl::nd_item<3> item_ct1) {\n        _get_mo_cas(big_mat, small_mat, ncas, ncore, nao, item_ct1);\n      });\n  }"
+    ConstantFlag:    ''
+    ConstantOffset:  0
+    InitStr:         ''
+    NewHostVarName:  ''
+    BlockLevelFormatFlag: true
+  - FilePath:        '/lus/grand/projects/LASSCF_gpudev/knight/soft/mrh/gpu/mini-apps/syclomatic/device/device_cuda.cpp'
+    Offset:          23642
+    Length:          1
+    ReplacementText: ''
+    ConstantFlag:    ''
+    ConstantOffset:  0
+    InitStr:         ''
+    NewHostVarName:  ''
+    BlockLevelFormatFlag: false
+  - FilePath:        '/lus/grand/projects/LASSCF_gpudev/knight/soft/mrh/gpu/mini-apps/syclomatic/device/device_cuda.cpp'
+    Offset:          24095
+    Length:          4
+    ReplacementText: 'sycl::range<3>'
+    ConstantFlag:    ''
+    ConstantOffset:  0
+    InitStr:         ''
+    NewHostVarName:  ''
+    BlockLevelFormatFlag: false
+  - FilePath:        '/lus/grand/projects/LASSCF_gpudev/knight/soft/mrh/gpu/mini-apps/syclomatic/device/device_cuda.cpp'
+    Offset:          24111
+    Length:          41
+    ReplacementText: 1, _UNPACK_BLOCK_SIZE, _UNPACK_BLOCK_SIZE
+    ConstantFlag:    ''
+    ConstantOffset:  0
+    InitStr:         ''
+    NewHostVarName:  ''
+    BlockLevelFormatFlag: false
+  - FilePath:        '/lus/grand/projects/LASSCF_gpudev/knight/soft/mrh/gpu/mini-apps/syclomatic/device/device_cuda.cpp'
+    Offset:          24157
+    Length:          4
+    ReplacementText: 'sycl::range<3>'
+    ConstantFlag:    ''
+    ConstantOffset:  0
+    InitStr:         ''
+    NewHostVarName:  ''
+    BlockLevelFormatFlag: false
+  - FilePath:        '/lus/grand/projects/LASSCF_gpudev/knight/soft/mrh/gpu/mini-apps/syclomatic/device/device_cuda.cpp'
+    Offset:          24172
+    Length:          59
+    ReplacementText: '1, _TILE(ncas*ncas,block_size[1]), _TILE(nmo*ncas,block_size[2])'
+    ConstantFlag:    ''
+    ConstantOffset:  0
+    InitStr:         ''
+    NewHostVarName:  ''
+    BlockLevelFormatFlag: false
+  - FilePath:        '/lus/grand/projects/LASSCF_gpudev/knight/soft/mrh/gpu/mini-apps/syclomatic/device/device_cuda.cpp'
+    Offset:          24239
+    Length:          12
+    ReplacementText: 'dpct::queue_ptr'
+    ConstantFlag:    ''
+    ConstantOffset:  0
+    InitStr:         ''
+    NewHostVarName:  ''
+    BlockLevelFormatFlag: false
+  - FilePath:        '/lus/grand/projects/LASSCF_gpudev/knight/soft/mrh/gpu/mini-apps/syclomatic/device/device_cuda.cpp'
+    Offset:          24283
+    Length:          0
+    ReplacementText: "  /*\n  DPCT1049:11: The work-group size passed to the SYCL kernel may exceed the limit. To get the device limit, query info::device::max_work_group_size. Adjust the work-group size if needed.\n  */\n"
+    ConstantFlag:    ''
+    ConstantOffset:  0
+    InitStr:         ''
+    NewHostVarName:  ''
+    BlockLevelFormatFlag: false
+  - FilePath:        '/lus/grand/projects/LASSCF_gpudev/knight/soft/mrh/gpu/mini-apps/syclomatic/device/device_cuda.cpp'
+    Offset:          24285
+    Length:          80
+    ReplacementText: "{\n    dpct::has_capability_or_fail(s->get_device(), {sycl::aspect::fp64});\n\n    s->parallel_for(\n      sycl::nd_range<3>(grid_size * block_size, block_size), \n      [=](sycl::nd_item<3> item_ct1) {\n        _pack_d_vuwM(in, out, map, nmo, ncas, ncas_pair, item_ct1);\n      });\n  }"
+    ConstantFlag:    ''
+    ConstantOffset:  0
+    InitStr:         ''
+    NewHostVarName:  ''
+    BlockLevelFormatFlag: true
+  - FilePath:        '/lus/grand/projects/LASSCF_gpudev/knight/soft/mrh/gpu/mini-apps/syclomatic/device/device_cuda.cpp'
+    Offset:          24365
+    Length:          1
+    ReplacementText: ''
+    ConstantFlag:    ''
+    ConstantOffset:  0
+    InitStr:         ''
+    NewHostVarName:  ''
+    BlockLevelFormatFlag: false
+  - FilePath:        '/lus/grand/projects/LASSCF_gpudev/knight/soft/mrh/gpu/mini-apps/syclomatic/device/device_cuda.cpp'
+    Offset:          24840
+    Length:          4
+    ReplacementText: 'sycl::range<3>'
+    ConstantFlag:    ''
+    ConstantOffset:  0
+    InitStr:         ''
+    NewHostVarName:  ''
+    BlockLevelFormatFlag: false
+  - FilePath:        '/lus/grand/projects/LASSCF_gpudev/knight/soft/mrh/gpu/mini-apps/syclomatic/device/device_cuda.cpp'
+    Offset:          24856
+    Length:          41
+    ReplacementText: 1, _UNPACK_BLOCK_SIZE, _UNPACK_BLOCK_SIZE
+    ConstantFlag:    ''
+    ConstantOffset:  0
+    InitStr:         ''
+    NewHostVarName:  ''
+    BlockLevelFormatFlag: false
+  - FilePath:        '/lus/grand/projects/LASSCF_gpudev/knight/soft/mrh/gpu/mini-apps/syclomatic/device/device_cuda.cpp'
+    Offset:          24902
+    Length:          4
+    ReplacementText: 'sycl::range<3>'
+    ConstantFlag:    ''
+    ConstantOffset:  0
+    InitStr:         ''
+    NewHostVarName:  ''
+    BlockLevelFormatFlag: false
+  - FilePath:        '/lus/grand/projects/LASSCF_gpudev/knight/soft/mrh/gpu/mini-apps/syclomatic/device/device_cuda.cpp'
+    Offset:          24917
+    Length:          59
+    ReplacementText: '1, _TILE(ncas*ncas,block_size[1]), _TILE(nmo*ncas,block_size[2])'
+    ConstantFlag:    ''
+    ConstantOffset:  0
+    InitStr:         ''
+    NewHostVarName:  ''
+    BlockLevelFormatFlag: false
+  - FilePath:        '/lus/grand/projects/LASSCF_gpudev/knight/soft/mrh/gpu/mini-apps/syclomatic/device/device_cuda.cpp'
+    Offset:          24984
+    Length:          12
+    ReplacementText: 'dpct::queue_ptr'
+    ConstantFlag:    ''
+    ConstantOffset:  0
+    InitStr:         ''
+    NewHostVarName:  ''
+    BlockLevelFormatFlag: false
+  - FilePath:        '/lus/grand/projects/LASSCF_gpudev/knight/soft/mrh/gpu/mini-apps/syclomatic/device/device_cuda.cpp'
+    Offset:          25028
+    Length:          0
+    ReplacementText: "  /*\n  DPCT1049:12: The work-group size passed to the SYCL kernel may exceed the limit. To get the device limit, query info::device::max_work_group_size. Adjust the work-group size if needed.\n  */\n"
+    ConstantFlag:    ''
+    ConstantOffset:  0
+    InitStr:         ''
+    NewHostVarName:  ''
+    BlockLevelFormatFlag: false
+  - FilePath:        '/lus/grand/projects/LASSCF_gpudev/knight/soft/mrh/gpu/mini-apps/syclomatic/device/device_cuda.cpp'
+    Offset:          25030
+    Length:          84
+    ReplacementText: "{\n    dpct::has_capability_or_fail(s->get_device(), {sycl::aspect::fp64});\n\n    s->parallel_for(\n      sycl::nd_range<3>(grid_size * block_size, block_size), \n      [=](sycl::nd_item<3> item_ct1) {\n        _pack_d_vuwM_add(in, out, map, nmo, ncas, ncas_pair, item_ct1);\n      });\n  }"
+    ConstantFlag:    ''
+    ConstantOffset:  0
+    InitStr:         ''
+    NewHostVarName:  ''
+    BlockLevelFormatFlag: true
+  - FilePath:        '/lus/grand/projects/LASSCF_gpudev/knight/soft/mrh/gpu/mini-apps/syclomatic/device/device_cuda.cpp'
+    Offset:          25114
+    Length:          1
+    ReplacementText: ''
+    ConstantFlag:    ''
+    ConstantOffset:  0
+    InitStr:         ''
+    NewHostVarName:  ''
+    BlockLevelFormatFlag: false
+MainSourceFilesDigest:
+  - MainSourceFile:  '/lus/grand/projects/LASSCF_gpudev/knight/soft/mrh/gpu/mini-apps/syclomatic/device/device_cuda.cpp'
+    Digest:          2ad8729e1d6ff50184fb8eaaf43f96d3
+DpctVersion:     19.0.0
+MainHelperFileName: ''
+USMLevel:        ''
+FeatureMap:      {}
+CompileTargets:  {}
+OptionMap:
+  AnalysisScopePath:
+    Value:           '/lus/grand/projects/LASSCF_gpudev/knight/soft/mrh/gpu/mini-apps/syclomatic/device'
+    Specified:       false
+  AsyncHandler:
+    Value:           'false'
+    Specified:       false
+  BuildScript:
+    Value:           '0'
+    Specified:       false
+  CodePinEnabled:
+    Value:           'false'
+    Specified:       false
+  CommentsEnabled:
+    Value:           'false'
+    Specified:       false
+  CompilationsDir:
+    Value:           ''
+    Specified:       false
+  CtadEnabled:
+    Value:           'false'
+    Specified:       false
+  EnablepProfiling:
+    Value:           'false'
+    Specified:       false
+  ExperimentalFlag:
+    Value:           '0'
+    Specified:       false
+  ExplicitNamespace:
+    Value:           '20'
+    Specified:       false
+  ExtensionDDFlag:
+    Value:           '0'
+    Specified:       false
+  ExtensionDEFlag:
+    Value:           '4294967295'
+    Specified:       false
+  HelperFuncPreferenceFlag:
+    Value:           '0'
+    Specified:       false
+  NDRangeDim:
+    Value:           '3'
+    Specified:       false
+  NoDRYPattern:
+    Value:           'false'
+    Specified:       false
+  OptimizeMigration:
+    Value:           'false'
+    Specified:       false
+  ProcessAll:
+    Value:           'false'
+    Specified:       false
+  RuleFile:
+    Value:           ''
+    Specified:       false
+  SyclNamedLambda:
+    Value:           'false'
+    Specified:       false
+  UsmLevel:
+    Value:           '1'
+    Specified:       false
+...
