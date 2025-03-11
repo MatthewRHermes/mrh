@@ -199,13 +199,14 @@ class HamS2OvlpOperators (HamS2Ovlp):
 
         t0, w0 = logger.process_clock (), logger.perf_counter ()
         # Some rootspaces are redundant: same urootstr for different ket indices.
-        # Those vector sections must be added together here.
+        # Those vector slices must be added, so I can't use dict comprehension.
         vecs = {}
         for ket in set (ovlplink[:,0]):
             key = tuple(self.urootstr[:,ket])
             vecs[key] = self.get_xvec (ket, *inv).reshape (-1,1) + vecs.get (key, 0)
         for ifrag in range (self.nfrags):
             if ifrag in inv:
+                # Collect the nonspectator-fragment dimensions on the minor end
                 for ket, vec in vecs.items ():
                     lket = self.ints[ifrag].get_lroots (ket[ifrag])
                     lr = vec.shape[-1]
@@ -233,8 +234,8 @@ class HamS2OvlpOperators (HamS2Ovlp):
         self.dw_pX += (w3-w2)
 
     def _opuniq_x_(self, op, obra, oket, ovecs, *inv):
-        '''All operations which are unique in that a given set of fragment bra statelets are
-        coupled to a given set of fragment ket statelets'''
+        '''All operations which are unique in that a given set of nonspectator fragment bra
+        statelets are coupled to a given set of nonspectator fragment ket statelets'''
         key = tuple ((obra, oket)) + inv
         inv = list (set (inv))
         brakets, bras, braHs = self.get_nonuniq_exc_square (key)
@@ -257,6 +258,8 @@ class HamS2OvlpOperators (HamS2Ovlp):
         return tuple (urootstr)
 
     def ox_ovlp_uniq_str (self, ovlplink, ifrag):
+        '''Find the unique source and destination urootstrs for applying the ifrag'th fragment's
+        overlap part to the interactions tabulated in ovlplink'''
         vecstr = self.urootstr[:,ovlplink[:,0]].T
         vecstr[:,:ifrag] = ovlplink[:,1:ifrag+1]
         ovecstr = vecstr.copy ()
@@ -266,6 +269,8 @@ class HamS2OvlpOperators (HamS2Ovlp):
         return ovecstr, vecstr
 
     def ox_ovlp_frag (self, ovlplink, vecs, ifrag):
+        '''Apply the ifrag'th fragment's overlap part of the interactions tabulated in ovlplink
+        to the vectors collected in vecs'''
         ovecstr, vecstr = self.ox_ovlp_uniq_str (ovlplink, ifrag)
         ovecs = {tuple(os): 0 for os in np.unique (ovecstr, axis=0)}
         for os, s in zip (ovecstr, vecstr):
@@ -277,21 +282,6 @@ class HamS2OvlpOperators (HamS2Ovlp):
             vec = vec.reshape (-1,lket,lr)
             ovecs[tuple(os)] += lib.einsum ('pq,lqr->plr', o, vec).reshape (-1,lr)
         return ovecs
-
-    def ox_ovlp_part (self, brastr, ketstr, vec, inv):
-        # TODO: factorize this as much as possible
-        spec = np.ones (self.nfrags, dtype=bool)
-        spec[list(inv)] = False
-        lr = 1
-        for i, (bra, ket) in enumerate (zip (brastr, ketstr)):
-            lket = self.lroots[i,ket]
-            if spec[i]:
-                vec = vec.reshape (-1,lket,lr)
-                o = self.ints[i].get_ovlp (bra, ket)
-                vec = lib.einsum ('pq,lqr->plr', o, vec)
-            else:
-                lr = lr * lket
-        return vec.reshape (-1,lr)
 
     def _ovlp_op (self, x):
         t0 = (logger.process_clock (), logger.perf_counter ())
