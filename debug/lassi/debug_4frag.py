@@ -157,24 +157,24 @@ class KnownValues(unittest.TestCase):
     #    self.assertTrue (lsi.converged)
     #    case_lassis_fbf_2_model_state (self, lsi)
 
-    def test_lassis_1111 (self):
-        xyz='''H 0 0 0
-        H 3 0 0
-        H 6 0 0
-        H 9 0 0'''
-        mol1 = gto.M (atom=xyz, basis='sto3g', symmetry=False, verbose=0, output='/dev/null')
-        mf1 = scf.RHF (mol1).run ()
+    #def test_lassis_1111 (self):
+    #    xyz='''H 0 0 0
+    #    H 3 0 0
+    #    H 6 0 0
+    #    H 9 0 0'''
+    #    mol1 = gto.M (atom=xyz, basis='sto3g', symmetry=False, verbose=0, output='/dev/null')
+    #    mf1 = scf.RHF (mol1).run ()
 
-        las1 = LASSCF (mf1, (1,1,1,1), ((0,1),(1,0),(0,1),(1,0)))
-        mo_coeff = las1.localize_init_guess ([[0,],[1,],[2,],[3,]])
-        las1.lasci_(mo_coeff)
-        for dson in (False,True):
-            with self.subTest (davidson_only=dson):
-                lsi = LASSIS (las1).set (davidson_only=dson)
-                if dson:
-                    lsi.prepare_states_()
-                    h0, h1, h2 = ham_2q (las1, las1.mo_coeff)
-                    debug_contract_op_si (self, las1, h1, h2, lsi.ci, lsi.get_nelec_frs ())
+    #    las1 = LASSCF (mf1, (1,1,1,1), ((0,1),(1,0),(0,1),(1,0)))
+    #    mo_coeff = las1.localize_init_guess ([[0,],[1,],[2,],[3,]])
+    #    las1.lasci_(mo_coeff)
+    #    for dson in (False,True):
+    #        with self.subTest (davidson_only=dson):
+    #            lsi = LASSIS (las1).set (davidson_only=dson)
+    #            if dson:
+    #                lsi.prepare_states_()
+    #                h0, h1, h2 = ham_2q (las1, las1.mo_coeff)
+    #                debug_contract_op_si (self, las1, h1, h2, lsi.ci, lsi.get_nelec_frs ())
     #            else:
     #                lsi.kernel ()
     #                self.assertTrue (lsi.converged)

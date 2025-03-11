@@ -260,6 +260,7 @@ class HamS2OvlpOperators (HamS2Ovlp):
     def ox_ovlp_uniq_str (self, ovlplink, ifrag):
         '''Find the unique source and destination urootstrs for applying the ifrag'th fragment's
         overlap part to the interactions tabulated in ovlplink'''
+        # TODO: put the graph of connections in ovlplink, instead of re-finding them each time.
         vecstr = self.urootstr[:,ovlplink[:,0]].T
         vecstr[:,:ifrag] = ovlplink[:,1:ifrag+1]
         ovecstr = vecstr.copy ()
