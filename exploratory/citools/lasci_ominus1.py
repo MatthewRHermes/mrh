@@ -21,6 +21,7 @@ from mrh.exploratory.unitary_cc.uccsd_sym1 import get_uccs_op
 from mrh.my_pyscf.mcscf.lasci_sync import all_nonredundant_idx
 from mrh.my_pyscf.fci import csf_solver
 from itertools import product
+from memory_profiler import profile
 
 verbose_lbjfgs = [-1,-1,-1,0,50,99,100,101,101,101]
 
@@ -32,13 +33,16 @@ def _n_m_s (dm1s, dm2s, _print_fn=print):
     ss = m*m + (n/2.) - np.einsum ('pqqp->pq', dm2s[1]).sum ()
     _print_fn ('<N>,<Sz>,<S^2> = %f, %f, %f', n, m, ss)
 
+# SV change to max_cycle=15000 to optimize the energy in the kernel right below
 def kernel (fci, h1, h2, norb, nelec, norb_f=None, ci0_f=None,
-            tol=1e-8, gtol=1e-4, max_cycle=15000, 
+            tol=1e-8, gtol=1e-4, max_cycle=15000,
             orbsym=None, wfnsym=None, ecore=0, **kwargs):
-
+    if max_cycle is None:
+        max_cycle = GLOBAL_MAX_CYCLE if GLOBAL_MAX_CYCLE is not None else 15000
     if norb_f is None: norb_f = getattr (fci, 'norb_f', [norb])
     if ci0_f is None: ci0_f = fci.get_init_guess (norb, nelec, norb_f, h1, h2)
     verbose = kwargs.get ('verbose', getattr (fci, 'verbose', 0))
+
     if isinstance (verbose, lib.logger.Logger):
         log = verbose
         verbose = log.verbose
@@ -59,6 +63,7 @@ def kernel (fci, h1, h2, norb, nelec, norb_f=None, ci0_f=None,
         jac=True, callback=psi_callback, options=psi_options)
 
     fci.converged = res.success
+    #print ("SV res.x = ", res.x)
     e_tot = psi.energy_tot (res.x, h)
     ci1 = psi.get_fcivec (res.x)
     if verbose>=lib.logger.DEBUG:
@@ -183,7 +188,7 @@ def contract_ss (fci, ci, norb, nelec):
     return fcivec
 
 def transform_ci_for_orbital_rotation (fci, ci, norb, nelec, umat):
-    fcivec = np.zeros_like (ci) 
+    fcivec = np.zeros_like (ci)
     for ne in product (range (norb+1), repeat=2):
         c = np.squeeze (fockspace.fock2hilbert (ci, norb, ne))
         c = fci_addons.transform_ci_for_orbital_rotation (c, norb, ne, umat)
@@ -257,7 +262,7 @@ class LASUCCTrialState (object):
         x[self.var_mask] = x_[:]
         xconstr, x = x[:self.nconstr], x[self.nconstr:]
 
-        xcc = x[:self.uop.ngen_uniq] 
+        xcc = x[:self.uop.ngen_uniq]
         x = x[self.uop.ngen_uniq:]
 
         xci = []
@@ -299,6 +304,7 @@ class LASUCCTrialState (object):
         log.debug ('energy value = %f, norm value = %e, |x| = %e', e_tot, cuuc, norm_x)
         if log.verbose > lib.logger.DEBUG: self.check_x_change (x, e_tot0=e_tot)
         self._e_last = e_tot
+        #print ("SV e_tot to return")
         return e_tot
 
     def jac (self, x, h, c=None, uc=None, huc=None, uhuc=None, c_f=None):
@@ -324,6 +330,9 @@ class LASUCCTrialState (object):
 
     def hc_x (self, x, h):
         xconstr, xcc, xci = self.unpack (x)
+        #print ("SV xconstr = ", xconstr, xconstr.shape)
+        #print ("SV xci = ", xci, np.array(xci)[0].shape, np.array(xci)[1].shape)
+        #print ("SV xcc = ", xcc, xcc.shape)
         self.uop.set_uniq_amps_(xcc)
         h = self.constr_h (xconstr, h)
         c_f = self.rotate_ci0 (xci)
@@ -332,7 +341,7 @@ class LASUCCTrialState (object):
         huc = self.contract_h2 (h, uc)
         uhuc = self.uop (huc, transpose=True)
         return c, uc, huc, uhuc, c_f
-        
+
     def contract_h2 (self, h, ci, norb=None):
         if norb is None: norb = self.norb
         hci = h[0] * ci
@@ -343,7 +352,7 @@ class LASUCCTrialState (object):
             hc = direct_spin1.contract_2e (h2eff, ci_h, norb, nelec)
             hci += np.squeeze (fockspace.hilbert2fock (hc, norb, nelec))
         return hci
-            
+
     def dp_ci (self, ci_f):
         norb, norb_f = self.norb, self.norb_f
         ci = np.ones ([1,1], dtype=ci_f[0].dtype)
@@ -357,7 +366,7 @@ class LASUCCTrialState (object):
         x = xconstr[0]
         norb, nelec = self.norb, self.nelec
         h = [h[0] - (x*nelec), h[1] + (x*np.eye (self.norb)), h[2]]
-        return h 
+        return h
 
     def rotate_ci0 (self, xci_f):
         ci0, norb = self.ci_f, self.norb
@@ -408,11 +417,145 @@ class LASUCCTrialState (object):
         xconstr, xcc, xci_f = self.unpack (x)
         self.uop.set_uniq_amps_(xcc)
         if (c is None) or (uhuc is None):
-            c, _, _, uhuc = self.hc_x (x, h)[:4] 
+            c, _, _, uhuc = self.hc_x (x, h)[:4]
         for duc, uhuc_i in zip (self.uop.gen_deriv1 (c, _full=False), self.uop.gen_partial (uhuc)):
             g.append (2*duc.ravel ().dot (uhuc_i.ravel ()))
         g = self.uop.product_rule_pack (g)
         return np.asarray (g)
+#<<<<<<< Updated upstream
+#=======
+    @profile       
+    def get_grad_t1(self, x, h, c=None, huc=None, uhuc=None, epsilon=0.0):
+        """
+        Compute the gradients and relevant indices based on input values.
+
+        Parameters:
+        - x: array-like
+            Input array to unpack and set unique amplitudes.
+            
+        - h: array-like
+            Some form of input data to be used for computation.
+            
+        - c (optional): array-like
+            Precomputed value; if not provided, it will be computed using hc_x.
+            
+        - huc (optional): array-like
+            Precomputed value; if not provided, it will be computed using hc_x.
+            
+        - uhuc (optional): array-like
+            Precomputed value; if not provided, it will be computed using hc_x.
+            
+        - epsilon (optional): float, default=0.0
+            Threshold value for considering a gradient. If epsilon is 0, all gradients are considered.
+
+        Returns:
+        - tuple
+            all_g: list of all computed gradients
+            g: list of gradients above the epsilon threshold
+            gen_indices: list of indices representing a_idx and i_idx
+            a_idxs_lst: list of a_idx values
+            i_idxs_lst: list of i_idx values
+            len(a_idxs_lst): length of a_idx list
+            len(i_idxs_lst): length of i_idx list
+        """
+
+        g = []
+        all_g = []
+        
+        # Unpack and set unique amplitudes
+        xconstr, xcc, xci_f = self.unpack(x)
+        self.uop.set_uniq_amps_(xcc)
+
+        # Compute 'c' and 'uhuc' if not provided
+        if (c is None) or (uhuc is None):
+            c, _, _, uhuc = self.hc_x(x, h)[:4]
+        
+        gen_indices = []
+        a_idxs_lst = []
+        i_idxs_lst = []
+        # print("self.uop.init_a_idxs[i]",self.uop.init_a_idxs)
+        for i, (duc, uhuc_i) in enumerate(zip(self.uop.gen_deriv1(c, _full=False), self.uop.gen_partial(uhuc))):
+            gradient = 2 * duc.ravel().dot(uhuc_i.ravel())
+            all_g.append((gradient, i))
+            
+            # Allow all gradients if epsilon is 0, else use the abs gradient condition
+            if epsilon == 0.0 or abs(gradient) > epsilon:
+                g.append((gradient, i))
+                a_idx = self.uop.a_idxs[i]
+                i_idx = self.uop.i_idxs[i]
+
+                gen_indices.append((a_idx, i_idx))
+                a_idxs_lst.append(a_idx)
+                i_idxs_lst.append(i_idx)
+
+        return all_g, g, gen_indices, a_idxs_lst, i_idxs_lst, len(a_idxs_lst), len(i_idxs_lst)
+#>>>>>>> Stashed changes
+
+
+    def get_grad_t1(self, x, h, c=None, huc=None, uhuc=None, epsilon=0.0):
+        """
+        Compute the gradients and relevant indices based on input values.
+
+        Parameters:
+        - x: array-like
+            Input array to unpack and set unique amplitudes.
+
+        - h: array-like
+            Some form of input data to be used for computation.
+
+        - c (optional): array-like
+            Precomputed value; if not provided, it will be computed using hc_x.
+
+        - huc (optional): array-like
+            Precomputed value; if not provided, it will be computed using hc_x.
+
+        - uhuc (optional): array-like
+            Precomputed value; if not provided, it will be computed using hc_x.
+
+        - epsilon (optional): float, default=0.0
+            Threshold value for considering a gradient. If epsilon is 0, all gradients are considered.
+
+        Returns:
+        - tuple
+            all_g: list of all computed gradients
+            g: list of gradients above the epsilon threshold
+            gen_indices: list of indices representing a_idx and i_idx
+            a_idxs_lst: list of a_idx values
+            i_idxs_lst: list of i_idx values
+            len(a_idxs_lst): length of a_idx list
+            len(i_idxs_lst): length of i_idx list
+        """
+
+        g = []
+        all_g = []
+
+        # Unpack and set unique amplitudes
+        xconstr, xcc, xci_f = self.unpack(x)
+        self.uop.set_uniq_amps_(xcc)
+
+        # Compute 'c' and 'uhuc' if not provided
+        if (c is None) or (uhuc is None):
+            c, _, _, uhuc = self.hc_x(x, h)[:4]
+
+        gen_indices = []
+        a_idxs_lst = []
+        i_idxs_lst = []
+        # print("self.uop.init_a_idxs[i]",self.uop.init_a_idxs)
+        for i, (duc, uhuc_i) in enumerate(zip(self.uop.gen_deriv1(c, _full=False), self.uop.gen_partial(uhuc))):
+            gradient = 2 * duc.ravel().dot(uhuc_i.ravel())
+            all_g.append((gradient, i))
+
+            # Allow all gradients if epsilon is 0, else use the abs gradient condition
+            if epsilon == 0.0 or abs(gradient) > epsilon:
+                g.append((gradient, i))
+                a_idx = self.uop.a_idxs[i]
+                i_idx = self.uop.i_idxs[i]
+
+                gen_indices.append((a_idx, i_idx))
+                a_idxs_lst.append(a_idx)
+                i_idxs_lst.append(i_idx)
+
+        return all_g, g, gen_indices, a_idxs_lst, i_idxs_lst, len(a_idxs_lst), len(i_idxs_lst)
 
     def get_jac_ci (self, x, h, uhuc=None, uci_f=None):
         # "uhuc": e^-T1 H e^T1 U|ci0>
@@ -469,6 +612,8 @@ class LASUCCTrialState (object):
         xconstr, xcc, xci_f = self.unpack (x)
         uc_f = self.rotate_ci0 (xci_f)
         uc = self.dp_ci (uc_f)
+        #xcc[1] = 1e-6
+        #print ("SV xcc updated get_fcivec = ", xcc, xcc.shape)
         self.uop.set_uniq_amps_(xcc)
         uc = self.uop (uc)
         return uc / linalg.norm (uc)
@@ -542,7 +687,7 @@ class LASUCCTrialState (object):
     def finalize_(self):
         ''' Update self.ci_f and set the corresponding part of self.x to zero '''
         xconstr, xcc, xci_f = self.unpack (self.x)
-        self.ci_f = self.rotate_ci0 (xci_f) 
+        self.ci_f = self.rotate_ci0 (xci_f)
         for xc in xci_f: xc[:] = 0.0
         self.x = self.pack (xconstr, xcc, xci_f)
         return self.x
@@ -553,6 +698,7 @@ class LASUCCTrialState (object):
 class FCISolver (direct_spin1.FCISolver):
     kernel = kernel
     approx_kernel = kernel
+    print ("AM here")
     make_rdm1 = make_rdm1
     make_rdm1s = make_rdm1s
     make_rdm12 = make_rdm12
@@ -564,7 +710,7 @@ class FCISolver (direct_spin1.FCISolver):
     def build_psi (self, *args, **kwargs):
         return LASUCCTrialState (self, *args, **kwargs)
     def save_psi (self, fname, psi):
-        psi_raw = np.concatenate ([psi.x,] 
+        psi_raw = np.concatenate ([psi.x,]
             + [c.ravel () for c in psi.ci_f])
         np.save (fname, psi_raw)
     def load_psi (self, fname, norb, nelec, norb_f=None, **kwargs):
@@ -584,5 +730,3 @@ class FCISolver (direct_spin1.FCISolver):
         for i,j in zip (np.cumsum (norb_f)-norb_f, np.cumsum(norb_f)):
             freeze_mask[i:j,i:j] = True
         return get_uccs_op (norb, freeze_mask=freeze_mask)
-
-
