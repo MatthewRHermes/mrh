@@ -1,8 +1,6 @@
 import numpy as np
 from itertools import permutations
-from memory_profiler import profile
 
-@profile
 def get_grad_exact(a_idxs, i_idxs, ham, las_rdm1, las_rdm2, las_rdm3, epsilon=0.0):
     """
     Calculates the gradients for all parameters
