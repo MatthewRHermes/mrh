@@ -21,7 +21,6 @@ from mrh.exploratory.unitary_cc.uccsd_sym1 import get_uccs_op
 from mrh.my_pyscf.mcscf.lasci_sync import all_nonredundant_idx
 from mrh.my_pyscf.fci import csf_solver
 from itertools import product
-from memory_profiler import profile
 
 verbose_lbjfgs = [-1,-1,-1,0,50,99,100,101,101,101]
 

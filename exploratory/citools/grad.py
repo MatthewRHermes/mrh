@@ -108,13 +108,8 @@ def get_grad_h1t1(a_idxs, i_idxs, las_rdm1, h1):
     t1a = [a for b in a_idxes if len(b)==1 for a in b]
     i_idxes = np.asarray(i_idxs, dtype=object)
     t1i = [a for b in i_idxes if len(b)==1 for a in b]
-    #print ("t1a, t1i = ", t1a, t1i, h1)
-    print (a_idxes, len(a_idxes))
-    #print (i_idxes)
 
     h = get_h1e_spin(h1)
-    #print ("h1 = ", h) 
-    #print ("gamma = ", get_rdm1_spin(las_rdm1))
     h1t1s = []
 
     d = get_rdm1_spin(las_rdm1)
@@ -123,10 +118,8 @@ def get_grad_h1t1(a_idxs, i_idxs, las_rdm1, h1):
     term2 = np.einsum('xp,pu->ux', h,d)
     sum_h1t1 = 2.0*(term1-term2)
 
-    #print ("einsum matrix of ux = ", sum_h1t1)
     
     for u,x in zip(t1a,t1i):
-        #print ("indices = ",x,"->", u)
         h1t1s.append(sum_h1t1[u,x])
     
     print ("h1t1 = ", h1t1s)
@@ -149,10 +142,8 @@ def get_grad_h2t1(a_idxs, i_idxs, las_rdm2, h2):
     term2 = np.einsum('prqx,prqu->ux', w, d)
     sum_h2t1 = term1 - term2
 
-    #print ("einsum matrix of ux = ", sum_h2t1)
 
     for u,x in zip(t1a,t1i):
-        #print ("indices = ",x,"->", u)
         h2t1s.append(sum_h2t1[u,x])
     print ("h2t1 = ", h2t1s)
     return np.array(h2t1s)
@@ -175,12 +166,10 @@ def get_grad_h1t2(a_idxs, i_idxs, las_rdm2, h1):
     term4 = np.einsum('yp,puxv->uxvy',h,d)
 
     sum_h1t2 = 2*(term1-term2-term3+term4)
-    #print ("einsum matrix of uxvy = ", sum_h1t2)
 
     for b,z in zip(t2a,t2i):
         u,v = b
         x,y = z
-        #print ("indices = ", x,y,"->",u,v, sum_h1t2[u,x,v,y])
         h1t2s.append(sum_h1t2[u,x,v,y])
     
     print ("h1t2 = ", h1t2s)
@@ -216,12 +205,10 @@ def get_grad_h2t2(a_idxs, i_idxs, las_rdm2, las_rdm3, h2):
 
     sum_h2t2 = sum_h2t2_2rdm + sum_h2t2_3rdm
 
-    #print ("einsum matrix of uxvy = ", sum_h2t2)
 
     for b,z in zip(t2a,t2i):
         u,v = b
         x,y = z
-        #print ("indices = ", x,y,"->",u,v, sum_h2t2[u,x,v,y])
         h2t2s.append(sum_h2t2[u,x,v,y])
     print ("h2t2 = ", h2t2s)
 
