@@ -511,6 +511,7 @@ def _init_df_(h_op):
             h_op.las.cderi_ao2mo (h_op.mo_coeff, h_op.mo_coeff[:,:h_op.nocc],
             compact=False))
 
+# TODO: local state-average generalization
 class LASCI_HessianOperator (sparse_linalg.LinearOperator):
     ''' The Hessian-vector product for a `LASCI' energy minimization, implemented as a linear
     operator from the scipy.sparse.linalg module. `LASCI' here means that the CAS is frozen

@@ -68,13 +68,13 @@ def get_mcpdft_child_class(mc, ot, DoLASSI=False,  **kwargs):
             '''Optimize the MC-SCF wave function underlying an MC-PDFT calculation.
             Has the same calling signature as the parent kernel method. '''
             with _mcscf_env(self):
-                self.e_mcscf, self.e_cas, self.ci, self.mo_coeff, self.mo_energy = \
-                    self._mc_class.kernel(self, mo_coeff, ci0=ci0, **kwargs)[:-2]
-                self.fcisolver.nroots = self.nroots
                 if self.DoLASSI:
-                    self.e_states, self.si = self.lassi()
-                return self.e_mcscf, self.e_cas, self.ci, self.mo_coeff, self.mo_energy
-
+                    self.fcisolver.nroots = len(self.e_states)
+                    self.e_states = self.e_roots
+                else:
+                    self.e_mcscf, self.e_cas, self.ci, self.mo_coeff, self.mo_energy = \
+                        self._mc_class.kernel(self, mo_coeff, ci0=ci0, **kwargs)[:-2]
+                    self.fcisolver.nroots = self.nroots
     pdft = PDFT(mc._scf, mc.ncas_sub, mc.nelecas_sub, my_ot=ot, **kwargs)
 
     _keys = pdft._keys.copy()
