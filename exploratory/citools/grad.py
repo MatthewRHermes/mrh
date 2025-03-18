@@ -121,7 +121,6 @@ def get_grad_h1t1(a_idxs, i_idxs, las_rdm1, h1):
     for u,x in zip(t1a,t1i):
         h1t1s.append(sum_h1t1[u,x])
     
-    print ("h1t1 = ", h1t1s)
     return np.array(h1t1s)
 
 def get_grad_h2t1(a_idxs, i_idxs, las_rdm2, h2):
@@ -144,7 +143,6 @@ def get_grad_h2t1(a_idxs, i_idxs, las_rdm2, h2):
 
     for u,x in zip(t1a,t1i):
         h2t1s.append(sum_h2t1[u,x])
-    print ("h2t1 = ", h2t1s)
     return np.array(h2t1s)
 
 def get_grad_h1t2(a_idxs, i_idxs, las_rdm2, h1):
@@ -171,7 +169,6 @@ def get_grad_h1t2(a_idxs, i_idxs, las_rdm2, h1):
         x,y = z
         h1t2s.append(sum_h1t2[u,x,v,y])
     
-    print ("h1t2 = ", h1t2s)
     return np.array(h1t2s)
 
 def get_grad_h2t2(a_idxs, i_idxs, las_rdm2, las_rdm3, h2):
@@ -209,6 +206,5 @@ def get_grad_h2t2(a_idxs, i_idxs, las_rdm2, las_rdm3, h2):
         u,v = b
         x,y = z
         h2t2s.append(sum_h2t2[u,x,v,y])
-    print ("h2t2 = ", h2t2s)
 
     return np.array(h2t2s)
