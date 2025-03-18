@@ -63,7 +63,6 @@ def kernel (fci, h1, h2, norb, nelec, norb_f=None, ci0_f=None,
         jac=True, callback=psi_callback, options=psi_options)
 
     fci.converged = res.success
-    #print ("SV res.x = ", res.x)
     e_tot = psi.energy_tot (res.x, h)
     ci1 = psi.get_fcivec (res.x)
     if verbose>=lib.logger.DEBUG:
@@ -304,7 +303,6 @@ class LASUCCTrialState (object):
         log.debug ('energy value = %f, norm value = %e, |x| = %e', e_tot, cuuc, norm_x)
         if log.verbose > lib.logger.DEBUG: self.check_x_change (x, e_tot0=e_tot)
         self._e_last = e_tot
-        #print ("SV e_tot to return")
         return e_tot
 
     def jac (self, x, h, c=None, uc=None, huc=None, uhuc=None, c_f=None):
@@ -330,9 +328,6 @@ class LASUCCTrialState (object):
 
     def hc_x (self, x, h):
         xconstr, xcc, xci = self.unpack (x)
-        #print ("SV xconstr = ", xconstr, xconstr.shape)
-        #print ("SV xci = ", xci, np.array(xci)[0].shape, np.array(xci)[1].shape)
-        #print ("SV xcc = ", xcc, xcc.shape)
         self.uop.set_uniq_amps_(xcc)
         h = self.constr_h (xconstr, h)
         c_f = self.rotate_ci0 (xci)
@@ -471,7 +466,6 @@ class LASUCCTrialState (object):
         gen_indices = []
         a_idxs_lst = []
         i_idxs_lst = []
-        # print("self.uop.init_a_idxs[i]",self.uop.init_a_idxs)
         for i, (duc, uhuc_i) in enumerate(zip(self.uop.gen_deriv1(c, _full=False), self.uop.gen_partial(uhuc))):
             gradient = 2 * duc.ravel().dot(uhuc_i.ravel())
             all_g.append((gradient, i))
@@ -487,7 +481,6 @@ class LASUCCTrialState (object):
                 i_idxs_lst.append(i_idx)
 
         return all_g, g, gen_indices, a_idxs_lst, i_idxs_lst, len(a_idxs_lst), len(i_idxs_lst)
-#>>>>>>> Stashed changes
 
     def get_jac_ci (self, x, h, uhuc=None, uci_f=None):
         # "uhuc": e^-T1 H e^T1 U|ci0>
@@ -544,8 +537,6 @@ class LASUCCTrialState (object):
         xconstr, xcc, xci_f = self.unpack (x)
         uc_f = self.rotate_ci0 (xci_f)
         uc = self.dp_ci (uc_f)
-        #xcc[1] = 1e-6
-        #print ("SV xcc updated get_fcivec = ", xcc, xcc.shape)
         self.uop.set_uniq_amps_(xcc)
         uc = self.uop (uc)
         return uc / linalg.norm (uc)
@@ -630,7 +621,6 @@ class LASUCCTrialState (object):
 class FCISolver (direct_spin1.FCISolver):
     kernel = kernel
     approx_kernel = kernel
-    print ("AM here")
     make_rdm1 = make_rdm1
     make_rdm1s = make_rdm1s
     make_rdm12 = make_rdm12
