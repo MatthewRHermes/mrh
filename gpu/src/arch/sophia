@@ -1,0 +1,35 @@
+INSTALL = ../../my_pyscf/gpu
+
+PYTHON_INC=$(shell python -m pybind11 --includes)
+
+PATH_TO_NVCC = $(shell which nvcc)
+PATH_TO_CUDA = $(shell echo ${PATH_TO_NVCC} | rev | cut -d '/' -f 3- | rev)
+$(info PATH_TO_CUDA= [${PATH_TO_CUDA}])
+
+FC = mpif90
+FCFLAGS = -g -fopenmp -O3
+
+CXX = mpicxx
+CXXFLAGS = -g -fopenmp -O3
+CXXFLAGS += -I$(PATH_TO_CUDA)/include
+CXXFLAGS += $(PYTHON_INC)
+
+CXXFLAGS += -D_USE_GPU -D_GPU_CUDA -D_GPU_CUBLAS
+CXXFLAGS += -I$(PATH_TO_CUDA)/include
+CXXFLAGS += -D_USE_NVTX
+
+CUDA_CXX = nvcc
+CUDA_CXXFLAGS = -x cu $(PYTHON_INC)
+CUDA_CXXFLAGS += -ccbin=mpicxx -arch=sm_80
+CUDA_CXXFLAGS += -Xcompiler -fopenmp
+CUDA_CXXFLAGS += -D_USE_GPU -D_GPU_CUDA -D_GPU_CUBLAS
+CUDA_CXXFLAGS += -I$(PATH_TO_CUDA)/include
+CUDA_CXXFLAGS += -D_USE_NVTX
+
+LD = $(CXX)
+LDFLAGS = -g -fopenmp 
+
+LIB = -lstdc++
+LIB += /grand/LASSCF_gpudev/soft-sophia/openblas/lib/libopenblas.so
+LIB += -L$(PATH_TO_CUDA)/lib64 -lcublas -lcudart
+LIB += -lnvToolsExt
