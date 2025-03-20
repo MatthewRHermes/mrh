@@ -41,9 +41,13 @@ def from_si_mcscf (mc, fname, state=None, si=None, cas_natorb=False, cas_mo_ener
         return from_sa_mcscf (mc, fname, state=state, cas_natorb=cas_natorb,
                               cas_mo_energy=cas_mo_energy, **kwargs)
 
-def from_lasscf (las, fname, state=None, natorb_casdm1=None, **kwargs):
+def from_lasscf (las, fname, state=None, natorb_casdm1=None, only_as=False, **kwargs):
     if state is not None: natorb_casdm1 = las.states_make_casdm1s ()[state].sum (0)
     mo_coeff, mo_ene, mo_occ = las.canonicalize (natorb_casdm1=natorb_casdm1)[:3]
+    if only_as:
+        mo_coeff = mo_coeff[:, las.ncore:las.ncore+las.ncas]
+        mo_ene = mo_ene[las.ncore:las.ncore+las.ncas]
+        mo_occ = mo_occ[las.ncore:las.ncore+las.ncas]
     return from_mo (las.mol, fname, mo_coeff, occ=mo_occ, ene=mo_ene, **kwargs)
 
 def from_lassi (lsi, fname, state=0, si=None, opt=1, **kwargs):

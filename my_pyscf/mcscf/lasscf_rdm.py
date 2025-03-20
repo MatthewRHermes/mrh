@@ -362,6 +362,7 @@ class RDMSolver (lib.StreamObject):
         self.mol = mol
         self.spin = None
         self.charge = None
+        self.smult = None
         self.fci = None
         self._get_init_guess = get_init_guess
         self._kernel = kernel
@@ -392,11 +393,13 @@ class RDMSolver (lib.StreamObject):
         return erdm, dm1s, dm2
 
     def _get_csf_solver (self, nelec):
-        if (self.spin is None) or isinstance (nelec, (list, tuple, np.ndarray)):
-            nelec = _unpack_nelec (nelec)
-            smult = nelec[0] - nelec[1] + 1
-        else: 
-            smult = self.spin + 1
+        smult = getattr (self, 'smult', None)
+        if smult is None:
+            if (self.spin is None) or isinstance (nelec, (list, tuple, np.ndarray)):
+                nelec = _unpack_nelec (nelec)
+                smult = abs (nelec[0] - nelec[1]) + 1
+            else: 
+                smult = self.spin + 1
         return csf_solver (self.mol, smult=smult)
 
     def _ci2rdm (self, fci, ci, norb, nelec):
@@ -443,9 +446,10 @@ class FCIBox (lib.StreamObject):
             nelec = (nelec+m)//2, (nelec-m)//2
         return nelec
 
-def make_fcibox (mol, kernel=None, get_init_guess=None, spin=None):
+def make_fcibox (mol, kernel=None, get_init_guess=None, spin=None, smult=None):
     s = RDMSolver (mol, kernel=kernel, get_init_guess=get_init_guess)
     s.spin = spin
+    s.smult = smult
     return FCIBox ([s])
 
 def _combine_init_guess_ci (las, ci0i, ci0g, norb, nelec, nroots):
@@ -474,7 +478,7 @@ class LASSCFNoSymm (lasscf_sync_o0.LASSCFNoSymm):
     _combine_init_guess_ci = _combine_init_guess_ci
 
     def _init_fcibox (self, smult, nel):
-        return make_fcibox (self.mol, spin=nel[0]-nel[1])
+        return make_fcibox (self.mol, spin=nel[0]-nel[1], smult=smult)
 
     def kernel(self, mo_coeff=None, casdm1frs=None, casdm2fr=None, conv_tol_grad=None, verbose=None):
         if mo_coeff is None:

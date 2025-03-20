@@ -3,7 +3,7 @@ from scipy import linalg
 from pyscf.fci import cistring
 from pyscf.fci.direct_spin1 import _unpack_nelec
 from itertools import product
-from mrh.my_pyscf.lassi.op_o1 import fermion_spin_shuffle as _fss
+from mrh.my_pyscf.lassi.op_o1.utilities import fermion_spin_shuffle as _fss
 from mrh.my_pyscf.fci.csfstring import CSFTransformer
 
 MAX_NORB = 24 # for now
@@ -78,11 +78,11 @@ def fermion_spin_shuffle (norb, norb_f):
     nelec_f = np.zeros ((ndet, nfrag), dtype=np.int8)
     for ifrag, n in enumerate (ndet_f):
         addrs, fragaddrs = np.divmod (addrs, n)
-        nelec_f[:,ifrag] = ADDRS_NELEC[fragaddrs]
+        nelec_f[:,ifrag] = ADDRS_NELEC[fragaddrs.astype (int)]
     ne_f, ne_f_idx = np.unique (nelec_f, return_inverse=True, axis=0)
     for (ia, na_f), (ib, nb_f) in product (enumerate (ne_f), repeat=2):
-        idx_a = ne_f_idx == ia
-        idx_b = ne_f_idx == ib
+        idx_a = np.squeeze (ne_f_idx == ia)
+        idx_b = np.squeeze (ne_f_idx == ib)
         idx = np.ix_(idx_a,idx_b)
         sgn[idx] = _fss (na_f, nb_f)
     assert (np.count_nonzero (sgn==0) == 0)
@@ -127,7 +127,7 @@ def fermion_frag_shuffle (norb, i, j):
     # Lower orbital indices change faster than higher ones
     addrs_p = np.arange (ndet, dtype=np.uint64) // (2**i)
     addrs_q, addrs_p = np.divmod (addrs_p, 2**(j-i))
-    nperms = ADDRS_NELEC[addrs_p] * ADDRS_NELEC[addrs_q]
+    nperms = ADDRS_NELEC[addrs_p.astype (int)] * ADDRS_NELEC[addrs_q.astype (int)]
     sgn = np.array ([1,-1], dtype=np.int8)[nperms%2]
     assert (sgn.size==ndet)
     return sgn

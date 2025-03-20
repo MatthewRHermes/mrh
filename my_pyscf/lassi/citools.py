@@ -1,4 +1,10 @@
 import numpy as np
+import functools
+from scipy.sparse import linalg as sparse_linalg
+from pyscf.scf.addons import canonical_orth_
+from pyscf import __config__
+
+LINDEP_THRESH = getattr (__config__, 'lassi_lindep_thresh', 1.0e-5)
 
 def get_lroots (ci):
     '''Generate a table showing the number of states contained in a (optionally nested) list
@@ -48,7 +54,7 @@ def get_rootaddr_fragaddr (lroots):
             The ordinal designation local to each fragment of each LAS state.
     '''
     nfrags, nroots = lroots.shape
-    nprods = np.product (lroots, axis=0)
+    nprods = np.prod (lroots, axis=0)
     fragaddr = np.zeros ((nfrags, sum(nprods)), dtype=int)
     rootaddr = np.zeros (sum(nprods), dtype=int)
     offs = np.cumsum (nprods)
@@ -56,12 +62,148 @@ def get_rootaddr_fragaddr (lroots):
         j = offs[iroot]
         i = j - nprods[iroot]
         for ifrag in range (nfrags):
-            prods_before = np.product (lroots[:ifrag,iroot], axis=0)
-            prods_after = np.product (lroots[ifrag+1:,iroot], axis=0)
+            prods_before = np.prod (lroots[:ifrag,iroot], axis=0)
+            prods_after = np.prod (lroots[ifrag+1:,iroot], axis=0)
             addrs = np.repeat (np.arange (lroots[ifrag,iroot]), prods_before)
             addrs = np.tile (addrs, prods_after)
             fragaddr[ifrag,i:j] = addrs
         rootaddr[i:j] = iroot
     return rootaddr, fragaddr
+
+def umat_dot_1frag_(target, umat, lroots, ifrag, iroot, axis=0):
+    '''Apply a unitary transformation for 1 fragment in 1 rootspace to a tensor
+    whose target axis spans all model states.
+
+    Args:
+        target: ndarray whose length on axis 'axis' is nstates
+            The object to which the unitary transformation is to be applied.
+            Modified in-place.
+        umat: ndarray of shape (lroots[ifrag,iroot],lroots[ifrag,iroot])
+            A unitary matrix; the row axis is contracted
+        lroots: ndarray of shape (nfrags, nroots)
+            Number of basis states in each fragment in each rootspace
+        ifrag: integer
+            Fragment index for the targeted block
+        iroot: integer
+            Rootspace index for the targeted block
+
+    Kwargs:
+        axis: integer
+            The axis of target to which umat is to be applied
+
+    Returns:
+        target: same as input target
+            After application of unitary transformation'''
+    nprods = np.prod (lroots, axis=0)
+    offs = [0,] + list (np.cumsum (nprods))
+    i, j = offs[iroot], offs[iroot+1]
+    newaxes = [axis,] + list (range (axis)) + list (range (axis+1, target.ndim))
+    oldaxes = list (np.argsort (newaxes))
+    target = target.transpose (*newaxes)
+    target[i:j] = _umat_dot_1frag (target[i:j], umat, lroots[:,iroot], ifrag)
+    target = target.transpose (*oldaxes)
+    return target
+
+def _umat_dot_1frag (target, umat, lroots, ifrag):
+    # Remember: COLUMN-MAJOR ORDER!!
+    iifrag = len (lroots) - ifrag - 1
+    old_shape1 = target.shape
+    new_shape = lroots[::-1]
+    nrow = np.prod (new_shape[:iifrag]).astype (int)
+    ncol1 = lroots[ifrag]
+    assert (ncol1==umat.shape[0])
+    ncol2 = umat.shape[1]
+    nstack = (np.prod (new_shape[iifrag:]) * np.prod (old_shape1[1:])).astype (int) // ncol1
+    new_shape = (nrow, ncol1, nstack)
+    target = target.reshape (*new_shape).transpose (1,0,2)
+    target = np.tensordot (umat.T, target, axes=1).transpose (1,0,2)
+    old_shape2 = list (old_shape1)
+    old_shape2[0] = old_shape2[0] * ncol2 // ncol1
+    return target.reshape (*old_shape2)
+
+def get_orth_basis (ci_fr, norb_f, nelec_frs, _get_ovlp=None):
+    if _get_ovlp is None:
+        from mrh.my_pyscf.lassi.op_o0 import get_ovlp
+        _get_ovlp = functools.partial (get_ovlp, ci_fr, norb_f, nelec_frs)
+    nfrags, nroots = nelec_frs.shape[:2]
+    unique, uniq_idx, inverse, cnts = np.unique (nelec_frs, axis=1, return_index=True,
+                                                 return_inverse=True, return_counts=True)
+    lroots_fr = np.array ([[1 if c.ndim<3 else c.shape[0]
+                            for c in ci_r]
+                           for ci_r in ci_fr])
+    nprods_r = np.prod (lroots_fr, axis=0)
+    offs1 = np.cumsum (nprods_r)
+    offs0 = offs1 - nprods_r
+    nraw = offs1[-1]
+    is_complex = any ([any ([np.iscomplexobj (c) for c in ci_r]) for ci_r in ci_fr])
+    dtype = np.complex128 if is_complex else np.float64 
+
+    if not np.count_nonzero (cnts>1): 
+        _get_ovlp = None
+        return sparse_linalg.LinearOperator (shape=(nraw,nraw), dtype=dtype,
+                                             matvec=lambda x: x,
+                                             rmatvec=lambda x: x)
+    uniq_prod_idx = []
+    for i in uniq_idx[cnts==1]: uniq_prod_idx.extend (list(range(offs0[i],offs1[i])))
+    manifolds_prod_idx = []
+    manifolds_xmat = []
+    nuniq_prod = north = len (uniq_prod_idx)
+    for manifold_idx in np.where (cnts>1)[0]:
+        manifold = np.where (inverse==manifold_idx)[0]
+        manifold_prod_idx = []
+        for i in manifold: manifold_prod_idx.extend (list(range(offs0[i],offs1[i])))
+        manifolds_prod_idx.append (manifold_prod_idx)
+        ovlp = _get_ovlp (rootidx=manifold)
+        xmat = canonical_orth_(ovlp, thr=LINDEP_THRESH)
+        north += xmat.shape[1]
+        manifolds_xmat.append (xmat)
+
+    _get_ovlp = None
+
+    nraw = offs1[-1]
+    def raw2orth (rawarr):
+        is_out_complex = is_complex or np.iscomplexobj (rawarr)
+        my_dtype = np.complex128 if is_out_complex else np.float64
+        col_shape = rawarr.shape[1:]
+        orth_shape = [north,] + list (col_shape)
+        ortharr = np.zeros (orth_shape, dtype=my_dtype)
+        ortharr[:nuniq_prod] = rawarr[uniq_prod_idx]
+        i = nuniq_prod
+        for prod_idx, xmat in zip (manifolds_prod_idx, manifolds_xmat):
+            j = i + xmat.shape[1]
+            ortharr[i:j] = np.tensordot (xmat.T, rawarr[prod_idx], axes=1)
+            i = j
+        return ortharr
+
+    def orth2raw (ortharr):
+        is_out_complex = is_complex or np.iscomplexobj (ortharr)
+        my_dtype = np.complex128 if is_out_complex else np.float64
+        col_shape = ortharr.shape[1:]
+        raw_shape = [nraw,] + list (col_shape)
+        rawarr = np.zeros (raw_shape, dtype=my_dtype)
+        rawarr[uniq_prod_idx] = ortharr[:nuniq_prod]
+        i = nuniq_prod
+        for prod_idx, xmat in zip (manifolds_prod_idx, manifolds_xmat):
+            j = i + xmat.shape[1]
+            rawarr[prod_idx] = np.tensordot (xmat.conj (), ortharr[i:j], axes=1)
+            i = j
+        return rawarr
+
+    return sparse_linalg.LinearOperator (shape=(north,nraw), dtype=dtype,
+                                         matvec=raw2orth,
+                                         rmatvec=orth2raw)
+
+def _fake_gen_contract_op_si_hdiag (matrix_builder, las, h1, h2, ci_fr, nelec_frs, soc=0,
+                                    orbsym=None, wfnsym=None):
+    ham, s2, ovlp, raw2orth = matrix_builder (las, h1, h2, ci_fr, nelec_frs, soc=soc,
+                                              orbsym=orbsym, wfnsym=wfnsym)
+    def contract_ham_si (x):
+        return ham @ x
+    def contract_s2 (x):
+        return s2 @ x
+    def contract_ovlp (x):
+        return ovlp @ x
+    hdiag = np.diagonal (ham)
+    return contract_ham_si, contract_s2, contract_ovlp, hdiag, raw2orth
 
 

@@ -2,11 +2,11 @@ import unittest
 from pyscf import lib, gto, scf
 from mrh.my_pyscf.mcscf.lasscf_o0 import LASSCF
 from mrh.my_pyscf.lassi import LASSI
-from mrh.my_pyscf.lassi.states import all_single_excitations
+from mrh.my_pyscf.lassi.spaces import all_single_excitations
 from mrh.my_pyscf.mcscf.lasci import get_space_info
 
 class KnownValues(unittest.TestCase):
-    def test_ethene (self):
+    def test_ethene_casci_limit (self):
         xyz='''H 0 0 0
                H 1 0 0
                H 3 0 0
@@ -27,19 +27,20 @@ class KnownValues(unittest.TestCase):
         las1.conv_tol_grad = las.conv_tol_self = 9e99
         las1.lasci (lroots=lroots.T)
         las1.dump_spaces ()
-        lsi = LASSI (las1)
-        lsi.kernel (opt=0)
-       
-        from mrh.my_pyscf import mcpdft
-        lsipdft = mcpdft.LASSI(lsi, 'tPBE', (2,2), (2,2))
-        lsipdft.kernel()
-              
         # CASCI limit
         from pyscf import mcpdft
         mc = mcpdft.CASCI (mf, 'tPBE', 4, 4).run ()
-
-        self.assertAlmostEqual (lsi.e_roots[0], mc.e_mcscf, 7)
-        self.assertAlmostEqual (lsipdft.e_tot[0], mc.e_tot, 7)
+        for opt in range (2):
+            with self.subTest (opt=opt):
+                lsi = LASSI (las1)
+                lsi.opt = opt
+                lsi.kernel ()
+                self.assertAlmostEqual (lsi.e_roots[0], mc.e_mcscf, 7)
+                from mrh.my_pyscf import mcpdft
+                lsipdft = mcpdft.LASSI (lsi, 'tPBE')
+                lsipdft.opt = opt
+                lsipdft.kernel()
+                self.assertAlmostEqual (lsipdft.e_tot[0], mc.e_tot, 7)
 
 if __name__ == "__main__":
     print("Full Tests for LASSI-PDFT")

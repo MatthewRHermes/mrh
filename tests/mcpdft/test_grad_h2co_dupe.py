@@ -1,7 +1,7 @@
 import os
 import numpy as np
 from scipy import linalg
-from pyscf import gto, scf, df, fci, lib
+from pyscf import gto, scf, df, fci, lib, dft
 from pyscf.fci.addons import fix_spin_
 from pyscf import mcpdft
 #from mrh.my_pyscf.fci import csf_solver
@@ -29,16 +29,19 @@ def get_mc_ref (mol, ri=False, sa2=False, mo0=None):
     return mc.run (mo0)
 
 def setUpModule():
-    global mol_nosymm, mol_symm, mo0
+    global mol_nosymm, mol_symm, mo0, original_grids
+    original_grids = dft.radi.ATOM_SPECIFIC_TREUTLER_GRIDS
+    dft.radi.ATOM_SPECIFIC_TREUTLER_GRIDS = False
     mc_symm = get_mc_ref (mol_symm)
     mo0 = mc_symm.mo_coeff.copy ()
     del mc_symm
 
 def tearDownModule():
-    global mol_nosymm, mol_symm, mo0
+    global mol_nosymm, mol_symm, mo0, original_grids
+    dft.radi.ATOM_SPECIFIC_TREUTLER_GRIDS = original_grids
     mol_nosymm.stdout.close ()
     mol_symm.stdout.close ()
-    del mol_nosymm, mol_symm, mo0
+    del mol_nosymm, mol_symm, mo0, original_grids
 
 class KnownValues(unittest.TestCase):
 

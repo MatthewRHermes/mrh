@@ -1,5 +1,6 @@
 import sys
 import numpy as np
+import functools
 from scipy import linalg
 from pyscf.fci import cistring
 from pyscf import fci, lib
@@ -9,8 +10,10 @@ from pyscf.fci.spin_op import contract_ss, spin_square
 from pyscf.data import nist
 from itertools import combinations
 from mrh.my_pyscf.mcscf import soc_int as soc_int
+from mrh.my_pyscf.lassi import citools
 from mrh.my_pyscf.lassi import dms as lassi_dms
 from mrh.my_pyscf.fci.csf import unpack_h1e_cs
+from mrh.my_pyscf.lassi.citools import _fake_gen_contract_op_si_hdiag
 
 def memcheck (las, ci, soc=None):
     '''Check if the system has enough memory to run these functions! ONLY checks
@@ -21,7 +24,7 @@ def memcheck (las, ci, soc=None):
     lroots_fr = np.array ([[1 if c.ndim<3 else c.shape[0]
                             for c in ci_r]
                            for ci_r in ci])
-    lroots_r = np.product (lroots_fr, axis=0)
+    lroots_r = np.prod (lroots_fr, axis=0)
     nelec_frs = np.array ([[list (_unpack_nelec (fcibox._get_nelec (solver, nelecas)))
                             for solver in fcibox.fcisolvers]
                            for fcibox, nelecas in zip (las.fciboxes, las.nelecas_sub)])
@@ -40,7 +43,7 @@ def memcheck (las, ci, soc=None):
     else:
         nbytes = 2*nbytes_per_sfvec
     # memory load of ci_dp vectors
-    nbytes += sum ([np.prod ([c[iroot].size for c in ci])
+    nbytes += sum ([np.prod ([float (c[iroot].size) for c in ci])
                     * np.amax ([c[iroot].dtype.itemsize for c in ci])
                     for iroot in range (nroots)])
     safety_factor = 1.2
@@ -144,6 +147,25 @@ def civec_spinless_repr_generator (ci0_r, norb, nelec_r):
     return ci1_r_gen, ss2spinless, spinless2ss
 
 def civec_spinless_repr (ci0_r, norb, nelec_r):
+    '''Put CI vectors in the spinless representation; i.e., map
+        norb -> 2 * norb
+        (neleca, nelecb) -> (neleca+nelecb, 0)
+    This permits linear combinations of CI vectors with different
+    M == neleca-nelecb at the price of higher memory cost. This function
+    does NOT change the datatype.
+
+    Args:
+        ci0_r: sequence or generator of ndarray of length nprods
+            CAS-CI vectors in the spin-pure representation
+        norb: integer
+            Number of orbitals
+        nelec_r: sequence of tuple of length (2)
+            (neleca, nelecb) for each element of ci0_r
+
+    Returns:
+        ci1_r: ndarray of shape (nprods, ndet_spinless)
+            spinless CAS-CI vectors
+    '''
     ci1_r_gen, _, _ = civec_spinless_repr_generator (ci0_r, norb, nelec_r)
     ci1_r = np.stack ([x.copy () for x in ci1_r_gen ()], axis=0)
     return ci1_r
@@ -400,6 +422,76 @@ def ci_outer_product (ci_fr, norb_f, nelec_fr):
 #
 #    return hsiso
 
+def get_ovlp (ci_fr, norb_f, nelec_frs, rootidx=None):
+    if rootidx is not None:
+        ci_fr = [[c[iroot] for iroot in rootidx] for c in ci_fr]
+        nelec_frs = nelec_frs[:,rootidx,:]
+    ci_r_generator, nelec_r, dotter = ci_outer_product_generator (ci_fr, norb_f, nelec_frs)
+    ndim = len (nelec_r)
+    ovlp = np.zeros ((ndim, ndim))
+    for i, ket in zip(range(ndim), ci_r_generator ()):
+        nelec_ket = nelec_r[i]
+        ovlp[i,:] = dotter (ket, nelec_ket, iket=i, oporder=0)
+    return ovlp
+
+def get_orth_basis (ci_fr, norb_f, nelec_frs, _get_ovlp=get_ovlp):
+    nfrags, nroots = nelec_frs.shape[:2]
+    unique, uniq_idx, inverse, cnts = np.unique (nelec_frs, axis=1, return_index=True,
+                                                 return_inverse=True, return_counts=True)
+    if not np.count_nonzero (cnts>1):
+        def raw2orth (rawarr):
+            return rawarr
+        def orth2raw (ortharr):
+            return ortharr
+        return raw2orth, orth2raw
+    lroots_fr = np.array ([[1 if c.ndim<3 else c.shape[0]
+                            for c in ci_r]
+                           for ci_r in ci_fr])
+    nprods_r = np.prod (lroots_fr, axis=0)
+    offs1 = np.cumsum (nprods_r)
+    offs0 = offs1 - nprods_r
+    uniq_prod_idx = []
+    for i in uniq_idx[cnts==1]: uniq_prod_idx.extend (list(range(offs0[i],offs1[i])))
+    manifolds_prod_idx = []
+    manifolds_xmat = []
+    nuniq_prod = north = len (uniq_prod_idx)
+    for manifold_idx in np.where (cnts>1)[0]:
+        manifold = np.where (inverse==manifold_idx)[0]
+        manifold_prod_idx = []
+        for i in manifold: manifold_prod_idx.extend (list(range(offs0[i],offs1[i])))
+        manifolds_prod_idx.append (manifold_prod_idx)
+        ovlp = _get_ovlp (ci_fr, norb_f, nelec_frs, rootidx=manifold)
+        xmat = canonical_orth_(ovlp, thr=LINDEP_THRESH)
+        north += xmat.shape[1]
+        manifolds_xmat.append (xmat)
+
+    nraw = offs1[-1]
+    def raw2orth (rawarr):
+        col_shape = rawarr.shape[1:]
+        orth_shape = [north,] + list (col_shape)
+        ortharr = np.zeros (orth_shape, dtype=rawarr.dtype)
+        ortharr[:nuniq_prod] = rawarr[uniq_prod_idx]
+        i = nuniq_prod
+        for prod_idx, xmat in zip (manifolds_prod_idx, manifolds_xmat):
+            j = i + xmat.shape[1]
+            ortharr[i:j] = np.tensordot (xmat.T, rawarr[prod_idx], axes=1)
+            i = j
+        return ortharr
+
+    def orth2raw (ortharr):
+        col_shape = ortharr.shape[1:]
+        raw_shape = [nraw,] + list (col_shape)
+        rawarr = np.zeros (raw_shape, dtype=ortharr.dtype)
+        rawarr[uniq_prod_idx] = ortharr[:nuniq_prod]
+        i = nuniq_prod
+        for prod_idx, xmat in zip (manifolds_prod_idx, manifolds_xmat):
+            j = i + xmat.shape[1]
+            rawarr[prod_idx] = np.tensordot (xmat.conj (), ortharr[i:j], axes=1)
+            i = j
+        return rawarr
+
+    return raw2orth, orth2raw
+
 def ham (las, h1, h2, ci_fr, nelec_frs, soc=0, orbsym=None, wfnsym=None):
     '''Build LAS state interaction Hamiltonian, S2, and ovlp matrices
 
@@ -431,6 +523,9 @@ def ham (las, h1, h2, ci_fr, nelec_frs, soc=0, orbsym=None, wfnsym=None):
             S2 operator matrix in state-interaction basis
         ovlp_eff : square ndarray of length (ndim)
             Overlap matrix in state-interaction basis
+        raw2orth : LinearOperator of shape (ndim_orth, ndim)
+            Projects SI vector columns into an orthonormal basis,
+            eliminating linear dependencies (ndim_orth <= ndim).
     '''
     if soc>1:
         raise NotImplementedError ("Two-electron spin-orbit coupling")
@@ -496,7 +591,9 @@ def ham (las, h1, h2, ci_fr, nelec_frs, soc=0, orbsym=None, wfnsym=None):
         ket = None
         ham_eff[i,:] = dotter (hket, nelec_ket, spinless2ss=spinless2ss, iket=i, oporder=2)
     
-    return ham_eff, s2_eff, ovlp_eff
+    _get_ovlp = functools.partial (get_ovlp, ci_fr, norb_f, nelec_frs)
+    raw2orth = citools.get_orth_basis (ci_fr, norb_f, nelec_frs, _get_ovlp=_get_ovlp)
+    return ham_eff, s2_eff, ovlp_eff, raw2orth
 
 def contract_ham_ci (las, h1, h2, ci_fr_ket, nelec_frs_ket, ci_fr_bra, nelec_frs_bra, 
                      soc=0, orbsym=None, wfnsym=None):
@@ -786,8 +883,8 @@ def root_make_rdm12s (las, ci_fr, nelec_frs, si, ix, orbsym=None, wfnsym=None):
         d1s2, d2s2 = solver.trans_rdm12s (ci_r_real, ci_r_imag, norb, nelec_r)
         d1s2 -= np.asarray (d1s2).transpose (0,2,1)
         d2s2 -= np.asarray (d2s2).transpose (0,2,1,4,3)
-        d1s -= 1j * d1s2 
-        d2s += 1j * d2s2
+        d1s += 1j * d1s2 
+        d2s -= 1j * d2s2
     rdm1s[0,:,:] = d1s[0]
     rdm1s[1,:,:] = d1s[1]
     rdm2s[0,:,:,0,:,:] = d2s[0]
@@ -889,5 +986,7 @@ if __name__ == '__main__':
         nelec_fr.append ([_unpack_nelec (fcibox._get_nelec (solver, ne)) for solver in fcibox.fcisolvers])
     ham_eff = slow_ham (las.mol, h1, h2, las.ci, las.ncas_sub, nelec_fr)[0]
     print (las.converged, e_states - (e0 + np.diag (ham_eff)))
+
+gen_contract_op_si_hdiag = functools.partial (_fake_gen_contract_op_si_hdiag, ham)
 
 

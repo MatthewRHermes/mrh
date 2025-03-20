@@ -46,12 +46,12 @@ except (OSError, TypeError, KeyError) as e: # First time through you have to mak
     mo_coeff = las.localize_init_guess (([0],[1]), mo_coeff)
 
 # Direct exchange only result
-las = lassi.states.spin_shuffle (las) # generate direct-exchange states
+las = lassi.spaces.spin_shuffle (las) # generate direct-exchange states
 las.weights = [1.0/las.nroots,]*las.nroots # set equal weights
 las.kernel (mo_coeff) # optimize orbitals
 lsi0 = lassi.LASSI (las).run ()
 print (("Direct exchange only is modeled by {} states constructed with "
-        "lassi.states.spin_shuffle").format (las.nroots))
+        "lassi.spaces.spin_shuffle").format (las.nroots))
 print ("J(LASSI, direct) = %.2f cm^-1" % yamaguchi (lsi0.e_roots, lsi0.s2))
 print ("{} rootspaces and {} product states total\n".format (lsi0.nroots, lsi0.si.shape[1]))
 
@@ -70,8 +70,8 @@ print ("{} spin-alpha determinants * {} spin-beta determinants = {} determinants
     mc.ci.shape[0], mc.ci.shape[1], mc.ci.size))
 
 # Direct exchange & kinetic exchange result
-las = lassi.states.all_single_excitations (las) # generate kinetic-exchange states
-print (("Use of lassi.states.all_single_excitations generates "
+las = lassi.spaces.all_single_excitations (las) # generate kinetic-exchange states
+print (("Use of lassi.spaces.all_single_excitations generates "
         "{} additional kinetic-exchange (i.e., charge-transfer) "
         "states").format (las.nroots-4))
 las.lasci () # do not reoptimize orbitals at this step - not likely to converge

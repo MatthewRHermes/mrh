@@ -1584,7 +1584,6 @@ class LASCINoSymm (casci.CASCI):
             casdm2s[2][i:j, k:l, k:l, i:j] -= np.tensordot (weights, d2exc_bb, axes=1)
             for spin in [0,2]:
                 casdm2s[spin][k:l, i:j, i:j, k:l] = casdm2s[spin][i:j, k:l, k:l, i:j].transpose (1,0,3,2)
-        
         return casdm2s
 
 

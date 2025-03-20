@@ -1,5 +1,5 @@
 import numpy as np
-from pyscf import gto, scf, mcscf, mcpdft
+from pyscf import gto, scf, mcscf, mcpdft, dft
 import unittest
 #from mrh.my_pyscf.fci import csf_solver
 from pyscf.fci.addons import fix_spin_
@@ -51,11 +51,17 @@ def get_furan_cation(mol,iroots=3):
     mc.kernel(mo)
     return mc
 
+def setUpModule():
+    global mol_h2o, mol_furan_cation, original_grids
+    original_grids = dft.radi.ATOM_SPECIFIC_TREUTLER_GRIDS
+    dft.radi.ATOM_SPECIFIC_TREUTLER_GRIDS = False
+
 def tearDownModule():
-    global mol_h2o, mol_furan_cation
+    global mol_h2o, mol_furan_cation, original_grids
+    dft.radi.ATOM_SPECIFIC_TREUTLER_GRIDS = original_grids
     mol_h2o.stdout.close ()
     mol_furan_cation.stdout.close ()
-    del mol_h2o, mol_furan_cation
+    del mol_h2o, mol_furan_cation, original_grids
 
 class KnownValues(unittest.TestCase):
     '''

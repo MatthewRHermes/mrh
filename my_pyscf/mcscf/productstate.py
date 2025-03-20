@@ -1,6 +1,7 @@
 import numpy as np
 from scipy import linalg
 from pyscf import lib
+from pyscf.scf.addons import canonical_orth_
 from pyscf.fci import cistring
 from pyscf.mcscf.addons import state_average as state_average_mcscf
 from mrh.my_pyscf.fci.csf import CSFFCISolver
@@ -10,7 +11,7 @@ from itertools import combinations
 
 # TODO: linkstr support
 class ProductStateFCISolver (StateAverageNMixFCISolver, lib.StreamObject):
-    '''Minimize the energy of a wave function of the form
+    r'''Minimize the energy of a wave function of the form
 
     |Psi> = A \prod_K |ci_K>
 
@@ -30,10 +31,12 @@ class ProductStateFCISolver (StateAverageNMixFCISolver, lib.StreamObject):
         converged = False
         e_sigma = 0
         e = [0 for n in norb_f]
-        ci1 = self.get_init_guess (ci0, norb_f, nelec_f, h1, h2)
+        ci1 = ci0
         log.info ('Entering product-state fixed-point CI iteration')
         for it in range (max_cycle_macro):
-            ci0 = ci1
+            ci0 = self.get_init_guess (ci1, norb_f, nelec_f, h1, h2)
+            # Issue #86: put get_init_guess INSIDE the iteration in case _1shot below encounters
+            # linear dependencies and can't populate all CI vectors for all fragments.
             h1eff, h0eff, ci0 = self.project_hfrag (h1, h2, ci0, norb_f, nelec_f,
                 ecore=ecore, **kwargs)
             grad = self._get_grad (h1eff, h2, ci0, norb_f, nelec_f, **kwargs)
@@ -55,70 +58,106 @@ class ProductStateFCISolver (StateAverageNMixFCISolver, lib.StreamObject):
         conv_str = ['NOT converged','converged'][int (converged)]
         log.info (('Product_state fixed-point CI iteration {} after {} '
                    'cycles').format (conv_str, it))
-        if not converged: self._debug_csfs (log, ci0, ci1, norb_f, nelec_f, grad)
+        if not converged:
+            ci1 = self.get_init_guess (ci1, norb_f, nelec_f, h1, h2)
+            # Issue #86: see above, same problem
+            self._debug_csfs (log, ci0, ci1, norb_f, nelec_f, grad)
         energy_elec = self.energy_elec (h1, h2, ci1, norb_f, nelec_f,
-            ecore=ecore, **kwargs)
+            ecore=ecore, efinal=e, **kwargs)
         return converged, energy_elec, ci1
 
-    def get_init_guess (self, ci0, norb_f, nelec_f, h1, h2):
+    def get_init_guess (self, ci0, norb_f, nelec_f, h1, h2, nroots=None):
+        '''Generate CI guess vectors for all fragments.
+
+        Args:
+            ci0: list of length nfrag or None
+                Contains either None or ndarrays of guess CI vectors. Any new guess CI vectors
+                constructed by this function are constrained to be orthogonal to those already
+                provided here, if any.
+            norb_f: list of length nfrag of integers
+                Number of orbitals in each fragment
+            nelec_f: list of length nfrag of integers
+                Number of electrons (in reference state) in each fragment
+            h1: ndarray of shape (ncas,ncas) or (2,ncas,ncas)
+                One-electron Hamiltonian amplitudes
+            h2: ndarray of shape (ncas,ncas,ncas,ncas)
+                Two-electron Hamiltonian amplitudes
+
+        Returns:
+            ci1: list of length nfrag of ndarrays
+                Orthonormal guess CI vectors. Any vectors present in ci0 are preserved unaltered.
+        '''
         if ci0 is None: ci0 = [None for i in range (len (norb_f))]
         ci1 = [c for c in ci0] # reference safety
         if h1.ndim < 3: h1 = np.stack ([h1, h1], axis=0)
         for ix, (no, ne, solver) in enumerate (zip (norb_f, nelec_f, self.fcisolvers)):
+            solver.check_transformer_cache ()
+            snroots = solver.nroots if nroots is None else min (nroots, solver.transformer.ncsf)
             nelec = self._get_nelec (solver, ne)
             i = sum (norb_f[:ix])
             j = i + norb_f[ix]
             hdiag_csf = solver.make_hdiag_csf (h1[:,i:j,i:j], h2[i:j,i:j,i:j,i:j],
                                                no, nelec)
-            ci1_guess = solver.get_init_guess (no, nelec, solver.nroots, hdiag_csf)
+            ci1_guess = solver.get_init_guess (no, nelec, snroots, hdiag_csf)
             na = cistring.num_strings (no, nelec[0])
             nb = cistring.num_strings (no, nelec[1])
             if ci1[ix] is None:
                 ci1[ix] = ci1_guess
-            elif np.asarray (ci1[ix]).reshape (-1,na*nb).shape[0] < solver.nroots:
+            elif np.asarray (ci1[ix]).reshape (-1,na*nb).shape[0] < snroots:
                 ci1_inp = np.asarray (ci1[ix]).reshape (-1,na*nb)
                 ci1_guess = np.asarray (ci1_guess).reshape (-1,na*nb)
-                ovlp = ci1_inp.conj () @ ci1_guess.T
-                ci1_guess -= ovlp.T @ ci1_inp
-                ovlp = ci1_guess.conj () @ ci1_guess.T
-                Q, R = linalg.qr (ovlp)
-                ci1_guess = Q.T @ ci1_guess
-                ci1[ix] = np.append (ci1_inp, ci1_guess, axis=0)[:solver.nroots].reshape (
-                    solver.nroots, na, nb)
-        return self._check_init_guess (ci1, norb_f, nelec_f)
+                x = np.append (ci1_inp, ci1_guess, axis=0)
+                x = canonical_orth_(x.conj () @ x.T).T @ x
+                # ^ an orthonormal basis
+                assert (x.shape[0] >= snroots)
+                x2inp = x.conj () @ ci1_inp.T
+                ninp = ci1_inp.shape[0]
+                u, svals, vh = linalg.svd (x2inp, full_matrices=True)
+                u[:,:ninp] = u[:,:ninp] @ vh
+                ci1_new = u.T @ x
+                nnew = ci1_new.shape[0]
+                ovlp = ci1_new.conj () @ ci1_inp.T
+                assert (np.all (np.abs (ovlp[:ninp,:ninp] - np.eye (ninp)) < 1e-3)), '{}'.format (ovlp)
+                ovlp = (ci1_new.conj () @ ci1_new.T)
+                assert (np.all (np.abs (ovlp - np.eye (nnew)) < 1e-3)), '{}'.format (ovlp)
+                ci1[ix] = ci1_new[:snroots].reshape (snroots, na, nb)
+        return self._check_init_guess (ci1, norb_f, nelec_f, nroots=nroots)
 
-    def _check_init_guess (self, ci0, norb_f, nelec_f):
+    def _check_init_guess (self, ci0, norb_f, nelec_f, nroots=None):
         ci1 = []
         if ci0 is None: ci0 = [None for i in range (len (norb_f))]
         for ix, (no, ne, solver) in enumerate (zip (norb_f, nelec_f, self.fcisolvers)):
+            solver.check_transformer_cache ()
+            snroots = solver.nroots if nroots is None else min (nroots, solver.transformer.ncsf)
             nelec = self._get_nelec (solver, ne)
             neleca, nelecb = nelec
             na = cistring.num_strings (no, neleca)
             nb = cistring.num_strings (no, nelecb)
-            zguess = np.zeros ((solver.nroots,na,nb))
+            zguess = np.zeros ((snroots,na,nb))
             cguess = np.asarray (ci0[ix]).reshape (-1,na,nb)
             ngroots = min (zguess.shape[0], cguess.shape[0])
             zguess[:ngroots,:,:] = cguess[:ngroots,:,:]
             ci1.append (zguess)
-            if solver.nroots>na*nb:
+            if snroots>na*nb:
                 raise RuntimeError ("{} roots > {} determinants in fragment {}".format (
-                    solver.nroots, na*nb, ix))
+                    snroots, na*nb, ix))
             if isinstance (solver, CSFFCISolver):
                 solver.check_transformer_cache ()
-                if solver.nroots>solver.transformer.ncsf:
+                if snroots>solver.transformer.ncsf:
                     raise RuntimeError ("{} roots > {} CSFs in fragment {} (nelec={}, smult={})".format (
-                        solver.nroots, solver.transformer.ncsf, ix, solver.nelec, solver.smult))
+                        snroots, solver.transformer.ncsf, ix, solver.nelec, solver.smult))
         return ci1
                 
-    def _debug_csfs (self, log, ci0, ci1, norb_f, nelec_f, grad):
+    def _debug_csfs (self, log, ci0, ci1, norb_f, nelec_f, grad, nroots=None):
         if not all ([isinstance (s, CSFFCISolver) for s in self.fcisolvers]):
             return
         if log.verbose < lib.logger.INFO: return
         transformers = [s.transformer for s in self.fcisolvers]
         grad_f = []
         for s,t in zip (self.fcisolvers, transformers):
-            grad_f.append (grad[:t.ncsf*s.nroots].reshape (s.nroots, t.ncsf))
-            offs = (t.ncsf*s.nroots) + (s.nroots*(s.nroots-1)//2)
+            snroots = nroots if nroots is not None else s.nroots
+            grad_f.append (grad[:t.ncsf*snroots].reshape (snroots, t.ncsf))
+            offs = (t.ncsf*snroots) + (snroots*(snroots-1)//2)
             grad = grad[offs:]
         assert (len (grad) == 0)
         log.info ('Debugging CI and gradient vectors...')
@@ -298,7 +337,7 @@ def state_average_fcisolver (solver, weights=(.5,.5), wfnsym=None):
     return state_average_mcscf (dummy, weights=weights, wfnsym=wfnsym).fcisolver
 
 class ImpureProductStateFCISolver (ProductStateFCISolver):
-    '''Minimize the energy of an impure state:
+    r'''Minimize the energy of an impure state:
 
     E = \sum_n1 w_n1 \sum_n2 w_n2 \sum_n3 w_n3 ... <n1n2n3...|H|n1n2n3...>
 

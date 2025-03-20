@@ -6,6 +6,7 @@ from pyscf import lib, ao2mo, __config__
 from pyscf.fci import direct_spin1, cistring, direct_uhf
 from pyscf.fci.direct_spin1 import _unpack, _unpack_nelec, _get_init_guess, kernel_ms1
 from pyscf.lib.numpy_helper import tag_array
+from mrh.my_pyscf.lib.logger import select_log_printer
 from mrh.my_pyscf.fci.csdstring import get_csdaddrs_shape 
 from mrh.my_pyscf.fci.csfstring import count_all_csfs, get_spin_evecs
 from mrh.my_pyscf.fci.csfstring import get_csfvec_shape
@@ -66,6 +67,7 @@ def make_hdiag_det (fci, h1e, eri, norb, nelec):
     return direct_uhf.make_hdiag (unpack_h1e_ab (h1e), [eri, eri, eri], norb, nelec)
 
 def make_hdiag_csf (h1e, eri, norb, nelec, transformer, hdiag_det=None, max_memory=None):
+    m0 = lib.current_memory ()[0]
     smult = transformer.smult
     if hdiag_det is None:
         hdiag_det = make_hdiag_det (None, h1e, eri, norb, nelec)
@@ -84,21 +86,18 @@ def make_hdiag_csf (h1e, eri, norb, nelec, transformer, hdiag_det=None, max_memo
     hdiag_csf_check = np.ones (ncsf_all, dtype=np.bool_)
     for npair in range (min_npair, max_npair+1):
         ipair = npair - min_npair
-        nconf = npair_econf_size[ipair]
-        ndet = npair_sdet_size[ipair]
-        ncsf = npair_csf_size[ipair]
+        nconf = int (npair_econf_size[ipair])
+        ndet = int (npair_sdet_size[ipair])
+        ncsf = int (npair_csf_size[ipair])
         if ncsf == 0:
             continue
         csd_offset = npair_csd_offset[ipair]
         det_addr = transformer.csd_mask[csd_offset:][:nconf*ndet]
         # mem safety
-        # Issue #54: PySCF wants "max_memory" on entrance to FCI to be "remaining memory". However,
-        # the first few lines of this function consume some memory, so that's difficult to
-        # implement consistently. "max_memory" here is currently the config parameter for the whole
-        # calculation.
-        mem_remaining = max_memory - lib.current_memory ()[0]
+        deltam = lib.current_memory ()[0] - m0
+        mem_remaining = max_memory - deltam
         safety_factor = 1.2
-        nfloats = nconf*ndet*ndet + det_addr.size 
+        nfloats = float(nconf)*ndet*ndet + float(det_addr.size)
         mem_floats = nfloats * np.dtype (float).itemsize / 1e6
         mem_ints = det_addr.dtype.itemsize * det_addr.size * 3 / 1e6
         mem = safety_factor * (mem_floats + mem_ints)
@@ -248,6 +247,7 @@ def pspace (fci, h1e, eri, norb, nelec, transformer, hdiag_det=None, hdiag_csf=N
     until I write code than can evaluate Hamiltonian matrix elements of CSFs directly. On the other hand
     a pspace of determinants contains many redundant degrees of freedom for the same reason. Therefore I have
     reduced the default pspace size by a factor of 2.'''
+    m0 = lib.current_memory ()[0]
     if norb > 63:
         raise NotImplementedError('norb > 63')
     if max_memory is None: max_memory=fci.max_memory
@@ -286,12 +286,10 @@ def pspace (fci, h1e, eri, norb, nelec, transformer, hdiag_det=None, hdiag_csf=N
     strb = cistring.addrs2str(norb, nelecb, addrb)
     npsp_det = len(det_addr)
     safety_factor = 1.2
-    nfloats_h0 = (npsp_det+npsp)**2
+    nfloats_h0 = (npsp_det+npsp)**2.0
     mem_h0 = safety_factor * nfloats_h0 * np.dtype (float).itemsize / 1e6
-    # Issue #54: PySCF wants "max_memory" on entrance to FCI to be "remaining memory". However,
-    # the earlier lines of this function consume some memory, so that's difficult to implement
-    # consistently. "max_memory" here is currently the config parameter for the whole calculation.
-    mem_remaining = max_memory - lib.current_memory ()[0]
+    deltam = lib.current_memory ()[0] - m0
+    mem_remaining = max_memory - deltam
     memstr = ("pspace_size of {} CSFs -> {} determinants requires {} MB, cf {} MB "
               "remaining memory").format (npsp, npsp_det, mem_h0, mem_remaining)
     if mem_h0 > mem_remaining:
@@ -530,6 +528,19 @@ class CSFFCISolver: # parent class
         return pspace (self, h1e, eri, norb, nelec, self.transformer, hdiag_det=hdiag_det,
             hdiag_csf=hdiag_csf, npsp=npsp, max_memory=max_memory)
 
+    def log_transformer_cache (self, tverbose=0, **kwargs):
+        if len (kwargs):
+            self.__dict__.update (kwargs)
+            self.check_transformer_cache ()
+        if self.transformer is None:
+            return
+        log = lib.logger.new_logger (self, self.verbose)
+        printer = select_log_printer (log, tverbose=tverbose)
+        self.transformer.print_config (printer)
+
+    def print_transformer_cache (self, **kwargs):
+        return self.log_transformer_cache (10, **kwargs)
+
 class FCISolver (CSFFCISolver, direct_spin1.FCISolver):
     r''' get_init_guess uses csfstring.py and csdstring.py to construct a spin-symmetry-adapted initial guess, and the Davidson algorithm is carried
     out in the CSF basis. However, the ci attribute is put in the determinant basis at the end of it all, and "ci0" is also assumed
@@ -541,8 +552,6 @@ class FCISolver (CSFFCISolver, direct_spin1.FCISolver):
         self.check_transformer_cache ()
         return get_init_guess (norb, nelec, nroots, hdiag_csf, self.transformer)
 
-
-
     def kernel(self, h1e, eri, norb, nelec, ci0=None, **kwargs):
         self.norb = norb
         self.nelec = nelec
@@ -550,6 +559,7 @@ class FCISolver (CSFFCISolver, direct_spin1.FCISolver):
             self.smult = kwargs['smult']
             kwargs.pop ('smult')
         self.check_transformer_cache ()
+        self.log_transformer_cache (lib.logger.DEBUG)
         e, c = kernel (self, h1e, eri, norb, nelec, smult=self.smult,
             idx_sym=None, ci0=ci0, transformer=self.transformer, **kwargs)
         self.eci, self.ci = e, c
@@ -562,4 +572,3 @@ class FCISolver (CSFFCISolver, direct_spin1.FCISolver):
             self.transformer = CSFTransformer (self.norb, neleca, nelecb, self.smult)
         else:
             self.transformer._update_spin_cache (self.norb, neleca, nelecb, self.smult)
-

@@ -39,7 +39,7 @@ class CSFTransformer (lib.StreamObject):
         self.orbsym = orbsym
 
     def project_civec (self, detarr, order='C', normalize=True, return_norm=False):
-        pass
+        raise NotImplementedError
 
     def vec_det2csf (self, civec, order='C', normalize=True, return_norm=False):
         vec_on_cols = (order.upper () == 'F')
@@ -59,10 +59,10 @@ class CSFTransformer (lib.StreamObject):
         return civec
 
     def mat_det2csf (self, mat):
-        pass
+        raise NotImplementedError
 
     def mat_csf2det (self, mat):
-        pass
+        raise NotImplementedError
 
     def mat_det2csf_confspace (self, mat, confs):
         mat, csf_addr = transform_opmat_det2csf_pspace (mat, confs, self._norb, self._neleca,
@@ -208,6 +208,16 @@ class CSFTransformer (lib.StreamObject):
     def ncsf (self):
         if self.wfnsym is None or self._orbsym is None: return self.econf_csf_mask.size
         return (np.count_nonzero (self.confsym[self.econf_csf_mask] == self.wfnsym))
+
+    def print_config (self, printer=print):
+        printer ('***** CSFTransformer configuration *****')
+        printer ('norb = {}'.format (self.norb))
+        printer ('neleca, nelecb = {}, {}'.format (self.neleca, self.nelecb))
+        printer ('smult = {}'.format (self.smult))
+        printer ('orbsym = {}'.format (self.orbsym))
+        printer ('wfnsym = {}'.format (self.wfnsym))
+        printer ('ndeta, ndetb = {}, {}'.format (self.ndeta, self.ndetb))
+        printer ('ncsf = {}'.format (self.ncsf))
 
 def unpack_sym_ci (ci, idx, vec_on_cols=False):
     if idx is None: return ci
@@ -560,10 +570,10 @@ def _transform_det2csf (inparr, norb, neleca, nelecb, smult, reverse=False, csd_
     ndet_all = ndeta_all * ndetb_all
     ncsf_all = count_all_csfs (norb, neleca, nelecb, smult)
 
-    ncol_out = (ncsf_all, ndet_all)[reverse or project]
-    ncol_in = (ncsf_all, ndet_all)[~reverse or project]
+    ncol_out = ndet_all if (reverse or project) else ncsf_all
+    ncol_in = ndet_all if ((not reverse) or project) else ncsf_all
     if not project:
-        outarr = np.ascontiguousarray (np.zeros ((nrow, ncol_out), dtype=np.float_))
+        outarr = np.ascontiguousarray (np.zeros ((nrow, ncol_out), dtype=np.float64))
         csf_addrs = np.zeros (ncsf_all, dtype=np.bool_)
     # Initialization is necessary because not all determinants have a csf for all spin states
 
@@ -874,7 +884,7 @@ def get_spin_evecs (nspin, neleca, nelecb, smult):
     scstrs = addrs2str (nspin, smult, list (range (ncsf)))
     assert (len (scstrs) == ncsf), "should have {} coupling strings; have {} (nspin={}, s={})".format (ncsf, len (scstrs), nspin, s)
 
-    umat = np.ones ((ndet, ncsf), dtype=np.float_)
+    umat = np.ones ((ndet, ncsf), dtype=np.float64)
     twoS = smult-1
     twoMS = neleca - nelecb
     
@@ -904,7 +914,7 @@ def test_spin_evecs (nspin, neleca, nelecb, smult, S2mat=None):
     spinstrs = cistring.addrs2str (nspin, na, list (range (ndet)))
 
     if S2mat is None:
-        S2mat = np.zeros ((ndet, ndet), dtype=np.float_)
+        S2mat = np.zeros ((ndet, ndet), dtype=np.float64)
         twoS = smult - 1
         twoMS = int (round (2 * ms))
 
@@ -1086,7 +1096,7 @@ def unpack_csfaddrs (norb, neleca, nelecb, smult, addrs):
         npair[ix] = np.where (npair_csf_offset <= iaddr)[0][-1]
         sconf_size = npair_sconf_size[npair[ix]]
         spincpl_size = npair_spincpl_size[npair[ix]]
-        iad = iaddr - npair_csf_offset[npair[ix]]
+        iad = np.squeeze (iaddr - npair_csf_offset[npair[ix]])
         npair[ix] += min_npair
         domo_addrs[ix] = iad // (sconf_size * spincpl_size)
         iad = iad % (sconf_size * spincpl_size)

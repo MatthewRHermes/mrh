@@ -30,6 +30,9 @@ from mrh.my_pyscf.lassi.lassi import roots_make_rdm12s, make_stdm12s, ham_2q
 from mrh.my_pyscf.lassi.citools import get_lroots, get_rootaddr_fragaddr
 from mrh.my_pyscf.lassi import op_o0
 from mrh.my_pyscf.lassi import op_o1
+from mrh.tests.lassi.addons import case_contract_hlas_ci, case_contract_op_si
+
+op = (op_o0, op_o1)
 
 def setUpModule ():
     global mol, mf, las, nstates, nelec_frs, si, orbsym, wfnsym
@@ -108,7 +111,15 @@ def setUpModule ():
             ndet_s = ndet_frs[ifrag,iroot]
             ci = np.random.rand (lroots_r, ndet_s[0], ndet_s[1])
             ci /= linalg.norm (ci.reshape (lroots_r,-1), axis=1)[:,None,None]
-            if lroots_r==1: ci=ci[0]
+            if lroots_r==1:
+                ci=ci[0]
+            else:
+                ci = ci.reshape (lroots_r,-1)
+                w, v = linalg.eigh (ci.conj () @ ci.T)
+                idx = w > 0
+                w, v = w[idx], v[:,idx]
+                v /= np.sqrt (w)[None,:]
+                ci = np.dot (v.T, ci).reshape (lroots_r, ndet_s[0], ndet_s[1])
             las.ci[ifrag][iroot] = ci
     orbsym = getattr (las.mo_coeff, 'orbsym', None)
     if orbsym is None and callable (getattr (las, 'label_symmetry_', None)):
@@ -147,9 +158,9 @@ class KnownValues(unittest.TestCase):
         h1, h2 = ham_2q (las, las.mo_coeff, veff_c=None, h2eff_sub=None)[1:]
         lbls = ('ham','s2','ovlp')
         t0, w0 = lib.logger.process_clock (), lib.logger.perf_counter ()
-        mats_o0 = op_o0.ham (las, h1, h2, las.ci, nelec_frs, orbsym=orbsym, wfnsym=wfnsym)
+        mats_o0 = op_o0.ham (las, h1, h2, las.ci, nelec_frs, orbsym=orbsym, wfnsym=wfnsym)[:3]
         t1, w1 = lib.logger.process_clock (), lib.logger.perf_counter ()
-        mats_o1 = op_o1.ham (las, h1, h2, las.ci, nelec_frs, orbsym=orbsym, wfnsym=wfnsym)
+        mats_o1 = op_o1.ham (las, h1, h2, las.ci, nelec_frs, orbsym=orbsym, wfnsym=wfnsym)[:3]
         t2, w2 = lib.logger.process_clock (), lib.logger.perf_counter ()
         #print (t1-t0, t2-t1)
         #print (w1-w0, w2-w1)
@@ -164,13 +175,23 @@ class KnownValues(unittest.TestCase):
         t1, w1 = lib.logger.process_clock (), lib.logger.perf_counter ()
         d12_o1 = op_o1.roots_make_rdm12s (las, las.ci, nelec_frs, si, orbsym=orbsym, wfnsym=wfnsym)
         t2, w2 = lib.logger.process_clock (), lib.logger.perf_counter ()
-        #print (t1-t0, t2-t1)
-        #print (w1-w0, w2-w1)
+        #print (t1-t0, t2-t1, t3-t2)
+        #print (w1-w0, w2-w1, w3-w2)
         for r in range (2):
             for i in range (nstates):
-                with self.subTest (rank=r+1, root=i):
+                with self.subTest (rank=r+1, root=i, opt=1):
                     self.assertAlmostEqual (lib.fp (d12_o0[r][i]),
                         lib.fp (d12_o1[r][i]), 9)
+
+    def test_contract_hlas_ci (self):
+        h0, h1, h2 = ham_2q (las, las.mo_coeff)
+        case_contract_hlas_ci (self, las, h0, h1, h2, las.ci, nelec_frs)
+
+    def test_contract_op_si (self):
+        h0, h1, h2 = ham_2q (las, las.mo_coeff)
+        case_contract_op_si (self, las, h1, h2, las.ci, nelec_frs)
+
+
 
 if __name__ == "__main__":
     print("Full Tests for LASSI matrix elements of 57-space (91-state) manifold")
