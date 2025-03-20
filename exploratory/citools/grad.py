@@ -11,7 +11,7 @@ def get_grad_exact(a_idxs, i_idxs, ham, las_rdm1, las_rdm2, las_rdm3, epsilon=0.
     las_rdm1 (array): spin-separated 1-RDM in spatial basis
     las_rdm2 (array): spin-separated 2-RDM in spatial basis
     las_rdm3 (array): spin-separated 3-RDM in spatial basis
-    epsilon
+    epsilon (float): set to 0.0 here to get all gradients
 
     Returns:
     gradients (array): all gradients
@@ -24,13 +24,30 @@ def get_grad_exact(a_idxs, i_idxs, ham, las_rdm1, las_rdm2, las_rdm3, epsilon=0.
     grad_h1t2 = get_grad_h1t2(a_idxs, i_idxs, las_rdm2, ham[1])#*0.5
     grad_h2t2 = get_grad_h2t2(a_idxs, i_idxs, las_rdm2, las_rdm3, ham[2])#*0.5
 
-    gradients =  np.concatenate((grad_h1t1+grad_h2t1,grad_h1t2+grad_h2t2))
+    gradients = np.concatenate((grad_h1t1+grad_h2t1,grad_h1t2+grad_h2t2))
     gen_indices = list(zip(i_idxs, a_idxs))
-    np.save('all_grads.npy', gradients)
     
     return gradients, gen_indices
 
 def grad_select(all_gradients, all_gen_indices, a_idxs, i_idxs, epsilon):
+    """
+    Selects cluster excitations based on gradients
+
+    Arguments:
+    all_gradients: array of all gradients
+    all_gen_indices: list of all generator indices
+    a_idxs (list): list of all singles and doubles a indices
+    i_idxs (lsit): list of all singles and doubles i indices
+    epsilon: threshold for selecting excitations
+
+    Returns:
+    g: selected gradients
+    gen_indices: selected generator indices
+    a_idxs_lst: list of selected singles and doubles a indices
+    i_idxs_lst: list of selected singles and doubles i indices
+    len(a_idxs_lst): length of selected a indices
+    len(i_idxs_lst): length of selected i indices
+    """
     g = []
     gen_indices = []
     a_idxs_lst = []
@@ -117,7 +134,6 @@ def get_grad_h1t1(a_idxs, i_idxs, las_rdm1, h1):
     term2 = np.einsum('xp,pu->ux', h,d)
     sum_h1t1 = 2.0*(term1-term2)
 
-    
     for u,x in zip(t1a,t1i):
         h1t1s.append(sum_h1t1[u,x])
     

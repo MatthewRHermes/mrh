@@ -1,5 +1,7 @@
-# This is a sample script to run LAS-USCCSD for the H4 molecule with the polynomial-scaling algorithm
+# Author: Shreya Verma shreyav@uchicago.edu
+# This is a sample script to run LAS-USCCSD for the H4 molecule with the polynomial-scaling algorithm to select cluster excitations
 # (2e,2o)+(2e,1o)
+# This is not a VQE calculation with statevector simulator, rather the classical emulator is used 
 
 import numpy as np
 import pyscf
@@ -7,7 +9,7 @@ from pyscf import gto, scf, lib, mcscf
 from mrh.my_pyscf.mcscf.lasscf_o0 import LASSCF
 from mrh.exploratory.unitary_cc import lasuccsd
 from mrh.exploratory.unitary_cc.uccsd_sym0 import get_uccsd_op
-from mrh.exploratory.citools import grad
+from mrh.exploratory.citools import grad, lasci_ominus1
 
 # Initializing the molecule with RHF
 #===================================
@@ -56,9 +58,37 @@ uop = lasuccsd.gen_uccsd_op(norb,nlas)
 a_idxs = uop.a_idxs                                                    
 i_idxs = uop.i_idxs   
 
-#Selecting cluster excitations through LAS-UCCSD gradients, may use your desired epsilon
+#Getting gradient for all cluster excitations through LAS-UCCSD gradients, may use your desired epsilon
 #==========================================================================================
 all_g, all_gen_indices = grad.get_grad_exact(a_idxs,i_idxs,hlas, rdm1s, rdm2s, rdm3s, epsilon=0.0)
-
 print ("All_g = ", all_g)
 
+#Selecting cluster excitations through LAS-UCCSD gradients, may use your desired epsilon
+#==========================================================================================
+excitations = []
+(
+        g,
+        gen_indices,
+        a_idxs_new,
+        i_idxs_new,
+        num_a_idxs,
+        num_i_idxs,
+    ) = grad.grad_select(all_g, all_gen_indices, a_idxs, i_idxs, epsilon=0.001)
+
+print ("Selected gradients = ", g)
+
+for a, i in zip(a_idxs_new, i_idxs_new):
+    excitations.append((tuple(i), tuple(a[::-1])))
+
+print ("Selected excitations = ", excitations)
+
+#Computing energy through the LAS-UCC kernel using selected excitations
+#==========================================================================================
+epsilon=0.001
+mc_uscc = mcscf.CASCI(mf, 3, 4)
+mc_uscc.mo_coeff = las.mo_coeff
+lasci_ominus1.GLOBAL_MAX_CYCLE = 15000
+mc_uscc.fcisolver = lasuccsd.FCISolver2(mol, a_idxs_new, i_idxs_new)
+mc_uscc.fcisolver.norb_f = [2,1]
+mc_uscc.kernel()
+print("Epsilon: {:.9f} | Number of parameters: {:.0f} | LASUSCCSD energy: {:.9f}".format(epsilon, len(a_idxs_new), mc_uscc.e_tot))
