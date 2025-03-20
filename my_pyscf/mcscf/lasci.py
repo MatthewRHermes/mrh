@@ -1745,7 +1745,6 @@ class LASCINoSymm (casci.CASCI):
             _transpose_dm3_(i,j, m,n, k,l, k,l, m,n, i,j)
 
             # Term 6- 29f
-#>>>>>>> upstream/master
             d6sigma = (lib.einsum('r,rij,rkl,rmn->rilknmj',weights,dma1r,dma2r,dma3r)
                        +lib.einsum('r,rij,rkl,rmn->rilknmj',weights,dmb1r,dmb2r,dmb3r))
             casdm3[i:j, k:l, k:l, m:n, m:n, i:j] += np.tensordot(weights, d6sigma, axes=1)
