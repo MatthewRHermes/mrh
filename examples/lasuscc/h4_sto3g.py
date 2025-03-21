@@ -48,7 +48,7 @@ epsilon=0.001
 mc_uscc = mcscf.CASCI(mf, 3, 4)
 mc_uscc.mo_coeff = las.mo_coeff
 lasci_ominus1.GLOBAL_MAX_CYCLE = 15000
-mc_uscc.fcisolver = lasuccsd.FCISolver_USCC(mol, a_idxs_new, i_idxs_new)
+mc_uscc.fcisolver = lasuccsd.FCISolver_USCC(mol, a_idxs_selected, i_idxs_selected)
 mc_uscc.fcisolver.norb_f = [2,1]
 mc_uscc.kernel()
-print("Epsilon: {:.9f} | Number of parameters: {:.0f} | LASUSCCSD energy: {:.9f}".format(epsilon, len(a_idxs_new), mc_uscc.e_tot))
+print("Epsilon: {:.9f} | Number of parameters: {:.0f} | LASUSCCSD energy: {:.9f}".format(epsilon, len(a_idxs_selected), mc_uscc.e_tot))
