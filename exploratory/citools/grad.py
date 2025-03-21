@@ -1,33 +1,61 @@
 import numpy as np
+from pyscf import lib
+from mrh.exploratory.unitary_cc import lasuccsd
 
-def get_grad_exact(a_idxs, i_idxs, ham, las_rdm1, las_rdm2, las_rdm3, epsilon=0.0):
+def get_grad_exact(las, epsilon=0.0):
     """
     Calculates the gradients for all parameters
 
     Arguments:
-    a_idxs (list): list of singles and doubles a indices  
-    i_idxs (lsit): list of singles and doubles i indices
-    ham (list): list of h0, h1, h2
-    las_rdm1 (array): spin-separated 1-RDM in spatial basis
-    las_rdm2 (array): spin-separated 2-RDM in spatial basis
-    las_rdm3 (array): spin-separated 3-RDM in spatial basis
-    epsilon (float): set to 0.0 here to get all gradients
+    las: LASSCF object
 
     Returns:
     gradients (array): all gradients
     gen_indices (list): all combinations i_idxs, a_idxs
     """
-    gen_indices = []
-
-    grad_h1t1 = get_grad_h1t1(a_idxs, i_idxs, las_rdm1, ham[1])#*0.5
-    grad_h2t1 = get_grad_h2t1(a_idxs, i_idxs, las_rdm2, ham[2])#*0.5
-    grad_h1t2 = get_grad_h1t2(a_idxs, i_idxs, las_rdm2, ham[1])#*0.5
-    grad_h2t2 = get_grad_h2t2(a_idxs, i_idxs, las_rdm2, las_rdm3, ham[2])#*0.5
-
-    gradients = np.concatenate((grad_h1t1+grad_h2t1,grad_h1t2+grad_h2t2))
-    gen_indices = list(zip(i_idxs, a_idxs))
     
-    return gradients, gen_indices
+    # Generate RDMs
+    las_rdm1 = las.make_casdm1s()
+    las_rdm2 = las.make_casdm2s()
+    las_rdm3 = las.make_casdm3s()
+
+    # Generate OEI, TEI
+    nmo = las.mo_coeff.shape[1]
+    ncas, ncore = las.ncas, las.ncore
+    nocc = ncore + ncas
+    h2e = lib.numpy_helper.unpack_tril (las.get_h2eff().reshape (nmo*ncas,ncas*(ncas+1)//2)).reshape (nmo, ncas, ncas, ncas)[ncore:nocc,:,:,:]
+    h1las, h0las = las.h1e_for_cas(mo_coeff=las.mo_coeff)
+    h2las = h2e
+
+    # Generate indices
+    nlas = las.ncas_sub
+    uop = lasuccsd.gen_uccsd_op(ncas,nlas)
+    a_idxs = uop.a_idxs
+    i_idxs = uop.i_idxs
+
+    # Compute gradients and collect indices
+    gen_indices = []
+    
+    grad_h1t1 = get_grad_h1t1(a_idxs, i_idxs, las_rdm1, h1las)
+    grad_h2t1 = get_grad_h2t1(a_idxs, i_idxs, las_rdm2, h2las)
+    grad_h1t2 = get_grad_h1t2(a_idxs, i_idxs, las_rdm2, h1las)
+    grad_h2t2 = get_grad_h2t2(a_idxs, i_idxs, las_rdm2, las_rdm3, h2las)
+
+    gradients = np.concatenate((grad_h1t1+grad_h2t1, grad_h1t2+grad_h2t2))
+    gen_indices = list(zip(i_idxs, a_idxs))
+
+    # Select gradients
+    g_selected, gen_ind_selected, a_idxs_selected, i_idxs_selected = [], [], [], []
+    
+    for idx, grad in enumerate(gradients):
+        if epsilon == 0.0 or abs(grad) > epsilon:
+            g_selected.append((grad, idx))
+            a_idx, i_idx = a_idxs[idx], i_idxs[idx]
+            gen_ind_selected.append((a_idx, i_idx))
+            a_idxs_selected.append(a_idx)
+            i_idxs_selected.append(i_idx)
+    
+    return gradients, g_selected, a_idxs_selected, i_idxs_selected
 
 def grad_select(all_gradients, all_gen_indices, a_idxs, i_idxs, epsilon):
     """
