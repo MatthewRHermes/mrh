@@ -23,26 +23,6 @@ def molecule_initialize(nelesub, norbsub, spinsub):
     las.kernel (mo_loc)
     return mol, mf, las
 
-def construct_hlas_expanded(las):
-    """ Construct the expanded hamiltonian"""
-    nmo = las.mo_coeff.shape[1]
-    ncas, ncore = las.ncas, las.ncore
-    nocc = ncore + ncas
-    h2e = lib.numpy_helper.unpack_tril (las.get_h2eff().reshape (nmo*ncas,ncas*(ncas+1)//2)).reshape (nmo, ncas, ncas, ncas)[ncore:nocc,:,:,:]
-    h1las, h0las = las.h1e_for_cas(mo_coeff=las.mo_coeff)
-    h2las = h2e
-    hlas = [h0las,h1las,h2las]
-    return hlas
-
-def generate_cluster_excitations(las):
-    """ Generate the cluster excitations across fragments"""
-    norb = las.ncas                                                        
-    nlas = las.ncas_sub                                                    
-    uop = lasuccsd.gen_uccsd_op(norb,nlas)                                 
-    a_idxs = uop.a_idxs                                                    
-    i_idxs = uop.i_idxs   
-    return a_idxs, i_idxs
-
 def generate_fci_grads(mol, mf, las, norbcas, nelecas, epsilon=0.0):
     """ LAS-UCC gradients wrt cluster excitations with the FCI-based exponential scaling algorithm"""
     lasci_ominus1.GLOBAL_MAX_CYCLE = 0
@@ -68,19 +48,16 @@ def generate_fci_grads(mol, mf, las, norbcas, nelecas, epsilon=0.0):
 
     return all_g
 
-def generate_poly_grads(a_idxs, i_idxs, hlas, rdm1s, rdm2s, rdm3s, epsilon=0.0):
+def generate_poly_grads(las):
     """ LAS-UCC gradients wrt cluster excitations with the polynomial scaling algorithm"""
-    all_g, all_gen_indices = grad.get_grad_exact(a_idxs, i_idxs, hlas, rdm1s, rdm2s, rdm3s, epsilon=0.0) 
+    all_g, g_sel, a_idxs_selected, i_idxs_selected = grad.get_grad_exact(las, epsilon=0.0)
     return all_g
 
 def collect_grads (mol, mf, las, epsilon=0.0):
     """ Call both kinds of gradient functions"""
     rdm1s, rdm2s, rdm3s = las.make_casdm1s(), las.make_casdm2s(), las.make_casdm3s()
 
-    hlas_poly = construct_hlas_expanded(las)
-    a_idxs, i_idxs = generate_cluster_excitations(las)
-
-    all_g_poly = generate_poly_grads(a_idxs, i_idxs, hlas_poly, rdm1s, rdm2s, rdm3s, epsilon=0.0)
+    all_g_poly = generate_poly_grads(las)
     all_g_fci = generate_fci_grads(mol, mf, las, las.ncas, las.nelecas, epsilon=0.0)
 
     return all_g_poly, all_g_fci
@@ -96,7 +73,7 @@ class KnownValues(unittest.TestCase):
         spinsub = (1,1)
         mol, mf, las = molecule_initialize(nelesub, norbsub, spinsub)
         all_g_poly, all_g_fci = collect_grads (mol, mf, las)
-        self.assertAlmostEqual (lib.fp (all_g_poly), lib.fp(all_g_fci))
+        self.assertAlmostEqual (lib.fp (all_g_poly), lib.fp(all_g_fci),12)
 
     def test_fci_poly_las2 (self):
         """ LAS H4 with (2,2)+(2,2)"""
@@ -105,7 +82,7 @@ class KnownValues(unittest.TestCase):
         spinsub = (1,1)
         mol, mf, las = molecule_initialize(nelesub, norbsub, spinsub)
         all_g_poly, all_g_fci = collect_grads (mol, mf, las)
-        self.assertAlmostEqual (lib.fp (all_g_poly), lib.fp(all_g_fci))
+        self.assertAlmostEqual (lib.fp (all_g_poly), lib.fp(all_g_fci),12)
 
     def test_fci_poly_las1_spin2 (self):
         """ LAS H4 with (2,2)+(2,1) triplet"""
@@ -114,7 +91,7 @@ class KnownValues(unittest.TestCase):
         spinsub = (3,1)
         mol, mf, las = molecule_initialize(nelesub, norbsub, spinsub)
         all_g_poly, all_g_fci = collect_grads (mol, mf, las)
-        self.assertAlmostEqual (lib.fp (all_g_poly), lib.fp(all_g_fci))
+        self.assertAlmostEqual (lib.fp (all_g_poly), lib.fp(all_g_fci),12)
 
 if __name__ == "__main__":
     print("Full Tests for LAS-USCC polynomial scaling algorithm of H2 dimer")
