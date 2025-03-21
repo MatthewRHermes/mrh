@@ -41,7 +41,7 @@ class FCISolver (lasci_ominus1.FCISolver):
         return gen_uccsd_op (norb, nlas, t1_s2sym=t1_s2sym) 
         
 
-class FCISolver2(lasci_ominus1.FCISolver):
+class FCISolver_USCC(lasci_ominus1.FCISolver):
     def __init__(self, mol, a_idxs, i_idxs):
         super().__init__(mol)
         self.a_idxs = a_idxs
