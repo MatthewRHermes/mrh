@@ -57,42 +57,6 @@ def get_grad_exact(las, epsilon=0.0):
     
     return gradients, g_selected, a_idxs_selected, i_idxs_selected
 
-def grad_select(all_gradients, all_gen_indices, a_idxs, i_idxs, epsilon):
-    """
-    Selects cluster excitations based on gradients
-
-    Arguments:
-    all_gradients: array of all gradients
-    all_gen_indices: list of all generator indices
-    a_idxs (list): list of all singles and doubles a indices
-    i_idxs (lsit): list of all singles and doubles i indices
-    epsilon: threshold for selecting excitations
-
-    Returns:
-    g: selected gradients
-    gen_indices: selected generator indices
-    a_idxs_lst: list of selected singles and doubles a indices
-    i_idxs_lst: list of selected singles and doubles i indices
-    len(a_idxs_lst): length of selected a indices
-    len(i_idxs_lst): length of selected i indices
-    """
-    g = []
-    gen_indices = []
-    a_idxs_lst = []
-    i_idxs_lst = []
-    len_a_idx = len(a_idxs)
-
-    for i in range(len_a_idx):
-        if epsilon == 0.0 or abs(all_gradients[i]) > epsilon:
-            g.append((all_gradients[i], i))
-            a_idx = a_idxs[i]
-            i_idx = i_idxs[i]
-            gen_indices.append((a_idx, i_idx))
-            a_idxs_lst.append(a_idx)
-            i_idxs_lst.append(i_idx)
-
-    return g, gen_indices, a_idxs_lst, i_idxs_lst, len(a_idxs_lst), len(i_idxs_lst)
-
 def get_h1e_spin(h1):
     n = h1.shape[1]
     nso = 2*n

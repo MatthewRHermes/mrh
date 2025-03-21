@@ -30,14 +30,6 @@ frag_atom_list = ((0,1),(2,3))
 mo_loc = las.localize_init_guess (frag_atom_list, mf.mo_coeff)
 las.kernel (mo_loc)
 
-#Extracting single and double t amplitudes indices
-#=================================================
-norb = las.ncas                                                        
-nlas = las.ncas_sub                                                    
-uop = lasuccsd.gen_uccsd_op(norb,nlas)                                 
-a_idxs = uop.a_idxs                                                    
-i_idxs = uop.i_idxs   
-
 #Getting gradient for all cluster excitations through LAS-UCCSD gradients, may use your desired epsilon for selection
 #====================================================================================================================
 all_g, g_sel, a_idxs_selected, i_idxs_selected = grad.get_grad_exact(las, epsilon=0.001)
