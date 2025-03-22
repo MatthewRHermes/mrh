@@ -106,11 +106,17 @@ def debug_contract_op_si (ks, las, h1, h2, ci_fr, nelec_frs, soc=0):
         x = x + 1j*np.random.rand (nstates)
     for myop, ref, lbl in ((ham_op, ham, 'ham'), (s2_op, s2, 's2'), (ovlp_op, ovlp, 'ovlp')):
         test = myop (np.eye (nstates))
-        for r,s in itertools.product (range (nroots), repeat=2):
-            i, j = ni[r], nj[r]
+        for s in range (nroots):
             k, l = ni[s], nj[s]
-            with ks.subTest (lbl, blk=(r,s), intyp=interactions[interidx[r,s]]):
-                ks.assertAlmostEqual (lib.fp (test[i:j,k:l]), lib.fp (ref[i:j,k:l]), 7)
+            test = myop (np.eye (nstates)[:,k:l])
+            for r in range (nroots):
+                i, j = ni[r], nj[r]
+                with ks.subTest (lbl, blk=(r,s), intyp=interactions[interidx[r,s]]):
+                    ks.assertAlmostEqual (lib.fp (test[i:j]), lib.fp (ref[i:j,k:l]), 7)
+        #for r,s in itertools.product (range (nroots), repeat=2):
+        #    i, j = ni[r], nj[r]
+        #    with ks.subTest (lbl, blk=(r,s), intyp=interactions[interidx[r,s]]):
+        #        ks.assertAlmostEqual (lib.fp (test[i:j,k:l]), lib.fp (ref[i:j,k:l]), 7)
 
 def case_lassis_fbf_2_model_state (ks, lsi):
     seen_fr = np.zeros ((lsi.nfrags,lsi.nroots), dtype=int)

@@ -516,6 +516,7 @@ def gen_contract_ham_ci_const (ifrag, nbra, las, h1, h2, ci, nelec_frs, soc=0, o
             super().__init__(*args, **kwargs)
             self.spin_shuffle = [fermion_spin_shuffle (nelec_frs[:,i,0], nelec_frs[:,i,1])
                                  for i in range (nroots)]
+            self.log.verbose = 0
         def fermion_frag_shuffle (self, iroot, frags):
             frags = [f if f<ifrag else f+1 for f in frags]
             return fermion_frag_shuffle (nelec_rf[iroot], frags)

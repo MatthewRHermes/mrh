@@ -118,16 +118,16 @@ class KnownValues(unittest.TestCase):
     #def test_lassirqct (self):
     #    lsi1 = LASSIrqCT (las, 2, 3).run ()
     #    self.assertAlmostEqual (lsi1.e_roots[0], -4.2879945248402445, 8)
-
-    #def test_contract_hlas_ci (self):
-    #    e_roots, si, las = lsi.e_roots, lsi.si, lsi._las
-    #    h0, h1, h2 = lsi.ham_2q ()
-    #    case_contract_hlas_ci (self, las, h0, h1, h2, las.ci, lsi.get_nelec_frs ())
+#
+    def test_contract_hlas_ci (self):
+        e_roots, si, las = lsi.e_roots, lsi.si, lsi._las
+        h0, h1, h2 = lsi.ham_2q ()
+        case_contract_hlas_ci (self, las, h0, h1, h2, las.ci, lsi.get_nelec_frs ())
 
     def test_contract_op_si (self):
         e_roots, si, las = lsi.e_roots, lsi.si, lsi._las
         h0, h1, h2 = lsi.ham_2q ()
-        h2[:] = 0
+        #h2[:] = 0
         #h2[:2,:2,:2,:2] = 0
         #h2[2:,2:,2:,2:] = 0
         debug_contract_op_si (self, las, h1, h2, las.ci, lsi.get_nelec_frs ())

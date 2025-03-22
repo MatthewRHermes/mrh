@@ -309,6 +309,9 @@ class FragTDMInt (object):
         x = self.setmanip (x)
         self.dm2[i][j] = x
 
+    def get_lroots (self, i):
+        return self.get_ovlp (i,i).shape[1]
+
     def _init_crunch_(self, screen_linequiv):
         ''' Compute the transition density matrix factors.
 

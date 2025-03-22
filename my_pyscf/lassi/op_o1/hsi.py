@@ -32,7 +32,6 @@ class HamS2OvlpOperators (HamS2Ovlp):
         self.x = self.si = np.zeros (self.nstates, self.dtype)
         self.ox = np.zeros (self.nstates, self.dtype)
         self.ox1 = np.zeros (self.nstates, self.dtype)
-        self.log.verbose = logger.DEBUG1
         self._cache_operatorpart_()
 
     def _cache_operatorpart_(self):
@@ -47,8 +46,8 @@ class HamS2OvlpOperators (HamS2Ovlp):
                             (self._crunch_1c_, self._crunch_1c1d_, self._crunch_1s1c_, 
                              self._crunch_2c_)):
             self._crunch_oppart_(exc, fn, has_s=False)
-        self.excgroups_s = self._prepare_urootstr (self.excgroups_s)
-        self.excgroups_h = self._prepare_urootstr (self.excgroups_h)
+        self.excgroups_s = self._index_ovlppart (self.excgroups_s)
+        self.excgroups_h = self._index_ovlppart (self.excgroups_h)
         self.log.debug1 (self.sprint_cache_profile ())
         self.log.timer_debug1 ('HamS2OvlpOperators operator cacheing', *t0)
 
@@ -86,7 +85,8 @@ class HamS2OvlpOperators (HamS2Ovlp):
                 val.append ([op, bra, ket, row])
                 self.excgroups_s[key] = val
 
-    def _prepare_urootstr (self, groups):
+    def _index_ovlppart (self, groups):
+        # TODO: redesign this in a scalable graph-theoretic way
         t0, w0 = logger.process_clock (), logger.perf_counter ()
         for inv, group in groups.items ():
             tab = np.zeros ((0,2), dtype=int)
@@ -198,21 +198,28 @@ class HamS2OvlpOperators (HamS2Ovlp):
         oplink, ovlplink = group
 
         t0, w0 = logger.process_clock (), logger.perf_counter ()
-        kets = np.unique (ovlplink[:,0])
-        ketvecs = {ket: self.get_xvec (ket, *inv) for ket in set (kets)}
-        ovecs = {tuple(row[1:]):0 for row in ovlplink}
-        for row in ovlplink:
-            xvec = ketvecs[row[0]]
-            midstr = row[1:]
-            ketstr = self.urootstr[:,row[0]]
-            ovecs[tuple(midstr)] += self.ox_ovlp_part (midstr, ketstr, xvec, inv)
+        # Some rootspaces are redundant: same urootstr for different ket indices.
+        # Those vector slices must be added, so I can't use dict comprehension.
+        vecs = {}
+        for ket in set (ovlplink[:,0]):
+            key = tuple(self.urootstr[:,ket])
+            vecs[key] = self.get_xvec (ket, *inv).reshape (-1,1) + vecs.get (key, 0)
+        for ifrag in range (self.nfrags):
+            if ifrag in inv:
+                # Collect the nonspectator-fragment dimensions on the minor end
+                for ket, vec in vecs.items ():
+                    lket = self.ints[ifrag].get_lroots (ket[ifrag])
+                    lr = vec.shape[-1]
+                    vecs[ket] = vec.reshape (-1,lr*lket)
+            else:
+                vecs = self.ox_ovlp_frag (ovlplink, vecs, ifrag)
         t1, w1 = logger.process_clock (), logger.perf_counter ()
         self.dt_sX += (t1-t0)
         self.dw_sX += (w1-w0)
 
         self.ox1[:] = 0
         for op, bra, ket, myinv in oplink:
-            self._opuniq_x_(op, bra, ket, ovecs, *myinv)
+            self._opuniq_x_(op, bra, ket, vecs, *myinv)
         t2, w2 = logger.process_clock (), logger.perf_counter ()
         self.dt_oX += (t2-t1)
         self.dw_oX += (w2-w1)
@@ -227,8 +234,8 @@ class HamS2OvlpOperators (HamS2Ovlp):
         self.dw_pX += (w3-w2)
 
     def _opuniq_x_(self, op, obra, oket, ovecs, *inv):
-        '''All operations which are unique in that a given set of fragment bra statelets are
-        coupled to a given set of fragment ket statelets'''
+        '''All operations which are unique in that a given set of nonspectator fragment bra
+        statelets are coupled to a given set of nonspectator fragment ket statelets'''
         key = tuple ((obra, oket)) + inv
         inv = list (set (inv))
         brakets, bras, braHs = self.get_nonuniq_exc_square (key)
@@ -250,20 +257,32 @@ class HamS2OvlpOperators (HamS2Ovlp):
         urootstr[inv] = self.urootstr[inv,ket]
         return tuple (urootstr)
 
-    def ox_ovlp_part (self, brastr, ketstr, vec, inv):
-        # TODO: factorize this as much as possible
-        spec = np.ones (self.nfrags, dtype=bool)
-        spec[list(inv)] = False
-        lr = 1
-        for i, (bra, ket) in enumerate (zip (brastr, ketstr)):
-            lket = self.lroots[i,ket]
-            if spec[i]:
-                vec = vec.reshape (-1,lket,lr)
-                o = self.ints[i].get_ovlp (bra, ket)
-                vec = lib.einsum ('pq,lqr->plr', o, vec)
-            else:
-                lr = lr * lket
-        return vec.reshape (-1,lr)
+    def ox_ovlp_uniq_str (self, ovlplink, ifrag):
+        '''Find the unique source and destination urootstrs for applying the ifrag'th fragment's
+        overlap part to the interactions tabulated in ovlplink'''
+        # TODO: put the graph of connections in ovlplink, instead of re-finding them each time.
+        vecstr = self.urootstr[:,ovlplink[:,0]].T
+        vecstr[:,:ifrag] = ovlplink[:,1:ifrag+1]
+        ovecstr = vecstr.copy ()
+        ovecstr[:,ifrag] = ovlplink[:,ifrag+1]
+        vecstr = np.unique (np.append (vecstr, ovecstr, axis=1), axis=0).reshape (-1,2,self.nfrags)
+        vecstr, ovecstr = vecstr.transpose (1,0,2)
+        return ovecstr, vecstr
+
+    def ox_ovlp_frag (self, ovlplink, vecs, ifrag):
+        '''Apply the ifrag'th fragment's overlap part of the interactions tabulated in ovlplink
+        to the vectors collected in vecs'''
+        ovecstr, vecstr = self.ox_ovlp_uniq_str (ovlplink, ifrag)
+        ovecs = {tuple(os): 0 for os in np.unique (ovecstr, axis=0)}
+        for os, s in zip (ovecstr, vecstr):
+            vec = vecs[tuple(s)]
+            lr = vec.shape[-1]
+            bra, ket = os[ifrag], s[ifrag]
+            o = self.ints[ifrag].get_ovlp (bra, ket)
+            lket = o.shape[1]
+            vec = vec.reshape (-1,lket,lr)
+            ovecs[tuple(os)] += lib.einsum ('pq,lqr->plr', o, vec).reshape (-1,lr)
+        return ovecs
 
     def _ovlp_op (self, x):
         t0 = (logger.process_clock (), logger.perf_counter ())
