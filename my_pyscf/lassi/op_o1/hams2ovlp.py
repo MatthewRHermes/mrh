@@ -4,6 +4,7 @@ from pyscf import lib
 from pyscf.lib import logger
 from itertools import product
 from mrh.my_pyscf.fci.csf import unpack_h1e_ab
+from mrh.my_pyscf.lassi import citools
 from mrh.my_pyscf.lassi.op_o1 import frag, stdm
 from mrh.my_pyscf.lassi.op_o1.utilities import *
 
@@ -26,9 +27,6 @@ class HamS2Ovlp (stdm.LSTDM):
         h2 : ndarray of size ncas**4
             Contains 2-electron Hamiltonian amplitudes in second quantization
     '''
-    # TODO: SO-LASSI o1 implementation: the one-body spin-orbit coupling part of the
-    # Hamiltonian in addition to h1 and h2, which are spin-symmetric
-
     def __init__(self, ints, nlas, hopping_index, lroots, h1, h2, mask_bra_space=None,
                  mask_ket_space=None, log=None, max_memory=2000, dtype=np.float64):
         stdm.LSTDM.__init__(self, ints, nlas, hopping_index, lroots,
@@ -64,7 +62,7 @@ class HamS2Ovlp (stdm.LSTDM):
         t0 = (lib.logger.process_clock (), lib.logger.perf_counter ())
         self.init_profiling ()
         self.ham = np.zeros ([self.nstates,]*2, dtype=self.dtype)
-        self.s2 = np.zeros ([self.nstates,]*2, dtype=self.dtype)
+        self.s2 = np.zeros ([self.nstates,]*2, dtype=self.get_ci_dtype ())
         self._crunch_all_()
         t1, w1 = lib.logger.process_clock (), lib.logger.perf_counter ()
         ovlp = self.get_ovlp ()
@@ -72,6 +70,11 @@ class HamS2Ovlp (stdm.LSTDM):
         self.dt_o, self.dw_o = self.dt_o + dt, self.dw_o + dw
         self._umat_linequiv_loop_()
         return self.ham, self.s2, ovlp, t0
+
+    def inv_unique (self, inv):
+        invset = set ()
+        inv = [i for i in inv if not (i in invset or invset.add (i))]
+        return inv
 
     def canonical_operator_order (self, arr, inv):
         ''' Transpose an operator array for an interaction involving a single pair of rootspaces
@@ -92,8 +95,7 @@ class HamS2Ovlp (stdm.LSTDM):
         '''
         if arr is None or arr.ndim < 3: return arr
         assert ((arr.ndim % 2) == 0)
-        invset = set ()
-        inv = [i for i in inv if not (i in invset or invset.add (i))]
+        inv = self.inv_unique (inv)
         ndim = arr.ndim // 2
         # sort by fragments
         axesorder = np.arange (arr.ndim, dtype=int).reshape (ndim, 2)
@@ -147,11 +149,11 @@ class HamS2Ovlp (stdm.LSTDM):
         p, q = self.get_range (i)
         r, s = self.get_range (j)
         if len (inv) == 2:
-            return np.ascontiguousarray (self.h1[:,p:q,r:s])
+            return np.ascontiguousarray (self.h1[:,p:q,r:s]).copy ()
         k, l = inv[2:]
         t, u = self.get_range (k)
         v, w = self.get_range (l)
-        return np.ascontiguousarray (self.h2[p:q,r:s,t:u,v:w])
+        return np.ascontiguousarray (self.h2[p:q,r:s,t:u,v:w]).copy ()
 
     def _crunch_1d_(self, bra, ket, i):
         '''Compute a single-fragment density fluctuation, for both the 1- and 2-RDMs.'''
@@ -171,7 +173,7 @@ class HamS2Ovlp (stdm.LSTDM):
         s2 -= m2.sum ((2,3)) / 2
         dt, dw = logger.process_clock () - t0, logger.perf_counter () - w0
         self.dt_1d, self.dw_1d = self.dt_1d + dt, self.dw_1d + dw
-        return ham, s2, (i)
+        return ham, s2, (i,)
     
     def _crunch_2d_(self, bra, ket, i, j):
         '''Compute a two-fragment density fluctuation.'''
@@ -380,6 +382,34 @@ class HamS2Ovlp (stdm.LSTDM):
         self.dt_2c, self.dw_2c = self.dt_2c + dt, self.dw_2c + dw
         return ham, s2, (l, j, i, k)
 
+
+def soc_context (h1, h2, ci, nelec_frs, soc, nlas):
+    nfrags, nroots = nelec_frs.shape[:2]
+    spin_shuffle_fac = None
+    n = sum (nlas)
+    nelec_rs = [tuple (x) for x in nelec_frs.sum (0)]
+    spin_pure = len (set (nelec_rs)) == 1
+    if soc and spin_pure: # In this scenario, the off-diagonal sector of h1 is pointless
+        h1 = np.stack ([h1[:n,:n], h1[n:,n:]], axis=0)
+    elif soc: # Engage the ``spinless mapping''
+        ix = np.argsort (spin_shuffle_idx (nlas))
+        h1 = h1[np.ix_(ix,ix)]
+        h2_ = np.zeros ([2*n,]*4, dtype=h2.dtype)
+        h2_[:n,:n,:n,:n] = h2[:]
+        h2_[:n,:n,n:,n:] = h2[:]
+        h2_[n:,n:,:n,:n] = h2[:]
+        h2_[n:,n:,n:,n:] = h2[:]
+        h2 = h2_[np.ix_(ix,ix,ix,ix)]
+        ci = ci_map2spinless (ci, nlas, nelec_frs)
+        nlas = [2*x for x in nlas]
+        spin_shuffle_fac = [fermion_spin_shuffle (nelec_frs[:,i,0], nelec_frs[:,i,1])
+                            for i in range (nroots)]
+        nelec_frs = nelec_frs.copy ()
+        nelec_frs[:,:,0] += nelec_frs[:,:,1]
+        nelec_frs[:,:,1] = 0
+    return spin_pure, h1, h2, ci, nelec_frs, nlas, spin_shuffle_fac
+
+
 def ham (las, h1, h2, ci, nelec_frs, soc=0, nlas=None, _HamS2Ovlp_class=HamS2Ovlp, _do_kernel=True,
          **kwargs):
     ''' Build Hamiltonian, spin-squared, and overlap matrices in LAS product state basis
@@ -414,6 +444,9 @@ def ham (las, h1, h2, ci, nelec_frs, soc=0, nlas=None, _HamS2Ovlp_class=HamS2Ovl
             Spin-squared operator in LAS product state basis
         ovlp : ndarray of shape (nroots,nroots)
             Overlap matrix of LAS product states 
+        raw2orth : LinearOperator of shape (nroots_orth, nroots)
+            Projects SI vector columns into an orthonormal basis,
+            eliminating linear dependencies (nroots_orth <= nroots)
     '''     
     log = lib.logger.new_logger (las, las.verbose) 
     if nlas is None: nlas = las.ncas_sub
@@ -423,27 +456,9 @@ def ham (las, h1, h2, ci, nelec_frs, soc=0, nlas=None, _HamS2Ovlp_class=HamS2Ovl
     if soc>1: raise NotImplementedError ("Spin-orbit coupling of second order")
 
     # Handle possible SOC
-    n = sum (nlas)
-    nelec_rs = [tuple (x) for x in nelec_frs.sum (0)]
-    spin_pure = len (set (nelec_rs)) == 1
-    if soc and spin_pure: # In this scenario, the off-diagonal sector of h1 is pointless
-        h1 = np.stack ([h1[:n,:n], h1[n:,n:]], axis=0)
-    elif soc: # Engage the ``spinless mapping''
-        ix = np.argsort (spin_shuffle_idx (nlas))
-        h1 = h1[np.ix_(ix,ix)]
-        h2_ = np.zeros ([2*n,]*4, dtype=h2.dtype)
-        h2_[:n,:n,:n,:n] = h2[:]
-        h2_[:n,:n,n:,n:] = h2[:]
-        h2_[n:,n:,:n,:n] = h2[:]
-        h2_[n:,n:,n:,n:] = h2[:]
-        h2 = h2_[np.ix_(ix,ix,ix,ix)]
-        ci = ci_map2spinless (ci, nlas, nelec_frs)
-        nlas = [2*x for x in nlas]
-        spin_shuffle_fac = [fermion_spin_shuffle (nelec_frs[:,i,0], nelec_frs[:,i,1])
-                            for i in range (nroots)]
-        nelec_frs[:,:,0] += nelec_frs[:,:,1]
-        nelec_frs[:,:,1] = 0
-        
+    spin_pure, h1, h2, ci, nelec_frs, nlas, spin_shuffle_fac = soc_context (
+        h1, h2, ci, nelec_frs, soc, nlas)
+
     # First pass: single-fragment intermediates
     hopping_index, ints, lroots = frag.make_ints (las, ci, nelec_frs, nlas=nlas)
     nstates = np.sum (np.prod (lroots, axis=0))
@@ -468,6 +483,8 @@ def ham (las, h1, h2, ci, nelec_frs, soc=0, nlas=None, _HamS2Ovlp_class=HamS2Ovl
     if las.verbose >= lib.logger.TIMER_LEVEL:
         lib.logger.info (las, 'LASSI Hamiltonian crunching profile:\n%s', outerprod.sprint_profile ())
 
-    return ham, s2, ovlp, outerprod.get_ovlp
+    raw2orth = citools.get_orth_basis (ci, las.ncas_sub, nelec_frs,
+                                       _get_ovlp=outerprod.get_ovlp)
+    return ham, s2, ovlp, raw2orth
 
 

@@ -26,7 +26,7 @@ from mrh.my_pyscf.lassi import op_o0, op_o1, lassis
 from mrh.my_pyscf.lassi.op_o1 import get_fdm1_maker
 from mrh.my_pyscf.lassi.sitools import make_sdm1
 from mrh.tests.lassi.addons import case_contract_hlas_ci, case_lassis_fbf_2_model_state
-from mrh.tests.lassi.addons import case_lassis_fbfdm
+from mrh.tests.lassi.addons import case_lassis_fbfdm, case_contract_op_si, debug_contract_op_si
 
 def setUpModule ():
     global mol, mf, lsi, las, mc, op
@@ -105,6 +105,12 @@ class KnownValues(unittest.TestCase):
                         self.assertAlmostEqual (lib.fp (stdm1s[0,:,2:,2:,0]),
                                                 lib.fp (stdm1s[1,:,2:,2:,1]))
 
+    def test_davidson (self):
+        lsi1 = LASSI (lsi._las).run (davidson_only=True)
+        self.assertAlmostEqual (lsi1.e_roots[0], lsi.e_roots[0], 8)
+        ovlp = np.dot (lsi1.si[:,0], lsi.si[:,0].conj ()) ** 2.0
+        self.assertAlmostEqual (ovlp, 1.0, 4)
+
     def test_lassirq (self):
         lsi1 = LASSIrq (las, 2, 3).run ()
         self.assertAlmostEqual (lsi1.e_roots[0], mc.e_tot, 8)
@@ -117,6 +123,11 @@ class KnownValues(unittest.TestCase):
         e_roots, si, las = lsi.e_roots, lsi.si, lsi._las
         h0, h1, h2 = lsi.ham_2q ()
         case_contract_hlas_ci (self, las, h0, h1, h2, las.ci, lsi.get_nelec_frs ())
+
+    def test_contract_op_si (self):
+        e_roots, si, las = lsi.e_roots, lsi.si, lsi._las
+        h0, h1, h2 = lsi.ham_2q ()
+        case_contract_op_si (self, las, h1, h2, las.ci, lsi.get_nelec_frs ())
 
     def test_lassis (self):
         for opt in (0,1):

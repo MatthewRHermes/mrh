@@ -175,6 +175,15 @@ class FragTDMInt (object):
     def get_ovlp (self, i, j):
         return self.try_get (self.ovlp, i, j)
 
+    def get_ovlp_inpbasis (self, i, j):
+        ''' Apply umat if present to get the actual original-basis overlap '''
+        ovlp = self.get_ovlp (i, j)
+        if i in self.umat_root:
+            ovlp = np.dot (self.umat_root[i].conj ().T, ovlp)
+        if j in self.umat_root:
+            ovlp = np.dot (ovlp, self.umat_root[j])
+        return ovlp
+
     def get_1_ovlp (self, i, j):
         return self.try_get_1 (self.ovlp, i, j)
 
@@ -299,6 +308,9 @@ class FragTDMInt (object):
         assert (j <= i)
         x = self.setmanip (x)
         self.dm2[i][j] = x
+
+    def get_lroots (self, i):
+        return self.get_ovlp (i,i).shape[1]
 
     def _init_crunch_(self, screen_linequiv):
         ''' Compute the transition density matrix factors.

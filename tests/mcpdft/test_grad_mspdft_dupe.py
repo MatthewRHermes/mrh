@@ -116,6 +116,7 @@ class KnownValues(unittest.TestCase):
             ci_arr = np.asarray (mc.ci)
             if itype == 'conv': mc_grad = mc.nuc_grad_method ()
             else: continue #mc_grad = dfsacasscf.Gradients (mc)
+            mf_grad = mc._scf.nuc_grad_method ()
             # TODO: proper DF functionality
             de_ref = np.stack ([mc_grad.get_ham_response (state=i) for i in (0,1)], axis=0)
             eris = mc.ao2mo (mc.mo_coeff)
@@ -126,7 +127,7 @@ class KnownValues(unittest.TestCase):
             de_ref -= np.einsum ('sac,sr->rac', de_diag, si_diag)
             for r in (0,1):
                 de_test = mspdft_heff_HellmanFeynman (mc_grad, ci=ci, state=r,
-                    si_bra=si[:,r], si_ket=si[:,r], eris=eris)
+                    si_bra=si[:,r], si_ket=si[:,r], eris=eris, mf_grad=mf_grad)
                 with self.subTest (symm=stype, solver=atype, eri=itype, root=r):
                     self.assertAlmostEqual (lib.fp (de_test), lib.fp (de_ref[r]), 8)
 
