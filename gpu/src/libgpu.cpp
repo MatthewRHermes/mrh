@@ -162,13 +162,6 @@ void libgpu_init_jk_ao2mo(void * ptr,
   dev->init_jk_ao2mo(ncore, nmo);
 }
 /* ---------------------------------------------------------------------- */
-void libgpu_init_ints_ao2mo(void * ptr, 
-                          int naoaux, int nmo, int ncas)
-{
-  Device * dev = (Device *) ptr;
-  dev->init_ints_ao2mo(naoaux, nmo, ncas);
-}
-/* ---------------------------------------------------------------------- */
 void libgpu_init_ints_ao2mo_v3(void * ptr, 
                           int naoaux, int nmo, int ncas)
 {
@@ -181,17 +174,6 @@ void libgpu_init_ppaa_ao2mo(void * ptr,
 {
   Device * dev = (Device *) ptr;
   dev->init_ppaa_ao2mo(nmo, ncas);
-}
-/* ---------------------------------------------------------------------- */
-
-
-void libgpu_df_ao2mo_pass1_v2(void * ptr,
-				int blksize, int nmo, int nao, int ncore, int ncas, int naux,
-				py::array_t<double> eri1,
-				int count, size_t addr_dfobj)
-{ 
-  Device * dev = (Device *) ptr;
-  dev->df_ao2mo_pass1_v2(blksize, nmo, nao, ncore, ncas, naux, eri1, count, addr_dfobj);
 }
 /* ---------------------------------------------------------------------- */
 void libgpu_df_ao2mo_v3(void * ptr,
@@ -209,13 +191,6 @@ void libgpu_pull_jk_ao2mo(void * ptr,
 {
   Device * dev = (Device *) ptr;
   dev->pull_jk_ao2mo(j_pc, k_pc, nmo, ncore);
-}
-/* ---------------------------------------------------------------------- */
-void libgpu_pull_ints_ao2mo(void * ptr, 
-			    py::array_t<double> fxpp, py::array_t<double> bufpa, int blksize, int naoaux, int nmo, int ncas)
-{
-  Device * dev = (Device *) ptr;
-  dev->pull_ints_ao2mo(fxpp, bufpa, blksize, naoaux, nmo, ncas);
 }
 /* ---------------------------------------------------------------------- */
 void libgpu_pull_ints_ao2mo_v3(void * ptr, 
