@@ -44,11 +44,11 @@ extern "C"
   
   void libgpu_init_jk_ao2mo(void *, 
                             int, int);
-  void libgpu_init_ints_ao2mo(void *, 
-                            int, int, int);
   void libgpu_init_ints_ao2mo_v3(void *, 
                             int, int, int);
   void libgpu_init_ppaa_ao2mo(void *, 
+                             int, int);
+  void libgpu_init_ppaa_papa_ao2mo(void *, 
                              int, int);
   void libgpu_df_ao2mo_pass1_v2(void * ,
                              int, int, int, int, int, int,
@@ -56,15 +56,19 @@ extern "C"
   void libgpu_df_ao2mo_v3(void * ,
                              int, int, int, int, int, int,
                              py::array_t<double>, int, size_t);
+  void libgpu_df_ao2mo_v4(void * ,
+                             int, int, int, int, int, int,
+                             py::array_t<double>, int, size_t);
   void libgpu_pull_jk_ao2mo(void *, 
                             py::array_t<double>, py::array_t<double>,int, int);
-  void libgpu_pull_ints_ao2mo(void *, 
-			      py::array_t<double>, py::array_t<double>, int, int, int, int);
+  void libgpu_pull_jk_ao2mo_v4(void *, 
+                            py::array_t<double>, py::array_t<double>,int, int);
   void libgpu_pull_ints_ao2mo_v3(void *, 
 			      py::array_t<double>, int, int, int, int);
   void libgpu_pull_ppaa_ao2mo(void *, 
 			      py::array_t<double>, int, int);
-
+  void libgpu_pull_ppaa_papa_ao2mo_v4(void *, 
+			      py::array_t<double>,py::array_t<double>, int, int);
   void libgpu_orbital_response(void *,
 			       py::array_t<double>,
 			       py::array_t<double>, py::array_t<double>, py::array_t<double>,
