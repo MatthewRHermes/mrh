@@ -16,7 +16,7 @@ import os
 import copy
 import unittest
 import numpy as np
-from pyscf import gto, scf, mcscf
+from pyscf import gto, scf, mcscf, df
 from pyscf.lib import chkfile
 from pyscf.mcscf import avas
 from pyscf.data import nist
@@ -318,7 +318,7 @@ class KnownValues(unittest.TestCase):
         mf = scf.ROHF(mol)
         mf.init_guess='chk'
         mf.chkfile='test_lassis_targets_slow.alfefe.chk'
-        mf = mf.density_fit()
+        mf = mf.density_fit(auxbasis = df.aug_etb (mol))
         mf.max_cycle=100
         mf.kernel()
         las = LASSCF (mf, (5,5), ((5,1),(5,0)), spin_sub=(5,6))
