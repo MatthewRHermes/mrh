@@ -170,10 +170,14 @@ class KnownValues(unittest.TestCase):
                 self.assertAlmostEqual (lib.fp (mat), fp, 9)
 
     def test_rdm12s (self):
+        si_bra = si
+        si_ket = np.roll (si, 1, axis=1)
         t0, w0 = lib.logger.process_clock (), lib.logger.perf_counter ()
-        d12_o0 = op_o0.roots_make_rdm12s (las, las.ci, nelec_frs, si, orbsym=orbsym, wfnsym=wfnsym)
+        d12_o0 = op_o0.roots_trans_rdm12s (las, las.ci, nelec_frs, si_bra, si_ket, orbsym=orbsym,
+                                           wfnsym=wfnsym)
         t1, w1 = lib.logger.process_clock (), lib.logger.perf_counter ()
-        d12_o1 = op_o1.roots_make_rdm12s (las, las.ci, nelec_frs, si, orbsym=orbsym, wfnsym=wfnsym)
+        d12_o1 = op_o1.roots_trans_rdm12s (las, las.ci, nelec_frs, si_bra, si_ket, orbsym=orbsym,
+                                           wfnsym=wfnsym)
         t2, w2 = lib.logger.process_clock (), lib.logger.perf_counter ()
         #print (t1-t0, t2-t1, t3-t2)
         #print (w1-w0, w2-w1, w3-w2)

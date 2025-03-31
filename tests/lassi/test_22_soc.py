@@ -130,6 +130,20 @@ class KnownValues(unittest.TestCase):
                 with self.subTest ("casdm2s"):
                     self.assertAlmostEqual (lib.fp (lasdm2s), lib.fp (casdm2s), 4)
 
+    def test_si_trans_rdm12s (self):
+        las, e_roots, si_bra = lsi._las, lsi.e_roots, lsi.si
+        si_ket = np.roll (si_bra, 1, axis=1)
+        stdm1s, stdm2s = make_stdm12s (las, opt=opt)
+        rdm1s_ref = lib.einsum ('ir,jr,iabj->rab', si_bra.conj (), si_ket, stdm1s)
+        rdm2s_ref = lib.einsum ('ir,jr,jsabtcdi->rsabtcd', si_bra.conj (), si_ket, stdm2s)
+        for opt in range (2):
+            with self.subTest (opt=opt):
+                lasdm1s, lasdm2s = root_make_rdm12s (las, las.ci, si, state=0, opt=opt)
+                with self.subTest ("lasdm1s"):
+                    self.assertAlmostEqual (lib.fp (lasdm1s), lib.fp (rdm1s_ref), 8)
+                with self.subTest ("lasdm2s"):
+                    self.assertAlmostEqual (lib.fp (lasdm2s), lib.fp (rdm2s_ref), 8)
+
     def test_davidson (self):
         lsi1 = LASSI (lsi._las, soc=1, break_symmetry=True).run (davidson_only=True)
         self.assertAlmostEqual (lsi1.e_roots[0], lsi.e_roots[0], 8)

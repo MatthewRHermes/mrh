@@ -132,13 +132,25 @@ def case_soc_stdm12s_slow (self, opt=0):
                 self.assertAlmostEqual (lib.fp (t_test), lib.fp (t_ref), 9)
 
 def case_soc_rdm12s_slow (self, opt=0):
+    # trans part
+    si_bra = lsi2.si
+    si_ket = np.roll (lsi2.si, 1, axis=1)
+    rdm1s_test, rdm2s_test = roots_make_rdm12s (las2, las2.ci, si_bra, si_ket, opt=opt)
+    stdm1s, stdm2s = make_stdm12s (las2, soc=True, opt=opt)    
+    rdm1s_ref = lib.einsum ('ir,jr,iabj->rab', si_bra.conj (), si_ket, stdm1s)
+    rdm2s_ref = lib.einsum ('ir,jr,jsabtcdi->rsabtcd', si_bra.conj (), si_ket, stdm2s)
+    with self.subTest (sanity='dm1s trans'):
+        self.assertAlmostEqual (lib.fp (rdm1s_test), lib.fp (rdm1s_ref), 10)
+    with self.subTest (sanity='dm2s trans'):
+        self.assertAlmostEqual (lib.fp (rdm2s_test), lib.fp (rdm2s_ref), 10)
+    # cis part
     rdm1s_test, rdm2s_test = roots_make_rdm12s (las2, las2.ci, lsi2.si, opt=opt)
     stdm1s, stdm2s = make_stdm12s (las2, soc=True, opt=opt)    
     rdm1s_ref = lib.einsum ('ir,jr,iabj->rab', lsi2.si.conj (), lsi2.si, stdm1s)
     rdm2s_ref = lib.einsum ('ir,jr,jsabtcdi->rsabtcd', lsi2.si.conj (), lsi2.si, stdm2s)
-    with self.subTest (sanity='dm1s'):
+    with self.subTest (sanity='dm1s cis'):
         self.assertAlmostEqual (lib.fp (rdm1s_test), lib.fp (rdm1s_ref), 10)
-    with self.subTest (sanity='dm2s'):
+    with self.subTest (sanity='dm2s cis'):
         self.assertAlmostEqual (lib.fp (rdm2s_test), lib.fp (rdm2s_ref), 10)
     # Stationary test has the issue of two doubly-degenerate manifolds: 1,2 and 4,5.
     # Therefore their RDMs actually vary randomly. Average the second and third RDMs
