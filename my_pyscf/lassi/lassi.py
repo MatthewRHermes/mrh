@@ -967,6 +967,23 @@ class LASSI(lib.StreamObject):
         nelec_frs = self.get_nelec_frs ()
         return sivec_vacuum_shuffle (si, nelec_frs, lroots, nelec_vac=nelec_vac, state=state)
 
+    def make_rdm12s (self, ci=None, si=None, state=None):
+        if ci is None: ci = self.ci
+        if si is None: si = self.si
+        if state is None:
+            return roots_make_rdm12s (self, ci, si)
+        else:
+            return root_make_rdm12s (self, ci, si, state=state)
+
+    def trans_rdm12s (self, ci=None, si_bra=None, si_ket=None, state=None):
+        if ci is None: ci = self.ci
+        if si_bra is None: si_bra = self.si
+        if si_ket is None: si_ket = self.si
+        if state is None:
+            return roots_trans_rdm12s (self, ci, si_bra, si_ket)
+        else:
+            return root_trans_rdm12s (self, ci, si_bra, si_ket, state=state)
+
     def analyze (self, state=0, **kwargs):
         from mrh.my_pyscf.lassi.sitools import analyze
         return analyze (self, self.si, state=state, **kwargs)
