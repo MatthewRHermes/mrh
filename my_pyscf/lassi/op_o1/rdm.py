@@ -597,8 +597,8 @@ def get_fdm1_maker (las, ci, nelec_frs, si, **kwargs):
         return fdm
     return make_fdm1
 
-def roots_make_rdm12s (las, ci, nelec_frs, si, **kwargs):
-    ''' Build spin-separated LASSI 1- and 2-body reduced density matrices
+def roots_trans_rdm12s (las, ci, nelec_frs, si_bra, si_ket, **kwargs):
+    ''' Build spin-separated LASSI 1- and 2-body transition reduced density matrices
 
     Args:
         las : instance of :class:`LASCINoSymm`
@@ -607,8 +607,10 @@ def roots_make_rdm12s (las, ci, nelec_frs, si, **kwargs):
         nelec_frs : ndarray of shape (nfrags,nroots,2)
             Number of electrons of each spin in each rootspace in each
             fragment
-        si : ndarray of shape (nroots,nroots_si)
-            Contains LASSI eigenvectors
+        si_bra : ndarray of shape (nroots,nroots_si)
+            Contains LASSI eigenvectors for the bra
+        si_ket : ndarray of shape (nroots,nroots_si)
+            Contains LASSI eigenvectors for the ket
 
     Returns:
         rdm1s : ndarray of shape (nroots_si,2,ncas,ncas)
@@ -619,9 +621,11 @@ def roots_make_rdm12s (las, ci, nelec_frs, si, **kwargs):
     log = lib.logger.new_logger (las, las.verbose)
     nlas = las.ncas_sub
     ncas = las.ncas
-    nroots_si = si.shape[-1]
+    assert (si_bra.dtype == si_ket.dtype)
+    assert (si_bra.shape == si_ket.shape)
+    nroots_si = si_ket.shape[-1]
     max_memory = getattr (las, 'max_memory', las.mol.max_memory)
-    dtype = si.dtype
+    dtype = si_ket.dtype
     nfrags, nroots = nelec_frs.shape[:2]
     #if np.iscomplexobj (si):
     #    raise RuntimeError ("Known bug here with complex SI vectors")
@@ -653,7 +657,7 @@ def roots_make_rdm12s (las, ci, nelec_frs, si, **kwargs):
 
     # Second pass: upper-triangle
     t0 = (lib.logger.process_clock (), lib.logger.perf_counter ())
-    outerprod = LRRDM (ints, nlas, hopping_index, lroots, si, si, dtype=dtype,
+    outerprod = LRRDM (ints, nlas, hopping_index, lroots, si_bra, si_ket, dtype=dtype,
                           max_memory=max_memory, log=log)
     if not spin_pure:
         outerprod.spin_shuffle = spin_shuffle_fac
@@ -686,5 +690,24 @@ def roots_make_rdm12s (las, ci, nelec_frs, si, **kwargs):
     return rdm1s, rdm2s
 
 
-        
+def roots_make_rdm12s (las, ci, nelec_frs, si, **kwargs):
+    ''' Build spin-separated LASSI 1- and 2-body reduced density matrices
+
+    Args:
+        las : instance of :class:`LASCINoSymm`
+        ci : list of list of ndarrays
+            Contains all CI vectors
+        nelec_frs : ndarray of shape (nfrags,nroots,2)
+            Number of electrons of each spin in each rootspace in each
+            fragment
+        si : ndarray of shape (nroots,nroots_si)
+            Contains LASSI eigenvectors
+
+    Returns:
+        rdm1s : ndarray of shape (nroots_si,2,ncas,ncas)
+            Spin-separated 1-body reduced density matrices of LASSI states
+        rdm2s : ndarray of shape (nroots_si,2,ncas,ncas,2,ncas,ncas)
+            Spin-separated 2-body reduced density matrices of LASSI states
+    '''
+    return roots_trans_rdm12s (las, ci, nelec_frs, si, si, **kwargs)        
 
