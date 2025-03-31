@@ -41,20 +41,23 @@ class LRRDM (stdm.LSTDM):
     # TODO: SO-LASSI o1 implementation: these density matrices can only be defined in the full
     # spinorbital basis
 
-    def __init__(self, ints, nlas, hopping_index, lroots, si, mask_bra_space=None,
+    def __init__(self, ints, nlas, hopping_index, lroots, si_bra, si_ket, mask_bra_space=None,
                  mask_ket_space=None, log=None, max_memory=2000, dtype=np.float64):
         stdm.LSTDM.__init__(self, ints, nlas, hopping_index, lroots,
                                 mask_bra_space=mask_bra_space,
                                 mask_ket_space=mask_ket_space,
                                 log=log, max_memory=max_memory,
                                 dtype=dtype)
-        self.nroots_si = si.shape[-1]
-        self.si = si.copy ()
-        self._umat_linequiv_loop_(self.si)
-        self.si = np.asfortranarray (self.si)
-        self._si_c = c_arr (self.si)
-        self._si_c_nrow = c_int (self.si.shape[0])
-        self._si_c_ncol = c_int (self.si.shape[1])
+        self.nroots_si = si_bra.shape[-1]
+        self.si_bra = si_bra.copy ()
+        self.si_ket = si_ket.copy ()
+        self._umat_linequiv_loop_(self.si_bra)
+        self._umat_linequiv_loop_(self.si_ket)
+        self.si_bra = np.asfortranarray (self.si_bra)
+        self.si_ket = np.asfortranarray (self.si_ket)
+        assert (self.si_bra.shape == self.si_ket.shape)
+        self._si_c_nrow = c_int (self.si_bra.shape[0])
+        self._si_c_ncol = c_int (self.si_bra.shape[1])
         self.d1buf = self.d1 = np.empty ((self.nroots_si,self.d1.size), dtype=self.d1.dtype)
         self.d2buf = self.d2 = np.empty ((self.nroots_si,self.d2.size), dtype=self.d2.dtype)
         self._d1buf_c = c_arr (self.d1buf)
@@ -118,7 +121,7 @@ class LRRDM (stdm.LSTDM):
         profile += '\n' + fmt_str.format ('idx', self.dt_i, self.dw_i)
         return profile
 
-    def get_single_rootspace_sivec (self, iroot):
+    def get_single_rootspace_sivec (self, iroot, bra=False):
         '''A single-rootspace slice of the SI vectors.
 
         Args:
@@ -130,11 +133,12 @@ class LRRDM (stdm.LSTDM):
                 SI vectors
         '''
         i, j = self.offs_lroots[iroot]
-        return self.si[i:j,:]
+        si = self.si_bra if bra else self.si_ket
+        return si[i:j,:]
 
     _lowertri = True
 
-    def get_frag_transposed_sivec (self, iroot, *inv):
+    def get_frag_transposed_sivec (self, iroot, *inv, bra=False):
         '''A single-rootspace slice of the SI vectors, transposed so that involved fragments
         are slower-moving
 
@@ -149,7 +153,7 @@ class LRRDM (stdm.LSTDM):
                 SI vectors with the faster dimension iterating over states of fragments not in
                 inv and the slower dimension iterating over states of fragments in inv 
         '''
-        sivec = self.get_single_rootspace_sivec (iroot)
+        sivec = self.get_single_rootspace_sivec (iroot, bra=bra)
         return transpose_sivec_make_fragments_slow (sivec, self.lroots[:,iroot], *inv)
 
     def get_fdm (self, rbra, rket, *inv, keyorder=None):
@@ -213,8 +217,8 @@ class LRRDM (stdm.LSTDM):
         '''
         # TODO: get rid of the outer product of overlap matrices here? My first attempt made it
         # slower though, I guess because of the line filtering out zero-overlap elements.
-        sibra = self.get_frag_transposed_sivec (rbra, *inv)
-        siket = self.get_frag_transposed_sivec (rket, *inv)
+        sibra = self.get_frag_transposed_sivec (rbra, *inv, bra=True)
+        siket = self.get_frag_transposed_sivec (rket, *inv, bra=False)
         inv = list (set (inv))
         fac = self.spin_shuffle[rbra] * self.spin_shuffle[rket]
         fac *= self.fermion_frag_shuffle (rbra, inv)
@@ -580,7 +584,7 @@ def get_fdm1_maker (las, ci, nelec_frs, si, **kwargs):
     nstates = np.sum (np.prod (lroots, axis=0))
         
     # Second pass: upper-triangle
-    outerprod = LRRDM (ints, nlas, hopping_index, lroots, si, dtype=dtype,
+    outerprod = LRRDM (ints, nlas, hopping_index, lroots, si, si, dtype=dtype,
                           max_memory=max_memory, log=log)
 
     # Spoof nonuniq_exc to avoid summing together things that need to be separate
@@ -649,7 +653,7 @@ def roots_make_rdm12s (las, ci, nelec_frs, si, **kwargs):
 
     # Second pass: upper-triangle
     t0 = (lib.logger.process_clock (), lib.logger.perf_counter ())
-    outerprod = LRRDM (ints, nlas, hopping_index, lroots, si, dtype=dtype,
+    outerprod = LRRDM (ints, nlas, hopping_index, lroots, si, si, dtype=dtype,
                           max_memory=max_memory, log=log)
     if not spin_pure:
         outerprod.spin_shuffle = spin_shuffle_fac
