@@ -9,7 +9,7 @@ from mrh.my_pyscf.lassi import dms as lassi_dms
 from mrh.my_pyscf.mcscf.soc_int import compute_hso, amfi_dm
 from mrh.my_pyscf.lassi.op_o0 import ci_outer_product
 from mrh.my_pyscf.mcscf.lasscf_o0 import LASSCF
-from mrh.my_pyscf.lassi.lassi import make_stdm12s, roots_make_rdm12s, ham_2q
+from mrh.my_pyscf.lassi.lassi import make_stdm12s, roots_make_rdm12s, roots_trans_rdm12s, ham_2q
 from mrh.my_pyscf import lassi
 import itertools
 
@@ -133,12 +133,12 @@ def case_soc_stdm12s_slow (self, opt=0):
 
 def case_soc_rdm12s_slow (self, opt=0):
     # trans part
-    si_bra = lsi2.si
-    si_ket = np.roll (lsi2.si, 1, axis=1)
-    rdm1s_test, rdm2s_test = roots_make_rdm12s (las2, las2.ci, si_bra, si_ket, opt=opt)
+    si_ket = lsi2.si
+    si_bra = np.roll (lsi2.si, 1, axis=1)
+    rdm1s_test, rdm2s_test = roots_trans_rdm12s (las2, las2.ci, si_bra, si_ket, opt=opt)
     stdm1s, stdm2s = make_stdm12s (las2, soc=True, opt=opt)    
     rdm1s_ref = lib.einsum ('ir,jr,iabj->rab', si_bra.conj (), si_ket, stdm1s)
-    rdm2s_ref = lib.einsum ('ir,jr,jsabtcdi->rsabtcd', si_bra.conj (), si_ket, stdm2s)
+    rdm2s_ref = lib.einsum ('ir,jr,jsabtcdi->rsabtcd', si_ket.conj (), si_bra, stdm2s)
     with self.subTest (sanity='dm1s trans'):
         self.assertAlmostEqual (lib.fp (rdm1s_test), lib.fp (rdm1s_ref), 10)
     with self.subTest (sanity='dm2s trans'):

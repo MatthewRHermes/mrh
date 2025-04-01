@@ -138,7 +138,6 @@ class LRRDM (stdm.LSTDM):
         i, j = self.offs_lroots[iroot]
         if self._transpose: bra = not bra
         si = self.si_bra if bra else self.si_ket
-        if self._transpose: si = si.conj ()
         return si[i:j,:]
 
     _lowertri_fdm = True

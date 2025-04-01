@@ -133,9 +133,9 @@ class KnownValues(unittest.TestCase):
     def test_si_trans_rdm12s (self):
         las, e_roots, si_ket = lsi._las, lsi.e_roots, lsi.si
         si_bra = np.roll (si_ket, 1, axis=1)
-        stdm1s, stdm2s = make_stdm12s (las, soc=True, opt=0)
+        stdm1s, stdm2s = make_stdm12s (las, soc=True, opt=1)
         rdm1s_ref = lib.einsum ('ir,jr,iabj->rab', si_bra.conj (), si_ket, stdm1s)
-        rdm2s_ref = lib.einsum ('ir,jr,isabtcdj->rsabtcd', si_bra.conj (), si_ket, stdm2s)
+        rdm2s_ref = lib.einsum ('ir,jr,isabtcdj->rsabtcd', si_bra, si_ket.conj (), stdm2s)
         for opt in range (2):
             with self.subTest (opt=opt):
                 lasdm1s, lasdm2s = roots_trans_rdm12s (las, las.ci, si_bra, si_ket, opt=opt)
