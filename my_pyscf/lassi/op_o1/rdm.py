@@ -51,6 +51,8 @@ class LRRDM (stdm.LSTDM):
         self.nroots_si = si_bra.shape[-1]
         self.si_bra = si_bra.copy ()
         self.si_ket = si_ket.copy ()
+        self.hermi = np.amax (np.abs (si_bra-si_ket)) < 1e-8
+        self._transpose = False
         self._umat_linequiv_loop_(self.si_bra)
         self._umat_linequiv_loop_(self.si_ket)
         self.si_bra = np.asfortranarray (self.si_bra)
@@ -64,8 +66,9 @@ class LRRDM (stdm.LSTDM):
         self._d2buf_c = c_arr (self.d2buf)
 
     def _add_transpose_(self):
-        self.rdm1s += self.rdm1s.conj ().transpose (0,1,3,2)
-        self.rdm2s += self.rdm2s.conj ().transpose (0,1,3,2,5,4)
+        if self.hermi:
+            self.rdm1s += self.rdm1s.conj ().transpose (0,1,3,2)
+            self.rdm2s += self.rdm2s.conj ().transpose (0,1,3,2,5,4)
 
     def _umat_linequiv_(self, ifrag, iroot, umat, *args):
         si = args[0]
@@ -133,10 +136,12 @@ class LRRDM (stdm.LSTDM):
                 SI vectors
         '''
         i, j = self.offs_lroots[iroot]
+        if self._transpose: bra = not bra
         si = self.si_bra if bra else self.si_ket
+        if self._transpose: si = si.conj ()
         return si[i:j,:]
 
-    _lowertri = True
+    _lowertri_fdm = True
 
     def get_frag_transposed_sivec (self, iroot, *inv, bra=False):
         '''A single-rootspace slice of the SI vectors, transposed so that involved fragments
@@ -232,7 +237,7 @@ class LRRDM (stdm.LSTDM):
             o = np.multiply.outer (i.get_ovlp (rbra, rket), o).transpose (0,2,1,3)
             o = o.reshape (o.shape[0]*o.shape[1], o.shape[2]*o.shape[3])
         idx = np.abs(o) > 1e-8
-        if self._lowertri and (rbra==rket): # not bra==ket because _loop_lroots_ doesn't restrict to tril
+        if self._lowertri_fdm and (rbra==rket): # not bra==ket b/c _loop_lroots_ isn't tril
             o[np.diag_indices_from (o)] *= 0.5
             idx[np.triu_indices_from (idx, k=1)] = False
         o = o[idx]
@@ -498,6 +503,7 @@ class LRRDM (stdm.LSTDM):
 
     def _put_D1_(self):
         t0, w0 = logger.process_clock (), logger.perf_counter ()
+        if self._transpose: self.d1[:] = self.d1.transpose (0,1,3,2).conj ()
         fn = self._put_SD1_c_fn
         fn (self._rdm1s_c, self._d1buf_c,
             self._si_c_ncol, self._norb_c, self._nsrc_c,
@@ -507,6 +513,7 @@ class LRRDM (stdm.LSTDM):
 
     def _put_D2_(self):
         t0, w0 = logger.process_clock (), logger.perf_counter ()
+        if self._transpose: self.d2[:] = self.d2.transpose (0,1,3,2,5,4).conj ()
         fn = self._put_SD2_c_fn
         fn (self._rdm2s_c, self._d2buf_c,
             self._si_c_ncol, self._norb_c, self._nsrc_c, self._pdest,
@@ -519,8 +526,13 @@ class LRRDM (stdm.LSTDM):
             inv = row[2:-1]
         else:
             inv = row[2:]
-        with lib.temporary_env (self, **self._orbrange_env_kwargs (inv)):
+        env_kwargs = self._orbrange_env_kwargs (inv)
+        with lib.temporary_env (self, **env_kwargs):
             _crunch_fn (*row)
+        if not self.hermi:
+            env_kwargs['_transpose'] = True
+            with lib.temporary_env (self, **env_kwargs):
+                _crunch_fn (*row)
 
     def _orbrange_env_kwargs (self, inv):
         t0, w0 = logger.process_clock (), logger.perf_counter ()
@@ -588,7 +600,7 @@ def get_fdm1_maker (las, ci, nelec_frs, si, **kwargs):
                           max_memory=max_memory, log=log)
 
     # Spoof nonuniq_exc to avoid summing together things that need to be separate
-    outerprod._lowertri = False
+    outerprod._lowertri_fdm = False
     def make_fdm1 (iroot, ifrag):
         fdm = outerprod.get_fdm_1space (iroot, iroot, ifrag)
         if iroot in ints[ifrag].umat_root:

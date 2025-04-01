@@ -19,7 +19,7 @@ from scipy import linalg
 from pyscf import lib, gto, scf, mcscf, ao2mo
 from mrh.my_pyscf.mcscf.lasscf_o0 import LASSCF
 from mrh.my_pyscf.lassi import LASSI, LASSIrq, LASSIrqCT
-from mrh.my_pyscf.lassi.lassi import root_make_rdm12s, make_stdm12s
+from mrh.my_pyscf.lassi.lassi import root_make_rdm12s, roots_trans_rdm12s, make_stdm12s
 from mrh.my_pyscf.lassi.spaces import all_single_excitations
 from mrh.my_pyscf.mcscf.lasci import get_space_info
 from mrh.my_pyscf.lassi import op_o0, op_o1, lassis
@@ -106,14 +106,14 @@ class KnownValues(unittest.TestCase):
                                                 lib.fp (stdm1s[1,:,2:,2:,1]))
 
     def test_si_trans_rdm12s (self):
-        las, e_roots, si_bra = lsi._las, lsi.e_roots, lsi.si
-        si_ket = np.roll (si_bra, 1, axis=1)
-        stdm1s, stdm2s = make_stdm12s (las, opt=opt)
-        rdm1s_ref = lib.einsum ('ir,jr,iabj->rab', si_bra.conj (), si_ket, stdm1s)
-        rdm2s_ref = lib.einsum ('ir,jr,jsabtcdi->rsabtcd', si_bra.conj (), si_ket, stdm2s)
+        las, e_roots, si_ket = lsi._las, lsi.e_roots, lsi.si
+        si_bra = np.roll (si_ket, 1, axis=1)
+        stdm1s, stdm2s = make_stdm12s (las, opt=0)
+        rdm1s_ref = lib.einsum ('ir,jr,isabj->rsab', si_bra.conj (), si_ket, stdm1s)
+        rdm2s_ref = lib.einsum ('ir,jr,isabtcdj->rsabtcd', si_bra.conj (), si_ket, stdm2s)
         for opt in range (2):
             with self.subTest (opt=opt):
-                lasdm1s, lasdm2s = root_make_rdm12s (las, las.ci, si, state=0, opt=opt)
+                lasdm1s, lasdm2s = roots_trans_rdm12s (las, las.ci, si_bra, si_ket, opt=opt)
                 with self.subTest ("lasdm1s"):
                     self.assertAlmostEqual (lib.fp (lasdm1s), lib.fp (rdm1s_ref), 8)
                 with self.subTest ("lasdm2s"):

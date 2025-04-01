@@ -132,8 +132,8 @@ class KnownValues(unittest.TestCase):
                 self.assertAlmostEqual (lib.fp (mat), fp, 9)
 
     def test_rdm12s (self):
-        si_bra = si
-        si_ket = np.roll (si, 1, axis=1)
+        si_ket = si
+        si_bra = np.roll (si, 1, axis=1)
         d12_o0 = op_o0.roots_trans_rdm12s (las, las.ci, nelec_frs, si_bra, si_ket)#, orbsym=orbsym, wfnsym=wfnsym)
         d12_o1 = op_o1.roots_trans_rdm12s (las, las.ci, nelec_frs, si_bra, si_ket)#, orbsym=orbsym, wfnsym=wfnsym)
         for r in range (2):
