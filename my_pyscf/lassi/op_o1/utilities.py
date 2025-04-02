@@ -189,7 +189,7 @@ def transpose_sivec_make_fragments_slow (vec, lroots, *inv):
     are slower-moving
 
     Args:
-        vec: ndarray of shape (nroots_si, np.prod (lroots))
+        vec: col-major ndarray of shape (np.prod (lroots), nroots_si)
             Single-rootspace sivec
         lroots: ndarray of shape (nfrags)
             Number of fragment states
@@ -216,7 +216,7 @@ def transpose_sivec_with_slow_fragments (vec, lroots, *inv):
     '''The inverse operation of transpose_sivec_make_fragments_slow.
 
     Args:
-        vec: ndarray of shape (nroots_si, nrows, ncols)
+        vec: col-major ndarray of shape (ncols, nrows, nroots_si)
             Single-rootspace sivec, where nrows are the dimensions of the fragments inv
         lroots: ndarray of shape (nfrags)
             Number of fragment states

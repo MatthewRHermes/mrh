@@ -13,7 +13,7 @@ from mrh.my_pyscf.mcscf import soc_int as soc_int
 from mrh.my_pyscf.lassi import citools
 from mrh.my_pyscf.lassi import dms as lassi_dms
 from mrh.my_pyscf.fci.csf import unpack_h1e_cs
-from mrh.my_pyscf.lassi.citools import _fake_gen_contract_op_si_hdiag
+from mrh.my_pyscf.lassi.citools import _fake_gen_contract_op_si_hdiag, hci_dot_sivecs
 
 def memcheck (las, ci, soc=None):
     '''Check if the system has enough memory to run these functions! ONLY checks
@@ -596,7 +596,7 @@ def ham (las, h1, h2, ci_fr, nelec_frs, soc=0, orbsym=None, wfnsym=None):
     return ham_eff, s2_eff, ovlp_eff, raw2orth
 
 def contract_ham_ci (las, h1, h2, ci_fr_ket, nelec_frs_ket, ci_fr_bra, nelec_frs_bra, 
-                     soc=0, orbsym=None, wfnsym=None):
+                     si_bra=None, si_ket=None, soc=0, orbsym=None, wfnsym=None):
     '''Evaluate the action of the state interaction Hamiltonian on a set of ket CI vectors,
     projected onto a basis of bra CI vectors, leaving one fragment of the bra uncontracted.
 
@@ -620,6 +620,10 @@ def contract_ham_ci (las, h1, h2, ci_fr_ket, nelec_frs_ket, ci_fr_bra, nelec_frs
             fragment for the bra vectors
 
     Kwargs:
+        si_bra : ndarray of shape (ndim_bra, *)
+            SI vectors for the bra. If provided, the p dimension on the return object is contracted
+        si_ket : ndarray of shape (ndim_ket, *)
+            SI vectors for the bra. If provided, the q dimension on the return object is contracted
         soc : integer
             Order of spin-orbit coupling included in the Hamiltonian
         orbsym : list of int of length (ncas)
@@ -703,7 +707,7 @@ def contract_ham_ci (las, h1, h2, ci_fr_ket, nelec_frs_ket, ci_fr_bra, nelec_frs
     for ifrag in range (nfrags):
         for ibra in range (nroots_bra):
             hket_fr_pabq[ifrag][ibra] = np.stack (hket_fr_pabq[ifrag][ibra], axis=-1)
-    return hket_fr_pabq
+    return hci_dot_sivecs (las, hket_fr_pabq, si_bra, si_ket, ci_fr_bra)
 
 def make_stdm12s (las, ci_fr, nelec_frs, orbsym=None, wfnsym=None):
     '''Build LAS state interaction transition density matrices

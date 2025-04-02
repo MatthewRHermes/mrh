@@ -206,4 +206,23 @@ def _fake_gen_contract_op_si_hdiag (matrix_builder, las, h1, h2, ci_fr, nelec_fr
     hdiag = np.diagonal (ham)
     return contract_ham_si, contract_s2, contract_ovlp, hdiag, raw2orth
 
+def hci_dot_sivecs (las, hci_fr_pabq, si_bra, si_ket, ci_bra):
+    if si_ket is not None:
+        for hci_r_pabq in hci_fr_pabq:
+            for i, hci_pabq in enumerate (hci_r_pabq):
+                hci_r_pabq[i] = np.tensordot (hci_pabq, si_ket, axes=1)
+    if si_bra is not None:
+        from mrh.my_pyscf.lassi.sitools import decompose_sivec_by_rootspace
+        from mrh.my_pyscf.lassi.op_o1.utilities import transpose_sivec_make_fragments_slow
+        is1d = (si_bra.ndim==1)
+        lroots = get_lroots (ci_bra)
+        wgts, coeffs, idx = decompose_sivec_by_rootspace (las, si_bra, ci_bra)
+        for i, hci_r_pabq in enumerate (hci_fr_pabq):
+            for j, (wgt, coeff, hci_pabq) in enumerate (zip (wgts, coeffs, hci_r_pabq)):
+                c = np.asfortranarray (np.sqrt (wgt) * coeff)
+                c = transpose_sivec_make_fragments_slow (c, lroots[:,j], i)
+                if is1d: c = c[0]
+                hci_r_pabq[j] = np.tensordot (c.conj (), hci_pabq, axes=1)
+    return hci_fr_pabq
+
 
