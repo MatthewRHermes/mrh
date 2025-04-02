@@ -346,22 +346,28 @@ class FragTDMInt (object):
             if ci[i].shape != ci[j].shape: continue
             isequal = False
             if ci[i] is ci[j]: isequal = True
-            elif np.all (ci[i]==ci[j]): isequal = True
-            elif np.all (np.abs (ci[i]-ci[j]) < SCREEN_THRESH): isequal=True
-            else:
-                ci_i = ci[i].reshape (lroots[i],-1)
-                ci_j = ci[j].reshape (lroots[j],-1)
-                ovlp = ci_i.conj () @ ci_j.T
-                isequal = np.all (np.abs (ovlp - np.eye (lroots[i])) < SCREEN_THRESH)
-                                  # need extremely high precision on this one
-                if screen_linequiv and (not isequal):
-                    err1 = abs ((np.trace (ovlp @ ovlp.conj ().T) / lroots[i]) - 1.0)
-                    err2 = abs ((np.trace (ovlp.conj ().T @ ovlp) / lroots[i]) - 1.0)
-                    isequal = (err1 < SCREEN_THRESH) and (err2 < SCREEN_THRESH)
-                    if isequal: 
-                        u, svals, vh = linalg.svd (ovlp)
-                        assert (len (svals) == lroots[i])
-                        self.umat_root[j] = u @ vh
+            else: 
+                try:
+                    isequal = np.shares_memory (ci[i], ci[j], max_work=1000)
+                except np.exceptions.TooHardError:
+                    isequal = False
+            if (not isequal) and screen_linequiv:
+                if np.all (ci[i]==ci[j]): isequal = True
+                elif np.all (np.abs (ci[i]-ci[j]) < SCREEN_THRESH): isequal=True
+                else:
+                    ci_i = ci[i].reshape (lroots[i],-1)
+                    ci_j = ci[j].reshape (lroots[j],-1)
+                    ovlp = ci_i.conj () @ ci_j.T
+                    isequal = np.all (np.abs (ovlp - np.eye (lroots[i])) < SCREEN_THRESH)
+                                      # need extremely high precision on this one
+                    if not isequal:
+                        err1 = abs ((np.trace (ovlp @ ovlp.conj ().T) / lroots[i]) - 1.0)
+                        err2 = abs ((np.trace (ovlp.conj ().T @ ovlp) / lroots[i]) - 1.0)
+                        isequal = (err1 < SCREEN_THRESH) and (err2 < SCREEN_THRESH)
+                        if isequal: 
+                            u, svals, vh = linalg.svd (ovlp)
+                            assert (len (svals) == lroots[i])
+                            self.umat_root[j] = u @ vh
             if isequal:
                 self.root_unique[j] = False
                 self.unique_root[j] = i
