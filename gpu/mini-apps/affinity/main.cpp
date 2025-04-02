@@ -1,5 +1,5 @@
 //Chris will add more comments 
-
+//Setup affinity of GPUs with cpus. 
 #include <stdio.h>
 #include <unistd.h>
 #include <string.h>
