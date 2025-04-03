@@ -13,7 +13,6 @@ from mrh.my_pyscf.mcscf import soc_int as soc_int
 from mrh.my_pyscf.lassi import citools
 from mrh.my_pyscf.lassi import dms as lassi_dms
 from mrh.my_pyscf.fci.csf import unpack_h1e_cs
-from mrh.my_pyscf.lassi.citools import _fake_gen_contract_op_si_hdiag, hci_dot_sivecs
 
 def memcheck (las, ci, soc=None):
     '''Check if the system has enough memory to run these functions! ONLY checks
@@ -707,7 +706,7 @@ def contract_ham_ci (las, h1, h2, ci_fr_ket, nelec_frs_ket, ci_fr_bra, nelec_frs
     for ifrag in range (nfrags):
         for ibra in range (nroots_bra):
             hket_fr_pabq[ifrag][ibra] = np.stack (hket_fr_pabq[ifrag][ibra], axis=-1)
-    return hci_dot_sivecs (las, hket_fr_pabq, si_bra, si_ket, ci_fr_bra)
+    return citools.hci_dot_sivecs (hket_fr_pabq, si_bra, si_ket, citools.get_lroots (ci_fr_bra))
 
 def make_stdm12s (las, ci_fr, nelec_frs, orbsym=None, wfnsym=None):
     '''Build LAS state interaction transition density matrices
@@ -1075,6 +1074,6 @@ if __name__ == '__main__':
     ham_eff = slow_ham (las.mol, h1, h2, las.ci, las.ncas_sub, nelec_fr)[0]
     print (las.converged, e_states - (e0 + np.diag (ham_eff)))
 
-gen_contract_op_si_hdiag = functools.partial (_fake_gen_contract_op_si_hdiag, ham)
+gen_contract_op_si_hdiag = functools.partial (citools._fake_gen_contract_op_si_hdiag, ham)
 
 
