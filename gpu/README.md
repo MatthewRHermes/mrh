@@ -4,7 +4,7 @@ The following is a short summary documenting how to run LASSCF (and similar) cal
 
 ## Compiling gpu-enabled LASSCF
 
-Examples for compiling the full software stack PySCF + mrh + gpu4mrh on a handful of HPC systems is available in the `install` directory.
+Examples for compiling the full software stack PySCF + mrh + gpu4mrh on a handful of HPC systems is available in the `machine` directory.
 
 ## Running gpu-enabled LASSCF calculations
 
