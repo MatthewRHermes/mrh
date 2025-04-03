@@ -371,6 +371,14 @@ class FragTDMInt (object):
             if isequal:
                 self.root_unique[j] = False
                 self.unique_root[j] = i
+        for i in range (self.nroots):
+            assert (self.root_unique[self.unique_root[i]])
+        idx_uniq = self.root_unique
+
+        # Update connectivity arrays and mask_ints
+        for i in np.where (idx_uniq)[0]:
+            images = np.where (self.unique_root==i)[0]
+            for j in images:
                 self.onep_index[i] |= self.onep_index[j]
                 self.onep_index[:,i] |= self.onep_index[:,j]
                 self.zerop_index[i] |= self.zerop_index[j]
@@ -381,9 +389,6 @@ class FragTDMInt (object):
                 self.mask_ints[:,i] = np.logical_or (
                     self.mask_ints[:,i], self.mask_ints[:,j]
                 )
-        for i in range (self.nroots):
-            assert (self.root_unique[self.unique_root[i]])
-        idx_uniq = self.root_unique
 
         # Overlap matrix
         offs = np.cumsum (lroots)
