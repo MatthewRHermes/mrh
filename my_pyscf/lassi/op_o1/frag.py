@@ -7,7 +7,7 @@ from pyscf.fci.direct_uhf import contract_1e as contract_1e_uhf
 from pyscf.fci.addons import cre_a, cre_b, des_a, des_b
 from pyscf.fci import cistring
 from itertools import product, combinations
-from mrh.my_pyscf.lassi.citools import get_lroots, get_rootaddr_fragaddr
+from mrh.my_pyscf.lassi.citools import get_lroots, get_rootaddr_fragaddr, get_unique_roots
 from mrh.my_pyscf.lassi.op_o1.utilities import *
 from mrh.my_pyscf.fci.rdm import trans_rdm1ha_des, trans_rdm1hb_des
 from mrh.my_pyscf.fci.rdm import trans_rdm13ha_des, trans_rdm13hb_des
@@ -335,44 +335,9 @@ class FragTDMInt (object):
         lroots = [c.shape[0] for c in ci]
 
         # index down to only the unique rootspaces
-        self.root_unique = np.ones (self.nroots, dtype=bool)
-        self.unique_root = np.arange (self.nroots, dtype=int)
-        self.umat_root = {}
-        for i, j in combinations (range (self.nroots), 2):
-            if not self.root_unique[i]: continue
-            if not self.root_unique[j]: continue
-            if self.nelec_r[i] != self.nelec_r[j]: continue
-            if lroots[i] != lroots[j]: continue
-            if ci[i].shape != ci[j].shape: continue
-            isequal = False
-            if ci[i] is ci[j]: isequal = True
-            else: 
-                try:
-                    isequal = np.shares_memory (ci[i], ci[j], max_work=1000)
-                except np.exceptions.TooHardError:
-                    isequal = False
-            if (not isequal) and screen_linequiv:
-                if np.all (ci[i]==ci[j]): isequal = True
-                elif np.all (np.abs (ci[i]-ci[j]) < SCREEN_THRESH): isequal=True
-                else:
-                    ci_i = ci[i].reshape (lroots[i],-1)
-                    ci_j = ci[j].reshape (lroots[j],-1)
-                    ovlp = ci_i.conj () @ ci_j.T
-                    isequal = np.all (np.abs (ovlp - np.eye (lroots[i])) < SCREEN_THRESH)
-                                      # need extremely high precision on this one
-                    if not isequal:
-                        err1 = abs ((np.trace (ovlp @ ovlp.conj ().T) / lroots[i]) - 1.0)
-                        err2 = abs ((np.trace (ovlp.conj ().T @ ovlp) / lroots[i]) - 1.0)
-                        isequal = (err1 < SCREEN_THRESH) and (err2 < SCREEN_THRESH)
-                        if isequal: 
-                            u, svals, vh = linalg.svd (ovlp)
-                            assert (len (svals) == lroots[i])
-                            self.umat_root[j] = u @ vh
-            if isequal:
-                self.root_unique[j] = False
-                self.unique_root[j] = i
-        for i in range (self.nroots):
-            assert (self.root_unique[self.unique_root[i]])
+        self.root_unique, self.unique_root, self.umat_root = get_unique_roots (
+            ci, self.nelec_r, screen_linequiv=screen_linequiv, screen_thresh=SCREEN_THRESH
+        )
         idx_uniq = self.root_unique
 
         # Update connectivity arrays and mask_ints
