@@ -856,6 +856,24 @@ def root_make_rdm12s (las, ci, si, state=0, orbsym=None, soc=None, break_symmetr
     return root_trans_rdm12s (las, ci, si, si, state=state, orbsym=orbsym, soc=soc,
                               break_symmetry=break_symmetry, rootsym=rootsym, opt=opt)
 
+def energy_tot (lsi, mo_coeff=None, ci=None, si=None, soc=0):
+    if mo_coeff is None: mo_coeff = lsi.mo_coeff
+    if ci is None: ci = lsi.ci
+    if si is None: si = lsi.si
+    if si.ndim==1:
+        nroots_si=1
+    else:
+        assert (si.ndim==2)
+        nroots_si = si.shape[1]
+    si = si.reshape (-1,nroots_si)
+    nelec_frs = lsi.get_nelec_frs ()
+    h0, h1, h2 = lsi.ham_2q (mo_coeff=mo_coeff, soc=soc)
+    hop = op[opt].gen_contract_op_si_hdiag (
+        lsi, h1, h2, ci, nelec_frs, soc=soc
+    )[0]
+    e_tot = lib.einsum ('ip,ip->p', (hop (si) + h0*si), si.conj ())
+    return e_tot
+
 class LASSI(lib.StreamObject):
     '''
     LASSI Method class
@@ -999,3 +1017,4 @@ class LASSI(lib.StreamObject):
     def get_init_guess_si (self, hdiag, nroots, si1):
         return get_init_guess_si (hdiag, nroots, si1)
 
+    energy_tot = energy_tot

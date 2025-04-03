@@ -688,6 +688,13 @@ class LASSIS (LASSI):
         log.info ('LASSIS overall max disc sval: %e', self.max_disc_sval)
         return self.converged
 
+    def energy_tot (self, mo_coeff=None, ci_ref=None, ci_sf=None, ci_ch=None, si=None, soc=0):
+        if ci_ref is None: ci_ref = self.get_ci_ref ()
+        if ci_sf is None: ci_sf = self.ci_spin_flips
+        if ci_ch is None: ci_ch = self.ci_charge_hops
+        ci = self.prepare_model_states (ci_ref, ci_sf, ci_ch)[0].ci
+        return LASSI.energy_tot (mo_coeff=mo_coeff, ci=ci, si=si, soc=soc)
+
     eig = LASSI.kernel
     as_scanner = as_scanner
     prepare_fbf = prepare_fbf
