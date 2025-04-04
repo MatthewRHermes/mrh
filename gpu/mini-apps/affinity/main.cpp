@@ -1,5 +1,7 @@
-//Chris will add more comments 
 //Setup affinity of GPUs with cpus. 
+//Affinity - Assigning software work (threads) to specific cpu cores or gpu
+//This mini-app can be used to help check/confirm how software processes (threads) are assigned to compute hardware (cpu cores and gpus). 
+//This is useful when debugging job launchers, like mpiexec, and ensuring all GPUs in a node are used as expected.
 #include <stdio.h>
 #include <unistd.h>
 #include <string.h>
