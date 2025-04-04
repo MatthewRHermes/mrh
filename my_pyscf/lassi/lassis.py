@@ -615,6 +615,7 @@ class LASSIS (LASSI):
                                 for a in range (self.nfrags)]
                                for i in range (self.nfrags)]
         self._cached_ham_2q = None
+        self.ci = None
         if las.nroots>1:
             logger.warn (self, ("Only the first LASSCF state is used by LASSIS! "
                                 "Other states are discarded!"))
@@ -692,8 +693,19 @@ class LASSIS (LASSI):
         if ci_ref is None: ci_ref = self.get_ci_ref ()
         if ci_sf is None: ci_sf = self.ci_spin_flips
         if ci_ch is None: ci_ch = self.ci_charge_hops
-        ci = self.prepare_model_states (ci_ref, ci_sf, ci_ch)[0].ci
-        return LASSI.energy_tot (mo_coeff=mo_coeff, ci=ci, si=si, soc=soc)
+        las = self.prepare_model_states (ci_ref, ci_sf, ci_ch)[0]
+        ci = las.ci
+        self.fciboxes = las.fciboxes # TODO: set this at initialization
+        return LASSI.energy_tot (self, mo_coeff=mo_coeff, ci=ci, si=si, soc=soc)
+
+    def get_lroots (self, ci=None):
+        if ci is None: ci = self.ci
+        if ci is None:
+            with lib.temporary_env (self, max_cycle_macro=0):
+                self.prepare_states_()
+            ci = self.ci
+        assert (ci is not None)
+        return LASSI.get_lroots (self, ci=ci)
 
     eig = LASSI.kernel
     as_scanner = as_scanner

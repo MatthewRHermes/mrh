@@ -143,6 +143,17 @@ class KnownValues(unittest.TestCase):
         h0, h1, h2 = lsi.ham_2q ()
         case_contract_op_si (self, las, h1, h2, las.ci, lsi.get_nelec_frs ())
 
+    def test_energy_tot (self):
+        las1 = LASSCF (mf, (2,2), (2,2), spin_sub=(1,1)).run () # different MOs
+        # You need to set up at least the rootspaces because otherwise LASSI doesn't
+        # have any way of knowing how many electrons are in each CI vector I guess
+        for i in range (2): las1 = all_single_excitations (las1)
+        las1.conv_tol_grad = las.conv_tol_self = 9e99
+        las1.lasci ()
+        lsi1 = LASSI (las1).run ()
+        e_tot = lsi1.energy_tot (mo_coeff=lsi.mo_coeff, ci=lsi.ci, si=lsi.si)
+        self.assertAlmostEqual (lib.fp (e_tot), lib.fp (lsi.e_roots), 9)
+
     def test_lassis (self):
         for opt in (0,1):
             with self.subTest (opt=opt):
@@ -156,6 +167,16 @@ class KnownValues(unittest.TestCase):
                 self.assertAlmostEqual (lsis.e_roots[0], -4.134472877702426, 8)
                 case_lassis_fbf_2_model_state (self, lsis)
                 case_lassis_fbfdm (self, lsis)
+        with self.subTest ('energy_tot function'):
+            lsis1 = lassis.LASSIS (las)
+            e_tot = lsis1.energy_tot (
+                mo_coeff=lsis.mo_coeff,
+                ci_ref=lsis.get_ci_ref (),
+                ci_sf=lsis.ci_spin_flips,
+                ci_ch=lsis.ci_charge_hops,
+                si=lsis.si
+            )
+            self.assertAlmostEqual (lib.fp (e_tot), lib.fp (lsis.e_roots), 9)
 
     def test_fdm1 (self):
         make_fdm1 = get_fdm1_maker (lsi, lsi.ci, lsi.get_nelec_frs (), lsi.si)

@@ -856,10 +856,11 @@ def root_make_rdm12s (las, ci, si, state=0, orbsym=None, soc=None, break_symmetr
     return root_trans_rdm12s (las, ci, si, si, state=state, orbsym=orbsym, soc=soc,
                               break_symmetry=break_symmetry, rootsym=rootsym, opt=opt)
 
-def energy_tot (lsi, mo_coeff=None, ci=None, si=None, soc=0):
+def energy_tot (lsi, mo_coeff=None, ci=None, si=None, soc=0, opt=None):
     if mo_coeff is None: mo_coeff = lsi.mo_coeff
     if ci is None: ci = lsi.ci
     if si is None: si = lsi.si
+    if opt is None: opt = lsi.opt
     if si.ndim==1:
         nroots_si=1
     else:
@@ -948,6 +949,10 @@ class LASSI(lib.StreamObject):
     def get_lroots (self, ci=None):
         if ci is None: ci = self.ci
         return get_lroots (ci)
+
+    def get_nprods (self, ci=None):
+        lroots = self.get_lroots (ci=ci)
+        return np.sum (np.prod (lroots, axis=0))
 
     def get_sivec_fermion_spin_shuffle (self, si=None, ci=None):
         from mrh.my_pyscf.lassi.sitools import sivec_fermion_spin_shuffle
