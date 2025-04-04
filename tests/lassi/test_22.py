@@ -222,6 +222,12 @@ class KnownValues(unittest.TestCase):
         x0 = ugg.pack (*ugg.unpack (x0)) # apply some projections
         e_tot = lsis.energy_tot (*ugg.update_wfn (x0))
         self.assertLessEqual (lsis.e_roots[0], e_tot)
+        h0, h1, h2 = lsis.ham_2q ()
+        hci_fr = case_contract_hlas_ci (self, lsis, h0, h1, h2, lsis.ci, lsis.get_nelec_frs ())
+        # Just to syntax-debug this...
+        hci_ref, hci_sf, hci_ch = vlassis.sum_hci (lsis, hci_fr)
+        mo0, _, _, _, si0 = ugg.unpack (x0)
+        x1 = ugg.pack (mo0, hci_ref, hci_sf, hci_ch, si0)
 
     def test_fdm1 (self):
         make_fdm1 = get_fdm1_maker (lsi, lsi.ci, lsi.get_nelec_frs (), lsi.si)

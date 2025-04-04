@@ -6,6 +6,7 @@ from mrh.my_pyscf.mcscf import lasscf_sync_o0
 from mrh.my_pyscf.lassi import lassis
 from mrh.my_pyscf.lassi.spaces import list_spaces
 from mrh.my_pyscf.fci.csfstring import CSFTransformer
+from mrh.my_pyscf.fci.spin_op import mup
 
 class UnitaryGroupGenerators (lasscf_sync_o0.LASSCF_UnitaryGroupGenerators):
     def __init__(self, lsi, mo_coeff, ci_ref, ci_sf, ci_ch, si):
@@ -315,4 +316,38 @@ def _update_ci_ch (ci0, ci1):
             a2.append (b2)
         ci2.append (a2)
     return ci2
+
+def sum_hci (lsi, hci_fr):
+    '''Add hci vectors into LASSIS-shape arrays
+
+    Args:
+        lsi: object of `class`:LASSIS:
+        hci_fr: list of length nfrags of lists of length nroots of ndarrays
+            Contains <E(k)_p,a,b|H|Psi> where |E(k)_p> = <k_p|Psi>
+
+    Returns:
+        hci_ref: list of length nfrags of ndarrays
+        hci_sf: nested list of shape (nfrags,2) of ndarrays
+        hci_ch: nested list of shape (nfrags,nfrags,4,2) of ndarrays
+    '''
+    no = lsi.ncas_sub
+    smult = lsi.get_smult_fr ()
+    hci_ref = [0,]*lsi.nfrags
+    hci_sf = [[0,0] for i in range (lsi.nfrags)]
+    hci_ch = [[[[0,0] for s in range (4)]
+               for a in range (lsi.nfrags)]
+              for i in range (lsi.nfrags)]
+    for i in range (lsi.nfrags):
+        for p, ne in zip (*lsi.get_ref_fbf_rootspaces (i)):
+            hci_ref[i] += mup (hci_fr[i][p], no[i], ne, smult[i][p])
+        for s in range (2):
+            for p, ne in zip (*lsi.get_sf_fbf_rootspaces (i,s)):
+                hci_sf[i][s] += mup (hci_fr[i][p], no[i], ne, smult[i][p])
+        for a in range (lsi.nfrags):
+            for s in range (4):
+                for p, nei, nea in zip (*lsi.get_ch_fbf_rootspaces (i, a, s)):
+                    hci_ch[i][a][s][0] += mup (hci_fr[i][p], no[i], nei, smult[i][p])
+                    hci_ch[i][a][s][1] += mup (hci_fr[a][p], no[a], nea, smult[a][p])
+    return hci_ref, hci_sf, hci_ch
+
 

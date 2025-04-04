@@ -80,6 +80,7 @@ def case_contract_hlas_ci (ks, las, h0, h1, h2, ci_fr, nelec_frs):
                     h_test += lib.einsum ('pab,pab->', hket_pabq, ci.conj ())
             with ks.subTest (opt=opt, frag=f, bra_space=r, nelec=nelec[f,r]):
                 ks.assertAlmostEqual (h_test, h_ref, 8)
+    return hket_fr_pabq
 
 def case_contract_op_si (ks, las, h1, h2, ci_fr, nelec_frs, soc=0):
     ham, s2, ovlp = op[1].ham (las, h1, h2, ci_fr, nelec_frs, soc=soc)[:3]
