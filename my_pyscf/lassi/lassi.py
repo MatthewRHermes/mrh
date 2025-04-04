@@ -873,6 +873,7 @@ def energy_tot (lsi, mo_coeff=None, ci=None, si=None, soc=0, opt=None):
         lsi, h1, h2, ci, nelec_frs, soc=soc
     )[0]
     e_tot = lib.einsum ('ip,ip->p', (hop (si) + h0*si), si.conj ())
+    if nroots_si==1: e_tot=e_tot[0]
     return e_tot
 
 class LASSI(lib.StreamObject):
@@ -1023,3 +1024,17 @@ class LASSI(lib.StreamObject):
         return get_init_guess_si (hdiag, nroots, si1)
 
     energy_tot = energy_tot
+
+    def get_raw2orth (self, ci=None, soc=None, opt=None):
+        if ci is None: ci = self.ci
+        if soc is None: soc = self.soc
+        if opt is None: opt = self.opt
+        nelec_frs = self.get_nelec_frs ()
+        n = self.ncas
+        h1 = np.zeros ([n,n])
+        h2 = np.zeros ([n,n,n,n])
+        return op[opt].gen_contract_op_si_hdiag (
+            self, h1, h2, ci, nelec_frs, soc=soc
+        )[4]
+
+

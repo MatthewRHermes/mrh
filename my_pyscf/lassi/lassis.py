@@ -689,10 +689,11 @@ class LASSIS (LASSI):
         log.info ('LASSIS overall max disc sval: %e', self.max_disc_sval)
         return self.converged
 
-    def energy_tot (self, mo_coeff=None, ci_ref=None, ci_sf=None, ci_ch=None, si=None, soc=0):
+    def energy_tot (self, mo_coeff=None, ci_ref=None, ci_sf=None, ci_ch=None, si=None, soc=None):
         if ci_ref is None: ci_ref = self.get_ci_ref ()
         if ci_sf is None: ci_sf = self.ci_spin_flips
         if ci_ch is None: ci_ch = self.ci_charge_hops
+        if soc is None: soc = self.soc
         las = self.prepare_model_states (ci_ref, ci_sf, ci_ch)[0]
         ci = las.ci
         self.fciboxes = las.fciboxes # TODO: set this at initialization
@@ -706,6 +707,16 @@ class LASSIS (LASSI):
             ci = self.ci
         assert (ci is not None)
         return LASSI.get_lroots (self, ci=ci)
+
+    def get_raw2orth (self, ci_ref=None, ci_sf=None, ci_ch=None, soc=None, opt=None):
+        if ci_ref is None: ci_ref = self.get_ci_ref ()
+        if ci_sf is None: ci_sf = self.ci_spin_flips
+        if ci_ch is None: ci_ch = self.ci_charge_hops
+        if soc is None: soc = self.soc
+        las = self.prepare_model_states (ci_ref, ci_sf, ci_ch)[0]
+        ci = las.ci
+        self.fciboxes = las.fciboxes # TODO: set this at initialization
+        return LASSI.get_raw2orth (self, ci=ci, soc=soc, opt=opt)
 
     eig = LASSI.kernel
     as_scanner = as_scanner

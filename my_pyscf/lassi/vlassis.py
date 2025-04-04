@@ -12,10 +12,11 @@ class UnitaryGroupGenerators (lasscf_sync_o0.LASSCF_UnitaryGroupGenerators):
         self.mol = lsi.mol
         self.nmo = mo_coeff.shape[-1]
         self.nfrags = lsi.nfrags
-        self.frozen = lsi.frozen
+        self.frozen = None
+        self.mo_coeff = mo_coeff
         self._init_orb (lsi, mo_coeff, ci_ref)
         self._init_ci (lsi, ci_ref, ci_sf, ci_ch)
-        self._init_si (lsi, si)
+        self._init_si (lsi, ci_ref, ci_sf, ci_ch, si)
 
     def _init_ci (self, lsi, ci_ref, ci_sf, ci_ch):
         sp = list_spaces (lsi.get_las_of_ci_ref (ci_ref))[0]
@@ -40,13 +41,13 @@ class UnitaryGroupGenerators (lasscf_sync_o0.LASSCF_UnitaryGroupGenerators):
             self.t_ch_i.append (ti)
             # Receiving electron
             ti = [None, None]
-            if na<no: ti[0] = CSFTransformer (no, na+1, nb, s+1)
-            if na>nb: ti[1] = CSFTransformer (no, na, nb+1, s+1)
+            if na>nb: ti[0] = CSFTransformer (no, na, nb+1, s-1)
+            if na<no: ti[1] = CSFTransformer (no, na+1, nb, s+1)
             self.t_ch_a.append (ti)
         for i in range (self.nfrags):
             c = self.ci_ref[i]
             t = self.t_ref[i]
-            self.ci_ref[i] = t.vec_det2csf (c, normalize=False)
+            self.ci_ref[i] = t.vec_det2csf (c, normalize=False)[0]
             for s in range (2):
                 c = self.ci_sf[i][s]
                 t = self.t_sf[i][s]
@@ -62,10 +63,13 @@ class UnitaryGroupGenerators (lasscf_sync_o0.LASSCF_UnitaryGroupGenerators):
                     t = self.t_ch_a[a][s%2]
                     if c is not None: self.ci_ch[i][a][s][1] = t.vec_det2csf (c, normalize=False)
 
-    def _init_si (self, lsi, si):
+    def _init_si (self, lsi, ci_ref, ci_sf, ci_ch, si):
         self.nprods = lsi.get_nprods ()
-        self.si = np.asfortranarray (si.reshape (self.nprods, -1))
-        self.nroots_si = self.si.shape[1]
+        si = np.asfortranarray (si.reshape (self.nprods, -1))
+        self.nroots_si = si.shape[1]
+        self.raw2orth = lsi.get_raw2orth (ci_ref=ci_ref, ci_sf=ci_sf, ci_ch=ci_ch)
+        self.north = self.raw2orth.shape[0]
+        self.si = self.raw2orth (si)
 
     def pack (self, kappa, ci_ref, ci_sf, ci_ch, si):
         kappa = .5 * (kappa - kappa.T)
@@ -74,16 +78,16 @@ class UnitaryGroupGenerators (lasscf_sync_o0.LASSCF_UnitaryGroupGenerators):
         for i in range (self.nfrags):
             t = self.t_ref[i]
             c0 = self.ci_ref[i]
-            c1 = t.vec_det2csf (ci_ref[i], normalize=False)
+            c1 = t.vec_det2csf (ci_ref[i], normalize=False)[0]
             c1 -= c0 * np.dot (c0.conj (), c1)
             x = np.append (x, c1)
         # ci_sf part
         for i in range (self.nfrags):
             for s in range (2):
-                t = self.ti_sf[i][s]
+                t = self.t_sf[i][s]
                 c0 = self.ci_sf[i][s]
                 if c0 is not None:
-                    c1 = t.vec_det2csf (ci_sf[i][0], normalize=False)
+                    c1 = t.vec_det2csf (ci_sf[i][s], normalize=False)
                     c1 -= np.dot (np.dot (c1, c0.conj ().T), c0)
                     x = np.append (x, c1.ravel ())
         # ci_ch part
@@ -105,10 +109,10 @@ class UnitaryGroupGenerators (lasscf_sync_o0.LASSCF_UnitaryGroupGenerators):
                         c1 -= np.dot (np.dot (c1, c0.conj ().T), c0)
                         x = np.append (x, c1.ravel ())
         # si part internal
-        si = si.reshape (self.nprods, self.nroots_si)
+        si = self.raw2orth (si.reshape (self.nprods, self.nroots_si))
         z = self.si.conj ().T @ si
         if self.nroots_si>1:
-            x = np.append (x, (z-z.T)[np.tril_indices (self.nroots_si)])
+            x = np.append (x, (z-z.T)[np.tril_indices (self.nroots_si, k=-1)])
         # si part external
         si -= self.si @ z
         x = np.append (x, si)
@@ -124,18 +128,18 @@ class UnitaryGroupGenerators (lasscf_sync_o0.LASSCF_UnitaryGroupGenerators):
         for i in range (self.nfrags):
             t = self.t_ref[i]
             ci_ref.append (t.vec_csf2det (y[:t.ncsf], normalize=False))
+            ci_ref[-1] = ci_ref[-1].reshape (t.ndeta, t.ndetb)
             y = y[t.ncsf:]
         # ci_sf part
-        ci_sf = []
+        ci_sf = [[None for s in range (2)] for i in range (self.nfrags)]
         for i in range (self.nfrags):
-            c_i = [None, None]
             for s in range (2):
-                t = self.ti_sf[i][s]
+                t = self.t_sf[i][s]
                 c0 = self.ci_sf[i][s]
                 if c0 is not None:
-                    c_i[s] = t.vec_csf2det (y[:t.ncsf], normalize=False)
-                    y = y[t.ncsf:] 
-            ci_sf.append (c_i)
+                    ci_sf[i][s] = t.vec_csf2det (y[:c0.size].reshape (c0.shape), normalize=False)
+                    ci_sf[i][s] = ci_sf[i][s].reshape (-1, t.ndeta, t.ndetb)
+                    y = y[c0.size:] 
         # ci_ch part
         ci_ch = []
         for i in range (self.nfrags):
@@ -147,14 +151,16 @@ class UnitaryGroupGenerators (lasscf_sync_o0.LASSCF_UnitaryGroupGenerators):
                     c0 = self.ci_ch[i][a][s][0]
                     t = self.t_ch_i[i][s//2]
                     if c0 is not None:
-                        cia[s][0] = t.vec_csf2det (y[:t.ncsf], normalize=False)
-                        y = y[t.ncsf:] 
+                        cia[s][0] = t.vec_csf2det (y[:c0.size].reshape (c0.shape), normalize=False)
+                        cia[s][0] = cia[s][0].reshape (-1, t.ndeta, t.ndetb)
+                        y = y[c0.size:] 
                     # p = 1: a
                     c0 = self.ci_ch[i][a][s][1]
                     t = self.t_ch_a[a][s%2]
                     if c0 is not None:
-                        cia[s][1] = t.vec_csf2det (y[:t.ncsf], normalize=False)
-                        y = y[t.ncsf:] 
+                        cia[s][1] = t.vec_csf2det (y[:c0.size].reshape (c0.shape), normalize=False)
+                        cia[s][1] = cia[s][1].reshape (-1, t.ndeta, t.ndetb)
+                        y = y[c0.size:] 
                 ci.append (cia)
             ci_ch.append (ci)
         # si part internal
@@ -162,12 +168,13 @@ class UnitaryGroupGenerators (lasscf_sync_o0.LASSCF_UnitaryGroupGenerators):
         nz = self.nroots_si * (self.nroots_si - 1) // 2
         if nz:
             z = np.zeros ((self.nroots_si, self.nroots_si), dtype=x.dtype)
-            z[np.tril_indices (self.nroots_si)] = y[:nz]
+            z[np.tril_indices (self.nroots_si, k=-1)] = y[:nz]
             z = 0.5 * (z - z.T)
             si += self.si @ z
             y = y[nz:]
         # si part external
-        si += y.reshape (self.nprods, self.nroots_si)
+        si += y.reshape (self.north, self.nroots_si)
+        si = self.raw2orth.H (si)
         return kappa, ci_ref, ci_sf, ci_ch, si
 
     @property
@@ -176,22 +183,74 @@ class UnitaryGroupGenerators (lasscf_sync_o0.LASSCF_UnitaryGroupGenerators):
 
     @property
     def ncsf_sf (self):
-        ncsf = np.zeros ((self.nfrags, 2), dtype=int)
+        ncsf = np.zeros ((self.nfrags, 2, 2), dtype=int)
         for i in range (self.nfrags):
             for s in range (2):
                 if self.ci_sf[i][s] is not None:
-                    ncsf[i][s] = self.t_sf[i][s].ncsf
+                    ncsf[i,s,:] = self.ci_sf[i][s].shape
         return ncsf
 
     @property
     def ncsf_ch (self):
-        ncsf = np.zeros ((self.nfrags, self.nfrags, 4, 2), dtype=int)
+        ncsf = np.zeros ((self.nfrags, self.nfrags, 4, 2, 2), dtype=int)
         for i in range (self.nfrags):
             for a in range (self.nfrags):
                 for s in range (4):
                     # p = 0: i
-                    if self.ci_ch[i][a][s][0] is not None:
-                        
+                    for p in range (2):
+                        c = self.ci_ch[i][a][s][0]
+                        if c is not None: ncsf[i,a,s,p,:] = c.shape
+        return ncsf
+
+    @property
+    def nvar_si (self):
+        nz = self.nroots_si * (self.nroots_si - 1) // 2
+        return nz, self.north*self.nroots_si
+
+    @property
+    def ncsf_all (self):
+        ncsf_sf = self.ncsf_sf.reshape (-1,2)
+        ncsf_sf = np.dot (ncsf_sf[:,0], ncsf_sf[:,1])
+        ncsf_ch = self.ncsf_ch.reshape (-1,2)
+        ncsf_ch = np.dot (ncsf_ch[:,0], ncsf_ch[:,1])
+        return self.ncsf_ref.sum () + ncsf_sf + ncsf_ch
+
+    @property
+    def nvar_tot (self):
+        return self.nvar_orb + self.ncsf_all + sum (self.nvar_si)
+
+    def update_wfn (self, x):
+        kappa, dcir, dcis, dcic, dsi = self.unpack (x)
+        mo1 = _update_mo (self.mo_coeff, kappa)
+        ci_ref = [t.vec_csf2det (c).reshape (t.ndeta, t.ndetb)
+                  for c, t in zip (self.ci_ref, self.t_ref)]
+        ci_sf = [[None,None] for i in range (self.nfrags)]
+        ci_ch = [[[[None,None] for s in range (4)]
+                  for a in range (self.nfrags)]
+                 for i in range (self.nfrags)]
+        for i in range (self.nfrags):
+            for s in range (2):
+                t = self.t_sf[i][s]
+                c = self.ci_sf[i][s]
+                if c is not None: ci_sf[i][s] = t.vec_csf2det (c).reshape (-1,t.ndeta,t.ndetb)
+            for a in range (self.nfrags):
+                for s in range (4):
+                    # p = 0: i
+                    t = self.t_ch_i[i][s//2]
+                    c = self.ci_ch[i][a][s][0]
+                    if c is not None:
+                        ci_ch[i][a][s][0] = t.vec_csf2det (c).reshape (-1,t.ndeta,t.ndetb)
+                    # p = 1: a
+                    t = self.t_ch_a[a][s%2]
+                    c = self.ci_ch[i][a][s][1]
+                    if c is not None:
+                        ci_ch[i][a][s][1] = t.vec_csf2det (c).reshape (-1,t.ndeta,t.ndetb)
+        ci_ref = _update_ci_ref (ci_ref, dcir)
+        ci_sf = _update_ci_sf (ci_sf, dcis)
+        ci_ch = _update_ci_ch (ci_ch, dcic)
+        si = self.raw2orth.H (self.si)
+        si = _update_sivecs (si, dsi)
+        return mo1, ci_ref, ci_sf, ci_ch, si
 
 def _update_mo (mo0, kappa):
     umat = linalg.expm (kappa/2)
@@ -201,6 +260,7 @@ def _update_mo (mo0, kappa):
     return mo1
 
 def _update_civecs (ci0, dci):
+    if ci0 is None and dci is None: return None
     old_shape = ci0.shape
     if ci0.ndim==2:
         nroots=1
@@ -209,7 +269,7 @@ def _update_civecs (ci0, dci):
     ci0 = ci0.reshape (nroots,-1)
     dci = dci.reshape (nroots,-1)
     dci -= np.dot (np.dot (dci, ci0.conj ().T), ci0)
-    phi = linalg.norm (dc, axis=1)
+    phi = linalg.norm (dci, axis=1)
     cosp = np.cos (phi)
     sinp = np.ones_like (cosp)
     i = np.abs (phi) > 1e-8
@@ -226,13 +286,13 @@ def _update_sivecs (si0, dsi):
         si1 = si1.T
     return si1
 
-def update_ci_ref (lsi, ci0, ci1):
+def _update_ci_ref (ci0, ci1):
     ci2 = []
     for c0, c1 in zip (ci0, ci1):
         ci2.append (_update_civecs (c0, c1))
     return ci2
 
-def update_ci_sf (lsi, ci0, ci1):
+def _update_ci_sf (ci0, ci1):
     ci2 = []
     for a0, a1 in zip (ci0, ci1):
         a2 = []
@@ -241,7 +301,7 @@ def update_ci_sf (lsi, ci0, ci1):
         ci2.append (a2)
     return ci2
 
-def update_ci_ch (lsi, ci0, ci1):
+def _update_ci_ch (ci0, ci1):
     ci2 = []
     for a0, a1 in zip (ci0, ci1):
         a2 = []
