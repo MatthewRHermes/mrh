@@ -6,7 +6,7 @@ from itertools import product
 from mrh.my_pyscf.lassi.op_o1.utilities import fermion_spin_shuffle as _fss
 from mrh.my_pyscf.fci.csfstring import CSFTransformer
 
-MAX_NORB = 26 # for now
+MAX_NORB = 24 # for now
 ADDRS_NELEC = np.array ([0], dtype=np.uint8)
 for i in range (MAX_NORB):
     ADDRS_NELEC = np.append (ADDRS_NELEC, ADDRS_NELEC+1)
