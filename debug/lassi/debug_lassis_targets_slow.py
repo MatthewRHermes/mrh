@@ -340,6 +340,8 @@ class KnownValues(unittest.TestCase):
         las2.lasci_(las.mo_coeff)
         for dson in (False, True):
             lsi = lassi.LASSIS (las2).run (davidson_only=dson, nroots_si=6)
+            print (lsi.e_roots)
+            print (lsi.s2)
             with self.subTest('LASSI convergence', davidson_only=dson):
                 self.assertTrue (lsi.converged)
             with self.subTest(davidson_only=dson):
