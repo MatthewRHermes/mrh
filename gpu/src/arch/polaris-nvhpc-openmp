@@ -1,0 +1,43 @@
+INSTALL = ../../my_pyscf/gpu
+
+PYTHON_INC=$(shell python -m pybind11 --includes)
+
+PATH_TO_PYTHON=$(shell readlink -f `which python` | rev | cut -d '/' -f 2- | rev)
+
+$(info PATH_TO_PYTHON= [$(PATH_TO_PYTHON)])
+
+PYTHON_LIB=$(shell $(PATH_TO_PYTHON)/python3-config --ldflags)
+PYTHON_LIB+=-lpython3
+
+PATH_TO_NVCC = $(shell which nvcc)
+PATH_TO_NVHPC = $(shell echo ${PATH_TO_NVCC} | rev | cut -d '/' -f 4- | rev)
+
+$(info PYTHON_INC= [${PYTHON_INC}])
+$(info PATH_TO_NVHPC= [${PATH_TO_NVHPC}])
+
+FC = ftn
+FCFLAGS = -g -mp -O3
+
+GPU_FLAGS = -mp=gpu -Mcuda=cc80,cuda11.0
+
+CXX = CC
+CXXFLAGS = -g -O3 -std=c++17
+CXXFLAGS += -I$(PATH_TO_NVHPC)/cuda/include
+CXXFLAGS += $(PYTHON_INC)
+
+CXXFLAGS += -D_USE_GPU -D_GPU_OPENMP
+CXXFLAGS += -O3 $(GPU_FLAGS)
+#CXXFLAGS += -I/soft/compilers/cudatoolkit/cuda-11.4.4/include
+CXXFLAGS += -D_USE_NVTX
+
+LD = $(CXX)
+LDFLAGS = $(GPU_FLAGS)
+LIB = -lstdc++
+LIB += $(PYTHON_LIB)
+LIB += -L/home/knight/soft/polaris/lapack/lib -llapack -lrefblas -lgfortran
+LIB += -L$(PATH_TO_NVHPC)/math_libs/lib64 -lcublas -lcublasLt
+LIB += -L$(PATH_TO_NVHPC)/cuda/lib64 -lnvToolsExt
+#LIB += -lnvomp
+
+#LIB += -L$(PATH_TO_NVHPC)/compilers/lib
+#LIB += -lacchost -laccdevaux -laccdevice -lcudadevice -latomic -lnvhpcatm -lnvf -lnvomp -lnvcpumath-avx2 -lnvc -lnvcpumath -lcudart -lcuda
