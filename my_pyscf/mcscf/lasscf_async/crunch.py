@@ -141,6 +141,7 @@ class ImpuritySCF (scf.hf.SCF):
                                dtype=imporb_coeff.dtype)
             ijmosym, mij_pair, moij, ijslice = ao2mo.incore._conc_mos (imporb_coeff, imporb_coeff,
                                                                         compact=True)
+            print("imporb_coeff:", imporb_coeff.shape, "nimp:",nimp,"_cderi:",_cderi.shape)
             b0 = 0
             for eri1 in mf.with_df.loop ():
                 b1 = b0 + eri1.shape[0]
