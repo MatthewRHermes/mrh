@@ -184,7 +184,7 @@ class KnownValues(unittest.TestCase):
         self.assertAlmostEqual (lib.fp (e_tot), lib.fp (lsis.e_roots), 9)
 
     def test_lassis_ugg (self):
-        ugg = ugg.UnitaryGroupGenerators (
+        myugg = ugg.UnitaryGroupGenerators (
             lsis,
             lsis.mo_coeff,
             lsis.get_ci_ref (),
@@ -192,11 +192,11 @@ class KnownValues(unittest.TestCase):
             lsis.ci_charge_hops,
             lsis.si
         )
-        x0 = np.random.rand (ugg.nvar_tot)
-        x0 = ugg.pack (*ugg.unpack (x0)) # apply some projections
-        mo0, cir0, cis0, cic0, si0 = ugg.unpack (x0)
-        x1 = ugg.pack (mo0, cir0, cis0, cic0, si0)
-        mo1, cir1, cis1, cic1, si1 = ugg.unpack (x1)
+        x0 = np.random.rand (myugg.nvar_tot)
+        x0 = myugg.pack (*myugg.unpack (x0)) # apply some projections
+        mo0, cir0, cis0, cic0, si0 = myugg.unpack (x0)
+        x1 = myugg.pack (mo0, cir0, cis0, cic0, si0)
+        mo1, cir1, cis1, cic1, si1 = myugg.unpack (x1)
         self.assertAlmostEqual (lib.fp (x0), lib.fp (x1))
         self.assertAlmostEqual (lib.fp (mo0), lib.fp (mo1))
         self.assertAlmostEqual (lib.fp (cir0), lib.fp (cir1))
@@ -210,7 +210,7 @@ class KnownValues(unittest.TestCase):
                         if cic0[i][j][k][l] is not None:
                             self.assertAlmostEqual (lib.fp (cic0[i][j][k][l]),
                                                     lib.fp (cic1[i][j][k][l]))
-        ugg = ugg.UnitaryGroupGenerators (
+        myugg = ugg.UnitaryGroupGenerators (
             lsis,
             lsis.mo_coeff,
             lsis.get_ci_ref (),
@@ -218,16 +218,16 @@ class KnownValues(unittest.TestCase):
             lsis.ci_charge_hops,
             lsis.si[:,0]
         )
-        x0 = np.random.rand (ugg.nvar_tot)
-        x0 = ugg.pack (*ugg.unpack (x0)) # apply some projections
-        e_tot = lsis.energy_tot (*ugg.update_wfn (x0))
+        x0 = np.random.rand (myugg.nvar_tot)
+        x0 = myugg.pack (*myugg.unpack (x0)) # apply some projections
+        e_tot = lsis.energy_tot (*myugg.update_wfn (x0))
         self.assertLessEqual (lsis.e_roots[0], e_tot)
         h0, h1, h2 = lsis.ham_2q ()
         hci_fr = case_contract_hlas_ci (self, lsis, h0, h1, h2, lsis.ci, lsis.get_nelec_frs ())
         # Just to syntax-debug this...
         hci_ref, hci_sf, hci_ch = ugg.sum_hci (lsis, hci_fr)
-        mo0, _, _, _, si0 = ugg.unpack (x0)
-        x1 = ugg.pack (mo0, hci_ref, hci_sf, hci_ch, si0)
+        mo0, _, _, _, si0 = myugg.unpack (x0)
+        x1 = myugg.pack (mo0, hci_ref, hci_sf, hci_ch, si0)
 
     def test_fdm1 (self):
         make_fdm1 = get_fdm1_maker (lsi, lsi.ci, lsi.get_nelec_frs (), lsi.si)
