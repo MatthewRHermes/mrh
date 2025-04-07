@@ -3,10 +3,12 @@ from scipy import linalg
 from pyscf import lib
 import copy
 from mrh.my_pyscf.mcscf import lasscf_sync_o0
-from mrh.my_pyscf.lassi import lassis
+from mrh.my_pyscf.lassi import lassis, op_o0, op_o1
 from mrh.my_pyscf.lassi.spaces import list_spaces
 from mrh.my_pyscf.fci.csfstring import CSFTransformer
 from mrh.my_pyscf.fci.spin_op import mup
+
+op = (op_o0, op_o1)
 
 class UnitaryGroupGenerators (lasscf_sync_o0.LASSCF_UnitaryGroupGenerators):
     def __init__(self, lsi, mo_coeff, ci_ref, ci_sf, ci_ch, si):

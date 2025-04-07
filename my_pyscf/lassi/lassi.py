@@ -991,22 +991,54 @@ class LASSI(lib.StreamObject):
         nelec_frs = self.get_nelec_frs ()
         return sivec_vacuum_shuffle (si, nelec_frs, lroots, nelec_vac=nelec_vac, state=state)
 
-    def make_rdm12s (self, ci=None, si=None, state=None):
+    def make_casdm12s (self, ci=None, si=None, state=None, weights=None, opt=None):
         if ci is None: ci = self.ci
         if si is None: si = self.si
+        if opt is None: opt = self.opt
         if state is None:
-            return roots_make_rdm12s (self, ci, si)
+            dm1s, dm2s = roots_make_rdm12s (self, ci, si, opt=opt)
+            if weights is not None:
+                dm1s = lib.einsum ('r,rspq->spq', weights, dm1s)
+                dm2s = lib.einsum ('r,rspqtxy->spqtxy', weights, dm2s)
+            return dm1s, dm2s
         else:
-            return root_make_rdm12s (self, ci, si, state=state)
+            return root_make_rdm12s (self, ci, si, state=state, opt=opt)
 
-    def trans_rdm12s (self, ci=None, si_bra=None, si_ket=None, state=None):
+    def make_casdm12 (self, ci=None, si=None, state=None, weights=None, opt=None):
+        dm1s, dm2s = self.make_casdm12s (ci=ci, si=si, state=state, weights=weights, opt=opt)
+        return dm1s.sum (0), dm2s.sum (0,3)
+
+    def make_casdm2 (self, ci=None, si=None, state=None, weights=None):
+        return self.make_casdm12 (ci=ci, si=si, state=state, weights=weights)[1]
+
+    def trans_casdm12s (self, ci=None, si_bra=None, si_ket=None, state=None, weights=None,
+                        opt=None):
         if ci is None: ci = self.ci
         if si_bra is None: si_bra = self.si
         if si_ket is None: si_ket = self.si
+        if opt is None: opt = self.opt
         if state is None:
-            return roots_trans_rdm12s (self, ci, si_bra, si_ket)
+            dm1s, dm2s = roots_trans_rdm12s (self, ci, si_bra, si_ket, opt=opt)
+            if weights is not None:
+                dm1s = lib.einsum ('r,rspq->spq', weights, dm1s)
+                dm2s = lib.einsum ('r,rspqtxy->spqtxy', weights, dm2s)
+            return dm1s, dm2s
         else:
-            return root_trans_rdm12s (self, ci, si_bra, si_ket, state=state)
+            return root_trans_rdm12s (self, ci, si_bra, si_ket, state=state, opt=opt)
+
+    def make_rdm1s (self, mo_coeff=None, ci=None, si=None, state=None, weights=None, opt=None):
+        if mo_coeff is None: mo_coeff=self.mo_coeff
+        casdm1s = self.make_casdm12s (ci=ci, si=si, state=state, weights=weights, opt=opt)[0]
+        mo_core = mo_coeff[:,:self.ncore]
+        mo_cas = mo_coeff[:,self.ncore:][:,:self.ncas]
+        dm_core = mo_core @ mo_core.conj ().T
+        dm1s = lib.einsum ('up,vq,spq->suv', mo_cas, mo_cas.conj (), casdm1s) + dm_core[None,:,:]
+        return dm1s
+
+    def make_rdm1 (self, mo_coeff=None, ci=None, si=None, state=None, weights=None, opt=None):
+        dm1s = self.make_rdm1s (mo_coeff=mo_coeff, ci=ci, si=si, state=state, weights=weights,
+                                opt=opt)
+        return dm1s[0] + dm1s[1]
 
     def analyze (self, state=0, **kwargs):
         from mrh.my_pyscf.lassi.sitools import analyze
