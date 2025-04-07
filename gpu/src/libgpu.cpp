@@ -194,11 +194,10 @@ void libgpu_df_ao2mo_v3(void * ptr,
 /* ---------------------------------------------------------------------- */
 void libgpu_df_ao2mo_v4(void * ptr,
 				int blksize, int nmo, int nao, int ncore, int ncas, int naux,
-				py::array_t<double> eri1,
 				int count, size_t addr_dfobj)
 { 
   Device * dev = (Device *) ptr;
-  dev->df_ao2mo_v4(blksize, nmo, nao, ncore, ncas, naux, eri1, count, addr_dfobj);
+  dev->df_ao2mo_v4(blksize, nmo, nao, ncore, ncas, naux, count, addr_dfobj);
 }
 /* ---------------------------------------------------------------------- */
 void libgpu_pull_jk_ao2mo(void * ptr, 

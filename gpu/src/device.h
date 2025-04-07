@@ -105,7 +105,6 @@ public :
 			    int, size_t);
 
   void df_ao2mo_v4 (int, int, int, int, int, int,
-			    py::array_t<double>,
 			    int, size_t);
   void get_bufpa(const double *, double *, int, int, int, int);
   void get_bufaa(const double *, double *, int, int, int, int);

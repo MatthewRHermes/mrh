@@ -1936,7 +1936,6 @@ void Device::df_ao2mo_v3 (int blksize, int nmo, int nao, int ncore, int ncas, in
 /* ---------------------------------------------------------------------- */
 
 void Device::df_ao2mo_v4 (int blksize, int nmo, int nao, int ncore, int ncas, int naux, 
-				  py::array_t<double> _eri1,
 				  int count, size_t addr_dfobj)
 {
   double t0 = omp_get_wtime();
@@ -2679,17 +2678,17 @@ void Device::get_h2eff_df_v2(py::array_t<double> _cderi,
   
   const int nao_pair = nao * (nao+1)/2;
   const int ncas_pair = ncas * (ncas+1)/2;
-  const int _size_eri = nmo*ncas*ncas_pair;
-  const int _size_cderi = naux*nao_pair;
+  const int _size_eri_h2eff = nmo*ncas*ncas_pair;
+  const int _size_eri = naux*nao_pair;
   const int _size_mo_cas = nao*ncas;
 
-  const int eri_size = naux * nao * nao;
+  const int _size_eri_unpacked = naux * nao * nao;
   const int bump_buvp = naux * ncas * (ncas + nao); 
   const int size_vuwm = ncas * ncas * ncas * nao;
-#if 1
+#if 0
   #if 1
   // assume nao>ncas
-  int _size_cderi_unpacked = 0;
+  
   if (eri_size>=bump_buvp)
      {
      if (eri_size>=size_vuwm){_size_cderi_unpacked = eri_size;}
@@ -2700,9 +2699,9 @@ void Device::get_h2eff_df_v2(py::array_t<double> _cderi,
      if (bump_buvp>=size_vuwm){ _size_cderi_unpacked = bump_buvp;}
      else {_size_cderi_unpacked = size_vuwm;}
      }
-  // the above exercise is done so as to avoid new memory allocations during the calculations and allocate the largest needed arrays. bump and buvp is done together because they need to exist simultaneously.     naux*nao^2 vs naux*ncas*(nao+ncas) vs nmo*ncas^3 
+  // the above exercise is done so as to avoid new memory allocations during the calculations and allocate the largest needed arrays. bump and buvp is done together because they need to exist simultaneously.     blksize*nao^2 vs blksize*ncas*(nao+ncas) vs nmo*ncas^3 
   #else
-  // doing this because naux*nao**2 > nao*ncas**3 and naux*nao**2 > naux*ncas*(ncas+nao)
+  // doing this because blksize*nao**2 > nao*ncas**3 and blksize*nao**2 > naux*ncas*(ncas+nao)
   const int _size_cderi_unpacked = naux * nao * nao; 
   #endif
   if (_size_cderi_unpacked > dd->size_eri_unpacked){
@@ -2713,6 +2712,21 @@ void Device::get_h2eff_df_v2(py::array_t<double> _cderi,
   dd->d_buf1 = (double *) pm->dev_malloc_async ( dd->size_eri_unpacked * sizeof(double));
   dd->d_buf2 = (double *) pm->dev_malloc_async ( dd->size_eri_unpacked * sizeof(double));
   }
+#else
+  if (_size_eri_unpacked > dd->size_buf){
+     dd->size_buf = _size_eri_unpacked;
+    if(dd->d_buf1) pm->dev_free_async(dd->d_buf1);
+    if(dd->d_buf2) pm->dev_free_async(dd->d_buf2);
+    dd->d_buf1 = (double *) pm->dev_malloc_async(dd->size_buf * sizeof(double));
+    dd->d_buf2 = (double *) pm->dev_malloc_async(dd->size_buf * sizeof(double));
+  }
+  if (_size_eri_h2eff>dd->size_buf){
+     //buf3 is used for storage. is nmo*ncas*ncas_pair<blksize*nao*nao? (maybe not always in really large active spaces?)
+    printf("I am in this one\n");
+    dd->size_buf = _size_eri_h2eff; 
+    if(dd->d_buf3) pm->dev_free_async(dd->d_buf3);
+    dd->d_buf3 = (double *) pm->dev_malloc_async(dd->size_buf * sizeof(double));
+  } 
 #endif
   double * eri = static_cast<double*>(info_eri.ptr);
   double * d_mo_coeff = dd->d_mo_coeff;
@@ -2726,14 +2740,14 @@ void Device::get_h2eff_df_v2(py::array_t<double> _cderi,
   if(use_eri_cache) {
     d_cderi = dd_fetch_eri(dd, cderi, naux, nao_pair, addr_dfobj, count);
   } else {
-    if(_size_cderi > dd->size_eri1) {
-      dd->size_eri1 = _size_cderi;
+    if(_size_eri > dd->size_eri1) {
+      dd->size_eri1 = _size_eri;
       if(dd->d_eri1) pm->dev_free_async(dd->d_eri1);
-      dd->d_eri1 = (double *) pm->dev_malloc_async(_size_cderi * sizeof(double));
+      dd->d_eri1 = (double *) pm->dev_malloc_async(_size_eri * sizeof(double));
     }
     d_cderi = dd->d_eri1;
 
-    pm->dev_push_async(d_cderi, cderi, _size_cderi * sizeof(double));
+    pm->dev_push_async(d_cderi, cderi, _size_eri * sizeof(double));
   }
 
   double * d_cderi_unpacked = dd->d_buf1;
@@ -2781,15 +2795,16 @@ void Device::get_h2eff_df_v2(py::array_t<double> _cderi,
   double * d_vuwM = dd->d_buf1;
   ml->gemm_batch((char *) "T", (char *) "T", &ncas, &nao, &nao,
 		 &alpha, d_vuwm, &nao, &ncas_nao, d_mo_coeff, &nao, &zero, &beta, d_vuwM, &ncas, &ncas_nao, &ncas2);
-  double * d_eri = dd->d_buf2;
+  dd->d_eri_h2eff = dd->d_buf3;
   int * my_d_tril_map_ptr = dd_fetch_pumap(dd, ncas, _PUMAP_2D_UNPACK);
   
-  int init = (count < num_devices) ? 1 : 0;
-  if (count < num_devices){
-  pack_d_vuwM(d_vuwM, d_eri, my_d_tril_map_ptr, nmo, ncas, ncas_pair);
-  } else{
-  printf("num_devices: %i",num_devices);
-  pack_d_vuwM_add(d_vuwM, d_eri, my_d_tril_map_ptr, nmo, ncas, ncas_pair);
+  if (count < num_devices){  
+    printf("count<num\n");
+    pack_d_vuwM(d_vuwM, dd->d_eri_h2eff, my_d_tril_map_ptr, nmo, ncas, ncas_pair); 
+  } 
+  else{  
+    printf("count>num\n");
+    pack_d_vuwM_add(d_vuwM, dd->d_eri_h2eff, my_d_tril_map_ptr, nmo, ncas, ncas_pair);
   }
 
   profile_stop();
@@ -2815,8 +2830,7 @@ void Device::pull_eri_h2eff(py::array_t<double> _eri, int nmo, int ncas)
 
     my_device_data * dd = &(device_data[i]);
 
-    if (i==0) tmp = eri;
-    else tmp = &(buf_eri_h2eff[i*size_eri_h2eff]);
+    tmp = &(buf_eri_h2eff[i*size_eri_h2eff]);
     
     if (dd->d_eri_h2eff) pm->dev_pull_async(dd->d_eri_h2eff, tmp, size_eri_h2eff*sizeof(double));
   }
@@ -2832,8 +2846,9 @@ void Device::pull_eri_h2eff(py::array_t<double> _eri, int nmo, int ncas)
 
       tmp = &(buf_eri_h2eff[i * size_eri_h2eff]);
 //#pragma omp parallel for
-      for(int j=0; j< size_eri_h2eff; ++j) eri[j] += tmp[j];
+      for(int j=0; j< size_eri_h2eff; ++j) buf_eri_h2eff[j] += tmp[j];
     }
+  std::memcpy(eri,buf_eri_h2eff,size_eri_h2eff*sizeof(double));
 #if 0
 for (int i = 0; i<nmo; ++i){
 for (int j = 0; j<ncas*ncas*(ncas+1)/2; ++j){

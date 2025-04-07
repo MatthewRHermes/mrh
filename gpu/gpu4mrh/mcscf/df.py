@@ -57,7 +57,7 @@ class _ERIS:
                 arg = numpy.array([-1, -1, count, -1], dtype = numpy.int32)
                 libgpu.libgpu_get_dfobj_status(gpu, id(with_df),arg)
                 naux = arg[0]
-                libgpu.libgpu_df_ao2mo_v4(gpu,blksize,nmo,nao,ncore,ncas,naux,eri1,count,id(with_df)) # does everything, remove eri1 pls? 
+                libgpu.libgpu_df_ao2mo_v4(gpu,blksize,nmo,nao,ncore,ncas,naux,count,id(with_df)) # does everything, remove eri1 pls? 
             t1 = log.timer('compute_ao2mo', *t1)
             libgpu.libgpu_pull_jk_ao2mo_v4 (gpu, self.j_pc, k_cp, nmo, ncore)
             libgpu.libgpu_pull_ppaa_papa_ao2mo_v4(gpu, ppaa, papa, nmo, ncas) #pull ppaa
