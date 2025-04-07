@@ -32,13 +32,17 @@ def _n_m_s (dm1s, dm2s, _print_fn=print):
     ss = m*m + (n/2.) - np.einsum ('pqqp->pq', dm2s[1]).sum ()
     _print_fn ('<N>,<Sz>,<S^2> = %f, %f, %f', n, m, ss)
 
+# SV change to max_cycle=15000 to optimize the energy in the kernel right below
+GLOBAL_MAX_CYCLE = None
 def kernel (fci, h1, h2, norb, nelec, norb_f=None, ci0_f=None,
-            tol=1e-8, gtol=1e-4, max_cycle=15000,
+            tol=1e-8, gtol=1e-6, max_cycle=None, 
             orbsym=None, wfnsym=None, ecore=0, **kwargs):
-
+    if max_cycle is None:
+        max_cycle = GLOBAL_MAX_CYCLE if GLOBAL_MAX_CYCLE is not None else 15000
     if norb_f is None: norb_f = getattr (fci, 'norb_f', [norb])
     if ci0_f is None: ci0_f = fci.get_init_guess (norb, nelec, norb_f, h1, h2)
     verbose = kwargs.get ('verbose', getattr (fci, 'verbose', 0))
+
     if isinstance (verbose, lib.logger.Logger):
         log = verbose
         verbose = log.verbose
@@ -413,6 +417,70 @@ class LASUCCTrialState (object):
             g.append (2*duc.ravel ().dot (uhuc_i.ravel ()))
         g = self.uop.product_rule_pack (g)
         return np.asarray (g)
+    
+    def get_grad_t1(self, x, h, c=None, huc=None, uhuc=None, epsilon=0.0):
+        """
+        Compute the gradients and relevant indices based on input values.
+
+        Parameters:
+        - x: array-like
+            Input array to unpack and set unique amplitudes.
+            
+        - h: array-like
+            Some form of input data to be used for computation.
+            
+        - c (optional): array-like
+            Precomputed value; if not provided, it will be computed using hc_x.
+            
+        - huc (optional): array-like
+            Precomputed value; if not provided, it will be computed using hc_x.
+            
+        - uhuc (optional): array-like
+            Precomputed value; if not provided, it will be computed using hc_x.
+            
+        - epsilon (optional): float, default=0.0
+            Threshold value for considering a gradient. If epsilon is 0, all gradients are considered.
+
+        Returns:
+        - tuple
+            all_g: list of all computed gradients
+            g: list of gradients above the epsilon threshold
+            gen_indices: list of indices representing a_idx and i_idx
+            a_idxs_lst: list of a_idx values
+            i_idxs_lst: list of i_idx values
+            len(a_idxs_lst): length of a_idx list
+            len(i_idxs_lst): length of i_idx list
+        """
+
+        g = []
+        all_g = []
+        
+        # Unpack and set unique amplitudes
+        xconstr, xcc, xci_f = self.unpack(x)
+        self.uop.set_uniq_amps_(xcc)
+
+        # Compute 'c' and 'uhuc' if not provided
+        if (c is None) or (uhuc is None):
+            c, _, _, uhuc = self.hc_x(x, h)[:4]
+        
+        gen_indices = []
+        a_idxs_lst = []
+        i_idxs_lst = []
+        for i, (duc, uhuc_i) in enumerate(zip(self.uop.gen_deriv1(c, _full=False), self.uop.gen_partial(uhuc))):
+            gradient = 2 * duc.ravel().dot(uhuc_i.ravel())
+            all_g.append((gradient, i))
+            
+            # Allow all gradients if epsilon is 0, else use the abs gradient condition
+            if epsilon == 0.0 or abs(gradient) > epsilon:
+                g.append((gradient, i))
+                a_idx = self.uop.a_idxs[i]
+                i_idx = self.uop.i_idxs[i]
+
+                gen_indices.append((a_idx, i_idx))
+                a_idxs_lst.append(a_idx)
+                i_idxs_lst.append(i_idx)
+
+        return all_g, g, gen_indices, a_idxs_lst, i_idxs_lst, len(a_idxs_lst), len(i_idxs_lst)
 
 
     def get_grad_t1(self, x, h, c=None, huc=None, uhuc=None, epsilon=0.0):
