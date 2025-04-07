@@ -1006,10 +1006,10 @@ class LASSI(lib.StreamObject):
 
     def make_casdm12 (self, ci=None, si=None, state=None, weights=None, opt=None):
         dm1s, dm2s = self.make_casdm12s (ci=ci, si=si, state=state, weights=weights, opt=opt)
-        return dm1s.sum (0), dm2s.sum (0,3)
+        return dm1s.sum (0), dm2s.sum ((0,3))
 
-    def make_casdm2 (self, ci=None, si=None, state=None, weights=None):
-        return self.make_casdm12 (ci=ci, si=si, state=state, weights=weights)[1]
+    def make_casdm2 (self, ci=None, si=None, state=None, weights=None, opt=None):
+        return self.make_casdm12 (ci=ci, si=si, state=state, weights=weights, opt=opt)[1]
 
     def trans_casdm12s (self, ci=None, si_bra=None, si_ket=None, state=None, weights=None,
                         opt=None):

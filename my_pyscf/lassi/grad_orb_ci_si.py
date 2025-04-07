@@ -119,12 +119,11 @@ def get_grad_ci (lsi, mo_coeff=None, ci=None, si=None, state=None, weights=None,
         n = sivec.shape[1]
         assert (len (weights) == n)
     hci = op[opt].contract_ham_ci (lsi, h1, h2, ci, nelec_frs, ci, nelec_frs, sivec, sivec)
-    if (state is None) and (weights is not None):
     for f in range (lsi.nfrags):
         for r in range (lsi.nroots):
             c = ci[f][r].reshape (lroots[f][r],-1)
             hc = np.diagonal (hci[f][r].reshape (n,lroots[f][r],-1,n), axis1=0, axis2=3)
-            hc = hc.transpose (2,0,1)
+            hc = hc.transpose (2,0,1).copy ()
             for i in range (n):
                 hc[i] += h0 * c
                 hc[i] -= hc[i] @ c.conj ().T @ c

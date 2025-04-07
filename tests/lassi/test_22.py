@@ -19,7 +19,7 @@ from scipy import linalg
 from pyscf import lib, gto, scf, mcscf, ao2mo
 from mrh.my_pyscf.mcscf.lasscf_o0 import LASSCF
 from mrh.my_pyscf.lassi import LASSI, LASSIrq, LASSIrqCT
-from mrh.my_pyscf.lassi.lassis import ugg
+from mrh.my_pyscf.lassi.lassis import ugg, grad_orb_ci_si
 from mrh.my_pyscf.lassi.lassi import root_make_rdm12s, roots_trans_rdm12s, make_stdm12s
 from mrh.my_pyscf.lassi.spaces import all_single_excitations
 from mrh.my_pyscf.mcscf.lasci import get_space_info
@@ -228,6 +228,9 @@ class KnownValues(unittest.TestCase):
         hci_ref, hci_sf, hci_ch = ugg.sum_hci (lsis, hci_fr)
         mo0, _, _, _, si0 = myugg.unpack (x0)
         x1 = myugg.pack (mo0, hci_ref, hci_sf, hci_ch, si0)
+
+    def test_lassis_grad (self):
+        g_all = grad_orb_ci_si.get_grad (lsis, state=0)
 
     def test_fdm1 (self):
         make_fdm1 = get_fdm1_maker (lsi, lsi.ci, lsi.get_nelec_frs (), lsi.si)
