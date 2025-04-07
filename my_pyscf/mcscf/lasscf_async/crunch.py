@@ -143,7 +143,7 @@ class ImpuritySCF (scf.hf.SCF):
                                                                         compact=True)
             print("imporb_coeff:", imporb_coeff.shape, "nimp:",nimp,"_cderi:",_cderi.shape)
             b0 = 0
-            if mf.use_gpu and 0: 
+            if mf.mol.use_gpu and 0: 
                 (nao_s,nao_f) = imporb_coeff.shape # System * Fragment
                 naux = mf.with_df.get_naoaux()
                 libgpu.libgpu_push_mo_coeff(gpu, imporb_coeff, nao_s*nao_f)
