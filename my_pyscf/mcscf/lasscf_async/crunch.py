@@ -143,12 +143,25 @@ class ImpuritySCF (scf.hf.SCF):
                                                                         compact=True)
             print("imporb_coeff:", imporb_coeff.shape, "nimp:",nimp,"_cderi:",_cderi.shape)
             b0 = 0
-            for eri1 in mf.with_df.loop ():
-                b1 = b0 + eri1.shape[0]
-                eri2 = _cderi[b0:b1]
-                eri2 = ao2mo._ao2mo.nr_e2 (eri1, moij, ijslice, aosym='s2', mosym=ijmosym,
+            if mf.use_gpu and 0: 
+                (nao_s,nao_f) = imporb_coeff.shape # System * Fragment
+                naux = mf.with_df.get_naoaux()
+                libgpu.libgpu_push_mo_coeff(gpu, imporb_coeff, nao_s*nao_f)
+                libgpu.libgpu_init_eri_impham(gpu, naux, nao_f)
+                for k, eri1 in enumerate(with_df.loop(blksize)):pass;
+                for count in range(k+1): 
+                    arg = numpy.array([-1, -1, count, -1], dtype = numpy.int32)
+                    libgpu.libgpu_get_dfobj_status(gpu, id(with_df),arg)
+                    naux = arg[0]
+                    libgpu.libgpu_compute_eri_impham (gpu, nao_s, nao_f, blksize, naux, count, id(with_df))
+                libgpu.libgpu_pull_eri_impham(gpu, _cderi, naux, nao_s, nao_f)  
+            else:
+                for eri1 in mf.with_df.loop ():
+                    b1 = b0 + eri1.shape[0]
+                    eri2 = _cderi[b0:b1]
+                    eri2 = ao2mo._ao2mo.nr_e2 (eri1, moij, ijslice, aosym='s2', mosym=ijmosym,
                                            out=eri2)
-                b0 = b1
+                    b0 = b1
             if getattr (self, 'with_df', None) is not None:
                 self.with_df._cderi = _cderi
             else:

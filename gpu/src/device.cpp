@@ -4,8 +4,8 @@
 
 #include "device.h"
 
-#define _NUM_SIMPLE_TIMER 11
-#define _NUM_SIMPLE_COUNTER 7
+#define _NUM_SIMPLE_TIMER 14
+#define _NUM_SIMPLE_COUNTER 8
 #include <unistd.h>
 #include <string.h>
 #include <sched.h>
@@ -55,6 +55,9 @@ Device::Device()
   // h2eff_df
   size_buf_eri_h2eff=0;
   buf_eri_h2eff=nullptr;
+  // eri_impham
+  size_eri_impham = 0;
+  pin_eri_impham = nullptr;
 
 #if defined(_USE_GPU)
   use_eri_cache = true;
@@ -191,6 +194,12 @@ Device::~Device()
     printf("LIBGPU :: SIMPLE_TIMER :: i= %i  name= init_ints_and_jkpc()     time= %f s\n",8,t_array[8]);
     printf("LIBGPU :: SIMPLE_TIMER :: i= %i  name= compute_ints_and_jkpc()  time= %f s\n",9,t_array[9]);
     printf("LIBGPU :: SIMPLE_TIMER :: i= %i  name= pull_ints_and_jkpc()     time= %f s\n",10,t_array[10]);
+
+    printf("\nLIBGPU :: SIMPLE_TIMER :: eri_impham\n");
+    printf("LIBGPU :: SIMPLE_TIMER :: i= %i  name= init_eri_impham()     time= %f s\n",11,t_array[11]);
+    printf("LIBGPU :: SIMPLE_TIMER :: i= %i  name= compute_eri_impham()  time= %f s\n",12,t_array[12]);
+    printf("LIBGPU :: SIMPLE_TIMER :: i= %i  name= pull_eri_impham()     time= %f s\n",13,t_array[13]);
+
     printf("LIBGPU :: SIMPLE_TIMER :: total= %f s\n",total);
     free(t_array);
     
@@ -217,6 +226,9 @@ Device::~Device()
     printf("\nLIBGPU :: SIMPLE_COUNTER :: ao2mo\n");
     printf("LIBGPU :: SIMPLE_COUNTER :: i= %i  name=ao2mo_pass_v3()       counts= %i \n",6,count_array[6]);
     
+    printf("\nLIBGPU :: SIMPLE_COUNTER :: eri_impham\n");
+    printf("LIBGPU :: SIMPLE_COUNTER :: i= %i  name=eri_impham()       counts= %i \n",7,count_array[7]);
+
     free(count_array);
   }
 
@@ -2857,6 +2869,67 @@ for (int j = 0; j<ncas*ncas*(ncas+1)/2; ++j){
 #else
 #endif
   }
+}
+/* ---------------------------------------------------------------------- */
+void Device::init_eri_impham(int naux, int nao_f)
+{
+  double t0 = omp_get_wtime();
+  
+  profile_start("init_eri_impham");
+  int _size_eri_impham = naux*nao_f*nao_f;
+  if (_size_eri_impham > size_eri_impham){
+    size_eri_impham = _size_eri_impham;
+    if (pin_eri_impham) pm->dev_free_host(pin_eri_impham);
+    pin_eri_impham = (double *) pm->dev_malloc_host(_size_eri_impham*sizeof(double));
+  }
+  
+  double t1 = omp_get_wtime();
+  t_array[11] += t1 - t0;
+  // counts in pull eri_impham
+}
+/* ---------------------------------------------------------------------- */
+void Device::compute_eri_impham(int nao_s, int nao_f, int blksize, int naux, int count, size_t addr_dfobj)
+{
+#ifdef _DEBUG_DEVICE
+  printf("LIBGPU :: Inside Device::comute_eri_impham()\n");
+#endif
+
+  profile_start("compute_eri_impham");
+  double t0 = omp_get_wtime();
+  
+
+
+  profile_stop();
+  double t1 = omp_get_wtime();
+  t_array[12] += t1 - t0;
+  // counts in pull eri_impham
+
+} 
+/* ---------------------------------------------------------------------- */
+void Device::pull_eri_impham(py::array_t<double> _eri, int naux, int nao_s, int nao_f)
+{
+
+#ifdef _DEBUG_DEVICE
+  printf("LIBGPU :: -- Inside Device::pull_eri_impham()\n");
+#endif
+
+  double t0 = omp_get_wtime();
+    
+  py::buffer_info info_eri = _eri.request(); //3D array (naoaux*nmo*ncas)
+  double * eri = static_cast<double*>(info_eri.ptr);
+  //printf("size_bufpa %i\n", size_bufpa);
+  std::memcpy(eri, pin_eri_impham, size_eri_impham*sizeof(double));
+  
+  profile_stop();
+  
+  double t1 = omp_get_wtime();
+  t_array[13] += t1 - t0;
+  count_array[7]+=1; // just doing this addition in pull, not in init or compute
+    
+#ifdef _DEBUG_DEVICE
+  printf("LIBGPU :: -- Leaving Device::pull_eri_impham()\n");
+#endif
+
 }
 /* ---------------------------------------------------------------------- */
 

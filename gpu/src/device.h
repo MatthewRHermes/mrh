@@ -146,6 +146,11 @@ public :
                          int, int, int, int, int, 
                          py::array_t<double>, int, size_t);//VA: new function
   void pull_eri_h2eff(py::array_t<double>, int, int);// VA: new function
+  
+  void init_eri_impham(int, int);
+  void compute_eri_impham(int, int, int, int, int, size_t);
+  void pull_eri_impham( py::array_t<double>, int, int, int);
+
   void extract_mo_cas(int, int, int);//TODO: fix the difference - changed slightly
   void get_mo_cas(const double *, double *, int, int, int);
   void pack_d_vuwM(const double *, double *, int *, int, int, int);
@@ -214,6 +219,10 @@ private:
   int size_eri_h2eff;
   int size_buf_eri_h2eff;
   double * buf_eri_h2eff;
+
+  // eri_impham
+  int size_eri_impham;
+  double * pin_eri_impham;
 
   // eri caching on device
 
