@@ -4,7 +4,7 @@ import numpy as np
 from scipy import linalg
 from pyscf import lib
 from mrh.my_pyscf.lassi.excitations import ExcitationPSFCISolver
-from mrh.my_pyscf.lassi.min_2frag_tps import get_grad, get_hess, get_proj, subspace_eig
+from mrh.my_pyscf.lassi.lassis.min_2frag_tps import get_grad, get_hess, get_proj, subspace_eig
 from mrh.util.la import vector_error
 import itertools
 
