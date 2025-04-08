@@ -1,4 +1,5 @@
 import numpy as np
+from pyscf import lib
 from mrh.my_pyscf.lassi.lassis import coords
 from itertools import permutations
 
@@ -59,4 +60,36 @@ class HessianIndexEngine (object):
         si1 += si1.conj () # + h.c.
 
         return self.ugg.pack (kappa, ci1_ref, ci1_sf, ci1_ch, si1)
-        
+
+def xham_op (lsi, kappa, mo_coeff=None, eris=None):
+    las = lsi._las
+    if mo_coeff is None: mo_coeff=lsi.mo_coeff
+    if eris is None: eris = lsi.get_casscf_eris (mo_coeff)
+    nao, nmo = mo_coeff.shape
+    ncore, ncas = lsi.ncore, lsi.ncas
+    nocc = ncore + ncas
+
+    mo0 = mo_coeff
+    mo0H = mo.conj ().T
+    mo1 = np.dot (mo0, kappa)
+    mo1H = np.dot (kappa, mo0H)
+    h1_0 = las.get_hcore ()
+    dm1 = 2*np.eye (nmo)
+    dm1[ncore:] = 0
+    dm1 = kappa @ dm1
+    dm1 += dm1.T
+    dm1 = mo0 @ dm1 @ mo0H
+    h1_1 = np.squeeze (las.get_veff (dm1s=dm1))
+    h1 = mo0H @ (h1_0 @ mo1 + h1_1 @ mo0) - mo1H @ h1_0 @ mo0
+    h1 = h1[:,ncore:nocc]
+
+    h2 = np.stack ([eris.ppaa[i] for i in range (nmo)], axis=0)
+    h2 = -lib.einsum ('pq,qabc->pabc',kappa,h2)
+    for i in range (nmo):
+        h2[i] += lib.einsum ('pab,pq->qab',eris.ppaa[i])
+        h2[i] -= lib.einsum ('pq,aqb->apb',eris.papa[i])
+        h2[i] += lib.einsum ('apb,pq->abq',eris.papa[i])
+
+    return h1, h2
+
+ 

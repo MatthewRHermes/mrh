@@ -1069,4 +1069,14 @@ class LASSI(lib.StreamObject):
             self, h1, h2, ci, nelec_frs, soc=soc
         )[4]
 
+    def get_casscf_eris (self, mo_coeff=None):
+        if mo_coeff is None: mo_coeff=self.mo_coeff
+        las = self._las
+        from mrh.my_pyscf.mcscf import _DFLASCI
+        from pyscf.mcscf import mc_ao2mo, df
+        if isinstance (las, _DFLASCI):
+            eris = df._ERIS (las, mo_coeff, las.with_df)
+        else:
+            eris = mc_ao2mo._ERIS (las, mo_coeff, method='incore', level=2)
+        return eris
 
