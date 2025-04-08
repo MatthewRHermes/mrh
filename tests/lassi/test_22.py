@@ -230,7 +230,45 @@ class KnownValues(unittest.TestCase):
         x1 = myugg.pack (mo0, hci_ref, hci_sf, hci_ch, si0)
 
     def test_lassis_grad (self):
-        g_all = grad_orb_ci_si.get_grad (lsis, state=0)
+        g_all = grad_orb_ci_si.get_grad (lsis, state=0, pack=True)
+        #myugg = ugg.UnitaryGroupGenerators (
+        #    lsis,
+        #    lsis.mo_coeff,
+        #    lsis.get_ci_ref (),
+        #    lsis.ci_spin_flips,
+        #    lsis.ci_charge_hops,
+        #    lsis.si[:,0]
+        #)
+        #x0 = np.random.rand (myugg.nvar_tot)
+        #xorb, xci_ref, xci_sf, xci_ch, xsi = myugg.unpack (x0)
+        #xorb[:] = 0
+        #for i in range (lsis.nfrags):
+        #    xci_ref[i][:] = 0
+        #    for j in range (2):
+        #        if isinstance (xci_sf[i][j], np.ndarray):
+        #            xci_sf[i][j][:] = 0
+        #            pass
+        #    for j in range (lsis.nfrags):
+        #        for k in range (4):
+        #            for l in range (2):
+        #                if isinstance (xci_ch[i][j][k][l], np.ndarray):
+        #                    #xci_ch[i][j][k][l][:] = 0
+        #                    pass
+        #xsi[:] = 0
+        #x0 = myugg.pack (xorb, xci_ref, xci_sf, xci_ch, xsi)
+
+        #assert (len (x0) == len (g_all))
+        #div = 1.0
+        #e0 = lsis.e_roots[0]
+        #for p in range (20):
+        #    x1 = x0 / div
+        #    e1_test = np.dot (x1, g_all)
+        #    e1_ref = lsis.energy_tot (*myugg.update_wfn (x1)) - e0
+        #    err = (e1_test - e1_ref) / e1_ref
+        #    print (1.0/div, e1_ref, err)
+        #    div *= 2
+        #print (lsis.si[:,0])
+        #assert (False)
 
     def test_fdm1 (self):
         make_fdm1 = get_fdm1_maker (lsi, lsi.ci, lsi.get_nelec_frs (), lsi.si)

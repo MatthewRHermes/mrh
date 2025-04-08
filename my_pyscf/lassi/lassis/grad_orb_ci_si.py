@@ -173,6 +173,8 @@ def get_grad (lsi, mo_coeff=None, ci_ref=None, ci_sf=None, ci_ch=None, si=None, 
     gci_ref, gci_sf, gci_ch = get_grad_ci (lsi, mo_coeff=mo_coeff, ci=ci, si=si, state=state,
                                            weights=weights, opt=opt)
     gsi = get_grad_si (lsi, mo_coeff=mo_coeff, ci=ci, si=si, opt=opt)
+    if state is not None: gsi = gsi[:,state]
+    if state is not None: si = si[:,state] 
     if pack:
         ug = ugg.UnitaryGroupGenerators (lsi, mo_coeff, ci_ref, ci_sf, ci_ch, si)
         return ug.pack (gorb, gci_ref, gci_sf, gci_ch, gsi)
