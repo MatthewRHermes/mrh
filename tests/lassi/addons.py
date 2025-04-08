@@ -43,8 +43,9 @@ def case_contract_hlas_ci (ks, las, h0, h1, h2, ci_fr, nelec_frs):
     si_bra = np.random.rand (ndim)
     si_ket = np.random.rand (ndim)
     for opt in range (2):
-        ham = op[opt].ham (las, h1, h2, ci_fr, nelec)[0]
-        hket_fr_pabq = op[opt].contract_ham_ci (las, h1, h2, ci_fr, nelec, ci_fr, nelec)
+        ham, _, ovlp = op[opt].ham (las, h1, h2, ci_fr, nelec)[:3]
+        ham += h0 * ovlp
+        hket_fr_pabq = op[opt].contract_ham_ci (las, h1, h2, ci_fr, nelec, ci_fr, nelec, h0=h0)
         for f, (ci_r, hket_r_pabq) in enumerate (zip (ci_fr, hket_fr_pabq)):
             current_order = list (range (las.nfrags)) + [las.nfrags]
             current_order.insert (0, current_order.pop (las.nfrags-1-f))
@@ -70,7 +71,7 @@ def case_contract_hlas_ci (ks, las, h0, h1, h2, ci_fr, nelec_frs):
                                        dnelecb=nelec[:,r,1]-nelec[:,s,1]):
                         ks.assertAlmostEqual (lib.fp (hket_pq_s), lib.fp (hket_ref_s), 8)
         h_ref = np.dot (si_bra.conj (), np.dot (ham, si_ket))
-        hket_fr_pabq = op[opt].contract_ham_ci (las, h1, h2, ci_fr, nelec, ci_fr, nelec,
+        hket_fr_pabq = op[opt].contract_ham_ci (las, h1, h2, ci_fr, nelec, ci_fr, nelec, h0=h0,
                                                 si_bra=si_bra, si_ket=si_ket)
         for f, (ci_r, hket_r_pabq) in enumerate (zip (ci_fr, hket_fr_pabq)):
             h_test = 0

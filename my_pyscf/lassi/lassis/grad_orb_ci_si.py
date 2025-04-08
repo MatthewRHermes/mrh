@@ -1,5 +1,5 @@
 from mrh.my_pyscf.lassi import grad_orb_ci_si
-from mrh.my_pyscf.lassi.lassis import ugg
+from mrh.my_pyscf.lassi.lassis import coords
 
 def get_grad_orb (lsi, mo_coeff=None, ci=None, ci_ref=None, ci_sf=None, ci_ch=None, si=None,
                   state=None, weights=None, h2eff_sub=None, veff=None, dm1s=None, opt=None,
@@ -89,7 +89,7 @@ def get_grad_ci (lsi, mo_coeff=None, ci=None, ci_ref=None, ci_sf=None, ci_ch=Non
     hci = grad_orb_ci_si.get_grad_ci (
         lsi, mo_coeff=mo_coeff, ci=ci, si=si, state=state, weights=weights, opt=opt
     )
-    return ugg.sum_hci (lsi, hci)
+    return coords.sum_hci (lsi, hci)
 
 def get_grad_si (lsi, mo_coeff=None, ci=None, ci_ref=None, ci_sf=None, ci_ch=None, si=None,
                  opt=None):
@@ -176,8 +176,8 @@ def get_grad (lsi, mo_coeff=None, ci_ref=None, ci_sf=None, ci_ch=None, si=None, 
     if state is not None: gsi = gsi[:,state]
     if state is not None: si = si[:,state] 
     if pack:
-        ug = ugg.UnitaryGroupGenerators (lsi, mo_coeff, ci_ref, ci_sf, ci_ch, si)
-        return ug.pack (gorb, gci_ref, gci_sf, gci_ch, gsi)
+        ugg = coords.UnitaryGroupGenerators (lsi, mo_coeff, ci_ref, ci_sf, ci_ch, si)
+        return ugg.pack (gorb, gci_ref, gci_sf, gci_ch, gsi)
     else:
         return gorb, gci_ref, gci_sf, gci_ch, gsi
 

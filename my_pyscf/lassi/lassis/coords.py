@@ -13,6 +13,7 @@ op = (op_o0, op_o1)
 class UnitaryGroupGenerators (lasscf_sync_o0.LASSCF_UnitaryGroupGenerators):
     def __init__(self, lsi, mo_coeff, ci_ref, ci_sf, ci_ch, si):
         self.mol = lsi.mol
+        self.lsi = lsi
         self.nmo = mo_coeff.shape[-1]
         self.nfrags = lsi.nfrags
         self.frozen = None
@@ -26,6 +27,7 @@ class UnitaryGroupGenerators (lasscf_sync_o0.LASSCF_UnitaryGroupGenerators):
         self.ci_ref = copy.deepcopy (ci_ref)
         self.ci_sf = copy.deepcopy (ci_sf)
         self.ci_ch = copy.deepcopy (ci_ch)
+        self.ci = self.lsi.prepare_model_states (ci_ref, ci_sf, ci_ch)[0].ci
         self.t_ref = []
         self.t_sf = []
         self.t_ch_i = []
@@ -254,6 +256,7 @@ class UnitaryGroupGenerators (lasscf_sync_o0.LASSCF_UnitaryGroupGenerators):
         si = self.raw2orth.H (self.si)
         si = _update_sivecs (si, dsi)
         return mo1, ci_ref, ci_sf, ci_ch, si
+
 
 def _update_mo (mo0, kappa):
     umat = linalg.expm (kappa/2)
