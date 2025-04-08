@@ -132,7 +132,7 @@ def get_grad_ci (lsi, mo_coeff=None, ci=None, si=None, state=None, weights=None,
             else:
                 hc = hc[0]
             hc = hc.reshape (ci[f][r].shape)
-            hci[f][r] = hc
+            hci[f][r] = hc + hc.conj ()
     return hci
 
 def get_grad_si (lsi, mo_coeff=None, ci=None, si=None, opt=None):
