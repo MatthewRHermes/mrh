@@ -28,6 +28,7 @@ from mrh.my_pyscf.lassi.op_o1 import get_fdm1_maker
 from mrh.my_pyscf.lassi.sitools import make_sdm1
 from mrh.tests.lassi.addons import case_contract_hlas_ci, case_lassis_fbf_2_model_state
 from mrh.tests.lassi.addons import case_lassis_fbfdm, case_contract_op_si, debug_contract_op_si
+from mrh.tests.lassi.addons import case_lassis_grads
 
 def setUpModule ():
     global mol, mf, lsi, las, mc, op, lsis
@@ -230,31 +231,7 @@ class KnownValues(unittest.TestCase):
         x1 = ugg.pack (mo0, hci_ref, hci_sf, hci_ch, si0)
 
     def test_lassis_grad (self):
-        g_all = grad_orb_ci_si.get_grad (lsis, state=0, pack=True)
-        ugg = coords.UnitaryGroupGenerators (
-            lsis,
-            lsis.mo_coeff,
-            lsis.get_ci_ref (),
-            lsis.ci_spin_flips,
-            lsis.ci_charge_hops,
-            lsis.si[:,0]
-        )
-        x0 = np.random.rand (ugg.nvar_tot)
-        x0 = ugg.pack (*ugg.unpack (x0)) # apply some projections
-        assert (len (x0) == len (g_all))
-        div = 1.0
-        e0 = lsis.e_roots[0]
-        err_last = np.finfo (float).tiny
-        for p in range (20):
-            x1 = x0 / div
-            e1_test = np.dot (x1, g_all)
-            e1_ref = lsis.energy_tot (*ugg.update_wfn (x1)) - e0
-            err = (e1_test - e1_ref) / e1_ref
-            print (1.0/div, e1_ref, err)
-            rel_err = err / err_last
-            err_last = err
-            div *= 2
-        self.assertAlmostEqual (rel_err, .5, 1)
+        case_lassis_grads (self, lsis)
 
     def test_fdm1 (self):
         make_fdm1 = get_fdm1_maker (lsi, lsi.ci, lsi.get_nelec_frs (), lsi.si)

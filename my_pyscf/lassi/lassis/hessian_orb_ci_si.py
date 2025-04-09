@@ -1,9 +1,9 @@
 import numpy as np
 from pyscf import lib
 from mrh.my_pyscf.lassi.lassis import coords
-from mrh.my_pyscf.lassi import op_o0, op_01
+from mrh.my_pyscf.lassi import op_o0, op_o1
 from itertools import permutations
-from scipy.linalg import sparse as sparse_linalg
+from scipy.sparse import linalg as sparse_linalg
 
 op = (op_o0, op_o1)
 

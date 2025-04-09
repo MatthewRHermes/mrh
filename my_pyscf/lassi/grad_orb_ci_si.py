@@ -44,6 +44,10 @@ def get_grad_orb (lsi, mo_coeff=None, ci=None, si=None, state=None, weights=None
     if mo_coeff is None: mo_coeff = lsi.mo_coeff
     if ci is None: ci = lsi.ci
     if si is None: si = lsi.si
+    if si.ndim==1:
+        assert ((state is None) and (weights is None))
+        si = si[:,None]
+        state = 0
     if dm1s is None: dm1s = lsi.make_rdm1s (mo_coeff=mo_coeff, ci=ci, si=si, state=state,
                                             weights=weights, opt=opt)
     if h2eff_sub is None: h2eff_sub = lsi._las.get_h2eff (mo_coeff)
@@ -115,9 +119,12 @@ def get_grad_ci (lsi, mo_coeff=None, ci=None, si=None, state=None, weights=None,
     if state is not None:
         sivec = sivec[:,state]
         n = 1
-    else:
+    elif sivec.ndim==2:
         n = sivec.shape[1]
         assert (len (weights) == n)
+    else:
+        n = 1
+        assert (weights is None)
     hci = op[opt].contract_ham_ci (lsi, h1, h2, ci, nelec_frs, ci, nelec_frs, sivec, sivec)
     for f in range (lsi.nfrags):
         for r in range (lsi.nroots):
@@ -132,7 +139,7 @@ def get_grad_ci (lsi, mo_coeff=None, ci=None, si=None, state=None, weights=None,
             else:
                 hc = hc[0]
             hc = hc.reshape (ci[f][r].shape)
-            hci[f][r] = hc + hc.conj ()
+            hci[f][r] = hc + hc.conj () # + h.c.
     return hci
 
 def get_grad_si (lsi, mo_coeff=None, ci=None, si=None, opt=None):
@@ -158,11 +165,15 @@ def get_grad_si (lsi, mo_coeff=None, ci=None, si=None, opt=None):
     if ci is None: ci = lsi.ci
     if si is None: si = lsi.si
     if opt is None: opt = lsi.opt
+    is1d = si.ndim==1
+    if is1d: si=si[:,None]
     nelec_frs = lsi.get_nelec_frs ()
     h0, h1, h2 = lsi.ham_2q (mo_coeff)
     hop = op[opt].gen_contract_op_si_hdiag (lsi, h1, h2, ci, nelec_frs)[0]
     hsi = hop (si) + (h0*si)
     hsi -= si @ (si.conj ().T @ hsi)
+    hsi += hsi.conj () # + h.c.
+    if is1d: hsi=hsi[:,0]
     return hsi
 
 def get_grad (lsi, mo_coeff=None, ci=None, si=None, state=None, weights=None, opt=None):

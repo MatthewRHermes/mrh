@@ -195,6 +195,19 @@ class UnitaryGroupGenerators (lasscf_sync_o0.LASSCF_UnitaryGroupGenerators):
                     ncsf[i,s,:] = self.ci_sf[i][s].shape
         return ncsf
 
+    def sum_ncsf (self, ncsf):
+        ncsf = ncsf.reshape (-1,2)
+        return np.dot (ncsf[:,0], ncsf[:,1])
+
+    @property
+    def nvar_csf_ref (self): return self.ncsf_ref.sum ()
+
+    @property
+    def nvar_csf_sf (self): return self.sum_ncsf (self.ncsf_sf)
+
+    @property
+    def nvar_csf_ch (self): return self.sum_ncsf (self.ncsf_ch)
+
     @property
     def ncsf_ch (self):
         ncsf = np.zeros ((self.nfrags, self.nfrags, 4, 2, 2), dtype=int)
@@ -214,15 +227,19 @@ class UnitaryGroupGenerators (lasscf_sync_o0.LASSCF_UnitaryGroupGenerators):
 
     @property
     def ncsf_all (self):
-        ncsf_sf = self.ncsf_sf.reshape (-1,2)
-        ncsf_sf = np.dot (ncsf_sf[:,0], ncsf_sf[:,1])
-        ncsf_ch = self.ncsf_ch.reshape (-1,2)
-        ncsf_ch = np.dot (ncsf_ch[:,0], ncsf_ch[:,1])
-        return self.ncsf_ref.sum () + ncsf_sf + ncsf_ch
+        return self.ncsf_ref.sum () + self.nvar_csf_sf + self.nvar_csf_ch
 
     @property
     def nvar_tot (self):
         return self.nvar_orb + self.ncsf_all + sum (self.nvar_si)
+
+    def get_sector_offsets (self):
+        lens = [self.nvar_orb, self.ncsf_ref.sum (), self.nvar_csf_sf, self.nvar_csf_ch]
+        lens += list (self.nvar_si)
+        lens = np.asarray (lens)
+        offs = np.cumsum (lens)
+        offs = np.stack ((offs-lens, offs), axis=1)
+        return offs
 
     def update_wfn (self, x):
         kappa, dcir, dcis, dcic, dsi = self.unpack (x)

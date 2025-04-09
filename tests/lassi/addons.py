@@ -6,6 +6,7 @@ from mrh.my_pyscf.mcscf.lasci import get_space_info
 from mrh.my_pyscf.lassi.citools import get_lroots
 from mrh.my_pyscf.lassi.spaces import SingleLASRootspace
 from mrh.my_pyscf.lassi.op_o1.utilities import lst_hopping_index
+from mrh.my_pyscf.lassi.lassis import coords, grad_orb_ci_si, hessian_orb_ci_si
 from mrh.my_pyscf.lassi import op_o0, op_o1
 from mrh.my_pyscf.fci.spin_op import mup
 from mrh.my_pyscf.lassi.lassi import LINDEP_THRESH
@@ -192,6 +193,45 @@ def case_lassis_fbfdm (ks, lsi):
             x = canonical_orth_(ovlp, thr=LINDEP_THRESH)
             xdx = x.conj ().T @ dm1 @ x
             ks.assertAlmostEqual ((dm1*ovlp).sum (), 1.0, 9)
+
+def case_lassis_grads (ks, lsis):
+    si = (lsis.si[:,0] + lsis.si[:,1]) * np.sqrt (0.5)
+    g_all = grad_orb_ci_si.get_grad (lsis, si=si, pack=True)
+    ugg = coords.UnitaryGroupGenerators (
+        lsis,
+        lsis.mo_coeff,
+        lsis.get_ci_ref (),
+        lsis.ci_spin_flips,
+        lsis.ci_charge_hops,
+        si
+    )
+    x0 = np.random.rand (ugg.nvar_tot)
+    x0 = ugg.pack (*ugg.unpack (x0)) # apply some projections
+    assert (len (x0) == len (g_all))
+    sec_lbls = ['orb', 'ci_ref', 'ci_sf', 'ci_ch', 'si_avg', 'si_ext']
+    sec_offs = ugg.get_sector_offsets ()
+    e0 = lsis.energy_tot (*ugg.update_wfn (np.zeros_like (x0)))
+    for (i, j), lbl in zip (sec_offs, sec_lbls):
+        if i==j: continue
+        if np.amax (np.abs (g_all[i:j]))<1e-8: continue
+        with ks.subTest (lbl):
+            x1 = np.zeros_like (x0)
+            x1[i:j] = x0[i:j]
+            div = 1.0
+            err_last = np.finfo (float).tiny
+            err_table = '{:s}\n'.format (lbl)
+            for p in range (20):
+                x2 = x1 / div
+                e1_test = np.dot (x2, g_all)
+                e1_ref = lsis.energy_tot (*ugg.update_wfn (x2)) - e0
+                err = (e1_test - e1_ref) / e1_ref
+                err_table += '{:e} {:e} {:e}\n'.format (1/div, e1_ref, err)
+                rel_err = err / err_last
+                err_last = err
+                div *= 2
+            ks.assertAlmostEqual (rel_err, .5, 1, msg=err_table)
+
+
 
 
 
