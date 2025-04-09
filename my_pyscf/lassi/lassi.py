@@ -1026,6 +1026,12 @@ class LASSI(lib.StreamObject):
         else:
             return root_trans_rdm12s (self, ci, si_bra, si_ket, state=state, opt=opt)
 
+    def trans_casdm12 (self, ci=None, si_bra=None, si_ket=None, state=None, weights=None,
+                       opt=None):
+        dm1s, dm2s = self.trans_casdm12s (ci=ci, si_bra=si_bra, si_ket=si_ket, state=state,
+                                          weights=weights, opt=opt)
+        return dm1s.sum (0), dm2s.sum ((0,3))
+
     def make_rdm1s (self, mo_coeff=None, ci=None, si=None, state=None, weights=None, opt=None):
         if mo_coeff is None: mo_coeff=self.mo_coeff
         casdm1s = self.make_casdm12s (ci=ci, si=si, state=state, weights=weights, opt=opt)[0]
