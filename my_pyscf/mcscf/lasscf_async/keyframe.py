@@ -22,7 +22,7 @@ class LASKeyframe (object):
     @property
     def veff (self):
         if self._veff is None:
-            self._veff = self.las.get_veff (dm1s=self.dm1s, spin_sep=True)
+            self._veff = self.las.get_veff (dm=self.dm1s, spin_sep=True)
         return self._veff
 
     @property

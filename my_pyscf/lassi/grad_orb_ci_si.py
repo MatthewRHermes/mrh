@@ -48,7 +48,7 @@ def get_grad_orb (lsi, mo_coeff=None, ci=None, si=None, state=None, weights=None
                                             weights=weights, opt=opt)
     if h2eff_sub is None: h2eff_sub = lsi._las.get_h2eff (mo_coeff)
     if veff is None:
-        veff = lsi._las.get_veff (dm1s = dm1s.sum (0))
+        veff = lsi._las.get_veff (dm=dm1s.sum (0))
         veff = lsi._las.split_veff (veff, h2eff_sub, mo_coeff=mo_coeff, ci=ci)
     nao, nmo = mo_coeff.shape
     ncore = lsi.ncore

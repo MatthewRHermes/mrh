@@ -45,7 +45,7 @@ def kernel (las, mo_coeff=None, ci0=None, casdm0_fr=None, conv_tol_grad=1e-4,
                                            axes=((1),(1))).transpose (1,0,2))
         dm1s_sub = np.stack (dm1s_sub, axis=0)
         dm1s = dm1s_sub.sum (0)
-        veff = las.get_veff (dm1s=dm1s.sum (0))
+        veff = las.get_veff (dm=dm1s.sum (0))
         veff = las.split_veff (veff, h2eff_sub, mo_coeff=mo_coeff, casdm1s_sub=casdm0_sub)
         casdm1s_sub = casdm0_sub
         casdm1frs = casdm0_fr
@@ -56,7 +56,7 @@ def kernel (las, mo_coeff=None, ci0=None, casdm0_fr=None, conv_tol_grad=1e-4,
         if (ci0 is None or any ([c is None for c in ci0]) or
           any ([any ([c2 is None for c2 in c1]) for c1 in ci0])):
             raise RuntimeError ("failed to populate get_init_guess")
-        veff = las.get_veff (dm1s = las.make_rdm1 (mo_coeff=mo_coeff, ci=ci0))
+        veff = las.get_veff (dm = las.make_rdm1 (mo_coeff=mo_coeff, ci=ci0))
         casdm1s_sub = las.make_casdm1s_sub (ci=ci0)
         casdm1frs = las.states_make_casdm1s_sub (ci=ci0)
         veff = las.split_veff (veff, h2eff_sub, mo_coeff=mo_coeff, ci=ci0, casdm1s_sub=casdm1s_sub)
@@ -88,7 +88,7 @@ def kernel (las, mo_coeff=None, ci0=None, casdm0_fr=None, conv_tol_grad=1e-4,
         casdm1s_new = las.make_casdm1s_sub (ci=ci1)
         if not isinstance (las, _DFLASCI) or las.verbose > lib.logger.DEBUG:
             #veff = las.get_veff (mo_coeff=mo_coeff, ci=ci1)
-            veff_new = las.get_veff (dm1s = las.make_rdm1 (mo_coeff=mo_coeff, ci=ci1))
+            veff_new = las.get_veff (dm = las.make_rdm1 (mo_coeff=mo_coeff, ci=ci1))
             if not isinstance (las, _DFLASCI): veff = veff_new
         if isinstance (las, _DFLASCI):
             dcasdm1s = [dm_new - dm_old for dm_new, dm_old in zip (casdm1s_new, casdm1s_sub)]
@@ -195,7 +195,7 @@ def kernel (las, mo_coeff=None, ci0=None, casdm0_fr=None, conv_tol_grad=1e-4,
             t1 = log.timer ('LASCI Hessian update', *t1)
 
             #veff = las.get_veff (mo_coeff=mo_coeff, ci=ci1)
-            veff = las.get_veff (dm1s = las.make_rdm1 (mo_coeff=mo_coeff, ci=ci1))
+            veff = las.get_veff (dm = las.make_rdm1 (mo_coeff=mo_coeff, ci=ci1))
             veff = las.split_veff (veff, h2eff_sub, mo_coeff=mo_coeff, ci=ci1)
             t1 = log.timer ('LASCI get_veff after secondorder', *t1)
         except MicroIterInstabilityException as e:
@@ -205,7 +205,7 @@ def kernel (las, mo_coeff=None, ci0=None, casdm0_fr=None, conv_tol_grad=1e-4,
             for i in range (3): # Make up to 3 attempts to scale-down x if necessary
                 mo2, ci2, h2eff_sub2 = H_op.update_mo_ci_eri (x, h2eff_sub)
                 t1 = log.timer ('LASCI Hessian update', *t1)
-                veff2 = las.get_veff (dm1s = las.make_rdm1 (mo_coeff=mo2, ci=ci2))
+                veff2 = las.get_veff (dm = las.make_rdm1 (mo_coeff=mo2, ci=ci2))
                 veff2 = las.split_veff (veff2, h2eff_sub2, mo_coeff=mo2, ci=ci2)
                 t1 = log.timer ('LASCI get_veff after secondorder', *t1)
                 e2 = las.energy_nuc () + las.energy_elec (mo_coeff=mo2, ci=ci2, h2eff=h2eff_sub2,
@@ -233,7 +233,7 @@ def kernel (las, mo_coeff=None, ci0=None, casdm0_fr=None, conv_tol_grad=1e-4,
     veff_a = np.stack ([las.fast_veffa ([d[state] for d in casdm1frs], h2eff_sub,
                                         mo_coeff=mo_coeff, ci=ci1, _full=True)
                         for state in range (las.nroots)], axis=0)
-    veff_c = las.get_veff (dm1s=dm_core)
+    veff_c = las.get_veff (dm=dm_core)
     # veff's spin-summed component should be correct because I called get_veff with spin-summed rdm
     veff = veff_c[None,None,:,:] + veff_a 
     veff = lib.tag_array (veff, c=veff_c, sa=np.einsum ('rsij,r->sij', veff, las.weights))
@@ -740,8 +740,8 @@ class LASCI_HessianOperator (sparse_linalg.LinearOperator):
                 smoH = smo.conjugate ().T
                 veff = smo @ (vj_mo - vk_mo/2) @ smoH
             else:
-                veff = las.get_veff (dm1s = np.dot (mo_coeff, 
-                                                    np.dot (self.dm1s.sum (0), moH_coeff)))
+                veff = las.get_veff (dm = np.dot (mo_coeff, 
+                                                  np.dot (self.dm1s.sum (0), moH_coeff)))
             veff = las.split_veff (veff, h2eff_sub, mo_coeff=mo_coeff, casdm1s_sub=self.casdm1fs)
         self.eri_paaa = eri_paaa = lib.numpy_helper.unpack_tril (
             h2eff_sub.reshape (nmo*ncas, ncas*(ncas+1)//2)).reshape (nmo, ncas,
@@ -1024,7 +1024,7 @@ class LASCI_HessianOperator (sparse_linalg.LinearOperator):
         dm1_mo = dm1s_mo.sum (0)
         if self.las.use_gpu or (getattr(self, 'bPpj', None) is None):
             dm1_ao=np.dot(mo,np.dot(dm1_mo,moH))
-            veff_ao=np.squeeze(self.las.get_veff(dm1s=dm1_ao))
+            veff_ao=np.squeeze(self.las.get_veff(dm=dm1_ao))
             return np.dot(moH,np.dot(veff_ao,mo))
         ncore, nocc, ncas = self.ncore, self.nocc, self.ncas
         # vj

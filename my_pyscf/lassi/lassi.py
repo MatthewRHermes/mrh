@@ -83,7 +83,7 @@ def ham_2q (las, mo_coeff, veff_c=None, h2eff_sub=None, soc=0):
     hcore = las._scf.get_hcore ()
     if veff_c is None: 
         dm_core = 2 * mo_core @ mo_core.conj ().T
-        veff_c = las.get_veff (dm1s=dm_core)
+        veff_c = las.get_veff (dm=dm_core)
 
     h0 = las._scf.energy_nuc () + 2 * (((hcore + veff_c/2) @ mo_core) * mo_core).sum ()
 

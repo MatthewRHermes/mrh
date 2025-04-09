@@ -70,7 +70,7 @@ def get_grad (las, mo_coeff=None, ci=None, ugg=None, h1eff_sub=None, h2eff_sub=N
     if dm1s is None: dm1s = las.make_rdm1s (mo_coeff=mo_coeff, ci=ci)
     if h2eff_sub is None: h2eff_sub = las.get_h2eff (mo_coeff)
     if veff is None:
-        veff = las.get_veff (dm1s = dm1s.sum (0))
+        veff = las.get_veff (dm = dm1s.sum (0))
         veff = las.split_veff (veff, h2eff_sub, mo_coeff=mo_coeff, ci=ci)
     if h1eff_sub is None: h1eff_sub = las.get_h1eff (mo_coeff, ci=ci, veff=veff,
                                                      h2eff_sub=h2eff_sub)
@@ -119,7 +119,7 @@ def get_grad_orb (las, mo_coeff=None, ci=None, h2eff_sub=None, veff=None, dm1s=N
     if dm1s is None: dm1s = las.make_rdm1s (mo_coeff=mo_coeff, ci=ci)
     if h2eff_sub is None: h2eff_sub = las.get_h2eff (mo_coeff)
     if veff is None:
-        veff = las.get_veff (dm1s = dm1s.sum (0))
+        veff = las.get_veff (dm = dm1s.sum (0))
         veff = las.split_veff (veff, h2eff_sub, mo_coeff=mo_coeff, ci=ci)
     nao, nmo = mo_coeff.shape
     ncore = las.ncore
@@ -262,7 +262,7 @@ def h1e_for_las (las, mo_coeff=None, ncas=None, ncore=None, nelecas=None, ci=Non
     if casdm1s_sub is None: casdm1s_sub = [np.einsum ('rsij,r->sij',dm,las.weights)
                                            for dm in casdm1frs]
     if veff is None:
-        veff = las.get_veff (dm1s = las.make_rdm1 (mo_coeff=mo_coeff, ci=ci))
+        veff = las.get_veff (dm = las.make_rdm1 (mo_coeff=mo_coeff, ci=ci))
         veff = las.split_veff (veff, h2eff_sub, mo_coeff=mo_coeff, ci=ci, casdm1s_sub=casdm1s_sub)
 
     # First pass: split by root  
@@ -2035,20 +2035,25 @@ class LASCINoSymm (casci.CASCI):
         
         return casdm3s
 
-    def get_veff (self, mol=None, dm1s=None, hermi=1, spin_sep=False, **kwargs):
-        ''' Returns a spin-summed veff! If dm1s isn't provided, builds from self.mo_coeff, self.ci
+    def get_veff (self, mol=None, dm=None, hermi=1, spin_sep=False, dm1s=None, **kwargs):
+        ''' Returns a spin-summed veff! If dm isn't provided, builds from self.mo_coeff, self.ci
             etc. '''
+        if dm is None and dm1s is not None:
+            import warnings
+            kwarg_warn = "The kwarg on get_veff has been renamed from dm1s to dm"
+            warnings.warn(kwarg_warn, stacklevel=3)
+            dm = dm1s
         if mol is None: mol = self.mol
         nao = mol.nao_nr ()
-        if dm1s is None: dm1s = self.make_rdm1 (include_core=True, **kwargs).reshape (nao, nao)
-        dm1s = np.asarray (dm1s)
-        if dm1s.ndim == 2: dm1s = dm1s[None,:,:]
+        if dm is None: dm = self.make_rdm1 (include_core=True, **kwargs).reshape (nao, nao)
+        dm = np.asarray (dm)
+        if dm.ndim == 2: dm = dm[None,:,:]
         if isinstance (self, _DFLASCI):
-            vj, vk = self.with_df.get_jk(dm1s, hermi=hermi)
+            vj, vk = self.with_df.get_jk(dm, hermi=hermi)
         else:
-            vj, vk = self._scf.get_jk(mol, dm1s, hermi=hermi)
+            vj, vk = self._scf.get_jk(mol, dm, hermi=hermi)
         if spin_sep:
-            assert (dm1s.shape[0] == 2)
+            assert (dm.shape[0] == 2)
             return vj.sum (0)[None,:,:] - vk
         else:
             veff = np.stack ([j - k/2 for j, k in zip (vj, vk)], axis=0)
@@ -2115,7 +2120,7 @@ class LASCINoSymm (casci.CASCI):
         mo_cas = mo_coeff[:,ncore:nocc]
         dm_core = 2*mo_core @ mo_core.conj ().T
         if veff_core is None: veff_core = getattr (veff, 'c', None)
-        if veff_core is None: veff_core = self.get_veff (dm1s=dm_core)
+        if veff_core is None: veff_core = self.get_veff (dm=dm_core)
         h1eff = self.get_hcore () + veff_core
         e0 = 2*np.dot (((h1eff-(veff_core/2)) @ mo_core).ravel (), mo_core.conj().ravel ())
         h1eff = mo_cas.conj ().T @ h1eff @ mo_cas
@@ -2168,7 +2173,7 @@ class LASCINoSymm (casci.CASCI):
         casdm1s_sub = self.make_casdm1s_sub (ci=ci, ncas_sub=ncas_sub, nelecas_sub=nelecas_sub,
                                              casdm1frs=casdm1frs)
         if veff is None:
-            veff = self.get_veff (dm1s = self.make_rdm1(mo_coeff=mo_coeff,casdm1s_sub=casdm1s_sub))
+            veff = self.get_veff (dm = self.make_rdm1(mo_coeff=mo_coeff,casdm1s_sub=casdm1s_sub))
             veff = self.split_veff (veff, h2eff, mo_coeff=mo_coeff, casdm1s_sub=casdm1s_sub)
 
         # 1-body veff terms
@@ -2238,7 +2243,7 @@ class LASCINoSymm (casci.CASCI):
         if gpu or not (isinstance (self, _DFLASCI)):
             dm1s = np.dot (mo_cas, np.dot (casdm1s, moH_cas)).transpose (1,0,2)
             if not _full: dm1s = dm1s[0]+dm1s[1]
-            return self.get_veff (dm1s = dm1s, spin_sep=_full)
+            return self.get_veff (dm = dm1s, spin_sep=_full)
         casdm1 = casdm1s.sum (0)
         dm1 = np.dot (mo_cas, np.dot (casdm1, moH_cas))
         bPmn = sparsedf_array (self.with_df._cderi)

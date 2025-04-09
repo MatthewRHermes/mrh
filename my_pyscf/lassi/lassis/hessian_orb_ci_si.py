@@ -71,7 +71,7 @@ def xham_2q (lsi, kappa, mo_coeff=None, eris=None, veff_c=None):
     if veff_c is None:
         if ncore:
             dm0 = 2*mo_coeff[:,:ncore] @ mo_coeff[:,:ncore].conj ().T
-            veff_c = np.squeeze (las.get_veff (dm1s=dm0))
+            veff_c = np.squeeze (las.get_veff (dm=dm0))
         else:
             veff_c = 0
 
@@ -89,7 +89,7 @@ def xham_2q (lsi, kappa, mo_coeff=None, eris=None, veff_c=None):
         dm1 = kappa @ dm1
         dm1 += dm1.T
         dm1 = mo0 @ dm1 @ mo0H
-        h1_1 = np.squeeze (las.get_veff (dm1s=dm1))
+        h1_1 = np.squeeze (las.get_veff (dm=dm1))
         h1_1 = mo0H @ h1_1 @ mo0
         h0 = 2*np.sum (h1_1.diagonal ()[:ncore])
         h1 += h1_1

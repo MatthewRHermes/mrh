@@ -72,7 +72,7 @@ class LASSCF_HessianOperator (lasci_sync.LASCI_HessianOperator):
         nmo = mo.shape[-1]
         dm1_mo = dm1s_mo.sum (0)
         dm1_ao = np.dot (mo, np.dot (dm1_mo, moH))
-        veff_ao = np.squeeze (self.las.get_veff (dm1s=dm1_ao))
+        veff_ao = np.squeeze (self.las.get_veff (dm=dm1_ao))
         return np.dot (moH, np.dot (veff_ao, mo))
 
     def split_veff (self, veff_mo, dm1s_mo):
