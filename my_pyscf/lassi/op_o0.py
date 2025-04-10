@@ -522,9 +522,9 @@ def ham (las, h1, h2, ci_fr, nelec_frs, soc=0, orbsym=None, wfnsym=None):
             S2 operator matrix in state-interaction basis
         ovlp_eff : square ndarray of length (ndim)
             Overlap matrix in state-interaction basis
-        raw2orth : LinearOperator of shape (ndim_orth, ndim)
-            Projects SI vector columns into an orthonormal basis,
-            eliminating linear dependencies (ndim_orth <= ndim).
+        _get_ovlp : callable with kwarg rootidx
+            Produce the overlap matrix between model states in a set of rootspaces,
+            identified by ndarray or list "rootidx"
     '''
     if soc>1:
         raise NotImplementedError ("Two-electron spin-orbit coupling")
@@ -591,8 +591,8 @@ def ham (las, h1, h2, ci_fr, nelec_frs, soc=0, orbsym=None, wfnsym=None):
         ham_eff[i,:] = dotter (hket, nelec_ket, spinless2ss=spinless2ss, iket=i, oporder=2)
     
     _get_ovlp = functools.partial (get_ovlp, ci_fr, norb_f, nelec_frs)
-    raw2orth = citools.get_orth_basis (ci_fr, norb_f, nelec_frs, _get_ovlp=_get_ovlp)
-    return ham_eff, s2_eff, ovlp_eff, raw2orth
+    #raw2orth = citools.get_orth_basis (ci_fr, norb_f, nelec_frs, _get_ovlp=_get_ovlp)
+    return ham_eff, s2_eff, ovlp_eff, _get_ovlp #raw2orth
 
 def contract_ham_ci (las, h1, h2, ci_fr_ket, nelec_frs_ket, ci_fr_bra, nelec_frs_bra, 
                      si_bra=None, si_ket=None, h0=0, soc=0, orbsym=None, wfnsym=None):

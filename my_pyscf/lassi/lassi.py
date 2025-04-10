@@ -372,9 +372,10 @@ def _eig_block_Davidson (las, e0, h1, h2, ci_blk, nelec_blk, soc, opt):
     level_shift = getattr (las, 'level_shift_si', LEVEL_SHIFT_SI)
     nroots_si = getattr (las, 'nroots_si', NROOTS_SI)
     get_init_guess = getattr (las, 'get_init_guess_si', get_init_guess_si)
-    h_op_raw, s2_op, ovlp_op, hdiag, raw2orth = op[opt].gen_contract_op_si_hdiag (
+    h_op_raw, s2_op, ovlp_op, hdiag, _get_ovlp = op[opt].gen_contract_op_si_hdiag (
         las, h1, h2, ci_blk, nelec_blk, soc=soc
     )
+    raw2orth = citools.get_orth_basis (ci_blk, las.ncas_sub, nelec_blk, _get_ovlp=_get_ovlp)
     precond_op_raw = lib.make_diag_precond (hdiag, level_shift=level_shift)
     si0 = get_init_guess (hdiag, nroots_si, si0)
     orth2raw = raw2orth.H
@@ -422,7 +423,7 @@ def _eig_block_incore (las, e0, h1, h2, ci_blk, nelec_blk, soc, opt):
         if soc:
             h1_sf = (h1[0:las.ncas,0:las.ncas]
                      - h1[las.ncas:2*las.ncas,las.ncas:2*las.ncas]).real/2
-        ham_blk, s2_blk, ovlp_blk, raw2orth = op[opt].ham (
+        ham_blk, s2_blk, ovlp_blk, _get_ovlp = op[opt].ham (
             las, h1_sf, h2, ci_blk, nelec_blk)
         t0 = lib.logger.timer (las, 'LASSI diagonalizer TDM algorithm', *t0)
         lib.logger.debug (las,
@@ -445,7 +446,7 @@ def _eig_block_incore (las, e0, h1, h2, ci_blk, nelec_blk, soc, opt):
     else:
         if (las.verbose > lib.logger.INFO): lib.logger.debug (
             las, 'Insufficient memory to test against o0 LASSI algorithm')
-        ham_blk, s2_blk, ovlp_blk, raw2orth = op[opt].ham (
+        ham_blk, s2_blk, ovlp_blk, _get_ovlp = op[opt].ham (
             las, h1, h2, ci_blk, nelec_blk, soc=soc)
         t0 = lib.logger.timer (las, 'LASSI H build', *t0)
     log_debug = lib.logger.debug2 if las.nroots>10 else lib.logger.debug
@@ -480,6 +481,7 @@ def _eig_block_incore (las, e0, h1, h2, ci_blk, nelec_blk, soc, opt):
             lib.logger.warn (las, 'LAS states in basis may not be converged (%s = %e)',
                              'max(|Hdiag-e_states|)', maxerr)
     # Error catch: linear dependencies in basis
+    raw2orth = citools.get_orth_basis (ci_blk, las.ncas_sub, nelec_blk, _get_ovlp=_get_ovlp)
     xhx = raw2orth (ham_blk.T).T
     lib.logger.info (las, '%d/%d linearly independent model states',
                      xhx.shape[1], xhx.shape[0])
@@ -1063,17 +1065,19 @@ class LASSI(lib.StreamObject):
 
     energy_tot = energy_tot
 
-    def get_raw2orth (self, ci=None, soc=None, opt=None):
+    def get_raw2orth (self, ci=None, nelec_frs=None, soc=None, opt=None, _get_ovlp=None):
         if ci is None: ci = self.ci
         if soc is None: soc = self.soc
         if opt is None: opt = self.opt
-        nelec_frs = self.get_nelec_frs ()
+        if nelec_frs is None: nelec_frs = self.get_nelec_frs ()
         n = self.ncas
         h1 = np.zeros ([n,n])
         h2 = np.zeros ([n,n,n,n])
-        return op[opt].gen_contract_op_si_hdiag (
-            self, h1, h2, ci, nelec_frs, soc=soc
-        )[4]
+        if _get_ovlp is None:
+            _get_ovlp = op[opt].gen_contract_op_si_hdiag (
+                self, h1, h2, ci, nelec_frs, soc=soc
+            )[4]
+        return citools.get_orth_basis (ci, self.ncas_sub, nelec_frs, _get_ovlp=_get_ovlp)
 
     def get_casscf_eris (self, mo_coeff=None):
         if mo_coeff is None: mo_coeff=self.mo_coeff

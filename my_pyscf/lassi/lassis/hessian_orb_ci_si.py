@@ -124,7 +124,7 @@ class HessianOperator (sparse_linalg.LinearOperator):
         ham_op, _, ovlp_op = op[self.opt].gen_contract_op_si_hdiag (
             self.lsi, h1, h2, ci, nelec_frs
         )[:3]
-        return h_op (si) + h0*ovlp_op (si)
+        return ham_op (si) + h0*ovlp_op (si)
 
     def get_xham_2q (self, kappa):
         return xham_2q (self.lsi, kappa, mo_coeff=self.mo_coeff, eris=self.eris,
