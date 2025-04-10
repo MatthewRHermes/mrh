@@ -265,7 +265,7 @@ def case_lassis_hessian (ks, lsis):
         x1[i:j] = x0[i:j]
         div = 1.0
         err_last = [np.finfo (float).tiny,]*len(sec_lbls)
-        err_table = ['{:s}\n'.format (lbl),]*len(sec_lbls)
+        err_table = ['\n{:s} {:s}\n'.format (lbl1, lbl0) for lbl1 in sec_lbls]
         rel_err = [1,]*len(sec_lbls)
         for p in range (20):
             x2 = x1 / div
