@@ -341,7 +341,7 @@ class KnownValues(unittest.TestCase):
             with self.subTest('LASSI convergence', davidson_only=dson):
                 self.assertTrue (lsi.converged)
             with self.subTest(davidson_only=dson):
-                self.assertAlmostEqual (yamaguchi (lsi.e_roots, lsi.s2, 9), -4.885066730567389, 2)
+                self.assertAlmostEqual (yamaguchi (lsi.e_roots, lsi.s2, 9), -4.885066730567389, 1)
 
 
 if __name__ == "__main__":

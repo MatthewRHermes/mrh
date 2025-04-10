@@ -611,6 +611,120 @@ def make_stdm12s (las, ci=None, orbsym=None, soc=False, break_symmetry=False, op
             stdm2s[a,...,b] = d2s[i,...,j]
     return stdm1s, stdm2s
 
+def roots_trans_rdm12s (las, ci, si_bra, si_ket, orbsym=None, soc=None, break_symmetry=None,
+                       rootsym=None, opt=1):
+    '''Evaluate 1- and 2-electron reduced transition density matrices of LASSI states
+
+        Args:
+            las: LASCI object
+            ci: list of list of ci vectors
+            si_bra: tagged ndarray of shape (nroots,nroots)
+               Linear combination vectors defining LASSI states for the bra.
+            si_ket: tagged ndarray of shape (nroots,nroots)
+               Linear combination vectors defining LASSI states for the ket.
+
+        Kwargs:
+            orbsym: None or list of orbital symmetries spanning the whole orbital space
+            soc: logical
+                Whether to include the effects of spin-orbit coupling (in the 1-RDMs only)
+                Overrides tag of si if provided by caller. I have no idea what will happen
+                if they contradict. This should probably be removed.
+            break_symmetry: logical
+                Whether to allow coupling between states of different point-group irreps
+                Overrides tag of si if provided by caller. I have no idea what will happen
+                if they contradict. This should probably be removed.
+            rootsym: list of length nroots
+                Each element is a tuple describing all enforced symmetries of a LAS state. 
+                Grabbed first from si then from las if not supplied. Required from
+                somewhere.
+
+            opt: Optimization level, i.e.,  take outer product of
+                0: CI vectors
+                1: TDMs
+
+        Returns:
+            rdm1s: ndarray of shape (nroots,2,ncas,ncas) if soc==False;
+                or of shape (nroots,2*ncas,2*ncas) if soc==True.
+            rdm2s: ndarray of shape (nroots,2,ncas,ncas,2,ncas,ncas)
+    '''
+    if orbsym is None: 
+        orbsym = getattr (las.mo_coeff, 'orbsym', None)
+        if orbsym is None and callable (getattr (las, 'label_symmetry_', None)):
+            orbsym = las.label_symmetry_(las.mo_coeff).orbsym
+        if orbsym is not None:
+            orbsym = orbsym[las.ncore:las.ncore+las.ncas]
+    if soc is None:
+        soc = getattr (si_ket, 'soc', getattr (las, 'soc', False))
+    if break_symmetry is None:
+        break_symmetry = getattr (si_ket, 'break_symmetry', getattr (las, 'break_symmetry', False))
+    o0_memcheck = op_o0.memcheck (las, ci, soc=soc)
+    if opt == 0 and o0_memcheck == False:
+        raise RuntimeError ('Insufficient memory to use o0 LASSI algorithm')
+    if rootsym is None:
+        rootsym = getattr (si_ket, 'rootsym', getattr (las, 'rootsym', None))
+
+    # Initialize matrices
+    norb = las.ncas
+    nroots = si_ket.shape[1]
+    rdm1s = [None for i in range (nroots)]
+    rdm2s = [None for i in range (nroots)]
+    #if soc:
+    #    rdm1s = np.zeros ((nroots, 2*norb, 2*norb),
+    #        dtype=si.dtype)
+    #else:
+    #    rdm1s = np.zeros ((nroots, 2, norb, norb),
+    #        dtype=si.dtype)
+    ## TODO: 2e- SOC
+    #rdm2s = np.zeros ((nroots, 2, norb, norb, 2, norb, norb),
+    #    dtype=si.dtype)
+
+    # Loop over symmetry blocks
+    statesym = las_symm_tuple (las, break_spin=soc, break_symmetry=break_symmetry, verbose=0)[0]
+    rootsym = [tuple (x) for x in rootsym]
+    for las1, sym, indcs, indxd in iterate_subspace_blocks(las,ci,statesym,subset=set(rootsym)):
+        idx_ci, idx_prod = indcs
+        ci_blk, nelec_blk = indxd
+        idx_si = np.all (np.array (rootsym) == sym, axis=1)
+        wfnsym = None if break_symmetry else sym[-1]
+        sib_blk = si_bra[np.ix_(idx_prod,idx_si)]
+        sik_blk = si_ket[np.ix_(idx_prod,idx_si)]
+        t0 = (lib.logger.process_clock (), lib.logger.perf_counter ())
+        # TODO: implement SOC in op_o1 and then re-enable the debugging block below
+        if (las.verbose > lib.logger.INFO) and (o0_memcheck) and (soc==False):
+            d1s, d2s = op_o0.roots_trans_rdm12s (las1, ci_blk, nelec_blk, sib_blk, sik_blk,
+                                                 orbsym=orbsym, wfnsym=wfnsym)
+            t0 = lib.logger.timer (las, 'LASSI trans_rdm12s rootsym {} CI algorithm'.format (sym),
+                                   *t0)
+            d1s_test, d2s_test = op[opt].roots_trans_rdm12s (las1, ci_blk, nelec_blk, sib_blk,
+                                                             sik_blk)
+            t0 = lib.logger.timer (las, 'LASSI trans_rdm12s rootsym {} TDM algorithm'.format (sym),
+                                   *t0)
+            lib.logger.debug (las,
+                'LASSI trans_rdm12s rootsym {}: D1 o0-o1 algorithm disagreement = {}'.format (
+                    sym, linalg.norm (d1s_test - d1s))) 
+            lib.logger.debug (las,
+                'LASSI trans_rdm12s rootsym {}: D2 o0-o1 algorithm disagreement = {}'.format (
+                    sym, linalg.norm (d2s_test - d2s))) 
+            errvec = np.concatenate ([(d1s-d1s_test).ravel (), (d2s-d2s_test).ravel ()])
+            if np.amax (np.abs (errvec)) > 1e-8 and soc == False: # tmp until SOC in for op_o1
+                raise LASSIOop01DisagreementError ("LASSI mixed-state RDMs", errvec)
+            if opt > 0:
+                d1s = d1s_test
+                d2s = d2s_test
+        else:
+            if not o0_memcheck: lib.logger.debug (las,
+                'Insufficient memory to test against o0 LASSI algorithm')
+            d1s, d2s = op[opt].roots_trans_rdm12s (las1, ci_blk, nelec_blk, sib_blk, sik_blk,
+                                                   orbsym=orbsym, wfnsym=wfnsym)
+            t0 = lib.logger.timer (las, 'LASSI trans_rdm12s rootsym {}'.format (sym), *t0)
+        idx_int = np.where (idx_si)[0]
+        for (i,a) in enumerate (idx_int):
+            rdm1s[a] = d1s[i]
+            rdm2s[a] = d2s[i]
+    rdm1s = np.stack (rdm1s, axis=0)
+    rdm2s = np.stack (rdm2s, axis=0)
+    return rdm1s, rdm2s
+
 def roots_make_rdm12s (las, ci, si, orbsym=None, soc=None, break_symmetry=None, rootsym=None,
                        opt=1):
     '''Evaluate 1- and 2-electron reduced density matrices of LASSI states
@@ -645,80 +759,62 @@ def roots_make_rdm12s (las, ci, si, orbsym=None, soc=None, break_symmetry=None, 
                 or of shape (nroots,2*ncas,2*ncas) if soc==True.
             rdm2s: ndarray of shape (nroots,2,ncas,ncas,2,ncas,ncas)
     '''
-    if orbsym is None: 
-        orbsym = getattr (las.mo_coeff, 'orbsym', None)
-        if orbsym is None and callable (getattr (las, 'label_symmetry_', None)):
-            orbsym = las.label_symmetry_(las.mo_coeff).orbsym
-        if orbsym is not None:
-            orbsym = orbsym[las.ncore:las.ncore+las.ncas]
+    return roots_trans_rdm12s (las, ci, si, si, orbsym=orbsym, soc=soc,
+                               break_symmetry=break_symmetry, rootsym=rootsym, opt=opt)
+
+def root_trans_rdm12s (las, ci, si_bra, si_ket, state=0, orbsym=None, soc=None, break_symmetry=None,
+                      rootsym=None, opt=1):
+    '''Evaluate 1- and 2-electron reduced transition density matrices of one single pair of LASSI
+    states.
+
+        Args:
+            las: LASCI object
+            ci: list of list of ci vectors
+            si_bra: tagged ndarray of shape (nroots,nroots)
+               Linear combination vectors defining LASSI states for the bra.
+            si_ket: tagged ndarray of shape (nroots,nroots)
+               Linear combination vectors defining LASSI states for the ket.
+
+        Kwargs:
+            state: integer or sequence of integers
+                Identify the specific LASSI eigenstate(s) for which the density matrices are
+                to be computed.
+            orbsym: None or list of orbital symmetries spanning the whole orbital space
+            soc: logical
+                Whether to include the effects of spin-orbit coupling (in the 1-RDMs only)
+                Overrides tag of si if provided by caller. I have no idea what will happen
+                if they contradict. This should probably be removed.
+            break_symmetry: logical
+                Whether to allow coupling between states of different point-group irreps
+                Overrides tag of si if provided by caller. I have no idea what will happen
+                if they contradict. This should probably be removed.
+            rootsym: list of length nroots
+                Each element is a tuple describing all enforced symmetries of a LAS state. 
+                Grabbed first from si then from las if not supplied. Required from
+                somewhere.
+            opt: Optimization level, i.e.,  take outer product of
+                0: CI vectors
+                1: TDMs
+
+        Returns:
+            rdm1s: ndarray of shape (2,ncas,ncas) if soc==False;
+                or of shape (2*ncas,2*ncas) if soc==True.
+            rdm2s: ndarray of shape (2,ncas,ncas,2,ncas,ncas)
+    '''
+    states = np.atleast_1d (state)
+    sib_column = si_bra[:,states]
+    sik_column = si_ket[:,states]
     if soc is None:
-        soc = getattr (si, 'soc', getattr (las, 'soc', False))
+        soc = getattr (si_ket, 'soc', getattr (las, 'soc', False))
     if break_symmetry is None:
-        break_symmetry = getattr (si, 'break_symmetry', getattr (las, 'break_symmetry', False))
-    o0_memcheck = op_o0.memcheck (las, ci, soc=soc)
-    if opt == 0 and o0_memcheck == False:
-        raise RuntimeError ('Insufficient memory to use o0 LASSI algorithm')
+        break_symmetry = getattr (si_ket, 'break_symmetry', getattr (las, 'break_symmetry', False))
     if rootsym is None:
-        rootsym = getattr (si, 'rootsym', getattr (las, 'rootsym', None))
-
-    # Initialize matrices
-    norb = las.ncas
-    nroots = si.shape[1]
-    rdm1s = [None for i in range (nroots)]
-    rdm2s = [None for i in range (nroots)]
-    #if soc:
-    #    rdm1s = np.zeros ((nroots, 2*norb, 2*norb),
-    #        dtype=si.dtype)
-    #else:
-    #    rdm1s = np.zeros ((nroots, 2, norb, norb),
-    #        dtype=si.dtype)
-    ## TODO: 2e- SOC
-    #rdm2s = np.zeros ((nroots, 2, norb, norb, 2, norb, norb),
-    #    dtype=si.dtype)
-
-    # Loop over symmetry blocks
-    statesym = las_symm_tuple (las, break_spin=soc, break_symmetry=break_symmetry, verbose=0)[0]
-    rootsym = [tuple (x) for x in rootsym]
-    for las1, sym, indcs, indxd in iterate_subspace_blocks(las,ci,statesym,subset=set(rootsym)):
-        idx_ci, idx_prod = indcs
-        ci_blk, nelec_blk = indxd
-        idx_si = np.all (np.array (rootsym) == sym, axis=1)
-        wfnsym = None if break_symmetry else sym[-1]
-        si_blk = si[np.ix_(idx_prod,idx_si)]
-        t0 = (lib.logger.process_clock (), lib.logger.perf_counter ())
-        # TODO: implement SOC in op_o1 and then re-enable the debugging block below
-        if (las.verbose > lib.logger.INFO) and (o0_memcheck) and (soc==False):
-            d1s, d2s = op_o0.roots_make_rdm12s (las1, ci_blk, nelec_blk, si_blk, orbsym=orbsym,
-                                                wfnsym=wfnsym)
-            t0 = lib.logger.timer (las, 'LASSI make_rdm12s rootsym {} CI algorithm'.format (sym),
-                                   *t0)
-            d1s_test, d2s_test = op[opt].roots_make_rdm12s (las1, ci_blk, nelec_blk, si_blk)
-            t0 = lib.logger.timer (las, 'LASSI make_rdm12s rootsym {} TDM algorithm'.format (sym),
-                                   *t0)
-            lib.logger.debug (las,
-                'LASSI make_rdm12s rootsym {}: D1 o0-o1 algorithm disagreement = {}'.format (
-                    sym, linalg.norm (d1s_test - d1s))) 
-            lib.logger.debug (las,
-                'LASSI make_rdm12s rootsym {}: D2 o0-o1 algorithm disagreement = {}'.format (
-                    sym, linalg.norm (d2s_test - d2s))) 
-            errvec = np.concatenate ([(d1s-d1s_test).ravel (), (d2s-d2s_test).ravel ()])
-            if np.amax (np.abs (errvec)) > 1e-8 and soc == False: # tmp until SOC in for op_o1
-                raise LASSIOop01DisagreementError ("LASSI mixed-state RDMs", errvec)
-            if opt > 0:
-                d1s = d1s_test
-                d2s = d2s_test
-        else:
-            if not o0_memcheck: lib.logger.debug (las,
-                'Insufficient memory to test against o0 LASSI algorithm')
-            d1s, d2s = op[opt].roots_make_rdm12s (las1, ci_blk, nelec_blk, si_blk, orbsym=orbsym,
-                                                  wfnsym=wfnsym)
-            t0 = lib.logger.timer (las, 'LASSI make_rdm12s rootsym {}'.format (sym), *t0)
-        idx_int = np.where (idx_si)[0]
-        for (i,a) in enumerate (idx_int):
-            rdm1s[a] = d1s[i]
-            rdm2s[a] = d2s[i]
-    rdm1s = np.stack (rdm1s, axis=0)
-    rdm2s = np.stack (rdm2s, axis=0)
+        rootsym = getattr (si_ket, 'rootsym', getattr (las, 'rootsym', None))
+    rootsym = [rootsym[s] for s in states]
+    rdm1s, rdm2s = roots_trans_rdm12s (las, ci, sib_column, sik_column, orbsym=orbsym, soc=soc,
+                                       break_symmetry=break_symmetry, rootsym=rootsym, opt=opt)
+    if len (states) == 1:
+        rdm1s, rdm2s = rdm1s[0], rdm2s[0]
     return rdm1s, rdm2s
 
 def root_make_rdm12s (las, ci, si, state=0, orbsym=None, soc=None, break_symmetry=None,
@@ -757,20 +853,28 @@ def root_make_rdm12s (las, ci, si, state=0, orbsym=None, soc=None, break_symmetr
                 or of shape (2*ncas,2*ncas) if soc==True.
             rdm2s: ndarray of shape (2,ncas,ncas,2,ncas,ncas)
     '''
-    states = np.atleast_1d (state)
-    si_column = si[:,states]
-    if soc is None:
-        soc = getattr (si, 'soc', getattr (las, 'soc', False))
-    if break_symmetry is None:
-        break_symmetry = getattr (si, 'break_symmetry', getattr (las, 'break_symmetry', False))
-    if rootsym is None:
-        rootsym = getattr (si, 'rootsym', getattr (las, 'rootsym', None))
-    rootsym = [rootsym[s] for s in states]
-    rdm1s, rdm2s = roots_make_rdm12s (las, ci, si_column, orbsym=orbsym, soc=soc,
-                                      break_symmetry=break_symmetry, rootsym=rootsym, opt=opt)
-    if len (states) == 1:
-        rdm1s, rdm2s = rdm1s[0], rdm2s[0]
-    return rdm1s, rdm2s
+    return root_trans_rdm12s (las, ci, si, si, state=state, orbsym=orbsym, soc=soc,
+                              break_symmetry=break_symmetry, rootsym=rootsym, opt=opt)
+
+def energy_tot (lsi, mo_coeff=None, ci=None, si=None, soc=0, opt=None):
+    if mo_coeff is None: mo_coeff = lsi.mo_coeff
+    if ci is None: ci = lsi.ci
+    if si is None: si = lsi.si
+    if opt is None: opt = lsi.opt
+    if si.ndim==1:
+        nroots_si=1
+    else:
+        assert (si.ndim==2)
+        nroots_si = si.shape[1]
+    si = si.reshape (-1,nroots_si)
+    nelec_frs = lsi.get_nelec_frs ()
+    h0, h1, h2 = lsi.ham_2q (mo_coeff=mo_coeff, soc=soc)
+    hop = op[opt].gen_contract_op_si_hdiag (
+        lsi, h1, h2, ci, nelec_frs, soc=soc
+    )[0]
+    e_tot = lib.einsum ('ip,ip->p', (hop (si) + h0*si), si.conj ())
+    if nroots_si==1: e_tot=e_tot[0]
+    return e_tot
 
 class LASSI(lib.StreamObject):
     '''
@@ -847,6 +951,10 @@ class LASSI(lib.StreamObject):
         if ci is None: ci = self.ci
         return get_lroots (ci)
 
+    def get_nprods (self, ci=None):
+        lroots = self.get_lroots (ci=ci)
+        return np.sum (np.prod (lroots, axis=0))
+
     def get_sivec_fermion_spin_shuffle (self, si=None, ci=None):
         from mrh.my_pyscf.lassi.sitools import sivec_fermion_spin_shuffle
         if si is None: si = self.si
@@ -883,6 +991,23 @@ class LASSI(lib.StreamObject):
         nelec_frs = self.get_nelec_frs ()
         return sivec_vacuum_shuffle (si, nelec_frs, lroots, nelec_vac=nelec_vac, state=state)
 
+    def make_rdm12s (self, ci=None, si=None, state=None):
+        if ci is None: ci = self.ci
+        if si is None: si = self.si
+        if state is None:
+            return roots_make_rdm12s (self, ci, si)
+        else:
+            return root_make_rdm12s (self, ci, si, state=state)
+
+    def trans_rdm12s (self, ci=None, si_bra=None, si_ket=None, state=None):
+        if ci is None: ci = self.ci
+        if si_bra is None: si_bra = self.si
+        if si_ket is None: si_ket = self.si
+        if state is None:
+            return roots_trans_rdm12s (self, ci, si_bra, si_ket)
+        else:
+            return root_trans_rdm12s (self, ci, si_bra, si_ket, state=state)
+
     def analyze (self, state=0, **kwargs):
         from mrh.my_pyscf.lassi.sitools import analyze
         return analyze (self, self.si, state=state, **kwargs)
@@ -897,4 +1022,19 @@ class LASSI(lib.StreamObject):
 
     def get_init_guess_si (self, hdiag, nroots, si1):
         return get_init_guess_si (hdiag, nroots, si1)
+
+    energy_tot = energy_tot
+
+    def get_raw2orth (self, ci=None, soc=None, opt=None):
+        if ci is None: ci = self.ci
+        if soc is None: soc = self.soc
+        if opt is None: opt = self.opt
+        nelec_frs = self.get_nelec_frs ()
+        n = self.ncas
+        h1 = np.zeros ([n,n])
+        h2 = np.zeros ([n,n,n,n])
+        return op[opt].gen_contract_op_si_hdiag (
+            self, h1, h2, ci, nelec_frs, soc=soc
+        )[4]
+
 
