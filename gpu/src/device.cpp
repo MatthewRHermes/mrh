@@ -2877,6 +2877,7 @@ void Device::init_eri_impham(int naux, int nao_f)
   
   profile_start("init_eri_impham");
   int _size_eri_impham = naux*nao_f*nao_f;
+  //TODO: when packing is done, change _size_eri_impham to naux*nao_f*(nao_f+1)/2;
   if (_size_eri_impham > size_eri_impham){
     size_eri_impham = _size_eri_impham;
     if (pin_eri_impham) pm->dev_free_host(pin_eri_impham);
@@ -2896,9 +2897,52 @@ void Device::compute_eri_impham(int nao_s, int nao_f, int blksize, int naux, int
 
   profile_start("compute_eri_impham");
   double t0 = omp_get_wtime();
-  
 
+  const int device_id = count % num_devices;
+  pm->dev_set_device(device_id);
+  my_device_data * dd = &(device_data[device_id]);
+  double * d_cderi = nullptr;
+  // using fetch_eri, assume it's already there
+  int nao_s_pair = nao_s * (nao_s + 1)/2;
+  d_cderi = dd_fetch_eri(dd, nullptr, naux, nao_s_pair, addr_dfobj, count);
+  double * d_cderi_unpacked = dd->d_buf1;
 
+  int * d_my_unpack_map_ptr = dd_fetch_pumap(dd, nao_s, _PUMAP_2D_UNPACK);
+
+  getjk_unpack_buf2(d_cderi_unpacked,d_cderi,d_my_unpack_map_ptr,naux, nao_s, nao_s_pair);
+
+  const double alpha = 1.0;
+  const double beta = 0.0;
+  int zero = 0;
+  int nao_s2 = nao_s * nao_s;
+  int nao_sf = nao_s * nao_f;
+  int nao_f2 = nao_f * nao_f;
+  double * d_bPeu = dd->d_buf2;
+  // b^P_ue = b^P_uu * M_ue
+  ml->set_handle();
+  ml->gemm_batch((char *) "N", (char *) "T", 
+               &nao_s, &nao_f, &nao_s,
+               &alpha, 
+               d_cderi_unpacked, &nao_s, &nao_s2, 
+               dd->d_mo_coeff, &nao_f, &zero, 
+               &beta, 
+               d_bPeu, &nao_s, &nao_sf, 
+               &naux);
+  // b^P_ee = b^P_ue * M_ue
+  double * d_bPee = dd->d_buf1; 
+  ml->gemm_batch((char *) "N", (char *) "N", 
+               &nao_f, &nao_f, &nao_s,
+               &alpha, 
+               dd->d_mo_coeff, &nao_f, &zero, 
+               d_bPeu, &nao_s, &nao_sf, 
+               &beta, 
+               d_bPee, &nao_f, &nao_f2, 
+               &naux);
+
+  double * eri_impham = &(pin_eri_impham[count*blksize*nao_f*nao_f]);
+  pm->dev_pull_async(d_bPee, eri_impham, naux*nao_f*nao_f*sizeof(double));
+  //do packing
+  //TODO:: do packing
   profile_stop();
   double t1 = omp_get_wtime();
   t_array[12] += t1 - t0;
@@ -2908,16 +2952,17 @@ void Device::compute_eri_impham(int nao_s, int nao_f, int blksize, int naux, int
 /* ---------------------------------------------------------------------- */
 void Device::pull_eri_impham(py::array_t<double> _eri, int naux, int nao_s, int nao_f)
 {
+  //This should be obsolete in a production version. We want this calculation to not exist, and the impurity eri should directly get transferred from gpu to gpu in it's corresponding location. 
 
+  // if not possible, then the cpu version should be refactored to allow pull to happen async (i think it's pageable right now and it will kill all performance when you pull bPee to cpu (and then transfer it back again)) 
 #ifdef _DEBUG_DEVICE
   printf("LIBGPU :: -- Inside Device::pull_eri_impham()\n");
 #endif
 
   double t0 = omp_get_wtime();
-    
-  py::buffer_info info_eri = _eri.request(); //3D array (naoaux*nmo*ncas)
+  pm->dev_stream_wait();  
+  py::buffer_info info_eri = _eri.request(); 
   double * eri = static_cast<double*>(info_eri.ptr);
-  //printf("size_bufpa %i\n", size_bufpa);
   std::memcpy(eri, pin_eri_impham, size_eri_impham*sizeof(double));
   
   profile_stop();
