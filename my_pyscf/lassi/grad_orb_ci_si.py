@@ -119,7 +119,7 @@ def get_grad_ci (lsi, mo_coeff=None, ci=None, si=None, state=None, weights=None,
     if state is not None:
         sivec = sivec[:,state]
         n = 1
-    elif sivec.ndim==2:
+    elif sivec.ndim==2 and sivec.shape[1]>1:
         n = sivec.shape[1]
         assert (len (weights) == n)
     else:

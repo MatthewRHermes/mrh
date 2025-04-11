@@ -73,17 +73,19 @@ class HessianOperator (sparse_linalg.LinearOperator):
         '''Add the orbital internal indices into ?i_01'''
         if kappa is None:
             kappa = np.zeros ((self.nmo, self.nmo), dtype=self.mo_coeff.dtype)
-        ci1 = [[np.zeros_like (ci_ij) for ci_ij in ci_i] for ci_i in self.ci]
+        ci1 = [[0.0 for ci_ij in ci_i] for ci_i in self.ci]
+
+        # TODO: SA generalization
 
         if ci_01 is not None:
             for i in range (self.nfrags):
                 for r in range (self.nroots):
-                    ci1[i][r] += ci_01[i][r]
+                    ci1[i][r] += ci_01[i][r][0,...,0]
         if ci_10 is not None:
             for i,j in permutations (range (self.nfrags), 2):
-                ci0 = ci_10[i][self.nroots*(j+1):self.nroots*(j+2)]
+                ci_10_i = ci_10[i][self.nroots*(j+1):self.nroots*(j+2)]
                 for r in range (self.nroots):
-                    ci1[i][r] += ci0[i][r]
+                    ci1[i][r] += ci_10_i[r][0,...,0]
         for i in range (self.nfrags):
             for r in range (self.nroots):
                 ci1[i][r] += ci1[i][r].conj () # + h.c.
@@ -91,9 +93,9 @@ class HessianOperator (sparse_linalg.LinearOperator):
 
         si1 = np.zeros_like (self.si)
         if si_01 is not None:
-            si1 += si_01[:n,:]
+            si1 += si_01[:self.nprods,:]
         if si_10 is not None:
-            si1 += si_10.reshape (self.nfrags,self.nprods,self.nroots_si)[1:].sum (0)
+            si1 += si_10.reshape (self.nfrags+1,self.nprods,self.nroots_si)[1:].sum (0)
         si1 += si1.conj () # + h.c.
 
         return self.ugg.pack (kappa, ci1_ref, ci1_sf, ci1_ch, si1)
