@@ -264,23 +264,30 @@ def case_lassis_hessian (ks, lsis):
         x1 = np.zeros_like (x0)
         x1[i:j] = x0[i:j]
         div = 1.0
+        h_op_x1 = h_op (x1)
         err_last = [np.finfo (float).tiny,]*len(sec_lbls)
         err_table = ['\n{:s} {:s}\n'.format (lbl1, lbl0) for lbl1 in sec_lbls]
         rel_err = [1,]*len(sec_lbls)
         for p in range (20):
             x2 = x1 / div
-            g1_test = h_op (x2)
+            g1_test = h_op_x1 / div
+            #g1_test = h_op (x2)
             g1_ref = grad_orb_ci_si.get_grad (lsis, *ugg.update_wfn (x2), pack=True) - g0
             for z, (k,l) in enumerate (sec_offs):
+                if k==l:
+                    rel_err[z] = .5
+                    continue
                 g2_test = np.zeros_like (g1_test)
                 g2_ref = np.zeros_like (g1_ref)
                 g2_test[k:l] = g1_test[k:l]
                 g2_ref[k:l] = g1_ref[k:l]
                 err = vector_error (g2_test, g2_ref, err_type='rel')[0]
-                err_table[z] += '{:e} {:e} {:e}\n'.format (1/div, linalg.norm (g2_ref), err)
-                rel_err[z] = err / err_last[z]
+                err_table[z] += '{:e} {:e} {:e} {:e}\n'.format (
+                    1/div, linalg.norm (g2_ref), linalg.norm (g2_test), err
+                )
+                rel_err[z] = (err / err_last[z])
                 err_last[z] = err + np.finfo (float).tiny
-                div *= 2
+            div *= 2
         for rel_err_i, err_table_i, lbl1 in zip (rel_err, err_table, sec_lbls):
             with ks.subTest ((lbl1,lbl0)):
                 ks.assertAlmostEqual (rel_err_i, .5, 1, msg=err_table_i)
