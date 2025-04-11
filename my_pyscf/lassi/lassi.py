@@ -613,8 +613,21 @@ def make_stdm12s (las, ci=None, orbsym=None, soc=False, break_symmetry=False, op
             stdm2s[a,...,b] = d2s[i,...,j]
     return stdm1s, stdm2s
 
+def guess_rootsym (si, statesym, lroots):
+    rootsym = []
+    nprods = np.prod (lroots, axis=0)
+    offs1 = np.cumsum (nprods)
+    offs0 = offs1 - nprods
+    for sivec in si.T:
+        # TODO: refactor rootsym and statesym and eliminate this kludge
+        sivec = sivec[:offs1[len(statesym)-1]]
+        idx = np.argmax (np.abs (sivec))
+        iroot = np.where (np.logical_and (idx>=offs0, idx<offs1))[0][0]
+        rootsym.append (statesym[iroot])
+    return rootsym
+
 def roots_trans_rdm12s (las, ci, si_bra, si_ket, orbsym=None, soc=None, break_symmetry=None,
-                       rootsym=None, opt=1):
+                        opt=1):
     '''Evaluate 1- and 2-electron reduced transition density matrices of LASSI states
 
         Args:
@@ -635,10 +648,6 @@ def roots_trans_rdm12s (las, ci, si_bra, si_ket, orbsym=None, soc=None, break_sy
                 Whether to allow coupling between states of different point-group irreps
                 Overrides tag of si if provided by caller. I have no idea what will happen
                 if they contradict. This should probably be removed.
-            rootsym: list of length nroots
-                Each element is a tuple describing all enforced symmetries of a LAS state. 
-                Grabbed first from si then from las if not supplied. Required from
-                somewhere.
 
             opt: Optimization level, i.e.,  take outer product of
                 0: CI vectors
@@ -662,8 +671,6 @@ def roots_trans_rdm12s (las, ci, si_bra, si_ket, orbsym=None, soc=None, break_sy
     o0_memcheck = op_o0.memcheck (las, ci, soc=soc)
     if opt == 0 and o0_memcheck == False:
         raise RuntimeError ('Insufficient memory to use o0 LASSI algorithm')
-    if rootsym is None:
-        rootsym = getattr (si_ket, 'rootsym', getattr (las, 'rootsym', None))
 
     # Initialize matrices
     norb = las.ncas
@@ -682,7 +689,10 @@ def roots_trans_rdm12s (las, ci, si_bra, si_ket, orbsym=None, soc=None, break_sy
 
     # Loop over symmetry blocks
     statesym = las_symm_tuple (las, break_spin=soc, break_symmetry=break_symmetry, verbose=0)[0]
-    rootsym = [tuple (x) for x in rootsym]
+    lroots = get_lroots (ci)
+    rootsym = guess_rootsym (si_bra, statesym, lroots)
+    rootsym_ket = guess_rootsym (si_ket, statesym, lroots)
+    assert (all ([b==k for b, k in zip (rootsym, rootsym_ket)]))
     for las1, sym, indcs, indxd in iterate_subspace_blocks(las,ci,statesym,subset=set(rootsym)):
         idx_ci, idx_prod = indcs
         ci_blk, nelec_blk = indxd
@@ -727,7 +737,7 @@ def roots_trans_rdm12s (las, ci, si_bra, si_ket, orbsym=None, soc=None, break_sy
     rdm2s = np.stack (rdm2s, axis=0)
     return rdm1s, rdm2s
 
-def roots_make_rdm12s (las, ci, si, orbsym=None, soc=None, break_symmetry=None, rootsym=None,
+def roots_make_rdm12s (las, ci, si, orbsym=None, soc=None, break_symmetry=None,
                        opt=1):
     '''Evaluate 1- and 2-electron reduced density matrices of LASSI states
 
@@ -747,10 +757,6 @@ def roots_make_rdm12s (las, ci, si, orbsym=None, soc=None, break_symmetry=None, 
                 Whether to allow coupling between states of different point-group irreps
                 Overrides tag of si if provided by caller. I have no idea what will happen
                 if they contradict. This should probably be removed.
-            rootsym: list of length nroots
-                Each element is a tuple describing all enforced symmetries of a LAS state. 
-                Grabbed first from si then from las if not supplied. Required from
-                somewhere.
 
             opt: Optimization level, i.e.,  take outer product of
                 0: CI vectors
@@ -762,10 +768,10 @@ def roots_make_rdm12s (las, ci, si, orbsym=None, soc=None, break_symmetry=None, 
             rdm2s: ndarray of shape (nroots,2,ncas,ncas,2,ncas,ncas)
     '''
     return roots_trans_rdm12s (las, ci, si, si, orbsym=orbsym, soc=soc,
-                               break_symmetry=break_symmetry, rootsym=rootsym, opt=opt)
+                               break_symmetry=break_symmetry, opt=opt)
 
 def root_trans_rdm12s (las, ci, si_bra, si_ket, state=0, orbsym=None, soc=None, break_symmetry=None,
-                      rootsym=None, opt=1):
+                       opt=1):
     '''Evaluate 1- and 2-electron reduced transition density matrices of one single pair of LASSI
     states.
 
@@ -790,10 +796,6 @@ def root_trans_rdm12s (las, ci, si_bra, si_ket, state=0, orbsym=None, soc=None, 
                 Whether to allow coupling between states of different point-group irreps
                 Overrides tag of si if provided by caller. I have no idea what will happen
                 if they contradict. This should probably be removed.
-            rootsym: list of length nroots
-                Each element is a tuple describing all enforced symmetries of a LAS state. 
-                Grabbed first from si then from las if not supplied. Required from
-                somewhere.
             opt: Optimization level, i.e.,  take outer product of
                 0: CI vectors
                 1: TDMs
@@ -810,17 +812,14 @@ def root_trans_rdm12s (las, ci, si_bra, si_ket, state=0, orbsym=None, soc=None, 
         soc = getattr (si_ket, 'soc', getattr (las, 'soc', False))
     if break_symmetry is None:
         break_symmetry = getattr (si_ket, 'break_symmetry', getattr (las, 'break_symmetry', False))
-    if rootsym is None:
-        rootsym = getattr (si_ket, 'rootsym', getattr (las, 'rootsym', None))
-    rootsym = [rootsym[s] for s in states]
     rdm1s, rdm2s = roots_trans_rdm12s (las, ci, sib_column, sik_column, orbsym=orbsym, soc=soc,
-                                       break_symmetry=break_symmetry, rootsym=rootsym, opt=opt)
+                                       break_symmetry=break_symmetry, opt=opt)
     if len (states) == 1:
         rdm1s, rdm2s = rdm1s[0], rdm2s[0]
     return rdm1s, rdm2s
 
 def root_make_rdm12s (las, ci, si, state=0, orbsym=None, soc=None, break_symmetry=None,
-                      rootsym=None, opt=1):
+                      opt=1):
     '''Evaluate 1- and 2-electron reduced density matrices of one single LASSI state
 
         Args:
@@ -842,10 +841,6 @@ def root_make_rdm12s (las, ci, si, state=0, orbsym=None, soc=None, break_symmetr
                 Whether to allow coupling between states of different point-group irreps
                 Overrides tag of si if provided by caller. I have no idea what will happen
                 if they contradict. This should probably be removed.
-            rootsym: list of length nroots
-                Each element is a tuple describing all enforced symmetries of a LAS state. 
-                Grabbed first from si then from las if not supplied. Required from
-                somewhere.
             opt: Optimization level, i.e.,  take outer product of
                 0: CI vectors
                 1: TDMs
@@ -856,7 +851,7 @@ def root_make_rdm12s (las, ci, si, state=0, orbsym=None, soc=None, break_symmetr
             rdm2s: ndarray of shape (2,ncas,ncas,2,ncas,ncas)
     '''
     return root_trans_rdm12s (las, ci, si, si, state=state, orbsym=orbsym, soc=soc,
-                              break_symmetry=break_symmetry, rootsym=rootsym, opt=opt)
+                              break_symmetry=break_symmetry, opt=opt)
 
 def energy_tot (lsi, mo_coeff=None, ci=None, si=None, soc=0, opt=None):
     if mo_coeff is None: mo_coeff = lsi.mo_coeff
@@ -997,6 +992,10 @@ class LASSI(lib.StreamObject):
         if ci is None: ci = self.ci
         if si is None: si = self.si
         if opt is None: opt = self.opt
+        nstates = 1 if si.ndim==1 else si.shape[1]
+        if nstates==1:
+            if state is None: state=0
+            if si.ndim==1: si=si[:,None]
         if state is None:
             dm1s, dm2s = roots_make_rdm12s (self, ci, si, opt=opt)
             if weights is not None:
@@ -1019,6 +1018,13 @@ class LASSI(lib.StreamObject):
         if si_bra is None: si_bra = self.si
         if si_ket is None: si_ket = self.si
         if opt is None: opt = self.opt
+        nstates = 1 if si_bra.ndim==1 else si_bra.shape[1]
+        nstates_ket = 1 if si_ket.ndim==1 else si_ket.shape[1]
+        assert (nstates==nstates_ket)
+        if nstates==1:
+            if state is None: state=0
+            if si_bra.ndim==1: si_bra=si_bra[:,None]
+            if si_ket.ndim==1: si_ket=si_ket[:,None]
         if state is None:
             dm1s, dm2s = roots_trans_rdm12s (self, ci, si_bra, si_ket, opt=opt)
             if weights is not None:

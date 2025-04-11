@@ -33,7 +33,7 @@ class HessianOperator (sparse_linalg.LinearOperator):
         for i in range (self.nmo):
             self.h2_paaa.append (self.eris.ppaa[i][ncore:nocc])
         self.casdm1, self.casdm2 = lsi.make_casdm12 (
-            ci=self.ci, si=self.si, opt=self.opt, state=0 # TODO: generalize state properly for SA
+            ci=self.ci, si=self.si, opt=self.opt
         )
         self.h2_paaa = np.stack (self.h2_paaa, axis=0)
         dm0 = 2*mo_coeff[:,:ncore] @ mo_coeff[:,:ncore].conj ().T
@@ -47,7 +47,11 @@ class HessianOperator (sparse_linalg.LinearOperator):
         ncore, ncas = self.lsi.ncore, self.lsi.ncas
         nocc = ncore + ncas
         dm1 = _coreocc*np.eye (self.nmo).astype (casdm1.dtype)
-        dm1[ncore:nocc,ncore:nocc] = casdm1
+        try:
+            dm1[ncore:nocc,ncore:nocc] = casdm1
+        except ValueError as err:
+            print (self.si.shape)
+            raise (err)
         fock1 = np.dot (h1, dm1)
         fock1[:,ncore:nocc] += lib.einsum ('pbcd,abcd->pa', h2_paaa, casdm2)
         return fock1
@@ -159,8 +163,7 @@ class HessianOperator (sparse_linalg.LinearOperator):
         return fx - fx.T
 
     def hoa (self, ci1, si0, si1):
-        casdm1, casdm2 = self.lsi.trans_casdm12 (ci=ci1, si_bra=si0, si_ket=si1, opt=self.opt,
-                                                 state=0) # TODO: fix for SA
+        casdm1, casdm2 = self.lsi.trans_casdm12 (ci=ci1, si_bra=si0, si_ket=si1, opt=self.opt)
         casdm1 += casdm1.T
         casdm2 += casdm2.transpose (1,0,3,2)
         fx = self.get_fock1 (self.h1, self.h2_paaa, casdm1, casdm2, _coreocc=0)
