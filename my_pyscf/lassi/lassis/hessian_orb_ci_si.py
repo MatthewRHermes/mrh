@@ -41,7 +41,7 @@ class HessianOperator (sparse_linalg.LinearOperator):
         self.ham_2q = lsi.ham_2q (mo_coeff)
         h1 = lsi._las.get_hcore () + self.veff_c
         self.h1 = mo_coeff.conj ().T @ h1 @ mo_coeff
-        self.fock1 = self.get_fock1 (h1, self.h2_paaa, self.casdm1, self.casdm2)
+        self.fock1 = self.get_fock1 (self.h1, self.h2_paaa, self.casdm1, self.casdm2)
 
     def get_fock1 (self, h1, h2_paaa, casdm1, casdm2, _coreocc=2):
         ncore, ncas = self.lsi.ncore, self.lsi.ncas
@@ -192,7 +192,7 @@ def xham_2q (lsi, kappa, mo_coeff=None, eris=None, veff_c=None):
     mo1 = np.dot (mo0, kappa)
     mo1H = np.dot (kappa, mo0H)
     h1_0 = las.get_hcore () + veff_c
-    h1 = mo0H @ h1_0 @ mo0 - mo1H @ h1_0 @ mo0
+    h1 = mo0H @ h1_0 @ mo1 - mo1H @ h1_0 @ mo0
     if ncore:
         dm1 = 2*np.eye (nmo)
         dm1[ncore:] = 0

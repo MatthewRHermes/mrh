@@ -281,12 +281,12 @@ def case_lassis_hessian (ks, lsis):
                 g2_ref = np.zeros_like (g1_ref)
                 g2_test[k:l] = g1_test[k:l]
                 g2_ref[k:l] = g1_ref[k:l]
-                err = vector_error (g2_test, g2_ref, err_type='rel')[0]
-                err_table[z] += '{:e} {:e} {:e} {:e}\n'.format (
-                    1/div, linalg.norm (g2_ref), linalg.norm (g2_test), err
+                err = vector_error (g2_test, g2_ref, err_type='rel', ang_units='deg')
+                err_table[z] += '{:e} {:e} {:e} {:e} {:.1f}\n'.format (
+                    1/div, linalg.norm (g2_ref), linalg.norm (g2_test), err[0], err[1]
                 )
-                rel_err[z] = (err / err_last[z])
-                err_last[z] = err + np.finfo (float).tiny
+                rel_err[z] = (err[0] / err_last[z])
+                err_last[z] = err[0] + np.finfo (float).tiny
             div *= 2
         for rel_err_i, err_table_i, lbl1 in zip (rel_err, err_table, sec_lbls):
             with ks.subTest ((lbl1,lbl0)):

@@ -42,9 +42,13 @@ def setUpModule ():
     # Random Hamiltonian
     rng = np.random.default_rng (424)
     mf._eri = rng.random (mf._eri.shape)
+    #mf._eri[:] = 0
     hcore = rng.random ((4,4))
     hcore = hcore + hcore.T
+    #hcore[:] = 1
     mf.get_hcore = lambda *args: hcore
+    #mf.get_ovlp = lambda *args: np.eye (4)
+    #mf.mo_coeff = np.eye (4)
 
     # LASSCF with CASCI-limit model space
     las = LASSCF (mf, (2,2), (2,2), spin_sub=(1,1))
