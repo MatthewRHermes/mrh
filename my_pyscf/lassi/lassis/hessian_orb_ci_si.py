@@ -20,7 +20,7 @@ class HessianOperator (sparse_linalg.LinearOperator):
         self.nroots = len (ugg.ci[0])
         self.lsi = lsi = ugg.lsi
         self.opt = lsi.opt
-        self.si = ugg.si
+        self.si = ugg.raw2orth.H (ugg.si)
         self.nprods = ugg.nprods
         self.nroots_si = ugg.nroots_si
         self.shape = (ugg.nvar_tot,ugg.nvar_tot)
@@ -32,6 +32,7 @@ class HessianOperator (sparse_linalg.LinearOperator):
         self.h2_paaa = []
         for i in range (self.nmo):
             self.h2_paaa.append (self.eris.ppaa[i][ncore:nocc])
+        
         self.casdm1, self.casdm2 = lsi.make_casdm12 (
             ci=self.ci, si=self.si, opt=self.opt
         )
@@ -144,6 +145,9 @@ class HessianOperator (sparse_linalg.LinearOperator):
         rorb = self.hoo (xham_2q, kappa)
         rorb += self.hoa (ci1, si0, si1)
 
+        # TODO: why divide by 2?
+        xham_2q = [h/2 for h in xham_2q]
+
         rci_01 = self.hci_op (xham_2q, ci1, si0, si0)
         rci_001 = self.hci_op (ham_2q, ci1, si0, si1)
         for i in range (self.nfrags):
@@ -160,9 +164,7 @@ class HessianOperator (sparse_linalg.LinearOperator):
     def hoo (self, xham_2q, kappa):
         h0, h1, h2 = xham_2q
         fx = self.get_fock1 (h1, h2, self.casdm1, self.casdm2)
-        fx += np.dot (kappa, self.fock1) / 2
-        fx -= np.dot (self.fock1, kappa) / 2
-        return fx - fx.T
+        return (fx - fx.T) / 2
 
     def hoa (self, ci1, si0, si1):
         casdm1, casdm2 = self.lsi.trans_casdm12 (ci=ci1, si_bra=si0, si_ket=si1, opt=self.opt)

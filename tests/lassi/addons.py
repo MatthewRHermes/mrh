@@ -244,11 +244,17 @@ def case_lassis_hessian (ks, lsis):
         si = (lsis.si[:,0] + lsis.si[:,i]) * np.sqrt (0.5)
     else:
         si = si[:,0]
-    g0 = grad_orb_ci_si.get_grad (lsis, si=si, pack=True)
+    #si[:] = 0
+    #si[0] = 1
+    ci_ref = lsis.get_ci_ref ()
+    #for ci_i in ci_ref:
+    #    ci_i[:,:] = 0
+    #    ci_i[0,0] = 1
+    g0 = grad_orb_ci_si.get_grad (lsis, ci_ref=ci_ref, si=si, pack=True)
     ugg = coords.UnitaryGroupGenerators (
         lsis,
         lsis.mo_coeff,
-        lsis.get_ci_ref (),
+        ci_ref, #lsis.get_ci_ref (),
         lsis.ci_spin_flips,
         lsis.ci_charge_hops,
         si
@@ -285,13 +291,16 @@ def case_lassis_hessian (ks, lsis):
                 err_table[z] += '{:e} {:e} {:e} {:e} {:.1f}\n'.format (
                     1/div, linalg.norm (g2_ref), linalg.norm (g2_test), err[0], err[1]
                 )
-                rel_err[z] = (err[0] / err_last[z])
-                err_last[z] = err[0] + np.finfo (float).tiny
+                err = err[0]
+                rel_err[z] = (err / err_last[z])
+                if linalg.norm (g2_test) < 1e-16:
+                    err = linalg.norm (g2_ref)
+                    rel_err[z] = (err / err_last[z]) * 2
+                err_last[z] = err + np.finfo (float).tiny
             div *= 2
         for rel_err_i, err_table_i, lbl1 in zip (rel_err, err_table, sec_lbls):
             with ks.subTest ((lbl1,lbl0)):
                 ks.assertAlmostEqual (rel_err_i, .5, 1, msg=err_table_i)
-
 
 
 
