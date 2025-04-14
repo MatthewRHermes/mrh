@@ -45,6 +45,8 @@ class HessianOperator (sparse_linalg.LinearOperator):
         self.h1 = mo_coeff.conj ().T @ h1 @ mo_coeff
         self.fock1 = self.get_fock1 (self.h1, self.h2_paaa, self.casdm1, self.casdm2)
         self.spaces = list_spaces (lsi)
+        self.e_roots_si = np.zeros (self.nroots_si)
+        self.e_roots_si = np.dot (self.si.conj ().T, self.hsi_op (self.ham_2q, self.ci, self.si))
 
     def get_fock1 (self, h1, h2_paaa, casdm1, casdm2, _coreocc=2):
         ncore, ncas = self.lsi.ncore, self.lsi.ncas
@@ -133,7 +135,7 @@ class HessianOperator (sparse_linalg.LinearOperator):
         ham_op, _, ovlp_op = op[self.opt].gen_contract_op_si_hdiag (
             self.lsi, h1, h2, ci, nelec_frs
         )[:3]
-        return ham_op (si) + h0*ovlp_op (si)
+        return ham_op (si) - (self.e_roots_si - h0) * si
 
     def get_xham_2q (self, kappa):
         return xham_2q (self.lsi, kappa, mo_coeff=self.mo_coeff, eris=self.eris,
