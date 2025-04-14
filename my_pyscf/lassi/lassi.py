@@ -180,39 +180,44 @@ def las_symm_tuple (las, spaces=None, break_spin=False, break_symmetry=False, ve
     return statesym, np.asarray (s2_states)
 
 class _LASSI_subspace_env (object):
-    def __init__(self, las, idx):
+    def __init__(self, las, my_fcisolvers, my_e_states):
         self.las = las
-        self.idx = np.where (idx)[0]
+        self.my_fcisolvers = my_fcisolvers
+        self.my_e_states = my_e_states
         self.fcisolvers = [f.fcisolvers for f in las.fciboxes]
         self.e_states = las.e_states
     def __enter__(self):
-        for f, g in zip (self.las.fciboxes, self.fcisolvers):
-            f.fcisolvers = [g[ix] for ix in self.idx]
-        self.las.e_states = self.e_states[self.idx]
+        for f, g in zip (self.las.fciboxes, self.my_fcisolvers):
+            f.fcisolvers = g
+        self.las.e_states = self.my_e_states
     def __exit__(self, type, value, traceback):
         for ix, f in enumerate (self.las.fciboxes):
             f.fcisolvers = self.fcisolvers[ix]
         self.las.e_states = self.e_states
 
-def iterate_subspace_blocks (las, ci, spacesym, subset=None):
+def iterate_subspace_blocks (las, ci, spacesym, subset=None, spaces=None):
     if subset is None: subset = set (spacesym)
     lroots = get_lroots (ci)
     nprods_r = np.prod (lroots, axis=0)
     prod_off = np.cumsum (nprods_r) - nprods_r
     nprods = nprods_r.sum ()
+    if spaces is None: spaces = list_spaces (las)
     for sym in subset:
         idx_space = np.all (np.array (spacesym) == sym, axis=1)
         idx = np.where (idx_space)[0]
         ci_blk = [[c[i] for i in idx] for c in ci]
         idx_prod = np.zeros (nprods, dtype=bool)
-        for i in idx:
+        my_fcisolvers = [[] for i in range (las.nfrags)]
+        my_e_states = []
+        nelec_blk = np.zeros ((las.nfrags,len(idx),2), dtype=int)
+        for i0, i in enumerate (idx):
             idx_prod[prod_off[i]:prod_off[i]+nprods_r[i]] = True
-        with _LASSI_subspace_env (las, idx_space):
-            nelec_blk = np.array (
-                [[_unpack_nelec (fcibox._get_nelec (solver, nelecas))
-                  for solver in fcibox.fcisolvers]
-                 for fcibox, nelecas in zip (las.fciboxes, las.nelecas_sub)]
-            )
+            my_fcisolvers_i = spaces[i].get_fcisolvers ()
+            nelec_blk[:,i0,:] = np.stack ([spaces[i].neleca, spaces[i].nelecb], axis=1)
+            for j in range (las.nfrags):
+                my_fcisolvers[j].append (my_fcisolvers_i[j])
+            my_e_states.append (spaces[i].energy_tot)
+        with _LASSI_subspace_env (las, my_fcisolvers, my_e_states):
             yield las, sym, (idx_space, idx_prod), (ci_blk, nelec_blk)
 
 class LASSIOop01DisagreementError (RuntimeError):
@@ -551,7 +556,7 @@ def make_stdm12s (las, ci=None, orbsym=None, soc=False, break_symmetry=False, sp
     d1s_all = []
     d2s_all = []
     nprods = 0
-    for las1, sym, indices, indexed in iterate_subspace_blocks (las, ci, statesym):
+    for las1, sym, indices, indexed in iterate_subspace_blocks (las, ci, statesym, spaces=spaces):
         idx_sp, idx_prod = indices
         ci_blk, nelec_blk = indexed
         t0 = (lib.logger.process_clock (), lib.logger.perf_counter ())
@@ -685,7 +690,7 @@ def roots_trans_rdm12s (las, ci, si_bra, si_ket, orbsym=None, soc=None, break_sy
     rootsym = guess_rootsym (si_bra, statesym, lroots)
     rootsym_ket = guess_rootsym (si_ket, statesym, lroots)
     assert (all ([b==k for b, k in zip (rootsym, rootsym_ket)]))
-    for las1, sym, indcs, indxd in iterate_subspace_blocks(las,ci,statesym,subset=set(rootsym)):
+    for las1, sym, indcs, indxd in iterate_subspace_blocks(las,ci,statesym,subset=set(rootsym),spaces=spaces):
         idx_ci, idx_prod = indcs
         ci_blk, nelec_blk = indxd
         idx_si = np.all (np.array (rootsym) == sym, axis=1)
@@ -1005,7 +1010,7 @@ class LASSI(lib.StreamObject):
                 dm2s = lib.einsum ('r,rspqtxy->spqtxy', weights, dm2s)
             return dm1s, dm2s
         else:
-            return root_make_rdm12s (self, ci, si, state=state, opt=opt)
+            return root_make_rdm12s (self, ci, si, state=state, spaces=spaces, opt=opt)
 
     def make_casdm12 (self, ci=None, si=None, state=None, weights=None, spaces=None, opt=None):
         dm1s, dm2s = self.make_casdm12s (ci=ci, si=si, state=state, weights=weights, spaces=spaces,
@@ -1036,7 +1041,8 @@ class LASSI(lib.StreamObject):
                 dm2s = lib.einsum ('r,rspqtxy->spqtxy', weights, dm2s)
             return dm1s, dm2s
         else:
-            return root_trans_rdm12s (self, ci, si_bra, si_ket, state=state, opt=opt)
+            return root_trans_rdm12s (self, ci, si_bra, si_ket, state=state, spaces=spaces,
+                                      opt=opt)
 
     def trans_casdm12 (self, ci=None, si_bra=None, si_ket=None, state=None, weights=None,
                        spaces=None, opt=None):

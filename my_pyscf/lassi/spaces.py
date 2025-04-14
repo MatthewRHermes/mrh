@@ -17,7 +17,7 @@ LINDEP_THRESH = getattr (__config__, 'lassi_lindep_thresh', 1.0e-5)
 
 class SingleLASRootspace (object):
     def __init__(self, las, spins, smults, charges, weight, nlas=None, nelelas=None, stdout=None,
-                 verbose=None, ci=None, fragsym=None):
+                 verbose=None, ci=None, fragsym=None, energy_tot=0):
         if nlas is None: nlas = las.ncas_sub
         if nelelas is None: nelelas = [sum (_unpack_nelec (x)) for x in las.nelecas_sub]
         if stdout is None: stdout = las.stdout
@@ -45,6 +45,8 @@ class SingleLASRootspace (object):
         self.nelecd = (self.nelec - (self.smults-1)) // 2
         self.nholeu = self.nlas - self.nelecu
         self.nholed = self.nlas - self.nelecd
+
+        self.energy_tot = energy_tot
 
         self.entmap = tuple ()
 
@@ -685,6 +687,8 @@ def list_spaces (las):
     spaces = [SingleLASRootspace (las, m, s, c, las.weights[ix], ci=[c[ix] for c in las.ci],
                                   fragsym=w)
               for ix, (c, m, s, w) in enumerate (zip (*get_space_info (las)))]
+    for e_state, space in zip (las.e_states, spaces):
+        space.energy_tot = e_state
     return spaces
 
 if __name__=='__main__':

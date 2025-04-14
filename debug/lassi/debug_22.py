@@ -71,7 +71,7 @@ def setUpModule ():
     op = (op_o0, op_o1)
 
     # LASSIS
-    lsis = lassis.LASSIS (las).run ()
+    lsis = lassis.LASSIS (las, opt=0).run ()
 
 def tearDownModule():
     global mol, mf, lsi, las, mc, op, lsis
