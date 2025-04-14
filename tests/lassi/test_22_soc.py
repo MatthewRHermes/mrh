@@ -19,13 +19,13 @@ from scipy import linalg
 from pyscf import lib, gto, scf, mcscf, fci, ao2mo
 from mrh.my_pyscf.mcscf.lasscf_o0 import LASSCF
 from mrh.my_pyscf.lassi import LASSI, LASSIrq, LASSIrqCT
-from mrh.my_pyscf.lassi.lassi import root_make_rdm12s, make_stdm12s
+from mrh.my_pyscf.lassi.lassi import root_make_rdm12s, roots_trans_rdm12s, make_stdm12s
 from mrh.my_pyscf.lassi.spaces import all_single_excitations
 from mrh.my_pyscf.mcscf.lasci import get_space_info
 from mrh.my_pyscf.lassi import op_o0, op_o1, lassis
 from mrh.my_pyscf.lassi.op_o1 import get_fdm1_maker
 from mrh.my_pyscf.lassi.sitools import make_sdm1
-from mrh.tests.lassi.addons import case_contract_hlas_ci
+from mrh.tests.lassi.addons import case_contract_hlas_ci, case_contract_op_si
 
 def setUpModule ():
     global mol, mf, lsi, las, mc, op, old_compute_hso
@@ -129,6 +129,32 @@ class KnownValues(unittest.TestCase):
                     self.assertAlmostEqual (lib.fp (lasdm1s), lib.fp (casdm1s), 4)
                 with self.subTest ("casdm2s"):
                     self.assertAlmostEqual (lib.fp (lasdm2s), lib.fp (casdm2s), 4)
+
+    def test_si_trans_rdm12s (self):
+        las, e_roots, si_ket = lsi._las, lsi.e_roots, lsi.si
+        si_bra = np.roll (si_ket, 1, axis=1)
+        stdm1s, stdm2s = make_stdm12s (las, soc=True, opt=1)
+        rdm1s_ref = lib.einsum ('ir,jr,iabj->rab', si_bra.conj (), si_ket, stdm1s)
+        rdm2s_ref = lib.einsum ('ir,jr,isabtcdj->rsabtcd', si_bra, si_ket.conj (), stdm2s)
+        for opt in range (2):
+            with self.subTest (opt=opt):
+                lasdm1s, lasdm2s = roots_trans_rdm12s (las, las.ci, si_bra, si_ket, opt=opt)
+                with self.subTest ("lasdm1s"):
+                    self.assertAlmostEqual (lib.fp (lasdm1s), lib.fp (rdm1s_ref), 8)
+                with self.subTest ("lasdm2s"):
+                    self.assertAlmostEqual (lib.fp (lasdm2s), lib.fp (rdm2s_ref), 8)
+
+    def test_davidson (self):
+        lsi1 = LASSI (lsi._las, soc=1, break_symmetry=True).run (davidson_only=True)
+        self.assertAlmostEqual (lsi1.e_roots[0], lsi.e_roots[0], 8)
+        ovlp = np.dot (lsi1.si[:,0], lsi.si[:,0].conj ())
+        ovlp = ovlp.conj () * ovlp
+        self.assertAlmostEqual (ovlp, 1.0, 4)
+
+    def test_contract_op_si (self):
+        e_roots, si, las = lsi.e_roots, lsi.si, lsi._las
+        h0, h1, h2 = lsi.ham_2q (soc=1)
+        case_contract_op_si (self, las, h1, h2, las.ci, lsi.get_nelec_frs (), soc=1)
 
     #def test_lassirq (self):
     #    lsi1 = LASSIrq (las, 2, 3).run ()

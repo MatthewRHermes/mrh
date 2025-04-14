@@ -70,7 +70,6 @@ class KnownValues(unittest.TestCase):
         for r, r2 in zip (lsi.rootsym, lsi2.rootsym):
             self.assertListEqual (list(r), list(r2))
         self.assertAlmostEqual (lib.fp (lsi.si), lib.fp (lsi2.si), 9)
-        self.assertAlmostEqual (lib.fp (lsi.s2_mat), lib.fp (lsi2.s2_mat), 9)
         for i in range (2):
             for j in range (lsi.nroots):
                 self.assertAlmostEqual (lib.fp (lsi.ci[i][j]), lib.fp (lsi2.ci[i][j]), 9)

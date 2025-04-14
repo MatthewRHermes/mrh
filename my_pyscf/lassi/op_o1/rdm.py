@@ -41,28 +41,34 @@ class LRRDM (stdm.LSTDM):
     # TODO: SO-LASSI o1 implementation: these density matrices can only be defined in the full
     # spinorbital basis
 
-    def __init__(self, ints, nlas, hopping_index, lroots, si, mask_bra_space=None,
+    def __init__(self, ints, nlas, hopping_index, lroots, si_bra, si_ket, mask_bra_space=None,
                  mask_ket_space=None, log=None, max_memory=2000, dtype=np.float64):
         stdm.LSTDM.__init__(self, ints, nlas, hopping_index, lroots,
                                 mask_bra_space=mask_bra_space,
                                 mask_ket_space=mask_ket_space,
                                 log=log, max_memory=max_memory,
                                 dtype=dtype)
-        self.nroots_si = si.shape[-1]
-        self.si = si.copy ()
-        self._umat_linequiv_loop_(self.si)
-        self.si = np.asfortranarray (self.si)
-        self._si_c = c_arr (self.si)
-        self._si_c_nrow = c_int (self.si.shape[0])
-        self._si_c_ncol = c_int (self.si.shape[1])
+        self.nroots_si = si_bra.shape[-1]
+        self.si_bra = si_bra.copy ()
+        self.si_ket = si_ket.copy ()
+        self.hermi = np.amax (np.abs (si_bra-si_ket)) < 1e-8
+        self._transpose = False
+        self._umat_linequiv_loop_(self.si_bra)
+        self._umat_linequiv_loop_(self.si_ket)
+        self.si_bra = np.asfortranarray (self.si_bra)
+        self.si_ket = np.asfortranarray (self.si_ket)
+        assert (self.si_bra.shape == self.si_ket.shape)
+        self._si_c_nrow = c_int (self.si_bra.shape[0])
+        self._si_c_ncol = c_int (self.si_bra.shape[1])
         self.d1buf = self.d1 = np.empty ((self.nroots_si,self.d1.size), dtype=self.d1.dtype)
         self.d2buf = self.d2 = np.empty ((self.nroots_si,self.d2.size), dtype=self.d2.dtype)
         self._d1buf_c = c_arr (self.d1buf)
         self._d2buf_c = c_arr (self.d2buf)
 
     def _add_transpose_(self):
-        self.rdm1s += self.rdm1s.conj ().transpose (0,1,3,2)
-        self.rdm2s += self.rdm2s.conj ().transpose (0,1,3,2,5,4)
+        if self.hermi:
+            self.rdm1s += self.rdm1s.conj ().transpose (0,1,3,2)
+            self.rdm2s += self.rdm2s.conj ().transpose (0,1,3,2,5,4)
 
     def _umat_linequiv_(self, ifrag, iroot, umat, *args):
         si = args[0]
@@ -118,7 +124,7 @@ class LRRDM (stdm.LSTDM):
         profile += '\n' + fmt_str.format ('idx', self.dt_i, self.dw_i)
         return profile
 
-    def get_single_rootspace_sivec (self, iroot):
+    def get_single_rootspace_sivec (self, iroot, bra=False):
         '''A single-rootspace slice of the SI vectors.
 
         Args:
@@ -130,11 +136,13 @@ class LRRDM (stdm.LSTDM):
                 SI vectors
         '''
         i, j = self.offs_lroots[iroot]
-        return self.si[i:j,:]
+        if self._transpose: bra = not bra
+        si = self.si_bra if bra else self.si_ket
+        return si[i:j,:]
 
-    _lowertri = True
+    _lowertri_fdm = True
 
-    def get_frag_transposed_sivec (self, iroot, *inv):
+    def get_frag_transposed_sivec (self, iroot, *inv, bra=False):
         '''A single-rootspace slice of the SI vectors, transposed so that involved fragments
         are slower-moving
 
@@ -149,22 +157,8 @@ class LRRDM (stdm.LSTDM):
                 SI vectors with the faster dimension iterating over states of fragments not in
                 inv and the slower dimension iterating over states of fragments in inv 
         '''
-        sivec = self.get_single_rootspace_sivec (iroot)
-        rdim = self.nroots_si
-        lroots = self.lroots[:,iroot].copy ()
-        for i in list (inv)[::-1]:
-            lrl = np.prod (lroots[:i])
-            lrc = lroots[i]
-            lrr = np.prod (lroots[i+1:])
-            sivec = sivec.reshape ((lrl,lrc,lrr,rdim), order='F')
-            sivec = sivec.transpose (0,2,1,3)
-            sivec = sivec.reshape ((lrl*lrr,lrc*rdim), order='F')
-            rdim = rdim * lrc
-            lroots[i] = 1
-        nprods = np.prod (self.lroots[:,iroot])
-        nrows = np.prod (self.lroots[inv,iroot])
-        ncols = nprods // nrows
-        return np.asfortranarray (sivec).reshape ((ncols, nrows, self.nroots_si), order='F').T
+        sivec = self.get_single_rootspace_sivec (iroot, bra=bra)
+        return transpose_sivec_make_fragments_slow (sivec, self.lroots[:,iroot], *inv)
 
     def get_fdm (self, rbra, rket, *inv, keyorder=None):
         '''Get the n-fragment density matrices for the fragments identified by inv in the bra and
@@ -227,8 +221,8 @@ class LRRDM (stdm.LSTDM):
         '''
         # TODO: get rid of the outer product of overlap matrices here? My first attempt made it
         # slower though, I guess because of the line filtering out zero-overlap elements.
-        sibra = self.get_frag_transposed_sivec (rbra, *inv)
-        siket = self.get_frag_transposed_sivec (rket, *inv)
+        sibra = self.get_frag_transposed_sivec (rbra, *inv, bra=True)
+        siket = self.get_frag_transposed_sivec (rket, *inv, bra=False)
         inv = list (set (inv))
         fac = self.spin_shuffle[rbra] * self.spin_shuffle[rket]
         fac *= self.fermion_frag_shuffle (rbra, inv)
@@ -239,11 +233,10 @@ class LRRDM (stdm.LSTDM):
         specints = [self.ints[i] for i in spec]
         o = fac * np.ones ((1,1), dtype=self.dtype)
         for i in specints:
-            b, k = i.unique_root[rbra], i.unique_root[rket]
-            o = np.multiply.outer (i.ovlp[b][k], o).transpose (0,2,1,3)
+            o = np.multiply.outer (i.get_ovlp (rbra, rket), o).transpose (0,2,1,3)
             o = o.reshape (o.shape[0]*o.shape[1], o.shape[2]*o.shape[3])
         idx = np.abs(o) > 1e-8
-        if self._lowertri and (rbra==rket): # not bra==ket because _loop_lroots_ doesn't restrict to tril
+        if self._lowertri_fdm and (rbra==rket): # not bra==ket b/c _loop_lroots_ isn't tril
             o[np.diag_indices_from (o)] *= 0.5
             idx[np.triu_indices_from (idx, k=1)] = False
         o = o[idx]
@@ -509,6 +502,7 @@ class LRRDM (stdm.LSTDM):
 
     def _put_D1_(self):
         t0, w0 = logger.process_clock (), logger.perf_counter ()
+        if self._transpose: self.d1[:] = self.d1.transpose (0,1,3,2).conj ()
         fn = self._put_SD1_c_fn
         fn (self._rdm1s_c, self._d1buf_c,
             self._si_c_ncol, self._norb_c, self._nsrc_c,
@@ -518,6 +512,7 @@ class LRRDM (stdm.LSTDM):
 
     def _put_D2_(self):
         t0, w0 = logger.process_clock (), logger.perf_counter ()
+        if self._transpose: self.d2[:] = self.d2.transpose (0,1,3,2,5,4).conj ()
         fn = self._put_SD2_c_fn
         fn (self._rdm2s_c, self._d2buf_c,
             self._si_c_ncol, self._norb_c, self._nsrc_c, self._pdest,
@@ -530,8 +525,13 @@ class LRRDM (stdm.LSTDM):
             inv = row[2:-1]
         else:
             inv = row[2:]
-        with lib.temporary_env (self, **self._orbrange_env_kwargs (inv)):
+        env_kwargs = self._orbrange_env_kwargs (inv)
+        with lib.temporary_env (self, **env_kwargs):
             _crunch_fn (*row)
+        if not self.hermi:
+            env_kwargs['_transpose'] = True
+            with lib.temporary_env (self, **env_kwargs):
+                _crunch_fn (*row)
 
     def _orbrange_env_kwargs (self, inv):
         t0, w0 = logger.process_clock (), logger.perf_counter ()
@@ -595,11 +595,11 @@ def get_fdm1_maker (las, ci, nelec_frs, si, **kwargs):
     nstates = np.sum (np.prod (lroots, axis=0))
         
     # Second pass: upper-triangle
-    outerprod = LRRDM (ints, nlas, hopping_index, lroots, si, dtype=dtype,
+    outerprod = LRRDM (ints, nlas, hopping_index, lroots, si, si, dtype=dtype,
                           max_memory=max_memory, log=log)
 
     # Spoof nonuniq_exc to avoid summing together things that need to be separate
-    outerprod._lowertri = False
+    outerprod._lowertri_fdm = False
     def make_fdm1 (iroot, ifrag):
         fdm = outerprod.get_fdm_1space (iroot, iroot, ifrag)
         if iroot in ints[ifrag].umat_root:
@@ -608,8 +608,8 @@ def get_fdm1_maker (las, ci, nelec_frs, si, **kwargs):
         return fdm
     return make_fdm1
 
-def roots_make_rdm12s (las, ci, nelec_frs, si, **kwargs):
-    ''' Build spin-separated LASSI 1- and 2-body reduced density matrices
+def roots_trans_rdm12s (las, ci, nelec_frs, si_bra, si_ket, **kwargs):
+    ''' Build spin-separated LASSI 1- and 2-body transition reduced density matrices
 
     Args:
         las : instance of :class:`LASCINoSymm`
@@ -618,8 +618,10 @@ def roots_make_rdm12s (las, ci, nelec_frs, si, **kwargs):
         nelec_frs : ndarray of shape (nfrags,nroots,2)
             Number of electrons of each spin in each rootspace in each
             fragment
-        si : ndarray of shape (nroots,nroots_si)
-            Contains LASSI eigenvectors
+        si_bra : ndarray of shape (nroots,nroots_si)
+            Contains LASSI eigenvectors for the bra
+        si_ket : ndarray of shape (nroots,nroots_si)
+            Contains LASSI eigenvectors for the ket
 
     Returns:
         rdm1s : ndarray of shape (nroots_si,2,ncas,ncas)
@@ -630,9 +632,11 @@ def roots_make_rdm12s (las, ci, nelec_frs, si, **kwargs):
     log = lib.logger.new_logger (las, las.verbose)
     nlas = las.ncas_sub
     ncas = las.ncas
-    nroots_si = si.shape[-1]
+    assert (si_bra.dtype == si_ket.dtype)
+    assert (si_bra.shape == si_ket.shape)
+    nroots_si = si_ket.shape[-1]
     max_memory = getattr (las, 'max_memory', las.mol.max_memory)
-    dtype = si.dtype
+    dtype = si_ket.dtype
     nfrags, nroots = nelec_frs.shape[:2]
     #if np.iscomplexobj (si):
     #    raise RuntimeError ("Known bug here with complex SI vectors")
@@ -664,7 +668,7 @@ def roots_make_rdm12s (las, ci, nelec_frs, si, **kwargs):
 
     # Second pass: upper-triangle
     t0 = (lib.logger.process_clock (), lib.logger.perf_counter ())
-    outerprod = LRRDM (ints, nlas, hopping_index, lroots, si, dtype=dtype,
+    outerprod = LRRDM (ints, nlas, hopping_index, lroots, si_bra, si_ket, dtype=dtype,
                           max_memory=max_memory, log=log)
     if not spin_pure:
         outerprod.spin_shuffle = spin_shuffle_fac
@@ -697,5 +701,24 @@ def roots_make_rdm12s (las, ci, nelec_frs, si, **kwargs):
     return rdm1s, rdm2s
 
 
-        
+def roots_make_rdm12s (las, ci, nelec_frs, si, **kwargs):
+    ''' Build spin-separated LASSI 1- and 2-body reduced density matrices
+
+    Args:
+        las : instance of :class:`LASCINoSymm`
+        ci : list of list of ndarrays
+            Contains all CI vectors
+        nelec_frs : ndarray of shape (nfrags,nroots,2)
+            Number of electrons of each spin in each rootspace in each
+            fragment
+        si : ndarray of shape (nroots,nroots_si)
+            Contains LASSI eigenvectors
+
+    Returns:
+        rdm1s : ndarray of shape (nroots_si,2,ncas,ncas)
+            Spin-separated 1-body reduced density matrices of LASSI states
+        rdm2s : ndarray of shape (nroots_si,2,ncas,ncas,2,ncas,ncas)
+            Spin-separated 2-body reduced density matrices of LASSI states
+    '''
+    return roots_trans_rdm12s (las, ci, nelec_frs, si, si, **kwargs)        
 

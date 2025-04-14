@@ -14,6 +14,7 @@ from mrh.my_pyscf.gpu import libgpu
 def kernel (las, mo_coeff=None, ci0=None, conv_tol_grad=1e-4,
             assert_no_dupes=False, verbose=lib.logger.NOTE, frags_orbs=None,
             **kwargs):
+    t_setup = (lib.logger.process_clock(), lib.logger.perf_counter())    
     if mo_coeff is None: mo_coeff = las.mo_coeff
     if assert_no_dupes: las.assert_no_duplicates ()
     h2eff_sub = las.get_h2eff (mo_coeff)
@@ -31,6 +32,14 @@ def kernel (las, mo_coeff=None, ci0=None, conv_tol_grad=1e-4,
     t0 = (lib.logger.process_clock(), lib.logger.perf_counter())
     kf0 = las.get_keyframe (mo_coeff, ci0) 
     las._flas_stdout = {} # TODO: more elegant model for this
+    ugg = las.get_ugg ()
+
+    e_tot = las.energy_nuc () + las.energy_elec (
+        mo_coeff=kf0.mo_coeff, ci=kf0.ci, h2eff=kf0.h2eff_sub, veff=kf0.veff)
+    gvec = las.get_grad (ugg=ugg, kf=kf0)
+    norm_gvec = linalg.norm (gvec)
+    log.info ('LASSCF macro 0 : E = %.15g ; |g| = %.15g', e_tot, norm_gvec)
+    t_setup = log.timer( "LASSCF setup", *t_setup)
 
     ###############################################################################################
     ################################## Begin actual kernel logic ##################################
@@ -45,18 +54,22 @@ def kernel (las, mo_coeff=None, ci0=None, conv_tol_grad=1e-4,
     kf1 = kf0
     impurities = [get_impurity_casscf (las, i, imporb_builder=builder)
                   for i, builder in enumerate (imporb_builders)]
-    ugg = las.get_ugg ()
     t1 = log.timer_debug1 ('impurity solver construction', *t0)
     # GRAND CHALLENGE: replace rigid algorithm below with dynamic task scheduling
     for it in range (las.max_cycle_macro):
+        t_macro = (lib.logger.process_clock(), lib.logger.perf_counter())    
         # 1. Divide into fragments
-        for impurity in impurities: impurity._pull_keyframe_(kf1)
+        for impurity in impurities: 
+            impurity._pull_keyframe_(kf1)
+            t_macro = log.timer("Pull keyframe for fragment",*t_macro)
         
         # 2. CASSCF on each fragment
         kf2_list = []
         for impurity in impurities:
             impurity.kernel ()
+            t_macro = log.timer("Fragment CASSCF",*t_macro)
             kf2_list.append (impurity._push_keyframe (kf1))
+            t_macro = log.timer("Push keyframe for fragment",*t_macro)
 
             
         # 3. Combine from fragments. It should not be necessary to do this in any particular order,
@@ -75,6 +88,7 @@ def kernel (las, mo_coeff=None, ci0=None, conv_tol_grad=1e-4,
             kf3_list = []
             for kf2, kf3 in zip (kf2_list[::2],kf2_list[1::2]):
                 kf3_list.append (combine.combine_pair (las, kf2, kf3, kf_ref=kf1))
+                t_macro = log.timer("Recombination",*t_macro)
             if nkfi%2: kf3_list.insert (len(kf3_list)-1, kf2_list[-1])
             # Insert this at second-to-last position so that it gets "mixed in" next cycle
             kf2_list = kf3_list
@@ -86,7 +100,7 @@ def kernel (las, mo_coeff=None, ci0=None, conv_tol_grad=1e-4,
             mo_coeff=kf1.mo_coeff, ci=kf1.ci, h2eff=kf1.h2eff_sub, veff=kf1.veff)
         gvec = las.get_grad (ugg=ugg, kf=kf1)
         norm_gvec = linalg.norm (gvec)
-        log.info ('LASSCF macro %d : E = %.15g ; |g| = %.15g', it, e_tot, norm_gvec)
+        log.info ('LASSCF macro %d : E = %.15g ; |g| = %.15g', it+1, e_tot, norm_gvec)
         if verbose > lib.logger.INFO: keyframe.gradient_analysis (las, kf1, log)
         t1 = log.timer ('one LASSCF macro cycle', *t1)
         las.dump_chk (mo_coeff=kf1.mo_coeff, ci=kf1.ci)
