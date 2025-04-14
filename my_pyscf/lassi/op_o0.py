@@ -213,8 +213,8 @@ def _ci_outer_product (ci_f, norb_f, nelec_f):
         ci_dp = ci_dp.transpose (0,3,1,4,2,5).reshape (
             lroots*shape[0], ndeta*shape[1], ndetb*shape[2]
         )
-    norm_dp = linalg.norm (ci_dp.reshape (ci_dp.shape[0],-1), axis=1)
-    ci_dp /= norm_dp[:,None,None]
+    #norm_dp = linalg.norm (ci_dp.reshape (ci_dp.shape[0],-1), axis=1)
+    #ci_dp /= norm_dp[:,None,None]
     def gen_ci_dp (buf=None):
         if buf is None:
             ci = np.empty ((ndet_a,ndet_b), dtype=ci_f[-1].dtype)

@@ -259,6 +259,8 @@ def case_lassis_hessian (ks, lsis):
         lsis.ci_charge_hops,
         si
     )
+    g0_debug = grad_orb_ci_si.get_grad (lsis, *ugg.update_wfn (np.zeros_like (g0)), pack=True)
+    ks.assertLess (np.amax (np.abs (g0_debug-g0)), 1e-10, msg='sanity fail')
     h_op = hessian_orb_ci_si.HessianOperator (ugg)
     x0 = np.random.rand (ugg.nvar_tot)
     x0 = ugg.pack (*ugg.unpack (x0)) # apply some projections
