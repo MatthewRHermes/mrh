@@ -13,6 +13,7 @@ from pyscf.fci.direct_spin1 import _unpack_nelec
 from itertools import combinations, product
 from mrh.my_pyscf.mcscf import soc_int as soc_int
 from pyscf import __config__
+from mrh.my_pyscf.lassi.spaces import list_spaces
 
 # TODO: fix stdm1 index convention in both o0 and o1
 
@@ -107,7 +108,7 @@ def ham_2q (las, mo_coeff, veff_c=None, h2eff_sub=None, soc=0):
 
     return h0, h1, h2
 
-def las_symm_tuple (las, break_spin=False, break_symmetry=False, verbose=None):
+def las_symm_tuple (las, spaces=None, break_spin=False, break_symmetry=False, verbose=None):
     '''Identify the symmetries/quantum numbers of of each LAS excitation space within a LASSI
     model space which are to be preserved by projecting the Hamiltonian into the corresponding
     diagonal symmetry blocks.
@@ -116,6 +117,8 @@ def las_symm_tuple (las, break_spin=False, break_symmetry=False, verbose=None):
         las : instance of :class:`LASCINoSymm`
 
     Kwargs:
+        spaces : list of instances of :class:`SingleLASRootspace`
+            Contain symmetry information
         break_spin : logical
             Whether to mix states of different neleca-nelecb (necessary for spin-orbit coupling).
             If True, the first item of each element in statesym is the total number of electrons;
@@ -134,6 +137,7 @@ def las_symm_tuple (las, break_spin=False, break_symmetry=False, verbose=None):
         s2_states : list of length nroots
             The expectation values of the <S**2> operator for each state, for convenience
     '''
+    if spaces is None: spaces = list_spaces (las)
     # kwarg logic setup
     qn_lbls = ['Neleca', 'Nelecb', 'Nelec', 'Wfnsym']
     incl_spin = not (bool (break_spin))
@@ -144,28 +148,11 @@ def las_symm_tuple (las, break_spin=False, break_symmetry=False, verbose=None):
     statesym = [] # ...but return only this
     s2_states = []
     log = lib.logger.new_logger (las, verbose)
-    for iroot in range (las.nroots):
-        neleca = 0
-        nelecb = 0
-        wfnsym = 0
-        s = 0
-        m = []
-        for fcibox, nelec in zip (las.fciboxes, las.nelecas_sub):
-            solver = fcibox.fcisolvers[iroot]
-            na, nb = _unpack_nelec (fcibox._get_nelec (solver, nelec))
-            neleca += na
-            nelecb += nb
-            s_frag = (solver.smult - 1) / 2
-            s += s_frag * (s_frag + 1)
-            m.append ((na-nb)/2)
-            fragsym = getattr (solver, 'wfnsym', 0) or 0 # in case getattr returns "None"
-            if isinstance (fragsym, str):
-                fragsym = symm.irrep_name2id (solver.mol.groupname, fragsym)
-            assert isinstance (fragsym, (int, np.integer)), '{} {}'.format (type (fragsym),
-                                                                            fragsym)
-            wfnsym ^= fragsym
-        s += sum ([2*m1*m2 for m1, m2 in combinations (m, 2)])
-        s2_states.append (s)
+    for space in spaces:
+        s2_states.append (space.get_s2_exptval ())
+        neleca = space.neleca.sum ()
+        nelecb = space.nelecb.sum ()
+        wfnsym = space.get_wfnsym ()
         all_qns = [neleca, nelecb, neleca+nelecb, wfnsym]
         full_statesym.append (tuple (all_qns))
         statesym.append (tuple (qn for qn, incl in zip (all_qns, qn_filter) if incl))
@@ -504,7 +491,7 @@ def _eig_block_incore (las, e0, h1, h2, ci_blk, nelec_blk, soc, opt):
     s2_blk = ((s2_blk @ c) * c.conj ()).sum (0)
     return True, e, c, s2_blk
 
-def make_stdm12s (las, ci=None, orbsym=None, soc=False, break_symmetry=False, opt=1):
+def make_stdm12s (las, ci=None, orbsym=None, soc=False, break_symmetry=False, spaces=None, opt=1):
     ''' Evaluate <I|p'q|J> and <I|p'r'sq|J> where |I>, |J> are LAS states.
 
         Args:
@@ -517,6 +504,8 @@ def make_stdm12s (las, ci=None, orbsym=None, soc=False, break_symmetry=False, op
                 Whether to include the effects of spin-orbit coupling (in the 1-RDMs only)
             break_symmetry: logical
                 Whether to allow coupling between states of different point-group irreps
+            spaces : list of instances of :class:`SingleLASRootspace`
+                Contain symmetry information; defaults to data from las
             opt: Optimization level, i.e.,  take outer product of
                 0: CI vectors
                 1: TDMs
@@ -556,7 +545,8 @@ def make_stdm12s (las, ci=None, orbsym=None, soc=False, break_symmetry=False, op
         raise RuntimeError ('Insufficient memory to use o0 LASSI algorithm')
 
     # Loop over symmetry blocks
-    statesym = las_symm_tuple (las, break_spin=soc, break_symmetry=break_symmetry, verbose=0)[0]
+    statesym = las_symm_tuple (las, spaces=spaces, break_spin=soc, break_symmetry=break_symmetry,
+                               verbose=0)[0]
     idx_allprods = []
     d1s_all = []
     d2s_all = []
@@ -627,7 +617,7 @@ def guess_rootsym (si, statesym, lroots):
     return rootsym
 
 def roots_trans_rdm12s (las, ci, si_bra, si_ket, orbsym=None, soc=None, break_symmetry=None,
-                        opt=1):
+                        spaces=None, opt=1):
     '''Evaluate 1- and 2-electron reduced transition density matrices of LASSI states
 
         Args:
@@ -648,7 +638,8 @@ def roots_trans_rdm12s (las, ci, si_bra, si_ket, orbsym=None, soc=None, break_sy
                 Whether to allow coupling between states of different point-group irreps
                 Overrides tag of si if provided by caller. I have no idea what will happen
                 if they contradict. This should probably be removed.
-
+            spaces : list of instances of :class:`SingleLASRootspace`
+                Contain symmetry information; defaults to data from las
             opt: Optimization level, i.e.,  take outer product of
                 0: CI vectors
                 1: TDMs
@@ -688,7 +679,8 @@ def roots_trans_rdm12s (las, ci, si_bra, si_ket, orbsym=None, soc=None, break_sy
     #    dtype=si.dtype)
 
     # Loop over symmetry blocks
-    statesym = las_symm_tuple (las, break_spin=soc, break_symmetry=break_symmetry, verbose=0)[0]
+    statesym = las_symm_tuple (las, spaces=spaces, break_spin=soc, break_symmetry=break_symmetry,
+                               verbose=0)[0]
     lroots = get_lroots (ci)
     rootsym = guess_rootsym (si_bra, statesym, lroots)
     rootsym_ket = guess_rootsym (si_ket, statesym, lroots)
@@ -738,7 +730,7 @@ def roots_trans_rdm12s (las, ci, si_bra, si_ket, orbsym=None, soc=None, break_sy
     return rdm1s, rdm2s
 
 def roots_make_rdm12s (las, ci, si, orbsym=None, soc=None, break_symmetry=None,
-                       opt=1):
+                       spaces=None, opt=1):
     '''Evaluate 1- and 2-electron reduced density matrices of LASSI states
 
         Args:
@@ -757,7 +749,8 @@ def roots_make_rdm12s (las, ci, si, orbsym=None, soc=None, break_symmetry=None,
                 Whether to allow coupling between states of different point-group irreps
                 Overrides tag of si if provided by caller. I have no idea what will happen
                 if they contradict. This should probably be removed.
-
+            spaces : list of instances of :class:`SingleLASRootspace`
+                Contain symmetry information; defaults to data from las
             opt: Optimization level, i.e.,  take outer product of
                 0: CI vectors
                 1: TDMs
@@ -768,10 +761,10 @@ def roots_make_rdm12s (las, ci, si, orbsym=None, soc=None, break_symmetry=None,
             rdm2s: ndarray of shape (nroots,2,ncas,ncas,2,ncas,ncas)
     '''
     return roots_trans_rdm12s (las, ci, si, si, orbsym=orbsym, soc=soc,
-                               break_symmetry=break_symmetry, opt=opt)
+                               break_symmetry=break_symmetry, spaces=spaces, opt=opt)
 
 def root_trans_rdm12s (las, ci, si_bra, si_ket, state=0, orbsym=None, soc=None, break_symmetry=None,
-                       opt=1):
+                       spaces=None, opt=1):
     '''Evaluate 1- and 2-electron reduced transition density matrices of one single pair of LASSI
     states.
 
@@ -796,6 +789,8 @@ def root_trans_rdm12s (las, ci, si_bra, si_ket, state=0, orbsym=None, soc=None, 
                 Whether to allow coupling between states of different point-group irreps
                 Overrides tag of si if provided by caller. I have no idea what will happen
                 if they contradict. This should probably be removed.
+            spaces : list of instances of :class:`SingleLASRootspace`
+                Contain symmetry information; defaults to data from las
             opt: Optimization level, i.e.,  take outer product of
                 0: CI vectors
                 1: TDMs
@@ -813,13 +808,13 @@ def root_trans_rdm12s (las, ci, si_bra, si_ket, state=0, orbsym=None, soc=None, 
     if break_symmetry is None:
         break_symmetry = getattr (si_ket, 'break_symmetry', getattr (las, 'break_symmetry', False))
     rdm1s, rdm2s = roots_trans_rdm12s (las, ci, sib_column, sik_column, orbsym=orbsym, soc=soc,
-                                       break_symmetry=break_symmetry, opt=opt)
+                                       break_symmetry=break_symmetry, spaces=spaces, opt=opt)
     if len (states) == 1:
         rdm1s, rdm2s = rdm1s[0], rdm2s[0]
     return rdm1s, rdm2s
 
 def root_make_rdm12s (las, ci, si, state=0, orbsym=None, soc=None, break_symmetry=None,
-                      opt=1):
+                      spaces=None, opt=1):
     '''Evaluate 1- and 2-electron reduced density matrices of one single LASSI state
 
         Args:
@@ -841,6 +836,8 @@ def root_make_rdm12s (las, ci, si, state=0, orbsym=None, soc=None, break_symmetr
                 Whether to allow coupling between states of different point-group irreps
                 Overrides tag of si if provided by caller. I have no idea what will happen
                 if they contradict. This should probably be removed.
+            spaces : list of instances of :class:`SingleLASRootspace`
+                Contain symmetry information; defaults to data from las
             opt: Optimization level, i.e.,  take outer product of
                 0: CI vectors
                 1: TDMs
@@ -851,7 +848,7 @@ def root_make_rdm12s (las, ci, si, state=0, orbsym=None, soc=None, break_symmetr
             rdm2s: ndarray of shape (2,ncas,ncas,2,ncas,ncas)
     '''
     return root_trans_rdm12s (las, ci, si, si, state=state, orbsym=orbsym, soc=soc,
-                              break_symmetry=break_symmetry, opt=opt)
+                              break_symmetry=break_symmetry, spaces=spaces, opt=opt)
 
 def energy_tot (lsi, mo_coeff=None, ci=None, si=None, soc=0, opt=None):
     if mo_coeff is None: mo_coeff = lsi.mo_coeff
@@ -944,6 +941,11 @@ class LASSI(lib.StreamObject):
         from mrh.my_pyscf.mcscf.lasci import get_space_info
         return get_space_info (las)[2].T
 
+    def get_sym_fr (self, las=None):
+        if las is None: las = self
+        from mrh.my_pyscf.mcscf.lasci import get_sym_fr
+        return get_sym_fr (las)
+
     def get_lroots (self, ci=None):
         if ci is None: ci = self.ci
         return get_lroots (ci)
@@ -988,7 +990,7 @@ class LASSI(lib.StreamObject):
         nelec_frs = self.get_nelec_frs ()
         return sivec_vacuum_shuffle (si, nelec_frs, lroots, nelec_vac=nelec_vac, state=state)
 
-    def make_casdm12s (self, ci=None, si=None, state=None, weights=None, opt=None):
+    def make_casdm12s (self, ci=None, si=None, state=None, weights=None, spaces=None, opt=None):
         if ci is None: ci = self.ci
         if si is None: si = self.si
         if opt is None: opt = self.opt
@@ -997,7 +999,7 @@ class LASSI(lib.StreamObject):
             if state is None: state=0
             if si.ndim==1: si=si[:,None]
         if state is None:
-            dm1s, dm2s = roots_make_rdm12s (self, ci, si, opt=opt)
+            dm1s, dm2s = roots_make_rdm12s (self, ci, si, spaces=spaces, opt=opt)
             if weights is not None:
                 dm1s = lib.einsum ('r,rspq->spq', weights, dm1s)
                 dm2s = lib.einsum ('r,rspqtxy->spqtxy', weights, dm2s)
@@ -1005,15 +1007,17 @@ class LASSI(lib.StreamObject):
         else:
             return root_make_rdm12s (self, ci, si, state=state, opt=opt)
 
-    def make_casdm12 (self, ci=None, si=None, state=None, weights=None, opt=None):
-        dm1s, dm2s = self.make_casdm12s (ci=ci, si=si, state=state, weights=weights, opt=opt)
+    def make_casdm12 (self, ci=None, si=None, state=None, weights=None, spaces=None, opt=None):
+        dm1s, dm2s = self.make_casdm12s (ci=ci, si=si, state=state, weights=weights, spaces=spaces,
+                                         opt=opt)
         return dm1s.sum (0), dm2s.sum ((0,3))
 
-    def make_casdm2 (self, ci=None, si=None, state=None, weights=None, opt=None):
-        return self.make_casdm12 (ci=ci, si=si, state=state, weights=weights, opt=opt)[1]
+    def make_casdm2 (self, ci=None, si=None, state=None, weights=None, spaces=None, opt=None):
+        return self.make_casdm12 (ci=ci, si=si, state=state, weights=weights, spaces=spaces,
+                                  opt=opt)[1]
 
     def trans_casdm12s (self, ci=None, si_bra=None, si_ket=None, state=None, weights=None,
-                        opt=None):
+                        spaces=None, opt=None):
         if ci is None: ci = self.ci
         if si_bra is None: si_bra = self.si
         if si_ket is None: si_ket = self.si
@@ -1026,7 +1030,7 @@ class LASSI(lib.StreamObject):
             if si_bra.ndim==1: si_bra=si_bra[:,None]
             if si_ket.ndim==1: si_ket=si_ket[:,None]
         if state is None:
-            dm1s, dm2s = roots_trans_rdm12s (self, ci, si_bra, si_ket, opt=opt)
+            dm1s, dm2s = roots_trans_rdm12s (self, ci, si_bra, si_ket, spaces=spaces, opt=opt)
             if weights is not None:
                 dm1s = lib.einsum ('r,rspq->spq', weights, dm1s)
                 dm2s = lib.einsum ('r,rspqtxy->spqtxy', weights, dm2s)
@@ -1035,23 +1039,26 @@ class LASSI(lib.StreamObject):
             return root_trans_rdm12s (self, ci, si_bra, si_ket, state=state, opt=opt)
 
     def trans_casdm12 (self, ci=None, si_bra=None, si_ket=None, state=None, weights=None,
-                       opt=None):
+                       spaces=None, opt=None):
         dm1s, dm2s = self.trans_casdm12s (ci=ci, si_bra=si_bra, si_ket=si_ket, state=state,
-                                          weights=weights, opt=opt)
+                                          weights=weights, spaces=spaces, opt=opt)
         return dm1s.sum (0), dm2s.sum ((0,3))
 
-    def make_rdm1s (self, mo_coeff=None, ci=None, si=None, state=None, weights=None, opt=None):
+    def make_rdm1s (self, mo_coeff=None, ci=None, si=None, state=None, weights=None, spaces=None,
+                    opt=None):
         if mo_coeff is None: mo_coeff=self.mo_coeff
-        casdm1s = self.make_casdm12s (ci=ci, si=si, state=state, weights=weights, opt=opt)[0]
+        casdm1s = self.make_casdm12s (ci=ci, si=si, state=state, weights=weights, spaces=spaces,
+                                      opt=opt)[0]
         mo_core = mo_coeff[:,:self.ncore]
         mo_cas = mo_coeff[:,self.ncore:][:,:self.ncas]
         dm_core = mo_core @ mo_core.conj ().T
         dm1s = lib.einsum ('up,vq,spq->suv', mo_cas, mo_cas.conj (), casdm1s) + dm_core[None,:,:]
         return dm1s
 
-    def make_rdm1 (self, mo_coeff=None, ci=None, si=None, state=None, weights=None, opt=None):
+    def make_rdm1 (self, mo_coeff=None, ci=None, si=None, state=None, weights=None, spaces=None,
+                   opt=None):
         dm1s = self.make_rdm1s (mo_coeff=mo_coeff, ci=ci, si=si, state=state, weights=weights,
-                                opt=opt)
+                                spaces=spaces, opt=opt)
         return dm1s[0] + dm1s[1]
 
     def analyze (self, state=0, **kwargs):

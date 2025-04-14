@@ -2,6 +2,7 @@ import numpy as np
 from pyscf import lib
 from mrh.my_pyscf.lassi.lassis import coords
 from mrh.my_pyscf.lassi import op_o0, op_o1
+from mrh.my_pyscf.lassi.spaces import list_spaces
 from itertools import permutations
 from scipy.sparse import linalg as sparse_linalg
 
@@ -43,6 +44,7 @@ class HessianOperator (sparse_linalg.LinearOperator):
         h1 = lsi._las.get_hcore () + self.veff_c
         self.h1 = mo_coeff.conj ().T @ h1 @ mo_coeff
         self.fock1 = self.get_fock1 (self.h1, self.h2_paaa, self.casdm1, self.casdm2)
+        self.spaces = list_spaces (lsi)
 
     def get_fock1 (self, h1, h2_paaa, casdm1, casdm2, _coreocc=2):
         ncore, ncas = self.lsi.ncore, self.lsi.ncas
@@ -167,7 +169,8 @@ class HessianOperator (sparse_linalg.LinearOperator):
         return (fx - fx.T) / 2
 
     def hoa (self, ci1, si0, si1):
-        casdm1, casdm2 = self.lsi.trans_casdm12 (ci=ci1, si_bra=si0, si_ket=si1, opt=self.opt)
+        casdm1, casdm2 = self.lsi.trans_casdm12 (ci=ci1, si_bra=si0, si_ket=si1,
+                                                 spaces=self.spaces*(self.nfrags+1), opt=self.opt)
         casdm1 += casdm1.T
         casdm2 += casdm2.transpose (1,0,3,2)
         fx = self.get_fock1 (self.h1, self.h2_paaa, casdm1, casdm2, _coreocc=0)
