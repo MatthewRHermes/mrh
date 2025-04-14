@@ -514,6 +514,12 @@ void Device::getjk_rho(double * rho, double * dmtril, double * eri, int nset, in
   dim3 block_size(1, _RHO_BLOCK_SIZE, 1);
 #endif
 
+#ifdef _DEBUG_DEVICE
+  printf("LIBGPU ::  -- get_jk::_getjk_rho :: nset= %i  naux= %i  nao_pair= %i  RHO_BLOCK_SIZE= %i  grid_size= %i %i %i  block_size= %i %i %i\n",
+	 nset, naux, nao_pair, _RHO_BLOCK_SIZE, grid_size[0],grid_size[1],grid_size[2],block_size[0],block_size[1],block_size[2]);
+  
+#endif
+  
   sycl::queue * s = pm->dev_get_queue();
 
   {
@@ -535,8 +541,8 @@ void Device::getjk_rho(double * rho, double * dmtril, double * eri, int nset, in
   }
 
 #ifdef _DEBUG_DEVICE
-  printf("LIBGPU ::  -- get_jk::_getjk_rho :: nset= %i  naux= %i  RHO_BLOCK_SIZE= %i  grid_size= %i %i %i  block_size= %i %i %i\n",
-	 nset, naux, _RHO_BLOCK_SIZE, grid_size[0],grid_size[1],grid_size[2],block_size[0],block_size[1],block_size[2]);
+  pm->dev_stream_wait();
+  printf("LIBGPU ::  -- get_jk::_getjk_rho :: finished\n");
   pm->dev_check_errors();
 #endif
 }
@@ -549,6 +555,11 @@ void Device::getjk_vj(double * vj, double * rho, double * eri, int nset, int nao
       1, (nao_pair + (_DOT_BLOCK_SIZE - 1)) / _DOT_BLOCK_SIZE, nset);
   sycl::range<3> block_size(1, _DOT_BLOCK_SIZE, 1);
 
+#ifdef _DEBUG_DEVICE
+  printf("LIBGPU ::  -- get_jk::_getjk_vj :: nset= %i  nao_pair= %i _DOT_BLOCK_SIZE= %i  grid_size= %i %i %i  block_size= %i %i %i\n",
+	 nset, nao_pair, _DOT_BLOCK_SIZE, grid_size[0],grid_size[1],grid_size[2],block_size[0],block_size[1],block_size[2]);
+#endif
+  
   sycl::queue * s = pm->dev_get_queue();
 
   {
@@ -562,8 +573,8 @@ void Device::getjk_vj(double * vj, double * rho, double * eri, int nset, int nao
   }
 
 #ifdef _DEBUG_DEVICE
-  printf("LIBGPU ::  -- get_jk::_getjk_vj :: nset= %i  nao_pair= %i _DOT_BLOCK_SIZE= %i  grid_size= %i %i %i  block_size= %i %i %i\n",
-	 nset, nao_pair, _DOT_BLOCK_SIZE, grid_size[0],grid_size[1],grid_size[2],block_size[0],block_size[1],block_size[2]);
+  pm->dev_stream_wait();
+  printf("LIBGPU ::  -- get_jk::_getjk_vj :: finished\n");
   pm->dev_check_errors();
 #endif
 }
@@ -598,8 +609,8 @@ void Device::getjk_unpack_buf2(double * buf2, double * eri, int * map, int naux,
   }
 
 #ifdef _DEBUG_DEVICE
-  pm->dev_barrier();
-  printf(" -- success!\n");
+  pm->dev_stream_wait();
+  printf("LIBGPU ::  -- get_jk::_getjk_vj :: finished\n");
   pm->dev_check_errors();
 #endif
 }

@@ -468,7 +468,7 @@ void Device::get_dfobj_status(size_t addr_dfobj, py::array_t<int> _arg)
 void Device::init_get_jk(py::array_t<double> _eri1, py::array_t<double> _dmtril, int blksize, int nset, int nao, int naux, int count)
 {
 #ifdef _DEBUG_DEVICE
-  printf("LIBGPU :: Inside Device::init_get_jk()\n");
+  printf("LIBGPU :: Inside Device::init_get_jk() :: blksize= %i  nset= %i  nao= %i  naux= %i  count= %i\n",blksize,nset,nao,naux,count);
 #endif
 
   profile_start("init_get_jk");
