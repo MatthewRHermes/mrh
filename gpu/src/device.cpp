@@ -804,6 +804,168 @@ void Device::get_jk(int naux, int nao, int nset,
   
 /* ---------------------------------------------------------------------- */
 
+#if 1
+void Device::pull_get_jk(py::array_t<double> _vj, py::array_t<double> _vk, int nao, int nset, int with_k)
+{
+#ifdef _DEBUG_DEVICE
+  printf("LIBGPU :: -- Inside Device::pull_get_jk()\n");
+#endif
+
+  double t0 = omp_get_wtime();
+    
+  profile_start("pull_get_jk");
+  
+  py::buffer_info info_vj = _vj.request(); // 2D array (nset, nao_pair)
+  
+  double * vj = static_cast<double*>(info_vj.ptr);
+
+  int nao_pair = nao * (nao+1) / 2;
+  
+  int N = nset * nao_pair;
+	  
+  int size = N * sizeof(double);
+
+  double * tmp;
+
+  int nrecv = num_devices / 2;
+
+  int nactive = num_devices;
+
+  // accumulate result to device 0 using binary tree reduction
+  
+  int il = 0;
+  while(nrecv > 0) {
+
+    //    printf("LIBGPU :: -- GPU-GPU Reduction  il= %i  ngpus_active= %i  ngpus_recv= %i\n",il,ngpus_active,ngpus_recv);
+    if(nactive > nrecv) {
+
+      int nsend = nactive - nrecv;
+
+      for(int i=0; i<nsend; ++i) {
+
+	int dest = i;
+	int src = nrecv + i;
+
+	my_device_data * dd_dest = &(device_data[dest]);
+	my_device_data * dd_src = &(device_data[src]);
+	
+	//	printf("LIBGPU :: -- GPU-GPU Reduction  -- %i --> %i\n",src,dest);
+
+	if(dd_src->d_vj) {
+	  pm->dev_set_device(dest);
+	  
+	  pm->dev_memcpy_peer(dd_dest->d_buf3, dest, dd_src->d_vj, src, size);
+	  
+	  vecadd(dd_dest->d_buf3, dd_dest->d_vj, N);
+	}
+      }
+
+      nactive = nrecv;
+      
+    }
+
+    nrecv /= 2;
+    il++;
+  }
+
+  // accumulate result on host
+  
+  pm->dev_set_device(0);
+
+  my_device_data * dd = &(device_data[0]);
+  
+  if(dd->d_vj) {
+    pm->dev_pull(dd->d_vj, buf_vj, size);
+    
+#pragma omp parallel for
+    for(int j=0; j<N; ++j) vj[j] += buf_vj[j];
+  }
+  
+  update_dfobj = 0;
+  
+  if(!with_k) {
+    profile_stop();
+    
+#ifdef _DEBUG_DEVICE
+    printf("LIBGPU :: -- Leaving Device::pull_get_jk()\n");
+#endif
+    
+    return;
+  }
+    
+  py::buffer_info info_vk = _vk.request(); // 3D array (nset, nao, nao)
+    
+  double * vk = static_cast<double*>(info_vk.ptr);
+
+  N = nset * nao * nao;
+  
+  size = N * sizeof(double);
+
+  nrecv = num_devices / 2;
+
+  nactive = num_devices;
+  
+  // accumulate result to device 0 using binary tree reduction
+
+  il = 0;
+  while(nrecv > 0) {
+
+    //    printf("LIBGPU :: -- GPU-GPU Reduction  il= %i  ngpus_active= %i  ngpus_recv= %i\n",il,ngpus_active,ngpus_recv);
+    if(nactive > nrecv) {
+
+      int nsend = nactive - nrecv;
+
+      for(int i=0; i<nsend; ++i) {
+
+	int dest = i;
+	int src = nrecv + i;
+
+	my_device_data * dd_dest = &(device_data[dest]);
+	my_device_data * dd_src = &(device_data[src]);
+	
+	//	printf("LIBGPU :: -- GPU-GPU Reduction  -- %i --> %i\n",src,dest);
+
+	if(dd_src->d_vkk) {
+	  pm->dev_set_device(dest);
+	  
+	  pm->dev_memcpy_peer(dd_dest->d_buf3, dest, dd_src->d_vkk, src, size);
+	  
+	  vecadd(dd_dest->d_buf3, dd_dest->d_vkk, N);
+	}
+      }
+
+      nactive = nrecv;
+      
+    }
+
+    nrecv /= 2;
+    il++;
+  }
+
+  // accumulate result on host
+  
+  pm->dev_set_device(0);
+
+  dd = &(device_data[0]);
+  
+  if(dd->d_vkk) {
+    pm->dev_pull(dd->d_vkk, buf_vk, size);
+    
+#pragma omp parallel for
+    for(int j=0; j<N; ++j) vk[j] += buf_vk[j];
+  }
+
+  profile_stop();
+  
+  double t1 = omp_get_wtime();
+  t_array[1] += t1 - t0;
+  count_array[0]+=1; // just doing this addition in pull, not in init or compute
+    
+#ifdef _DEBUG_DEVICE
+  printf("LIBGPU :: -- Leaving Device::pull_get_jk()\n");
+#endif
+}
+#else
 void Device::pull_get_jk(py::array_t<double> _vj, py::array_t<double> _vk, int nao, int nset, int with_k)
 {
 #ifdef _DEBUG_DEVICE
@@ -907,6 +1069,7 @@ void Device::pull_get_jk(py::array_t<double> _vj, py::array_t<double> _vk, int n
   printf("LIBGPU :: -- Leaving Device::pull_get_jk()\n");
 #endif
 }
+#endif
 
 /* ---------------------------------------------------------------------- */
 

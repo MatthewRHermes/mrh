@@ -388,6 +388,34 @@ void PM::dev_pull_async(void * d_ptr, void * h_ptr, size_t N, cudaStream_t &s)
 #endif
 }
 
+void PM::dev_memcpy_peer(void * d_ptr, int dest, void * s_ptr, int src, size_t N)
+{
+#ifdef _DEBUG_PM
+  printf("Inside PM::dev_memcpy_peer()\n");
+#endif
+  
+  cudaMemcpyPeer(d_ptr, dest, s_ptr, src, N);
+  _CUDA_CHECK_ERRORS();
+  
+#ifdef _DEBUG_PM
+  printf(" -- Leaving PM::dev_memcpy_peer()\n");
+#endif
+}
+
+void PM::dev_memcpy_peer_async(void * d_ptr, int dest, void * s_ptr, int src, size_t N)
+{
+#ifdef _DEBUG_PM
+  printf("Inside PM::dev_memcpy_peer_async()\n");
+#endif
+  
+  cudaMemcpyPeerAsync(d_ptr, dest, s_ptr, src, N, *current_queue);
+  _CUDA_CHECK_ERRORS();
+  
+#ifdef _DEBUG_PM
+  printf(" -- Leaving PM::dev_memcpy_peer_async()\n");
+#endif
+}
+
 void PM::dev_copy(void * dest, void * src, size_t N)
 { 
 #ifdef _DEBUG_PM

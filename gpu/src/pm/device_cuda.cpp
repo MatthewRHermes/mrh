@@ -415,6 +415,7 @@ __global__ void _pack_d_vuwM(const double * in, double * out, int * map, int nmo
     out[i*ncas_pair + map[j]]=in[j*ncas*nmo + i];
 
 }
+
 /* ---------------------------------------------------------------------- */
 
 __global__ void _pack_d_vuwM_add(const double * in, double * out, int * map, int nmo, int ncas, int ncas_pair)
@@ -429,6 +430,15 @@ __global__ void _pack_d_vuwM_add(const double * in, double * out, int * map, int
 
 }
 
+/* ---------------------------------------------------------------------- */
+
+__global__ void _vecadd(const double * in, double * out, int N)
+{
+    int i = blockIdx.x * blockDim.x + threadIdx.x;
+
+    if(i >= N) return;
+    out[i] += in[i];
+}
 
 /* ---------------------------------------------------------------------- */
 /* Interface functions calling CUDA kernels
@@ -737,7 +747,9 @@ void Device::pack_d_vuwM(const double * in, double * out, int * map, int nmo, in
   _CUDA_CHECK_ERRORS();
 #endif
 }
+
 /* ---------------------------------------------------------------------- */
+
 void Device::pack_d_vuwM_add(const double * in, double * out, int * map, int nmo, int ncas, int ncas_pair)
 {
   dim3 block_size(_UNPACK_BLOCK_SIZE, _UNPACK_BLOCK_SIZE, 1);
@@ -754,5 +766,22 @@ void Device::pack_d_vuwM_add(const double * in, double * out, int * map, int nmo
 #endif
 }
 
+/* ---------------------------------------------------------------------- */
+
+void Device::vecadd(const double * in, double * out, int N)
+{
+  dim3 block_size(_DEFAULT_BLOCK_SIZE, 1, 1);
+  dim3 grid_size(_TILE(N,block_size.x));
+  
+  cudaStream_t s = *(pm->dev_get_queue());
+  
+  _vecadd<<<grid_size,block_size, 0, s>>>(in, out, N);
+  
+#ifdef _DEBUG_DEVICE
+  printf("LIBGPU ::  -- general::vecadd :: N= %i  grid_size= %i %i %i  block_size= %i %i %i\n",
+	 N, grid_size.x,grid_size.y,grid_size.z,block_size.x,block_size.y,block_size.z);
+  _CUDA_CHECK_ERRORS();
+#endif
+}
 
 #endif

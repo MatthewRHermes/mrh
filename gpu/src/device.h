@@ -157,6 +157,8 @@ public :
   void pack_d_vuwM_add(const double *, double *, int *, int, int, int);
   
   void push_mo_coeff(py::array_t<double>, int);
+
+  void vecadd(const double *, double *, int);
 private:
 
   class PM * pm;
