@@ -36,7 +36,7 @@ class UnitaryGroupGenerators (lasscf_sync_o0.LASSCF_UnitaryGroupGenerators):
             self.t_ref.append (CSFTransformer (no, na, nb, s))
             # Spin flip
             ti = [None, None]
-            if na > nb: ti[0] = CSFTransformer (no, na-1, nb+1, s-2)
+            if (na - 1) > nb: ti[0] = CSFTransformer (no, na-1, nb+1, s-2)
             if (nb > 0) and (na < no): ti[1] = CSFTransformer (no, na+1, nb-1, s+2)
             self.t_sf.append (ti)
             # Donating electron

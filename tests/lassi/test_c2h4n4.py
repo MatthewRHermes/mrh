@@ -25,6 +25,7 @@ from mrh.my_pyscf.lassi.lassi import roots_make_rdm12s, root_make_rdm12s, make_s
 from mrh.my_pyscf.lassi import LASSI, LASSIS
 from mrh.tests.lassi.addons import case_contract_hlas_ci, case_lassis_fbf_2_model_state
 from mrh.tests.lassi.addons import case_lassis_fbfdm, case_contract_op_si
+from mrh.tests.lassi.addons import case_lassis_grads, case_lassis_hessian
 topdir = os.path.abspath (os.path.join (__file__, '..'))
 
 def setUpModule ():
@@ -209,7 +210,9 @@ class KnownValues(unittest.TestCase):
                 lsis2 = LASSIS (las2).run (davidson_only=dson)
                 self.assertTrue (lsis2.converged)
                 self.assertAlmostEqual (lsis_scanner.e_roots[0], lsis2.e_roots[0], 5)
-
+            if not dson:
+                case_lassis_grads (self, lsis)    
+                case_lassis_hessian (self, lsis)    
 
     def test_contract_hlas_ci (self):
         las, nelec_frs = lsi._las, lsi.get_nelec_frs ()
