@@ -120,9 +120,7 @@ class HessianOperator (sparse_linalg.LinearOperator):
         nelec_frs = self.get_nelec_frs (nr=len(ci[0]))
         ncore, ncas = self.lsi.ncore, self.lsi.ncas
         nocc = ncore+ncas
-        h0, h1_pp, h2_paaa = ham_2q
-        h1 = h1_pp[ncore:nocc,ncore:nocc]
-        h2 = h2_paaa[ncore:nocc]
+        h0, h1, h2 = ham_2q
         return op[self.opt].contract_ham_ci (
             self.lsi, h1, h2, ci, nelec_frs, ci, nelec_frs,
             si_bra=si_bra, si_ket=si_ket, h0=h0
@@ -132,9 +130,7 @@ class HessianOperator (sparse_linalg.LinearOperator):
         nelec_frs = self.get_nelec_frs (nr=len(ci[0]))
         ncore, ncas = self.lsi.ncore, self.lsi.ncas
         nocc = ncore+ncas
-        h0, h1_pp, h2_paaa = ham_2q
-        h1 = h1_pp[ncore:nocc,ncore:nocc]
-        h2 = h2_paaa[ncore:nocc]
+        h0, h1, h2 = ham_2q
         ham_op, _, ovlp_op = op[self.opt].gen_contract_op_si_hdiag (
             self.lsi, h1, h2, ci, nelec_frs
         )[:3]
@@ -154,6 +150,10 @@ class HessianOperator (sparse_linalg.LinearOperator):
 
         # TODO: why divide by 2?
         xham_2q = [h/2 for h in xham_2q]
+        ncore, ncas = self.lsi.ncore, self.lsi.ncas
+        nocc = ncore + ncas
+        xham_2q[1] = xham_2q[1][ncore:nocc,ncore:nocc]
+        xham_2q[2] = xham_2q[2][ncore:nocc]
 
         rci_01 = self.hci_op (xham_2q, ci1, si0, si0)
         rci_001 = self.hci_op (ham_2q, ci1, si0, si1)
@@ -214,7 +214,7 @@ def xham_2q (lsi, kappa, mo_coeff=None, eris=None, veff_c=None):
         h0 = 2*np.sum (h1_1.diagonal ()[:ncore])
         h1 += h1_1
 
-    h2 = np.stack ([eris.ppaa[i] for i in range (nmo)], axis=0)
+    h2 = np.stack ([eris.ppaa[i][ncore:nocc] for i in range (nmo)], axis=0)
     if ncas:
         h2 = -lib.einsum ('pq,qabc->pabc',kappa,h2)
         kpa = kappa[:,ncore:nocc]

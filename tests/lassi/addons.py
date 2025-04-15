@@ -260,7 +260,7 @@ def case_lassis_hessian (ks, lsis):
         si
     )
     g0_debug = grad_orb_ci_si.get_grad (lsis, *ugg.update_wfn (np.zeros_like (g0)), pack=True)
-    ks.assertLess (np.amax (np.abs (g0_debug-g0)), 1e-10, msg='sanity fail')
+    #ks.assertLess (np.amax (np.abs (g0_debug-g0)), 1e-10, msg='sanity fail')
     h_op = hessian_orb_ci_si.HessianOperator (ugg)
     x0 = np.random.rand (ugg.nvar_tot)
     x0 = ugg.pack (*ugg.unpack (x0)) # apply some projections
@@ -269,6 +269,8 @@ def case_lassis_hessian (ks, lsis):
     sec_offs = ugg.get_sector_offsets ()
     for (i, j), lbl0 in zip (sec_offs, sec_lbls):
         if i==j: continue
+        with ks.subTest ("sanity", sector=lbl0):
+            ks.assertLess (np.amax (np.abs (g0_debug[i:j]-g0[i:j])), 1e-10)
         x1 = np.zeros_like (x0)
         x1[i:j] = x0[i:j]
         div = 1.0

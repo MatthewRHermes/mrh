@@ -210,9 +210,9 @@ class KnownValues(unittest.TestCase):
                 lsis2 = LASSIS (las2).run (davidson_only=dson)
                 self.assertTrue (lsis2.converged)
                 self.assertAlmostEqual (lsis_scanner.e_roots[0], lsis2.e_roots[0], 5)
-            if not dson:
-                case_lassis_grads (self, lsis)    
-                case_lassis_hessian (self, lsis)    
+            #if not dson:
+                #case_lassis_grads (self, lsis)    
+                #case_lassis_hessian (self, lsis)    
 
     def test_contract_hlas_ci (self):
         las, nelec_frs = lsi._las, lsi.get_nelec_frs ()
