@@ -280,7 +280,7 @@ def case_lassis_hessian (ks, lsis):
             x2 = x1 / div
             g1_test = h_op_x1 / div
             #g1_test = h_op (x2)
-            g1_ref = grad_orb_ci_si.get_grad (lsis, *ugg.update_wfn (x2))
+            g1_ref = grad_orb_ci_si.get_grad (lsis, *ugg.update_wfn (x2))#, pack=True) - g0
             g1_ref = ugg.pack (*g1_ref) - g0
             for z, (k,l) in enumerate (sec_offs):
                 if k==l:
