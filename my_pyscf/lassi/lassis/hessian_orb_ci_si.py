@@ -91,6 +91,9 @@ class HessianOperator (sparse_linalg.LinearOperator):
                 ci_10_i = ci_10[i][self.nroots*(j+1):self.nroots*(j+2)]
                 for r in range (self.nroots):
                     ci1[i][r] += ci_10_i[r][0,...,0]
+            for i in range (self.nfrags):
+                for r in range (self.nroots):
+                    ci1[i][r] += ci_10[i][r][0,...,0]
         for i in range (self.nfrags):
             for r in range (self.nroots):
                 ci1[i][r] += ci1[i][r].conj () # + h.c.
