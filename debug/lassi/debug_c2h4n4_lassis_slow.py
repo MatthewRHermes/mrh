@@ -50,41 +50,41 @@ def tearDownModule():
 
 class KnownValues(unittest.TestCase):
 
-    def test_energy (self):
-        for dson in (False, True):
-            for opt in (0,1):
-                with self.subTest (opt=opt, davidson_only=dson):
-                    lsi.run (opt=opt, davidson_only=dson)
-                    self.assertTrue (lsi.converged)
-                    self.assertAlmostEqual (lsi.e_roots[0], -295.52185731568903, 7)
+    #def test_energy (self):
+    #    for dson in (False, True):
+    #        for opt in (0,1):
+    #            with self.subTest (opt=opt, davidson_only=dson):
+    #                lsi.run (opt=opt, davidson_only=dson)
+    #                self.assertTrue (lsi.converged)
+    #                self.assertAlmostEqual (lsi.e_roots[0], -295.52185731568903, 7)
 
-    def test_fbf_2_model_state (self):
-        for lsi.opt in (0,1):
-            with self.subTest (opt=lsi.opt):
-                case_lassis_fbf_2_model_state (self, lsi)
+    #def test_fbf_2_model_state (self):
+    #    for lsi.opt in (0,1):
+    #        with self.subTest (opt=lsi.opt):
+    #            case_lassis_fbf_2_model_state (self, lsi)
 
-    def test_fbfdm (self):
-        for lsi.opt in (0,1):
-            with self.subTest (opt=lsi.opt):
-                case_lassis_fbfdm (self, lsi)
+    #def test_fbfdm (self):
+    #    for lsi.opt in (0,1):
+    #        with self.subTest (opt=lsi.opt):
+    #            case_lassis_fbfdm (self, lsi)
 
-    def test_as_scanner (self):
-        for dson in (False, True):
-            with self.subTest (davidson_only=dson):
-                lsi_scanner = lsi.as_scanner ()
-                mol2 = struct (1.9, 1.9, '6-31g', symmetry=False)
-                mol2.verbose = 0
-                mol2.output = '/dev/null'
-                mol2.build ()
-                lsi_scanner (mol2)
-                self.assertTrue (lsi_scanner.converged)
-                mf2 = scf.RHF (mol2).run ()
-                las2 = LASSCF (mf2, (5,5), ((3,2),(2,3)), spin_sub=(2,2))
-                las2.mo_coeff = lsi_scanner.mo_coeff
-                las2.lasci ()
-                lsi2 = LASSIS (las2).run (davidson_only=dson)
-                self.assertTrue (lsi2.converged)
-                self.assertAlmostEqual (lsi_scanner.e_roots[0], lsi2.e_roots[0], 5)
+    #def test_as_scanner (self):
+    #    for dson in (False, True):
+    #        with self.subTest (davidson_only=dson):
+    #            lsi_scanner = lsi.as_scanner ()
+    #            mol2 = struct (1.9, 1.9, '6-31g', symmetry=False)
+    #            mol2.verbose = 0
+    #            mol2.output = '/dev/null'
+    #            mol2.build ()
+    #            lsi_scanner (mol2)
+    #            self.assertTrue (lsi_scanner.converged)
+    #            mf2 = scf.RHF (mol2).run ()
+    #            las2 = LASSCF (mf2, (5,5), ((3,2),(2,3)), spin_sub=(2,2))
+    #            las2.mo_coeff = lsi_scanner.mo_coeff
+    #            las2.lasci ()
+    #            lsi2 = LASSIS (las2).run (davidson_only=dson)
+    #            self.assertTrue (lsi2.converged)
+    #            self.assertAlmostEqual (lsi_scanner.e_roots[0], lsi2.e_roots[0], 5)
 
     def test_lassis_ugg (self):
         case_lassis_ugg (self, lsi)

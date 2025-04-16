@@ -53,20 +53,27 @@ class UnitaryGroupGenerators (lasscf_sync_o0.LASSCF_UnitaryGroupGenerators):
             c = self.ci_ref[i]
             t = self.t_ref[i]
             self.ci_ref[i] = t.vec_det2csf (c, normalize=False)[0]
+            assert (abs (linalg.norm (c) - linalg.norm (self.ci_ref[i])) < 1e-10)
             for s in range (2):
                 c = self.ci_sf[i][s]
                 t = self.t_sf[i][s]
-                if c is not None: self.ci_sf[i][s] = t.vec_det2csf (c, normalize=False)
+                if c is not None:
+                    self.ci_sf[i][s] = t.vec_det2csf (c, normalize=False)
+                    assert (abs (linalg.norm (c) - linalg.norm (self.ci_sf[i][s])) < 1e-10)
             for a in range (self.nfrags):
                 for s in range (4):
                     # p = 0: i
                     c = self.ci_ch[i][a][s][0]
                     t = self.t_ch_i[i][s//2]
-                    if c is not None: self.ci_ch[i][a][s][0] = t.vec_det2csf (c, normalize=False)
+                    if c is not None:
+                        self.ci_ch[i][a][s][0] = c1 = t.vec_det2csf (c, normalize=False)
+                        assert (abs (linalg.norm (c) - linalg.norm (c1)) < 1e-10)
                     # p = 1: a
                     c = self.ci_ch[i][a][s][1]
                     t = self.t_ch_a[a][s%2]
-                    if c is not None: self.ci_ch[i][a][s][1] = t.vec_det2csf (c, normalize=False)
+                    if c is not None:
+                        self.ci_ch[i][a][s][1] = c1 = t.vec_det2csf (c, normalize=False)
+                        assert (abs (linalg.norm (c) - linalg.norm (c1)) < 1e-10)
 
     def _init_si (self, lsi, ci_ref, ci_sf, ci_ch, si):
         self.nprods = lsi.get_nprods ()
@@ -281,6 +288,39 @@ class UnitaryGroupGenerators (lasscf_sync_o0.LASSCF_UnitaryGroupGenerators):
         ci_ref = _update_ci_ref (ci_ref, dcir)
         ci_sf = _update_ci_sf (ci_sf, dcis)
         ci_ch = _update_ci_ch (ci_ch, dcic)
+        for i in range (self.nfrags):
+            t = self.t_ref[i]
+            c0 = ci_ref[i]
+            n0 = linalg.norm (c0)
+            c1 = t.vec_det2csf (c0, normalize=False)
+            n1 = linalg.norm (c1)
+            assert (abs (n1-n0) < 1e-10)
+            for s in range (2):
+                t = self.t_sf[i][s]
+                c0 = ci_sf[i][s]
+                if c0 is not None:
+                    n0 = linalg.norm (c0)
+                    c1 = t.vec_det2csf (c0, normalize=False)
+                    n1 = linalg.norm (c1)
+                    assert (abs (n1-n0) < 1e-10)
+            for a in range (self.nfrags):
+                for s in range (4):
+                    # p = 0: i
+                    t = self.t_ch_i[i][s//2]
+                    c0 = ci_ch[i][a][s][0]
+                    if c is not None:
+                        n0 = linalg.norm (c0)
+                        c1 = t.vec_det2csf (c0, normalize=False)
+                        n1 = linalg.norm (c1)
+                        assert (abs (n1-n0) < 1e-10)
+                    # p = 1: a
+                    t = self.t_ch_a[a][s%2]
+                    c0 = ci_ch[i][a][s][1]
+                    if c is not None:
+                        n0 = linalg.norm (c0)
+                        c1 = t.vec_det2csf (c0, normalize=False)
+                        n1 = linalg.norm (c1)
+                        assert (abs (n1-n0) < 1e-10)
         si = self.raw2orth.H (self.si)
         si = _update_sivecs (si, dsi)
         return mo1, ci_ref, ci_sf, ci_ch, si
