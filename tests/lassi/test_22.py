@@ -28,7 +28,7 @@ from mrh.my_pyscf.lassi.op_o1 import get_fdm1_maker
 from mrh.my_pyscf.lassi.sitools import make_sdm1
 from mrh.tests.lassi.addons import case_contract_hlas_ci, case_lassis_fbf_2_model_state
 from mrh.tests.lassi.addons import case_lassis_fbfdm, case_contract_op_si, debug_contract_op_si
-from mrh.tests.lassi.addons import case_lassis_grads, case_lassis_hessian
+from mrh.tests.lassi.addons import case_lassis_grads, case_lassis_hessian, case_lassis_ugg
 
 def setUpModule ():
     global mol, mf, lsi, las, mc, op, lsis
@@ -185,50 +185,7 @@ class KnownValues(unittest.TestCase):
         self.assertAlmostEqual (lib.fp (e_tot), lib.fp (lsis.e_roots), 9)
 
     def test_lassis_ugg (self):
-        ugg = coords.UnitaryGroupGenerators (
-            lsis,
-            lsis.mo_coeff,
-            lsis.get_ci_ref (),
-            lsis.ci_spin_flips,
-            lsis.ci_charge_hops,
-            lsis.si
-        )
-        x0 = np.random.rand (ugg.nvar_tot)
-        x0 = ugg.pack (*ugg.unpack (x0)) # apply some projections
-        mo0, cir0, cis0, cic0, si0 = ugg.unpack (x0)
-        x1 = ugg.pack (mo0, cir0, cis0, cic0, si0)
-        mo1, cir1, cis1, cic1, si1 = ugg.unpack (x1)
-        self.assertAlmostEqual (lib.fp (x0), lib.fp (x1))
-        self.assertAlmostEqual (lib.fp (mo0), lib.fp (mo1))
-        self.assertAlmostEqual (lib.fp (cir0), lib.fp (cir1))
-        self.assertAlmostEqual (lib.fp (si0), lib.fp (si1))
-        for i in range (2):
-            for j in range (2):
-                if cis0[i][j] is not None:
-                    self.assertAlmostEqual (lib.fp (cis0[i][j]), lib.fp (cis1[i][j]))
-                for k in range (4):
-                    for l in range (2):
-                        if cic0[i][j][k][l] is not None:
-                            self.assertAlmostEqual (lib.fp (cic0[i][j][k][l]),
-                                                    lib.fp (cic1[i][j][k][l]))
-        ugg = coords.UnitaryGroupGenerators (
-            lsis,
-            lsis.mo_coeff,
-            lsis.get_ci_ref (),
-            lsis.ci_spin_flips,
-            lsis.ci_charge_hops,
-            lsis.si[:,0]
-        )
-        x0 = np.random.rand (ugg.nvar_tot)
-        x0 = ugg.pack (*ugg.unpack (x0)) # apply some projections
-        e_tot = lsis.energy_tot (*ugg.update_wfn (x0))
-        self.assertLessEqual (lsis.e_roots[0], e_tot)
-        h0, h1, h2 = lsis.ham_2q ()
-        hci_fr = case_contract_hlas_ci (self, lsis, h0, h1, h2, lsis.ci, lsis.get_nelec_frs ())
-        # Just to syntax-debug this...
-        hci_ref, hci_sf, hci_ch = coords.sum_hci (lsis, hci_fr)
-        mo0, _, _, _, si0 = ugg.unpack (x0)
-        x1 = ugg.pack (mo0, hci_ref, hci_sf, hci_ch, si0)
+        case_lassis_ugg (self, lsis)
 
     def test_lassis_grad (self):
         case_lassis_grads (self, lsis)

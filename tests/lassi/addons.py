@@ -307,6 +307,69 @@ def case_lassis_hessian (ks, lsis):
             with ks.subTest ((lbl1,lbl0)):
                 ks.assertAlmostEqual (rel_err_i, .5, 1, msg=err_table_i)
 
+def _compare_lassis_wfn (ks, nfrags, wfn0, wfn1, lbl=''):
+    mo0, cir0, cis0, cic0, si0 = wfn0
+    mo1, cir1, cis1, cic1, si1 = wfn1
+    with ks.subTest ('mo_coeff ' + lbl):
+        ks.assertAlmostEqual (lib.fp (mo0), lib.fp (mo1))
+    with ks.subTest ('ci_ref ' + lbl):
+        ks.assertAlmostEqual (lib.fp (cir0), lib.fp (cir1))
+    with ks.subTest ('si ' + lbl):
+        ks.assertAlmostEqual (lib.fp (si0), lib.fp (si1))
+    with ks.subTest ('ci_sf ' + lbl):
+        for i in range (nfrags):
+            for j in range (2):
+                ks.assertEqual (cis0[i][j] is None, cis1[i][j] is None)
+                if cis0[i][j] is not None:
+                    ks.assertAlmostEqual (lib.fp (cis0[i][j]), lib.fp (cis1[i][j]))
+    with ks.subTest ('ci_ch ' + lbl):
+        for i in range (nfrags):
+            for j in range (nfrags):
+                for k in range (4):
+                    for l in range (2):
+                        ks.assertEqual (cic0[i][j][k][l] is None, cic1[i][j][k][l] is None)
+                        if cic0[i][j][k][l] is not None:
+                            ks.assertAlmostEqual (lib.fp (cic0[i][j][k][l]),
+                                                  lib.fp (cic1[i][j][k][l]))
 
+def case_lassis_ugg (ks, lsis):
+    ugg = coords.UnitaryGroupGenerators (
+        lsis,
+        lsis.mo_coeff,
+        lsis.get_ci_ref (),
+        lsis.ci_spin_flips,
+        lsis.ci_charge_hops,
+        lsis.si
+    )
+    wfn0 = lsis.mo_coeff, lsis.get_ci_ref (), lsis.ci_spin_flips, lsis.ci_charge_hops, lsis.si
+    wfn1 = ugg.update_wfn (np.zeros (ugg.nvar_tot))
+    _compare_lassis_wfn (ks, lsis.nfrags, wfn0, wfn1, 'zero step')
+    x0 = np.random.rand (ugg.nvar_tot)
+    x0 = ugg.pack (*ugg.unpack (x0)) # apply some projections
+    wfn0 = ugg.unpack (x0)
+    x1 = ugg.pack (*wfn0)
+    wfn1 = ugg.unpack (x1)
+    ks.assertAlmostEqual (lib.fp (x0), lib.fp (x1))
+    _compare_lassis_wfn (ks, lsis.nfrags, wfn0, wfn1, 'repeated application')
+    ugg = coords.UnitaryGroupGenerators (
+        lsis,
+        lsis.mo_coeff,
+        lsis.get_ci_ref (),
+        lsis.ci_spin_flips,
+        lsis.ci_charge_hops,
+        lsis.si[:,0]
+    )
+    x0 = np.random.rand (ugg.nvar_tot)
+    x0 = ugg.pack (*ugg.unpack (x0)) # apply some projections
+    e_tot = lsis.energy_tot (*ugg.update_wfn (x0))
+    with ks.subTest ('energy minimization'):
+        ks.assertLessEqual (lsis.e_roots[0], e_tot)
+    with ks.subTest ('contract_hlas_ci'):
+        h0, h1, h2 = lsis.ham_2q ()
+        hci_fr = case_contract_hlas_ci (ks, lsis, h0, h1, h2, lsis.ci, lsis.get_nelec_frs ())
+        # Just to syntax-debug this...
+        hci_ref, hci_sf, hci_ch = coords.sum_hci (lsis, hci_fr)
+        mo0, _, _, _, si0 = ugg.unpack (x0)
+        x1 = ugg.pack (mo0, hci_ref, hci_sf, hci_ch, si0)
 
 
