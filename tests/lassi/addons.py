@@ -213,17 +213,6 @@ def case_lassis_grads (ks, lsis):
     )
     x0 = np.random.rand (ugg.nvar_tot)
     x0 = ugg.pack (*ugg.unpack (x0)) # apply some projections
-    #x1 = x0.copy ()
-    #x1[:102] = 0 # core -> fragment 1
-    #x1[107:124] = 0 # core -> fragment 2
-    #x1[129:146] = 0 # core -> fragment 2
-    #x1[151:168] = 0 # core -> fragment 2
-    #x1[173:190] = 0 # core -> fragment 2
-    ##x1[195:1140] = 0 # any -> virtual
-    ##for i in range (195,1140,27): x1[i:i+17] = 0 # core -> virtual
-    #x0 = x0 - x1
-    #x0[:] = 0
-    #x0[1] = 1
     assert (len (x0) == len (g_all))
     sec_lbls = ['orb', 'ci_ref', 'ci_sf', 'ci_ch', 'si_avg', 'si_ext']
     sec_offs = ugg.get_sector_offsets ()
