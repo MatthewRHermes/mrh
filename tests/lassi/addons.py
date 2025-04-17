@@ -213,6 +213,17 @@ def case_lassis_grads (ks, lsis):
     )
     x0 = np.random.rand (ugg.nvar_tot)
     x0 = ugg.pack (*ugg.unpack (x0)) # apply some projections
+    #x1 = x0.copy ()
+    #x1[:102] = 0 # core -> fragment 1
+    #x1[107:124] = 0 # core -> fragment 2
+    #x1[129:146] = 0 # core -> fragment 2
+    #x1[151:168] = 0 # core -> fragment 2
+    #x1[173:190] = 0 # core -> fragment 2
+    ##x1[195:1140] = 0 # any -> virtual
+    ##for i in range (195,1140,27): x1[i:i+17] = 0 # core -> virtual
+    #x0 = x0 - x1
+    #x0[:] = 0
+    #x0[1] = 1
     assert (len (x0) == len (g_all))
     sec_lbls = ['orb', 'ci_ref', 'ci_sf', 'ci_ch', 'si_avg', 'si_ext']
     sec_offs = ugg.get_sector_offsets ()
@@ -230,6 +241,8 @@ def case_lassis_grads (ks, lsis):
                 x2 = x1 / div
                 e1_test = np.dot (x2, g_all)
                 e1_ref = lsis.energy_tot (*ugg.update_wfn (x2)) - e0
+                e1_ref -= (lsis.energy_tot (*ugg.update_wfn (-x2)) - e0)
+                e1_ref *= .5
                 err = (e1_test - e1_ref) / e1_ref
                 err_table += '{:e} {:e} {:e}\n'.format (1/div, e1_ref, err)
                 rel_err = err / err_last
@@ -284,6 +297,10 @@ def case_lassis_hessian (ks, lsis):
             #g1_test = h_op (x2)
             g1_ref = grad_orb_ci_si.get_grad (lsis, *ugg.update_wfn (x2))#, pack=True) - g0
             g1_ref = ugg.pack (*g1_ref) - g0
+            mg1_ref = grad_orb_ci_si.get_grad (lsis, *ugg.update_wfn (-x2))#, pack=True) - g0
+            mg1_ref = ugg.pack (*mg1_ref) - g0
+            g1_ref -= mg1_ref
+            g1_ref *= .5
             for z, (k,l) in enumerate (sec_offs):
                 if k==l:
                     rel_err[z] = .5
@@ -341,6 +358,14 @@ def case_lassis_ugg (ks, lsis):
         lsis.ci_charge_hops,
         lsis.si
     )
+    ### print out dimension addresses
+    #x0 = np.arange (ugg.nvar_tot) + 1
+    #kappa, ci_ref, ci_sf, ci_ch, si = ugg.unpack (x0)
+    #kappa -= 1
+    #np.save ('kappa.npy', kappa)
+    #print (lsis.ncore, lsis.ncas_sub)
+    #assert (False)
+    ###
     wfn0 = lsis.mo_coeff, lsis.get_ci_ref (), lsis.ci_spin_flips, lsis.ci_charge_hops, lsis.si
     wfn1 = ugg.update_wfn (np.zeros (ugg.nvar_tot))
     _compare_lassis_wfn (ks, lsis.nfrags, wfn0, wfn1, 'zero step')

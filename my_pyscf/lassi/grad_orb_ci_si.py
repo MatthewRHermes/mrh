@@ -50,10 +50,9 @@ def get_grad_orb (lsi, mo_coeff=None, ci=None, si=None, state=None, weights=None
         state = 0
     if dm1s is None: dm1s = lsi.make_rdm1s (mo_coeff=mo_coeff, ci=ci, si=si, state=state,
                                             weights=weights, opt=opt)
+    dm1 = dm1s.sum (0)
     if h2eff_sub is None: h2eff_sub = lsi._las.get_h2eff (mo_coeff)
-    if veff is None:
-        veff = lsi._las.get_veff (dm=dm1s.sum (0))
-        veff = lsi._las.split_veff (veff, h2eff_sub, mo_coeff=mo_coeff, ci=ci)
+    if veff is None: veff = lsi._las.get_veff (dm=dm1)
     nao, nmo = mo_coeff.shape
     ncore = lsi.ncore
     ncas = lsi.ncas
@@ -62,16 +61,14 @@ def get_grad_orb (lsi, mo_coeff=None, ci=None, si=None, state=None, weights=None
     smoH_cas = smo_cas.conj ().T
 
     # The orbrot part
-    h1s = lsi._las.get_hcore ()[None,:,:] + veff
-    f1 = h1s[0] @ dm1s[0] + h1s[1] @ dm1s[1]
+    h1 = lsi._las.get_hcore () + veff
+    f1 = h1 @ dm1
     f1 = mo_coeff.conjugate ().T @ f1 @ lsi._las._scf.get_ovlp () @ mo_coeff
     # ^ I need the ovlp there to get dm1s back into its correct basis
-    casdm2 = lsi.make_casdm2 (ci=ci, si=si, state=state, weights=weights, opt=opt)
-    casdm1s = np.stack ([smoH_cas @ d @ smo_cas for d in dm1s], axis=0)
-    casdm1 = casdm1s.sum (0)
-    casdm2 -= np.multiply.outer (casdm1, casdm1)
-    casdm2 += np.multiply.outer (casdm1s[0], casdm1s[0]).transpose (0,3,2,1)
-    casdm2 += np.multiply.outer (casdm1s[1], casdm1s[1]).transpose (0,3,2,1)
+    casdm1, casdm2 = lsi.make_casdm12 (ci=ci, si=si, state=state, weights=weights, opt=opt)
+    ddm2 = np.multiply.outer (casdm1, casdm1)
+    ddm2 -= .5 * ddm2.transpose (0,3,2,1)
+    casdm2 -= ddm2
     eri = h2eff_sub.reshape (nmo*ncas, ncas*(ncas+1)//2)
     eri = lib.numpy_helper.unpack_tril (eri).reshape (nmo, ncas, ncas, ncas)
     f1[:,ncore:nocc] += np.tensordot (eri, casdm2, axes=((1,2,3),(1,2,3)))
