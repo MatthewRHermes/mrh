@@ -236,19 +236,24 @@ def case_lassis_grads (ks, lsis):
             x1[i:j] = x0[i:j]
             div = 1.0
             err_last = np.finfo (float).tiny
+            e1_ref_last = np.finfo (float).tiny
             err_table = '{:s}\n'.format (lbl)
+            e1_test = np.dot (x1, g_all)
             for p in range (20):
                 x2 = x1 / div
-                e1_test = np.dot (x2, g_all)
                 e1_ref = lsis.energy_tot (*ugg.update_wfn (x2)) - e0
                 e1_ref -= (lsis.energy_tot (*ugg.update_wfn (-x2)) - e0)
-                e1_ref *= .5
+                e1_ref *= .5 * div
                 err = (e1_test - e1_ref) / e1_ref
-                err_table += '{:e} {:e} {:e}\n'.format (1/div, e1_ref, err)
                 rel_err = err / err_last
+                err_table += '{:e} {:e} {:e}\n'.format (1/div, e1_ref, err)
+                conv = 1.0 - e1_ref/e1_ref_last
+                if (abs (conv) < 0.001) and (abs (rel_err-.25) < 0.001):
+                    break
                 err_last = err + np.finfo (float).tiny
+                e1_ref_last = e1_ref
                 div *= 2
-            ks.assertAlmostEqual (rel_err, .5, 1, msg=err_table)
+            ks.assertAlmostEqual (rel_err, .25, 2, msg=err_table)
 
 def case_lassis_hessian (ks, lsis):
     if lsis.converged:
@@ -287,28 +292,32 @@ def case_lassis_hessian (ks, lsis):
         x1 = np.zeros_like (x0)
         x1[i:j] = x0[i:j]
         div = 1.0
-        h_op_x1 = h_op (x1)
+        g1_test = h_op (x1)
         err_last = [np.finfo (float).tiny,]*len(sec_lbls)
         err_table = ['\n{:s} {:s}\n'.format (lbl1, lbl0) for lbl1 in sec_lbls]
         rel_err = [1,]*len(sec_lbls)
+        g1_ref_last = np.zeros_like (x1)
+        brk = [False for lbl in sec_lbls]
         for p in range (20):
             x2 = x1 / div
-            g1_test = h_op_x1 / div
-            #g1_test = h_op (x2)
+            #g1_test = h_op (x2) * div
             g1_ref = grad_orb_ci_si.get_grad (lsis, *ugg.update_wfn (x2))#, pack=True) - g0
             g1_ref = ugg.pack (*g1_ref) - g0
             mg1_ref = grad_orb_ci_si.get_grad (lsis, *ugg.update_wfn (-x2))#, pack=True) - g0
             mg1_ref = ugg.pack (*mg1_ref) - g0
             g1_ref -= mg1_ref
-            g1_ref *= .5
+            g1_ref *= .5 * div
             for z, (k,l) in enumerate (sec_offs):
                 if k==l:
-                    rel_err[z] = .5
+                    rel_err[z] = .25
                     continue
+                if brk[z]: continue
                 g2_test = np.zeros_like (g1_test)
                 g2_ref = np.zeros_like (g1_ref)
+                g2_ref_last = np.zeros_like (g1_ref_last)
                 g2_test[k:l] = g1_test[k:l]
                 g2_ref[k:l] = g1_ref[k:l]
+                g2_ref_last[k:l] = g1_ref_last[k:l]
                 err = vector_error (g2_test, g2_ref, err_type='rel', ang_units='deg')
                 err_table[z] += '{:e} {:e} {:e} {:e} {:.1f}\n'.format (
                     1/div, linalg.norm (g2_ref), linalg.norm (g2_test), err[0], err[1]
@@ -317,12 +326,16 @@ def case_lassis_hessian (ks, lsis):
                 rel_err[z] = (err / err_last[z])
                 if linalg.norm (g2_test) < 1e-16:
                     err = linalg.norm (g2_ref)
-                    rel_err[z] = (err / err_last[z]) * 2
+                    rel_err[z] = (err / err_last[z])
                 err_last[z] = err + np.finfo (float).tiny
+                conv = vector_error (g2_ref, g2_ref_last, err_type='rel')[0]
+                if (conv < 0.001) and (abs (rel_err[z]-.25) < 0.001):
+                    brk[z] = True
+            g1_ref_last = g1_ref
             div *= 2
         for rel_err_i, err_table_i, lbl1 in zip (rel_err, err_table, sec_lbls):
             with ks.subTest ((lbl1,lbl0)):
-                ks.assertAlmostEqual (rel_err_i, .5, 1, msg=err_table_i)
+                ks.assertAlmostEqual (rel_err_i, .25, 2, msg=err_table_i)
 
 def _compare_lassis_wfn (ks, nfrags, wfn0, wfn1, lbl=''):
     mo0, cir0, cis0, cic0, si0 = wfn0
