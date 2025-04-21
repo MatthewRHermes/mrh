@@ -64,6 +64,7 @@ def contract_sladder(fcivec, norb, nelec, op=-1):
         Changes neleca - nelecb without altering <S2>
         Obtained by modifying pyscf.fci.spin_op.contract_ss
     '''
+    norm_ci0 = linalg.norm (fcivec)
     neleca, nelecb = _unpack_nelec(nelec)
     na = cistring.num_strings(norb, neleca)
     nb = cistring.num_strings(norb, nelecb)
@@ -105,7 +106,8 @@ def contract_sladder(fcivec, norb, nelec, op=-1):
         citmp *= signb[maskb]
         #: ci1[addra.reshape(-1,1),addrb] += citmp
         lib.takebak_2d(ci1, citmp, addra, addrb)
-    ci1 /= linalg.norm (ci1) # ???
+    norm_ci1 = linalg.norm (ci1) + np.finfo (float).tiny
+    ci1 *= norm_ci0 / norm_ci1 # ???
     return ci1
 
 

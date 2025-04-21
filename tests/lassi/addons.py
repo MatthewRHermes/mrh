@@ -6,10 +6,12 @@ from mrh.my_pyscf.mcscf.lasci import get_space_info
 from mrh.my_pyscf.lassi.citools import get_lroots
 from mrh.my_pyscf.lassi.spaces import SingleLASRootspace
 from mrh.my_pyscf.lassi.op_o1.utilities import lst_hopping_index
+from mrh.my_pyscf.lassi.lassis import coords, grad_orb_ci_si, hessian_orb_ci_si
 from mrh.my_pyscf.lassi import op_o0, op_o1
 from mrh.my_pyscf.fci.spin_op import mup
 from mrh.my_pyscf.lassi.lassi import LINDEP_THRESH
 from pyscf.scf.addons import canonical_orth_
+from mrh.util.la import vector_error
 op = (op_o0, op_o1)
 
 def describe_interactions (nelec_frs):
@@ -28,6 +30,7 @@ def describe_interactions (nelec_frs):
                 + 5*twoc3_index.astype (int) + 6*twoc4_index.astype (int))
     return interactions, interidx
 
+# TODO: SOC generalization!
 def case_contract_hlas_ci (ks, las, h0, h1, h2, ci_fr, nelec_frs):
     interactions, interidx = describe_interactions (nelec_frs)
     nelec = nelec_frs
@@ -39,9 +42,12 @@ def case_contract_hlas_ci (ks, las, h0, h1, h2, ci_fr, nelec_frs):
     nj = np.cumsum (lroots_prod)
     ni = nj - lroots_prod
     ndim = nj[-1]
+    si_bra = np.random.rand (ndim)
+    si_ket = np.random.rand (ndim)
     for opt in range (2):
-        ham = op[opt].ham (las, h1, h2, ci_fr, nelec)[0]
-        hket_fr_pabq = op[opt].contract_ham_ci (las, h1, h2, ci_fr, nelec, ci_fr, nelec)
+        ham, _, ovlp = op[opt].ham (las, h1, h2, ci_fr, nelec)[:3]
+        ham += h0 * ovlp
+        hket_fr_pabq = op[opt].contract_ham_ci (las, h1, h2, ci_fr, nelec, ci_fr, nelec, h0=h0)
         for f, (ci_r, hket_r_pabq) in enumerate (zip (ci_fr, hket_fr_pabq)):
             current_order = list (range (las.nfrags)) + [las.nfrags]
             current_order.insert (0, current_order.pop (las.nfrags-1-f))
@@ -66,6 +72,18 @@ def case_contract_hlas_ci (ks, las, h0, h1, h2, ci_fr, nelec_frs):
                                        dneleca=nelec[:,r,0]-nelec[:,s,0],
                                        dnelecb=nelec[:,r,1]-nelec[:,s,1]):
                         ks.assertAlmostEqual (lib.fp (hket_pq_s), lib.fp (hket_ref_s), 8)
+        h_ref = np.dot (si_bra.conj (), np.dot (ham, si_ket))
+        hket_fr_pabq = op[opt].contract_ham_ci (las, h1, h2, ci_fr, nelec, ci_fr, nelec, h0=h0,
+                                                si_bra=si_bra, si_ket=si_ket)
+        for f, (ci_r, hket_r_pabq) in enumerate (zip (ci_fr, hket_fr_pabq)):
+            h_test = 0
+            for r, (ci, hket_pabq) in enumerate (zip (ci_r, hket_r_pabq)):
+                if ci.ndim < 3: ci = ci[None,:,:]
+                with ks.subTest (opt=opt, frag=f, bra_space=r, nelec=nelec[f,r]):
+                    h_test += lib.einsum ('pab,pab->', hket_pabq, ci.conj ())
+            with ks.subTest (opt=opt, frag=f, bra_space=r, nelec=nelec[f,r]):
+                ks.assertAlmostEqual (h_test, h_ref, 8)
+    return hket_fr_pabq
 
 def case_contract_op_si (ks, las, h1, h2, ci_fr, nelec_frs, soc=0):
     ham, s2, ovlp = op[1].ham (las, h1, h2, ci_fr, nelec_frs, soc=soc)[:3]
@@ -176,6 +194,98 @@ def case_lassis_fbfdm (ks, lsi):
             x = canonical_orth_(ovlp, thr=LINDEP_THRESH)
             xdx = x.conj ().T @ dm1 @ x
             ks.assertAlmostEqual ((dm1*ovlp).sum (), 1.0, 9)
+
+def case_lassis_grads (ks, lsis):
+    if lsis.converged:
+        de = lsis.e_roots - lsis.e_roots[0]
+        i = np.where (de>1e-4)[0][0]
+        si = (lsis.si[:,0] + lsis.si[:,i]) * np.sqrt (0.5)
+    else:
+        si = si[:,0]
+    g_all = grad_orb_ci_si.get_grad (lsis, si=si, pack=True)
+    ugg = coords.UnitaryGroupGenerators (
+        lsis,
+        lsis.mo_coeff,
+        lsis.get_ci_ref (),
+        lsis.ci_spin_flips,
+        lsis.ci_charge_hops,
+        si
+    )
+    x0 = np.random.rand (ugg.nvar_tot)
+    x0 = ugg.pack (*ugg.unpack (x0)) # apply some projections
+    assert (len (x0) == len (g_all))
+    sec_lbls = ['orb', 'ci_ref', 'ci_sf', 'ci_ch', 'si_avg', 'si_ext']
+    sec_offs = ugg.get_sector_offsets ()
+    e0 = lsis.energy_tot (*ugg.update_wfn (np.zeros_like (x0)))
+    for (i, j), lbl in zip (sec_offs, sec_lbls):
+        if i==j: continue
+        if np.amax (np.abs (g_all[i:j]))<1e-8: continue
+        with ks.subTest (lbl):
+            x1 = np.zeros_like (x0)
+            x1[i:j] = x0[i:j]
+            div = 1.0
+            err_last = np.finfo (float).tiny
+            err_table = '{:s}\n'.format (lbl)
+            for p in range (20):
+                x2 = x1 / div
+                e1_test = np.dot (x2, g_all)
+                e1_ref = lsis.energy_tot (*ugg.update_wfn (x2)) - e0
+                err = (e1_test - e1_ref) / e1_ref
+                err_table += '{:e} {:e} {:e}\n'.format (1/div, e1_ref, err)
+                rel_err = err / err_last
+                err_last = err
+                div *= 2
+            ks.assertAlmostEqual (rel_err, .5, 1, msg=err_table)
+
+def case_lassis_hessian (ks, lsis):
+    if lsis.converged:
+        de = lsis.e_roots - lsis.e_roots[0]
+        i = np.where (de>1e-4)[0][0]
+        si = (lsis.si[:,0] + lsis.si[:,i]) * np.sqrt (0.5)
+    else:
+        si = si[:,0]
+    g0 = grad_orb_ci_si.get_grad (lsis, si=si, pack=True)
+    ugg = coords.UnitaryGroupGenerators (
+        lsis,
+        lsis.mo_coeff,
+        lsis.get_ci_ref (),
+        lsis.ci_spin_flips,
+        lsis.ci_charge_hops,
+        si
+    )
+    h_op = hessian_orb_ci_si.HessianOperator (ugg)
+    x0 = np.random.rand (ugg.nvar_tot)
+    x0 = ugg.pack (*ugg.unpack (x0)) # apply some projections
+    assert (len (x0) == len (g0))
+    sec_lbls = ['orb', 'ci_ref', 'ci_sf', 'ci_ch', 'si_avg', 'si_ext']
+    sec_offs = ugg.get_sector_offsets ()
+    for (i, j), lbl0 in zip (sec_offs, sec_lbls):
+        if i==j: continue
+        x1 = np.zeros_like (x0)
+        x1[i:j] = x0[i:j]
+        div = 1.0
+        err_last = [np.finfo (float).tiny,]*len(sec_lbls)
+        err_table = ['{:s}\n'.format (lbl),]*len(sec_lbls)
+        rel_err = [1,]*len(sec_lbls)
+        for p in range (20):
+            x2 = x1 / div
+            g1_test = h_op (x2)
+            g1_ref = grad_orb_ci_si.get_grad (lsis, *ugg.update_wfn (x2), pack=True) - g0
+            for z, (k,l) in enumerate (sec_offs):
+                g2_test = np.zeros_like (g2_test)
+                g2_ref = np.zeros_like (g2_ref)
+                g2_test[k:l] = g1_test[k:l]
+                g2_ref[k:l] = g1_ref[k:l]
+                err = vector_error (g2_test, g2_ref, err_type='rel')
+                err_table[z] += '{:e} {:e} {:e}\n'.format (1/div, linalg.norm (g2_ref), err)
+                rel_err[z] = err / err_last[z]
+                err_last[z] = err
+                div *= 2
+        for rel_err_i, err_table_i, lbl1 in zip (rel_err, err_table, sec_lbls):
+            with ks.subTest ((lbl1,lbl0)):
+                ks.assertAlmostEqual (rel_err_i, .5, 1, msg=err_table_i)
+
+
 
 
 

@@ -8,6 +8,8 @@ from pyscf.mcscf.addons import _state_average_mcscf_solver
 from mrh.my_pyscf.mcscf import _DFLASCI, lasci_sync, lasci
 import copy, json
 
+from mrh.my_pyscf.gpu import libgpu
+
 class ImpurityMole (gto.Mole):
     def __init__(self, las, stdout=None, output=None):
         gto.Mole.__init__(self)
@@ -25,6 +27,8 @@ class ImpurityMole (gto.Mole):
         self.spin = None
         self._imporb_coeff = np.array ([0])
         self.build ()
+        add_gpu = {"use_gpu":las.use_gpu}
+        self.__dict__.update(add_gpu)
 
     def _update_space_(self, imporb_coeff, nelec_imp):
         self._imporb_coeff = imporb_coeff
@@ -38,7 +42,7 @@ class ImpurityMole (gto.Mole):
     def dumps (mol):
         '''Subclassing this to eliminate annoying warning message
         '''
-        exclude_keys = set(('output', 'stdout', '_keys',
+        exclude_keys = set(('output', 'stdout', '_keys', 'use_gpu',
                             # Constructing in function loads
                             'symm_orb', 'irrep_id', 'irrep_name',
                             # LASSCF hook to rest of molecule
@@ -510,12 +514,13 @@ class ImpuritySolver ():
         '''Update the Hamiltonian data contained within this impurity solver and all encapsulated
         impurity objects'''
         las = self.mol._las
+        gpu = las.use_gpu
         if h2eff_sub is None: h2eff_sub = las.ao2mo (mo_coeff)
         if e_states is None: e_states = las.energy_nuc () + las.states_energy_elec (
             mo_coeff=mo_coeff, ci=ci, h2eff=h2eff_sub)
         e_tot = np.dot (las.weights, e_states)
         if dm1s is None: dm1s = las.make_rdm1s (mo_coeff=mo_coeff, ci=ci)
-        if veff is None: veff = las.get_veff (dm1s=dm1s, spin_sep=True)
+        if veff is None: veff = las.get_veff (dm=dm1s, spin_sep=True)
         nocc = self.ncore + self.ncas
 
         # Default these to the "CASSCF" way of making them
@@ -534,6 +539,7 @@ class ImpuritySolver ():
         eri_cas = ao2mo.restore (1, self.get_h2cas (self.mo_coeff), self.ncas)
         mo_core = self.mo_coeff[:,:self.ncore]
         mo_cas = self.mo_coeff[:,self.ncore:nocc]
+        if gpu: libgpu.libgpu_set_update_dfobj_(gpu, 1)
         self._scf._update_impham_2_(mo_core, mo_cas, casdm1s, casdm2, eri_cas)
 
         # Set state-separated Hamiltonian 1-body
@@ -574,10 +580,13 @@ class ImpuritySolver ():
         output_shape = list (dm1rs_ext.shape[:-2]) + [self.mol.nao (), self.mol.nao ()]
         dm1 = dm1rs_ext.reshape (-1, mo_ext.shape[1], mo_ext.shape[1])
         if bmPu is not None:
+            log = logger.new_logger (self, self.verbose)
+            t_vj = (logger.process_clock(), logger.perf_counter())
             bPuu = np.tensordot (bmPu, mo_ext, axes=((0),(0)))
             rho = np.tensordot (dm1, bPuu, axes=((1,2),(1,2)))
             bPii = self._scf._cderi
             vj = lib.unpack_tril (np.tensordot (rho, bPii, axes=((-1),(0))))
+            t_vj = log.timer("vj ext", *t_vj)    
         else: # Safety case: AO-basis SCF driver
             imporb_coeff = self.mol.get_imporb_coeff ()
             dm1 = np.dot (mo_ext, np.dot (dm1, mo_ext.conj().T)).transpose (1,0,2)
@@ -590,15 +599,19 @@ class ImpuritySolver ():
         dm1 = dm1rs_ext.reshape (-1, mo_ext.shape[1], mo_ext.shape[1])
         imporb_coeff = self.mol.get_imporb_coeff ()
         if bmPu is not None:
+            log = logger.new_logger (self, self.verbose)
+            t_vk = (logger.process_clock(), logger.perf_counter())
             biPu = np.tensordot (imporb_coeff, bmPu, axes=((0),(0)))
             vuiP = np.tensordot (dm1, biPu, axes=((-1),(-1)))
             vk = np.tensordot (vuiP, biPu, axes=((-3,-1),(-1,-2)))
+            t_vk = log.timer("vk ext", *t_vk)    
         else: # Safety case: AO-basis SCF driver
             dm1 = np.dot (mo_ext, np.dot (dm1, mo_ext.conj().T)).transpose (1,0,2)
-            vk = self.mol._las._scf.get_k (dm=dm1)
+            #vk = self.mol._las._scf.get_k (dm=dm1) 
+            _,vk = self.mol._las._scf.get_jk (dm=dm1) #TODO: for gpu run, this has to be written as get_k (it is now written as get_jk)
             vk = np.dot (imporb_coeff.conj ().T, np.dot (vk, imporb_coeff)).transpose (1,0,2)
         return vk.reshape (*output_shape)
-
+            
     def get_hcore_rs (self):
         return self._scf.get_hcore_spinsep ()[None,:,:,:] + self._imporb_h1_stateshift
 
@@ -1012,7 +1025,7 @@ def get_pair_lasci (las, frags, inherit_df=False):
         imf = imf.density_fit ()
     ncas_sub = [las.ncas_sub[i] for i in frags]
     nelecas_sub = [las.nelecas_sub[i] for i in frags]
-    ilas = ImpurityLASCI (imf, ncas_sub, nelecas_sub)
+    ilas = ImpurityLASCI (imf, ncas_sub, nelecas_sub, use_gpu=las.use_gpu)
     if inherit_df and isinstance (las, _DFLASCI):
         ilas = lasci.density_fit (ilas, with_df=imf.with_df)
     charges, spins, smults, wfnsyms = lasci.get_space_info (las)

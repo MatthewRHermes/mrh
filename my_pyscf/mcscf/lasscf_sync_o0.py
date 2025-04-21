@@ -10,6 +10,8 @@ from pyscf.lo import orth
 from pyscf.lib import tag_array, with_doc, logger
 from functools import partial
 
+from mrh.my_pyscf.gpu import libgpu
+
 # An implementation that carries out vLASSCF, but without utilizing Schmidt decompositions
 # or "fragment" subspaces, so that the orbital-optimization part scales no better than
 # CASSCF. Eventually to be modified into a true all-PySCF implementation of vLASSCF
@@ -70,7 +72,7 @@ class LASSCF_HessianOperator (lasci_sync.LASCI_HessianOperator):
         nmo = mo.shape[-1]
         dm1_mo = dm1s_mo.sum (0)
         dm1_ao = np.dot (mo, np.dot (dm1_mo, moH))
-        veff_ao = np.squeeze (self.las.get_veff (dm1s=dm1_ao))
+        veff_ao = np.squeeze (self.las.get_veff (dm=dm1_ao))
         return np.dot (moH, np.dot (veff_ao, mo))
 
     def split_veff (self, veff_mo, dm1s_mo):
@@ -105,28 +107,38 @@ class LASSCF_HessianOperator (lasci_sync.LASCI_HessianOperator):
             ocm2, tdm1frs, tcm2, veff_prime)
         f1_prime = np.zeros ((self.nmo, self.nmo), dtype=self.dtype)
         # (H.x_va)_pp, (H.x_ac)_pp sector
-        for p, f1 in enumerate (f1_prime):
-            praa = self.cas_type_eris.ppaa[p]
-            para = self.cas_type_eris.papa[p]
-            paaa = praa[ncore:nocc]
-            # g_pabc d_qabc + g_prab d_qrab + g_parb d_qarb + g_pabr d_qabr (Formal)
-            #        d_cbaq          d_abqr          d_aqbr          d_qabr (Symmetry of ocm2)
-            # g_pcba d_abcq + g_prab d_abqr + g_parc d_aqcr + g_pbcr d_qbcr (Relabel)
-            #                                                 g_pbrc        (Symmetry of eri)
-            # g_pcba d_abcq + g_prab d_abqr + g_parc d_aqcr + g_pbrc d_qbcr (Final)
-            for i, j in ((0, ncore), (nocc, nmo)): # Don't double-count
-                ra, ar, cm = praa[i:j], para[:,i:j], ocm2[:,:,:,i:j]
-                f1[i:j] += np.tensordot (paaa, cm, axes=((0,1,2),(2,1,0))) # last index external
-                f1[ncore:nocc] += np.tensordot (ra, cm, axes=((0,1,2),(3,0,1))) # third index external
-                f1[ncore:nocc] += np.tensordot (ar, cm, axes=((0,1,2),(0,3,2))) # second index external
-                f1[ncore:nocc] += np.tensordot (ar, cm, axes=((0,1,2),(1,3,2))) # first index external
-        # (H.x_aa)_va, (H.x_aa)_ac
-        ocm2 = ocm2[:,:,:,ncore:nocc] + ocm2[:,:,:,ncore:nocc].transpose (1,0,3,2)
-        ocm2 += ocm2.transpose (2,3,0,1)
-        ecm2 = ocm2 + tcm2
-        f1_prime[:ncore,ncore:nocc] += np.tensordot (self.eri_paaa[:ncore], ecm2, axes=((1,2,3),(1,2,3)))
-        f1_prime[nocc:,ncore:nocc] += np.tensordot (self.eri_paaa[nocc:], ecm2, axes=((1,2,3),(1,2,3)))
-        return gorb + (f1_prime - f1_prime.T)
+        if self.las.use_gpu:
+            g_f1_prime = np.zeros ((self.nmo, self.nmo), dtype=self.dtype)
+            libgpu.libgpu_orbital_response(self.las.use_gpu,
+                                           g_f1_prime, # gorb + (f1_prime - f1_prime.T)
+                                           self.cas_type_eris.ppaa, self.cas_type_eris.papa, self.eri_paaa,
+                                           ocm2, tcm2, gorb,
+                                           ncore, nocc, nmo)
+            return g_f1_prime
+        else:
+            for p, f1 in enumerate (f1_prime):
+                praa = self.cas_type_eris.ppaa[p]
+                para = self.cas_type_eris.papa[p]
+                paaa = praa[ncore:nocc]
+                # g_pabc d_qabc + g_prab d_qrab + g_parb d_qarb + g_pabr d_qabr (Formal)
+                #        d_cbaq          d_abqr          d_aqbr          d_qabr (Symmetry of ocm2)
+                # g_pcba d_abcq + g_prab d_abqr + g_parc d_aqcr + g_pbcr d_qbcr (Relabel)
+                #                                                 g_pbrc        (Symmetry of eri)
+                # g_pcba d_abcq + g_prab d_abqr + g_parc d_aqcr + g_pbrc d_qbcr (Final)
+                for i, j in ((0, ncore), (nocc, nmo)): # Don't double-count
+                    ra, ar, cm = praa[i:j], para[:,i:j], ocm2[:,:,:,i:j]
+                    f1[i:j] += np.tensordot (paaa, cm, axes=((0,1,2),(2,1,0))) # last index external
+                    f1[ncore:nocc] += np.tensordot (ra, cm, axes=((0,1,2),(3,0,1))) # third index external
+                    f1[ncore:nocc] += np.tensordot (ar, cm, axes=((0,1,2),(0,3,2))) # second index external
+                    f1[ncore:nocc] += np.tensordot (ar, cm, axes=((0,1,2),(1,3,2))) # first index external
+                                
+            # (H.x_aa)_va, (H.x_aa)_ac
+            ocm2 = ocm2[:,:,:,ncore:nocc] + ocm2[:,:,:,ncore:nocc].transpose (1,0,3,2)
+            ocm2 += ocm2.transpose (2,3,0,1)
+            ecm2 = ocm2 + tcm2
+            f1_prime[:ncore,ncore:nocc] += np.tensordot (self.eri_paaa[:ncore], ecm2, axes=((1,2,3),(1,2,3)))
+            f1_prime[nocc:,ncore:nocc] += np.tensordot (self.eri_paaa[nocc:], ecm2, axes=((1,2,3),(1,2,3)))
+            return gorb + (f1_prime - f1_prime.T)
 
     def _update_h2eff_sub (self, mo1, umat, h2eff_sub):
         return self.las.ao2mo (mo1)
@@ -173,6 +185,9 @@ class LASSCFSymm (lasci.LASCISymm):
     as_scanner = mc1step.as_scanner
 
 def LASSCF (mf_or_mol, ncas_sub, nelecas_sub, **kwargs):
+    # try grabbing gpu handle from mf_or_mol instead of additional argument
+    use_gpu = kwargs.get('use_gpu', None)
+    
     if isinstance(mf_or_mol, gto.Mole):
         mf = scf.RHF(mf_or_mol)
     elif isinstance (mf_or_mol, scf.hf.SCF):
@@ -184,7 +199,7 @@ def LASSCF (mf_or_mol, ncas_sub, nelecas_sub, **kwargs):
     else:
         las = LASSCFNoSymm (mf, ncas_sub, nelecas_sub, **kwargs)
     if getattr (mf, 'with_df', None):
-        las = lasci.density_fit (las, with_df = mf.with_df) 
+        las = lasci.density_fit (las, with_df = mf.with_df)
     return las
 
 

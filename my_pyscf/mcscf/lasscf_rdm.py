@@ -123,7 +123,7 @@ def rdm_cycle (las, mo_coeff, casdm1frs, veff, h2eff_sub, log, max_cycle_rdmjk=3
     ''' "fcibox.kernel" should return e_cas, (casdm1rs, casdm2r) '''
     def get_veff (my_casdm1frs):
         casdm1fs = las.make_casdm1s_sub (casdm1frs=my_casdm1frs)
-        my_veff = las.get_veff (dm1s=las.make_rdm1 (mo_coeff=mo_coeff, casdm1s_sub=casdm1fs))
+        my_veff = las.get_veff (dm=las.make_rdm1 (mo_coeff=mo_coeff, casdm1s_sub=casdm1fs))
         my_veff = las.split_veff (my_veff, h2eff_sub, mo_coeff=mo_coeff, casdm1s_sub=casdm1fs)
         return my_veff
     converged = False
@@ -171,7 +171,7 @@ def kernel (las, mo_coeff=None, casdm1frs=None, casdm2fr=None, conv_tol_grad=1e-
     if casdm1frs is None: casdm1frs, casdm2fr = get_init_guess_rdm (las, mo_coeff, h2eff_sub)
     casdm1fs = las.make_casdm1s_sub (casdm1frs=casdm1frs)
     dm1 = las.make_rdm1 (casdm1s_sub=casdm1fs)
-    veff = las.get_veff (dm1s=dm1)
+    veff = las.get_veff (dm=dm1)
     veff = las.split_veff (veff, h2eff_sub, mo_coeff=mo_coeff, casdm1s_sub=casdm1fs)
     t1 = log.timer('LASSCF initial get_veff', *t1)
 
@@ -192,7 +192,7 @@ def kernel (las, mo_coeff=None, casdm1frs=None, casdm2fr=None, conv_tol_grad=1e-
         veff = veff.sum (0)/2
         if not isinstance (las, _DFLASCI) or las.verbose > lib.logger.DEBUG:
             dm1 = las.make_rdm1 (mo_coeff=mo_coeff, casdm1s_sub=casdm1fs_new)
-            veff_new = las.get_veff (dm1s=dm1)
+            veff_new = las.get_veff (dm=dm1)
             if not isinstance (las, _DFLASCI): veff = veff_new
         if isinstance (las, _DFLASCI):
             ddm = [dm_new - dm_old for dm_new, dm_old in zip (casdm1fs_new, casdm1fs)]
@@ -263,7 +263,7 @@ def kernel (las, mo_coeff=None, casdm1frs=None, casdm2fr=None, conv_tol_grad=1e-
             mo_coeff, h2eff_sub = H_op.update_mo_eri (x, h2eff_sub)
             t1 = log.timer ('LASSCF Hessian update', *t1)
 
-            veff = las.get_veff (dm1s = las.make_rdm1 (mo_coeff=mo_coeff, casdm1s_sub=casdm1fs))
+            veff = las.get_veff (dm = las.make_rdm1 (mo_coeff=mo_coeff, casdm1s_sub=casdm1fs))
             veff = las.split_veff (veff, h2eff_sub, mo_coeff=mo_coeff, casdm1s_sub=casdm1fs)
             t1 = log.timer ('LASSCF get_veff after secondorder', *t1)
         except MicroIterInstabilityException as e:
@@ -273,7 +273,7 @@ def kernel (las, mo_coeff=None, casdm1frs=None, casdm2fr=None, conv_tol_grad=1e-
             for i in range (3): # Make up to 3 attempts to scale-down x if necessary
                 mo2, h2eff_sub2 = H_op.update_mo_eri (x, h2eff_sub)
                 t1 = log.timer ('LASCF Hessian update', *t1)
-                veff2 = las.get_veff (dm1s = las.make_rdm1 (mo_coeff=mo2, casdm1s_sub=casdm1fs))
+                veff2 = las.get_veff (dm = las.make_rdm1 (mo_coeff=mo2, casdm1s_sub=casdm1fs))
                 veff2 = las.split_veff (veff2, h2eff_sub2, mo_coeff=mo2, casdm1s_sub=casdm1fs)
                 t1 = log.timer ('LASSCF get_veff after secondorder', *t1)
                 e2 = las.energy_nuc () + las.energy_elec (mo_coeff=mo2, h2eff=h2eff_sub2,

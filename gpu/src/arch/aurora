@@ -1,0 +1,20 @@
+INSTALL = ../../my_pyscf/gpu
+
+PYTHON_INC=$(shell python -m pybind11 --includes)
+
+CXX = mpicxx
+CXXFLAGS = -g -fiopenmp -O3 -ffast-math
+CXXFLAGS += -std=c++17 --intel -fsycl -fsycl-targets=spir64_gen
+CXXFLAGS += -I$(MKL_ROOT)/include
+CXXFLAGS += $(PYTHON_INC)
+
+CXXFLAGS += -D_USE_GPU -D_GPU_SYCL -D_GPU_MKL
+
+LD = $(CXX)
+LDFLAGS = $(CXXFLAGS) -Xsycl-target-backend "-device pvc"
+
+#LIB = -lstdc++
+#LIB = -L${MKL_ROOT}/lib -lmkl_sycl_blas -lmkl_intel_lp64 -lmkl_tbb_thread -lmkl_core
+LIB = -L${MKL_ROOT}/lib -lmkl_sycl_blas -lmkl_intel_lp64 -lmkl_intel_thread -lmkl_core
+LIB += -L${TBB_ROOT}/lib/intel64/gcc4.8 -ltbb
+LIB += -lm -ldl -lpthread -lsycl -lOpenCL
