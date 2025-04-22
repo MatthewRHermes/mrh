@@ -2,6 +2,7 @@ import numpy as np
 from pyscf import lib
 from mrh.my_pyscf.lassi.lassis import coords
 from mrh.my_pyscf.lassi import op_o0, op_o1
+from mrh.my_pyscf.lassi.spaces import list_spaces
 from itertools import permutations
 from scipy.sparse import linalg as sparse_linalg
 
@@ -20,7 +21,7 @@ class HessianOperator (sparse_linalg.LinearOperator):
         self.nroots = len (ugg.ci[0])
         self.lsi = lsi = ugg.lsi
         self.opt = lsi.opt
-        self.si = ugg.si
+        self.si = ugg.raw2orth.H (ugg.si)
         self.nprods = ugg.nprods
         self.nroots_si = ugg.nroots_si
         self.shape = (ugg.nvar_tot,ugg.nvar_tot)
@@ -32,6 +33,7 @@ class HessianOperator (sparse_linalg.LinearOperator):
         self.h2_paaa = []
         for i in range (self.nmo):
             self.h2_paaa.append (self.eris.ppaa[i][ncore:nocc])
+        
         self.casdm1, self.casdm2 = lsi.make_casdm12 (
             ci=self.ci, si=self.si, opt=self.opt
         )
@@ -39,15 +41,22 @@ class HessianOperator (sparse_linalg.LinearOperator):
         dm0 = 2*mo_coeff[:,:ncore] @ mo_coeff[:,:ncore].conj ().T
         self.veff_c = np.squeeze (las.get_veff (dm=dm0))
         self.ham_2q = lsi.ham_2q (mo_coeff)
-        h1 = lsi._las.get_hcore + self.veff_c
+        h1 = lsi._las.get_hcore () + self.veff_c
         self.h1 = mo_coeff.conj ().T @ h1 @ mo_coeff
-        self.fock1 = self.get_fock1 (h1, self.h2_paaa, self.casdm1, self.casdm2)
+        self.fock1 = self.get_fock1 (self.h1, self.h2_paaa, self.casdm1, self.casdm2)
+        self.spaces = list_spaces (lsi)
+        self.e_roots_si = np.zeros (self.nroots_si)
+        self.e_roots_si = np.dot (self.si.conj ().T, self.hsi_op (self.ham_2q, self.ci, self.si))
 
     def get_fock1 (self, h1, h2_paaa, casdm1, casdm2, _coreocc=2):
         ncore, ncas = self.lsi.ncore, self.lsi.ncas
         nocc = ncore + ncas
         dm1 = _coreocc*np.eye (self.nmo).astype (casdm1.dtype)
-        dm1[ncore:nocc,ncore:nocc] = casdm1
+        try:
+            dm1[ncore:nocc,ncore:nocc] = casdm1
+        except ValueError as err:
+            print (self.si.shape)
+            raise (err)
         fock1 = np.dot (h1, dm1)
         fock1[:,ncore:nocc] += lib.einsum ('pbcd,abcd->pa', h2_paaa, casdm2)
         return fock1
@@ -69,17 +78,22 @@ class HessianOperator (sparse_linalg.LinearOperator):
         '''Add the orbital internal indices into ?i_01'''
         if kappa is None:
             kappa = np.zeros ((self.nmo, self.nmo), dtype=self.mo_coeff.dtype)
-        ci1 = [[np.zeros_like (ci_ij) for ci_ij in ci_i] for ci_i in self.ci]
+        ci1 = [[0.0 for ci_ij in ci_i] for ci_i in self.ci]
+
+        # TODO: SA generalization
 
         if ci_01 is not None:
             for i in range (self.nfrags):
                 for r in range (self.nroots):
-                    ci1[i][r] += ci_01[i][r]
+                    ci1[i][r] += ci_01[i][r][0,...,0]
         if ci_10 is not None:
             for i,j in permutations (range (self.nfrags), 2):
-                ci0 = ci_10[i][self.nroots*(j+1):self.nroots*(j+2)]
+                ci_10_i = ci_10[i][self.nroots*(j+1):self.nroots*(j+2)]
                 for r in range (self.nroots):
-                    ci1[i][r] += ci0[i][r]
+                    ci1[i][r] += ci_10_i[r][0,...,0]
+            for i in range (self.nfrags):
+                for r in range (self.nroots):
+                    ci1[i][r] += ci_10[i][r][0,...,0]
         for i in range (self.nfrags):
             for r in range (self.nroots):
                 ci1[i][r] += ci1[i][r].conj () # + h.c.
@@ -87,9 +101,9 @@ class HessianOperator (sparse_linalg.LinearOperator):
 
         si1 = np.zeros_like (self.si)
         if si_01 is not None:
-            si1 += si_01[:n,:]
+            si1 += si_01[:self.nprods,:]
         if si_10 is not None:
-            si1 += si_10.reshape (self.nfrags,self.nprods,self.nroots_si)[1:].sum (0)
+            si1 += si_10.reshape (self.nfrags+1,self.nprods,self.nroots_si)[1:].sum (0)
         si1 += si1.conj () # + h.c.
 
         return self.ugg.pack (kappa, ci1_ref, ci1_sf, ci1_ch, si1)
@@ -103,7 +117,7 @@ class HessianOperator (sparse_linalg.LinearOperator):
         return nelec_frs 
 
     def hci_op (self, ham_2q, ci, si_bra, si_ket):
-        nelec_frs = self.get_nelec_frs ()
+        nelec_frs = self.get_nelec_frs (nr=len(ci[0]))
         ncore, ncas = self.lsi.ncore, self.lsi.ncas
         nocc = ncore+ncas
         h0, h1_pp, h2_paaa = ham_2q
@@ -115,14 +129,16 @@ class HessianOperator (sparse_linalg.LinearOperator):
         )
 
     def hsi_op (self, ham_2q, ci, si):
-        nelec_frs = self.get_nelec_frs ()
+        nelec_frs = self.get_nelec_frs (nr=len(ci[0]))
         ncore, ncas = self.lsi.ncore, self.lsi.ncas
         nocc = ncore+ncas
         h0, h1_pp, h2_paaa = ham_2q
         h1 = h1_pp[ncore:nocc,ncore:nocc]
         h2 = h2_paaa[ncore:nocc]
-        h_op, _, ovlp_op = op[self.opt].gen_contract_op_si_hdiag (h1, h2, ci, nelec_frs)[:3]
-        return h_op (si) + h0*ovlp_op (si)
+        ham_op, _, ovlp_op = op[self.opt].gen_contract_op_si_hdiag (
+            self.lsi, h1, h2, ci, nelec_frs
+        )[:3]
+        return ham_op (si) - (self.e_roots_si - h0) * si
 
     def get_xham_2q (self, kappa):
         return xham_2q (self.lsi, kappa, mo_coeff=self.mo_coeff, eris=self.eris,
@@ -135,6 +151,9 @@ class HessianOperator (sparse_linalg.LinearOperator):
 
         rorb = self.hoo (xham_2q, kappa)
         rorb += self.hoa (ci1, si0, si1)
+
+        # TODO: why divide by 2?
+        xham_2q = [h/2 for h in xham_2q]
 
         rci_01 = self.hci_op (xham_2q, ci1, si0, si0)
         rci_001 = self.hci_op (ham_2q, ci1, si0, si1)
@@ -152,12 +171,11 @@ class HessianOperator (sparse_linalg.LinearOperator):
     def hoo (self, xham_2q, kappa):
         h0, h1, h2 = xham_2q
         fx = self.get_fock1 (h1, h2, self.casdm1, self.casdm2)
-        fx += np.dot (kappa, self.fock1) / 2
-        fx -= np.dot (self.fock1, kappa) / 2
-        return fx - fx.T
+        return (fx - fx.T) / 2
 
     def hoa (self, ci1, si0, si1):
-        casdm1, casdm2 = self.lsi.trans_casdm12 (ci=ci1, si_bra=si0, si_ket=si1, opt=self.opt)
+        casdm1, casdm2 = self.lsi.trans_casdm12 (ci=ci1, si_bra=si0, si_ket=si1,
+                                                 spaces=self.spaces*(self.nfrags+1), opt=self.opt)
         casdm1 += casdm1.T
         casdm2 += casdm2.transpose (1,0,3,2)
         fx = self.get_fock1 (self.h1, self.h2_paaa, casdm1, casdm2, _coreocc=0)
@@ -180,11 +198,11 @@ def xham_2q (lsi, kappa, mo_coeff=None, eris=None, veff_c=None):
     h0 = 0
 
     mo0 = mo_coeff
-    mo0H = mo.conj ().T
+    mo0H = mo0.conj ().T
     mo1 = np.dot (mo0, kappa)
     mo1H = np.dot (kappa, mo0H)
     h1_0 = las.get_hcore () + veff_c
-    h1 = mo0H @ h1_0 @ mo - mo1H @ h1_0 @ mo0
+    h1 = mo0H @ h1_0 @ mo1 - mo1H @ h1_0 @ mo0
     if ncore:
         dm1 = 2*np.eye (nmo)
         dm1[ncore:] = 0

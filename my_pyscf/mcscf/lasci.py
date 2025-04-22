@@ -880,6 +880,24 @@ def get_nelec_frs (las):
         nelec_frs.append (nelec_rs)
     return np.asarray (nelec_frs)
 
+def get_sym_fr (las):
+    ''' Getter function for irrep IDs of all fragments in all rootspaces.
+
+    Returns:
+        sym_fr: ndarray of shape (nfrags, nroots)
+            irrep IDs in each rootspace in each fragment
+    '''
+    sym_fr = []
+    for fcibox in las.fciboxes:
+        sym_r = []
+        for solver in fcibox.fcisolvers:
+            sym = getattr (solver, 'wfnsym', 0) or 0
+            if isinstance (sym, str):
+                sym = symm.irrep_name2id (solver.mol.groupname, sym)
+            sym_r.append (sym)
+        sym_fr.append (sym_r)
+    return np.asarray (sym_fr)
+
 class LASCINoSymm (casci.CASCI):
 
     def __init__(self, mf, ncas, nelecas, ncore=None, spin_sub=None, frozen=None, frozen_ci=None, **kwargs):
@@ -945,6 +963,7 @@ class LASCINoSymm (casci.CASCI):
         mo = mo[:,:self.ncas_sub[idx]]
         return mo
 
+    get_sym_fr = get_sym_fr
     get_nelec_frs = get_nelec_frs
     get_h1eff = get_h1las = h1e_for_las = h1e_for_las
     get_h2eff = ao2mo = las_ao2mo.get_h2eff
