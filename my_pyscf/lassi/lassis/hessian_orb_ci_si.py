@@ -209,14 +209,21 @@ def xham_2q (lsi, kappa, mo_coeff=None, eris=None, veff_c=None, casdm1=None):
     h1 = mo0H @ h1_0 @ mo1 - mo1H @ h1_0 @ mo0
     h2 = np.stack ([eris.ppaa[i][ncore:nocc] for i in range (nmo)], axis=0)
     if ncore:
+        dm1 = np.zeros ((nmo,nmo), dtype=casdm1.dtype)
+        dm1[ncore:nocc,ncore:nocc] = casdm1
+        dm1 = mo0 @ dm1 @ mo0H
+        v_c1a0 = np.squeeze (las.get_veff (dm=dm1))
+        v_c1a0 = mo0H @ v_c1a0 @ mo1 - mo1H @ v_c1a0 @ mo0
+        v_c1a0[:,ncore:] = 0
         dm1 = 2*np.eye (nmo)
         dm1[ncore:] = 0
         dm1[ncore:nocc,ncore:nocc] = casdm1
         dm1 = kappa @ dm1
         dm1 += dm1.T
         dm1 = mo0 @ dm1 @ mo0H
-        h1_1 = np.squeeze (las.get_veff (dm=dm1))
-        h1_1 = mo0H @ h1_1 @ mo0
+        v_c0a1 = np.squeeze (las.get_veff (dm=dm1))
+        v_c0a1 = mo0H @ v_c0a1 @ mo0
+        h1_1 = v_c0a1 + v_c1a0
         h0 = 2*np.sum (h1_1.diagonal ()[:ncore])
         h1 += h1_1
 
@@ -236,9 +243,9 @@ def xham_2q (lsi, kappa, mo_coeff=None, eris=None, veff_c=None, casdm1=None):
                 dh1[i] -= lib.einsum ('pab,pq,aq->b',eris.ppaa[i],kpa,casdm1)*.5
                 dh1[i] += lib.einsum ('pq,aqb,pa->b',kap,eris.papa[i],casdm1)*.5
             h1[:,ncore:nocc] -= dh1
-            h1[ncore:nocc,:] -= dh1.T
-            dh1 = dh1[ncore:nocc]
-            h1[ncore:nocc,ncore:nocc] += dh1
+            #h1[ncore:nocc,:] -= dh1.T
+            #dh1 = dh1[ncore:nocc]
+            #h1[ncore:nocc,ncore:nocc] += dh1
 
     return h0, h1, h2
 
