@@ -18,7 +18,7 @@ from pyscf.mcscf import avas
 from mrh.tests.gpu.geometry_generator import generator
 from mrh.my_pyscf.mcscf.lasscf_async import LASSCF
 DEBUG=1 
-TIMING=0 #if true, runs both cpu version and gpu version n times and reports wall times 
+TIMING=1 #if true, runs both cpu version and gpu version n times and reports wall times 
 if gpu_run: 
     import gpu4mrh
     from gpu4mrh import patch_pyscf
@@ -37,7 +37,8 @@ def impham_cpu_original(self, imporb_coeff):
         eri2=_cderi[b0:b1]
         eri2 = ao2mo._ao2mo.nr_e2 (eri1, moij, ijslice, aosym='s2', mosym=ijmosym,out=eri2)
         b0 = b1
-    return lib.unpack_tril(_cderi)
+    #return lib.unpack_tril(_cderi)
+    return _cderi
        
 def impham_cpu_naive(self, imporb_coeff):
     mf = self._scf
@@ -58,7 +59,8 @@ def impham_gpu_v1(self, imporb_coeff):
     nao_s,nao_f = imporb_coeff.shape
     naoaux = mf.with_df.get_naoaux()
     blksize=mf.with_df.blockdim
-    _cderi=np.empty((naoaux, nao_f, nao_f),dtype=imporb_coeff.dtype)
+    #_cderi=np.empty((naoaux, nao_f, nao_f),dtype=imporb_coeff.dtype)
+    _cderi=np.empty((naoaux, nao_f*(nao_f+1)//2),dtype=imporb_coeff.dtype)
     libgpu.libgpu_push_mo_coeff(gpu, imporb_coeff, nao_s*nao_f)
     libgpu.libgpu_init_eri_impham(gpu, naoaux, nao_f)
     for k, eri1 in enumerate(mf.with_df.loop(blksize)):pass;
@@ -71,6 +73,7 @@ def impham_gpu_v1(self, imporb_coeff):
     return _cderi
 
 nfrags=8;basis='ccpvdz';
+nimp=60
 atom=generator(nfrags)
 if gpu_run:mol=gto.M(use_gpu=gpu, atom=atom,basis=basis)
 else: mol=gto.M(atom=atom,basis=basis)
@@ -85,13 +88,17 @@ ncas,nelecas,guess_mo_coeff=avas.kernel(mf, ["C 2pz"])
 mo_coeff=las.set_fragments_(frag_atom_list, guess_mo_coeff)
 
 nao, nmo = mf.mo_coeff.shape
-imporb_coeff=np.random.random((nao, 144)).astype(np.float64)-.5#,dtype=np.float64)
+print(mf.with_df.get_naoaux(), nao, nimp)
+imporb_coeff=np.random.random((nao, nimp)).astype(np.float64)-.5#,dtype=np.float64)
 
 cderi_original = impham_cpu_original(las,imporb_coeff) 
 cderi_gpu_v1 = impham_gpu_v1(las,imporb_coeff) 
 if DEBUG and not (np.allclose(cderi_original,cderi_gpu_v1)):
     diff =np.abs(cderi_original-cderi_gpu_v1)
+    print(cderi_original-cderi_gpu_v1)
+    #print(cderi_gpu_v1)
     print(np.max(diff), np.unravel_index(np.argmax(diff),diff.shape))
+    exit()
 else:
     print("we are done!!! commit and good night")
 

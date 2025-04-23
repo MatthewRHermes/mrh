@@ -30,6 +30,7 @@ using namespace MATHLIB_NS;
 //#define _DEBUG_H2EFF2
 //#define _DEBUG_H2EFF_DF
 //#define _DEBUG_AO2MO
+//#define _DEBUG_PACKING
 
 #define _PUMAP_2D_UNPACK 0       // generic unpacking of 1D array to 2D matrix
 #define _PUMAP_H2EFF_UNPACK 1    // unpacking h2eff array (generic?)
@@ -150,6 +151,7 @@ public :
   void init_eri_impham(int, int);
   void compute_eri_impham(int, int, int, int, int, size_t);
   void pull_eri_impham( py::array_t<double>, int, int, int);
+  void pack_eri(double *, double *, int *, int, int, int); 
 
   void extract_mo_cas(int, int, int);//TODO: fix the difference - changed slightly
   void get_mo_cas(const double *, double *, int, int, int);

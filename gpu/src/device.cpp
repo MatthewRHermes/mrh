@@ -2818,7 +2818,18 @@ void Device::get_h2eff_df_v2(py::array_t<double> _cderi,
     printf("count>num\n");
     pack_d_vuwM_add(d_vuwM, dd->d_eri_h2eff, my_d_tril_map_ptr, nmo, ncas, ncas_pair);
   }
-
+  #if 1
+  double * h_eri_h2eff = (double *) pm->dev_malloc_host(nao*ncas*ncas_pair*sizeof(double));
+  pm->dev_pull_async(dd->d_eri_h2eff, h_eri_h2eff, nao*ncas*ncas_pair*sizeof(double));
+  pm->dev_stream_wait();
+  for (int i =0;i<nao;++i){
+    for (int j=0;j<ncas;++j){
+      for (int k=0;k<ncas_pair;++k){ 
+        printf("%f\t",h_eri_h2eff[i*ncas*ncas_pair+j*ncas_pair+k]);
+      } printf("\n");  
+    }printf("\n");
+  }
+  #endif
   profile_stop();
   
   double t1 = omp_get_wtime();
@@ -2876,8 +2887,12 @@ void Device::init_eri_impham(int naux, int nao_f)
   double t0 = omp_get_wtime();
   
   profile_start("init_eri_impham");
+  #ifdef _DEBUG_PACKING
   int _size_eri_impham = naux*nao_f*nao_f;
-  //TODO: when packing is done, change _size_eri_impham to naux*nao_f*(nao_f+1)/2;
+  #else
+  int nao_f_pair = nao_f*(nao_f+1)/2;
+  int _size_eri_impham = naux*nao_f_pair;
+  #endif
   if (_size_eri_impham > size_eri_impham){
     size_eri_impham = _size_eri_impham;
     if (pin_eri_impham) pm->dev_free_host(pin_eri_impham);
@@ -2917,6 +2932,7 @@ void Device::compute_eri_impham(int nao_s, int nao_f, int blksize, int naux, int
   int nao_s2 = nao_s * nao_s;
   int nao_sf = nao_s * nao_f;
   int nao_f2 = nao_f * nao_f;
+  int nao_f_pair = nao_f * (nao_f+1)/2;
   double * d_bPeu = dd->d_buf2;
   // b^P_ue = b^P_uu * M_ue
   ml->set_handle();
@@ -2939,10 +2955,29 @@ void Device::compute_eri_impham(int nao_s, int nao_f, int blksize, int naux, int
                d_bPee, &nao_f, &nao_f2, 
                &naux);
 
+  #ifdef _DEBUG_PACKING
   double * eri_impham = &(pin_eri_impham[count*blksize*nao_f*nao_f]);
   pm->dev_pull_async(d_bPee, eri_impham, naux*nao_f*nao_f*sizeof(double));
+  #else
   //do packing
-  //TODO:: do packing
+
+  double * eri_impham = &(pin_eri_impham[count*blksize*nao_f_pair]);
+  d_my_unpack_map_ptr = dd_fetch_pumap(dd, nao_f, _PUMAP_2D_UNPACK);
+  double * d_eri_packed = dd->d_buf3;
+  pack_eri(d_eri_packed, d_bPee,d_my_unpack_map_ptr, naux, nao_f, nao_f_pair);
+  #if 0
+    double * h_eri_packed = (double *)pm->dev_malloc_host( naux*nao_f_pair*sizeof(double));
+    pm->dev_pull_async(d_eri_packed, h_eri_packed, naux*nao_f_pair*sizeof(double));
+    pm->dev_stream_wait();
+    for (int i =0; i<2; ++i){
+      for (int j=0;j<nao_f_pair;++j){
+        printf("%f\t",h_eri_packed[i*nao_f_pair+j]);
+      }printf("\n");
+    }
+  #endif
+  pm->dev_pull_async(d_eri_packed, eri_impham, naux*nao_f_pair*sizeof(double));
+  #endif
+ 
   profile_stop();
   double t1 = omp_get_wtime();
   t_array[12] += t1 - t0;
