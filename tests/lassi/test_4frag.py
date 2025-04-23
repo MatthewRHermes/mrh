@@ -25,7 +25,7 @@ from pyscf.fci import cistring
 from pyscf.fci.direct_spin1 import _unpack_nelec
 from mrh.tests.lasscf.c2h4n4_struct import structure as struct
 from mrh.my_pyscf.mcscf.lasscf_o0 import LASSCF
-from mrh.my_pyscf.lassi.lassi import root_make_rdm12s, roots_make_rdm12s
+from mrh.my_pyscf.lassi.lassi import root_trans_rdm12s
 from mrh.my_pyscf.lassi.lassi import make_stdm12s, ham_2q, las_symm_tuple
 from mrh.my_pyscf.lassi import op_o0
 from mrh.my_pyscf.lassi import op_o1
@@ -132,20 +132,22 @@ class KnownValues(unittest.TestCase):
                 self.assertAlmostEqual (lib.fp (mat), fp, 9)
 
     def test_rdm12s (self):
-        d12_o0 = op_o0.roots_make_rdm12s (las, las.ci, nelec_frs, si)#, orbsym=orbsym, wfnsym=wfnsym)
-        d12_o1 = op_o1.roots_make_rdm12s (las, las.ci, nelec_frs, si)#, orbsym=orbsym, wfnsym=wfnsym)
+        si_ket = si
+        si_bra = np.roll (si, 1, axis=1)
+        d12_o0 = op_o0.roots_trans_rdm12s (las, las.ci, nelec_frs, si_bra, si_ket)#, orbsym=orbsym, wfnsym=wfnsym)
+        d12_o1 = op_o1.roots_trans_rdm12s (las, las.ci, nelec_frs, si_bra, si_ket)#, orbsym=orbsym, wfnsym=wfnsym)
         for r in range (2):
             for i in range (nroots):
                 with self.subTest (rank=r+1, root=i, opt=1):
                     self.assertAlmostEqual (lib.fp (d12_o0[r][i]),
                         lib.fp (d12_o1[r][i]), 9)
                 with self.subTest ('single matrix constructor', opt=0, rank=r+1, root=i):
-                    d12_o0_test = root_make_rdm12s (las, las.ci, si, state=i, soc=False,
-                                                    break_symmetry=False, opt=0)[r]
+                    d12_o0_test = root_trans_rdm12s (las, las.ci, si_bra, si_ket, state=i,
+                                                     soc=False, break_symmetry=False, opt=0)[r]
                     self.assertAlmostEqual (lib.fp (d12_o0_test), lib.fp (d12_o0[r][i]), 9)
                 with self.subTest ('single matrix constructor', opt=1, rank=r+1, root=i):
-                    d12_o1_test = root_make_rdm12s (las, las.ci, si, state=i, soc=False,
-                                                    break_symmetry=False, opt=1)[r]
+                    d12_o1_test = root_trans_rdm12s (las, las.ci, si_bra, si_ket, state=i,
+                                                     soc=False, break_symmetry=False, opt=1)[r]
                     self.assertAlmostEqual (lib.fp (d12_o1_test), lib.fp (d12_o0[r][i]), 9)
 
     def test_lassis (self):

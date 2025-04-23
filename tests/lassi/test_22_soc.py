@@ -19,7 +19,7 @@ from scipy import linalg
 from pyscf import lib, gto, scf, mcscf, fci, ao2mo
 from mrh.my_pyscf.mcscf.lasscf_o0 import LASSCF
 from mrh.my_pyscf.lassi import LASSI, LASSIrq, LASSIrqCT
-from mrh.my_pyscf.lassi.lassi import root_make_rdm12s, make_stdm12s
+from mrh.my_pyscf.lassi.lassi import root_make_rdm12s, roots_trans_rdm12s, make_stdm12s
 from mrh.my_pyscf.lassi.spaces import all_single_excitations
 from mrh.my_pyscf.mcscf.lasci import get_space_info
 from mrh.my_pyscf.lassi import op_o0, op_o1, lassis
@@ -129,6 +129,20 @@ class KnownValues(unittest.TestCase):
                     self.assertAlmostEqual (lib.fp (lasdm1s), lib.fp (casdm1s), 4)
                 with self.subTest ("casdm2s"):
                     self.assertAlmostEqual (lib.fp (lasdm2s), lib.fp (casdm2s), 4)
+
+    def test_si_trans_rdm12s (self):
+        las, e_roots, si_ket = lsi._las, lsi.e_roots, lsi.si
+        si_bra = np.roll (si_ket, 1, axis=1)
+        stdm1s, stdm2s = make_stdm12s (las, soc=True, opt=1)
+        rdm1s_ref = lib.einsum ('ir,jr,iabj->rab', si_bra.conj (), si_ket, stdm1s)
+        rdm2s_ref = lib.einsum ('ir,jr,isabtcdj->rsabtcd', si_bra, si_ket.conj (), stdm2s)
+        for opt in range (2):
+            with self.subTest (opt=opt):
+                lasdm1s, lasdm2s = roots_trans_rdm12s (las, las.ci, si_bra, si_ket, opt=opt)
+                with self.subTest ("lasdm1s"):
+                    self.assertAlmostEqual (lib.fp (lasdm1s), lib.fp (rdm1s_ref), 8)
+                with self.subTest ("lasdm2s"):
+                    self.assertAlmostEqual (lib.fp (lasdm2s), lib.fp (rdm2s_ref), 8)
 
     def test_davidson (self):
         lsi1 = LASSI (lsi._las, soc=1, break_symmetry=True).run (davidson_only=True)

@@ -19,7 +19,8 @@ from scipy import linalg
 from pyscf import lib, gto, scf, mcscf, ao2mo
 from mrh.my_pyscf.mcscf.lasscf_o0 import LASSCF
 from mrh.my_pyscf.lassi import LASSI, LASSIrq, LASSIrqCT
-from mrh.my_pyscf.lassi.lassi import root_make_rdm12s, make_stdm12s
+from mrh.my_pyscf.lassi import vlassis
+from mrh.my_pyscf.lassi.lassi import root_make_rdm12s, roots_trans_rdm12s, make_stdm12s
 from mrh.my_pyscf.lassi.spaces import all_single_excitations
 from mrh.my_pyscf.mcscf.lasci import get_space_info
 from mrh.my_pyscf.lassi import op_o0, op_o1, lassis
@@ -29,7 +30,7 @@ from mrh.tests.lassi.addons import case_contract_hlas_ci, case_lassis_fbf_2_mode
 from mrh.tests.lassi.addons import case_lassis_fbfdm, case_contract_op_si, debug_contract_op_si
 
 def setUpModule ():
-    global mol, mf, lsi, las, mc, op
+    global mol, mf, lsi, las, mc, op, lsis
     xyz='''H 0 0 0
     H 1 0 0
     H 3 0 0
@@ -64,10 +65,13 @@ def setUpModule ():
 
     op = (op_o0, op_o1)
 
+    # LASSIS
+    lsis = lassis.LASSIS (las).run ()
+
 def tearDownModule():
-    global mol, mf, lsi, las, mc, op
+    global mol, mf, lsi, las, mc, op, lsis
     mol.stdout.close ()
-    del mol, mf, lsi, las, mc, op
+    del mol, mf, lsi, las, mc, op, lsis
 
 class KnownValues(unittest.TestCase):
 
@@ -105,6 +109,20 @@ class KnownValues(unittest.TestCase):
                         self.assertAlmostEqual (lib.fp (stdm1s[0,:,2:,2:,0]),
                                                 lib.fp (stdm1s[1,:,2:,2:,1]))
 
+    def test_si_trans_rdm12s (self):
+        las, e_roots, si_ket = lsi._las, lsi.e_roots, lsi.si
+        si_bra = np.roll (si_ket, 1, axis=1)
+        stdm1s, stdm2s = make_stdm12s (las, opt=0)
+        rdm1s_ref = lib.einsum ('ir,jr,isabj->rsab', si_bra.conj (), si_ket, stdm1s)
+        rdm2s_ref = lib.einsum ('ir,jr,isabtcdj->rsabtcd', si_bra.conj (), si_ket, stdm2s)
+        for opt in range (2):
+            with self.subTest (opt=opt):
+                lasdm1s, lasdm2s = roots_trans_rdm12s (las, las.ci, si_bra, si_ket, opt=opt)
+                with self.subTest ("lasdm1s"):
+                    self.assertAlmostEqual (lib.fp (lasdm1s), lib.fp (rdm1s_ref), 8)
+                with self.subTest ("lasdm2s"):
+                    self.assertAlmostEqual (lib.fp (lasdm2s), lib.fp (rdm2s_ref), 8)
+
     def test_davidson (self):
         lsi1 = LASSI (lsi._las).run (davidson_only=True)
         self.assertAlmostEqual (lsi1.e_roots[0], lsi.e_roots[0], 8)
@@ -129,10 +147,21 @@ class KnownValues(unittest.TestCase):
         h0, h1, h2 = lsi.ham_2q ()
         case_contract_op_si (self, las, h1, h2, las.ci, lsi.get_nelec_frs ())
 
+    def test_energy_tot (self):
+        las1 = LASSCF (mf, (2,2), (2,2), spin_sub=(1,1)).run () # different MOs
+        # You need to set up at least the rootspaces because otherwise LASSI doesn't
+        # have any way of knowing how many electrons are in each CI vector I guess
+        for i in range (2): las1 = all_single_excitations (las1)
+        las1.conv_tol_grad = las.conv_tol_self = 9e99
+        las1.lasci ()
+        lsi1 = LASSI (las1).run ()
+        e_tot = lsi1.energy_tot (mo_coeff=lsi.mo_coeff, ci=lsi.ci, si=lsi.si)
+        self.assertAlmostEqual (lib.fp (e_tot), lib.fp (lsi.e_roots), 9)
+
     def test_lassis (self):
         for opt in (0,1):
             with self.subTest (opt=opt):
-                lsis = lassis.LASSIS (las).run (opt=opt)
+                lsis.run (opt=opt)
                 e_upper = las.e_states[0]
                 e_lower = lsi.e_roots[0]
                 self.assertLessEqual (e_lower, lsis.e_roots[0])
@@ -142,6 +171,63 @@ class KnownValues(unittest.TestCase):
                 self.assertAlmostEqual (lsis.e_roots[0], -4.134472877702426, 8)
                 case_lassis_fbf_2_model_state (self, lsis)
                 case_lassis_fbfdm (self, lsis)
+
+    def test_lassis_energy_tot (self):
+        lsis1 = lassis.LASSIS (las)
+        e_tot = lsis1.energy_tot (
+            mo_coeff=lsis.mo_coeff,
+            ci_ref=lsis.get_ci_ref (),
+            ci_sf=lsis.ci_spin_flips,
+            ci_ch=lsis.ci_charge_hops,
+            si=lsis.si
+        )
+        self.assertAlmostEqual (lib.fp (e_tot), lib.fp (lsis.e_roots), 9)
+
+    def test_lassis_ugg (self):
+        ugg = vlassis.UnitaryGroupGenerators (
+            lsis,
+            lsis.mo_coeff,
+            lsis.get_ci_ref (),
+            lsis.ci_spin_flips,
+            lsis.ci_charge_hops,
+            lsis.si
+        )
+        x0 = np.random.rand (ugg.nvar_tot)
+        x0 = ugg.pack (*ugg.unpack (x0)) # apply some projections
+        mo0, cir0, cis0, cic0, si0 = ugg.unpack (x0)
+        x1 = ugg.pack (mo0, cir0, cis0, cic0, si0)
+        mo1, cir1, cis1, cic1, si1 = ugg.unpack (x1)
+        self.assertAlmostEqual (lib.fp (x0), lib.fp (x1))
+        self.assertAlmostEqual (lib.fp (mo0), lib.fp (mo1))
+        self.assertAlmostEqual (lib.fp (cir0), lib.fp (cir1))
+        self.assertAlmostEqual (lib.fp (si0), lib.fp (si1))
+        for i in range (2):
+            for j in range (2):
+                if cis0[i][j] is not None:
+                    self.assertAlmostEqual (lib.fp (cis0[i][j]), lib.fp (cis1[i][j]))
+                for k in range (4):
+                    for l in range (2):
+                        if cic0[i][j][k][l] is not None:
+                            self.assertAlmostEqual (lib.fp (cic0[i][j][k][l]),
+                                                    lib.fp (cic1[i][j][k][l]))
+        ugg = vlassis.UnitaryGroupGenerators (
+            lsis,
+            lsis.mo_coeff,
+            lsis.get_ci_ref (),
+            lsis.ci_spin_flips,
+            lsis.ci_charge_hops,
+            lsis.si[:,0]
+        )
+        x0 = np.random.rand (ugg.nvar_tot)
+        x0 = ugg.pack (*ugg.unpack (x0)) # apply some projections
+        e_tot = lsis.energy_tot (*ugg.update_wfn (x0))
+        self.assertLessEqual (lsis.e_roots[0], e_tot)
+        h0, h1, h2 = lsis.ham_2q ()
+        hci_fr = case_contract_hlas_ci (self, lsis, h0, h1, h2, lsis.ci, lsis.get_nelec_frs ())
+        # Just to syntax-debug this...
+        hci_ref, hci_sf, hci_ch = vlassis.sum_hci (lsis, hci_fr)
+        mo0, _, _, _, si0 = ugg.unpack (x0)
+        x1 = ugg.pack (mo0, hci_ref, hci_sf, hci_ch, si0)
 
     def test_fdm1 (self):
         make_fdm1 = get_fdm1_maker (lsi, lsi.ci, lsi.get_nelec_frs (), lsi.si)

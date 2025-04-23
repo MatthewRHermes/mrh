@@ -5,7 +5,7 @@ from pyscf.lib import logger
 from pyscf.fci import cistring 
 from mrh.my_pyscf.lassi.op_o1 import stdm, frag, hams2ovlp, hsi
 from mrh.my_pyscf.lassi.op_o1.utilities import *
-from mrh.my_pyscf.lassi.citools import get_lroots
+from mrh.my_pyscf.lassi.citools import get_lroots, hci_dot_sivecs
 
 class ContractHamCI (stdm.LSTDM):
     __doc__ = stdm.LSTDM.__doc__ + '''
@@ -405,7 +405,7 @@ class ContractHamCI (stdm.LSTDM):
         return self.hci_fr_pabq, t0
 
 def contract_ham_ci (las, h1, h2, ci_fr_ket, nelec_frs_ket, ci_fr_bra, nelec_frs_bra,
-                     soc=0, orbsym=None, wfnsym=None):
+                     si_bra=None, si_ket=None, soc=0, orbsym=None, wfnsym=None):
     '''Evaluate the action of the state interaction Hamiltonian on a set of ket CI vectors,
     projected onto a basis of bra CI vectors, leaving one fragment of the bra uncontracted.
 
@@ -429,6 +429,10 @@ def contract_ham_ci (las, h1, h2, ci_fr_ket, nelec_frs_ket, ci_fr_bra, nelec_frs
             fragment for the bra vectors
 
     Kwargs:
+        si_bra : ndarray of shape (ndim_bra, *)
+            SI vectors for the bra. If provided, the p dimension on the return object is contracted
+        si_ket : ndarray of shape (ndim_ket, *)
+            SI vectors for the bra. If provided, the q dimension on the return object is contracted
         soc : integer
             Order of spin-orbit coupling included in the Hamiltonian
         orbsym : list of int of length (ncas)
@@ -475,7 +479,7 @@ def contract_ham_ci (las, h1, h2, ci_fr_ket, nelec_frs_ket, ci_fr_bra, nelec_frs
                                                   orbsym=orbsym, wfnsym=wfnsym)
             for ibra, hket_pabq in enumerate (gen_hket):
                 hket_fr_pabq[ifrag][ibra][:] += hket_pabq[:]
-    return hket_fr_pabq
+    return hci_dot_sivecs (hket_fr_pabq, si_bra, si_ket, get_lroots (ci_fr_bra))
 
 def gen_contract_ham_ci_const (ifrag, nbra, las, h1, h2, ci, nelec_frs, soc=0, orbsym=None,
                                wfnsym=None):

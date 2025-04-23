@@ -16,7 +16,7 @@ def tearDownModule():
 def _run_mod (gpu_run):
     if gpu_run: 
         from mrh.my_pyscf.gpu import libgpu
-        from gpu4pyscf import patch_pyscf
+        from gpu4mrh import patch_pyscf
         gpu = libgpu.libgpu_init()
         outputfile=str(nfrags)+'_'+str(basis)+'_out_gpu_ref.log';
         mol=gto.M(atom=generator(nfrags),basis=basis,verbose=4,output=outputfile, use_gpu=gpu)

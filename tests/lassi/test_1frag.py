@@ -8,7 +8,7 @@ from mrh.tests.lasscf.me2n2_struct import structure as struct
 from mrh.my_pyscf.mcscf.lasscf_o0 import LASSCF
 from mrh.my_pyscf import lassi
 from mrh.my_pyscf.lassi.sitools import make_sdm1
-from mrh.my_pyscf.lassi.lassi import roots_make_rdm12s
+from mrh.my_pyscf.lassi.lassi import roots_trans_rdm12s
 from mrh.my_pyscf.lassi.op_o1 import get_fdm1_maker
 from mrh.my_pyscf.lassi import op_o0, op_o1
 from mrh.tests.lassi.addons import case_contract_hlas_ci, case_contract_op_si
@@ -87,9 +87,11 @@ class KnownValues(unittest.TestCase):
         self.assertLess (np.amax (np.abs (fdm1)), 1e-8)
 
     def test_rdms (self):
-        d1_ref, d2_ref = roots_make_rdm12s (lsi, lsi.ci, lsi.si, opt=0)
+        si_bra = lsi.si
+        si_ket = np.roll (lsi.si, 1, axis=1)
+        d1_ref, d2_ref = roots_trans_rdm12s (lsi, lsi.ci, si_bra, si_ket, opt=0)
         for opt in range (1,2):
-            d1_test, d2_test = roots_make_rdm12s (lsi, lsi.ci, lsi.si, opt=opt)
+            d1_test, d2_test = roots_trans_rdm12s (lsi, lsi.ci, si_bra, si_ket, opt=opt)
             with self.subTest (opt=opt):
                 self.assertAlmostEqual (lib.fp (d1_test), lib.fp (d1_ref), 7)
                 self.assertAlmostEqual (lib.fp (d2_test), lib.fp (d2_ref), 7)
