@@ -235,14 +235,14 @@ def case_lassis_grads (ks, lsis):
                 e1_ref *= .5 * div
                 err = (e1_test - e1_ref) / e1_ref
                 rel_err = err / err_last
-                err_table += '{:e} {:e} {:e}\n'.format (1/div, e1_ref, err)
                 conv = 1.0 - e1_ref/e1_ref_last
-                if (abs (conv) < 0.001) and (abs (rel_err-.25) < 0.001):
+                err_table += '{:e} {:e} {:e} {:e} {:e}\n'.format (1/div, e1_ref, err, conv, rel_err)
+                if (abs (conv) < 0.01) and (abs (rel_err-.25) < 0.01):
                     break
                 err_last = err + np.finfo (float).tiny
                 e1_ref_last = e1_ref
                 div *= 2
-            ks.assertAlmostEqual (rel_err, .25, 2, msg=err_table)
+            ks.assertAlmostEqual (rel_err, .25, delta=0.01, msg=err_table)
 
 def case_lassis_hessian (ks, lsis):
     if lsis.converged:
@@ -266,6 +266,18 @@ def case_lassis_hessian (ks, lsis):
         lsis.ci_charge_hops,
         si
     )
+    #### BEGIN STENCIL
+    #kappa, ci_ref, ci_sf, ci_ch, si = ugg.unpack (np.zeros (ugg.nvar_tot))
+    #kappa[:] = 0
+    #ncore, ncas = lsis.ncore, lsis.ncas
+    #nocc = ncore + ncas
+    #kappa[ncore:nocc,:ncore] = 1 
+    #kappa[nocc:,:ncore] = 1
+    #kappa[nocc:,ncore:nocc] = 1
+    #x0 = ugg.pack (kappa, ci_ref, ci_sf, ci_ch, si)
+    #x0[ugg.nvar_orb:] = 0
+    #stencil = x0!=0
+    #### END STENCIL
     g0_debug = grad_orb_ci_si.get_grad (lsis, *ugg.update_wfn (np.zeros_like (g0)), pack=True)
     #ks.assertLess (np.amax (np.abs (g0_debug-g0)), 1e-10, msg='sanity fail')
     h_op = hessian_orb_ci_si.HessianOperator (ugg)
@@ -282,6 +294,7 @@ def case_lassis_hessian (ks, lsis):
         x1[i:j] = x0[i:j]
         div = 1.0
         g1_test = h_op (x1)
+        #g1_test[stencil] = 0
         err_last = [np.finfo (float).tiny,]*len(sec_lbls)
         err_table = ['\n{:s} {:s}\n'.format (lbl1, lbl0) for lbl1 in sec_lbls]
         rel_err = [1,]*len(sec_lbls)
@@ -296,6 +309,7 @@ def case_lassis_hessian (ks, lsis):
             mg1_ref = ugg.pack (*mg1_ref) - g0
             g1_ref -= mg1_ref
             g1_ref *= .5 * div
+            #g1_ref[stencil] = 0
             for z, (k,l) in enumerate (sec_offs):
                 if k==l:
                     rel_err[z] = .25

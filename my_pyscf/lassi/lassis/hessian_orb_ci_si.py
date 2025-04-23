@@ -52,11 +52,8 @@ class HessianOperator (sparse_linalg.LinearOperator):
         ncore, ncas = self.lsi.ncore, self.lsi.ncas
         nocc = ncore + ncas
         dm1 = _coreocc*np.eye (self.nmo).astype (casdm1.dtype)
-        try:
-            dm1[ncore:nocc,ncore:nocc] = casdm1
-        except ValueError as err:
-            print (self.si.shape)
-            raise (err)
+        dm1[ncore:nocc,ncore:nocc] = casdm1
+        dm1[nocc:,nocc:] = 0
         fock1 = np.dot (h1, dm1)
         fock1[:,ncore:nocc] += lib.einsum ('pbcd,abcd->pa', h2_paaa, casdm2)
         return fock1
@@ -138,7 +135,7 @@ class HessianOperator (sparse_linalg.LinearOperator):
 
     def get_xham_2q (self, kappa):
         return xham_2q (self.lsi, kappa, mo_coeff=self.mo_coeff, eris=self.eris,
-                        veff_c=self.veff_c)
+                        veff_c=self.veff_c, casdm1=self.casdm1)
 
     def _matvec (self, x):
         kappa, ci1, si0, si1 = self.to_hop (x)
@@ -179,9 +176,16 @@ class HessianOperator (sparse_linalg.LinearOperator):
         casdm1 += casdm1.T
         casdm2 += casdm2.transpose (1,0,3,2)
         fx = self.get_fock1 (self.h1, self.h2_paaa, casdm1, casdm2, _coreocc=0)
+        if not self.lsi.ncore: 
+            return fx - fx.T
+        mo_cas = self.mo_coeff[:,self.lsi.ncore:][:,:self.lsi.ncas]
+        dm1 = mo_cas @ casdm1 @ mo_cas.conj ().T
+        veff = np.squeeze (self.lsi._las.get_veff (dm=dm1))
+        veff = self.mo_coeff.conj ().T @ veff @ self.mo_coeff
+        fx[:,:self.lsi.ncore] += 2 * veff[:,:self.lsi.ncore]
         return fx - fx.T
 
-def xham_2q (lsi, kappa, mo_coeff=None, eris=None, veff_c=None):
+def xham_2q (lsi, kappa, mo_coeff=None, eris=None, veff_c=None, casdm1=None):
     las = lsi._las
     if mo_coeff is None: mo_coeff=lsi.mo_coeff
     if eris is None: eris = lsi.get_casscf_eris (mo_coeff)
@@ -203,9 +207,11 @@ def xham_2q (lsi, kappa, mo_coeff=None, eris=None, veff_c=None):
     mo1H = np.dot (kappa, mo0H)
     h1_0 = las.get_hcore () + veff_c
     h1 = mo0H @ h1_0 @ mo1 - mo1H @ h1_0 @ mo0
+    h2 = np.stack ([eris.ppaa[i][ncore:nocc] for i in range (nmo)], axis=0)
     if ncore:
         dm1 = 2*np.eye (nmo)
         dm1[ncore:] = 0
+        dm1[ncore:nocc,ncore:nocc] = casdm1
         dm1 = kappa @ dm1
         dm1 += dm1.T
         dm1 = mo0 @ dm1 @ mo0H
@@ -214,7 +220,6 @@ def xham_2q (lsi, kappa, mo_coeff=None, eris=None, veff_c=None):
         h0 = 2*np.sum (h1_1.diagonal ()[:ncore])
         h1 += h1_1
 
-    h2 = np.stack ([eris.ppaa[i][ncore:nocc] for i in range (nmo)], axis=0)
     if ncas:
         h2 = -lib.einsum ('pq,qabc->pabc',kappa,h2)
         kpa = kappa[:,ncore:nocc]
@@ -223,6 +228,17 @@ def xham_2q (lsi, kappa, mo_coeff=None, eris=None, veff_c=None):
             h2[i] += lib.einsum ('pab,pq->qab',eris.ppaa[i],kpa)
             h2[i] -= lib.einsum ('pq,aqb->apb',kap,eris.papa[i])
             h2[i] += lib.einsum ('apb,pq->abq',eris.papa[i],kpa)
+        if ncore: # cancel double-counting
+            dh1 = np.zeros ((nmo,ncas), dtype=h1.dtype)
+            for i in range (nmo):
+                dh1[i] += lib.einsum ('apb,pq,bq->a',eris.papa[i],kpa,casdm1)
+                dh1[i] -= lib.einsum ('pq,aqb,pb->a',kap,eris.papa[i],casdm1)
+                dh1[i] -= lib.einsum ('pab,pq,aq->b',eris.ppaa[i],kpa,casdm1)*.5
+                dh1[i] += lib.einsum ('pq,aqb,pa->b',kap,eris.papa[i],casdm1)*.5
+            h1[:,ncore:nocc] -= dh1
+            h1[ncore:nocc,:] -= dh1.T
+            dh1 = dh1[ncore:nocc]
+            h1[ncore:nocc,ncore:nocc] += dh1
 
     return h0, h1, h2
 
