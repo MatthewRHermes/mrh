@@ -3,14 +3,17 @@ from scipy import linalg
 from pyscf import lib
 import copy
 from mrh.my_pyscf.mcscf import lasscf_sync_o0
-from mrh.my_pyscf.lassi import lassis
+from mrh.my_pyscf.lassi import lassis, op_o0, op_o1
 from mrh.my_pyscf.lassi.spaces import list_spaces
 from mrh.my_pyscf.fci.csfstring import CSFTransformer
 from mrh.my_pyscf.fci.spin_op import mup
 
+op = (op_o0, op_o1)
+
 class UnitaryGroupGenerators (lasscf_sync_o0.LASSCF_UnitaryGroupGenerators):
     def __init__(self, lsi, mo_coeff, ci_ref, ci_sf, ci_ch, si):
         self.mol = lsi.mol
+        self.lsi = lsi
         self.nmo = mo_coeff.shape[-1]
         self.nfrags = lsi.nfrags
         self.frozen = None
@@ -24,6 +27,7 @@ class UnitaryGroupGenerators (lasscf_sync_o0.LASSCF_UnitaryGroupGenerators):
         self.ci_ref = copy.deepcopy (ci_ref)
         self.ci_sf = copy.deepcopy (ci_sf)
         self.ci_ch = copy.deepcopy (ci_ch)
+        self.ci = self.lsi.prepare_model_states (ci_ref, ci_sf, ci_ch)[0].ci
         self.t_ref = []
         self.t_sf = []
         self.t_ch_i = []
@@ -83,29 +87,31 @@ class UnitaryGroupGenerators (lasscf_sync_o0.LASSCF_UnitaryGroupGenerators):
             c1 -= c0 * np.dot (c0.conj (), c1)
             x = np.append (x, c1)
         # ci_sf part
+        ncsf_sf = self.ncsf_sf
         for i in range (self.nfrags):
             for s in range (2):
                 t = self.t_sf[i][s]
                 c0 = self.ci_sf[i][s]
-                if c0 is not None:
+                if c0 is not None and (ncsf_sf[i,s,0]<ncsf_sf[i,s,1]):
                     c1 = t.vec_det2csf (ci_sf[i][s], normalize=False)
                     c1 -= np.dot (np.dot (c1, c0.conj ().T), c0)
                     x = np.append (x, c1.ravel ())
         # ci_ch part
+        ncsf_ch = self.ncsf_ch
         for i in range (self.nfrags):
             for a in range (self.nfrags):
                 for s in range (4):
                     # p = 0: i
                     c0 = self.ci_ch[i][a][s][0]
                     t = self.t_ch_i[i][s//2]
-                    if c0 is not None:
+                    if c0 is not None and (ncsf_ch[i,a,s,0,0]<ncsf_ch[i,a,s,0,1]):
                         c1 = t.vec_det2csf (ci_ch[i][a][s][0], normalize=False)
                         c1 -= np.dot (np.dot (c1, c0.conj ().T), c0)
                         x = np.append (x, c1.ravel ())
                     # p = 1: a
                     c0 = self.ci_ch[i][a][s][1]
                     t = self.t_ch_a[a][s%2]
-                    if c0 is not None:
+                    if c0 is not None and (ncsf_ch[i,a,s,1,0]<ncsf_ch[i,a,s,1,1]):
                         c1 = t.vec_det2csf (ci_ch[i][a][s][1], normalize=False)
                         c1 -= np.dot (np.dot (c1, c0.conj ().T), c0)
                         x = np.append (x, c1.ravel ())
@@ -133,16 +139,20 @@ class UnitaryGroupGenerators (lasscf_sync_o0.LASSCF_UnitaryGroupGenerators):
             y = y[t.ncsf:]
         # ci_sf part
         ci_sf = [[None for s in range (2)] for i in range (self.nfrags)]
+        ncsf_sf = self.ncsf_sf
         for i in range (self.nfrags):
             for s in range (2):
                 t = self.t_sf[i][s]
                 c0 = self.ci_sf[i][s]
-                if c0 is not None:
+                if c0 is not None and (ncsf_sf[i,s,0]<ncsf_sf[i,s,1]):
                     ci_sf[i][s] = t.vec_csf2det (y[:c0.size].reshape (c0.shape), normalize=False)
                     ci_sf[i][s] = ci_sf[i][s].reshape (-1, t.ndeta, t.ndetb)
-                    y = y[c0.size:] 
+                    y = y[c0.size:]
+                elif c0 is not None:
+                    ci_sf[i][s] = np.zeros ((ncsf_sf[i,s,0],t.ndeta,t.ndetb), dtype=c0.dtype)
         # ci_ch part
         ci_ch = []
+        ncsf_ch = self.ncsf_ch
         for i in range (self.nfrags):
             ci = []
             for a in range (self.nfrags):
@@ -151,17 +161,21 @@ class UnitaryGroupGenerators (lasscf_sync_o0.LASSCF_UnitaryGroupGenerators):
                     # p = 0: i
                     c0 = self.ci_ch[i][a][s][0]
                     t = self.t_ch_i[i][s//2]
-                    if c0 is not None:
+                    if c0 is not None and (ncsf_ch[i,a,s,0,0]<ncsf_ch[i,a,s,0,1]):
                         cia[s][0] = t.vec_csf2det (y[:c0.size].reshape (c0.shape), normalize=False)
                         cia[s][0] = cia[s][0].reshape (-1, t.ndeta, t.ndetb)
                         y = y[c0.size:] 
+                    elif c0 is not None:
+                        cia[s][0] = np.zeros ((ncsf_ch[i,a,s,0,0],t.ndeta,t.ndetb), dtype=c0.dtype)
                     # p = 1: a
                     c0 = self.ci_ch[i][a][s][1]
                     t = self.t_ch_a[a][s%2]
-                    if c0 is not None:
+                    if c0 is not None and (ncsf_ch[i,a,s,1,0]<ncsf_ch[i,a,s,1,1]):
                         cia[s][1] = t.vec_csf2det (y[:c0.size].reshape (c0.shape), normalize=False)
                         cia[s][1] = cia[s][1].reshape (-1, t.ndeta, t.ndetb)
                         y = y[c0.size:] 
+                    elif c0 is not None:
+                        cia[s][1] = np.zeros ((ncsf_ch[i,a,s,0,0],t.ndeta,t.ndetb), dtype=c0.dtype)
                 ci.append (cia)
             ci_ch.append (ci)
         # si part internal
@@ -203,6 +217,20 @@ class UnitaryGroupGenerators (lasscf_sync_o0.LASSCF_UnitaryGroupGenerators):
                         if c is not None: ncsf[i,a,s,p,:] = c.shape
         return ncsf
 
+    def sum_ncsf (self, ncsf):
+        ncsf = ncsf.reshape (-1,2)
+        ncsf[ncsf[:,0]==ncsf[:,1],:] = 0
+        return np.dot (ncsf[:,0], ncsf[:,1])
+
+    @property
+    def nvar_csf_ref (self): return self.ncsf_ref.sum ()
+
+    @property
+    def nvar_csf_sf (self): return self.sum_ncsf (self.ncsf_sf)
+
+    @property
+    def nvar_csf_ch (self): return self.sum_ncsf (self.ncsf_ch)
+
     @property
     def nvar_si (self):
         nz = self.nroots_si * (self.nroots_si - 1) // 2
@@ -210,15 +238,19 @@ class UnitaryGroupGenerators (lasscf_sync_o0.LASSCF_UnitaryGroupGenerators):
 
     @property
     def ncsf_all (self):
-        ncsf_sf = self.ncsf_sf.reshape (-1,2)
-        ncsf_sf = np.dot (ncsf_sf[:,0], ncsf_sf[:,1])
-        ncsf_ch = self.ncsf_ch.reshape (-1,2)
-        ncsf_ch = np.dot (ncsf_ch[:,0], ncsf_ch[:,1])
-        return self.ncsf_ref.sum () + ncsf_sf + ncsf_ch
+        return self.ncsf_ref.sum () + self.nvar_csf_sf + self.nvar_csf_ch
 
     @property
     def nvar_tot (self):
         return self.nvar_orb + self.ncsf_all + sum (self.nvar_si)
+
+    def get_sector_offsets (self):
+        lens = [self.nvar_orb, self.ncsf_ref.sum (), self.nvar_csf_sf, self.nvar_csf_ch]
+        lens += list (self.nvar_si)
+        lens = np.asarray (lens)
+        offs = np.cumsum (lens)
+        offs = np.stack ((offs-lens, offs), axis=1)
+        return offs
 
     def update_wfn (self, x):
         kappa, dcir, dcis, dcic, dsi = self.unpack (x)
@@ -252,6 +284,7 @@ class UnitaryGroupGenerators (lasscf_sync_o0.LASSCF_UnitaryGroupGenerators):
         si = self.raw2orth.H (self.si)
         si = _update_sivecs (si, dsi)
         return mo1, ci_ref, ci_sf, ci_ch, si
+
 
 def _update_mo (mo0, kappa):
     umat = linalg.expm (kappa/2)

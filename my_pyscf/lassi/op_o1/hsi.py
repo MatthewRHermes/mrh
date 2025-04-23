@@ -418,9 +418,9 @@ def gen_contract_op_si_hdiag (las, h1, h2, ci, nelec_frs, soc=0, nlas=None,
             Overlap matrix of LAS product states 
         hdiag : ndarray of shape (nstates,)
             Diagonal element of Hamiltonian matrix
-        raw2orth : LinearOperator of shape (nstates_orth, nstates)
-            Projects SI vector columns into an orthonormal basis,
-            eliminating linear dependencies (nstates_orth <= nstates)
+        _get_ovlp : callable with kwarg rootidx
+            Produce the overlap matrix between model states in a set of rootspaces,
+            identified by ndarray or list "rootidx"
     '''
     log = lib.logger.new_logger (las, las.verbose)
     if nlas is None: nlas = las.ncas_sub
@@ -451,7 +451,7 @@ def gen_contract_op_si_hdiag (las, h1, h2, ci, nelec_frs, soc=0, nlas=None,
     s2_op = outerprod.get_s2_op ()
     ovlp_op = outerprod.get_ovlp_op ()
     hdiag = outerprod.get_hdiag ()
-    raw2orth = citools.get_orth_basis (ci, las.ncas_sub, nelec_frs,
-                                       _get_ovlp=outerprod.get_ovlp)
-    return ham_op, s2_op, ovlp_op, hdiag, raw2orth
+    #raw2orth = citools.get_orth_basis (ci, las.ncas_sub, nelec_frs,
+    #                                   _get_ovlp=outerprod.get_ovlp)
+    return ham_op, s2_op, ovlp_op, hdiag, outerprod.get_ovlp
 

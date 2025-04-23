@@ -534,7 +534,7 @@ class ImpuritySolver ():
             mo_coeff=mo_coeff, ci=ci, h2eff=h2eff_sub)
         e_tot = np.dot (las.weights, e_states)
         if dm1s is None: dm1s = las.make_rdm1s (mo_coeff=mo_coeff, ci=ci)
-        if veff is None: veff = las.get_veff (dm1s=dm1s, spin_sep=True)
+        if veff is None: veff = las.get_veff (dm=dm1s, spin_sep=True)
         nocc = self.ncore + self.ncas
 
         # Default these to the "CASSCF" way of making them

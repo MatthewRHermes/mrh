@@ -368,12 +368,12 @@ class FragTDMInt (object):
             if not self.mask_ints[i,i]: continue
             ci_i = ci[i].reshape (lroots[i], -1)
             self.ovlp[i][i] = np.dot (ci_i.conj (), ci_i.T)
-            errmat = self.ovlp[i][i] - np.eye (lroots[i])
-            if np.amax (np.abs (errmat)) > 1e-3:
-                w, v = np.linalg.eigh (self.ovlp[i][i])
-                errmsg = ('States w/in single Hilbert space must be orthonormal; '
-                          'eigvals (ovlp) = {}')
-                raise RuntimeError (errmsg.format (w))
+            #errmat = self.ovlp[i][i] - np.eye (lroots[i])
+            #if np.amax (np.abs (errmat)) > 1e-3:
+            #    w, v = np.linalg.eigh (self.ovlp[i][i])
+            #    errmsg = ('States w/in single Hilbert space must be orthonormal; '
+            #              'eigvals (ovlp) = {}')
+            #    raise RuntimeError (errmsg.format (w))
 
         linkstr_cache = {}
         def _check_linkstr_cache (no, na, nb):

@@ -19,7 +19,7 @@ from scipy import linalg
 from pyscf import lib, gto, scf, mcscf, ao2mo
 from mrh.my_pyscf.mcscf.lasscf_o0 import LASSCF
 from mrh.my_pyscf.lassi import LASSI, LASSIrq, LASSIrqCT
-from mrh.my_pyscf.lassi import vlassis
+from mrh.my_pyscf.lassi.lassis import coords, grad_orb_ci_si
 from mrh.my_pyscf.lassi.lassi import root_make_rdm12s, roots_trans_rdm12s, make_stdm12s
 from mrh.my_pyscf.lassi.spaces import all_single_excitations
 from mrh.my_pyscf.mcscf.lasci import get_space_info
@@ -28,6 +28,7 @@ from mrh.my_pyscf.lassi.op_o1 import get_fdm1_maker
 from mrh.my_pyscf.lassi.sitools import make_sdm1
 from mrh.tests.lassi.addons import case_contract_hlas_ci, case_lassis_fbf_2_model_state
 from mrh.tests.lassi.addons import case_lassis_fbfdm, case_contract_op_si, debug_contract_op_si
+from mrh.tests.lassi.addons import case_lassis_grads, case_lassis_hessian
 
 def setUpModule ():
     global mol, mf, lsi, las, mc, op, lsis
@@ -184,7 +185,7 @@ class KnownValues(unittest.TestCase):
         self.assertAlmostEqual (lib.fp (e_tot), lib.fp (lsis.e_roots), 9)
 
     def test_lassis_ugg (self):
-        ugg = vlassis.UnitaryGroupGenerators (
+        ugg = coords.UnitaryGroupGenerators (
             lsis,
             lsis.mo_coeff,
             lsis.get_ci_ref (),
@@ -210,7 +211,7 @@ class KnownValues(unittest.TestCase):
                         if cic0[i][j][k][l] is not None:
                             self.assertAlmostEqual (lib.fp (cic0[i][j][k][l]),
                                                     lib.fp (cic1[i][j][k][l]))
-        ugg = vlassis.UnitaryGroupGenerators (
+        ugg = coords.UnitaryGroupGenerators (
             lsis,
             lsis.mo_coeff,
             lsis.get_ci_ref (),
@@ -225,9 +226,15 @@ class KnownValues(unittest.TestCase):
         h0, h1, h2 = lsis.ham_2q ()
         hci_fr = case_contract_hlas_ci (self, lsis, h0, h1, h2, lsis.ci, lsis.get_nelec_frs ())
         # Just to syntax-debug this...
-        hci_ref, hci_sf, hci_ch = vlassis.sum_hci (lsis, hci_fr)
+        hci_ref, hci_sf, hci_ch = coords.sum_hci (lsis, hci_fr)
         mo0, _, _, _, si0 = ugg.unpack (x0)
         x1 = ugg.pack (mo0, hci_ref, hci_sf, hci_ch, si0)
+
+    def test_lassis_grad (self):
+        case_lassis_grads (self, lsis)
+
+    def test_lassis_hessian (self):
+        case_lassis_hessian (self, lsis)
 
     def test_fdm1 (self):
         make_fdm1 = get_fdm1_maker (lsi, lsi.ci, lsi.get_nelec_frs (), lsi.si)

@@ -213,8 +213,8 @@ def _ci_outer_product (ci_f, norb_f, nelec_f):
         ci_dp = ci_dp.transpose (0,3,1,4,2,5).reshape (
             lroots*shape[0], ndeta*shape[1], ndetb*shape[2]
         )
-    norm_dp = linalg.norm (ci_dp.reshape (ci_dp.shape[0],-1), axis=1)
-    ci_dp /= norm_dp[:,None,None]
+    #norm_dp = linalg.norm (ci_dp.reshape (ci_dp.shape[0],-1), axis=1)
+    #ci_dp /= norm_dp[:,None,None]
     def gen_ci_dp (buf=None):
         if buf is None:
             ci = np.empty ((ndet_a,ndet_b), dtype=ci_f[-1].dtype)
@@ -522,9 +522,9 @@ def ham (las, h1, h2, ci_fr, nelec_frs, soc=0, orbsym=None, wfnsym=None):
             S2 operator matrix in state-interaction basis
         ovlp_eff : square ndarray of length (ndim)
             Overlap matrix in state-interaction basis
-        raw2orth : LinearOperator of shape (ndim_orth, ndim)
-            Projects SI vector columns into an orthonormal basis,
-            eliminating linear dependencies (ndim_orth <= ndim).
+        _get_ovlp : callable with kwarg rootidx
+            Produce the overlap matrix between model states in a set of rootspaces,
+            identified by ndarray or list "rootidx"
     '''
     if soc>1:
         raise NotImplementedError ("Two-electron spin-orbit coupling")
@@ -591,11 +591,11 @@ def ham (las, h1, h2, ci_fr, nelec_frs, soc=0, orbsym=None, wfnsym=None):
         ham_eff[i,:] = dotter (hket, nelec_ket, spinless2ss=spinless2ss, iket=i, oporder=2)
     
     _get_ovlp = functools.partial (get_ovlp, ci_fr, norb_f, nelec_frs)
-    raw2orth = citools.get_orth_basis (ci_fr, norb_f, nelec_frs, _get_ovlp=_get_ovlp)
-    return ham_eff, s2_eff, ovlp_eff, raw2orth
+    #raw2orth = citools.get_orth_basis (ci_fr, norb_f, nelec_frs, _get_ovlp=_get_ovlp)
+    return ham_eff, s2_eff, ovlp_eff, _get_ovlp #raw2orth
 
 def contract_ham_ci (las, h1, h2, ci_fr_ket, nelec_frs_ket, ci_fr_bra, nelec_frs_bra, 
-                     si_bra=None, si_ket=None, soc=0, orbsym=None, wfnsym=None):
+                     si_bra=None, si_ket=None, h0=0, soc=0, orbsym=None, wfnsym=None):
     '''Evaluate the action of the state interaction Hamiltonian on a set of ket CI vectors,
     projected onto a basis of bra CI vectors, leaving one fragment of the bra uncontracted.
 
@@ -625,6 +625,8 @@ def contract_ham_ci (las, h1, h2, ci_fr_ket, nelec_frs_ket, ci_fr_bra, nelec_frs
             SI vectors for the bra. If provided, the q dimension on the return object is contracted
         soc : integer
             Order of spin-orbit coupling included in the Hamiltonian
+        h0 : float
+            Constant term in the Hamiltonian
         orbsym : list of int of length (ncas)
             Irrep ID for each orbital
         wfnsym : int
@@ -683,12 +685,13 @@ def contract_ham_ci (las, h1, h2, ci_fr_ket, nelec_frs_ket, ci_fr_bra, nelec_frs
         h1_re_c, h1_re_s = unpack_h1e_cs (h1_re)
     def contract_h_re (c, nel):
         h2eff = solver.absorb_h1e (h1_re_c, h2_re, norb, nel, 0.5)
-        return solver.contract_2e (h2eff, c, norb, nel)
+        hc = solver.contract_2e (h2eff, c, norb, nel)
+        return hc + h0*c
     if h1_im is not None:
         def contract_h (c, nel):
             hc = contract_h_re (c, nel)
             hc = hc + 1j*contract_1e_nosym (h1_im, c, norb, nel)
-            return hc
+            return hc + h0*c
     else:
         contract_h = contract_h_re
 
