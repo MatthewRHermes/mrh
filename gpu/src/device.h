@@ -168,10 +168,6 @@ private:
   double host_compute(double *);
   void get_cores(char *);
 
-  void profile_start(const char *);
-  void profile_stop();
-  void profile_next(const char *);
-
   int verbose_level;
   
   size_t grid_size, block_size;

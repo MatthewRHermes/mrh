@@ -625,4 +625,32 @@ cudaStream_t * PM::dev_get_queue()
   return q;
 }
 
+/* ---------------------------------------------------------------------- */
+
+void PM::dev_profile_start(const char * label)
+{
+#ifdef _USE_NVTX
+  nvtxRangePushA(label);
+#endif
+}
+
+/* ---------------------------------------------------------------------- */
+
+void PM::dev_profile_stop()
+{
+#ifdef _USE_NVTX
+  nvtxRangePop();
+#endif
+}
+
+/* ---------------------------------------------------------------------- */
+
+void PM::dev_profile_next(const char * label)
+{
+#ifdef _USE_NVTX
+  nvtxRangePop();
+  nvtxRangePushA(label);
+#endif
+}
+
 #endif

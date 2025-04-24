@@ -6,7 +6,9 @@
 #include <cuda_runtime_api.h>
 #include "cublas_v2.h"
 
+#ifdef _USE_NVTX
 #include "nvToolsExt.h"
+#endif
 
 #include <iostream>
 #include <vector>
@@ -92,6 +94,10 @@ namespace PM_NS {
 
     void dev_set_queue(int id);
     cudaStream_t * dev_get_queue();
+    
+    void dev_profile_start(const char *);
+    void dev_profile_stop();
+    void dev_profile_next(const char *);
     
   private:
     
