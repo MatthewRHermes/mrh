@@ -134,6 +134,12 @@ Device::Device()
   for(int i=0; i<_NUM_SIMPLE_TIMER; ++i) t_array[i] = 0.0;
   count_array = (int* ) malloc(_NUM_SIMPLE_COUNTER * sizeof(int));
   for(int i=0; i<_NUM_SIMPLE_COUNTER; ++i) count_array[i] = 0;
+
+  // check device connectivity
+
+  int rank = 0;
+  int peer_error = pm->dev_check_peer(rank, num_devices);
+  if(!peer_error) pm->dev_enable_peer(num_devices);
 }
 
 /* ---------------------------------------------------------------------- */
@@ -812,7 +818,7 @@ void Device::pull_get_jk(py::array_t<double> _vj, py::array_t<double> _vk, int n
 #endif
 
   double t0 = omp_get_wtime();
-    
+  
   profile_start("pull_get_jk");
   
   py::buffer_info info_vj = _vj.request(); // 2D array (nset, nao_pair)

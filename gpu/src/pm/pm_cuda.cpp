@@ -99,10 +99,10 @@ int PM::dev_check_peer(int rank, int ngpus)
 #endif
   
   int err = 0;
-  if(rank == 0) printf("\nChecking P2P Access\n");
+  if(rank == 0) printf("\nLIBGPU: Checking P2P Access for ngpus= %i\n",ngpus);
   for(int ig=0; ig<ngpus; ++ig) {
     cudaSetDevice(ig);
-    //if(rank == 0) printf("Device i= %i\n",ig);
+    if(rank == 0) printf("LIBGPU: -- Device i= %i\n",ig);
 
     int n = 1;
     for(int jg=0; jg<ngpus; ++jg) {
@@ -110,18 +110,39 @@ int PM::dev_check_peer(int rank, int ngpus)
         int access;
         cudaDeviceCanAccessPeer(&access, ig, jg);
         n += access;
-
-        //if(rank == 0) printf("  --  Device j= %i  access= %i\n",jg,access);
+	
+        if(rank == 0) printf("LIBGPU: --  --  Device j= %i  access= %i\n",jg,access);
       }
     }
     if(n != ngpus) err += 1;
   }
-
+  
 #ifdef _DEBUG_PM
   printf(" -- Leaving PM::dev_check_peer()\n");
 #endif
   
   return err;
+}
+
+void PM::dev_enable_peer(int ngpus)
+{
+#ifdef _DEBUG_PM
+  printf("Inside PM::dev_enable_peer()\n");
+#endif
+
+  printf("LIBGPU: -- Enabling peer access for ngpus= %i\n",ngpus);
+  for(int ig=0; ig<ngpus; ++ig) {
+    cudaSetDevice(ig);
+    
+    for(int jg=0; jg<ngpus; ++jg) {
+      if(jg != ig) cudaDeviceEnablePeerAccess(jg, 0);
+    }
+    
+  }
+  
+#ifdef _DEBUG_PM
+  printf(" -- Leaving PM::dev_enable_peer()\n");
+#endif
 }
 
 void PM::dev_set_device(int id)
@@ -422,7 +443,6 @@ void PM::dev_copy(void * dest, void * src, size_t N)
   printf("Inside PM::dev_copy()\n");
 #endif
   
-  printf("correct usage dest vs. src??]n");
   cudaMemcpy(dest, src, N, cudaMemcpyDeviceToDevice);
   _CUDA_CHECK_ERRORS();
   
