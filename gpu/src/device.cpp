@@ -640,6 +640,38 @@ void Device::get_jk(int naux, int nao, int nset,
     d_eri = dd->d_eri1;
   }
 
+#if 1
+  if(count == 0) {
+    // pm->dev_set_device(0); // not needed as device 0 handles count == 0
+
+    size_t size = nset * nao_pair * sizeof(double);
+    
+    int err = pm->dev_push_async(dd->d_dmtril, dmtril, size);
+    if(err) {
+      printf("LIBGPU:: dev_push_async(d_dmtril) failed on count= %i\n",count);
+      exit(1);
+    }
+
+    // Bcast() from master device
+    
+    for(int i=1; i<num_devices; ++i) {
+      my_device_data * dest = &(device_data[i]);
+
+      // ensure memory allocated ; duplicating what's in init_get_jk()
+      if(size > dest->size_dmtril) {
+	dest->size_dmtril = size;
+
+	pm->dev_set_device(i);
+	if(dest->d_dmtril) pm->dev_free(dest->d_dmtril);
+	dest->d_dmtril = (double *) pm->dev_malloc(size * sizeof(double));
+
+	pm->dev_set_device(0);
+      }
+      
+      pm->dev_memcpy_peer(dest->d_dmtril, i, dd->d_dmtril, 0, size);
+    }
+  }
+#else
   if(count < num_devices) {
     int err = pm->dev_push_async(dd->d_dmtril, dmtril, nset * nao_pair * sizeof(double));
     if(err) {
@@ -647,6 +679,7 @@ void Device::get_jk(int naux, int nao, int nset,
       exit(1);
     }
   }
+#endif
   
   int _size_rho = nset * naux;
   if(_size_rho > dd->size_rho) {
