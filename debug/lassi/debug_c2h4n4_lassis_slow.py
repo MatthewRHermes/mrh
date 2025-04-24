@@ -27,13 +27,14 @@ from mrh.tests.lassi.addons import case_contract_hlas_ci, case_lassis_fbf_2_mode
 from mrh.tests.lassi.addons import case_lassis_fbfdm, case_contract_op_si
 from mrh.tests.lassi.addons import case_lassis_grads, case_lassis_hessian, case_lassis_ugg
 topdir = os.path.abspath (os.path.join (__file__, '..'))
+lib.logger.TIMER_LEVEL = lib.logger.INFO
 
 def setUpModule ():
     global las, lsi, rdm1s, rdm2s
     dr_nn = 2.0
     mol = struct (dr_nn, dr_nn, '6-31g', symmetry=False)
-    mol.verbose = 0 #lib.logger.DEBUG
-    mol.output = '/dev/null' #'test_c2h4n4.log'
+    mol.verbose = lib.logger.INFO
+    mol.output = 'debug_c2h4n4_lassis_slow.log'
     mol.spin = 8
     mol.build ()
     mf = scf.RHF (mol).run ()
@@ -50,13 +51,12 @@ def tearDownModule():
 
 class KnownValues(unittest.TestCase):
 
-    #def test_energy (self):
-    #    for dson in (False, True):
-    #        for opt in (0,1):
-    #            with self.subTest (opt=opt, davidson_only=dson):
-    #                lsi.run (opt=opt, davidson_only=dson)
-    #                self.assertTrue (lsi.converged)
-    #                self.assertAlmostEqual (lsi.e_roots[0], -295.52185731568903, 7)
+    def test_energy (self):
+        for dson in (False, True):
+            with self.subTest (opt=1, davidson_only=dson):
+                lsi.run (opt=1, davidson_only=dson)
+                self.assertTrue (lsi.converged)
+                self.assertAlmostEqual (lsi.e_roots[0], -295.52185731568903, 7)
 
     #def test_fbf_2_model_state (self):
     #    for lsi.opt in (0,1):
@@ -90,16 +90,10 @@ class KnownValues(unittest.TestCase):
         case_lassis_ugg (self, lsi)
 
     def test_grads (self):
-        for lsi.opt in (0,1):
-            with self.subTest (opt=lsi.opt):
-                case_lassis_grads (self, lsi)
-            break
+        case_lassis_grads (self, lsi)
 
     def test_hessian (self):
-        for lsi.opt in (0,1):
-            with self.subTest (opt=lsi.opt):
-                case_lassis_hessian (self, lsi)    
-            break
+        case_lassis_hessian (self, lsi)    
 
 if __name__ == "__main__":
     print("Full Tests for LASSIS of c2h4n4 molecule")

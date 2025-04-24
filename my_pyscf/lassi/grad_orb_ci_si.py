@@ -41,6 +41,8 @@ def get_grad_orb (lsi, mo_coeff=None, ci=None, si=None, state=None, weights=None
         gorb : ndarray of shape (nmo,nmo)
             Orbital rotation gradients as a square antihermitian array
     '''
+    log = lib.logger.new_logger (lsi, lsi.verbose)
+    t0 = (lib.logger.process_clock (), lib.logger.perf_counter ())
     if mo_coeff is None: mo_coeff = lsi.mo_coeff
     if ci is None: ci = lsi.ci
     if si is None: si = lsi.si
@@ -72,6 +74,8 @@ def get_grad_orb (lsi, mo_coeff=None, ci=None, si=None, state=None, weights=None
     eri = h2eff_sub.reshape (nmo*ncas, ncas*(ncas+1)//2)
     eri = lib.numpy_helper.unpack_tril (eri).reshape (nmo, ncas, ncas, ncas)
     f1[:,ncore:nocc] += np.tensordot (eri, casdm2, axes=((1,2,3),(1,2,3)))
+
+    log.timer ('LASSI get_grad_orb', *t0)
 
     if hermi == -1:
         return f1 - f1.T
@@ -106,6 +110,8 @@ def get_grad_ci (lsi, mo_coeff=None, ci=None, si=None, state=None, weights=None,
         gci_fr_pabq : nested list of shape (nfrags, nroots) containing ndarrays
             CI rotation gradients
     '''
+    log = lib.logger.new_logger (lsi, lsi.verbose)
+    t0 = (lib.logger.process_clock (), lib.logger.perf_counter ())
     if ci is None: ci = lsi.ci
     if si is None: si = lsi.si
     if opt is None: opt = lsi.opt
@@ -138,6 +144,7 @@ def get_grad_ci (lsi, mo_coeff=None, ci=None, si=None, state=None, weights=None,
             hc = t.vec_csf2det (hc, normalize=False)
             hc = hc.reshape (ci[f][r].shape)
             hci[f][r] = hc + hc.conj () # + h.c.
+    log.timer ('LASSI get_grad_ci', *t0)
     return hci
 
 def get_grad_si (lsi, mo_coeff=None, ci=None, si=None, opt=None):
@@ -160,6 +167,8 @@ def get_grad_si (lsi, mo_coeff=None, ci=None, si=None, opt=None):
         gsi : ndarray of shape (nprods,nroots_si)
             SI rotation gradients, ignoring weights and state-averaging
     '''
+    log = lib.logger.new_logger (lsi, lsi.verbose)
+    t0 = (lib.logger.process_clock (), lib.logger.perf_counter ())
     if ci is None: ci = lsi.ci
     if si is None: si = lsi.si
     if opt is None: opt = lsi.opt
@@ -172,6 +181,7 @@ def get_grad_si (lsi, mo_coeff=None, ci=None, si=None, opt=None):
     hsi -= si @ (si.conj ().T @ hsi)
     hsi += hsi.conj () # + h.c.
     if is1d: hsi=hsi[:,0]
+    log.timer ('LASSI get_grad_si', *t0)
     return hsi
 
 def get_grad (lsi, mo_coeff=None, ci=None, si=None, state=None, weights=None, opt=None):

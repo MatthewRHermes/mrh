@@ -20,6 +20,7 @@ class HessianOperator (sparse_linalg.LinearOperator):
         self.ci = ugg.ci
         self.nroots = len (ugg.ci[0])
         self.lsi = lsi = ugg.lsi
+        self.log = lib.logger.new_logger (lsi, lsi.verbose)
         self.opt = lsi.opt
         self.si = ugg.raw2orth.H (ugg.si)
         self.nprods = ugg.nprods
@@ -143,12 +144,16 @@ class HessianOperator (sparse_linalg.LinearOperator):
                         veff_c=self.veff_c, casdm1=self.casdm1)
 
     def _matvec (self, x):
+        log = self.log
+        t0 = (lib.logger.process_clock (), lib.logger.perf_counter ())
         kappa, ci1, si0, si1 = self.to_hop (x)
         xham_2q = self.get_xham_2q (kappa)
         ham_2q = self.ham_2q
+        t1 = log.timer ('LASSIS Hessian-vector preprocessing', *t0)
 
         rorb = self.hoo (xham_2q, kappa)
         rorb += self.hoa (ci1, si0, si1)
+        t2 = log.timer ('LASSIS Hessian-vector orb rows', *t1)
 
         # TODO: why divide by 2?
         xham_2q = [h/2 for h in xham_2q]
@@ -163,12 +168,17 @@ class HessianOperator (sparse_linalg.LinearOperator):
             for j in range (len (rci_01[i])):
                 rci_01[i][j] += rci_001[i][j]
         rci_10 = self.hci_op (ham_2q, ci1, si1, si0)
+        t3 = log.timer ('LASSIS Hessian-vector CI rows', *t2)
 
         rsi_01 = self.hsi_op (xham_2q, ci1, si0)
         rsi_01 += self.hsi_op (ham_2q, ci1, si1)
         rsi_10 = self.hsi_op (ham_2q, ci1, si0)
+        t4 = log.timer ('LASSIS Hessian-vector SI rows', *t3)
 
-        return self.from_hop (rorb, rci_10, rsi_10, rci_01, rsi_01)
+        hx = self.from_hop (rorb, rci_10, rsi_10, rci_01, rsi_01)
+        log.timer ('LASSIS Hessian-vector postprocessing', *t4)
+        log.timer ('LASSIS Hessian-vector full', *t0)
+        return hx
 
     def hoo (self, xham_2q, kappa):
         h0, h1, h2 = xham_2q
