@@ -139,7 +139,7 @@ Device::Device()
 
   int rank = 0;
   int peer_error = pm->dev_check_peer(rank, num_devices);
-  if(!peer_error) pm->dev_enable_peer(num_devices);
+  if(!peer_error) pm->dev_enable_peer(rank, num_devices);
 }
 
 /* ---------------------------------------------------------------------- */

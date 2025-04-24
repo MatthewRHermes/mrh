@@ -167,7 +167,7 @@ int main( int argc, char* argv[] )
   // Enable peer-to-peer access
 
   int peer_error = pm->dev_check_peer(0, num_devices);
-  if(!peer_error) pm->dev_enable_peer(num_devices);
+  if(!peer_error) pm->dev_enable_peer(0, num_devices);
   
   // ----------------------------------------------------------------
 
