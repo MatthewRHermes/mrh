@@ -133,6 +133,10 @@ def get_grad_ci (lsi, mo_coeff=None, ci=None, si=None, state=None, weights=None,
             else:
                 hc = hc[0]
             hc = hc.reshape (ci[f][r].shape)
+            t = lsi.fciboxes[f].fcisolvers[r].transformer
+            hc = t.vec_det2csf (hc, normalize=False)
+            hc = t.vec_csf2det (hc, normalize=False)
+            hc = hc.reshape (ci[f][r].shape)
             hci[f][r] = hc + hc.conj () # + h.c.
     return hci
 

@@ -187,7 +187,7 @@ class KnownValues(unittest.TestCase):
     def test_lassis_ugg (self):
         case_lassis_ugg (self, lsis)
 
-    def test_lassis_grad (self):
+    def test_lassis_grads (self):
         case_lassis_grads (self, lsis)
 
     def test_lassis_hessian (self):

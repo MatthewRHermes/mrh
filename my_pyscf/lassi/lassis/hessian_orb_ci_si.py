@@ -93,6 +93,11 @@ class HessianOperator (sparse_linalg.LinearOperator):
                     ci1[i][r] += ci_10[i][r][0,...,0]
         for i in range (self.nfrags):
             for r in range (self.nroots):
+                my_shape = ci1[i][r].shape
+                t = self.lsi.fciboxes[i].fcisolvers[r].transformer
+                ci1[i][r] = t.vec_det2csf (ci1[i][r], normalize=False)
+                ci1[i][r] = t.vec_csf2det (ci1[i][r], normalize=False)
+                ci1[i][r] = ci1[i][r].reshape (my_shape)
                 ci1[i][r] += ci1[i][r].conj () # + h.c.
         ci1_ref, ci1_sf, ci1_ch = coords.sum_hci (self.lsi, ci1)
 

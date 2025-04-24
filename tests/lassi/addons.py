@@ -195,13 +195,18 @@ def case_lassis_fbfdm (ks, lsi):
             xdx = x.conj ().T @ dm1 @ x
             ks.assertAlmostEqual ((dm1*ovlp).sum (), 1.0, 9)
 
-def case_lassis_grads (ks, lsis):
+def case_lassis_grads (ks, lsis, s2=(0,2)):
+    if not hasattr (s2, '__len__'): s2 = (s2,s2)
     if lsis.converged:
-        de = lsis.e_roots - lsis.e_roots[0]
-        i = np.where (de>1e-4)[0][0]
-        si = (lsis.si[:,0] + lsis.si[:,i]) * np.sqrt (0.5)
+        i = np.where (np.abs (lsis.s2 - s2[0]) < 1e-4)[0][0]
+        de = lsis.e_roots - lsis.e_roots[i]
+        idx = np.abs (lsis.s2 - s2[1]) < 1e-4
+        idx &= np.abs (lsis.e_roots - lsis.e_roots[i]) > 1e-4
+        j = np.where (idx)[0][0]
+        assert (i!=j)
+        si = (lsis.si[:,i] + lsis.si[:,j]) * np.sqrt (0.5)
     else:
-        si = si[:,0]
+        si = lsis.si[:,0]
     g_all = grad_orb_ci_si.get_grad (lsis, si=si, pack=True)
     ugg = coords.UnitaryGroupGenerators (
         lsis,
@@ -250,7 +255,7 @@ def case_lassis_hessian (ks, lsis):
         i = np.where (de>1e-4)[0][0]
         si = (lsis.si[:,0] + lsis.si[:,i]) * np.sqrt (0.5)
     else:
-        si = si[:,0]
+        si = lsis.si[:,0]
     #si[:] = 0
     #si[0] = 1
     ci_ref = lsis.get_ci_ref ()
