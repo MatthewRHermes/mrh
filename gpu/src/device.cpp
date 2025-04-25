@@ -1269,6 +1269,11 @@ double * Device::dd_fetch_eri(my_device_data * dd, double * eri1, int naux, int 
 	exit(1);
       }
     }
+
+    if(naux != eri_extra[id*2] || nao_pair != eri_extra[id*2+1]) {
+      printf("LIBGPU :: dd_fetch_eri() has inconsistent naux= {%i, %i} and nao_pair= {%i, %i} for block id= %i\n",naux, eri_extra[id*2], nao_pair, eri_extra[id*2+1], id);
+      exit(1);
+    }
     
   } else {
     
@@ -2703,7 +2708,7 @@ void Device::get_h2eff_df(py::array_t<double> _cderi,
 
   pm->dev_free_async(d_eri);
 
-  pm->dev_stream_wait();
+  pm->dev_stream_wait(); // is this required?
   
   pm->dev_profile_stop();
   
