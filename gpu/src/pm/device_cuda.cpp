@@ -426,8 +426,7 @@ __global__ void _pack_d_vuwM_add(const double * in, double * out, int * map, int
     if(i >= nmo*ncas) return;
     if(j >= ncas*ncas) return;
     //out[k*ncas_pair*nao+l*ncas_pair+ij]=h_vuwM[i*ncas*ncas*nao+j*ncas*nao+k*nao+l];}}}}
-    out[i*ncas_pair + map[j]]+=in[j*ncas*nmo + i];
-
+    out[i*ncas_pair + map[j]]+=in[j*ncas*nmo + i]; // this doesn't work because map spans (ncas x ncas) and has duplicate entries
 }
 
 /* ---------------------------------------------------------------------- */
