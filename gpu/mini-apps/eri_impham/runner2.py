@@ -18,7 +18,7 @@ from pyscf.mcscf import avas
 from mrh.tests.gpu.geometry_generator import generator
 from mrh.my_pyscf.mcscf.lasscf_async import LASSCF
 DEBUG=1 
-TIMING=1 #if true, runs both cpu version and gpu version n times and reports wall times 
+TIMING=0 #if true, runs both cpu version and gpu version n times and reports wall times 
 if gpu_run: 
     import gpu4mrh
     from gpu4mrh import patch_pyscf
@@ -38,6 +38,8 @@ def impham_cpu_original(self, imporb_coeff):
         eri2 = ao2mo._ao2mo.nr_e2 (eri1, moij, ijslice, aosym='s2', mosym=ijmosym,out=eri2)
         b0 = b1
     #return lib.unpack_tril(_cderi)
+    #print(lib.unpack_tril(_cderi)[:2])
+    #print(_cderi[:-2])
     return _cderi
        
 def impham_cpu_naive(self, imporb_coeff):
@@ -69,11 +71,11 @@ def impham_gpu_v1(self, imporb_coeff):
         libgpu.libgpu_get_dfobj_status(gpu, id(mf.with_df),arg)
         naux = arg[0]
         libgpu.libgpu_compute_eri_impham (gpu, nao_s, nao_f, blksize, naux, count, id(mf.with_df))
-    libgpu.libgpu_pull_eri_impham(gpu, _cderi, naoaux, nao_f, nao_f)  
+    libgpu.libgpu_pull_eri_impham(gpu, _cderi, naoaux, nao_f)  
     return _cderi
 
-nfrags=8;basis='ccpvdz';
-nimp=60
+nfrags=8;basis='631g';
+nimp=44
 atom=generator(nfrags)
 if gpu_run:mol=gto.M(use_gpu=gpu, atom=atom,basis=basis)
 else: mol=gto.M(atom=atom,basis=basis)
@@ -82,25 +84,34 @@ mf=mf.density_fit().newton()
 mf.max_cycle=1
 mf.run()
 
+def tester (las, imporb_coeff):
+    cderi_original = impham_cpu_original(las,imporb_coeff) 
+    cderi_gpu_v1 = impham_gpu_v1(las,imporb_coeff) 
+    if not (np.allclose(cderi_original,cderi_gpu_v1)):
+        diff =np.abs(cderi_original-cderi_gpu_v1)
+        #print((cderi_original-cderi_gpu_v1)[:-2])
+    #print(cderi_gpu_v1)
+        idx = np.unravel_index(np.argmax(diff),diff.shape)
+        print(np.max(diff), idx, diff.shape, cderi_original[idx],cderi_gpu_v1[idx], np.average(diff))
+    #print(np.max(diff), np.unravel_index(np.argmax(diff),diff.shape, ))
+        exit()
+    else:
+        print("we are done!!! commit and good night")
+
+
 if gpu_run:las=LASSCF(mf, list((2,)*nfrags),list((2,)*nfrags), use_gpu=gpu,verbose=4)
 frag_atom_list=[list(range(1+4*nfrag,3+4*nfrag)) for nfrag in range(nfrags)]
 ncas,nelecas,guess_mo_coeff=avas.kernel(mf, ["C 2pz"])
 mo_coeff=las.set_fragments_(frag_atom_list, guess_mo_coeff)
 
 nao, nmo = mf.mo_coeff.shape
-print(mf.with_df.get_naoaux(), nao, nimp)
+#print(mf.with_df.get_naoaux(), nao, nimp)
 imporb_coeff=np.random.random((nao, nimp)).astype(np.float64)-.5#,dtype=np.float64)
 
-cderi_original = impham_cpu_original(las,imporb_coeff) 
-cderi_gpu_v1 = impham_gpu_v1(las,imporb_coeff) 
-if DEBUG and not (np.allclose(cderi_original,cderi_gpu_v1)):
-    diff =np.abs(cderi_original-cderi_gpu_v1)
-    print(cderi_original-cderi_gpu_v1)
-    #print(cderi_gpu_v1)
-    print(np.max(diff), np.unravel_index(np.argmax(diff),diff.shape))
-    exit()
-else:
-    print("we are done!!! commit and good night")
+tester (las, np.random.random((nao, nimp)).astype(np.float64)-.5)
+tester (las, np.random.random((nao, 5)).astype(np.float64)-.5)
+#tester (las, np.random.random((nao, nimp//3)).astype(np.float64)-.5)
+#tester (las, np.random.random((nao, nimp*2)).astype(np.float64)-.5)
 
 if TIMING:
     n=15

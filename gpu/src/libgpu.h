@@ -95,7 +95,9 @@ extern "C"
   void libgpu_compute_eri_impham(void * ptr, 
                                 int, int, int, int, int, size_t);
   void libgpu_pull_eri_impham(void * ptr, 
-                                py::array_t<double>, int, int, int);
+                                py::array_t<double>, int, int);
+  void libgpu_compute_eri_impham_v2(void * ptr, 
+                                int, int, int, int, int, size_t, size_t);
 }
 
 
@@ -141,6 +143,7 @@ PYBIND11_MODULE(libgpu, m) {
   m.def("libgpu_init_eri_impham", &libgpu_init_eri_impham, "my_pyscf/mcscf/lasscf_async/crunch.py::ImpuritySCF._update_impham_1_ part 0.1");
   m.def("libgpu_compute_eri_impham", &libgpu_compute_eri_impham, "my_pyscf/mcscf/lasscf_async/crunch.py::ImpuritySCF._update_impham_1_ part 0.2");
   m.def("libgpu_pull_eri_impham", &libgpu_pull_eri_impham, "my_pyscf/mcscf/lasscf_async/crunch.py::ImpuritySCF._update_impham_1_ part 0.3");
+  m.def("libgpu_compute_eri_impham_v2", &libgpu_compute_eri_impham_v2, "my_pyscf/mcscf/lasscf_async/crunch.py::ImpuritySCF._update_impham_1_ part 0.1-0.3");
   
   m.def("libgpu_orbital_response", &libgpu_orbital_response, "mrh/lasscf_sync_o0.py::orbital_response");
 }
