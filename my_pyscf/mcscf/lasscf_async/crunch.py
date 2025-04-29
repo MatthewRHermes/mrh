@@ -9,7 +9,10 @@ from mrh.my_pyscf.mcscf import _DFLASCI, lasci_sync, lasci
 import copy, json
 
 from mrh.my_pyscf.gpu import libgpu
-DEBUG=True
+DEBUG=False 
+#when true, runs the _update_impham_1 gpu and cpu version, 
+#checks if gpu version is same as cpu, 
+#and then uses results form cpu version to proceed with calculation
 class ImpurityMole (gto.Mole):
     def __init__(self, las, stdout=None, output=None):
         gto.Mole.__init__(self)
@@ -139,12 +142,19 @@ class ImpuritySCF (scf.hf.SCF):
                 raise df_eris_mem_error
             _cderi = np.empty ((mf.with_df.get_naoaux (), nimp*(nimp+1)//2),
                                dtype=imporb_coeff.dtype)
+            imporb_coeff=np.ascontiguousarray(imporb_coeff) 
+            #VA - 4/29/25
+            #you need to do this because imporb_coeff is not contiguous for some reason? 
+            #gives wrong answer when not used ... 
+            #idk someone smarter than me figure this out. 
+            #other note from MRH:  imporb_coeff = mo_coeff[:,idx] where idx is a boolean index array makes an F-contiguous array if mo_coeff itself is a C-contiguous array
             ijmosym, mij_pair, moij, ijslice = ao2mo.incore._conc_mos (imporb_coeff, imporb_coeff,
                                                                         compact=True)
             b0 = 0
             if mf.mol.use_gpu and DEBUG:
 
                 # do cpu version
+                print("Doing CPU version of impham, nimp: ",nimp)
                 for eri1 in mf.with_df.loop ():
                     b1 = b0 + eri1.shape[0]
                     eri2 = _cderi[b0:b1]
@@ -155,8 +165,8 @@ class ImpuritySCF (scf.hf.SCF):
                 _cderi_gpu = np.empty ((naoaux, nimp*(nimp+1)//2), dtype=imporb_coeff.dtype)
                 (nao_s,nao_f) = imporb_coeff.shape # System * Fragment
                 gpu = mf.mol.use_gpu
+                print("Doing GPU version of impham")
                 blksize=mf.with_df.blockdim
-                print(ijslice, ijmosym,imporb_coeff.shape, nao_s, nao_f)#, b0, b1)
                 libgpu.libgpu_push_mo_coeff(gpu, imporb_coeff, nao_s*nao_f)
                 libgpu.libgpu_init_eri_impham(gpu, naoaux, nao_f)
                 for k, eri1 in enumerate(mf.with_df.loop(blksize)):pass;
@@ -164,35 +174,37 @@ class ImpuritySCF (scf.hf.SCF):
                     arg = np.array([-1, -1, count, -1], dtype = np.int32)
                     libgpu.libgpu_get_dfobj_status(gpu, id(mf.with_df),arg)
                     naux = arg[0]
-                    #print("from cpu", nao_s, nao_f, blksize, naux, count)
                     libgpu.libgpu_compute_eri_impham (gpu, nao_s, nao_f, blksize, naux, count, id(mf.with_df))
-                #print("pulling")
                 libgpu.libgpu_pull_eri_impham(gpu, _cderi_gpu, naoaux, nao_f)
-                #print("pulling complete")
-
-                
                 # compare 
                 if (np.allclose(_cderi_gpu, _cderi)): print("Cholesky vectors updating correctly")
                 else: 
                     print("Issues in updating Cholesky vectors"); 
                     diff =_cderi-_cderi_gpu
-                    print(diff)
                     idx = np.unravel_index(np.argmax(diff),diff.shape)
-                    print(np.max(diff), idx, diff.shape, _cderi[idx],_cderi_gpu[idx])
+                    print('maximum difference:',np.max(diff), 'difference location',idx, 'eri_shape',diff.shape,'corresponding cpu and gpu matrix elements',_cderi[idx],_cderi_gpu[idx])
+                    print('exiting calculations')
                     exit()
-
             elif mf.mol.use_gpu:
-                print("In v2 path")
+                gpu = mf.mol.use_gpu
+                blksize=mf.with_df.blockdim
                 (nao_s,nao_f) = imporb_coeff.shape # System * Fragment
-                naux = mf.with_df.get_naoaux()
+                naoaux = mf.with_df.get_naoaux()
+                imporb_coeff=np.ascontiguousarray(imporb_coeff)
+                libgpu.libgpu_init_eri_impham(gpu, naoaux, nao_f)
                 libgpu.libgpu_push_mo_coeff(gpu, imporb_coeff, nao_s*nao_f)
-                for k, eri1 in enumerate(with_df.loop(blksize)):pass;
+                for k, eri1 in enumerate(mf.with_df.loop(blksize)):pass;
                 for count in range(k+1): 
-                    arg = numpy.array([-1, -1, count, -1], dtype = numpy.int32)
-                    libgpu.libgpu_get_dfobj_status(gpu, id(with_df),arg)
+                    arg = np.array([-1, -1, count, -1], dtype = np.int32)
+                    libgpu.libgpu_get_dfobj_status(gpu, id(mf.with_df),arg)
                     naux = arg[0]
-                    # this pushes new eri to correct address in memory. (?)no need to update on cpu
-                    libgpu.libgpu_compute_eri_impham_v2 (gpu, nao_s, nao_f, blksize, naux, count, id(with_df), id(self.with_df)) 
+                    libgpu.libgpu_compute_eri_impham (gpu, nao_s, nao_f, blksize, naux, count, id(mf.with_df))
+                    #libgpu.libgpu_compute_eri_impham_v2 (gpu, nao_s, nao_f, blksize, naux, count, id(with_df), id(self.with_df)) 
+                    #this pushes new eri to correct address in memory. (?)no need to update on cpu
+                    #not doing this currently, because fragment-fragment eri gets pulled back and made into 4c2e. 
+                    #may need to rework it later if we decide to pull only for fragment-fragment and leave it in for fragment only
+                libgpu.libgpu_pull_eri_impham(gpu, _cderi, naoaux, nao_f)
+                    
                     
             else:
                 for eri1 in mf.with_df.loop ():
