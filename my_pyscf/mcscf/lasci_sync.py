@@ -7,12 +7,6 @@ import numpy as np
 
 from mrh.my_pyscf.gpu import libgpu
 
-# Setting DEBUG = True will execute both CPU (original) and GPU (new) paths checking for consistency 
-DEBUG = False
-
-if DEBUG:
-    import math
-
 # This must be locked to CSF solver for the forseeable future, because I know of no other way to
 # handle spin-breaking potentials while retaining spin constraint
 
@@ -1340,16 +1334,21 @@ class LASCI_HessianOperator (sparse_linalg.LinearOperator):
         ci1 = self._update_ci (dci)
         t0=log.timer('update_ci',*t0)
         gpu=self.las.use_gpu
-        if DEBUG and gpu:
-          h2eff_sub_c = h2eff_sub.copy()
-          h2eff_sub2 = self._update_h2eff_sub_debug (mo1, umat, h2eff_sub_c) 
-          h2eff_sub = self._update_h2eff_sub_gpu (gpu, mo1, umat, h2eff_sub) 
-          if(np.allclose(h2eff_sub,h2eff_sub2,atol=1e-13)): print('H2eff test passed')
-          else:print('H2eff gpu kernel is not working');print(np.max((h2eff_sub-h2eff_sub2)*(h2eff_sub-h2eff_sub2)));exit()
+        if self.las.verbose==lib.logger.DEBUG and gpu:
+            h2eff_sub_c = h2eff_sub.copy()
+            h2eff_sub2 = self._update_h2eff_sub_debug (mo1, umat, h2eff_sub_c) 
+            h2eff_sub = self._update_h2eff_sub_gpu (gpu, mo1, umat, h2eff_sub) 
+            if(np.allclose(h2eff_sub,h2eff_sub2,atol=1e-13)): 
+                log.debug('H2eff test passed')
+                #print('H2eff test passed')
+            else:
+                log.debug('H2eff gpu kernel is not working')
+                lib.logger.debug(np.max((h2eff_sub-h2eff_sub2)*(h2eff_sub-h2eff_sub2)))
+                exit()
         elif gpu:
-          h2eff_sub = self._update_h2eff_sub_gpu (gpu, mo1, umat, h2eff_sub)
+            h2eff_sub = self._update_h2eff_sub_gpu (gpu, mo1, umat, h2eff_sub)
         else:
-          h2eff_sub = self._update_h2eff_sub (mo1, umat, h2eff_sub)
+            h2eff_sub = self._update_h2eff_sub (mo1, umat, h2eff_sub)
         t0=log.timer('update_h2eff_sub',*t0)
         return mo1, ci1, h2eff_sub
 
