@@ -9,10 +9,7 @@ from mrh.my_pyscf.mcscf import _DFLASCI, lasci_sync, lasci
 import copy, json
 
 from mrh.my_pyscf.gpu import libgpu
-DEBUG=False 
-#when true, runs the _update_impham_1 gpu and cpu version, 
-#checks if gpu version is same as cpu, 
-#and then uses results form cpu version to proceed with calculation
+
 class ImpurityMole (gto.Mole):
     def __init__(self, las, stdout=None, output=None):
         gto.Mole.__init__(self)
@@ -151,10 +148,10 @@ class ImpuritySCF (scf.hf.SCF):
             ijmosym, mij_pair, moij, ijslice = ao2mo.incore._conc_mos (imporb_coeff, imporb_coeff,
                                                                         compact=True)
             b0 = 0
-            if mf.mol.use_gpu and DEBUG:
+            if mf.mol.use_gpu and mf.mol.verbose==lib.logger.DEBUG:
 
                 # do cpu version
-                print("Doing CPU version of impham, nimp: ",nimp)
+                log.debug("Doing CPU version of impham, nimp: " + str(nimp))
                 for eri1 in mf.with_df.loop ():
                     b1 = b0 + eri1.shape[0]
                     eri2 = _cderi[b0:b1]
@@ -165,7 +162,7 @@ class ImpuritySCF (scf.hf.SCF):
                 _cderi_gpu = np.empty ((naoaux, nimp*(nimp+1)//2), dtype=imporb_coeff.dtype)
                 (nao_s,nao_f) = imporb_coeff.shape # System * Fragment
                 gpu = mf.mol.use_gpu
-                print("Doing GPU version of impham")
+                log.debug("Doing GPU version of impham")
                 blksize=mf.with_df.blockdim
                 libgpu.libgpu_push_mo_coeff(gpu, imporb_coeff, nao_s*nao_f)
                 libgpu.libgpu_init_eri_impham(gpu, naoaux, nao_f)
@@ -177,13 +174,14 @@ class ImpuritySCF (scf.hf.SCF):
                     libgpu.libgpu_compute_eri_impham (gpu, nao_s, nao_f, blksize, naux, count, id(mf.with_df))
                 libgpu.libgpu_pull_eri_impham(gpu, _cderi_gpu, naoaux, nao_f)
                 # compare 
-                if (np.allclose(_cderi_gpu, _cderi)): print("Cholesky vectors updating correctly")
+                if (np.allclose(_cderi_gpu, _cderi)): 
+                    log.debug("Cholesky vectors updating correctly")
                 else: 
-                    print("Issues in updating Cholesky vectors"); 
+                    log.debug("Issues in updating Cholesky vectors"); 
                     diff =_cderi-_cderi_gpu
                     idx = np.unravel_index(np.argmax(diff),diff.shape)
-                    print('maximum difference:',np.max(diff), 'difference location',idx, 'eri_shape',diff.shape,'corresponding cpu and gpu matrix elements',_cderi[idx],_cderi_gpu[idx])
-                    print('exiting calculations')
+                    log.debug('maximum difference:',np.max(diff), 'difference location',idx, 'eri_shape',diff.shape,'corresponding cpu and gpu matrix elements',_cderi[idx],_cderi_gpu[idx])
+                    log.debug('exiting calculations')
                     exit()
             elif mf.mol.use_gpu:
                 gpu = mf.mol.use_gpu
