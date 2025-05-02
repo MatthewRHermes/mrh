@@ -8,7 +8,7 @@ from pyscf import gto, scf, tools, mcscf, lib
 from mrh.my_pyscf.mcscf.lasscf_async import LASSCF
 from pyscf.mcscf import avas	
 
-gpu = libgpu.libgpu_init()
+gpu = libgpu.init()
 
 lib.logger.TIMER_LEVEL=lib.logger.INFO
 
@@ -30,4 +30,4 @@ frag_atom_list=[list(range(1+4*nfrag,3+4*nfrag)) for nfrag in range(nfrags)]
 mo_coeff=las.set_fragments_(frag_atom_list, guess_mo_coeff)
 las.kernel(mo_coeff)
 
-libgpu.libgpu_destroy_device(gpu)
+libgpu.destroy_device(gpu)
