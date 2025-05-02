@@ -164,15 +164,15 @@ class ImpuritySCF (scf.hf.SCF):
                 gpu = mf.mol.use_gpu
                 log.debug("Doing GPU version of impham")
                 blksize=mf.with_df.blockdim
-                libgpu.libgpu_push_mo_coeff(gpu, imporb_coeff, nao_s*nao_f)
-                libgpu.libgpu_init_eri_impham(gpu, naoaux, nao_f)
+                libgpu.push_mo_coeff(gpu, imporb_coeff, nao_s*nao_f)
+                libgpu.init_eri_impham(gpu, naoaux, nao_f)
                 for k, eri1 in enumerate(mf.with_df.loop(blksize)):pass;
                 for count in range(k+1): 
                     arg = np.array([-1, -1, count, -1], dtype = np.int32)
-                    libgpu.libgpu_get_dfobj_status(gpu, id(mf.with_df),arg)
+                    libgpu.get_dfobj_status(gpu, id(mf.with_df),arg)
                     naux = arg[0]
-                    libgpu.libgpu_compute_eri_impham (gpu, nao_s, nao_f, blksize, naux, count, id(mf.with_df))
-                libgpu.libgpu_pull_eri_impham(gpu, _cderi_gpu, naoaux, nao_f)
+                    libgpu.compute_eri_impham (gpu, nao_s, nao_f, blksize, naux, count, id(mf.with_df))
+                libgpu.pull_eri_impham(gpu, _cderi_gpu, naoaux, nao_f)
                 # compare 
                 if (np.allclose(_cderi_gpu, _cderi)): 
                     log.debug("Cholesky vectors updating correctly")
@@ -189,19 +189,19 @@ class ImpuritySCF (scf.hf.SCF):
                 (nao_s,nao_f) = imporb_coeff.shape # System * Fragment
                 naoaux = mf.with_df.get_naoaux()
                 imporb_coeff=np.ascontiguousarray(imporb_coeff)
-                libgpu.libgpu_init_eri_impham(gpu, naoaux, nao_f)
-                libgpu.libgpu_push_mo_coeff(gpu, imporb_coeff, nao_s*nao_f)
+                libgpu.init_eri_impham(gpu, naoaux, nao_f)
+                libgpu.push_mo_coeff(gpu, imporb_coeff, nao_s*nao_f)
                 for k, eri1 in enumerate(mf.with_df.loop(blksize)):pass;
                 for count in range(k+1): 
                     arg = np.array([-1, -1, count, -1], dtype = np.int32)
-                    libgpu.libgpu_get_dfobj_status(gpu, id(mf.with_df),arg)
+                    libgpu.get_dfobj_status(gpu, id(mf.with_df),arg)
                     naux = arg[0]
-                    libgpu.libgpu_compute_eri_impham (gpu, nao_s, nao_f, blksize, naux, count, id(mf.with_df))
-                    #libgpu.libgpu_compute_eri_impham_v2 (gpu, nao_s, nao_f, blksize, naux, count, id(with_df), id(self.with_df)) 
+                    libgpu.compute_eri_impham (gpu, nao_s, nao_f, blksize, naux, count, id(mf.with_df))
+                    #libgpu.compute_eri_impham_v2 (gpu, nao_s, nao_f, blksize, naux, count, id(with_df), id(self.with_df)) 
                     #this pushes new eri to correct address in memory. (?)no need to update on cpu
                     #not doing this currently, because fragment-fragment eri gets pulled back and made into 4c2e. 
                     #may need to rework it later if we decide to pull only for fragment-fragment and leave it in for fragment only
-                libgpu.libgpu_pull_eri_impham(gpu, _cderi, naoaux, nao_f)
+                libgpu.pull_eri_impham(gpu, _cderi, naoaux, nao_f)
                     
                     
             else:
@@ -602,7 +602,7 @@ class ImpuritySolver ():
         eri_cas = ao2mo.restore (1, self.get_h2cas (self.mo_coeff), self.ncas)
         mo_core = self.mo_coeff[:,:self.ncore]
         mo_cas = self.mo_coeff[:,self.ncore:nocc]
-        if gpu: libgpu.libgpu_set_update_dfobj_(gpu, 1)
+        if gpu: libgpu.set_update_dfobj_(gpu, 1)
         self._scf._update_impham_2_(mo_core, mo_cas, casdm1s, casdm2, eri_cas)
 
         # Set state-separated Hamiltonian 1-body

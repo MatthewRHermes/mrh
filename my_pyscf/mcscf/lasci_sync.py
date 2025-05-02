@@ -1379,7 +1379,7 @@ class LASCI_HessianOperator (sparse_linalg.LinearOperator):
         #ucas = umat[ncore:nocc, ncore:nocc]
         bmPu = None
         #if hasattr (h2eff_sub, 'bmPu'): bmPu = h2eff_sub.bmPu
-        libgpu.libgpu_update_h2eff_sub(gpu,ncore,ncas,nocc,nmo,umat, h2eff_sub)
+        libgpu.update_h2eff_sub(gpu,ncore,ncas,nocc,nmo,umat, h2eff_sub)
         #if bmPu is not None:
         #    bmPu = np.dot (bmPu, ucas)
         #    h2eff_sub = lib.tag_array (h2eff_sub, bmPu = bmPu)
