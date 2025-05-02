@@ -176,7 +176,12 @@ def get_orth_basis (ci_fr, norb_f, nelec_frs, _get_ovlp=None):
         for i in manifold: manifold_prod_idx.extend (list(range(offs0[i],offs1[i])))
         manifolds_prod_idx.append (manifold_prod_idx)
         ovlp = _get_ovlp (rootidx=manifold)
-        xmat = canonical_orth_(ovlp, thr=LINDEP_THRESH)
+        eye = np.eye (ovlp.shape[0])
+        err_from_diag = np.amax (np.abs (ovlp - eye))
+        if err_from_diag > 1e-8:
+            xmat = canonical_orth_(ovlp, thr=LINDEP_THRESH)
+        else:
+            xmat = eye
         north += xmat.shape[1]
         manifolds_xmat.append (xmat)
 
