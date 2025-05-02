@@ -45,22 +45,22 @@ class _ERIS:
         if gpu: 
             ppaa = numpy.empty((nmo, nmo, ncas, ncas))
             papa = numpy.empty((nmo, ncas, nmo, ncas))
-            libgpu.libgpu_push_mo_coeff(gpu, mo, nao*nmo)
-            libgpu.libgpu_init_jk_ao2mo(gpu, ncore, nmo) 
-            libgpu.libgpu_init_ints_ao2mo_v3(gpu, naoaux, nmo, ncas) #initializes bufpa on pinned memory
-            libgpu.libgpu_init_ppaa_papa_ao2mo(gpu, nmo, ncas) #initializes ppaa on pinned memory
+            libgpu.push_mo_coeff(gpu, mo, nao*nmo)
+            libgpu.init_jk_ao2mo(gpu, ncore, nmo) 
+            libgpu.init_ints_ao2mo_v3(gpu, naoaux, nmo, ncas) #initializes bufpa on pinned memory
+            libgpu.init_ppaa_papa_ao2mo(gpu, nmo, ncas) #initializes ppaa on pinned memory
             t1 = log.timer('init_ao2mo', *t1)
             count = 0
             for k, eri1 in enumerate(with_df.loop(blksize)):
                 pass;
             for count in range(k+1):
                 arg = numpy.array([-1, -1, count, -1], dtype = numpy.int32)
-                libgpu.libgpu_get_dfobj_status(gpu, id(with_df),arg)
+                libgpu.get_dfobj_status(gpu, id(with_df),arg)
                 naux = arg[0]
-                libgpu.libgpu_df_ao2mo_v4(gpu,blksize,nmo,nao,ncore,ncas,naux,count,id(with_df)) # does everything, remove eri1 pls? 
+                libgpu.df_ao2mo_v4(gpu,blksize,nmo,nao,ncore,ncas,naux,count,id(with_df)) # does everything, remove eri1 pls? 
             t1 = log.timer('compute_ao2mo', *t1)
-            libgpu.libgpu_pull_jk_ao2mo_v4 (gpu, self.j_pc, k_cp, nmo, ncore)
-            libgpu.libgpu_pull_ppaa_papa_ao2mo_v4(gpu, ppaa, papa, nmo, ncas) #pull ppaa
+            libgpu.pull_jk_ao2mo_v4 (gpu, self.j_pc, k_cp, nmo, ncore)
+            libgpu.pull_ppaa_papa_ao2mo_v4(gpu, ppaa, papa, nmo, ncas) #pull ppaa
             self.ppaa = ppaa
             self.papa = papa
             t1 = log.timer('pull_ao2mo', *t1)

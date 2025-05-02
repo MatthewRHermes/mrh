@@ -23,7 +23,7 @@ if gpu_run:
     import gpu4mrh
     from gpu4mrh import patch_pyscf
     from mrh.my_pyscf.gpu import libgpu
-    gpu=libgpu.libgpu_init()
+    gpu=libgpu.init()
 
 def impham_cpu_original(self, imporb_coeff):
     mf = self._scf
@@ -63,15 +63,15 @@ def impham_gpu_v1(self, imporb_coeff):
     blksize=mf.with_df.blockdim
     #_cderi=np.empty((naoaux, nao_f, nao_f),dtype=imporb_coeff.dtype)
     _cderi=np.empty((naoaux, nao_f*(nao_f+1)//2),dtype=imporb_coeff.dtype)
-    libgpu.libgpu_push_mo_coeff(gpu, imporb_coeff, nao_s*nao_f)
-    libgpu.libgpu_init_eri_impham(gpu, naoaux, nao_f)
+    libgpu.push_mo_coeff(gpu, imporb_coeff, nao_s*nao_f)
+    libgpu.init_eri_impham(gpu, naoaux, nao_f)
     for k, eri1 in enumerate(mf.with_df.loop(blksize)):pass;
     for count in range(k+1): 
         arg = np.array([-1, -1, count, -1], dtype = np.int32)
-        libgpu.libgpu_get_dfobj_status(gpu, id(mf.with_df),arg)
+        libgpu.get_dfobj_status(gpu, id(mf.with_df),arg)
         naux = arg[0]
-        libgpu.libgpu_compute_eri_impham (gpu, nao_s, nao_f, blksize, naux, count, id(mf.with_df))
-    libgpu.libgpu_pull_eri_impham(gpu, _cderi, naoaux, nao_f)  
+        libgpu.compute_eri_impham (gpu, nao_s, nao_f, blksize, naux, count, id(mf.with_df))
+    libgpu.pull_eri_impham(gpu, _cderi, naoaux, nao_f)  
     return _cderi
 
 nfrags=8;basis='631g';
