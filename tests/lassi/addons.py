@@ -195,13 +195,18 @@ def case_lassis_fbfdm (ks, lsi):
             xdx = x.conj ().T @ dm1 @ x
             ks.assertAlmostEqual ((dm1*ovlp).sum (), 1.0, 9)
 
-def case_lassis_grads (ks, lsis):
+def case_lassis_grads (ks, lsis, s2=(0,2)):
+    if not hasattr (s2, '__len__'): s2 = (s2,s2)
     if lsis.converged:
-        de = lsis.e_roots - lsis.e_roots[0]
-        i = np.where (de>1e-4)[0][0]
-        si = (lsis.si[:,0] + lsis.si[:,i]) * np.sqrt (0.5)
+        i = np.where (np.abs (lsis.s2 - s2[0]) < 1e-4)[0][0]
+        de = lsis.e_roots - lsis.e_roots[i]
+        idx = np.abs (lsis.s2 - s2[1]) < 1e-4
+        idx &= np.abs (lsis.e_roots - lsis.e_roots[i]) > 1e-4
+        j = np.where (idx)[0][0]
+        assert (i!=j)
+        si = (lsis.si[:,i] + lsis.si[:,j]) * np.sqrt (0.5)
     else:
-        si = si[:,0]
+        si = lsis.si[:,0]
     g_all = grad_orb_ci_si.get_grad (lsis, si=si, pack=True)
     ugg = coords.UnitaryGroupGenerators (
         lsis,
@@ -225,17 +230,24 @@ def case_lassis_grads (ks, lsis):
             x1[i:j] = x0[i:j]
             div = 1.0
             err_last = np.finfo (float).tiny
+            e1_ref_last = np.finfo (float).tiny
             err_table = '{:s}\n'.format (lbl)
+            e1_test = np.dot (x1, g_all)
             for p in range (20):
                 x2 = x1 / div
-                e1_test = np.dot (x2, g_all)
                 e1_ref = lsis.energy_tot (*ugg.update_wfn (x2)) - e0
+                e1_ref -= (lsis.energy_tot (*ugg.update_wfn (-x2)) - e0)
+                e1_ref *= .5 * div
                 err = (e1_test - e1_ref) / e1_ref
-                err_table += '{:e} {:e} {:e}\n'.format (1/div, e1_ref, err)
                 rel_err = err / err_last
+                conv = 1.0 - e1_ref/e1_ref_last
+                err_table += '{:e} {:e} {:e} {:e} {:e}\n'.format (1/div, e1_ref, err, conv, rel_err)
+                if (abs (conv) < 0.01) and (abs (rel_err-.25) < 0.01):
+                    break
                 err_last = err + np.finfo (float).tiny
+                e1_ref_last = e1_ref
                 div *= 2
-            ks.assertAlmostEqual (rel_err, .5, 1, msg=err_table)
+            ks.assertAlmostEqual (rel_err, .25, delta=0.01, msg=err_table)
 
 def case_lassis_hessian (ks, lsis):
     if lsis.converged:
@@ -243,7 +255,7 @@ def case_lassis_hessian (ks, lsis):
         i = np.where (de>1e-4)[0][0]
         si = (lsis.si[:,0] + lsis.si[:,i]) * np.sqrt (0.5)
     else:
-        si = si[:,0]
+        si = lsis.si[:,0]
     #si[:] = 0
     #si[0] = 1
     ci_ref = lsis.get_ci_ref ()
@@ -260,7 +272,7 @@ def case_lassis_hessian (ks, lsis):
         si
     )
     g0_debug = grad_orb_ci_si.get_grad (lsis, *ugg.update_wfn (np.zeros_like (g0)), pack=True)
-    ks.assertLess (np.amax (np.abs (g0_debug-g0)), 1e-10, msg='sanity fail')
+    #ks.assertLess (np.amax (np.abs (g0_debug-g0)), 1e-10, msg='sanity fail')
     h_op = hessian_orb_ci_si.HessianOperator (ugg)
     x0 = np.random.rand (ugg.nvar_tot)
     x0 = ugg.pack (*ugg.unpack (x0)) # apply some projections
@@ -269,27 +281,37 @@ def case_lassis_hessian (ks, lsis):
     sec_offs = ugg.get_sector_offsets ()
     for (i, j), lbl0 in zip (sec_offs, sec_lbls):
         if i==j: continue
+        with ks.subTest ("sanity", sector=lbl0):
+            ks.assertLess (np.amax (np.abs (g0_debug[i:j]-g0[i:j])), 1e-10)
         x1 = np.zeros_like (x0)
         x1[i:j] = x0[i:j]
         div = 1.0
-        h_op_x1 = h_op (x1)
+        g1_test = h_op (x1)
         err_last = [np.finfo (float).tiny,]*len(sec_lbls)
         err_table = ['\n{:s} {:s}\n'.format (lbl1, lbl0) for lbl1 in sec_lbls]
         rel_err = [1,]*len(sec_lbls)
+        g1_ref_last = np.zeros_like (x1)
+        brk = [False for lbl in sec_lbls]
         for p in range (20):
             x2 = x1 / div
-            g1_test = h_op_x1 / div
-            #g1_test = h_op (x2)
+            #g1_test = h_op (x2) * div
             g1_ref = grad_orb_ci_si.get_grad (lsis, *ugg.update_wfn (x2))#, pack=True) - g0
             g1_ref = ugg.pack (*g1_ref) - g0
+            mg1_ref = grad_orb_ci_si.get_grad (lsis, *ugg.update_wfn (-x2))#, pack=True) - g0
+            mg1_ref = ugg.pack (*mg1_ref) - g0
+            g1_ref -= mg1_ref
+            g1_ref *= .5 * div
             for z, (k,l) in enumerate (sec_offs):
                 if k==l:
-                    rel_err[z] = .5
+                    rel_err[z] = .25
                     continue
+                if brk[z]: continue
                 g2_test = np.zeros_like (g1_test)
                 g2_ref = np.zeros_like (g1_ref)
+                g2_ref_last = np.zeros_like (g1_ref_last)
                 g2_test[k:l] = g1_test[k:l]
                 g2_ref[k:l] = g1_ref[k:l]
+                g2_ref_last[k:l] = g1_ref_last[k:l]
                 err = vector_error (g2_test, g2_ref, err_type='rel', ang_units='deg')
                 err_table[z] += '{:e} {:e} {:e} {:e} {:.1f}\n'.format (
                     1/div, linalg.norm (g2_ref), linalg.norm (g2_test), err[0], err[1]
@@ -298,13 +320,88 @@ def case_lassis_hessian (ks, lsis):
                 rel_err[z] = (err / err_last[z])
                 if linalg.norm (g2_test) < 1e-16:
                     err = linalg.norm (g2_ref)
-                    rel_err[z] = (err / err_last[z]) * 2
+                    rel_err[z] = (err / err_last[z])
                 err_last[z] = err + np.finfo (float).tiny
+                conv = vector_error (g2_ref, g2_ref_last, err_type='rel')[0]
+                if (conv < 0.001) and (abs (rel_err[z]-.25) < 0.001):
+                    brk[z] = True
+            g1_ref_last = g1_ref
             div *= 2
         for rel_err_i, err_table_i, lbl1 in zip (rel_err, err_table, sec_lbls):
             with ks.subTest ((lbl1,lbl0)):
-                ks.assertAlmostEqual (rel_err_i, .5, 1, msg=err_table_i)
+                ks.assertAlmostEqual (rel_err_i, .25, 2, msg=err_table_i)
 
+def _compare_lassis_wfn (ks, nfrags, wfn0, wfn1, lbl=''):
+    mo0, cir0, cis0, cic0, si0 = wfn0
+    mo1, cir1, cis1, cic1, si1 = wfn1
+    with ks.subTest ('mo_coeff ' + lbl):
+        ks.assertAlmostEqual (lib.fp (mo0), lib.fp (mo1))
+    with ks.subTest ('ci_ref ' + lbl):
+        ks.assertAlmostEqual (lib.fp (cir0), lib.fp (cir1))
+    with ks.subTest ('si ' + lbl):
+        ks.assertAlmostEqual (lib.fp (si0), lib.fp (si1))
+    with ks.subTest ('ci_sf ' + lbl):
+        for i in range (nfrags):
+            for j in range (2):
+                ks.assertEqual (cis0[i][j] is None, cis1[i][j] is None)
+                if cis0[i][j] is not None:
+                    ks.assertAlmostEqual (lib.fp (cis0[i][j]), lib.fp (cis1[i][j]))
+    with ks.subTest ('ci_ch ' + lbl):
+        for i in range (nfrags):
+            for j in range (nfrags):
+                for k in range (4):
+                    for l in range (2):
+                        ks.assertEqual (cic0[i][j][k][l] is None, cic1[i][j][k][l] is None)
+                        if cic0[i][j][k][l] is not None:
+                            ks.assertAlmostEqual (lib.fp (cic0[i][j][k][l]),
+                                                  lib.fp (cic1[i][j][k][l]))
 
+def case_lassis_ugg (ks, lsis):
+    ugg = coords.UnitaryGroupGenerators (
+        lsis,
+        lsis.mo_coeff,
+        lsis.get_ci_ref (),
+        lsis.ci_spin_flips,
+        lsis.ci_charge_hops,
+        lsis.si
+    )
+    ### print out dimension addresses
+    #x0 = np.arange (ugg.nvar_tot) + 1
+    #kappa, ci_ref, ci_sf, ci_ch, si = ugg.unpack (x0)
+    #kappa -= 1
+    #np.save ('kappa.npy', kappa)
+    #print (lsis.ncore, lsis.ncas_sub)
+    #assert (False)
+    ###
+    wfn0 = lsis.mo_coeff, lsis.get_ci_ref (), lsis.ci_spin_flips, lsis.ci_charge_hops, lsis.si
+    wfn1 = ugg.update_wfn (np.zeros (ugg.nvar_tot))
+    _compare_lassis_wfn (ks, lsis.nfrags, wfn0, wfn1, 'zero step')
+    x0 = np.random.rand (ugg.nvar_tot)
+    x0 = ugg.pack (*ugg.unpack (x0)) # apply some projections
+    wfn0 = ugg.unpack (x0)
+    x1 = ugg.pack (*wfn0)
+    wfn1 = ugg.unpack (x1)
+    ks.assertAlmostEqual (lib.fp (x0), lib.fp (x1))
+    _compare_lassis_wfn (ks, lsis.nfrags, wfn0, wfn1, 'repeated application')
+    ugg = coords.UnitaryGroupGenerators (
+        lsis,
+        lsis.mo_coeff,
+        lsis.get_ci_ref (),
+        lsis.ci_spin_flips,
+        lsis.ci_charge_hops,
+        lsis.si[:,0]
+    )
+    x0 = np.random.rand (ugg.nvar_tot)
+    x0 = ugg.pack (*ugg.unpack (x0)) # apply some projections
+    e_tot = lsis.energy_tot (*ugg.update_wfn (x0))
+    with ks.subTest ('energy minimization'):
+        ks.assertLessEqual (lsis.e_roots[0], e_tot)
+    with ks.subTest ('contract_hlas_ci'):
+        h0, h1, h2 = lsis.ham_2q ()
+        hci_fr = case_contract_hlas_ci (ks, lsis, h0, h1, h2, lsis.ci, lsis.get_nelec_frs ())
+        # Just to syntax-debug this...
+        hci_ref, hci_sf, hci_ch = coords.sum_hci (lsis, hci_fr)
+        mo0, _, _, _, si0 = ugg.unpack (x0)
+        x1 = ugg.pack (mo0, hci_ref, hci_sf, hci_ch, si0)
 
 
