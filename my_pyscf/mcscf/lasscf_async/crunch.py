@@ -9,7 +9,7 @@ from mrh.my_pyscf.mcscf import _DFLASCI, lasci_sync, lasci
 import copy, json
 
 from mrh.my_pyscf.gpu import libgpu
-
+#DEBUG=True
 class ImpurityMole (gto.Mole):
     def __init__(self, las, stdout=None, output=None):
         gto.Mole.__init__(self)
@@ -135,87 +135,120 @@ class ImpuritySCF (scf.hf.SCF):
                                           "LASSCF (outcore algorithm is not yet supported"))
         if getattr (mf, 'with_df', None) is not None:
             # TODO: impurity outcore cderi
-            if not self._is_mem_enough (df_naux = mf.with_df.get_naoaux ()):
-                raise df_eris_mem_error
-            _cderi = np.empty ((mf.with_df.get_naoaux (), nimp*(nimp+1)//2),
-                               dtype=imporb_coeff.dtype)
             imporb_coeff=np.ascontiguousarray(imporb_coeff) 
             #VA - 4/29/25
-            #you need to do this because imporb_coeff is not contiguous for some reason? 
-            #gives wrong answer when not used ... 
-            #idk someone smarter than me figure this out. 
-            #other note from MRH:  imporb_coeff = mo_coeff[:,idx] where idx is a boolean index array makes an F-contiguous array if mo_coeff itself is a C-contiguous array
-            ijmosym, mij_pair, moij, ijslice = ao2mo.incore._conc_mos (imporb_coeff, imporb_coeff,
+            #you need to do this because imporb_coeff is input into the function is F-contiguous during recomb and C-contiguous during fragments 
+            #gpu code expects a c-contiguous
+            #this does not affect the cpu code because ```ao2mo.incore._conc_mos``` gives back moij which is necessarily in f-contiguous regardless of how imporb_coeff is to start with
+            if mf.mol.verbose==lib.logger.DEBUG and mf.mol.use_gpu:
+                #do cpu
+                if not self._is_mem_enough (df_naux = mf.with_df.get_naoaux ()):
+                    raise df_eris_mem_error
+                _cderi = np.empty ((mf.with_df.get_naoaux (), nimp*(nimp+1)//2),
+                               dtype=imporb_coeff.dtype)
+                ijmosym, mij_pair, moij, ijslice = ao2mo.incore._conc_mos (imporb_coeff, imporb_coeff,
                                                                         compact=True)
-            b0 = 0
-            if mf.mol.use_gpu and mf.mol.verbose==lib.logger.DEBUG:
+                b0 = 0
 
-                # do cpu version
                 log.debug("Doing CPU version of impham, nimp: " + str(nimp))
                 for eri1 in mf.with_df.loop ():
                     b1 = b0 + eri1.shape[0]
                     eri2 = _cderi[b0:b1]
                     eri2 = ao2mo._ao2mo.nr_e2 (eri1, moij, ijslice, aosym='s2', mosym=ijmosym,out=eri2)
                     b0 = b1
-                # do gpu version 
+                if getattr (self, 'with_df', None) is not None:
+                    self.with_df._cderi = _cderi
+                else:
+                    self._cderi = _cderi
+                    self._eri = np.dot (_cderi.conj ().T, _cderi)
+                #do gpu
+                gpu=mf.mol.use_gpu
                 naoaux = mf.with_df.get_naoaux()
-                _cderi_gpu = np.empty ((naoaux, nimp*(nimp+1)//2), dtype=imporb_coeff.dtype)
-                (nao_s,nao_f) = imporb_coeff.shape # System * Fragment
-                gpu = mf.mol.use_gpu
-                log.debug("Doing GPU version of impham")
-                blksize=mf.with_df.blockdim
-                libgpu.push_mo_coeff(gpu, imporb_coeff, nao_s*nao_f)
-                libgpu.init_eri_impham(gpu, naoaux, nao_f)
-                for k, eri1 in enumerate(mf.with_df.loop(blksize)):pass;
-                for count in range(k+1): 
-                    arg = np.array([-1, -1, count, -1], dtype = np.int32)
-                    libgpu.get_dfobj_status(gpu, id(mf.with_df),arg)
-                    naux = arg[0]
-                    libgpu.compute_eri_impham (gpu, nao_s, nao_f, blksize, naux, count, id(mf.with_df))
-                libgpu.pull_eri_impham(gpu, _cderi_gpu, naoaux, nao_f)
-                # compare 
-                if (np.allclose(_cderi_gpu, _cderi)): 
-                    log.debug("Cholesky vectors updating correctly")
+                nao_s, nao_f = imporb_coeff.shape
+                if getattr(self, 'with_df', None) is not None:
+                    _cderi_gpu = np.zeros ((mf.with_df.get_naoaux (), nao_f*(nao_f+1)//2),dtype=imporb_coeff.dtype)
+                    return_4c2eeri=False
                 else: 
-                    log.debug("Issues in updating Cholesky vectors"); 
-                    diff =_cderi-_cderi_gpu
-                    idx = np.unravel_index(np.argmax(diff),diff.shape)
-                    log.debug('maximum difference:',np.max(diff), 'difference location',idx, 'eri_shape',diff.shape,'corresponding cpu and gpu matrix elements',_cderi[idx],_cderi_gpu[idx])
-                    log.debug('exiting calculations')
-                    exit()
-            elif mf.mol.use_gpu:
-                gpu = mf.mol.use_gpu
+                    _eri_gpu=np.zeros((nao_f*(nao_f+1)//2,nao_f*(nao_f+1)//2), dtype = imporb_coeff.dtype)
+                    #VA -for some reason, beyond my comprehension, np.empty does not work, you must initialize it as np.zeros. 
+                    return_4c2eeri=True
                 blksize=mf.with_df.blockdim
-                (nao_s,nao_f) = imporb_coeff.shape # System * Fragment
-                naoaux = mf.with_df.get_naoaux()
-                imporb_coeff=np.ascontiguousarray(imporb_coeff)
-                libgpu.init_eri_impham(gpu, naoaux, nao_f)
                 libgpu.push_mo_coeff(gpu, imporb_coeff, nao_s*nao_f)
+                libgpu.init_eri_impham(gpu, naoaux, nao_f, return_4c2eeri)
+                 
                 for k, eri1 in enumerate(mf.with_df.loop(blksize)):pass;
                 for count in range(k+1): 
                     arg = np.array([-1, -1, count, -1], dtype = np.int32)
                     libgpu.get_dfobj_status(gpu, id(mf.with_df),arg)
                     naux = arg[0]
-                    libgpu.compute_eri_impham (gpu, nao_s, nao_f, blksize, naux, count, id(mf.with_df))
-                    #libgpu.compute_eri_impham_v2 (gpu, nao_s, nao_f, blksize, naux, count, id(with_df), id(self.with_df)) 
-                    #this pushes new eri to correct address in memory. (?)no need to update on cpu
-                    #not doing this currently, because fragment-fragment eri gets pulled back and made into 4c2e. 
-                    #may need to rework it later if we decide to pull only for fragment-fragment and leave it in for fragment only
-                libgpu.pull_eri_impham(gpu, _cderi, naoaux, nao_f)
-                    
-                    
-            else:
+                    libgpu.compute_eri_impham (gpu, nao_s, nao_f, blksize, naux, count, id(mf.with_df), return_4c2eeri)
+                if return_4c2eeri:
+                    libgpu.pull_eri_impham(gpu, _eri_gpu, naoaux, nao_f, return_4c2eeri)
+                    #self._eri=_eri_gpu
+                else:
+                    libgpu.pull_eri_impham(gpu, _cderi_gpu, naoaux, nao_f, return_4c2eeri)
+                    #self._cderi=_cderi
+                if return_4c2eeri:
+                    if (np.allclose(_eri_gpu, self._eri)):  
+                        log.debug("Cholesky vectors updating correctly", self)
+                    else:
+                        log.debug("Cholesky vector issue",self)
+                        exit()
+                else:
+                    if (np.allclose(_cderi_gpu, _cderi)):  
+                        log.debug("Cholesky vectors updating correctly", self)
+                    else:
+                        log.debug("Cholesky vector issue",self)
+                        exit()
+
+                
+            elif mf.mol.use_gpu:
+                gpu=mf.mol.use_gpu
+                naoaux = mf.with_df.get_naoaux()
+                nao_s, nao_f = imporb_coeff.shape
+                if getattr(self, 'with_df', None) is not None:
+                    _cderi = np.zeros ((mf.with_df.get_naoaux (), nao_f*(nao_f+1)//2),dtype=imporb_coeff.dtype)
+                    return_4c2eeri=False
+                else: 
+                    _eri=np.zeros((nao_f*(nao_f+1)//2,nao_f*(nao_f+1)//2), dtype = imporb_coeff.dtype)
+                    return_4c2eeri=True
+                blksize=mf.with_df.blockdim
+                libgpu.push_mo_coeff(gpu, imporb_coeff, nao_s*nao_f)
+                libgpu.init_eri_impham(gpu, naoaux, nao_f, return_4c2eeri)
+                 
+                for k, eri1 in enumerate(mf.with_df.loop(blksize)):pass;
+                for count in range(k+1): 
+                    arg = np.array([-1, -1, count, -1], dtype = np.int32)
+                    libgpu.get_dfobj_status(gpu, id(mf.with_df),arg)
+                    naux = arg[0]
+                    libgpu.compute_eri_impham (gpu, nao_s, nao_f, blksize, naux, count, id(mf.with_df), return_4c2eeri)
+                if return_4c2eeri:
+                    libgpu.pull_eri_impham(gpu, _eri, naoaux, nao_f, return_4c2eeri)
+                    self._eri=_eri
+                else:
+                    libgpu.pull_eri_impham(gpu, _cderi, naoaux, nao_f, return_4c2eeri)
+                    self._cderi=_cderi
+            else:         
+                if not self._is_mem_enough (df_naux = mf.with_df.get_naoaux ()):
+                    raise df_eris_mem_error
+                _cderi = np.empty ((mf.with_df.get_naoaux (), nimp*(nimp+1)//2),
+                               dtype=imporb_coeff.dtype)
+                ijmosym, mij_pair, moij, ijslice = ao2mo.incore._conc_mos (imporb_coeff, imporb_coeff,
+                                                                        compact=True)
+                b0 = 0
+
+                log.debug("Doing CPU version of impham, nimp: " + str(nimp))
                 for eri1 in mf.with_df.loop ():
                     b1 = b0 + eri1.shape[0]
                     eri2 = _cderi[b0:b1]
-                    eri2 = ao2mo._ao2mo.nr_e2 (eri1, moij, ijslice, aosym='s2', mosym=ijmosym,
-                                           out=eri2)
+                    eri2 = ao2mo._ao2mo.nr_e2 (eri1, moij, ijslice, aosym='s2', mosym=ijmosym,out=eri2)
                     b0 = b1
-            if getattr (self, 'with_df', None) is not None:
-                self.with_df._cderi = _cderi
-            else:
-                self._cderi = _cderi
-                self._eri = np.dot (_cderi.conj ().T, _cderi)
+                if getattr (self, 'with_df', None) is not None:
+                    self.with_df._cderi = _cderi
+                else:
+                    self._cderi = _cderi
+                    self._eri = np.dot (_cderi.conj ().T, _cderi)
+
         else:
             if getattr (mf, '_eri', None) is None:
                 if not mf._is_mem_enough ():
