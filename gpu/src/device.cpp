@@ -2882,19 +2882,32 @@ for (int j = 0; j<ncas*ncas*(ncas+1)/2; ++j){
   }
 }
 /* ---------------------------------------------------------------------- */
-void Device::init_eri_impham(int naoaux, int nao_f)
+void Device::init_eri_impham(int naoaux, int nao_f, int return_4c2eeri)
 {
   double t0 = omp_get_wtime();
   
   profile_start("init_eri_impham");
 
   int nao_f_pair = nao_f*(nao_f+1)/2;
-  int _size_eri_impham = naoaux*nao_f_pair;
+  int _size_eri_impham;
+  if (return_4c2eeri) {
+  #ifdef _DEBUG_DEVICE
+    printf("returning 4c2e\n");
+  #endif
+    _size_eri_impham = num_devices*nao_f_pair*nao_f_pair;}//when used like this, answer accumulates on gpu
+  else {
+  #ifdef _DEBUG_DEVICE
+    printf("returning 3c2e\n");
+  #endif
+    _size_eri_impham = naoaux*nao_f_pair;} // answer accumulates on cpu
   if (_size_eri_impham > size_eri_impham){
-    printf("resizing eri_impham in init\n");
     size_eri_impham = _size_eri_impham;
+  #ifdef _DEBUG_DEVICE
+    printf("resizing eri_impham in init\n");
+    printf("size_eri %d\n",size_eri_impham );
+  #endif
     if (pin_eri_impham) pm->dev_free_host(pin_eri_impham);
-    pin_eri_impham = (double *) pm->dev_malloc_host(_size_eri_impham*sizeof(double));
+    pin_eri_impham = (double *) pm->dev_malloc_host(size_eri_impham*sizeof(double));
   }
   
   double t1 = omp_get_wtime();
@@ -2902,7 +2915,7 @@ void Device::init_eri_impham(int naoaux, int nao_f)
   // counts in pull eri_impham
 }
 /* ---------------------------------------------------------------------- */
-void Device::compute_eri_impham(int nao_s, int nao_f, int blksize, int naux, int count, size_t addr_dfobj)
+void Device::compute_eri_impham(int nao_s, int nao_f, int blksize, int naux, int count, size_t addr_dfobj, int return_4c2eeri)
 {
 #ifdef _DEBUG_DEVICE
   printf("LIBGPU :: Inside Device::comute_eri_impham()\n");
@@ -2957,12 +2970,31 @@ void Device::compute_eri_impham(int nao_s, int nao_f, int blksize, int naux, int
                &naux);
 
     //do packing
-  double * eri_impham = &(pin_eri_impham[count*blksize*nao_f_pair]);
   d_my_unpack_map_ptr = dd_fetch_pumap(dd, nao_f, _PUMAP_2D_UNPACK);
-  double * d_eri_packed = dd->d_buf3;
+  double * d_eri_packed = dd->d_buf2;
   pack_eri(d_eri_packed, d_bPee,d_my_unpack_map_ptr, naux, nao_f, nao_f_pair);
-  pm->dev_pull_async(d_eri_packed, eri_impham, naux*nao_f_pair*sizeof(double));
-
+  if (return_4c2eeri){
+    double beta_ = (count < num_devices) ? 0.0 : 1.0;
+    #ifdef _DEBUG_DEVICE
+    printf("returning 4c2e\n");
+    printf("beta %f\n",beta_);
+    #endif
+    ml->gemm((char *) "N", (char *) "T", &nao_f_pair, &nao_f_pair, &naux,
+	   &alpha, d_eri_packed, &nao_f_pair,d_eri_packed, &nao_f_pair, &beta_, dd->d_buf3, &nao_f_pair);
+  }
+  else {
+    #ifdef _DEBUG_DEVICE
+    printf("returning 3c2e\n");
+    #endif
+    double * eri_impham = &(pin_eri_impham[count*blksize*nao_f_pair]);
+    pm->dev_pull_async(d_eri_packed, eri_impham, naux*nao_f_pair*sizeof(double));
+  }
+  #if 0
+  double * h_eri_impham = (double *)pm->dev_malloc_host(nao_f_pair*nao_f_pair*sizeof(double));
+  pm->dev_pull_async(dd->d_buf3, h_eri_impham,nao_f_pair*nao_f_pair*sizeof(double));
+  pm->dev_stream_wait();
+  for (int i =0;i<nao_f_pair;++i){ for (int j=0;j<nao_f_pair;++j){printf("%f\t",h_eri_impham[i*nao_f_pair+j]); }printf("\n");}
+  #endif
   profile_stop();
   double t1 = omp_get_wtime();
   t_array[12] += t1 - t0;
@@ -3026,6 +3058,7 @@ void Device::compute_eri_impham_v2(int nao_s, int nao_f, int blksize, int naux, 
   // new (transfer to exisiting smaller cholesky vector)
   double * d_cderi_out = dd_fetch_eri(dd, nullptr, naux, nao_f_pair, addr_dfobj_out, count);
   //TODO: add growing logic 
+  //ml->gemm((char *) "T", (char *) "N", &nao_f_pair, &nao_f_pair, &naux, &alpha, dd->d_buf2, &ldb, dd->d_buf3, &lda, &beta, (dd->d_vkk)+vk_offset, &ldc);
 
   pack_eri(d_cderi_out, d_bPee,d_my_unpack_map_ptr, naux, nao_f, nao_f_pair);
   profile_stop();
@@ -3036,7 +3069,7 @@ void Device::compute_eri_impham_v2(int nao_s, int nao_f, int blksize, int naux, 
 
 } 
 /* ---------------------------------------------------------------------- */
-void Device::pull_eri_impham(py::array_t<double> _eri, int naoaux, int nao_f)
+void Device::pull_eri_impham(py::array_t<double> _eri, int naoaux, int nao_f, int return_4c2eeri)
 {
   //This should be obsolete in a production version. We want this calculation to not exist, and the impurity eri should directly get transferred from gpu to gpu in it's corresponding location. 
 
@@ -3045,21 +3078,62 @@ void Device::pull_eri_impham(py::array_t<double> _eri, int naoaux, int nao_f)
   printf("LIBGPU :: -- Inside Device::pull_eri_impham()\n");
 #endif
 
-  profile_start("pull_eri_impham");
   double t0 = omp_get_wtime();
+  int nao_f_pair = nao_f * (nao_f+1)/2;
+  py::buffer_info info_eri = _eri.request(); 
+  double * eri = static_cast<double*>(info_eri.ptr);
+  #if 0
+  printf("starting pull\n");
+  for (int i=0;i<nao_f_pair*nao_f_pair; ++i){printf("%f\t",eri[i]);}printf("\n");
+  #endif
+
+  if (return_4c2eeri){
+  
+  for (int i =0;i<num_devices;++i){
+      pm->dev_set_device(i); 
+      my_device_data * dd = &(device_data[i]);
+      double * eri_impham =&pin_eri_impham[i*nao_f_pair*nao_f_pair];
+      if (dd->d_buf3) pm->dev_pull_async(dd->d_buf3,eri_impham, nao_f_pair*nao_f_pair*sizeof(double));}
+  
   for (int i =0;i<num_devices;++i){
       pm->dev_set_device(i); 
       my_device_data * dd = &(device_data[i]);
       pm->dev_stream_wait();}
 
 
-  //pm->dev_barrier();
-  py::buffer_info info_eri = _eri.request(); 
-  double * eri = static_cast<double*>(info_eri.ptr);
-  int nao_f_pair = nao_f * (nao_f+1)/2;
+  #ifdef _DEBUG_DEVICE
+  printf("returning 4c2e\n");
+  for (int i=0;i<num_devices;++i){
+    pm->dev_set_device(i); 
+    my_device_data * dd = &(device_data[i]);
+    if (dd->d_buf3){
+    for (int j=0;j <nao_f_pair;++j){
+      for (int k=0;k <nao_f_pair;++k){
+        printf("%f\t",pin_eri_impham[i*nao_f_pair*nao_f_pair+j*nao_f_pair+k]);
+      } printf("\n");
+    }} printf("\n");
+  }
+  #endif
+
+  for(int i=0; i<num_devices; ++i) {
+    pm->dev_set_device(i);
+    my_device_data * dd = &(device_data[i]);
+    double * tmp;
+    if (dd->d_buf3){
+      tmp = &(pin_eri_impham[i * nao_f_pair* nao_f_pair]);
+//#pragma omp parallel for
+      for(int j=0; j<nao_f_pair*nao_f_pair; ++j) eri[j] += tmp[j];}
+    }
+  }
+  else{
+  #ifdef _DEBUG_DEVICE
+    printf("returning 3c2e\n");
+  #endif
+  pm->dev_barrier();
   std::memcpy(eri, pin_eri_impham, naoaux*nao_f_pair*sizeof(double));
   pm->dev_barrier();
-  //for (int i=0; i<naoaux*nao_f_pair;++i){pin_eri_impham[i] =-100000;}
+  }
+
   profile_stop();
   
   double t1 = omp_get_wtime();
@@ -3339,13 +3413,13 @@ void Device::orbital_response(py::array_t<double> _f1_prime,
   for(int i=0; i<info_ocm2.shape[0]; ++i)
     for(int j=0; j<info_ocm2.shape[1]; ++j)
       for(int k=0; k<info_ocm2.shape[2]; ++k)
-	for(int l=0; l<(nocc-ncore); ++l)
-	  {
-	    int indx1 = i * ocm2_size_3d + j * ocm2_size_2d + k * info_ocm2.shape[3] + (ncore+l);
-	    int indx2 = j * ocm2_size_3d + i * ocm2_size_2d + l * info_ocm2.shape[3] + (ncore+k);
-	    _ocm2_tmp[indx++] = ocm2[indx1] + ocm2[indx2];
-	  }
-  
+        for(int l=0; l<(nocc-ncore); ++l)
+          {
+            int indx1 = i * ocm2_size_3d + j * ocm2_size_2d + k * info_ocm2.shape[3] + (ncore+l);
+            int indx2 = j * ocm2_size_3d + i * ocm2_size_2d + l * info_ocm2.shape[3] + (ncore+k);
+            _ocm2_tmp[indx++] = ocm2[indx1] + ocm2[indx2];
+          }
+
   // ocm2 += ocm2.transpose (2,3,0,1)
 
   _ocm2_size_3d = info_ocm2.shape[1] * _ocm2_size_2d;
@@ -3354,13 +3428,13 @@ void Device::orbital_response(py::array_t<double> _f1_prime,
   for(int i=0; i<info_ocm2.shape[0]; ++i)
     for(int j=0; j<info_ocm2.shape[1]; ++j)
       for(int k=0; k<info_ocm2.shape[2]; ++k)
-	for(int l=0; l<(nocc-ncore); ++l)
-	  {
-	    int indx1 = i * _ocm2_size_3d + j * _ocm2_size_2d + k * _ocm2_size_1d + l;
-	    int indx2 = k * _ocm2_size_3d + l * _ocm2_size_2d + i * _ocm2_size_1d + j;
-	    _ocm2t[indx] = _ocm2_tmp[indx1] + _ocm2_tmp[indx2];
-	    indx++;
-	  }
+       for(int l=0; l<(nocc-ncore); ++l)
+	 {
+	   int indx1 = i * _ocm2_size_3d + j * _ocm2_size_2d + k * _ocm2_size_1d + l;
+	   int indx2 = k * _ocm2_size_3d + l * _ocm2_size_2d + i * _ocm2_size_1d + j;
+	   _ocm2t[indx] = _ocm2_tmp[indx1] + _ocm2_tmp[indx2];
+	   indx++;
+	 }
     
   // ecm2 = ocm2 + tcm2
   

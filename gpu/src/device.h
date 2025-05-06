@@ -148,9 +148,9 @@ public :
                          py::array_t<double>, int, size_t);//VA: new function
   void pull_eri_h2eff(py::array_t<double>, int, int);// VA: new function
   
-  void init_eri_impham(int, int);
-  void compute_eri_impham(int, int, int, int, int, size_t);
-  void pull_eri_impham( py::array_t<double>, int, int);
+  void init_eri_impham(int, int, int);
+  void compute_eri_impham(int, int, int, int, int, size_t, int);
+  void pull_eri_impham( py::array_t<double>, int, int, int);
   void compute_eri_impham_v2(int, int, int, int, int, size_t, size_t);
   void pack_eri(double *, double *, int *, int, int, int); 
 

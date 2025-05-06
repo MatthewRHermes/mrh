@@ -91,11 +91,11 @@ extern "C"
   void libgpu_pull_eri_h2eff(void * , 
                               py::array_t<double>, int, int);
   void libgpu_init_eri_impham(void * ptr, 
-                                int, int);
+                                int, int, int);
   void libgpu_compute_eri_impham(void * ptr, 
-                                int, int, int, int, int, size_t);
+                                int, int, int, int, int, size_t, int);
   void libgpu_pull_eri_impham(void * ptr, 
-                                py::array_t<double>, int, int);
+                                py::array_t<double>, int, int, int);
   void libgpu_compute_eri_impham_v2(void * ptr, 
                                 int, int, int, int, int, size_t, size_t);
 }
