@@ -10,15 +10,15 @@ from mrh.tests.gpu.geometry_generator import generator
 from pyscf import gto, scf, tools, mcscf, lib
 from mrh.my_pyscf.mcscf.lasscf_async import LASSCF
 from pyscf.mcscf import avas	
-if gpu_run:gpu = libgpu.libgpu_init()
+if gpu_run:gpu = libgpu.init()
 lib.logger.TIMER_LEVEL=lib.logger.INFO
-nfrags=8;basis='631g';
+nfrags=5;basis='631g';
 if N:
     atom='''Li 0.0 0.0 0.0;
     Li 0.0 0.0 1.0'''
     output_file = "test_file.log"
-    mol=gto.M(atom=atom,basis=basis,verbose=4)
-    if gpu_run:mol=gto.M(use_gpu=gpu, atom=atom,basis=basis,verbose=4, output=output_file)
+    mol=gto.M(atom=atom,basis=basis,verbose=5)
+    if gpu_run:mol=gto.M(use_gpu=gpu, atom=atom,basis=basis,verbose=5, output=output_file)
 else:
     outputfile=str(nfrags)+'_'+str(basis)+'_cpu.log';
     if gpu_run: outputfile=str(nfrags)+'_'+str(basis)+'_gpu_new_2.log';
@@ -47,4 +47,4 @@ las.max_cycle_macro=4
 if gpu_run: las = las(use_gpu=gpu)
 las.kernel(mo_coeff)
 print(las.e_tot)
-if gpu_run:libgpu.libgpu_destroy_device(gpu)
+if gpu_run:libgpu.destroy_device(gpu)
