@@ -545,7 +545,7 @@ def get_j(dfobj, dm, hermi=1, direct_scf_tol=1e-13):
 
 def _get_jk(dfobj, dm, hermi=1, with_j=True, with_k=True, direct_scf_tol=1e-13):
 
-    if dfobj.verbose==lib.logger.DEBUG:
+    if dfobj.verbose>=lib.logger.DEBUG1:
         vj, vk = get_jk_debug(dfobj, dm, hermi, with_j, with_k, direct_scf_tol)
     else: 
         vj, vk = get_jk(dfobj, dm, hermi, with_j, with_k, direct_scf_tol)
