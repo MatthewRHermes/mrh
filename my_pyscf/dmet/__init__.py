@@ -1,7 +1,7 @@
 import numpy as np
 from functools import reduce
 from pyscf import gto, scf, dft, lo
-from DMET.my_pyscf.dmet._dmet import _DMET 
+from mrh.my_pyscf.dmet._dmet import _DMET 
 
 # Author: Bhavnesh Jangid <jangidbhavnesh@uchicago.edu>
 

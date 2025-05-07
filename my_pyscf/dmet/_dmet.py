@@ -3,9 +3,9 @@ import scipy
 from pyscf import lo
 from pyscf import gto, ao2mo, lib, scf
 from functools import reduce
-from DMET.my_pyscf.dmet.localization import Localization
-from DMET.my_pyscf.dmet.fragmentation import Fragmentation
-from DMET.my_pyscf.dmet.basistransformation import BasisTransform
+from mrh.my_pyscf.dmet.localization import Localization
+from mrh.my_pyscf.dmet.fragmentation import Fragmentation
+from mrh.my_pyscf.dmet.basistransformation import BasisTransform
 
 # Author: Bhavnesh Jangid <jangidbhavnesh@uchicago.edu>
 

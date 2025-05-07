@@ -5,7 +5,7 @@ from pyscf import lib, mcscf, mcpdft
 from pyscf.mcpdft import _dms
 from pyscf.lib import logger
 from pyscf.mcpdft.otpd import get_ontop_pair_density
-from DMET.my_pyscf.dmet.basistransformation import BasisTransform
+from mrh.my_pyscf.dmet.basistransformation import BasisTransform
 
 '''
 In case of MC-PDFT, the idea is to project the dm1 and dm2 calculated

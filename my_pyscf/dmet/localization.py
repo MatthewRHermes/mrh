@@ -1,6 +1,6 @@
 from pyscf import lo
 import numpy as np
-from DMET.my_pyscf.dmet.basistransformation import BasisTransform
+from mrh.my_pyscf.dmet.basistransformation import BasisTransform
 
 # Author: Bhavnesh Jangid <jangidbhavnesh@uchicago.edu>
 
