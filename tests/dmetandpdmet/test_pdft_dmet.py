@@ -1,8 +1,8 @@
 import unittest
 import numpy as np
 from pyscf import gto, scf, mcscf, mcpdft
-from DMET.my_pyscf.dmet._pdfthelper import get_mc_for_dmet_pdft
-from DMET.my_pyscf.dmet import runDMET
+from mrh.my_pyscf.dmet._pdfthelper import get_mc_for_dmet_pdft
+from mrh.my_pyscf.dmet import runDMET
 
 '''
 ***** DMET-PDFT Embedding *****

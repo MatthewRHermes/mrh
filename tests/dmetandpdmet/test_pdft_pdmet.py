@@ -5,8 +5,8 @@ from mrh.my_pyscf.fci import csf_solver
 from functools import reduce
 from pyscf import lo, lib
 from pyscf.pbc import gto, scf, dft, df
-from DMET.my_pyscf.pdmet._pdfthelper import get_mc_for_dmet_pdft
-from DMET.my_pyscf.pdmet import runpDMET 
+from mrh.my_pyscf.pdmet._pdfthelper import get_mc_for_dmet_pdft
+from mrh.my_pyscf.pdmet import runpDMET 
 
 '''
 ***** pDMET-PDFT Embedding *****
@@ -53,7 +53,7 @@ class KnownValues(unittest.TestCase):
 
         del mc
 
-        from DMET.my_pyscf.pdmet._pdfthelper import get_mc_for_pdmet_pdft
+        from mrh.my_pyscf.pdmet._pdfthelper import get_mc_for_pdmet_pdft
 
         mc = mcscf.CASSCF(dmet_mf,8,10)
         mc.verbose = 0

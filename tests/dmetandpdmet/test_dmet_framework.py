@@ -1,7 +1,7 @@
 import unittest
 import numpy as np
 from pyscf import gto, scf
-from DMET.my_pyscf.dmet import runDMET
+from mrh.my_pyscf.dmet import runDMET
 
 '''
 ***** RHF Embedding *****
