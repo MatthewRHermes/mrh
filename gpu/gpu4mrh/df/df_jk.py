@@ -14,12 +14,7 @@ from gpu4mrh.lib.utils import patch_cpu_kernel
 from mrh.my_pyscf.gpu import libgpu
 
 # Setting DEBUG = True will execute both CPU (original) and GPU (new) paths checking for consistency 
-DEBUG = True
-
-if DEBUG:
-    import math
-    import traceback
-    import sys
+import math
 
 def get_jk(dfobj, dm, hermi=1, with_j=True, with_k=True, direct_scf_tol=1e-13):
     gpu = dfobj.mol.use_gpu
@@ -545,7 +540,7 @@ def get_j(dfobj, dm, hermi=1, direct_scf_tol=1e-13):
 
 def _get_jk(dfobj, dm, hermi=1, with_j=True, with_k=True, direct_scf_tol=1e-13):
 
-    if dfobj.verbose==lib.logger.DEBUG:
+    if dfobj.verbose>=lib.logger.DEBUG:
         vj, vk = get_jk_debug(dfobj, dm, hermi, with_j, with_k, direct_scf_tol)
     else: 
         vj, vk = get_jk(dfobj, dm, hermi, with_j, with_k, direct_scf_tol)

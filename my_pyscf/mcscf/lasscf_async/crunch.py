@@ -140,7 +140,7 @@ class ImpuritySCF (scf.hf.SCF):
             #you need to do this because imporb_coeff is input into the function is F-contiguous during recomb and C-contiguous during fragments 
             #gpu code expects a c-contiguous
             #this does not affect the cpu code because ```ao2mo.incore._conc_mos``` gives back moij which is necessarily in f-contiguous regardless of how imporb_coeff is to start with
-            if mf.mol.verbose==lib.logger.DEBUG and mf.mol.use_gpu:
+            if mf.mol.verbose>=lib.logger.DEBUG and mf.mol.use_gpu:
                 #do cpu
                 if not self._is_mem_enough (df_naux = mf.with_df.get_naoaux ()):
                     raise df_eris_mem_error
