@@ -1,7 +1,12 @@
 from pyscf import lib
 from pyscf.pbc import gto, scf, df
-from mrh.my_pyscf.pdmet import runpDMET 
+from mrh.my_pyscf.pdmet import runpDMET
+from pyscf import mcscf
+from mrh.my_pyscf.fci import csf_solver
 import numpy as np
+from mrh.my_pyscf import mcpdft
+from mrh.my_pyscf.pdmet._pdfthelper import get_mc_for_pdmet_pdft
+
 np.set_printoptions(precision=4)
 
 # Define the cell
@@ -32,35 +37,26 @@ print("Total Energy", dmet_energy + core_energy)
 print("Total Difference", mf.e_tot - (dmet_mf.e_tot + core_energy) )
 assert abs((mf.e_tot - (dmet_mf.e_tot + core_energy))) < 1e-7, "Something went wrong."
 
-
-from pyscf import mcscf
-from mrh.my_pyscf.fci import csf_solver
-
 # MC-PDFT: PBC-PDFT is in mrh only.
-from mrh.my_pyscf import mcpdft
-from mrh.my_pyscf.pdmet._pdfthelper import get_mc_for_pdmet_pdft
-
 # CASSCF Calculation
-with lib.temporary_env(dmet_mf, exxdiv=None):
-    mc = mcscf.CASSCF(dmet_mf,8,10)
-    mc._scf.energy_nuc = lambda *args: core_energy 
-    mc.fcisolver  = csf_solver(cell, smult=1)
-    mc.kernel()
+mc = mcscf.CASSCF(dmet_mf,8,10)
+mc._scf.energy_nuc = lambda *args: core_energy 
+mc.fcisolver  = csf_solver(cell, smult=1)
+mc.kernel()
 
-    newmc = get_mc_for_pdmet_pdft(mc, trans_coeff, mf)
-    mypdft = mcpdft.CASCI(newmc, 'tPBE', mc.ncas, mc.nelecas)
-    mypdft.compute_pdft_energy_(mo_coeff=newmc.mo_coeff, ci=mc.ci, dump_chk=False)
+newmc = get_mc_for_pdmet_pdft(mc, trans_coeff, mf)
+mypdft = mcpdft.CASCI(newmc, 'tPBE', mc.ncas, mc.nelecas)
+mypdft.compute_pdft_energy_(mo_coeff=newmc.mo_coeff, ci=mc.ci, dump_chk=False)
 
 # SA-CASSCF Calculation
-with lib.temporary_env(dmet_mf, exxdiv=None):
-    mc = mcscf.CASSCF(dmet_mf,8,10)
-    mc._scf.energy_nuc = lambda *args: core_energy 
-    mc.fcisolver  = csf_solver(cell, smult=1)
-    mc = mcscf.state_average_(mc, weights=[0.5, 0.5])
-    mc.kernel()
+mc = mcscf.CASSCF(dmet_mf,8,10)
+mc._scf.energy_nuc = lambda *args: core_energy 
+mc.fcisolver  = csf_solver(cell, smult=1)
+mc = mcscf.state_average_(mc, weights=[0.5, 0.5])
+mc.kernel()
 
-    newmc = get_mc_for_pdmet_pdft(mc, trans_coeff, mf)
-    for i in range(len(mc.ci)):
-        mypdft = mcpdft.CASCI(newmc, 'tPBE', mc.ncas, mc.nelecas)
-        mypdft.compute_pdft_energy_(mo_coeff=newmc.mo_coeff, ci=mc.ci[i], dump_chk=False)
+newmc = get_mc_for_pdmet_pdft(mc, trans_coeff, mf)
+for i in range(len(mc.ci)):
+    mypdft = mcpdft.CASCI(newmc, 'tPBE', mc.ncas, mc.nelecas)
+    mypdft.compute_pdft_energy_(mo_coeff=newmc.mo_coeff, ci=mc.ci[i], dump_chk=False)
 

@@ -46,41 +46,39 @@ orblst = getorbindex(mol, mo_coeff, lo_method='meta-lowdin',
                     ao_label=['P 3s', 'P 3p', 'H 1s'], activespacesize=6, s=mf.get_ovlp())
 
 # CASSCF Calculation
-with lib.temporary_env(dmet_mf, exxdiv=None):
-    mc = mcscf.CASSCF(dmet_mf, 6, 7)
-    mc._scf.energy_nuc = lambda *args: core_energy
-    mo = mc.sort_mo(orblst)
-    mc.fcisolver  = csf_solver(mol, smult=2)
-    mc.kernel(mo)
+mc = mcscf.CASSCF(dmet_mf, 6, 7)
+mc._scf.energy_nuc = lambda *args: core_energy
+mo = mc.sort_mo(orblst)
+mc.fcisolver  = csf_solver(mol, smult=2)
+mc.kernel(mo)
 
-    # In case of natorb=True, CAS will try to expand the active space in AO basis for verbose>3, and AO basis for the 
-    # embedded space is not defined. Therefore, for the NEVPT2 and natorb=True, we need to set verbose <= 3.
-    mc.natorb = True
-    mc.verbose = 3
-    mc.kernel()
+# In case of natorb=True, CAS will try to expand the active space in AO basis for verbose>3, and AO basis for the 
+# embedded space is not defined. Therefore, for the NEVPT2 and natorb=True, we need to set verbose <= 3.
+mc.natorb = True
+mc.verbose = 3
+mc.kernel()
 
-    e_corr = mrpt.NEVPT(mc).kernel()
-    e_tot = mc.e_tot + e_corr
-    print('NEVPT2 energy: ', e_tot)
+e_corr = mrpt.NEVPT(mc).kernel()
+e_tot = mc.e_tot + e_corr
+print('NEVPT2 energy: ', e_tot)
 
 # SA-CASSCF Calculation
-with lib.temporary_env(dmet_mf, exxdiv=None):
-    mc = mcscf.CASSCF(dmet_mf, 6, 7)
-    mc._scf.energy_nuc = lambda *args: core_energy
-    mo = mc.sort_mo(orblst)
-    mc.fcisolver  = csf_solver(mol, smult=2)
-    mc = mcscf.state_average_(mc, weights=[0.5, 0.5])
-    mc.kernel(mo)
-    
-    newmc = mcscf.CASCI(dmet_mf, 6, 7)
-    newmc.verbose = 3
-    newmc.natorb = True
-    newmc.fcisolver.nroots = len(mc.ci)
-    newmc._scf.energy_nuc = lambda *args: core_energy
-    newmc.kernel(mc.mo_coeff)
+mc = mcscf.CASSCF(dmet_mf, 6, 7)
+mc._scf.energy_nuc = lambda *args: core_energy
+mo = mc.sort_mo(orblst)
+mc.fcisolver  = csf_solver(mol, smult=2)
+mc = mcscf.state_average_(mc, weights=[0.5, 0.5])
+mc.kernel(mo)
 
-    for i in range(len(newmc.ci)):
-        e_corr = mrpt.NEVPT(newmc,root=i).kernel()
-        e_tot = newmc.e_tot[i] + e_corr
-        print(f'NEVPT2 energy for state {i}: ', e_tot)
+newmc = mcscf.CASCI(dmet_mf, 6, 7)
+newmc.verbose = 3
+newmc.natorb = True
+newmc.fcisolver.nroots = len(mc.ci)
+newmc._scf.energy_nuc = lambda *args: core_energy
+newmc.kernel(mc.mo_coeff)
+
+for i in range(len(newmc.ci)):
+    e_corr = mrpt.NEVPT(newmc,root=i).kernel()
+    e_tot = newmc.e_tot[i] + e_corr
+    print(f'NEVPT2 energy for state {i}: ', e_tot)
         

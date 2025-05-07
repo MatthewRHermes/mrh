@@ -38,29 +38,27 @@ orblst = getorbindex(mol, mo_coeff, lo_method='meta-lowdin',
                     ao_label=['P 3s', 'P 3p', 'H 1s'], activespacesize=6, s=mf.get_ovlp())
 
 # CASCI Calculation
-with lib.temporary_env(dmet_mf, exxdiv=None):
-    mc = mcscf.CASCI(dmet_mf, 6, 7)
-    mc._scf.energy_nuc = lambda *args: core_energy
-    mo = mc.sort_mo(orblst)
-    mc.fcisolver  = csf_solver(mol, smult=2)
-    mc.kernel(mo)
+mc = mcscf.CASCI(dmet_mf, 6, 7)
+mc._scf.energy_nuc = lambda *args: core_energy
+mo = mc.sort_mo(orblst)
+mc.fcisolver  = csf_solver(mol, smult=2)
+mc.kernel(mo)
 
 # CASSCF Calculation
-with lib.temporary_env(dmet_mf, exxdiv=None):
-    mc = mcscf.CASSCF(dmet_mf, 6, 7)
-    mc._scf.energy_nuc = lambda *args: core_energy
-    mo = mc.sort_mo(orblst)
-    mc.fcisolver  = csf_solver(mol, smult=2)
-    mc.kernel(mo)
+mc = mcscf.CASSCF(dmet_mf, 6, 7)
+mc._scf.energy_nuc = lambda *args: core_energy
+mo = mc.sort_mo(orblst)
+mc.fcisolver  = csf_solver(mol, smult=2)
+mc.kernel(mo)
 
 # SA-CASSCF Calculation
-with lib.temporary_env(dmet_mf, exxdiv=None):
-    mc = mcscf.CASSCF(dmet_mf, 6, 7)
-    mc._scf.energy_nuc = lambda *args: core_energy
-    mo = mc.sort_mo(orblst)
-    mc.fcisolver  = csf_solver(mol, smult=2)
-    mc = mcscf.state_average_(mc, weights=[0.5, 0.5])
-    mc.kernel(mo)
+
+mc = mcscf.CASSCF(dmet_mf, 6, 7)
+mc._scf.energy_nuc = lambda *args: core_energy
+mo = mc.sort_mo(orblst)
+mc.fcisolver  = csf_solver(mol, smult=2)
+mc = mcscf.state_average_(mc, weights=[0.5, 0.5])
+mc.kernel(mo)
 
 
 

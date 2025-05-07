@@ -32,31 +32,26 @@ print("Total Energy", dmet_energy + core_energy)
 print("Total Difference", mf.e_tot - (dmet_mf.e_tot + core_energy) )
 assert abs((mf.e_tot - (dmet_mf.e_tot + core_energy))) < 1e-7, "Something went wrong."
 
-
 from pyscf import mcscf
 from mrh.my_pyscf.fci import csf_solver
 
-
 # CASCI Calculation
-with lib.temporary_env(dmet_mf, exxdiv=None):
-    mc = mcscf.CASSCF(dmet_mf,8,10)
-    mc._scf.energy_nuc = lambda *args: core_energy 
-    mc.fcisolver  = csf_solver(cell, smult=1)
-    mc.kernel()
+mc = mcscf.CASSCF(dmet_mf,8,10)
+mc._scf.energy_nuc = lambda *args: core_energy 
+mc.fcisolver  = csf_solver(cell, smult=1)
+mc.kernel()
 
 # CASSCF Calculation
-with lib.temporary_env(dmet_mf, exxdiv=None):
-    mc = mcscf.CASSCF(dmet_mf,8,10)
-    mc._scf.energy_nuc = lambda *args: core_energy 
-    mc.fcisolver  = csf_solver(cell, smult=1)
-    mc.kernel()
+mc = mcscf.CASSCF(dmet_mf,8,10)
+mc._scf.energy_nuc = lambda *args: core_energy 
+mc.fcisolver  = csf_solver(cell, smult=1)
+mc.kernel()
  
 # SA-CASSCF Calculation
-with lib.temporary_env(dmet_mf, exxdiv=None):
-    mc = mcscf.CASSCF(dmet_mf,8,10)
-    mc._scf.energy_nuc = lambda *args: core_energy 
-    mc.fcisolver  = csf_solver(cell, smult=1)
-    mc = mcscf.state_average_(mc, weights=[0.5, 0.5])
-    mc.kernel()
+mc = mcscf.CASSCF(dmet_mf,8,10)
+mc._scf.energy_nuc = lambda *args: core_energy 
+mc.fcisolver  = csf_solver(cell, smult=1)
+mc = mcscf.state_average_(mc, weights=[0.5, 0.5])
+mc.kernel()
 
 
