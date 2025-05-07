@@ -1334,7 +1334,7 @@ class LASCI_HessianOperator (sparse_linalg.LinearOperator):
         ci1 = self._update_ci (dci)
         t0=log.timer('update_ci',*t0)
         gpu=self.las.use_gpu
-        if self.las.verbose==lib.logger.DEBUG and gpu:
+        if self.las.verbose>=lib.logger.DEBUG and gpu:
             h2eff_sub_c = h2eff_sub.copy()
             h2eff_sub2 = self._update_h2eff_sub_debug (mo1, umat, h2eff_sub_c) 
             h2eff_sub = self._update_h2eff_sub_gpu (gpu, mo1, umat, h2eff_sub) 
