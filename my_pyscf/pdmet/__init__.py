@@ -1,5 +1,5 @@
 from functools import reduce
-from pyscf import lo
+from pyscf import lo, lib
 from pyscf.pbc import gto, scf, dft
 from mrh.my_pyscf.pdmet._pdmet import _pDMET 
 import numpy as np
@@ -54,6 +54,14 @@ def getorbindex(cell, mo_coeff, lo_method='meta-lowdin', activespacesize=1, s=No
     
     return sorted(orbind[:activespacesize])
 
+def _energy_contribution(mydmet, dmet_mf, trans_coeff, verbose=None):
+    log = lib.logger.new_logger(mydmet, verbose)
+    core_energy = mydmet._get_core_contribution(ao2eo=trans_coeff['ao2eo'], ao2co=trans_coeff['ao2co'])
+    log.info('DMET energy contribution:')
+    log.info('Total Energy  %.7f', dmet_mf.e_tot)
+    log.info('Emb. Energy   %.7f', dmet_mf.e_tot - core_energy)
+    log.info('Core Energy   %.7f', core_energy)
+    return None
 
 def get_fragment_mf(mf, lo_method='meta_lowdin', bath_tol=1e-4, 
                     atmlst=None, atmlabel=None, verbose=None,density_fit=False,**kwargs):
@@ -61,8 +69,9 @@ def get_fragment_mf(mf, lo_method='meta_lowdin', bath_tol=1e-4,
     
     mydmet = _pDMET(mf, lo_method=lo_method, bath_tol=bath_tol, atmlst=atmlst, atmlabel=atmlabel, verbose=verbose, density_fit=density_fit,**kwargs)
     dmet_mf, trans_coeff = mydmet.kernel()
-    core_energy = mydmet._get_core_contribution(ao2eo=trans_coeff['ao2eo'], ao2co=trans_coeff['ao2co'])
-    return dmet_mf.e_tot, core_energy, dmet_mf, trans_coeff
+    # Contributions.
+    _energy_contribution(mydmet, dmet_mf, trans_coeff, mf.verbose)
+    return dmet_mf, trans_coeff
 
 def _get_dmet_fragment(mf, lo_method='meta_lowdin', bath_tol=1e-4, 
                         atmlst=None, atmlabel=None, density_fit=False,**kwargs):
@@ -128,19 +137,16 @@ if __name__ == '__main__':
 
     np.set_printoptions(precision=4)
     
-    dmet_energy, core_energy, dmet_mf, ao2eo, ao2co = runpDMET(mf, lo_method='meta-lowdin', bath_tol=1e-10, atmlst=[0, 1])
+    dmet_mf, ao2eo, ao2co = runpDMET(mf, lo_method='meta-lowdin', bath_tol=1e-10, atmlst=[0, 1])
     
-    print("DMET:", dmet_energy)
-    print("Core Energy:", core_energy)
-    print("Total Energy", dmet_energy + core_energy)
-    print("Total Difference", mf.e_tot - (dmet_mf.e_tot + core_energy) )
-    assert abs((mf.e_tot - (dmet_mf.e_tot + core_energy))) < 1e-7, "Something went wrong."
+    print("DMET:", dmet_mf.e_tot)
+    print("Total Difference", mf.e_tot - dmet_mf.e_tot)
+    assert abs((mf.e_tot - dmet_mf.e_tot)) < 1e-7, "Something went wrong."
 
     from pyscf import mcscf
     from mrh.my_pyscf.fci import csf_solver
 
     mc = mcscf.CASSCF(dmet_mf,8,10)
-    mc._scf.energy_nuc = lambda *args: core_energy
     solver  = csf_solver(cell, smult=1)
     solver.nroots = 2
     mcscf.state_average_mix_(mc,[solver,], [0.5, 0.5])

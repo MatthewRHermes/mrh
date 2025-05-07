@@ -102,7 +102,7 @@ class _pDMET:
 
         if self.loc_rdm1.ndim > 2:
             # Why it's working with only alpha?
-            # Should I take the SVD of the SDM instead of the RDM?
+            # Should I have to take the SVD of the SDM instead of the RDM?
             nelec = self.cell.nelec
             assert len(nelec) == 2, "Electron should have been stored as a tuple (alpha, beta)"
             pos = np.argmax(self.cell.nelec)
@@ -313,6 +313,9 @@ class _pDMET:
             veff = self.get_veff(emb_cell, eri, dm_guess,  density_fit=density_fit)
             fock -= veff
 
+        # Contribution of the core energy to the total energy
+        core_energy = self._get_core_contribution(ao2eo=ao2eo, ao2co=ao2co)
+
         emb_mf = scf.ROHF(emb_cell).density_fit()
         
         if density_fit:
@@ -331,7 +334,7 @@ class _pDMET:
         emb_mf.get_ovlp  = lambda *args: np.eye(neo)
         emb_mf.conv_tol = 1e-10
         emb_mf.max_cycle = 100
-        emb_mf.energy_nuc = lambda *args: 0 # Later, will add through core-energy contribution
+        emb_mf.energy_nuc = lambda *args: core_energy
         emb_mf.kernel(dm_guess)
 
         if not emb_mf.converged:
