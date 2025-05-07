@@ -1,12 +1,11 @@
 import unittest
 import numpy as np
 from pyscf import gto, scf, mcscf
-from mrh.my_pyscf.fci import csf_solver
-from functools import reduce
-from pyscf import lo, lib
-from pyscf.pbc import gto, scf, dft, df
-from mrh.my_pyscf.pdmet._pdfthelper import get_mc_for_dmet_pdft
-from mrh.my_pyscf.pdmet import runpDMET 
+from pyscf.pbc import gto, scf
+from pyscf.csf_fci import csf_solver
+from mrh.my_pyscf.pdmet import runpDMET
+from mrh.my_pyscf import mcpdft
+from mrh.my_pyscf.pdmet._pdfthelper import get_mc_for_pdmet_pdft
 
 '''
 ***** pDMET-PDFT Embedding *****
@@ -37,15 +36,13 @@ class KnownValues(unittest.TestCase):
         mf = scf.RHF(cell,exxdiv = None).density_fit()
         mf.verbose = 0
         mf.kernel()
-        dmet_energy, core_energy, dmet_mf, trans_coeff = runpDMET(mf, lo_method='meta-lowdin', bath_tol=1e-10, atmlst=[0, 1])
+        dmet_mf, trans_coeff = runpDMET(mf, lo_method='meta-lowdin', bath_tol=1e-10, atmlst=[0, 1])
 
-        e_check = dmet_energy + core_energy
+        e_check = dmet_mf.e_tot
 
         # Sanity Check
         assert abs((mf.e_tot - e_check)) < 1e-7, "Something went wrong."
 
-        # MC-PDFT: PBC-PDFT is in mrh only.
-        from mrh.my_pyscf import mcpdft
         mc = mcpdft.CASSCF(mf, 'tPBE', 8, 10)
         mc.kernel()
 
@@ -53,11 +50,8 @@ class KnownValues(unittest.TestCase):
 
         del mc
 
-        from mrh.my_pyscf.pdmet._pdfthelper import get_mc_for_pdmet_pdft
-
         mc = mcscf.CASSCF(dmet_mf,8,10)
         mc.verbose = 0
-        mc._scf.energy_nuc = lambda *args: core_energy 
         mc.fcisolver  = csf_solver(cell, smult=1)
         mc.kernel()
 
@@ -67,7 +61,7 @@ class KnownValues(unittest.TestCase):
 
         e_check = mypdft.e_tot
       
-        del cell, mf, dmet_energy, core_energy, dmet_mf, mc, newmc, mypdft
+        del cell, mf, dmet_mf, mc, newmc, mypdft
         self.assertAlmostEqual(e_ref, e_check, 6)
 
 

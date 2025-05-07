@@ -44,15 +44,14 @@ class KnownValues(unittest.TestCase):
 
         e_ref = mc.e_tot
         
-        dmet_energy, core_energy, dmet_mf, trans_coeff = runDMET(mf, lo_method='lowdin', bath_tol=1e-10, atmlst=[0,1,2])
-        e_check = dmet_energy + core_energy
+        dmet_mf, trans_coeff = runDMET(mf, lo_method='lowdin', bath_tol=1e-10, atmlst=[0,1,2])
+        e_check = dmet_mf.e_tot
 
         # Sanity Check
         assert abs((mf.e_tot - e_check)) < 1e-7, "Something went wrong."
 
         # CASSCF Calculation
         mc = mcscf.CASSCF(dmet_mf, 1, 2)
-        mc._scf.energy_nuc = lambda *args: core_energy
         mc.kernel()
         
         newmc = get_mc_for_dmet_pdft(mc, trans_coeff, mf)
@@ -62,7 +61,7 @@ class KnownValues(unittest.TestCase):
 
         e_check = mypdft.e_tot
       
-        del mol, mf, dmet_energy, core_energy, dmet_mf, mc, newmc, mypdft
+        del mol, mf, dmet_mf, mc, newmc, mypdft
         self.assertAlmostEqual(e_ref, e_check, 6)
     
     def test_pdft_openshell(self):
@@ -76,15 +75,14 @@ class KnownValues(unittest.TestCase):
 
         e_ref = -342.1818806123503 
 
-        dmet_energy, core_energy, dmet_mf, trans_coeff = runDMET(mf, lo_method='lowdin', bath_tol=1e-10, atmlst=[0,1,2])
-        e_check = dmet_energy + core_energy
+        dmet_mf, trans_coeff = runDMET(mf, lo_method='lowdin', bath_tol=1e-10, atmlst=[0,1,2])
+        e_check = dmet_mf.e_tot
 
         # Sanity Check
         assert abs((mf.e_tot - e_check)) < 1e-7, "Something went wrong."
 
         # CASSCF Calculation
         mc = mcscf.CASSCF(dmet_mf, 1, 1)
-        mc._scf.energy_nuc = lambda *args: core_energy
         mc.kernel()
         
         newmc = get_mc_for_dmet_pdft(mc, trans_coeff, mf)
@@ -94,7 +92,7 @@ class KnownValues(unittest.TestCase):
 
         e_check = mypdft.e_tot
       
-        del mol, mf, dmet_energy, core_energy, dmet_mf, mc, newmc, mypdft
+        del mol, mf, dmet_mf, mc, newmc, mypdft
         self.assertAlmostEqual(e_ref, e_check, 6)
 
     def test_pdft_openshell_2(self):
@@ -107,15 +105,14 @@ class KnownValues(unittest.TestCase):
         # saving this value due to circular dependencies.
         e_ref = -342.1818806123501
 
-        dmet_energy, core_energy, dmet_mf, trans_coeff = runDMET(mf, lo_method='lowdin', bath_tol=1e-10, atmlst=[0,1,2])
-        e_check = dmet_energy + core_energy
+        dmet_mf, trans_coeff = runDMET(mf, lo_method='lowdin', bath_tol=1e-10, atmlst=[0,1,2])
+        e_check = dmet_mf.e_tot
 
         # Sanity Check
         assert abs((mf.e_tot - e_check)) < 1e-7, "Something went wrong."
 
         # CASSCF Calculation
         mc = mcscf.CASSCF(dmet_mf, 2, 1)
-        mc._scf.energy_nuc = lambda *args: core_energy
         mc.kernel()
         
         newmc = get_mc_for_dmet_pdft(mc, trans_coeff, mf)
@@ -125,7 +122,7 @@ class KnownValues(unittest.TestCase):
 
         e_check = mypdft.e_tot
       
-        del mol, mf, dmet_energy, core_energy, dmet_mf, mc, newmc, mypdft
+        del mol, mf, dmet_mf, mc, newmc, mypdft
         self.assertAlmostEqual(e_ref, e_check, 6)
 
 if __name__ == "__main__":

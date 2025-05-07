@@ -41,20 +41,18 @@ class KnownValues(unittest.TestCase):
         mf.kernel()
         e_ref = mf.e_tot
 
-        dmet_energy, core_energy, dmet_mf, trans_coeff = runDMET(mf, lo_method='lowdin', bath_tol=1e-10, atmlst=[0,])# Considering all the atoms in embedding space
-        e_check = dmet_energy + core_energy
+        dmet_mf, trans_coeff = runDMET(mf, lo_method='lowdin', bath_tol=1e-10, atmlst=[0,])# Considering all the atoms in embedding space
+        e_check = dmet_mf.e_tot
 
         # Sanity Check
         assert abs((mf.e_tot - e_check)) < 1e-7, "Something went wrong."
 
         # CASSCF Calculation
         mc = mcscf.CASSCF(dmet_mf, 1, 2)
-        mc._scf.energy_nuc = lambda *args: core_energy
-        #mc = mcscf.state_average_(mc, weights=[0.5, 0.5])
         mc.kernel()
         e_check = mc.e_tot
 
-        del mol, mf, dmet_energy, core_energy, dmet_mf, mc
+        del mol, mf,  dmet_mf, mc
         self.assertAlmostEqual(e_ref, e_check, 6)
     
     def test_vanilla_casscf_openshell(self):
@@ -62,18 +60,17 @@ class KnownValues(unittest.TestCase):
         mf = scf.RHF(mol)
         mf.kernel()
         e_ref = mf.e_tot
-        dmet_energy, core_energy, dmet_mf, trans_coeff = runDMET(mf, lo_method='lowdin', bath_tol=1e-10, atmlst=[0,])# Considering all the atoms in embedding space
-        e_check = dmet_energy + core_energy
+        dmet_mf, trans_coeff = runDMET(mf, lo_method='lowdin', bath_tol=1e-10, atmlst=[0,])# Considering all the atoms in embedding space
+        e_check = dmet_mf.e_tot
         # Sanity Check
         assert abs((mf.e_tot - e_check)) < 1e-7, "Something went wrong."
 
         # CASSCF Calculation
         mc = mcscf.CASSCF(dmet_mf, 1, 1)
-        mc._scf.energy_nuc = lambda *args: core_energy
         mc.kernel()
         e_check = mc.e_tot
 
-        del mol, mf, dmet_energy, core_energy, dmet_mf, mc
+        del mol, mf,  dmet_mf, mc
         self.assertAlmostEqual(e_ref, e_check, 6)
     
     def test_casscf_to_non_emb(self):
@@ -87,18 +84,17 @@ class KnownValues(unittest.TestCase):
         
         del mc
 
-        dmet_energy, core_energy, dmet_mf, trans_coeff = runDMET(mf, lo_method='lowdin', bath_tol=1e-10, atmlst=[0,1,2])# Considering all the atoms in embedding space
-        e_check = dmet_energy + core_energy
+        dmet_mf, trans_coeff = runDMET(mf, lo_method='lowdin', bath_tol=1e-10, atmlst=[0,1,2])# Considering all the atoms in embedding space
+        e_check = dmet_mf.e_tot
         # Sanity Check
         assert abs((mf.e_tot - e_check)) < 1e-7, "Something went wrong."
 
         # CASSCF Calculation
         mc = mcscf.CASSCF(dmet_mf, 2, 1)
-        mc._scf.energy_nuc = lambda *args: core_energy
         mc.kernel()
         e_check = mc.e_tot
 
-        del mol, mf, dmet_energy, core_energy, dmet_mf, mc
+        del mol, mf,  dmet_mf, mc
         self.assertAlmostEqual(e_ref, e_check, 6)
 
 

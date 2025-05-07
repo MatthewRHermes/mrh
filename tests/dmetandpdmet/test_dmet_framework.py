@@ -42,9 +42,9 @@ class KnownValues(unittest.TestCase):
         mf = scf.RHF(mol)
         mf.kernel()
         e_ref = mf.e_tot
-        dmet_energy, core_energy = runDMET(mf, lo_method='lowdin', bath_tol=1e-10, atmlst=[0,1,2])[:2] # Considering all the atoms in embedding space
-        e_check = dmet_energy + core_energy
-        del mol, mf, dmet_energy, core_energy
+        dmet_mf = runDMET(mf, lo_method='lowdin', bath_tol=1e-10, atmlst=[0,1,2])[0] # Considering all the atoms in embedding space
+        e_check = dmet_mf.e_tot
+        del mol, mf, dmet_mf
         self.assertAlmostEqual(e_ref, e_check, 6)
         
     def test_dmet_rhf(self):
@@ -52,9 +52,9 @@ class KnownValues(unittest.TestCase):
         mf = scf.RHF(mol)
         mf.kernel()
         e_ref = mf.e_tot
-        dmet_energy, core_energy = runDMET(mf, lo_method='lowdin', bath_tol=1e-10, atmlst=[0,])[:2] # Only few atoms in embedding space
-        e_check = dmet_energy + core_energy
-        del mol, mf, dmet_energy, core_energy
+        dmet_mf = runDMET(mf, lo_method='lowdin', bath_tol=1e-10, atmlst=[0,])[0] # Only few atoms in embedding space
+        e_check = dmet_mf.e_tot
+        del mol, mf, dmet_mf
         self.assertAlmostEqual(e_ref, e_check, 6)
 
     def test_dmet_rhf_with_density_fitting(self):
@@ -62,9 +62,9 @@ class KnownValues(unittest.TestCase):
         mf = scf.RHF(mol).density_fit()
         mf.kernel()
         e_ref = mf.e_tot
-        dmet_energy, core_energy = runDMET(mf, lo_method='lowdin', bath_tol=1e-10, atmlst=[0,])[:2]
-        e_check = dmet_energy + core_energy
-        del mol, mf, dmet_energy, core_energy
+        dmet_mf = runDMET(mf, lo_method='lowdin', bath_tol=1e-10, atmlst=[0,])[0]
+        e_check = dmet_mf.e_tot
+        del mol, mf, dmet_mf
         self.assertAlmostEqual(e_ref, e_check, 6)
     
     # ROHF Embedding
@@ -73,9 +73,9 @@ class KnownValues(unittest.TestCase):
         mf = scf.ROHF(mol)
         mf.kernel()
         e_ref = mf.e_tot
-        dmet_energy, core_energy = runDMET(mf, lo_method='lowdin', bath_tol=1e-10, atmlst=[0,1,2])[:2]
-        e_check = dmet_energy + core_energy
-        del mol, mf, dmet_energy, core_energy
+        dmet_mf = runDMET(mf, lo_method='lowdin', bath_tol=1e-10, atmlst=[0,1,2])[0]
+        e_check = dmet_mf.e_tot
+        del mol, mf, dmet_mf
         self.assertAlmostEqual(e_ref, e_check, 6)
 
     def test_dmet_rohf(self):
@@ -83,9 +83,9 @@ class KnownValues(unittest.TestCase):
         mf = scf.ROHF(mol)
         mf.kernel()
         e_ref = mf.e_tot
-        dmet_energy, core_energy = runDMET(mf, lo_method='lowdin', bath_tol=1e-10, atmlst=[0,])[:2]
-        e_check = dmet_energy + core_energy
-        del mol, mf, dmet_energy, core_energy
+        dmet_mf = runDMET(mf, lo_method='lowdin', bath_tol=1e-10, atmlst=[0,])[0]
+        e_check = dmet_mf.e_tot
+        del mol, mf, dmet_mf
         self.assertAlmostEqual(e_ref, e_check, 6)
         
     def test_dmet_rohf_with_density_fitting(self):
@@ -93,9 +93,9 @@ class KnownValues(unittest.TestCase):
         mf = scf.ROHF(mol).density_fit()
         mf.kernel()
         e_ref = mf.e_tot
-        dmet_energy, core_energy = runDMET(mf, lo_method='lowdin', bath_tol=1e-10, atmlst=[0,])[:2]
-        e_check = dmet_energy + core_energy
-        del mol, mf, dmet_energy, core_energy
+        dmet_mf = runDMET(mf, lo_method='lowdin', bath_tol=1e-10, atmlst=[0,])[0]
+        e_check = dmet_mf.e_tot
+        del mol, mf, dmet_mf
         self.assertAlmostEqual(e_ref, e_check, 6)
 
 if __name__ == "__main__":
