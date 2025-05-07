@@ -1,6 +1,6 @@
 import numpy as np
 from pyscf import gto, scf, mcscf, lib
-from mrh.my_pyscf.fci import csf_solver
+from pyscf.csf_fci import csf_solver
 from mrh.my_pyscf.dmet import runDMET, getorbindex
 
 '''
@@ -22,15 +22,10 @@ mol.build()
 mf = scf.ROHF(mol).density_fit()
 mf.kernel()
 
-dmet_energy, core_energy, dmet_mf, trans_coeff = runDMET(mf, lo_method='lowdin', bath_tol=1e-10, atmlst=[0, ])
-
-print("DMET:", dmet_energy)
-print("Core Energy:", core_energy)
-print("Total Energy", dmet_energy + core_energy)
-print("Total Difference", mf.e_tot - (dmet_mf.e_tot + core_energy) )
+dmet_mf, trans_coeff = runDMET(mf, lo_method='lowdin', bath_tol=1e-10, atmlst=[0, ])
 
 # Sanity Check
-assert abs((mf.e_tot - (dmet_mf.e_tot + core_energy))) < 1e-7, "Something went wrong."
+assert abs((mf.e_tot - dmet_mf.e_tot)) < 1e-7, "Something went wrong."
 
 # Active space guess
 mo_coeff = trans_coeff['ao2eo'] @ dmet_mf.mo_coeff
@@ -39,14 +34,12 @@ orblst = getorbindex(mol, mo_coeff, lo_method='meta-lowdin',
 
 # CASCI Calculation
 mc = mcscf.CASCI(dmet_mf, 6, 7)
-mc._scf.energy_nuc = lambda *args: core_energy
 mo = mc.sort_mo(orblst)
 mc.fcisolver  = csf_solver(mol, smult=2)
 mc.kernel(mo)
 
 # CASSCF Calculation
 mc = mcscf.CASSCF(dmet_mf, 6, 7)
-mc._scf.energy_nuc = lambda *args: core_energy
 mo = mc.sort_mo(orblst)
 mc.fcisolver  = csf_solver(mol, smult=2)
 mc.kernel(mo)
@@ -54,7 +47,6 @@ mc.kernel(mo)
 # SA-CASSCF Calculation
 
 mc = mcscf.CASSCF(dmet_mf, 6, 7)
-mc._scf.energy_nuc = lambda *args: core_energy
 mo = mc.sort_mo(orblst)
 mc.fcisolver  = csf_solver(mol, smult=2)
 mc = mcscf.state_average_(mc, weights=[0.5, 0.5])
