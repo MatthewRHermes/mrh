@@ -1,9 +1,8 @@
-from pyscf import lib
+import numpy as np
+from pyscf import lib, mcscf
 from pyscf.pbc import gto, scf, df
 from mrh.my_pyscf.pdmet import runpDMET
-from pyscf import mcscf
-from mrh.my_pyscf.fci import csf_solver
-import numpy as np
+from pyscf.csf_fci import csf_solver
 from mrh.my_pyscf import mcpdft
 from mrh.my_pyscf.pdmet._pdfthelper import get_mc_for_pdmet_pdft
 
@@ -29,18 +28,13 @@ mf.exxdiv = None
 mf.with_df._cderi = 'N2.h5'
 mf.kernel()
 
-dmet_energy, core_energy, dmet_mf, trans_coeff = runpDMET(mf, lo_method='meta-lowdin', bath_tol=1e-10, atmlst=[0, 1])
+dmet_mf, trans_coeff = runpDMET(mf, lo_method='meta-lowdin', bath_tol=1e-10, atmlst=[0, 1])
 
-print("DMET:", dmet_energy)
-print("Core Energy:", core_energy)
-print("Total Energy", dmet_energy + core_energy)
-print("Total Difference", mf.e_tot - (dmet_mf.e_tot + core_energy) )
-assert abs((mf.e_tot - (dmet_mf.e_tot + core_energy))) < 1e-7, "Something went wrong."
+assert abs((mf.e_tot - dmet_mf.e_tot)) < 1e-7, "Something went wrong."
 
 # MC-PDFT: PBC-PDFT is in mrh only.
 # CASSCF Calculation
 mc = mcscf.CASSCF(dmet_mf,8,10)
-mc._scf.energy_nuc = lambda *args: core_energy 
 mc.fcisolver  = csf_solver(cell, smult=1)
 mc.kernel()
 
@@ -49,8 +43,7 @@ mypdft = mcpdft.CASCI(newmc, 'tPBE', mc.ncas, mc.nelecas)
 mypdft.compute_pdft_energy_(mo_coeff=newmc.mo_coeff, ci=mc.ci, dump_chk=False)
 
 # SA-CASSCF Calculation
-mc = mcscf.CASSCF(dmet_mf,8,10)
-mc._scf.energy_nuc = lambda *args: core_energy 
+mc = mcscf.CASSCF(dmet_mf,8,10) 
 mc.fcisolver  = csf_solver(cell, smult=1)
 mc = mcscf.state_average_(mc, weights=[0.5, 0.5])
 mc.kernel()
