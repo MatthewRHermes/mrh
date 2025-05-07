@@ -1,7 +1,7 @@
 import numpy as np
 from pyscf import gto, scf, mcscf, lib
 from mrh.my_pyscf.fci import csf_solver
-from DMET.my_pyscf.dmet import runDMET, getorbindex
+from mrh.my_pyscf.dmet import runDMET, getorbindex
 
 '''
 Note: In this example, I am only showing CASCI, CASSCF and SA-CASSCF calculations in embedded DMET environment.

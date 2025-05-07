@@ -1,5 +1,5 @@
 from pyscf.pbc import gto, scf, df
-from DMET.my_pyscf.pdmet import runpDMET 
+from mrh.my_pyscf.pdmet import runpDMET 
 import numpy as np
 np.set_printoptions(precision=4)
 

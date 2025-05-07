@@ -1,7 +1,7 @@
 import numpy as np
 from pyscf import gto, scf, mcscf, mcpdft, mrpt, lib
 from mrh.my_pyscf.fci import csf_solver
-from DMET.my_pyscf.dmet import runDMET, getorbindex
+from mrh.my_pyscf.dmet import runDMET, getorbindex
 
 np.set_printoptions(precision=4)
 

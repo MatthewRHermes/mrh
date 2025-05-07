@@ -1,6 +1,6 @@
 from pyscf import lib
 from pyscf.pbc import gto, scf, df
-from DMET.my_pyscf.pdmet import runpDMET 
+from mrh.my_pyscf.pdmet import runpDMET 
 import numpy as np
 np.set_printoptions(precision=4)
 
@@ -38,7 +38,7 @@ from mrh.my_pyscf.fci import csf_solver
 
 # MC-PDFT: PBC-PDFT is in mrh only.
 from mrh.my_pyscf import mcpdft
-from DMET.my_pyscf.pdmet._pdfthelper import get_mc_for_pdmet_pdft
+from mrh.my_pyscf.pdmet._pdfthelper import get_mc_for_pdmet_pdft
 
 # CASSCF Calculation
 with lib.temporary_env(dmet_mf, exxdiv=None):
