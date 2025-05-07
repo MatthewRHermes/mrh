@@ -1,7 +1,7 @@
 from functools import reduce
 from pyscf import lo
 from pyscf.pbc import gto, scf, dft
-from DMET.my_pyscf.pdmet._pdmet import _pDMET 
+from mrh.my_pyscf.pdmet._pdmet import _pDMET 
 import numpy as np
 
 def getorbindex(cell, mo_coeff, lo_method='meta-lowdin', activespacesize=1, s=None, ao_label=None, ghostatom=None):

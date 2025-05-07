@@ -2,9 +2,9 @@ from pyscf import lo, lib, ao2mo
 from pyscf.pbc import gto, scf
 from functools import reduce
 import numpy as np
-from DMET.my_pyscf.pdmet import basistransformation as bt
-from DMET.my_pyscf.pdmet.localization import Localization
-from DMET.my_pyscf.pdmet.fragmentation import Fragmentation
+from mrh.my_pyscf.pdmet import basistransformation as bt
+from mrh.my_pyscf.pdmet.localization import Localization
+from mrh.my_pyscf.pdmet.fragmentation import Fragmentation
 
 # Author: Bhavnesh Jangid <jangidbhavnesh@uchicago.edu>
 

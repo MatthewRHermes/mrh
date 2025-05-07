@@ -2,7 +2,7 @@ import numpy as np
 from pyscf.mcpdft import _dms
 from pyscf.lib import logger
 from pyscf.mcpdft.otpd import get_ontop_pair_density
-from DMET.my_pyscf.dmet._pdfthelper import get_mc_for_dmet_pdft
+from mrh.my_pyscf.dmet._pdfthelper import get_mc_for_dmet_pdft
 
 def energy_ot (ot, casdm1s, casdm2, mo_coeff, ncore, max_memory=2000, hermi=1):
     '''
