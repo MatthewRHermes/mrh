@@ -144,7 +144,7 @@ if __name__ == '__main__':
     assert abs((mf.e_tot - dmet_mf.e_tot)) < 1e-7, "Something went wrong."
 
     from pyscf import mcscf
-    from mrh.my_pyscf.fci import csf_solver
+    from pyscf.csf_fci import csf_solver
 
     mc = mcscf.CASSCF(dmet_mf,8,10)
     solver  = csf_solver(cell, smult=1)

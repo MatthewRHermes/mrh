@@ -318,6 +318,9 @@ class _DMET:
         emb_mol.max_memory = mf.mol.max_memory
         emb_mol.build()
 
+        # Core energy contribution
+        core_energy = self._get_core_contribution(ao2eo=ao2eo, ao2co=ao2co)
+
         if hasattr(mf, 'with_df') and mf.with_df is not None and self.density_fit:
             emb_mf = scf.ROHF(emb_mol).density_fit()
             emb_mf.with_df._cderi = eri
@@ -327,8 +330,9 @@ class _DMET:
 
         emb_mf.get_hcore = lambda *args: fock
         emb_mf.get_ovlp  = lambda *args: np.eye(neo)
-        emb_mf.conv_tol = 1e-12
-        emb_mf.energy_nuc = lambda *args: 0 # Later, will add the core energy contributions which will have the nuclear repulsion energy.
+        emb_mf.conv_tol = 1e-10
+        emb_mf.max_cycle = 100
+        emb_mf.energy_nuc = lambda *args: core_energy
         emb_mf.kernel(dm_guess)
 
         assert emb_mf.converged, 'DMET mean-field did not converge'
