@@ -219,17 +219,23 @@ class _dmet_pdfthelper:
         return newmc
 
     def get_mc(self):
-        '''
-        Return the new MC object
-        '''
-        # I am updating the function to make the DMET-PDFT work with current PySCF-Forge.
-        # Matt, any suggestion to do it more efficently.?
-        mcpdft._dms.casdm1s_to_dm1s = casdm1s_to_dm1s
-        mcpdft.otfnal.energy_ot = energy_ot
-        mcpdft.otfnal.otfnal.energy_ot = energy_ot
+        """
+            Return the new MC object
+            I am updating the function to make the DMET-PDFT work with current PySCF-Forge.
+            Matt, any suggestion to do it more efficently.?
+        """
+        original_dm1s = mcpdft._dms.casdm1s_to_dm1s
+        original_energy_ot = mcpdft.otfnal.energy_ot
 
-        newmc = self._new_mc()
-        
+        try:
+            mcpdft._dms.casdm1s_to_dm1s = casdm1s_to_dm1s
+            mcpdft.otfnal.energy_ot = energy_ot
+            mcpdft.otfnal.otfnal.energy_ot = energy_ot
+            newmc = self._new_mc()
+        finally:
+            mcpdft._dms.casdm1s_to_dm1s = original_dm1s
+            mcpdft.otfnal.energy_ot = original_energy_ot
+            mcpdft.otfnal.otfnal.energy_ot = original_energy_ot
         return newmc
 
 dmetpdft = _dmet_pdfthelper
