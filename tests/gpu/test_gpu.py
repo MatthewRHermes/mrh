@@ -17,7 +17,7 @@ def _run_mod (gpu_run):
     if gpu_run: 
         from mrh.my_pyscf.gpu import libgpu
         from gpu4mrh import patch_pyscf
-        gpu = libgpu.libgpu_init()
+        gpu = libgpu.init()
         outputfile=str(nfrags)+'_'+str(basis)+'_out_gpu_ref.log';
         mol=gto.M(atom=generator(nfrags),basis=basis,verbose=4,output=outputfile, use_gpu=gpu)
     else: 
@@ -34,7 +34,7 @@ def _run_mod (gpu_run):
     ncas,nelecas,guess_mo_coeff=avas.kernel(mf, ["C 2pz"])
     mo_coeff=las.set_fragments_(frag_atom_list, guess_mo_coeff)
     las.kernel(mo_coeff)
-    if gpu_run: libgpu.libgpu_destroy_device(gpu)
+    if gpu_run: libgpu.destroy_device(gpu)
     return mf, las
 
 class KnownValues (unittest.TestCase):

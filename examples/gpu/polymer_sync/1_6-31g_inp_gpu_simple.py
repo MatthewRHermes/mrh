@@ -12,7 +12,7 @@ from pyscf import lib
 
 lib.logger.TIME_LEVEL = lib.logger.INFO
 
-gpu = libgpu.libgpu_init()
+gpu = libgpu.init()
 
 nfrags=1
 basis='6-31g'
@@ -33,4 +33,4 @@ mo_coeff=las.localize_init_guess (frag_atom_list, guess_mo_coeff)
 las.kernel(mo_coeff)
 
 #use this to free GPUs for further use and get statistics of GPU usage. 
-libgpu.libgpu_destroy_device(gpu)
+libgpu.destroy_device(gpu)

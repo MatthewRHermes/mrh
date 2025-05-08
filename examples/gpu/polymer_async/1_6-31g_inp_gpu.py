@@ -12,15 +12,15 @@ lib.logger.TIMER_LEVEL=lib.logger.INFO
 
 # this gives you more details about the system settings. 
 # see 1_631g_inp_gpu_simple.py for black box option
-gpu = libgpu.libgpu_create_device()
+gpu = libgpu.create_device()
 
-num_gpus = libgpu.libgpu_get_num_devices(gpu)
+num_gpus = libgpu.get_num_devices(gpu)
 print("num_gpus= ", num_gpus)
 
-libgpu.libgpu_dev_properties(gpu, num_gpus)
+libgpu.dev_properties(gpu, num_gpus)
 
 gpu_id = 0
-libgpu.libgpu_set_device(gpu, gpu_id)
+libgpu.set_device(gpu, gpu_id)
 
 # ---- inside constructor 
 
@@ -53,4 +53,4 @@ print("\nCalling las.kernel()")
 las.kernel(mo_coeff)
 
 #use this to free GPUs for further use and get statistics of GPU usage. 
-libgpu.libgpu_destroy_device(gpu)
+libgpu.destroy_device(gpu)

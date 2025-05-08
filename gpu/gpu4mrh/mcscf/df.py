@@ -44,25 +44,25 @@ class _ERIS:
         t1 = t0 = (logger.process_clock(), logger.perf_counter())
         if gpu: 
             ppaa = numpy.empty((nmo, nmo, ncas, ncas))
-            libgpu.libgpu_push_mo_coeff(gpu, mo, nao*nmo)
-            libgpu.libgpu_init_jk_ao2mo(gpu, ncore, nmo) 
-            libgpu.libgpu_init_ints_ao2mo_v3(gpu, naoaux, nmo, ncas) #initializes bufpa on pinned memory
-            libgpu.libgpu_init_ppaa_ao2mo(gpu, nmo, ncas) #initializes ppaa on pinned memory
+            papa = numpy.empty((nmo, ncas, nmo, ncas))
+            libgpu.push_mo_coeff(gpu, mo, nao*nmo)
+            libgpu.init_jk_ao2mo(gpu, ncore, nmo) 
+            libgpu.init_ints_ao2mo_v3(gpu, naoaux, nmo, ncas) #initializes bufpa on pinned memory
+            libgpu.init_ppaa_papa_ao2mo(gpu, nmo, ncas) #initializes ppaa on pinned memory
             t1 = log.timer('init_ao2mo', *t1)
             count = 0
             for k, eri1 in enumerate(with_df.loop(blksize)):
                 pass;
             for count in range(k+1):
                 arg = numpy.array([-1, -1, count, -1], dtype = numpy.int32)
-                libgpu.libgpu_get_dfobj_status(gpu, id(with_df),arg)
+                libgpu.get_dfobj_status(gpu, id(with_df),arg)
                 naux = arg[0]
-                libgpu.libgpu_df_ao2mo_v3(gpu,blksize,nmo,nao,ncore,ncas,naux,eri1,count,id(with_df)) # includes pulling bufpa, ppaa to pinned memory. eri1 no longer used, can be removed in a later version. 
+                libgpu.df_ao2mo_v4(gpu,blksize,nmo,nao,ncore,ncas,naux,count,id(with_df)) # does everything, remove eri1 pls? 
             t1 = log.timer('compute_ao2mo', *t1)
-            libgpu.libgpu_pull_jk_ao2mo (gpu, self.j_pc, k_cp, nmo, ncore)
-            libgpu.libgpu_pull_ints_ao2mo_v3(gpu, bufpa, blksize, naoaux, nmo, ncas)
-            libgpu.libgpu_pull_ppaa_ao2mo(gpu, ppaa, nmo, ncas) #pull ppaa
+            libgpu.pull_jk_ao2mo_v4 (gpu, self.j_pc, k_cp, nmo, ncore)
+            libgpu.pull_ppaa_papa_ao2mo_v4(gpu, ppaa, papa, nmo, ncas) #pull ppaa
             self.ppaa = ppaa
-            #libgpu.libgpu_pull_ints_ao2mo(gpu, fxpp, bufpa, blksize, naoaux, nmo, ncas)
+            self.papa = papa
             t1 = log.timer('pull_ao2mo', *t1)
         else:
             fmmm = _ao2mo.libao2mo.AO2MOmmm_nr_s2_iltj
@@ -107,6 +107,20 @@ class _ERIS:
                 self.ppaa[p0:p1] = tmp.reshape(p1-p0,nmo,ncas,ncas)
             bufs1 = bufs2 = buf = None
             t1 = log.timer('density fitting ppaa pass2', *t1)
+            mem_now = lib.current_memory()[0]
+            nblk = int(max(8, min(nmo, ((max_memory-mem_now)*1e6/8-bufpa.size)/(ncas**2*nmo))))
+            bufs1 = numpy.empty((nblk,ncas,nmo,ncas))
+            dgemm = lib.numpy_helper._dgemm
+            for p0, p1 in prange(0, nmo, nblk):
+                tmp = numpy.dot(bufpa[:,p0:p1].reshape(naoaux,-1).T,
+                            bufpa.reshape(naoaux,-1))
+            #tmp = bufs1[:p1-p0]
+            #dgemm('T', 'N', (p1-p0)*ncas, nmo*ncas, naoaux,
+            #      bufpa.reshape(naoaux,-1), bufpa.reshape(naoaux,-1),
+            #      tmp.reshape(-1,nmo*ncas), 1, 0, p0*ncas, 0, 0)
+                self.papa[p0:p1] = tmp.reshape(p1-p0,ncas,nmo,ncas)
+            t1 = log.timer('density fitting papa pass2', *t1)
+
             #fxpp.close()
             fxpp=None
 
@@ -115,37 +129,7 @@ class _ERIS:
                 
         self.k_pc = k_cp.T.copy()
            
-        mem_now = lib.current_memory()[0]
-        nblk = int(max(8, min(nmo, ((max_memory-mem_now)*1e6/8-bufpa.size)/(ncas**2*nmo))))
-        bufs1 = numpy.empty((nblk,ncas,nmo,ncas))
-        dgemm = lib.numpy_helper._dgemm
-        for p0, p1 in prange(0, nmo, nblk):
-            tmp = numpy.dot(bufpa[:,p0:p1].reshape(naoaux,-1).T,
-                            bufpa.reshape(naoaux,-1))
-            #tmp = bufs1[:p1-p0]
-            #dgemm('T', 'N', (p1-p0)*ncas, nmo*ncas, naoaux,
-            #      bufpa.reshape(naoaux,-1), bufpa.reshape(naoaux,-1),
-            #      tmp.reshape(-1,nmo*ncas), 1, 0, p0*ncas, 0, 0)
-            self.papa[p0:p1] = tmp.reshape(p1-p0,ncas,nmo,ncas)
-        t1 = log.timer('density fitting papa pass2', *t1)
-        
-        #bufaa = bufpa[:,ncore:nocc,:].copy().reshape(-1,ncas**2)
         bufs1 = bufpa = None
-        ####   ####    Removing the ppaa calculation for cpu and moved it up to the branching####    ####
-        #mem_now = lib.current_memory()[0]
-        #nblk = int(max(8, min(nmo, (max_memory-mem_now)*1e6/8/(nmo*naoaux+ncas**2*nmo))))
-        #bufs1 = numpy.empty((nblk,nmo,naoaux))
-        #bufs2 = numpy.empty((nblk,nmo,ncas,ncas))
-        #for p0, p1 in prange(0, nmo, nblk):
-        #    nrow = p1 - p0
-        #    buf = bufs1[:nrow]
-        #    tmp = bufs2[:nrow].reshape(-1,ncas**2)
-        #    for key, col0, col1 in fxpp_keys:
-        #        #buf[:nrow,:,col0:col1] = fxpp[key][p0:p1]
-        #        buf[:nrow,:,col0:col1] = fxpp[:,:,col0:col1][p0:p1]
-        #    lib.dot(buf.reshape(-1,naoaux), bufaa, 1, tmp)
-        #    self.ppaa[p0:p1] = tmp.reshape(p1-p0,nmo,ncas,ncas)
-        #bufs1 = bufs2 = buf = None
 
         self.feri.flush()
 
