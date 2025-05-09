@@ -1,7 +1,7 @@
 import numpy as np
 from pyscf import gto, scf, mcscf, mrpt
 from mrh.my_pyscf.fci import csf_solver
-from mrh.my_pyscf.dmet import runDMET, getorbindex
+from mrh.my_pyscf.dmet import runDMET
 
 np.set_printoptions(precision=4)
 
@@ -38,14 +38,16 @@ assert abs((mf.e_tot - dmet_mf.e_tot)) < 1e-7, "Something went wrong."
 # Active space guess
 ao2eo = mydmet.ao2eo
 ao2co = mydmet.ao2co
-
 mo_coeff = ao2eo @ dmet_mf.mo_coeff
-orblst = getorbindex(mol, mo_coeff, lo_method='meta-lowdin',
-                    ao_label=['P 3s', 'P 3p', 'H 1s'], activespacesize=6, s=mf.get_ovlp())
+
+# Based on the AO Character
+from pyscf.tools import mo_mapping
+orblst = mo_mapping.mo_comps(['P 3s', 'P 3p', 'H 1s'], mol, mo_coeff, orth_method='meta-lowdin')
+orblst = orblst.argsort()
 
 # CASSCF Calculation
 mc = mcscf.CASSCF(dmet_mf, 6, 7)
-mo = mc.sort_mo(orblst)
+mo = mc.sort_mo(orblst[-mc.ncas:], base=0)
 mc.fcisolver  = csf_solver(mol, smult=2)
 mc.kernel(mo)
 
@@ -61,7 +63,7 @@ print('NEVPT2 energy: ', e_tot)
 
 # SA-CASSCF Calculation
 mc = mcscf.CASSCF(dmet_mf, 6, 7)
-mo = mc.sort_mo(orblst)
+mo = mc.sort_mo(orblst[-mc.ncas:], base=0)
 mc.fcisolver  = csf_solver(mol, smult=2)
 mc = mcscf.state_average_(mc, weights=[0.5, 0.5])
 mc.kernel(mo)
