@@ -52,7 +52,7 @@ def assemble_mo(mf, ao2eo, ao2co, mc_mo_coeff):
     sorted_indices = np.argsort(e)[::-1]
     eigvec_sorted = eigvec[:, sorted_indices]  
     ao2co = ao2co @ eigvec_sorted
-    core_nelec = int(round(np.sum(e[sorted_indices] > 1e-10)))
+    core_nelec = int(round(np.sum(e)))
     assert core_nelec % 2 == 0, "Core nelec should be even., Something went wrong."
     ao2eo = ao2eo @ mc_mo_coeff
 

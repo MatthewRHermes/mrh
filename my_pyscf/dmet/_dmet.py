@@ -339,35 +339,6 @@ class _DMET:
 
         return emb_mf
 
-    def _pack_trans_coeff(self, ao2eo=None, ao2co=None, ao2lo=None, lo2eo=None, lo2co=None, imp_nelec=None, core_nelec=None):
-        '''
-        Pack the transformation coefficients.
-        I am also storing the number of electrons in the impurity and core subspace
-        for the sanity checks.
-        '''
-        if ao2eo is None:
-            ao2eo = self.ao2eo
-        if ao2co is None:
-            ao2co = self.ao2co
-        if ao2lo is None:
-            ao2lo = self.ao2lo
-        if lo2eo is None:
-            lo2eo = self.lo2eo
-        if lo2co is None:
-            lo2co = self.lo2co
-        if imp_nelec is None:
-            imp_nelec = self.imp_nelec
-        if core_nelec is None:
-            core_nelec = self.core_nelec
-        tran_coeff = {'ao2eo': ao2eo,
-                        'ao2co': ao2co,
-                        'ao2lo': ao2lo,
-                        'lo2eo': lo2eo,
-                        'lo2co': lo2co,
-                        'imp_nelec': imp_nelec,
-                        'core_nelec': core_nelec}
-        return tran_coeff
-
     def runDMET(self):
         '''
         Kernel to run the DMET calculations
@@ -393,9 +364,7 @@ class _DMET:
         self.get_core_elecs()
         self.dump_flags()
         dmet_mf = self._get_dmet_mf()
-        trans_coeff = self._pack_trans_coeff()
-       
-        return dmet_mf, trans_coeff
+        return dmet_mf
     
     def _get_core_contribution(self, ao2eo=None, ao2co=None):
         '''
@@ -451,5 +420,5 @@ class _DMET:
 
     # For pyscf like interface
     def kernel(self):
-        dmet_mf, trans_coeff = self.runDMET()
-        return dmet_mf, trans_coeff
+        dmet_mf = self.runDMET()
+        return dmet_mf
