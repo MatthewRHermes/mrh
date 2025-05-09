@@ -1,9 +1,9 @@
-from pyscf import lib
-from pyscf.pbc import gto, scf, df
-from mrh.my_pyscf.pdmet import runpDMET 
+
 import numpy as np
 from pyscf import mcscf
-from mrh.my_pyscf.fci import csf_solver
+from pyscf.pbc import gto, scf, df
+from pyscf.csf_fci import csf_solver
+from mrh.my_pyscf.pdmet import runpDMET 
 
 np.set_printoptions(precision=4)
 
@@ -29,23 +29,16 @@ mf.with_df._cderi = 'N2.h5'
 mf.kernel()
 
 # In this case, we will be using density_fitting in the embedded part of the molecule as well.
-dmet_energy, core_energy, dmet_mf, trans_coeff = runpDMET(mf, lo_method='meta-lowdin', bath_tol=1e-10, atmlst=[0, 1], density_fit=True)
-
-print("DMET:", dmet_energy)
-print("Core Energy:", core_energy)
-print("Total Energy", dmet_energy + core_energy)
-print("Total Difference", mf.e_tot - (dmet_mf.e_tot + core_energy) )
-assert abs((mf.e_tot - (dmet_mf.e_tot + core_energy))) < 1e-7, "Something went wrong."
+dmet_mf, mypdmet = runpDMET(mf, lo_method='meta-lowdin', bath_tol=1e-10, atmlst=[0, 1], density_fit=True)
+assert abs((mf.e_tot - dmet_mf.e_tot)) < 1e-7, "Something went wrong."
 
 # CASCI Calculation
 mc = mcscf.CASSCF(dmet_mf,8,10)
-mc._scf.energy_nuc = lambda *args: core_energy 
 mc.fcisolver  = csf_solver(cell, smult=1)
 mc.kernel()
 
 # CASSCF Calculation
 mc = mcscf.CASSCF(dmet_mf,8,10)
-mc._scf.energy_nuc = lambda *args: core_energy 
 mc.fcisolver  = csf_solver(cell, smult=1)
 mc.kernel()
 
