@@ -24,13 +24,15 @@ mf = scf.ROHF(mol).density_fit()
 mf.kernel()
 
 # Running DMET
-dmet_mf, trans_coeff = runDMET(mf, lo_method='lowdin', bath_tol=1e-10, atmlst=[0, ])
+dmet_mf, mydmet = runDMET(mf, lo_method='lowdin', bath_tol=1e-10, atmlst=[0, ])
 
 # Sanity Check
 assert abs((mf.e_tot - dmet_mf.e_tot)) < 1e-7, "Something went wrong."
 
 # Active space guess
-mo_coeff = trans_coeff['ao2eo'] @ dmet_mf.mo_coeff
+ao2eo = mydmet.ao2eo
+ao2co = mydmet.ao2co
+mo_coeff = ao2eo @ dmet_mf.mo_coeff
 orblst = getorbindex(mol, mo_coeff, lo_method='meta-lowdin',
                     ao_label=['P 3s', 'P 3p', 'H 1s'], activespacesize=6, s=mf.get_ovlp())
 
@@ -43,7 +45,7 @@ mc = mcscf.state_average_(mc, weights)
 mc.kernel(mo)
 
 # Assembling the full space mo_coeffs
-mo_coeff = assemble_mo(mf, trans_coeff, mc.mo_coeff)
+mo_coeff = assemble_mo(mf, ao2eo, ao2co, mc.mo_coeff)
 mypdft = mcpdft.CASCI(mf, 'tPBE', mc.ncas, mc.nelecas)
 mypdft.fcisolver = csf_solver(mol, smult=2)
 mypdft.fcisolver.nroots = 2
