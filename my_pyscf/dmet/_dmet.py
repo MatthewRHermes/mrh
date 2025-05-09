@@ -14,6 +14,10 @@ from mrh.my_pyscf.dmet.basistransformation import BasisTransform
 
 get_basis_transform = BasisTransform._get_basis_transformed
 
+def is_close_to_integer(num, tolerance=1e-6):
+    warning_msg = 'SVD for this RDM has some problem'
+    assert (np.abs(num - np.round(num)) < tolerance), warning_msg
+
 class _DMET:
     '''
     Density Matrix Embedding Theory
@@ -178,6 +182,7 @@ class _DMET:
         if dm.ndim > 2:
             dm_lo = np.array([get_basis_transform(dm_, eo2ao.T) for dm_ in dm])
             nelecs_spin = [np.trace(dm_) for dm_ in dm_lo]
+            for x in nelecs_spin: is_close_to_integer(x)
             nelecs = np.sum(nelecs_spin)
 
             # Sanity check for the spin
@@ -189,9 +194,10 @@ class _DMET:
         else:
             dm_lo = get_basis_transform(dm, eo2ao.T)
             nelecs = np.trace(dm_lo)
+            is_close_to_integer(nelecs)
 
         # Set up this value.
-        self.imp_nelec = nelecs
+        self.imp_nelec = int(round(nelecs))
     
         return self
 
@@ -208,7 +214,7 @@ class _DMET:
         else:
             ncore = np.trace(get_basis_transform(dm, cor2ao.T))
 
-        self.core_nelec = ncore
+        self.core_nelec = int(round(ncore))
 
         return self
 
@@ -418,6 +424,59 @@ class _DMET:
 
         return energy
 
+    def assemble_mo(self, mc_mo_coeff):
+        '''
+        Assemble the mo_coeff to run the PDFT with the dmet_mf object.
+        args:
+            mf: RHF/ROHF object
+                mean-field object for the full system
+            ao2eo: np.array (nao, neo)
+                transformation matrix from the full system to the embedded system. Note that
+                nao: number of orbitals in the full system
+                neo: number of orbitals in the embedded system
+                ncore: number of core orbitals from the environment. (Don't get confuse with the ncore of mcscf)
+                nao = neo + ncore
+            ao2co: np.array (nao, ncore)
+                transformation matrix from the full system to the core space
+            mc_mo_coeff: np.array (neo, neo)
+                mo_coeff for the embedded CASSCF calculation
+        returns:
+            mo_coeff: np.ndarray
+                mo_coeff for the full system
+        '''
+        mf = self.mf
+        ao2co = self.ao2co
+        ao2eo = self.ao2eo
+        
+        dm = mf.make_rdm1()
+        s = mf.get_ovlp()
+        
+        cor2ao = ao2co.T @ s
+
+        if dm.ndim > 2:
+            dm = dm[0] + dm[1]
+        
+        # Generate the core density matrix and using that transform the ao2co
+        # to the canonical basis.
+        core_dm = get_basis_transform(dm, cor2ao.T)
+        e, eigvec = np.linalg.eigh(core_dm)
+        sorted_indices = np.argsort(e)[::-1]
+        eigvec_sorted = eigvec[:, sorted_indices]  
+        ao2co = ao2co @ eigvec_sorted
+        core_nelec = int(round(np.sum(e)))
+        assert core_nelec % 2 == 0, "Core nelec should be even., Something went wrong."
+        ao2eo = ao2eo @ mc_mo_coeff
+
+        ncore = core_nelec//2
+        neo = ao2eo.shape[1]
+
+        # Now we can assemble the full space mo_coeffs.
+        mo_coeff = np.empty_like(mf.mo_coeff)
+        mo_coeff[:, :ncore] = ao2co[:, :ncore]
+        mo_coeff[:, ncore:ncore+neo] = ao2eo
+        mo_coeff[:, ncore+neo:] = ao2co[:, ncore:]
+        return mo_coeff
+    
     # For pyscf like interface
     def kernel(self):
         dmet_mf = self.runDMET()

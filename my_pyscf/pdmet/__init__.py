@@ -54,9 +54,11 @@ def getorbindex(cell, mo_coeff, lo_method='meta-lowdin', activespacesize=1, s=No
     
     return sorted(orbind[:activespacesize])
 
-def _energy_contribution(mydmet, dmet_mf, trans_coeff, verbose=None):
+def _energy_contribution(mydmet, dmet_mf, verbose=None):
     log = lib.logger.new_logger(mydmet, verbose)
-    core_energy = mydmet._get_core_contribution(ao2eo=trans_coeff['ao2eo'], ao2co=trans_coeff['ao2co'])
+    ao2eo = mydmet.ao2eo
+    ao2co = mydmet.ao2co
+    core_energy = mydmet._get_core_contribution(ao2eo, ao2co)
     log.info('DMET energy contribution:')
     log.info('Total Energy  %.7f', dmet_mf.e_tot)
     log.info('Emb. Energy   %.7f', dmet_mf.e_tot - core_energy)
@@ -68,10 +70,10 @@ def get_fragment_mf(mf, lo_method='meta_lowdin', bath_tol=1e-4,
     get_fragment_mf.__doc__ = _get_dmet_fragment.__doc__
     
     mydmet = _pDMET(mf, lo_method=lo_method, bath_tol=bath_tol, atmlst=atmlst, atmlabel=atmlabel, verbose=verbose, density_fit=density_fit,**kwargs)
-    dmet_mf, trans_coeff = mydmet.kernel()
+    dmet_mf = mydmet.kernel()
     # Contributions.
-    _energy_contribution(mydmet, dmet_mf, trans_coeff, mf.verbose)
-    return dmet_mf, trans_coeff
+    _energy_contribution(mydmet, dmet_mf, mf.verbose)
+    return dmet_mf, mydmet
 
 def _get_dmet_fragment(mf, lo_method='meta_lowdin', bath_tol=1e-4, 
                         atmlst=None, atmlabel=None, density_fit=False,**kwargs):

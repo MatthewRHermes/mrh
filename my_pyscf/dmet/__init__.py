@@ -6,47 +6,6 @@ from mrh.my_pyscf.dmet._dmet import _DMET
 
 # Author: Bhavnesh Jangid <jangidbhavnesh@uchicago.edu>
 
-def getorbindex(mol, mo_coeff, lo_method='meta-lowdin', activespacesize=1, s=None, ao_label=None):
-    '''
-    Based on the ao_label find the orb which MO has
-    highest character of that AO and return the index of that MO
-    Args:
-        mol : Mole object
-            Molecule object
-        mo_coeff : np.array
-            Molecular orbital coefficients
-        s : np.array
-            Overlap matrix
-        ao_label : list
-            List of atomic orbital labels
-        activespacesize : int
-            Active space size
-    '''
-    
-    if s is None:
-        s = mol.intor('int1e_ovlp')
- 
-    baslst = mol.search_ao_label(ao_label)
-    assert len(baslst) >=activespacesize
-    orbindex=[]
-
-    assert lo_method in ['lowdin', 'meta-lowdin']
-
-    orth_coeff = lo.orth.orth_ao(mol, lo_method, s=s)
-
-    C = reduce(np.dot,(orth_coeff.conj().T, s, mo_coeff))
-
-    for orb in baslst:
-        cont = np.argsort(C[orb] ** 2)[-activespacesize:][::-1]
-        orbsel = next((orb for orb in cont if orb not in orbindex), None)
-        if orbsel is not None:
-            orbindex.append(orbsel)
- 
-    orbind = sorted(list(set(orbindex)))
-    orbind = [x+1 for x in orbind]
-    
-    return sorted(orbind[:activespacesize])
-
 def _energy_contribution(mydmet, dmet_mf, verbose=None):
     log = lib.logger.new_logger(mydmet, verbose)
     ao2eo = mydmet.ao2eo
