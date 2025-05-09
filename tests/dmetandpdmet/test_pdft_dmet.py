@@ -1,7 +1,6 @@
 import unittest
 from pyscf import gto, scf, mcscf, mcpdft
 from mrh.my_pyscf.dmet import runDMET
-from mrh.my_pyscf.dmet._pdfthelper import assemble_mo
 
 '''
 ***** DMET-PDFT Embedding *****
@@ -34,95 +33,52 @@ class KnownValues(unittest.TestCase):
 
     def test_pdft_closeshell(self):
         mol = get_mole1()
-
-        mf = scf.RHF(mol)
-        mf.kernel()
-        
-        mc = mcpdft.CASSCF(mf, 'tPBE', 1, 2)
-        mc.kernel()
-
+        mf = scf.RHF(mol).run()
+        mc = mcpdft.CASSCF(mf, 'tPBE', 1, 2).run()
         e_ref = mc.e_tot
-        
-        dmet_mf, trans_coeff = runDMET(mf, lo_method='lowdin', bath_tol=1e-10, atmlst=[0,1,2])
-        e_check = dmet_mf.e_tot
-
-        # Sanity Check
-        assert abs((mf.e_tot - e_check)) < 1e-7, "Something went wrong."
-
-        # CASSCF Calculation
+        dmet_mf, mydmet = runDMET(mf, lo_method='lowdin', bath_tol=1e-10, atmlst=[0,1,2])
+        assert abs((mf.e_tot - dmet_mf.e_tot)) < 1e-7, "Something went wrong."
         mc = mcscf.CASSCF(dmet_mf, 1, 2)
         mc.kernel()
-        
-        mo_coeff = assemble_mo(mf, trans_coeff, mc.mo_coeff)
-        
+        mo_coeff = mydmet.assemble_mo(mc.mo_coeff)
         mypdft = mcpdft.CASCI(mf, 'tPBE', mc.ncas, mc.nelecas)
         mypdft.compute_pdft_energy_(mo_coeff=mo_coeff, ci=mc.ci, dump_chk=False)
-
         e_check = mypdft.e_tot
-      
-        del mol, mf, dmet_mf, mc, mypdft
         self.assertAlmostEqual(e_ref, e_check, 6)
+        del mol, mf, dmet_mf, mc, mypdft, e_check, e_ref
+       
     
     def test_pdft_openshell(self):
         mol = get_mole2()
-
-        mf = scf.RHF(mol)
-        mf.kernel()
-
+        mf = scf.RHF(mol).run()
         # CASPDFT 'tPBE' with same AS as below: Instead of re-running I am 
         # saving this value due to circular dependencies.
-
         e_ref = -342.1818806123503 
-
-        dmet_mf, trans_coeff = runDMET(mf, lo_method='lowdin', bath_tol=1e-10, atmlst=[0,1,2])
-        e_check = dmet_mf.e_tot
-
-        # Sanity Check
-        assert abs((mf.e_tot - e_check)) < 1e-7, "Something went wrong."
-
-        # CASSCF Calculation
-        mc = mcscf.CASSCF(dmet_mf, 1, 1)
-        mc.kernel()
-        
-        mo_coeff = assemble_mo(mf, trans_coeff, mc.mo_coeff)
-        
+        dmet_mf, mydmet = runDMET(mf, lo_method='lowdin', bath_tol=1e-10, atmlst=[0,1,2])
+        assert abs((mf.e_tot - dmet_mf.e_tot)) < 1e-7, "Something went wrong."
+        mc = mcscf.CASSCF(dmet_mf, 1, 1).run()
+        mo_coeff = mydmet.assemble_mo(mc.mo_coeff)
         mypdft = mcpdft.CASCI(mf, 'tPBE', mc.ncas, mc.nelecas)
         mypdft.compute_pdft_energy_(mo_coeff=mo_coeff, ci=mc.ci, dump_chk=False)
-
         e_check = mypdft.e_tot
-      
-        del mol, mf, dmet_mf, mc, mypdft
         self.assertAlmostEqual(e_ref, e_check, 6)
+        del mol, mf, dmet_mf, mc, mypdft, e_check, e_ref
 
     def test_pdft_openshell_2(self):
         mol = get_mole2()
-
-        mf = scf.RHF(mol)
-        mf.kernel()
-
+        mf = scf.RHF(mol).run()
         # CASPDFT 'tPBE' with same AS as below: Instead of re-running I am 
         # saving this value due to circular dependencies.
         e_ref = -342.1818806123501
-
-        dmet_mf, trans_coeff = runDMET(mf, lo_method='lowdin', bath_tol=1e-10, atmlst=[0,1,2])
-        e_check = dmet_mf.e_tot
-
-        # Sanity Check
-        assert abs((mf.e_tot - e_check)) < 1e-7, "Something went wrong."
-
-        # CASSCF Calculation
-        mc = mcscf.CASSCF(dmet_mf, 2, 1)
-        mc.kernel()
-        
-        mo_coeff = assemble_mo(mf, trans_coeff, mc.mo_coeff)
-        
+        dmet_mf, mydmet = runDMET(mf, lo_method='lowdin', bath_tol=1e-10, atmlst=[0,1,2])
+        assert abs((mf.e_tot - dmet_mf.e_tot)) < 1e-7, "Something went wrong."
+        mc = mcscf.CASSCF(dmet_mf, 2, 1).run()
+        mo_coeff = mydmet.assemble_mo(mc.mo_coeff) 
         mypdft = mcpdft.CASCI(mf, 'tPBE', mc.ncas, mc.nelecas)
         mypdft.compute_pdft_energy_(mo_coeff=mo_coeff, ci=mc.ci, dump_chk=False)
-
         e_check = mypdft.e_tot
-      
-        del mol, mf, dmet_mf, mc, mypdft
         self.assertAlmostEqual(e_ref, e_check, 6)
+        del mol, mf, dmet_mf, mc, mypdft, e_check, e_ref
 
 if __name__ == "__main__":
     # See the description of the tests at the top of the file.

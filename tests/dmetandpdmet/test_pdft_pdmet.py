@@ -5,7 +5,6 @@ from pyscf.pbc import gto, scf
 from pyscf.csf_fci import csf_solver
 from mrh.my_pyscf.pdmet import runpDMET
 from mrh.my_pyscf import mcpdft
-from mrh.my_pyscf.pdmet._pdfthelper import assemble_mo
 
 '''
 ***** pDMET-PDFT Embedding *****
@@ -34,36 +33,26 @@ class KnownValues(unittest.TestCase):
     def test_pdft_closeshell(self):
         cell = get_cell()
         mf = scf.RHF(cell,exxdiv = None).density_fit()
-        mf.verbose = 0
-        mf.kernel()
-        dmet_mf, trans_coeff = runpDMET(mf, lo_method='meta-lowdin', bath_tol=1e-10, atmlst=[0, 1])
+        mf.verbose=0
+        mf.run()
+        dmet_mf, mypdmet = runpDMET(mf, lo_method='meta-lowdin', bath_tol=1e-10, atmlst=[0, 1])
+        assert abs((mf.e_tot - dmet_mf.e_tot)) < 1e-7, "Something went wrong."
 
-        e_check = dmet_mf.e_tot
-
-        # Sanity Check
-        assert abs((mf.e_tot - e_check)) < 1e-7, "Something went wrong."
-
-        mc = mcpdft.CASSCF(mf, 'tPBE', 8, 10)
-        mc.kernel()
-
+        mc = mcpdft.CASSCF(mf, 'tPBE', 8, 10).run()
         e_ref = mc.e_tot
-
         del mc
 
         mc = mcscf.CASSCF(dmet_mf,8,10)
-        mc.verbose = 0
         mc.fcisolver  = csf_solver(cell, smult=1)
         mc.kernel()
-
-        mo_coeff = assemble_mo(mf, trans_coeff, mc.mo_coeff)
+        
+        mo_coeff = mypdmet.assemble_mo(mc.mo_coeff)
         mypdft = mcpdft.CASCI(mf, 'tPBE', mc.ncas, mc.nelecas)
         mypdft.compute_pdft_energy_(mo_coeff=mo_coeff, ci=mc.ci, dump_chk=False)
-
-
         e_check = mypdft.e_tot
-      
-        del cell, mf, dmet_mf, mc, mypdft
         self.assertAlmostEqual(e_ref, e_check, 6)
+        del cell, mf, dmet_mf, mc, mypdft, e_check, e_ref
+        
 
 
 if __name__ == "__main__":
