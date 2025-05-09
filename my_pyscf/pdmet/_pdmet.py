@@ -192,8 +192,8 @@ class _pDMET:
         else:
             dm_lo = get_basis_transform(dm_full_ao, eo2ao.T)
             nelecs = np.trace(dm_lo)
-            is_close_to_integer(x)
-            
+            is_close_to_integer(nelecs)
+
         # Set up this value.
         self.imp_nelec = int(round(nelecs))
     
