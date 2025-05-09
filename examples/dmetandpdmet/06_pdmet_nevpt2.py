@@ -1,8 +1,8 @@
+import numpy as np
 from pyscf import mcscf, mrpt
 from pyscf.pbc import gto, scf, df
-from mrh.my_pyscf.pdmet import runpDMET 
-import numpy as np
 from pyscf.csf_fci import csf_solver
+from mrh.my_pyscf.pdmet import runpDMET 
 
 np.set_printoptions(precision=4)
 
@@ -26,7 +26,7 @@ mf.exxdiv = None
 mf.with_df._cderi = 'N2.h5'
 mf.kernel()
 
-dmet_mf, trans_coeff = runpDMET(mf, lo_method='meta-lowdin', bath_tol=1e-10, atmlst=[0, 1])
+dmet_mf, mypdmet = runpDMET(mf, lo_method='meta-lowdin', bath_tol=1e-10, atmlst=[0, 1])
 
 assert abs((mf.e_tot - dmet_mf.e_tot)) < 1e-7, "Something went wrong."
 
@@ -47,12 +47,12 @@ print('NEVPT2 energy: `', e_tot)
 
  
 # SA-CASSCF Calculation
-mc = mcscf.CASSCF(dmet_mf,8,10)
+mc = mcscf.CASSCF(dmet_mf,6,6)
 mc.fcisolver  = csf_solver(cell, smult=1)
 mc = mcscf.state_average_(mc, weights=[0.5, 0.5])
 mc.kernel()
 
-newmc = mcscf.CASCI(dmet_mf, 8, 10)
+newmc = mcscf.CASCI(dmet_mf, 6, 6)
 newmc.verbose = 3
 newmc.natorb = True
 newmc.fcisolver.nroots = len(mc.ci)

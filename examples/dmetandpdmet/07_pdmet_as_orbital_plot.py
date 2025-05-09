@@ -1,8 +1,8 @@
-from pyscf.pbc import gto, scf, df
-from mrh.my_pyscf.pdmet import runpDMET 
 import numpy as np
 from pyscf import mcscf
+from pyscf.pbc import gto, scf, df
 from pyscf.csf_fci import csf_solver
+from mrh.my_pyscf.pdmet import runpDMET
 
 np.set_printoptions(precision=4)
 
@@ -26,7 +26,7 @@ mf.exxdiv = None
 mf.with_df._cderi = 'N2.h5'
 mf.kernel()
 
-dmet_mf, trans_coeff = runpDMET(mf, lo_method='meta-lowdin', bath_tol=1e-10, atmlst=[0, 1])
+dmet_mf, mypdmet = runpDMET(mf, lo_method='meta-lowdin', bath_tol=1e-10, atmlst=[0, 1])
 assert abs((mf.e_tot - dmet_mf.e_tot)) < 1e-7, "Something went wrong."
 
 # CASSCF Calculation
@@ -36,7 +36,7 @@ mc.kernel()
 
 # Plotting the orbital
 from pyscf.tools import cubegen
-active_space = trans_coeff['ao2eo'] @ mc.mo_coeff[:,mc.ncore:mc.ncore+mc.ncas]
+active_space = mypdmet.ao2eo @ mc.mo_coeff[:,mc.ncore:mc.ncore+mc.ncas]
 
 for orb in range(active_space.shape[1]):
     cubegen.orbital(cell, f'active_space_{orb}.cube', active_space[:,orb])

@@ -1,10 +1,9 @@
 import numpy as np
 from pyscf import lib, mcscf
 from pyscf.pbc import gto, scf, df
-from mrh.my_pyscf.pdmet import runpDMET
 from pyscf.csf_fci import csf_solver
 from mrh.my_pyscf import mcpdft
-from mrh.my_pyscf.dmet._pdfthelper import assemble_mo
+from mrh.my_pyscf.pdmet import runpDMET
 
 np.set_printoptions(precision=4)
 
@@ -28,7 +27,7 @@ mf.exxdiv = None
 mf.with_df._cderi = 'N2.h5'
 mf.kernel()
 
-dmet_mf, trans_coeff = runpDMET(mf, lo_method='meta-lowdin', bath_tol=1e-10, atmlst=[0, 1])
+dmet_mf, mypdmet = runpDMET(mf, lo_method='meta-lowdin', bath_tol=1e-10, atmlst=[0, 1])
 
 assert abs((mf.e_tot - dmet_mf.e_tot)) < 1e-7, "Something went wrong."
 
@@ -39,7 +38,7 @@ mc.fcisolver  = csf_solver(cell, smult=1)
 mc.kernel()
 
 # Assembling the full space mo_coeffs
-mo_coeff = assemble_mo(mf, trans_coeff, mc.mo_coeff)
+mo_coeff = mypdmet.assemble_mo(mc.mo_coeff)
 
 mypdft = mcpdft.CASCI(mf, 'tPBE', mc.ncas, mc.nelecas)
 mypdft.kernel(mo_coeff=mo_coeff, ci0=mc.ci)
@@ -51,8 +50,10 @@ mc = mcscf.state_average_(mc, weights=[0.5, 0.5])
 mc.kernel()
 
 # Assembling the full space mo_coeffs
-mo_coeff = assemble_mo(mf, trans_coeff, mc.mo_coeff)
+mo_coeff = mypdmet.assemble_mo(mc.mo_coeff)
+mypdft = mcpdft.CASCI(mf, 'tPBE', mc.ncas, mc.nelecas)
+mypdft.fcisolver = csf_solver(cell, smult=1)
+mypdft.fcisolver.nroots = 2
+mypdft.ci = mc.ci
+mypdft.kernel(mo_coeff=mo_coeff)
 
-for i in range(len(mc.ci)):
-    mypdft = mcpdft.CASCI(mf, 'tPBE', mc.ncas, mc.nelecas)
-    mypdft.kernel(mo_coeff=mo_coeff, ci0=mc.ci[i])

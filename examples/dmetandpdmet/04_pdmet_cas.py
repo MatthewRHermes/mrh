@@ -1,8 +1,8 @@
 import numpy as np
-from pyscf import lib, mcscf
+from pyscf import mcscf
 from pyscf.pbc import gto, scf, df
-from mrh.my_pyscf.pdmet import runpDMET 
 from pyscf.csf_fci import csf_solver
+from mrh.my_pyscf.pdmet import runpDMET
 
 np.set_printoptions(precision=4)
 
@@ -26,12 +26,12 @@ mf.exxdiv = None
 mf.with_df._cderi = 'N2.h5'
 mf.kernel()
 
-dmet_mf, trans_coeff = runpDMET(mf, lo_method='meta-lowdin', bath_tol=1e-10, atmlst=[0, 1], density_fit=True)
+dmet_mf, mypdmet = runpDMET(mf, lo_method='meta-lowdin', bath_tol=1e-10, atmlst=[0, 1], density_fit=True)
 
 assert abs((mf.e_tot - dmet_mf.e_tot)) < 1e-7, "Something went wrong."
 
 # CASCI Calculation
-mc = mcscf.CASCI(dmet_mf,8,10)
+mc = mcscf.CASCI(dmet_mf, 8, 10)
 mc.fcisolver  = csf_solver(cell, smult=1)
 mc.kernel()
 
