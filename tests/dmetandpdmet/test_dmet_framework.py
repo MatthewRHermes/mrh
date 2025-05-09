@@ -34,6 +34,39 @@ def get_mole2():
     mol.build()
     return mol
 
+def add_hydrogen_to_water(atom, com, d):
+    '''
+    Here, based on the center of mass (COM) of the water molecule, 
+    I am randomly adding a hydrogen atom anywhere on the surface of 
+    a sphere, which is drawn using the given radius dd from 
+    the COM of the water molecule.
+    '''
+    phi = np.random.uniform(0, 2 * np.pi)
+    theta = np.random.uniform(0, np.pi)
+    x = com[0] + d * np.sin(theta) * np.cos(phi)
+    y = com[1] + d * np.sin(theta) * np.sin(phi)
+    z = com[2] + d * np.cos(theta)
+    atom.append(['H', [x, y, z]])
+    return atom
+
+def get_mole3():
+    mol = gto.Mole(basis='CC-PVDZ', spin=0, charge=0, verbose=0)
+    mol.atom = [['O', [0.0000, 0.0000, 0.0000]],
+                ['H', [0.9572, 0.0000, 0.0000]],
+                ['H', [-0.478, 0.8289, 0.0000]]]
+    mol.build()
+    
+    # Now add Hydrogen
+    dis = 4.0
+    mass = mol.atom_mass_list()
+    coords = mol.atom_coords()
+    com = mass.dot(coords) / mass.sum()
+    atom = add_hydrogen_to_water(mol.atom, com, dis)
+    mol.atom = atom
+    mol.spin = 1
+    mol.build()
+    return mol
+
 class KnownValues(unittest.TestCase):
 
     # RHF Embedding
@@ -94,6 +127,19 @@ class KnownValues(unittest.TestCase):
         mf.kernel()
         e_ref = mf.e_tot
         dmet_mf = runDMET(mf, lo_method='lowdin', bath_tol=1e-10, atmlst=[0,])[0]
+        e_check = dmet_mf.e_tot
+        del mol, mf, dmet_mf
+        self.assertAlmostEqual(e_ref, e_check, 6)
+
+    def test_tough_rohf(self):
+        '''
+        In this test, I am only having H as fragment, with water as environment.
+        '''
+        mol = get_mole3()
+        mf = scf.ROHF(mol)
+        mf.kernel()
+        e_ref = mf.e_tot
+        dmet_mf = runDMET(mf, lo_method='lowdin', bath_tol=1e-10, atmlst=[3])[0]
         e_check = dmet_mf.e_tot
         del mol, mf, dmet_mf
         self.assertAlmostEqual(e_ref, e_check, 6)
