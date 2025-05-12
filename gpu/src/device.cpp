@@ -3084,7 +3084,7 @@ void Device::init_eri_impham(int naoaux, int nao_f, int return_4c2eeri)
 {
   double t0 = omp_get_wtime();
   
-  profile_start("init_eri_impham");
+  pm->dev_profile_start("init_eri_impham");
 
   int nao_f_pair = nao_f*(nao_f+1)/2;
   int _size_eri_impham;
@@ -3197,7 +3197,7 @@ void Device::compute_eri_impham(int nao_s, int nao_f, int blksize, int naux, int
   pm->dev_stream_wait();
   for (int i =0;i<nao_f_pair;++i){ for (int j=0;j<nao_f_pair;++j){printf("%f\t",h_eri_impham[i*nao_f_pair+j]); }printf("\n");}
   #endif
-  profile_stop();
+  pm->dev_profile_stop();
   double t1 = omp_get_wtime();
   t_array[12] += t1 - t0;
   // counts in pull eri_impham
@@ -3210,7 +3210,7 @@ void Device::compute_eri_impham_v2(int nao_s, int nao_f, int blksize, int naux, 
   printf("LIBGPU :: Inside Device::comute_eri_impham()\n");
 #endif
 
-  profile_start("compute_eri_impham");
+  pm->dev_profile_start("compute_eri_impham");
   double t0 = omp_get_wtime();
 
   const int device_id = count % num_devices;
