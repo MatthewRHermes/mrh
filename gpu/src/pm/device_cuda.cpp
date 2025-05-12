@@ -176,6 +176,25 @@ __global__ void _getjk_unpack_buf2(double * buf2, double * eri1, int * map, int 
 #endif
 
 /* ---------------------------------------------------------------------- */
+__global__ void _pack_eri1(double * eri1, double * buf2, int * map, int naux, int nao, int nao_pair)
+{
+ //eri1 is out, buf2 is in, we are packing buf2 of shape naux * nao * nao to eri1 of shape naux * nao_pair 
+  const int i = blockIdx.x * blockDim.x + threadIdx.x;
+  const int j = blockIdx.y * blockDim.y + threadIdx.y;
+
+  if(i >= naux) return;
+  if(j >= nao) return;
+
+  double * buf = &(buf2[i * nao * nao]);
+  double * tril = &(eri1[i * nao_pair]);
+
+  const int indx = j * nao;
+  //for(int k=0; k<nao; ++k) buf[indx+k] = tril[ map[indx+k] ];  
+  for(int k=0; k<nao; ++k) tril[map[indx+k]] = buf[ indx+k ];  
+}
+
+/* ---------------------------------------------------------------------- */
+
 
 #if 1
 
@@ -506,6 +525,30 @@ void Device::getjk_unpack_buf2(double * buf2, double * eri, int * map, int naux,
 }
 
 /* ---------------------------------------------------------------------- */
+void Device::pack_eri(double * eri1, double * buf2, int * map, int naux, int nao, int nao_pair)
+{
+#if 1
+  //dim3 grid_size(naux, _TILE(nao, _UNPACK_BLOCK_SIZE), 1);
+  //dim3 block_size(1, _UNPACK_BLOCK_SIZE, 1);
+  dim3 grid_size(naux, nao, 1);
+  dim3 block_size(1,1, 1);
+#else
+  dim3 grid_size(naux, _TILE(nao*nao, _UNPACK_BLOCK_SIZE), 1);
+  dim3 block_size(1, _UNPACK_BLOCK_SIZE, 1);
+#endif
+  cudaStream_t s = *(pm->dev_get_queue());
+  
+  _pack_eri1<<<grid_size, block_size, 0, s>>>(eri1, buf2, map, naux, nao, nao_pair);
+  
+#ifdef _DEBUG_DEVICE
+  printf("LIBGPU :: _pack_eri1 :: naux= %i  nao= %i _UNPACK_BLOCK_SIZE= %i  grid_size= %i %i %i  block_size= %i %i %i\n",
+	 naux, nao, _UNPACK_BLOCK_SIZE, grid_size.x,grid_size.y,grid_size.z,block_size.x,block_size.y,block_size.z);
+  _CUDA_CHECK_ERRORS();
+#endif
+}
+
+/* ---------------------------------------------------------------------- */
+
 
 void Device::transpose(double * out, double * in, int nrow, int ncol)
 {

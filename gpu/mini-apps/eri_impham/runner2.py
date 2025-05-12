@@ -23,11 +23,14 @@ if gpu_run:
     import gpu4mrh
     from gpu4mrh import patch_pyscf
     from mrh.my_pyscf.gpu import libgpu
-    gpu=libgpu.libgpu_init()
+    gpu=libgpu.init()
 
-def impham_cpu_original(self, imporb_coeff):
+def impham_cpu_original(self, imporb_coeff, return_4c2eeri):
     mf = self._scf
     nimp = imporb_coeff.shape[1]
+    #if return_4c2eeri:   
+    #    _cderi=np.empty((nimp*(nimp+1)//2, nimp*(nimp+1)//2),dtype=imporb_coeff.dtype)
+    #else: 
     _cderi=np.empty((mf.with_df.get_naoaux(), nimp*(nimp+1)//2),dtype=imporb_coeff.dtype)
     blksize=240
     b0=0
@@ -37,9 +40,12 @@ def impham_cpu_original(self, imporb_coeff):
         eri2=_cderi[b0:b1]
         eri2 = ao2mo._ao2mo.nr_e2 (eri1, moij, ijslice, aosym='s2', mosym=ijmosym,out=eri2)
         b0 = b1
-    return lib.unpack_tril(_cderi)
+    if return_4c2eeri:
+        return np.dot (_cderi.conj ().T, _cderi)
+    else: 
+        return _cderi
        
-def impham_cpu_naive(self, imporb_coeff):
+def impham_cpu_naive(self, imporb_coeff,return_4c2eeri):
     mf = self._scf
     nimp = imporb_coeff.shape[1]
     _cderi=np.empty((mf.with_df.get_naoaux(), nimp, nimp),dtype=imporb_coeff.dtype)
@@ -50,27 +56,32 @@ def impham_cpu_naive(self, imporb_coeff):
         eri_up = lib.unpack_tril(eri1)
         _cderi[b0:b1]=np.einsum('pIj,jJ->pIJ',np.einsum('pij,iI->pIj',eri_up,imporb_coeff),imporb_coeff)
         b0 = b1
-    return _cderi
+    return lib.pack_tril(_cderi)
 
-def impham_gpu_v1(self, imporb_coeff):
+def impham_gpu_v1(self, imporb_coeff,return_4c2eeri):
     
     mf=self._scf
     nao_s,nao_f = imporb_coeff.shape
     naoaux = mf.with_df.get_naoaux()
     blksize=mf.with_df.blockdim
-    _cderi=np.empty((naoaux, nao_f, nao_f),dtype=imporb_coeff.dtype)
-    libgpu.libgpu_push_mo_coeff(gpu, imporb_coeff, nao_s*nao_f)
-    libgpu.libgpu_init_eri_impham(gpu, naoaux, nao_f)
+    #_cderi=np.empty((naoaux, nao_f, nao_f),dtype=imporb_coeff.dtype)
+    if return_4c2eeri:   
+        cderi=np.zeros((nao_f*(nao_f+1)//2, nao_f*(nao_f+1)//2),dtype=imporb_coeff.dtype)
+    else: 
+        cderi=np.zeros((mf.with_df.get_naoaux(), nao_f*(nao_f+1)//2),dtype=imporb_coeff.dtype)
+    libgpu.push_mo_coeff(gpu, imporb_coeff, nao_s*nao_f)
+    libgpu.init_eri_impham(gpu, naoaux, nao_f,return_4c2eeri)
     for k, eri1 in enumerate(mf.with_df.loop(blksize)):pass;
     for count in range(k+1): 
         arg = np.array([-1, -1, count, -1], dtype = np.int32)
-        libgpu.libgpu_get_dfobj_status(gpu, id(mf.with_df),arg)
+        libgpu.get_dfobj_status(gpu, id(mf.with_df),arg)
         naux = arg[0]
-        libgpu.libgpu_compute_eri_impham (gpu, nao_s, nao_f, blksize, naux, count, id(mf.with_df))
-    libgpu.libgpu_pull_eri_impham(gpu, _cderi, naoaux, nao_f, nao_f)  
-    return _cderi
+        libgpu.compute_eri_impham (gpu, nao_s, nao_f, blksize, naux, count, id(mf.with_df),return_4c2eeri)
+    libgpu.pull_eri_impham(gpu, cderi, naoaux, nao_f,return_4c2eeri)  
+    return cderi
 
-nfrags=8;basis='ccpvdz';
+nfrags=2;basis='sto3g';
+nimp=3
 atom=generator(nfrags)
 if gpu_run:mol=gto.M(use_gpu=gpu, atom=atom,basis=basis)
 else: mol=gto.M(atom=atom,basis=basis)
@@ -79,21 +90,32 @@ mf=mf.density_fit().newton()
 mf.max_cycle=1
 mf.run()
 
+def tester (las, imporb_coeff, return_4c2eeri=True):
+    imporb_coeff=np.ascontiguousarray(imporb_coeff)
+    cderi_original = impham_cpu_original(las,imporb_coeff,return_4c2eeri) 
+    cderi_gpu_v1 = impham_gpu_v1(las,imporb_coeff,return_4c2eeri) 
+    if not (np.allclose(cderi_original,cderi_gpu_v1)):
+        diff =np.abs(cderi_original-cderi_gpu_v1)
+        idx = np.unravel_index(np.argmax(diff),diff.shape)
+        print(np.max(diff), idx, diff.shape, cderi_original[idx],cderi_gpu_v1[idx], np.average(diff))
+        exit()
+    else:
+        print("we are done!!! commit and good night")
+
+
 if gpu_run:las=LASSCF(mf, list((2,)*nfrags),list((2,)*nfrags), use_gpu=gpu,verbose=4)
 frag_atom_list=[list(range(1+4*nfrag,3+4*nfrag)) for nfrag in range(nfrags)]
 ncas,nelecas,guess_mo_coeff=avas.kernel(mf, ["C 2pz"])
 mo_coeff=las.set_fragments_(frag_atom_list, guess_mo_coeff)
 
 nao, nmo = mf.mo_coeff.shape
-imporb_coeff=np.random.random((nao, 144)).astype(np.float64)-.5#,dtype=np.float64)
+imporb_coeff=np.random.random((nao, nimp)).astype(np.float64)-.5#,dtype=np.float64)
 
-cderi_original = impham_cpu_original(las,imporb_coeff) 
-cderi_gpu_v1 = impham_gpu_v1(las,imporb_coeff) 
-if DEBUG and not (np.allclose(cderi_original,cderi_gpu_v1)):
-    diff =np.abs(cderi_original-cderi_gpu_v1)
-    print(np.max(diff), np.unravel_index(np.argmax(diff),diff.shape))
-else:
-    print("we are done!!! commit and good night")
+tester (las, imporb_coeff, return_4c2eeri=True)
+tester (las, np.random.random((nao, 5)).astype(np.float64)-.5, return_4c2eeri=False)
+tester (las, np.random.random((nao, 10)).astype(np.float64)-.5, return_4c2eeri=True)
+#tester (las, np.random.random((nao, nimp//3)).astype(np.float64)-.5)
+#tester (las, np.random.random((nao, nimp*2)).astype(np.float64)-.5)
 
 if TIMING:
     n=15

@@ -2,7 +2,7 @@
 GPL research code of Matthew R. Hermes
 
 ### WARNING!
-MC-PDFT and MC-DCFT modules (other than a few experimental features) have been *moved to [pyscf-forge](https://github.com/pyscf/pyscf-forge)* and are currently in the process of being removed from this project.
+The CSF-basis FCI solver and MC-PDFT and MC-DCFT modules (other than a few experimental features) have been *moved to [pyscf-forge](https://github.com/pyscf/pyscf-forge)* and are currently in the process of being removed from this project.
 
 ### DEPENDENCIES:
 - PySCF, including all header files in pyscf/lib

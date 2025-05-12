@@ -10,7 +10,7 @@ from mrh.my_pyscf.fci.csfstring import CSFTransformer
 from mrh.my_pyscf.fci.spin_op import contract_sdown, contract_sup, mdown, mup
 from mrh.my_pyscf.mcscf.lasci import get_space_info
 from mrh.my_pyscf.mcscf.productstate import ProductStateFCISolver
-from mrh.my_pyscf.lassi.excitations import ExcitationPSFCISolver
+from mrh.my_pyscf.lassi.lassis.excitations import ExcitationPSFCISolver
 from mrh.my_pyscf.lassi.spaces import spin_shuffle, spin_shuffle_ci
 from mrh.my_pyscf.lassi.spaces import _spin_shuffle, list_spaces
 from mrh.my_pyscf.lassi.spaces import all_single_excitations

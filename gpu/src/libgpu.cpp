@@ -307,23 +307,31 @@ void libgpu_pull_eri_h2eff(void * ptr,
 }
 /* ---------------------------------------------------------------------- */
 void libgpu_init_eri_impham(void * ptr, 
-                               int naux, int nao_f)
+                               int naoaux, int nao_f, int return_4c2eeri)
 {
   Device * dev = (Device *) ptr;
-  dev->init_eri_impham(naux, nao_f);
+  dev->init_eri_impham(naoaux, nao_f, return_4c2eeri);
 }
 /* ---------------------------------------------------------------------- */
 void libgpu_compute_eri_impham(void * ptr, 
-                               int nao_s, int nao_f, int blksize, int naux, int count, size_t addr_dfobj)
+                               int nao_s, int nao_f, int blksize, int naux, int count, size_t addr_dfobj, int return_4c2eeri)
 {
   Device * dev = (Device *) ptr;
-  dev->compute_eri_impham(nao_s, nao_f, blksize, naux, count, addr_dfobj);
+  dev->compute_eri_impham(nao_s, nao_f, blksize, naux, count, addr_dfobj, return_4c2eeri);
 }
 /* ---------------------------------------------------------------------- */
 void libgpu_pull_eri_impham(void * ptr, 
-                               py::array_t<double> _cderi, int naux, int nao_s, int nao_f)
+                               py::array_t<double> _cderi, int naoaux, int nao_f, int return_4c2eeri)
 {
   Device * dev = (Device *) ptr;
-  dev->pull_eri_impham(_cderi, naux, nao_s, nao_f);
+  dev->pull_eri_impham(_cderi, naoaux, nao_f, return_4c2eeri);
 }
+/* ---------------------------------------------------------------------- */
+void libgpu_compute_eri_impham_v2(void * ptr, 
+                               int nao_s, int nao_f, int blksize, int naux, int count, size_t addr_dfobj_in, size_t addr_dfobj_out)
+{
+  Device * dev = (Device *) ptr;
+  dev->compute_eri_impham_v2(nao_s, nao_f, blksize, naux, count, addr_dfobj_in, addr_dfobj_out);
+}
+
 /* ---------------------------------------------------------------------- */

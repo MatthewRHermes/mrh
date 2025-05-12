@@ -52,6 +52,8 @@ def vector_error (test, ref, err_type='norm', ang_units='rad'):
         if numer > denom:
             assert (np.isclose (numer, denom))
             theta = 0
+        elif abs (numer+denom) < 1e-8:
+            theta = math.pi
         else:
             print (numer, denom)
             raise (e)
