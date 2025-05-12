@@ -14,6 +14,8 @@
 #include "pm_cuda.h"
 #elif defined(_GPU_SYCL) || defined(_GPU_SYCL_CUDA)
 #include "pm_sycl.h"
+#elif defined(_GPU_HIP)
+#include "pm_hip.h"
 #elif defined(_GPU_OPENMP)
 #error "Attempting to use -D_GPU_OPENMP which is not currently supported"
 #include "pm_openmp.h"

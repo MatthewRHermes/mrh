@@ -278,8 +278,7 @@ def ci_cycle (las, mo, ci0, veff, h2eff_sub, casdm1frs, log):
                                                                       las.nelecas_sub, h1eff_sub,
                                                                       ci0)):
         eri_cas = las.get_h2eff_slice (h2eff_sub, isub, compact=8)
-        #max_memory = max(400, las.max_memory-lib.current_memory()[0])
-        # Issue #54: compute max_memory here, or in fcisolver?
+        max_memory = max(400, las.max_memory-lib.current_memory()[0])
         orbsym = getattr (mo, 'orbsym', None)
         if orbsym is not None:
             i = ncas_cum[isub]
@@ -306,7 +305,7 @@ def ci_cycle (las, mo, ci0, veff, h2eff_sub, casdm1frs, log):
         if isub not in frozen_ci:
             e_sub, fcivec = fcibox.kernel(h1e, eri_cas, ncas, nelecas,
                                           ci0=fcivec, verbose=log,
-                                          #max_memory = max_memory issue #54
+                                          max_memory = max_memory,
                                           ecore=e0, orbsym=orbsym)
         else:
             e_sub = 0 # TODO: proper energy calculation (probably doesn't matter tho)
@@ -1054,6 +1053,7 @@ class LASCI_HessianOperator (sparse_linalg.LinearOperator):
         bPbi = self.bPpj[:,ncore:,:ncore]
         vk_bj += np.tensordot (bPbi, vPji, axes=((0,2),(0,2)))                    
         t1 = lib.logger.timer (self.las, 'vk_mo (bi|aj) in microcycle', *t1)
+        t0 = lib.logger.timer (self.las, 'vj and vk mo', *t0)
 
         # veff
         vj_bj = vj_pj[ncore:,:]

@@ -95,14 +95,18 @@ void PM::dev_properties(int ndev)
 int PM::dev_check_peer(int rank, int ngpus)
 {
 #ifdef _DEBUG_PM
-  printf("Inside PM::dev_check_peer()\n");
+  if(rank == 0) {
+    printf("Inside PM::dev_check_peer()\n");
+    printf("\nLIBGPU: Checking P2P Access for ngpus= %i\n",ngpus);
+  }
 #endif
   
-  int err = 0;
-  if(rank == 0) printf("\nChecking P2P Access\n");
+  int err = 0;  
   for(int ig=0; ig<ngpus; ++ig) {
     cudaSetDevice(ig);
-    //if(rank == 0) printf("Device i= %i\n",ig);
+#ifdef _DEBUG_PM
+    if(rank == 0) printf("LIBGPU: -- Device i= %i\n",ig);
+#endif
 
     int n = 1;
     for(int jg=0; jg<ngpus; ++jg) {
@@ -110,18 +114,42 @@ int PM::dev_check_peer(int rank, int ngpus)
         int access;
         cudaDeviceCanAccessPeer(&access, ig, jg);
         n += access;
-
-        //if(rank == 0) printf("  --  Device j= %i  access= %i\n",jg,access);
+#ifdef _DEBUG_PM	
+        if(rank == 0) printf("LIBGPU: --  --  Device j= %i  access= %i\n",jg,access);
+#endif
       }
     }
     if(n != ngpus) err += 1;
   }
-
+  
 #ifdef _DEBUG_PM
   printf(" -- Leaving PM::dev_check_peer()\n");
 #endif
   
   return err;
+}
+
+void PM::dev_enable_peer(int rank, int ngpus)
+{
+#ifdef _DEBUG_PM
+  if(rank == 0) {
+    printf("Inside PM::dev_enable_peer()\n");
+    printf("LIBGPU: -- Enabling peer access for ngpus= %i\n",ngpus);
+  }
+#endif
+
+  for(int ig=0; ig<ngpus; ++ig) {
+    cudaSetDevice(ig);
+    
+    for(int jg=0; jg<ngpus; ++jg) {
+      if(jg != ig) cudaDeviceEnablePeerAccess(jg, 0);
+    }
+    
+  }
+  
+#ifdef _DEBUG_PM
+  printf(" -- Leaving PM::dev_enable_peer()\n");
+#endif
 }
 
 void PM::dev_set_device(int id)
@@ -184,7 +212,11 @@ void * PM::dev_malloc_async(size_t N)
 #endif
 
   void * ptr;
+#ifdef _NO_CUDA_ASYNC
+  cudaMalloc((void**) &ptr, N);
+#else
   cudaMallocAsync((void**) &ptr, N, *current_queue);
+#endif
   _CUDA_CHECK_ERRORS();
   
 #ifdef _DEBUG_PM
@@ -201,7 +233,11 @@ void * PM::dev_malloc_async(size_t N, cudaStream_t &s)
 #endif
   
   void * ptr;
+#ifdef _NO_CUDA_ASYNC
+  cudaMalloc((void**) &ptr, N);
+#else
   cudaMallocAsync((void**) &ptr, N, s);
+#endif
   _CUDA_CHECK_ERRORS();
   
 #ifdef _DEBUG_PM
@@ -247,8 +283,12 @@ void PM::dev_free_async(void * ptr)
 #ifdef _DEBUG_PM
   printf("Inside PM::dev_free_async()\n");
 #endif
-  
+ 
+#ifdef _NO_CUDA_ASYNC
+  if(ptr) cudaFree(ptr);
+#else 
   if(ptr) cudaFreeAsync(ptr, *current_queue);
+#endif
   _CUDA_CHECK_ERRORS();
   
 #ifdef _DEBUG_PM
@@ -261,8 +301,12 @@ void PM::dev_free_async(void * ptr, cudaStream_t &s)
 #ifdef _DEBUG_PM
   printf("Inside PM::dev_free_async()\n");
 #endif
-  
+ 
+#ifdef _NO_CUDA_ASYNC
+  if(ptr) cudaFree(ptr);
+#else 
   if(ptr) cudaFreeAsync(ptr, s);
+#endif
   _CUDA_CHECK_ERRORS();
   
 #ifdef _DEBUG_PM
@@ -372,13 +416,40 @@ void PM::dev_pull_async(void * d_ptr, void * h_ptr, size_t N, cudaStream_t &s)
 #endif
 }
 
+void PM::dev_memcpy_peer(void * d_ptr, int dest, void * s_ptr, int src, size_t N)
+{
+#ifdef _DEBUG_PM
+  printf("Inside PM::dev_memcpy_peer()\n");
+#endif
+  
+  cudaMemcpyPeer(d_ptr, dest, s_ptr, src, N);
+  _CUDA_CHECK_ERRORS();
+  
+#ifdef _DEBUG_PM
+  printf(" -- Leaving PM::dev_memcpy_peer()\n");
+#endif
+}
+
+void PM::dev_memcpy_peer_async(void * d_ptr, int dest, void * s_ptr, int src, size_t N)
+{
+#ifdef _DEBUG_PM
+  printf("Inside PM::dev_memcpy_peer_async()\n");
+#endif
+  
+  cudaMemcpyPeerAsync(d_ptr, dest, s_ptr, src, N, *current_queue);
+  _CUDA_CHECK_ERRORS();
+  
+#ifdef _DEBUG_PM
+  printf(" -- Leaving PM::dev_memcpy_peer_async()\n");
+#endif
+}
+
 void PM::dev_copy(void * dest, void * src, size_t N)
 { 
 #ifdef _DEBUG_PM
   printf("Inside PM::dev_copy()\n");
 #endif
   
-  printf("correct usage dest vs. src??]n");
   cudaMemcpy(dest, src, N, cudaMemcpyDeviceToDevice);
   _CUDA_CHECK_ERRORS();
   
@@ -559,6 +630,34 @@ cudaStream_t * PM::dev_get_queue()
 #endif
 
   return q;
+}
+
+/* ---------------------------------------------------------------------- */
+
+void PM::dev_profile_start(const char * label)
+{
+#ifdef _USE_NVTX
+  nvtxRangePushA(label);
+#endif
+}
+
+/* ---------------------------------------------------------------------- */
+
+void PM::dev_profile_stop()
+{
+#ifdef _USE_NVTX
+  nvtxRangePop();
+#endif
+}
+
+/* ---------------------------------------------------------------------- */
+
+void PM::dev_profile_next(const char * label)
+{
+#ifdef _USE_NVTX
+  nvtxRangePop();
+  nvtxRangePushA(label);
+#endif
 }
 
 #endif

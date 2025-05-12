@@ -141,13 +141,27 @@ class ImpuritySCF (scf.hf.SCF):
                                dtype=imporb_coeff.dtype)
             ijmosym, mij_pair, moij, ijslice = ao2mo.incore._conc_mos (imporb_coeff, imporb_coeff,
                                                                         compact=True)
+            print("imporb_coeff:", imporb_coeff.shape, "nimp:",nimp,"_cderi:",_cderi.shape)
             b0 = 0
-            for eri1 in mf.with_df.loop ():
-                b1 = b0 + eri1.shape[0]
-                eri2 = _cderi[b0:b1]
-                eri2 = ao2mo._ao2mo.nr_e2 (eri1, moij, ijslice, aosym='s2', mosym=ijmosym,
+            if mf.mol.use_gpu and 0: 
+                (nao_s,nao_f) = imporb_coeff.shape # System * Fragment
+                naux = mf.with_df.get_naoaux()
+                libgpu.libgpu_push_mo_coeff(gpu, imporb_coeff, nao_s*nao_f)
+                libgpu.libgpu_init_eri_impham(gpu, naux, nao_f)
+                for k, eri1 in enumerate(with_df.loop(blksize)):pass;
+                for count in range(k+1): 
+                    arg = numpy.array([-1, -1, count, -1], dtype = numpy.int32)
+                    libgpu.libgpu_get_dfobj_status(gpu, id(with_df),arg)
+                    naux = arg[0]
+                    libgpu.libgpu_compute_eri_impham (gpu, nao_s, nao_f, blksize, naux, count, id(with_df))
+                libgpu.libgpu_pull_eri_impham(gpu, _cderi, naux, nao_s, nao_f)  
+            else:
+                for eri1 in mf.with_df.loop ():
+                    b1 = b0 + eri1.shape[0]
+                    eri2 = _cderi[b0:b1]
+                    eri2 = ao2mo._ao2mo.nr_e2 (eri1, moij, ijslice, aosym='s2', mosym=ijmosym,
                                            out=eri2)
-                b0 = b1
+                    b0 = b1
             if getattr (self, 'with_df', None) is not None:
                 self.with_df._cderi = _cderi
             else:
@@ -580,10 +594,13 @@ class ImpuritySolver ():
         output_shape = list (dm1rs_ext.shape[:-2]) + [self.mol.nao (), self.mol.nao ()]
         dm1 = dm1rs_ext.reshape (-1, mo_ext.shape[1], mo_ext.shape[1])
         if bmPu is not None:
+            log = logger.new_logger (self, self.verbose)
+            t_vj = (logger.process_clock(), logger.perf_counter())
             bPuu = np.tensordot (bmPu, mo_ext, axes=((0),(0)))
             rho = np.tensordot (dm1, bPuu, axes=((1,2),(1,2)))
             bPii = self._scf._cderi
             vj = lib.unpack_tril (np.tensordot (rho, bPii, axes=((-1),(0))))
+            t_vj = log.timer("vj ext", *t_vj)    
         else: # Safety case: AO-basis SCF driver
             imporb_coeff = self.mol.get_imporb_coeff ()
             dm1 = np.dot (mo_ext, np.dot (dm1, mo_ext.conj().T)).transpose (1,0,2)
@@ -596,9 +613,12 @@ class ImpuritySolver ():
         dm1 = dm1rs_ext.reshape (-1, mo_ext.shape[1], mo_ext.shape[1])
         imporb_coeff = self.mol.get_imporb_coeff ()
         if bmPu is not None:
+            log = logger.new_logger (self, self.verbose)
+            t_vk = (logger.process_clock(), logger.perf_counter())
             biPu = np.tensordot (imporb_coeff, bmPu, axes=((0),(0)))
             vuiP = np.tensordot (dm1, biPu, axes=((-1),(-1)))
             vk = np.tensordot (vuiP, biPu, axes=((-3,-1),(-1,-2)))
+            t_vk = log.timer("vk ext", *t_vk)    
         else: # Safety case: AO-basis SCF driver
             dm1 = np.dot (mo_ext, np.dot (dm1, mo_ext.conj().T)).transpose (1,0,2)
             #vk = self.mol._las._scf.get_k (dm=dm1) 

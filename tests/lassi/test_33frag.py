@@ -6,7 +6,6 @@ from pyscf import lib, gto, scf
 from pyscf.lo import orth
 from mrh.my_pyscf.mcscf import lasscf_o0
 from mrh.my_pyscf.lassi import LASSIrq, LASSIS, lassi
-from mrh.my_pyscf import mcpdft
 
 # The purpose of this test is to make sure the LASSI kernel doesn't try to build an array with
 # nfrags dimensions at any point in the calculation.
@@ -32,7 +31,9 @@ class KnownValues(unittest.TestCase):
 
     def test_lassi01 (self):
         lsi = LASSIrq (las, 0, 1).run ()
+        lsid = LASSIrq (las, 0, 1).run (davidson_only=True)
         rdm1s, rdm2s = lassi.root_make_rdm12s(lsi, lsi.ci, lsi.si, state=0)
+        rdm1s, rdm2s = lassi.root_make_rdm12s(lsid, lsid.ci, lsid.si, state=0)
 
 if __name__ == "__main__":
     print("Full Tests for LASSI 33-fragment calculation")

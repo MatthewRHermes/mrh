@@ -16,7 +16,7 @@ import os
 import copy
 import unittest
 import numpy as np
-from pyscf import gto, scf, mcscf
+from pyscf import gto, scf, mcscf, df
 from pyscf.lib import chkfile
 from pyscf.mcscf import avas
 from pyscf.data import nist
@@ -87,6 +87,40 @@ class KnownValues(unittest.TestCase):
         de = 1000 * (e_str - e_equil)
         self.assertAlmostEqual (de, 208.27109298022606, 1)
 
+    def test_c2h4n4_3frag_davidson (self):
+        # str
+        mol = struct (2.0, 2.0, '6-31g', symmetry=False)
+        mol.output = '/dev/null'
+        mol.verbose = 0
+        mol.spin = 8
+        mol.build ()
+        mf = scf.RHF (mol).run () 
+        las = LASSCF (mf, (4,2,4), ((2,2),(1,1),(2,2)), spin_sub=(1,1,1))
+        mo_coeff = las.localize_init_guess ([[0,1,2],[3,4,5,6],[7,8,9]])
+        las.kernel (mo_coeff)
+        lsi = lassi.LASSIS (las).run (davidson_only=True)
+        e_str = lsi.e_roots[0]
+        with self.subTest ('str converged'):
+            self.assertTrue (lsi.converged)
+        # equil
+        mol = struct (0.0, 0.0, '6-31g', symmetry=False)
+        mol.spin = 0
+        mol.verbose = 0
+        mol.output = '/dev/null'
+        mol.build ()
+        mf = scf.RHF (mol).run ()
+        las = LASSCF (mf, (4,2,4), ((2,2),(1,1),(2,2)), spin_sub=(1,1,1))
+        mo_coeff = las.sort_mo ([7,8,16,18,22,23,24,26,33,34])
+        mo_coeff = las.localize_init_guess ([[0,1,2],[3,4,5,6],[7,8,9]], mo_coeff=mo_coeff)
+        las.kernel (mo_coeff)
+        lsi = lassi.LASSIS (las).run (davidson_only=True)
+        e_equil = lsi.e_roots[0]
+        with self.subTest ('equil converged'):
+            self.assertTrue (lsi.converged)
+        # test
+        de = 1000 * (e_str - e_equil)
+        self.assertAlmostEqual (de, 208.27109298022606, 1)
+
     def test_c2h4n4_2frag (self):
         # str
         mol = struct (2.0, 2.0, '6-31g', symmetry=False)
@@ -130,6 +164,56 @@ class KnownValues(unittest.TestCase):
         las = lasscf_async.LASSCF (mf, (5,5), ((3,2),(2,3)))
         las.lasci_(mo_coeff)
         lsi = lassi.LASSIS (las).run ()
+        e_equil = lsi.e_roots[0]
+        with self.subTest ('equil converged'):
+            self.assertTrue (lsi.converged)
+        # test
+        de = 1000 * (e_str - e_equil)
+        self.assertAlmostEqual (de, 190.6731766549683, 1)
+
+    def test_c2h4n4_2frag_davidson (self):
+        # str
+        mol = struct (2.0, 2.0, '6-31g', symmetry=False)
+        mol.output = '/dev/null'
+        mol.verbose = 0
+        mol.spin = 8
+        mol.build ()
+        mf = scf.RHF (mol).run () 
+        las = lasscf_async.LASSCF (mf, (5,5), ((3,2),(2,3)))
+        las = las.state_average ([0.5,0.5],
+            spins=[[1,-1],[-1,1]],
+            smults=[[2,2],[2,2]],
+            charges=[[0,0],[0,0]],
+            wfnsyms=[[0,0],[0,0]])
+        mo = las.set_fragments_((list (range (5)), list (range (5,10))))
+        las.kernel (mo)
+        mo_coeff = las.mo_coeff
+        las = lasscf_async.LASSCF (mf, (5,5), ((3,2),(2,3)))
+        las.lasci_(mo_coeff)
+        lsi = lassi.LASSIS (las).run (davidson_only=True)
+        e_str = lsi.e_roots[0]
+        with self.subTest ('str converged'):
+            self.assertTrue (lsi.converged)
+        # equil
+        mol = struct (0.0, 0.0, '6-31g', symmetry=False)
+        mol.spin = 0
+        mol.verbose = 0
+        mol.output = '/dev/null'
+        mol.build ()
+        mf = scf.RHF (mol).run ()
+        las = lasscf_async.LASSCF (mf, (5,5), ((3,2),(2,3)))
+        las = las.state_average ([0.5,0.5],
+            spins=[[1,-1],[-1,1]],
+            smults=[[2,2],[2,2]],
+            charges=[[0,0],[0,0]],
+            wfnsyms=[[0,0],[0,0]])
+        mo = las.sort_mo ([7,8,16,18,22,23,24,26,33,34])
+        mo = las.set_fragments_((list (range (5)), list (range (5,10))), mo)
+        las.kernel (mo)
+        mo_coeff = las.mo_coeff
+        las = lasscf_async.LASSCF (mf, (5,5), ((3,2),(2,3)))
+        las.lasci_(mo_coeff)
+        lsi = lassi.LASSIS (las).run (davidson_only=True)
         e_equil = lsi.e_roots[0]
         with self.subTest ('equil converged'):
             self.assertTrue (lsi.converged)
@@ -192,10 +276,12 @@ class KnownValues(unittest.TestCase):
         mo_coeff = las.mo_coeff
         las = LASSCF(mf,(6,6),((3,0),(0,3)),spin_sub=(4,4))
         las.lasci_(mo_coeff)
-        lsi = lassi.LASSIS (las).run ()
-        with self.subTest('convergence'):
-            self.assertTrue (lsi.converged)
-        self.assertAlmostEqual (yamaguchi (lsi.e_roots, lsi.s2, 6), -12.406510069940726, 2)
+        for dson in (False, True):
+            lsi = lassi.LASSIS (las).run (davidson_only=dson, nroots_si=4)
+            with self.subTest('convergence', davidson_only=dson):
+                self.assertTrue (lsi.converged)
+            with self.subTest(davidson_only=dson):
+                self.assertAlmostEqual (yamaguchi (lsi.e_roots, lsi.s2, 6), -12.406510069940726, 2)
 
     def test_alfefe (self):
         xyz='''O -2.2201982441 0.3991903003 1.6944716989
@@ -232,7 +318,7 @@ class KnownValues(unittest.TestCase):
         mf = scf.ROHF(mol)
         mf.init_guess='chk'
         mf.chkfile='test_lassis_targets_slow.alfefe.chk'
-        mf = mf.density_fit()
+        mf = mf.density_fit(auxbasis = df.aug_etb (mol))
         mf.max_cycle=100
         mf.kernel()
         las = LASSCF (mf, (5,5), ((5,1),(5,0)), spin_sub=(5,6))
@@ -250,10 +336,12 @@ class KnownValues(unittest.TestCase):
         mf.chkfile = None # prevent the spins flips down there from messing things up
         las2 = LASSCF (mf, (5,5), ((1,5),(5,0)), spin_sub=(5,6))
         las2.lasci_(las.mo_coeff)
-        lsi = lassi.LASSIS (las2).run ()
-        with self.subTest('LASSI convergence'):
-            self.assertTrue (lsi.converged)
-        self.assertAlmostEqual (yamaguchi (lsi.e_roots, lsi.s2, 9), -4.885066730567389, 2)
+        for dson in (False, True):
+            lsi = lassi.LASSIS (las2).run (davidson_only=dson, nroots_si=6)
+            with self.subTest('LASSI convergence', davidson_only=dson):
+                self.assertTrue (lsi.converged)
+            with self.subTest(davidson_only=dson):
+                self.assertAlmostEqual (yamaguchi (lsi.e_roots, lsi.s2, 9), -4.885066730567389, 1)
 
 
 if __name__ == "__main__":

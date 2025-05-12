@@ -92,9 +92,9 @@ public :
  
   void init_jk_ao2mo (int, int);
 
-  void init_ints_ao2mo (int, int, int);
   void init_ints_ao2mo_v3 (int, int, int);
   void init_ppaa_ao2mo (int, int);
+  void init_ppaa_papa_ao2mo (int, int);
 
  
   void df_ao2mo_pass1_v2 (int, int, int, int, int, int,
@@ -104,14 +104,18 @@ public :
 			    py::array_t<double>,
 			    int, size_t);
 
+  void df_ao2mo_v4 (int, int, int, int, int, int,
+			    int, size_t);
   void get_bufpa(const double *, double *, int, int, int, int);
   void get_bufaa(const double *, double *, int, int, int, int);
   void transpose_120(double *, double *, int, int, int, int order = 0);
   void get_bufd(const double *, double *, int, int);
   void pull_jk_ao2mo (py::array_t<double>,py::array_t<double>,int, int);
+  void pull_jk_ao2mo_v4 (py::array_t<double>,py::array_t<double>,int, int);
   void pull_ints_ao2mo (py::array_t<double>,py::array_t<double>, int, int, int, int);
   void pull_ints_ao2mo_v3 (py::array_t<double>, int, int, int, int);
   void pull_ppaa_ao2mo (py::array_t<double>, int, int);
+  void pull_ppaa_papa_ao2mo_v4 (py::array_t<double>,py::array_t<double>, int, int);
   
   
 
@@ -142,12 +146,19 @@ public :
                          int, int, int, int, int, 
                          py::array_t<double>, int, size_t);//VA: new function
   void pull_eri_h2eff(py::array_t<double>, int, int);// VA: new function
+  
+  void init_eri_impham(int, int);
+  void compute_eri_impham(int, int, int, int, int, size_t);
+  void pull_eri_impham( py::array_t<double>, int, int, int);
+
   void extract_mo_cas(int, int, int);//TODO: fix the difference - changed slightly
   void get_mo_cas(const double *, double *, int, int, int);
   void pack_d_vuwM(const double *, double *, int *, int, int, int);
   void pack_d_vuwM_add(const double *, double *, int *, int, int, int);
   
   void push_mo_coeff(py::array_t<double>, int);
+
+  void vecadd(const double *, double *, int);
 private:
 
   class PM * pm;
@@ -156,10 +167,6 @@ private:
   
   double host_compute(double *);
   void get_cores(char *);
-
-  void profile_start(const char *);
-  void profile_stop();
-  void profile_next(const char *);
 
   int verbose_level;
   
@@ -197,17 +204,23 @@ private:
   int size_k_pc;
   int size_j_pc;
   int size_buf_ppaa;
+  int size_buf_papa;
 
   double * buf_j_pc; 
   double * buf_k_pc; 
   double * pin_fxpp;//remove when ao2mo_v3 is running
   double * pin_bufpa;
   double * buf_ppaa;
+  double * buf_papa;
 
   // h2eff_df
   int size_eri_h2eff;
   int size_buf_eri_h2eff;
   double * buf_eri_h2eff;
+
+  // eri_impham
+  int size_eri_impham;
+  double * pin_eri_impham;
 
   // eri caching on device
 
@@ -293,6 +306,7 @@ private:
     double * d_bufpa;
     double * d_bufaa;
     double * d_ppaa;
+    double * d_papa;
     // eri_h2eff
     double * d_eri_h2eff;
 
@@ -310,6 +324,9 @@ private:
 #if defined _GPU_CUBLAS
     cublasHandle_t handle;
     cudaStream_t stream;
+#elif defined _GPU_HIPBLAS
+    hipblasHandle_t handle;
+    hipStream_t stream;
 #elif defined _GPU_MKL
     int * handle;
     sycl::queue * stream;

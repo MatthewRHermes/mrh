@@ -6,7 +6,9 @@
 #include <cuda_runtime_api.h>
 #include "cublas_v2.h"
 
+#ifdef _USE_NVTX
 #include "nvToolsExt.h"
+#endif
 
 #include <iostream>
 #include <vector>
@@ -77,6 +79,10 @@ namespace PM_NS {
     void dev_pull_async(void * d_ptr, void * h_ptr, size_t N);
     void dev_pull_async(void * d_ptr, void * h_ptr, size_t N, cudaStream_t &s);
 
+    void dev_enable_peer(int, int);
+    void dev_memcpy_peer(void * d_ptr, int dest, void * s_ptr, int src, size_t N);
+    void dev_memcpy_peer_async(void * d_ptr, int dest, void * s_ptr, int src, size_t N);
+    
     void dev_check_pointer(int, const char *, void *);
 
     int dev_stream_create();
@@ -88,6 +94,10 @@ namespace PM_NS {
 
     void dev_set_queue(int id);
     cudaStream_t * dev_get_queue();
+    
+    void dev_profile_start(const char *);
+    void dev_profile_stop();
+    void dev_profile_next(const char *);
     
   private:
     

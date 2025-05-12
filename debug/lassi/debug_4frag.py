@@ -33,7 +33,7 @@ from mrh.my_pyscf.lassi import LASSIS
 from mrh.my_pyscf.lassi.op_o1 import get_fdm1_maker
 from mrh.my_pyscf.lassi.sitools import make_sdm1
 from mrh.tests.lassi.addons import case_contract_hlas_ci, case_lassis_fbf_2_model_state
-from mrh.tests.lassi.addons import case_lassis_fbfdm
+from mrh.tests.lassi.addons import case_lassis_fbfdm, case_contract_op_si, debug_contract_op_si
 
 def setUpModule ():
     global mol, mf, las, nroots, nelec_frs, si
@@ -64,7 +64,7 @@ def setUpModule ():
     1       -3.206320000     -3.233120000      0.000000000'''
     
     mol = gto.M (atom = xyz, basis='STO-3G', symmetry=False,
-        verbose=5, output='test_4frag.log')
+        verbose=5, output='debug_4frag.log')
         #verbose=0, output='/dev/null')
     mf = scf.RHF (mol).run ()
     las = LASSCF (mf, (2,2,2,2),((1,1),(1,1),(1,1),(1,1)))
@@ -112,90 +112,110 @@ def tearDownModule():
     del mol, mf, las, nroots, nelec_frs, si
 
 class KnownValues(unittest.TestCase):
-    def test_stdm12s (self):
-        d12_o0 = make_stdm12s (las, opt=0)
-        d12_o1 = make_stdm12s (las, opt=1)
-        for r in range (2):
-            for i, j in product (range (si.shape[0]), repeat=2):
-                with self.subTest (rank=r+1, bra=i, ket=j):
-                    self.assertAlmostEqual (lib.fp (d12_o0[r][i,...,j]),
-                        lib.fp (d12_o1[r][i,...,j]), 9)
+    #def test_stdm12s (self):
+    #    d12_o0 = make_stdm12s (las, opt=0)
+    #    d12_o1 = make_stdm12s (las, opt=1)
+    #    for r in range (2):
+    #        for i, j in product (range (si.shape[0]), repeat=2):
+    #            with self.subTest (rank=r+1, bra=i, ket=j):
+    #                self.assertAlmostEqual (lib.fp (d12_o0[r][i,...,j]),
+    #                    lib.fp (d12_o1[r][i,...,j]), 9)
 
-    def test_ham_s2_ovlp (self):
-        h1, h2 = ham_2q (las, las.mo_coeff, veff_c=None, h2eff_sub=None)[1:]
-        lbls = ('ham','s2','ovlp')
-        mats_o0 = op_o0.ham (las, h1, h2, las.ci, nelec_frs)#, orbsym=orbsym, wfnsym=wfnsym)
-        fps_o0 = [lib.fp (mat) for mat in mats_o0]
-        mats_o1 = op_o1.ham (las, h1, h2, las.ci, nelec_frs)#, orbsym=orbsym, wfnsym=wfnsym)
-        for lbl, mat, fp in zip (lbls, mats_o1, fps_o0):
-            with self.subTest(opt=1, matrix=lbl):
-                self.assertAlmostEqual (lib.fp (mat), fp, 9)
+    #def test_ham_s2_ovlp (self):
+    #    h1, h2 = ham_2q (las, las.mo_coeff, veff_c=None, h2eff_sub=None)[1:]
+    #    lbls = ('ham','s2','ovlp')
+    #    mats_o0 = op_o0.ham (las, h1, h2, las.ci, nelec_frs)[:3]#, orbsym=orbsym, wfnsym=wfnsym)
+    #    fps_o0 = [lib.fp (mat) for mat in mats_o0]
+    #    mats_o1 = op_o1.ham (las, h1, h2, las.ci, nelec_frs)[:3]#, orbsym=orbsym, wfnsym=wfnsym)
+    #    for lbl, mat, fp in zip (lbls, mats_o1, fps_o0):
+    #        with self.subTest(opt=1, matrix=lbl):
+    #            self.assertAlmostEqual (lib.fp (mat), fp, 9)
 
-    def test_rdm12s (self):
-        d12_o0 = op_o0.roots_make_rdm12s (las, las.ci, nelec_frs, si)#, orbsym=orbsym, wfnsym=wfnsym)
-        d12_o1 = op_o1.roots_make_rdm12s (las, las.ci, nelec_frs, si)#, orbsym=orbsym, wfnsym=wfnsym)
-        for r in range (2):
-            for i in range (nroots):
-                with self.subTest (rank=r+1, root=i, opt=1):
-                    self.assertAlmostEqual (lib.fp (d12_o0[r][i]),
-                        lib.fp (d12_o1[r][i]), 9)
-                with self.subTest ('single matrix constructor', opt=0, rank=r+1, root=i):
-                    d12_o0_test = root_make_rdm12s (las, las.ci, si, state=i, soc=False,
-                                                    break_symmetry=False, opt=0)[r]
-                    self.assertAlmostEqual (lib.fp (d12_o0_test), lib.fp (d12_o0[r][i]), 9)
-                with self.subTest ('single matrix constructor', opt=1, rank=r+1, root=i):
-                    d12_o1_test = root_make_rdm12s (las, las.ci, si, state=i, soc=False,
-                                                    break_symmetry=False, opt=1)[r]
-                    self.assertAlmostEqual (lib.fp (d12_o1_test), lib.fp (d12_o0[r][i]), 9)
+    #def test_rdm12s (self):
+    #    d12_o0 = op_o0.roots_make_rdm12s (las, las.ci, nelec_frs, si)#, orbsym=orbsym, wfnsym=wfnsym)
+    #    d12_o1 = op_o1.roots_make_rdm12s (las, las.ci, nelec_frs, si)#, orbsym=orbsym, wfnsym=wfnsym)
+    #    for r in range (2):
+    #        for i in range (nroots):
+    #            with self.subTest (rank=r+1, root=i, opt=1):
+    #                self.assertAlmostEqual (lib.fp (d12_o0[r][i]),
+    #                    lib.fp (d12_o1[r][i]), 9)
+    #            with self.subTest ('single matrix constructor', opt=0, rank=r+1, root=i):
+    #                d12_o0_test = root_make_rdm12s (las, las.ci, si, state=i, soc=False,
+    #                                                break_symmetry=False, opt=0)[r]
+    #                self.assertAlmostEqual (lib.fp (d12_o0_test), lib.fp (d12_o0[r][i]), 9)
+    #            with self.subTest ('single matrix constructor', opt=1, rank=r+1, root=i):
+    #                d12_o1_test = root_make_rdm12s (las, las.ci, si, state=i, soc=False,
+    #                                                break_symmetry=False, opt=1)[r]
+    #                self.assertAlmostEqual (lib.fp (d12_o1_test), lib.fp (d12_o0[r][i]), 9)
 
-    def test_lassis_fast (self):
-        las0 = las.get_single_state_las (state=0)
-        for ifrag in range (len (las0.ci)):
-            las0.ci[ifrag][0] = las0.ci[ifrag][0][0]
-        lsi = LASSIS (las0)
-        lsi.prepare_states_()
-        self.assertTrue (lsi.converged)
-        case_lassis_fbf_2_model_state (self, lsi)
+    #def test_lassis (self):
+    #    las0 = las.get_single_state_las (state=0)
+    #    for ifrag in range (len (las0.ci)):
+    #        las0.ci[ifrag][0] = las0.ci[ifrag][0][0]
+    #    lsi = LASSIS (las0)
+    #    lsi.prepare_states_()
+    #    self.assertTrue (lsi.converged)
+    #    case_lassis_fbf_2_model_state (self, lsi)
 
-    def test_lassis_1111 (self):
-        xyz='''H 0 0 0
-        H 3 0 0
-        H 6 0 0
-        H 9 0 0'''
-        mol1 = gto.M (atom=xyz, basis='sto3g', symmetry=False, verbose=0, output='/dev/null')
-        mf1 = scf.RHF (mol1).run ()
+    #def test_lassis_1111 (self):
+    #    xyz='''H 0 0 0
+    #    H 3 0 0
+    #    H 6 0 0
+    #    H 9 0 0'''
+    #    mol1 = gto.M (atom=xyz, basis='sto3g', symmetry=False, verbose=0, output='/dev/null')
+    #    mf1 = scf.RHF (mol1).run ()
 
-        las1 = LASSCF (mf1, (1,1,1,1), ((0,1),(1,0),(0,1),(1,0)))
-        mo_coeff = las1.localize_init_guess ([[0,],[1,],[2,],[3,]])
-        las1.lasci_(mo_coeff)
-        lsi = LASSIS (las1).run ()
-        self.assertTrue (lsi.converged)
-        self.assertAlmostEqual (lsi.e_roots[0], -1.867291372401379, 6)
-        case_lassis_fbf_2_model_state (self, lsi)
-        case_lassis_fbfdm (self, lsi)
+    #    las1 = LASSCF (mf1, (1,1,1,1), ((0,1),(1,0),(0,1),(1,0)))
+    #    mo_coeff = las1.localize_init_guess ([[0,],[1,],[2,],[3,]])
+    #    las1.lasci_(mo_coeff)
+    #    for dson in (False,True):
+    #        with self.subTest (davidson_only=dson):
+    #            lsi = LASSIS (las1).set (davidson_only=dson)
+    #            if dson:
+    #                lsi.prepare_states_()
+    #                h0, h1, h2 = ham_2q (las1, las1.mo_coeff)
+    #                debug_contract_op_si (self, las1, h1, h2, lsi.ci, lsi.get_nelec_frs ())
+    #            else:
+    #                lsi.kernel ()
+    #                self.assertTrue (lsi.converged)
+    #                self.assertAlmostEqual (lsi.e_roots[0], -1.867291372401379, 6)
+    #                case_lassis_fbf_2_model_state (self, lsi)
+    #                case_lassis_fbfdm (self, lsi)
 
     def test_lassis_slow (self):
         las0 = las.get_single_state_las (state=0)
         for ifrag in range (len (las0.ci)):
             las0.ci[ifrag][0] = las0.ci[ifrag][0][0]
-        lsi = LASSIS (las0).run ()
-        self.assertTrue (lsi.converged)
-        self.assertAlmostEqual (lsi.e_roots[0], -304.5372586630968, 3)
-        case_lassis_fbf_2_model_state (self, lsi)
-        #case_lassis_fbfdm (self, lsi)
+        for dson in (False,True):
+            if not dson: continue
+            with self.subTest (davidson_only=dson):
+                lsi = LASSIS (las0).set (davidson_only=dson)
+                if dson:
+                    lsi.prepare_states_()
+                    h0, h1, h2 = ham_2q (las0, las0.mo_coeff)
+                    case_contract_op_si (self, las, h1, h2, lsi.ci, lsi.get_nelec_frs ())
+                #lsi.kernel ()
+                #self.assertTrue (lsi.converged)
+                #self.assertAlmostEqual (lsi.e_roots[0], -304.5372586630968, 3)
+                #case_lassis_fbf_2_model_state (self, lsi)
+                #case_lassis_fbfdm (self, lsi)
 
-    def test_fdm1 (self):
-        make_fdm1 = get_fdm1_maker (las, las.ci, nelec_frs, si)
-        for iroot in range (nroots):
-            for ifrag in range (4):
-                with self.subTest (iroot=iroot, ifrag=ifrag):
-                    fdm1 = make_fdm1 (iroot, ifrag)
-                    sdm1 = make_sdm1 (las, iroot, ifrag, si=si)
-                    self.assertAlmostEqual (lib.fp (fdm1), lib.fp (sdm1), 7)
+    #def test_fdm1 (self):
+    #    make_fdm1 = get_fdm1_maker (las, las.ci, nelec_frs, si)
+    #    for iroot in range (nroots):
+    #        for ifrag in range (4):
+    #            with self.subTest (iroot=iroot, ifrag=ifrag):
+    #                fdm1 = make_fdm1 (iroot, ifrag)
+    #                sdm1 = make_sdm1 (las, iroot, ifrag, si=si)
+    #                self.assertAlmostEqual (lib.fp (fdm1), lib.fp (sdm1), 7)
 
-    def test_contract_hlas_ci (self):
-        h0, h1, h2 = ham_2q (las, las.mo_coeff)
-        case_contract_hlas_ci (self, las, h0, h1, h2, las.ci, nelec_frs)        
+    #def test_contract_hlas_ci (self):
+    #    h0, h1, h2 = ham_2q (las, las.mo_coeff)
+    #    case_contract_hlas_ci (self, las, h0, h1, h2, las.ci, nelec_frs)        
+
+    #def test_contract_op_si (self):
+    #    h0, h1, h2 = ham_2q (las, las.mo_coeff)
+    #    case_contract_op_si (self, las, h1, h2, las.ci, nelec_frs)        
 
 
 if __name__ == "__main__":
