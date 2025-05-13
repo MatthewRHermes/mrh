@@ -190,15 +190,15 @@ class ImpuritySCF (scf.hf.SCF):
                     #self._cderi=_cderi
                 if return_4c2eeri:
                     if (np.allclose(_eri_gpu, self._eri)):  
-                        log.debug("Cholesky vectors updating correctly", self)
+                        log.debug("Cholesky vectors updating correctly")
                     else:
-                        log.debug("Cholesky vector issue",self)
+                        log.debug("Cholesky vector issue")
                         exit()
                 else:
                     if (np.allclose(_cderi_gpu, _cderi)):  
-                        log.debug("Cholesky vectors updating correctly", self)
+                        log.debug("Cholesky vectors updating correctly")
                     else:
-                        log.debug("Cholesky vector issue",self)
+                        log.debug("Cholesky vector issue")
                         exit()
 
                 
