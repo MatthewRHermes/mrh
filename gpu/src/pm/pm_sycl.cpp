@@ -265,39 +265,74 @@ void PM::dev_properties(int ndev)
 
 int PM::dev_check_peer(int rank, int ngpus)
 {
-// #ifdef _DEBUG_PM
-//   printf("Inside PM::dev_check_peer()\n");
-// #endif
+#ifdef _DEBUG_PM
+  if(rank == 0) {
+    printf("Inside PM::dev_check_peer()\n");
+    printf("\nLIBGPU: Checking P2P Access for ngpus= %i\n",ngpus);
+  }
+#endif
+
+  int err = 0;  
+  for(int ig=0; ig<ngpus; ++ig) {
+    dev_set_device(ig);
+#ifdef _DEBUG_PM
+    if(rank == 0) printf("LIBGPU: -- Device i= %i\n",ig);
+#endif
+
+    int n = 1;
+    for(int jg=0; jg<ngpus; ++jg) {
+      if(jg != ig) {
+	sycl::device dev_ig = my_queues[ig].get_device();
+	sycl::device dev_jg = my_queues[jg].get_device();
+	
+        int access = dev_ig.ext_oneapi_can_access_peer( dev_jg );
+        n += access;
+#ifdef _DEBUG_PM	
+        if(rank == 0) printf("LIBGPU: --  --  Device j= %i  access= %i\n",jg,access);
+#endif
+      }
+    }
+    if(n != ngpus) err += 1;
+  }
+
+ #ifdef _DEBUG_PM
+   printf(" -- Leaving PM::dev_check_peer()\n");
+ #endif
   
-//   int err = 0;
-//   if(rank == 0) printf("\nChecking P2P Access\n");
-//   for(int ig=0; ig<ngpus; ++ig) {
-//     cudaSetDevice(ig);
-//     //if(rank == 0) printf("Device i= %i\n",ig);
-
-//     int n = 1;
-//     for(int jg=0; jg<ngpus; ++jg) {
-//       if(jg != ig) {
-//         int access;
-//         cudaDeviceCanAccessPeer(&access, ig, jg);
-//         n += access;
-
-//         //if(rank == 0) printf("  --  Device j= %i  access= %i\n",jg,access);
-//       }
-//     }
-//     if(n != ngpus) err += 1;
-//   }
-
-// #ifdef _DEBUG_PM
-//   printf(" -- Leaving PM::dev_check_peer()\n");
-// #endif
-  
-  return 1;
+  return err;
 }
 
 void PM::dev_check_errors()
 {
   _SYCL_CHECK_ERRORS()
+}
+
+void PM::dev_enable_peer(int rank, int ngpus)
+{
+#ifdef _DEBUG_PM
+  if(rank == 0) {
+    printf("Inside PM::dev_enable_peer()\n");
+    printf("LIBGPU: -- Enabling peer access for ngpus= %i\n",ngpus);
+  }
+#endif
+
+  for(int ig=0; ig<ngpus; ++ig) {
+    dev_set_device(ig);
+    
+    for(int jg=0; jg<ngpus; ++jg) {
+      if(jg != ig) {
+	sycl::device dev_ig = my_queues[ig].get_device();
+	sycl::device dev_jg = my_queues[jg].get_device();
+
+	dev_ig.ext_oneapi_enable_peer_access( dev_jg );
+      }
+    }
+  
+  }
+  
+#ifdef _DEBUG_PM
+  printf(" -- Leaving PM::dev_enable_peer()\n");
+#endif
 }
 
 void PM::dev_set_device(int id)
@@ -534,6 +569,34 @@ void PM::dev_pull_async(void * d_ptr, void * h_ptr, size_t N, sycl::queue &q)
   
 #ifdef _DEBUG_PM
   printf(" -- Leaving PM::dev_pull_async()\n");
+#endif
+}
+
+void PM::dev_memcpy_peer(void * d_ptr, int dest, void * s_ptr, int src, size_t N)
+{
+#ifdef _DEBUG_PM
+  printf("Inside PM::dev_memcpy_peer()\n");
+#endif
+  
+  // cudaMemcpyPeer(d_ptr, dest, s_ptr, src, N);
+  current_queue->memcpy(d_ptr, s_ptr, N);
+  
+#ifdef _DEBUG_PM
+  printf(" -- Leaving PM::dev_memcpy_peer()\n");
+#endif
+}
+
+void PM::dev_memcpy_peer_async(void * d_ptr, int dest, void * s_ptr, int src, size_t N)
+{
+#ifdef _DEBUG_PM
+  printf("Inside PM::dev_memcpy_peer_async()\n");
+#endif
+  
+  // cudaMemcpyPeerAsync(d_ptr, dest, s_ptr, src, N, *current_queue);
+  current_queue->memcpy(d_ptr, s_ptr, N);
+  
+#ifdef _DEBUG_PM
+  printf(" -- Leaving PM::dev_memcpy_peer_async()\n");
 #endif
 }
 

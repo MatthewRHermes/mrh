@@ -640,7 +640,7 @@ void Device::get_jk(int naux, int nao, int nset,
     d_eri = dd->d_eri1;
   }
 
-#if 1
+#if defined(_ENABLE_P2P)
   if(count == 0) {
     // pm->dev_set_device(0); // not needed as device 0 handles count == 0
 
@@ -843,7 +843,7 @@ void Device::get_jk(int naux, int nao, int nset,
   
 /* ---------------------------------------------------------------------- */
 
-#if 1
+#if defined(_ENABLE_P2P)
 void Device::pull_get_jk(py::array_t<double> _vj, py::array_t<double> _vk, int nao, int nset, int with_k)
 {
 #ifdef _DEBUG_DEVICE

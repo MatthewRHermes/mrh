@@ -24,6 +24,8 @@ using namespace MATHLIB_NS;
 #define _USE_ERI_CACHE
 #define _ERI_CACHE_EXTRA 2
 
+//#define _ENABLE_P2P
+
 //#define _DEBUG_DEVICE
 //#define _DEBUG_ERI_CACHE
 //#define _DEBUG_H2EFF
@@ -150,6 +152,7 @@ public :
   void init_eri_impham(int, int);
   void compute_eri_impham(int, int, int, int, int, size_t);
   void pull_eri_impham( py::array_t<double>, int, int, int);
+  void pack_eri(double *, double *, int *, int, int, int); 
 
   void extract_mo_cas(int, int, int);//TODO: fix the difference - changed slightly
   void get_mo_cas(const double *, double *, int, int, int);
