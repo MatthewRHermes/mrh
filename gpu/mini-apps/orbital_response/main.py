@@ -1,15 +1,15 @@
 import numpy as np
 import baseline
 import libgpu
-gpu = libgpu.libgpu_create_device()
+gpu = libgpu.create_device()
 
-num_gpus = libgpu.libgpu_get_num_devices(gpu)
+num_gpus = libgpu.get_num_devices(gpu)
 print("num_gpus= ", num_gpus)
 
-libgpu.libgpu_dev_properties(gpu, num_gpus)
+libgpu.dev_properties(gpu, num_gpus)
 
 gpu_id = 0
-libgpu.libgpu_set_device(gpu, gpu_id)
+libgpu.set_device(gpu, gpu_id)
 
 # ------------------------------------------- #
 
@@ -50,7 +50,7 @@ ref = baseline.orbital_response(ppaa, papa, paaa, ocm2, tcm2, gorb, ncore, nocc,
 f1_prime = np.zeros((nmo, nmo), dtype=np.float64)
 ocm2 = ocm2_orig
 tcm2 = tcm2_orig
-libgpu.libgpu_orbital_response(gpu, f1_prime, ppaa, papa, paaa, ocm2, tcm2, gorb, ncore, nocc, nmo)
+libgpu.orbital_response(gpu, f1_prime, ppaa, papa, paaa, ocm2, tcm2, gorb, ncore, nocc, nmo)
 
 #print("\nref(", ref.shape, ")= ", ref[0])
 #print("\nf1_prime(", f1_prime.shape, ")= ", f1_prime[0])
@@ -78,8 +78,8 @@ for i in range(num_iter):
     f1_prime = np.zeros((nmo, nmo), dtype=np.float64)
     ocm2 = ocm2_orig
     tcm2 = tcm2_orig
-    libgpu.libgpu_orbital_response(gpu, f1_prime, ppaa, papa, paaa, ocm2, tcm2, gorb, ncore, nocc, nmo)
+    libgpu.orbital_response(gpu, f1_prime, ppaa, papa, paaa, ocm2, tcm2, gorb, ncore, nocc, nmo)
 
 # ------------------------------------------- #
 
-libgpu.libgpu_destroy_device(gpu)
+libgpu.destroy_device(gpu)

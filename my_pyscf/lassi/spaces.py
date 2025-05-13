@@ -17,11 +17,12 @@ LINDEP_THRESH = getattr (__config__, 'lassi_lindep_thresh', 1.0e-5)
 
 class SingleLASRootspace (object):
     def __init__(self, las, spins, smults, charges, weight, nlas=None, nelelas=None, stdout=None,
-                 verbose=None, ci=None):
+                 verbose=None, ci=None, fragsym=None, energy_tot=0):
         if nlas is None: nlas = las.ncas_sub
         if nelelas is None: nelelas = [sum (_unpack_nelec (x)) for x in las.nelecas_sub]
         if stdout is None: stdout = las.stdout
         if verbose is None: verbose = las.verbose
+        if fragsym is None: fragsym = np.zeros_like (len(nlas))
         self.las = las
         self.nlas, self.nelelas = np.asarray (nlas), np.asarray (nelelas)
         self.nfrag = len (nlas)
@@ -30,6 +31,7 @@ class SingleLASRootspace (object):
         self.weight = weight
         self.stdout, self.verbose = stdout, verbose
         self.ci = ci
+        self.fragsym = fragsym
 
         self.nelec = self.nelelas - self.charges
         self.neleca = (self.nelec + self.spins) // 2
@@ -43,6 +45,8 @@ class SingleLASRootspace (object):
         self.nelecd = (self.nelec - (self.smults-1)) // 2
         self.nholeu = self.nlas - self.nelecu
         self.nholed = self.nlas - self.nelecd
+
+        self.energy_tot = energy_tot
 
         self.entmap = tuple ()
 
@@ -431,6 +435,16 @@ class SingleLASRootspace (object):
                 evecs /= np.sqrt (evals)[None,:]
                 self.ci[ifrag] = np.tensordot (evecs.T, self.ci[ifrag], axes=1)
 
+    def get_wfnsym (self):
+        return np.bitwise_xor.reduce (self.fragsym)
+
+    def get_s2_exptval (self):
+        s = (self.smults - 1) / 2
+        m = self.spins / 2
+        s2 = np.multiply.outer (m, m)
+        s2[np.diag_indices_from (s2)] = s*(s+1)
+        return s2.sum ()
+
 def orthogonal_excitations (exc1, exc2, ref):
     if exc1.nfrag != ref.nfrag: return False
     if exc2.nfrag != ref.nfrag: return False
@@ -670,8 +684,11 @@ def filter_spaces (las, max_charges=None, min_charges=None, max_smults=None, min
 
 def list_spaces (las):
     from mrh.my_pyscf.mcscf.lasci import get_space_info
-    spaces = [SingleLASRootspace (las, m, s, c, las.weights[ix], ci=[c[ix] for c in las.ci])
+    spaces = [SingleLASRootspace (las, m, s, c, las.weights[ix], ci=[c[ix] for c in las.ci],
+                                  fragsym=w)
               for ix, (c, m, s, w) in enumerate (zip (*get_space_info (las)))]
+    for e_state, space in zip (las.e_states, spaces):
+        space.energy_tot = e_state
     return spaces
 
 if __name__=='__main__':

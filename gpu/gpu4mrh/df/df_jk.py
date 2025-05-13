@@ -14,7 +14,7 @@ from gpu4mrh.lib.utils import patch_cpu_kernel
 from mrh.my_pyscf.gpu import libgpu
 
 # Setting DEBUG = True will execute both CPU (original) and GPU (new) paths checking for consistency 
-DEBUG = False
+DEBUG = True
 
 if DEBUG:
     import math
@@ -72,8 +72,8 @@ def get_jk(dfobj, dm, hermi=1, with_j=True, with_k=True, direct_scf_tol=1e-13):
             naux, nao_pair = eri1.shape
             if gpu:
                 #if count == 0:
-                libgpu.libgpu_init_get_jk(gpu, eri1, dmtril, blksize, nset, nao, 0, count)
-                libgpu.libgpu_compute_get_jk(gpu, naux, nao, nset, eri1, dmtril, dms, vj, vk, 0, count, id(dfobj))
+                libgpu.init_get_jk(gpu, eri1, dmtril, blksize, nset, nao, 0, count)
+                libgpu.compute_get_jk(gpu, naux, nao, nset, eri1, dmtril, dms, vj, vk, 0, count, id(dfobj))
             else:
                 rho = numpy.einsum('ix,px->ip', dmtril, eri1)
                 vj += numpy.einsum('ip,px->ix', rho, eri1)
@@ -83,7 +83,7 @@ def get_jk(dfobj, dm, hermi=1, with_j=True, with_k=True, direct_scf_tol=1e-13):
             count += 1
 
         if gpu:
-            libgpu.libgpu_pull_get_jk(gpu, vj, vk, nao, nset, 0)
+            libgpu.pull_get_jk(gpu, vj, vk, nao, nset, 0)
         #t3 = lib.logger.timer(dfobj, 'get_jk not with_k loop full',*t2)
 
 # Commented 2-19-2024 in favor of accelerated implementation below
@@ -154,7 +154,7 @@ def get_jk(dfobj, dm, hermi=1, with_j=True, with_k=True, direct_scf_tol=1e-13):
         # load_eri = False doesn't offer benefit unless deep-copies and so on. disable for now
 #        if gpu:
 #            arg = numpy.array([-1, -1, -1, -1], dtype=numpy.int32)
-#            libgpu.libgpu_get_dfobj_status(gpu, id(dfobj), arg)
+#            libgpu.get_dfobj_status(gpu, id(dfobj), arg)
 #            if arg[2] > -1: load_eri = False
 
         if load_eri:
@@ -165,8 +165,8 @@ def get_jk(dfobj, dm, hermi=1, with_j=True, with_k=True, direct_scf_tol=1e-13):
 
                 if gpu:
                     #if count == 0:
-                    libgpu.libgpu_init_get_jk(gpu, eri1, dmtril, blksize, nset, nao, naux, count)
-                    libgpu.libgpu_compute_get_jk(gpu, naux, nao, nset, eri1, dmtril, dms, vj, vk, 1, count, id(dfobj))
+                    libgpu.init_get_jk(gpu, eri1, dmtril, blksize, nset, nao, naux, count)
+                    libgpu.compute_get_jk(gpu, naux, nao, nset, eri1, dmtril, dms, vj, vk, 1, count, id(dfobj))
                 
                 else:
                 
@@ -194,13 +194,13 @@ def get_jk(dfobj, dm, hermi=1, with_j=True, with_k=True, direct_scf_tol=1e-13):
             for count in range( arg[2] ):
                 #t6 = (logger.process_clock(), logger.perf_counter())
                 arg = numpy.array([-1, -1, count, -1], dtype=numpy.int32)
-                libgpu.libgpu_get_dfobj_status(gpu, id(dfobj), arg)
+                libgpu.get_dfobj_status(gpu, id(dfobj), arg)
                 naux = arg[0]
                 nao_pair = arg[1]
 
                 eri1 = numpy.zeros(1)
-                if count == 0: libgpu.libgpu_init_get_jk(gpu, eri1, dmtril, blksize, nset, nao, naux, count)
-                libgpu.libgpu_compute_get_jk(gpu, naux, nao, nset, eri1, dmtril, dms, vj, vk, 1, count, id(dfobj))
+                if count == 0: libgpu.init_get_jk(gpu, eri1, dmtril, blksize, nset, nao, naux, count)
+                libgpu.compute_get_jk(gpu, naux, nao, nset, eri1, dmtril, dms, vj, vk, 1, count, id(dfobj))
                 
                 #lib.logger.timer(dfobj, 'get_jk with_k loop iteration',*t6)
                 
@@ -208,7 +208,7 @@ def get_jk(dfobj, dm, hermi=1, with_j=True, with_k=True, direct_scf_tol=1e-13):
         t1 = log.timer_debug1('jk', *t1)
 
         if gpu:
-            libgpu.libgpu_pull_get_jk(gpu, vj, vk, nao, nset, 1)
+            libgpu.pull_get_jk(gpu, vj, vk, nao, nset, 1)
         #t5 = lib.logger.timer(dfobj, 'get_jk with_k pull',*t4)
         
     #t2 = (logger.process_clock(), logger.perf_counter())
@@ -268,13 +268,16 @@ def get_jk_debug(dfobj, dm, hermi=1, with_j=True, with_k=True, direct_scf_tol=1e
         for eri1 in dfobj.loop():
             naux, nao_pair = eri1.shape
             
-            print("count= ", count, "nao= ", nao, " naux= ", naux, "  nao_pair= ", nao_pair, " blksize= ", 0, " nset= ", nset, " eri1= ", eri1.shape, " dmtril= ", dmtril.shape, " dms= ", numpy.shape(dms))
-            print("vj= ", vj_tmp.shape)
-            print("addr of dfobj= ", hex(id(dfobj)), "  addr of eri1= ", hex(id(eri1)), " count= ", count)
+            #log.debug("count= ", count, "nao= ", nao, " naux= ", naux, "  nao_pair= ", nao_pair, " blksize= ", 0, " nset= ", nset, " eri1= ", eri1.shape, " dmtril= ", dmtril.shape, " dms= ", numpy.shape(dms))
+            #log.debug("vj= ", vj_tmp.shape)
+            log.debug1("count= %3d nao= %3d naux= %3d nao_pair= %3d blksize= %3d nset= %3d eri=(%3d, %3d)", count, nao, naux, nao_pair, 0, nset, eri1.shape[0],eri1.shape[1])#
+            log.debug1("dmtril ".join(str(value) for value in dmtril.shape)+ " dms ".join(str(value) for value in numpy.shape(dms)))
+            log.debug1("vj= "+str(vj_tmp.shape))
+            log.debug1("addr of dfobj= "+ str(hex(id(dfobj)))+ "  addr of eri1= " + str( hex(id(eri1))) + " count= " +str( count))
             
             #if count == 0:
-            libgpu.libgpu_init_get_jk(gpu, eri1, dmtril, blksize, nset, nao, 0, count)
-            libgpu.libgpu_compute_get_jk(gpu, naux, nao, nset, eri1, dmtril, dms, vj_tmp, vk_tmp, 0, count, id(dfobj))
+            libgpu.init_get_jk(gpu, eri1, dmtril, blksize, nset, nao, 0, count)
+            libgpu.compute_get_jk(gpu, naux, nao, nset, eri1, dmtril, dms, vj_tmp, vk_tmp, 0, count, id(dfobj))
             
             rho = numpy.einsum('ix,px->ip', dmtril, eri1)
             vj += numpy.einsum('ip,px->ix', rho, eri1)
@@ -282,9 +285,9 @@ def get_jk_debug(dfobj, dm, hermi=1, with_j=True, with_k=True, direct_scf_tol=1e
             count += 1
 
             
-        libgpu.libgpu_pull_get_jk(gpu, vj_tmp, vk_tmp, nao, nset, 0)
+        libgpu.pull_get_jk(gpu, vj_tmp, vk_tmp, nao, nset, 0)
         
-        print("vj= ", vj.shape)
+        log.debug1("vj= " + str(vj.shape))
         vj_err = 0.0
         for i in range(nset):
             for j in range(vj.shape[1]):
@@ -295,11 +298,13 @@ def get_jk_debug(dfobj, dm, hermi=1, with_j=True, with_k=True, direct_scf_tol=1e
         if(vj_err > 1e-8): stop = True
         
         vj_err = "{:e}".format( math.sqrt(vj_err) )
-        print("count= ", count, "  vj_err= ", vj_err)
+        log.debug1("count= " +str( count) + "  vj_err= " +str( vj_err))
 
         if stop:
-            print("ERROR:: Results don't agree!!")
+            log.debug("JK ERROR:: Results don't agree!!")
             quit()
+        else:
+            log.debug("JK working properly")
 
 # Commented 2-19-2024 in favor of accelerated implementation below
 # Can offload this if need arises.
@@ -359,7 +364,7 @@ def get_jk_debug(dfobj, dm, hermi=1, with_j=True, with_k=True, direct_scf_tol=1e
 #        print(" dfobj.blockdim= ", dfobj.blockdim, "  max_memory*.22e6/8/nao**2= ", max_memory*.22e6/8/nao**2, " blksize= ", blksize)
         buf = numpy.empty((2,blksize,nao,nao))
         
-        print(" -- -- -- blksize= ", blksize, " blockdim= ", dfobj.blockdim, "  nao= ", nao)
+        log.debug1(" -- -- -- blksize= %3d blockdim= %3d  nao= %3d",blksize, dfobj.blockdim, nao)
         
         count = 0
 
@@ -368,13 +373,17 @@ def get_jk_debug(dfobj, dm, hermi=1, with_j=True, with_k=True, direct_scf_tol=1e
 
         for eri1 in dfobj.loop(blksize):
             naux, nao_pair = eri1.shape
-            print("count= ", count, "nao= ", nao, " naux= ", naux, "  nao_pair= ", nao_pair, " blksize= ", blksize, " nset= ", nset, " eri1= ", eri1.shape, " dmtril= ", dmtril.shape, " dms= ", numpy.shape(dms))
-            print("vj= ", vj_tmp.shape, " vk= ", vk_tmp.shape)
-            print("addr of dfobj= ", hex(id(dfobj)), "  addr of eri1= ", hex(id(eri1)), " count= ", count)
+            #log.debug("count= ", count, "nao= ", nao, " naux= ", naux, "  nao_pair= ", nao_pair, " blksize= ", blksize, " nset= ", nset, " eri1= ", eri1.shape, " dmtril= ", dmtril.shape, " dms= ", numpy.shape(dms))
+            #log.debug("vj= ", vj_tmp.shape, " vk= ", vk_tmp.shape)
+            #log.debug("addr of dfobj= ", hex(id(dfobj)), "  addr of eri1= ", hex(id(eri1)), " count= ", count)
+            log.debug1("count= %3d nao= %3d naux= %3d nao_pair= %3d blksize= %3d nset= %3d eri=(%3d, %3d)", count, nao, naux, nao_pair, 0, nset, eri1.shape[0],eri1.shape[1])#
+            log.debug1("dmtril ".join(str(value) for value in dmtril.shape)+ " dms ".join(str(value) for value in numpy.shape(dms)))
+            log.debug1("vj= "+str(vj_tmp.shape))
+            log.debug1("addr of dfobj= "+ str(hex(id(dfobj)))+ "  addr of eri1= " + str( hex(id(eri1))) + " count= " +str( count))
             #if gpu:
             #if count == 0:
-            libgpu.libgpu_init_get_jk(gpu, eri1, dmtril, blksize, nset, nao, naux, count)
-            libgpu.libgpu_compute_get_jk(gpu, naux, nao, nset, eri1, dmtril, dms, vj_tmp, vk_tmp, 1, count, id(dfobj))
+            libgpu.init_get_jk(gpu, eri1, dmtril, blksize, nset, nao, naux, count)
+            libgpu.compute_get_jk(gpu, naux, nao, nset, eri1, dmtril, dms, vj_tmp, vk_tmp, 1, count, id(dfobj))
             if count == -1: quit()
 
             #else:
@@ -398,9 +407,10 @@ def get_jk_debug(dfobj, dm, hermi=1, with_j=True, with_k=True, direct_scf_tol=1e
             count+=1
 
         #if gpu:
-        libgpu.libgpu_pull_get_jk(gpu, vj_tmp, vk_tmp, nao, nset, 1)
+        libgpu.pull_get_jk(gpu, vj_tmp, vk_tmp, nao, nset, 1)
             
-        print("vj= ", vj.shape, " vk= ", vk.shape)
+        #log.debug("vj= ", vj.shape, " vk= ", vk.shape)
+        log.debug1("vj= "+str( vj.shape)+ " vk= " +str(vk.shape))
         vj_err = 0.0
         for i in range(nset):
             for j in range(vj.shape[1]):
@@ -420,12 +430,14 @@ def get_jk_debug(dfobj, dm, hermi=1, with_j=True, with_k=True, direct_scf_tol=1e
         
         vj_err = "{:e}".format( math.sqrt(vj_err) )
         vk_err = "{:e}".format( math.sqrt(vk_err) )
-        print("count= ", count, "  vj_err= ", vj_err,"  vk_err= ", vk_err)
+        log.debug1("count= " +str( count) + "  vj_err= " +str( vj_err) + "  vk_err= "+str(vk_err))
+        #log.debug("count= ", count, "  vj_err= ", vj_err,"  vk_err= ", vk_err)
 
         if stop:
-            print("ERROR:: Results don't agree!!")
+            log.debug("JK ERROR:: Results don't agree!!")
             quit()
-        
+        else: 
+            log.debug("JK working properly")
         t1 = log.timer_debug1('jk', *t1)
         
     if with_j: vj = lib.unpack_tril(vj, 1).reshape(dm_shape)
@@ -533,7 +545,7 @@ def get_j(dfobj, dm, hermi=1, direct_scf_tol=1e-13):
 
 def _get_jk(dfobj, dm, hermi=1, with_j=True, with_k=True, direct_scf_tol=1e-13):
 
-    if DEBUG:
+    if dfobj.verbose==lib.logger.DEBUG:
         vj, vk = get_jk_debug(dfobj, dm, hermi, with_j, with_k, direct_scf_tol)
     else: 
         vj, vk = get_jk(dfobj, dm, hermi, with_j, with_k, direct_scf_tol)

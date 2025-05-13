@@ -176,7 +176,12 @@ def get_orth_basis (ci_fr, norb_f, nelec_frs, _get_ovlp=None):
         for i in manifold: manifold_prod_idx.extend (list(range(offs0[i],offs1[i])))
         manifolds_prod_idx.append (manifold_prod_idx)
         ovlp = _get_ovlp (rootidx=manifold)
-        xmat = canonical_orth_(ovlp, thr=LINDEP_THRESH)
+        eye = np.eye (ovlp.shape[0])
+        err_from_diag = np.amax (np.abs (ovlp - eye))
+        if err_from_diag > 1e-8:
+            xmat = canonical_orth_(ovlp, thr=LINDEP_THRESH)
+        else:
+            xmat = eye
         north += xmat.shape[1]
         manifolds_xmat.append (xmat)
 
@@ -285,8 +290,8 @@ def get_unique_roots (ci, nelec_r, screen_linequiv=True, screen_thresh=SCREEN_TH
 
 def _fake_gen_contract_op_si_hdiag (matrix_builder, las, h1, h2, ci_fr, nelec_frs, soc=0,
                                     orbsym=None, wfnsym=None):
-    ham, s2, ovlp, raw2orth = matrix_builder (las, h1, h2, ci_fr, nelec_frs, soc=soc,
-                                              orbsym=orbsym, wfnsym=wfnsym)
+    ham, s2, ovlp, _get_ovlp = matrix_builder (las, h1, h2, ci_fr, nelec_frs, soc=soc,
+                                               orbsym=orbsym, wfnsym=wfnsym)
     def contract_ham_si (x):
         return ham @ x
     def contract_s2 (x):
@@ -294,7 +299,7 @@ def _fake_gen_contract_op_si_hdiag (matrix_builder, las, h1, h2, ci_fr, nelec_fr
     def contract_ovlp (x):
         return ovlp @ x
     hdiag = np.diagonal (ham)
-    return contract_ham_si, contract_s2, contract_ovlp, hdiag, raw2orth
+    return contract_ham_si, contract_s2, contract_ovlp, hdiag, _get_ovlp
 
 def hci_dot_sivecs (hci_fr_pabq, si_bra, si_ket, lroots):
     nprods = np.prod (lroots, axis=0)

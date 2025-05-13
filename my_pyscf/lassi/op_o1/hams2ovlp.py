@@ -444,9 +444,9 @@ def ham (las, h1, h2, ci, nelec_frs, soc=0, nlas=None, _HamS2Ovlp_class=HamS2Ovl
             Spin-squared operator in LAS product state basis
         ovlp : ndarray of shape (nroots,nroots)
             Overlap matrix of LAS product states 
-        raw2orth : LinearOperator of shape (nroots_orth, nroots)
-            Projects SI vector columns into an orthonormal basis,
-            eliminating linear dependencies (nroots_orth <= nroots)
+        _get_ovlp : callable with kwarg rootidx
+            Produce the overlap matrix between model states in a set of rootspaces,
+            identified by ndarray or list "rootidx"
     '''     
     log = lib.logger.new_logger (las, las.verbose) 
     if nlas is None: nlas = las.ncas_sub
@@ -483,8 +483,8 @@ def ham (las, h1, h2, ci, nelec_frs, soc=0, nlas=None, _HamS2Ovlp_class=HamS2Ovl
     if las.verbose >= lib.logger.TIMER_LEVEL:
         lib.logger.info (las, 'LASSI Hamiltonian crunching profile:\n%s', outerprod.sprint_profile ())
 
-    raw2orth = citools.get_orth_basis (ci, las.ncas_sub, nelec_frs,
-                                       _get_ovlp=outerprod.get_ovlp)
-    return ham, s2, ovlp, raw2orth
+    #raw2orth = citools.get_orth_basis (ci, las.ncas_sub, nelec_frs,
+    #                                   _get_ovlp=outerprod.get_ovlp)
+    return ham, s2, ovlp, outerprod.get_ovlp
 
 
