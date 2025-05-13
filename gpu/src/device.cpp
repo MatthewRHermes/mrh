@@ -875,7 +875,8 @@ void Device::pull_get_jk(py::array_t<double> _vj, py::array_t<double> _vk, int n
   int il = 0;
   while(nrecv > 0) {
 
-    //    printf("LIBGPU :: -- GPU-GPU Reduction  il= %i  ngpus_active= %i  ngpus_recv= %i\n",il,ngpus_active,ngpus_recv);
+    //    printf("LIBGPU :: -- GPU-GPU Reduction  il= %i  nactive= %i  nrecv= %i\n",il,nactive,nrecv);
+    
     if(nactive > nrecv) {
 
       int nsend = nactive - nrecv;
@@ -888,7 +889,8 @@ void Device::pull_get_jk(py::array_t<double> _vj, py::array_t<double> _vk, int n
 	my_device_data * dd_dest = &(device_data[dest]);
 	my_device_data * dd_src = &(device_data[src]);
 	
-	//	printf("LIBGPU :: -- GPU-GPU Reduction  -- %i --> %i\n",src,dest);
+	//	printf("LIBGPU :: -- GPU-GPU Reduction  -- src %i(%p) --> dest %i(%p, %p)\n",
+	//	       src, dd_src->d_vj, dest, dd_dest->d_buf3, dd_dest->d_vj);
 
 	if(dd_src->d_vj) {
 	  pm->dev_set_device(src); // src initiates transfer
@@ -902,6 +904,35 @@ void Device::pull_get_jk(py::array_t<double> _vj, py::array_t<double> _vk, int n
       }
 
       nactive = nrecv;
+
+      // odd number of recievers and not last level
+      
+      if((nrecv > 1) && (nrecv % 2)) {
+
+	//	printf("LIBGPU :: -- GPU-GPU Reduction  post clean-up odd reciever  nactive= %i  nrecv= %i\n",nactive,nrecv);
+    
+	int dest = nrecv - 2;
+	int src = nrecv - 1;
+	
+	my_device_data * dd_dest = &(device_data[dest]);
+	my_device_data * dd_src = &(device_data[src]);
+	
+	//	printf("LIBGPU :: -- GPU-GPU Reduction  -- src %i(%p) --> dest %i(%p, %p)\n",
+	//	       src, dd_src->d_vj, dest, dd_dest->d_buf3, dd_dest->d_vj);
+
+	if(dd_src->d_vj) {
+	  pm->dev_set_device(src); // src initiates transfer
+	  
+	  pm->dev_memcpy_peer(dd_dest->d_buf3, dest, dd_src->d_vj, src, size);
+
+	  pm->dev_set_device(dest); // dest launches kernel
+	  
+	  vecadd(dd_dest->d_buf3, dd_dest->d_vj, N);
+	}
+
+	nrecv--;
+	nactive--;
+      }
       
     }
 
@@ -951,7 +982,7 @@ void Device::pull_get_jk(py::array_t<double> _vj, py::array_t<double> _vk, int n
   il = 0;
   while(nrecv > 0) {
 
-    //    printf("LIBGPU :: -- GPU-GPU Reduction  il= %i  ngpus_active= %i  ngpus_recv= %i\n",il,ngpus_active,ngpus_recv);
+    //    printf("LIBGPU :: -- GPU-GPU Reduction  il= %i  ngpus_active= %i  ngpus_recv= %i\n",il,nactive,nrecv);
     if(nactive > nrecv) {
 
       int nsend = nactive - nrecv;
@@ -979,6 +1010,34 @@ void Device::pull_get_jk(py::array_t<double> _vj, py::array_t<double> _vk, int n
 
       nactive = nrecv;
       
+      // odd number of recievers and not last level
+      
+      if((nrecv > 1) && (nrecv % 2)) {
+
+	//	printf("LIBGPU :: -- GPU-GPU Reduction  post clean-up odd reciever  nactive= %i  nrecv= %i\n",nactive,nrecv);
+    
+	int dest = nrecv - 2;
+	int src = nrecv - 1;
+	
+	my_device_data * dd_dest = &(device_data[dest]);
+	my_device_data * dd_src = &(device_data[src]);
+	
+	//printf("LIBGPU :: -- GPU-GPU Reduction  -- src %i(%p) --> dest %i(%p, %p)\n",
+	//	       src, dd_src->d_vj, dest, dd_dest->d_buf3, dd_dest->d_vj);
+
+	if(dd_src->d_vkk) {
+	  pm->dev_set_device(src); // src initiates transfer
+	  
+	  pm->dev_memcpy_peer(dd_dest->d_buf3, dest, dd_src->d_vkk, src, size);
+
+	  pm->dev_set_device(dest); // dest launches kernel
+	  
+	  vecadd(dd_dest->d_buf3, dd_dest->d_vkk, N);
+	}
+
+	nrecv--;
+	nactive--;
+      }
     }
 
     nrecv /= 2;
@@ -3196,7 +3255,7 @@ void Device::compute_eri_impham(int nao_s, int nao_f, int blksize, int naux, int
   pm->dev_stream_wait();
   for (int i =0;i<nao_f_pair;++i){ for (int j=0;j<nao_f_pair;++j){printf("%f\t",h_eri_impham[i*nao_f_pair+j]); }printf("\n");}
   #endif
-  profile_stop();
+  pm->dev_profile_stop();
   double t1 = omp_get_wtime();
   t_array[12] += t1 - t0;
   // counts in pull eri_impham
@@ -3209,7 +3268,7 @@ void Device::compute_eri_impham_v2(int nao_s, int nao_f, int blksize, int naux, 
   printf("LIBGPU :: Inside Device::comute_eri_impham()\n");
 #endif
 
-  profile_start("compute_eri_impham");
+  pm->dev_profile_start("compute_eri_impham");
   double t0 = omp_get_wtime();
 
   const int device_id = count % num_devices;
@@ -3283,7 +3342,8 @@ void Device::pull_eri_impham(py::array_t<double> _eri, int naoaux, int nao_f, in
   pm->dev_profile_start("pull_eri_impham");
   
   double t0 = omp_get_wtime();
-  //pm->dev_barrier();  
+  //  pm->dev_barrier();
+  
   int nao_f_pair = nao_f * (nao_f+1)/2;
   py::buffer_info info_eri = _eri.request(); 
   double * eri = static_cast<double*>(info_eri.ptr);
