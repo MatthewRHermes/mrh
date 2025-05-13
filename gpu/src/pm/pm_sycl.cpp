@@ -580,6 +580,7 @@ void PM::dev_memcpy_peer(void * d_ptr, int dest, void * s_ptr, int src, size_t N
   
   // cudaMemcpyPeer(d_ptr, dest, s_ptr, src, N);
   current_queue->memcpy(d_ptr, s_ptr, N);
+  current_queue->wait();
   
 #ifdef _DEBUG_PM
   printf(" -- Leaving PM::dev_memcpy_peer()\n");
@@ -594,6 +595,7 @@ void PM::dev_memcpy_peer_async(void * d_ptr, int dest, void * s_ptr, int src, si
   
   // cudaMemcpyPeerAsync(d_ptr, dest, s_ptr, src, N, *current_queue);
   current_queue->memcpy(d_ptr, s_ptr, N);
+  current_queue->wait();
   
 #ifdef _DEBUG_PM
   printf(" -- Leaving PM::dev_memcpy_peer_async()\n");
