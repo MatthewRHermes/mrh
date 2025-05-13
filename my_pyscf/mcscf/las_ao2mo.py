@@ -133,7 +133,7 @@ def get_h2eff_gpu_v2 (las,mo_coeff):
     eri =np.zeros((nmo,  int(ncas*ncas*(ncas+1)/2)))
     t0 = (lib.logger.process_clock (), lib.logger.perf_counter ())
     eri1 = np.zeros((nmo, int(ncas*ncas*(ncas+1)/2)),dtype='d')
-    if DEBUG and gpu:
+    if las.verbose==lib.logger.DEBUG and gpu:
         eri_cpu = np.zeros((nmo, int(ncas*ncas*(ncas+1)/2)))
     for cderi in las.with_df.loop (blksize=blksize):
         t1 = lib.logger.timer (las, 'Sparsedf', *t0)
