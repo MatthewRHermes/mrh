@@ -1,7 +1,7 @@
 import numpy as np
 from scipy import linalg
 from pyscf import gto, scf, lib, mcscf
-from pyscf.tools import molden
+from mrh.my_pyscf.tools import molden
 from mrh.my_pyscf.fci import csf_solver
 from mrh.my_pyscf.mcscf.lasscf_o0 import LASSCF
 from mrh.my_pyscf.lassi import lassi
@@ -70,19 +70,13 @@ except AssertionError as e:
 
 print ("\n--- LASSI(4) @ SA(2)-LASSCF orbitals ---")
 
-# For now, the LASSI diagonalizer is just a post-hoc function call
-# It returns eigenvalues (energies) in the first position and
-# eigenvectors (here, a 4-by-4 vector)
-e_roots, si = las4.lassi ()
+lsi = lassi.LASSI (las4)
+e_roots, si = lsi.kernel ()
 
-# Symmetry information about the LASSI solutions is "tagged" on the si array
-# Additionally, since spin contamination sometimes happens, the S**2 operator
-# in the LAS-state "diabatic" basis is also available
-print ("S**2 operator:\n", si.s2_mat)
 print ("Energy:", e_roots)
-print ("<S**2>:",si.s2)
-print ("(neleca, nelecb):", si.nelec)
-print ("Symmetry:", si.wfnsym)
+print ("<S**2>:",lsi.s2)
+print ("(neleca, nelecb):", lsi.nelec)
+print ("Symmetry:", lsi.wfnsym)
 
 print (("\nIn this example, the triplet eigenvector is determined by symmetry\n"
           "to within phase factors because I only have 1 triplet in this\n"
@@ -97,52 +91,16 @@ print (si)
 states_casdm1s = las4.states_make_casdm1s ()
 
 # You can get the 1- and 2-RDMs of the LASSI solutions like this
-roots_casdm1s, roots_casdm2s = lassi.roots_make_rdm12s (las4, las4.ci, si)
+roots_casdm1s, roots_casdm2s = lsi.make_casdm12s ()
 
-# No super-convenient molden API yet
 # By default orbitals are state-averaged natural-orbitals at the end
 # of the SA-LASSCF calculation
 # But you can recanonicalize
 print ("\nlasscf_state_0-3.molden: single LAS state NOs, (strictly) unentangled")
-for iroot, dm1 in enumerate (states_casdm1s.sum (1)): # spin sum
-    no_coeff, no_ene, no_occ = las4.canonicalize (natorb_casdm1=dm1)[:3]
-    molden.from_mo (las4.mol, 'lasscf_state_{}.molden'.format (iroot),
-        no_coeff, occ=no_occ, ene=no_ene)
+for iroot in range (4): 
+    molden.from_lasscf (las4, 'lasscf_state_{}.molden'.format (iroot), state=iroot)
 print ("lassi_root_0-3.molden: LASSI eigenstate NOs, (generally) entangled")
-for iroot, dm1 in enumerate (roots_casdm1s.sum (1)): # spin sum
-    no_coeff, no_ene, no_occ = las4.canonicalize (natorb_casdm1=dm1)[:3]
-    molden.from_mo (las4.mol, 'lassi_root_{}.molden'.format (iroot),
-        no_coeff, occ=no_occ, ene=no_ene)
+for iroot in range (4): 
+    molden.from_lassi (lsi, 'lassi_root_{}.molden'.format (iroot), state=iroot)
 
-# Beware! Don't do ~~~anything~~ to the si array before you pass it to the
-# function above or grab the important data from its attachments!
-print ("\nSurely I can type si = si * 1 without any consequences")
-si = si * 1
-try:
-    print ("<S**2>:",si.s2)
-except AttributeError as e:
-    print ("Oh no! <S**2> disappeared and all I have now is this error message:")
-    print ("AttributeError:", str (e))
-try:
-    roots_casdm1s, roots_casdm2s = lassi.roots_make_rdm12s (las4, las4.ci, si)
-except AttributeError as e:
-    print ("Oh no! I can't make rdms anymore either because:")
-    print ("AttributeError:", str (e))
-print ("(Yes, dear user, I will have to make this less stupid in future)")
-
-# Remember that LASSI is a post-hoc diagonalization step if you want to do a
-# potential energy scan
-las4 = las4.as_scanner ()
-new_mol = struct (2.9, 2.9, '6-31g', symmetry='Cs')
-new_mol.symmetry = 'Cs'
-new_mol.build ()
-print ("\n\nPotential energy scan to dr = 2.9 Angs")
-e = las4 (new_mol)
-print (e, "<- this is just the state-average energy!")
-print (("(Which happens to be identical to the first two LAS state energies\n"
-        "because I chose a bad example, but shhhh)"))
-print ("You need to interrogate the LAS object to get the interesting parts!")
-print ("New E_LASSCF:", las4.e_states)
-e_roots, si = las4.lassi ()
-print ("New E_LASSI:", e_roots)
 

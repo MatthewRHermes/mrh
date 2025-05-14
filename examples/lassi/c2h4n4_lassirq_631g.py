@@ -3,12 +3,15 @@ from scipy import linalg
 from pyscf import gto, scf, lib, mcscf
 from mrh.my_pyscf.fci import csf_solver
 from mrh.my_pyscf.mcscf.lasscf_o0 import LASSCF
-from mrh.my_pyscf.lassi import lassi
+from mrh.my_pyscf import lassi
 from mrh.my_pyscf.tools import molden
 from c2h4n4_struct import structure as struct
 
+r = 1
+q = 1
+
 mol = struct (0, 0, '6-31g')
-mol.output = 'c2h4n4_631g_automatic_singles.log'
+mol.output = 'c2h4n4_lassirq_631g.log'
 mol.verbose = lib.logger.INFO
 mol.build ()
 mf = scf.RHF (mol).run ()
@@ -38,26 +41,21 @@ las2 = las.state_average ([0.5,0.5,0,0],
 las2.lasci ()
 las2.dump_spaces ()
 # Using LASSI Kernel
-#e_roots, si_hand = las2.lassi ()
 mylassi_hand = lassi.LASSI(las2)
 e_roots, si_hand = mylassi_hand.kernel()
 print ("LASSI(hand) energy =", e_roots[0])
 molden.from_lassi (las2, 'c2h4n4_las66si4_631g.molden', si=si_hand)
 
 from mrh.my_pyscf.lassi.spaces import all_single_excitations
-las = all_single_excitations (las)
-las.lasci () # Optimize the CI vectors
-las.dump_spaces () # prints all state tables in the output file
-#e_roots, si_s = las.lassi ()
-mylassi = lassi.LASSI(las)
-e_roots, si_s = mylassi.kernel()
+mylassi = lassi.LASSIrq(las,r=r,q=q)
+e_roots, si_rq = mylassi.kernel()
 
-print ("LASSI(S) energy =", e_roots[0])
-molden.from_lassi (las, 'c2h4n4_las66siS_631g.molden', si=si_s)
+print ("LASSI[{},{}]energy =".format (r,q), e_roots[0])
+molden.from_lassi (las, 'c2h4n4_lassirq_631g.molden', si=si_rq)
 
 print ("SI vector (hand):")
 print (si_hand[:,0])
 
-print ("SI vector (singles):")
-print (si_s[:,0])
+print ("SI vector (LASSI[{},{}]):".format (r,q))
+print (si_rq[:,0])
 
