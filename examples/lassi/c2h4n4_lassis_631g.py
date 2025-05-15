@@ -7,14 +7,11 @@ from mrh.my_pyscf import lassi
 from mrh.my_pyscf.tools import molden
 from c2h4n4_struct import structure as struct
 
-# Using LASSI[r,q]
-
-r = 1
-q = 1
+# Using LASSIS
 
 mol = struct (0, 0, '6-31g')
-mol.output = 'c2h4n4_lassirq_631g.log'
-mol.verbose = lib.logger.INFO
+mol.output = 'c2h4n4_lassis_631g.log'
+mol.verbose = lib.logger.DEBUG
 mol.build ()
 mf = scf.RHF (mol).run ()
 
@@ -35,12 +32,12 @@ molden.from_mcscf (mc, 'c2h4n4_casscf66_631g.molden', cas_natorb=True)
 print ("LASSCF((3,3),(3,3)) energy =", las.e_tot)
 print ("CASCI(6,6) energy =", mc.e_tot)
 
-lsi = lassi.LASSIrq(las,r=r,q=q)
-e_roots, si_rq = lsi.kernel()
+lsi = lassi.LASSIS(las)
+e_roots, si = lsi.kernel()
 
-print ("LASSI[{},{}]energy =".format (r,q), e_roots[0])
-molden.from_lassi (las, 'c2h4n4_lassirq_631g.molden', si=si_rq)
+print ("LASSIS energy =", e_roots[0])
+molden.from_lassi (las, 'c2h4n4_lassis_631g.molden', si=si)
 
-print ("SI vector (LASSI[{},{}]):".format (r,q))
-print (si_rq[:,0])
+print ("SI vector (LASSIS):")
+print (si[:,0])
 

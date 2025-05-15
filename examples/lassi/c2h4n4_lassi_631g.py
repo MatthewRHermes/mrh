@@ -7,13 +7,10 @@ from mrh.my_pyscf import lassi
 from mrh.my_pyscf.tools import molden
 from c2h4n4_struct import structure as struct
 
-# Using LASSI[r,q]
-
-r = 1
-q = 1
+# Using a hand-made model space
 
 mol = struct (0, 0, '6-31g')
-mol.output = 'c2h4n4_lassirq_631g.log'
+mol.output = 'c2h4n4_lassi_631g.log'
 mol.verbose = lib.logger.INFO
 mol.build ()
 mf = scf.RHF (mol).run ()
@@ -35,12 +32,19 @@ molden.from_mcscf (mc, 'c2h4n4_casscf66_631g.molden', cas_natorb=True)
 print ("LASSCF((3,3),(3,3)) energy =", las.e_tot)
 print ("CASCI(6,6) energy =", mc.e_tot)
 
-lsi = lassi.LASSIrq(las,r=r,q=q)
-e_roots, si_rq = lsi.kernel()
+las2 = las.state_average ([0.5,0.5,0,0],
+    spins=[[1,-1],[-1,1],[0,0],[0,0]],
+    smults=[[2,2],[2,2],[1,1],[1,1]],    
+    charges=[[0,0],[0,0],[-1,1],[1,-1]])
+las2.lasci ()
+las2.dump_spaces ()
 
-print ("LASSI[{},{}]energy =".format (r,q), e_roots[0])
-molden.from_lassi (las, 'c2h4n4_lassirq_631g.molden', si=si_rq)
+lsi = lassi.LASSI(las2)
+e_roots, si_hand = lsi.kernel()
+print ("LASSI(hand) energy =", e_roots[0])
+print ("SI vector (hand):")
+print (si_hand[:,0])
 
-print ("SI vector (LASSI[{},{}]):".format (r,q))
-print (si_rq[:,0])
+
+molden.from_lassi (lsi, 'c2h4n4_lassi_631g.molden', state=0)
 

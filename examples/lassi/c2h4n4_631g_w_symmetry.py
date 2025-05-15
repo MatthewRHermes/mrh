@@ -9,7 +9,7 @@ from c2h4n4_struct import structure as struct
 
 mol = struct (3.0, 3.0, '6-31g')
 mol.symmetry = 'Cs'
-mol.output = 'c2h4n4_631g.log'
+mol.output = 'c2h4n4_631g_w_symmetry.log'
 mol.verbose = lib.logger.INFO
 mol.build ()
 mf = scf.RHF (mol).run ()
