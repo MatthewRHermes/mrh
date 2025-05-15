@@ -11,7 +11,7 @@ from c2h4n4_struct import structure as struct
 
 mol = struct (0, 0, '6-31g')
 mol.output = 'c2h4n4_lassis_631g.log'
-mol.verbose = lib.logger.DEBUG
+mol.verbose = lib.logger.INFO
 mol.build ()
 mf = scf.RHF (mol).run ()
 
