@@ -161,17 +161,18 @@ class KnownValues(unittest.TestCase):
 
     def test_lassis (self):
         for opt in (0,1):
-            with self.subTest (opt=opt):
-                lsis.run (opt=opt)
-                e_upper = las.e_states[0]
-                e_lower = lsi.e_roots[0]
-                self.assertLessEqual (e_lower, lsis.e_roots[0])
-                self.assertLessEqual (lsis.e_roots[0], e_upper)
-                self.assertEqual (len (lsis.e_roots), 20)
-                # Reference depends on rng seed obviously b/c this is not casci limit
-                self.assertAlmostEqual (lsis.e_roots[0], -4.134472877702426, 8)
-                case_lassis_fbf_2_model_state (self, lsis)
-                case_lassis_fbfdm (self, lsis)
+            for dson in (False,True):
+                with self.subTest (opt=opt, davidson_only=dson):
+                    lsis.run (opt=opt, davidson_only=dson, nroots_si=20)
+                    e_upper = las.e_states[0]
+                    e_lower = lsi.e_roots[0]
+                    self.assertLessEqual (e_lower, lsis.e_roots[0])
+                    self.assertLessEqual (lsis.e_roots[0], e_upper)
+                    self.assertEqual (len (lsis.e_roots), 20)
+                    # Reference depends on rng seed obviously b/c this is not casci limit
+                    self.assertAlmostEqual (lsis.e_roots[0], -4.134472877702426, 8)
+                    case_lassis_fbf_2_model_state (self, lsis)
+                    case_lassis_fbfdm (self, lsis)
 
     def test_lassis_energy_tot (self):
         lsis1 = lassis.LASSIS (las)
