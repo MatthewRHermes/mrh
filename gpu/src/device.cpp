@@ -878,9 +878,54 @@ void Device::pull_get_jk(py::array_t<double> _vj, py::array_t<double> _vk, int n
   while(nrecv > 0) {
 
     //    printf("LIBGPU :: -- GPU-GPU Reduction  il= %i  nactive= %i  nrecv= %i\n",il,nactive,nrecv);
+
+    // odd number of recievers and not last level (clean-up pre-reduction)
+      
+    if((nactive > 1) && (nactive % 2)) {
+
+      //      printf("LIBGPU :: -- GPU-GPU Reduction  pre clean-up odd reciever  nactive= %i  nrecv= %i\n",nactive,nrecv);
+      
+      int dest = nactive - 2;
+      int src = nactive - 1;
+      
+      my_device_data * dd_dest = &(device_data[dest]);
+      my_device_data * dd_src = &(device_data[src]);
+      
+      // printf("LIBGPU :: -- GPU-GPU Reduction  -- src %i(%p) --> dest %i(%p, %p)\n",
+      // 	     src, dd_src->d_vj, dest, dd_dest->d_buf3, dd_dest->d_vj);
+      
+      if(dd_src->d_vj) {
+	// because we reuse d_buf3, need to ensure dest is done using it
+	
+	pm->dev_set_device(dest);
+	
+	pm->dev_stream_wait();
+	
+	// src initiates transfer
+	
+	pm->dev_set_device(src);
+	
+	//pm->dev_stream_wait(); // why?
+	
+	pm->dev_memcpy_peer(dd_dest->d_buf3, dest, dd_src->d_vj, src, size);
+	
+	// dest launches kernel
+	
+	pm->dev_set_device(dest); 
+	
+	vecadd(dd_dest->d_buf3, dd_dest->d_vj, N);
+      }
+      
+      //nrecv--;
+      nactive--;
+    }
+    
+    // binary tree reduction
     
     if(nactive > nrecv) {
 
+      //      printf("LIBGPU :: -- GPU-GPU Reduction  binary reduction   nactive= %i  nrecv= %i\n",nactive,nrecv);
+      
       int nsend = nactive - nrecv;
 
       for(int i=0; i<nsend; ++i) {
@@ -891,15 +936,27 @@ void Device::pull_get_jk(py::array_t<double> _vj, py::array_t<double> _vk, int n
 	my_device_data * dd_dest = &(device_data[dest]);
 	my_device_data * dd_src = &(device_data[src]);
 	
-	//	printf("LIBGPU :: -- GPU-GPU Reduction  -- src %i(%p) --> dest %i(%p, %p)\n",
-	//	       src, dd_src->d_vj, dest, dd_dest->d_buf3, dd_dest->d_vj);
+	// printf("LIBGPU :: -- GPU-GPU Reduction  -- src %i(%p) --> dest %i(%p, %p)\n",
+	//        src, dd_src->d_vj, dest, dd_dest->d_buf3, dd_dest->d_vj);
 
 	if(dd_src->d_vj) {
-	  pm->dev_set_device(src); // src initiates transfer
+	  // because we reuse d_buf3, need to ensure dest is done using it
+	  
+	  pm->dev_set_device(dest);
+	  
+	  pm->dev_stream_wait();
+
+	  // src initiates transfer
+	  
+	  pm->dev_set_device(src);
+	  
+	  //	  pm->dev_stream_wait(); // why?
 	  
 	  pm->dev_memcpy_peer(dd_dest->d_buf3, dest, dd_src->d_vj, src, size);
 
-	  pm->dev_set_device(dest); // dest launches kernel
+	  // dest launches kernel
+	  
+	  pm->dev_set_device(dest); 
 	  
 	  vecadd(dd_dest->d_buf3, dd_dest->d_vj, N);
 	}
@@ -907,7 +964,7 @@ void Device::pull_get_jk(py::array_t<double> _vj, py::array_t<double> _vk, int n
 
       nactive = nrecv;
 
-      // odd number of recievers and not last level
+      // odd number of recievers and not last level (clean-up post-reduction)
       
       if((nrecv > 1) && (nrecv % 2)) {
 
@@ -919,15 +976,27 @@ void Device::pull_get_jk(py::array_t<double> _vj, py::array_t<double> _vk, int n
 	my_device_data * dd_dest = &(device_data[dest]);
 	my_device_data * dd_src = &(device_data[src]);
 	
-	//	printf("LIBGPU :: -- GPU-GPU Reduction  -- src %i(%p) --> dest %i(%p, %p)\n",
-	//	       src, dd_src->d_vj, dest, dd_dest->d_buf3, dd_dest->d_vj);
+	// printf("LIBGPU :: -- GPU-GPU Reduction  -- src %i(%p) --> dest %i(%p, %p)\n",
+	//        src, dd_src->d_vj, dest, dd_dest->d_buf3, dd_dest->d_vj);
 
 	if(dd_src->d_vj) {
-	  pm->dev_set_device(src); // src initiates transfer
+	  // because we reuse d_buf3, need to ensure dest is done using it
+	  
+	  pm->dev_set_device(dest);
+
+	  pm->dev_stream_wait();
+
+	  // src initiates transfer
+	  
+	  pm->dev_set_device(src);
+	  
+	  //	  pm->dev_stream_wait(); // why?
 	  
 	  pm->dev_memcpy_peer(dd_dest->d_buf3, dest, dd_src->d_vj, src, size);
 
-	  pm->dev_set_device(dest); // dest launches kernel
+	  // dest launches kernel
+	  
+	  pm->dev_set_device(dest); 
 	  
 	  vecadd(dd_dest->d_buf3, dd_dest->d_vj, N);
 	}
@@ -943,6 +1012,8 @@ void Device::pull_get_jk(py::array_t<double> _vj, py::array_t<double> _vk, int n
   }
 
   // accumulate result on host
+
+  //  printf("LIBGPU :: -- GPU-GPU Reduction  transferring result to host\n");
   
   pm->dev_set_device(0);
 
@@ -956,6 +1027,8 @@ void Device::pull_get_jk(py::array_t<double> _vj, py::array_t<double> _vk, int n
   }
   
   update_dfobj = 0;
+  
+  //  printf("LIBGPU :: -- GPU-GPU Reduction  finished\n");
   
   if(!with_k) {
     pm->dev_profile_stop();
@@ -985,10 +1058,56 @@ void Device::pull_get_jk(py::array_t<double> _vj, py::array_t<double> _vk, int n
   while(nrecv > 0) {
 
     //    printf("LIBGPU :: -- GPU-GPU Reduction  il= %i  ngpus_active= %i  ngpus_recv= %i\n",il,nactive,nrecv);
+    
+    // odd number of recievers and not last level (clean-up pre-reduction)
+      
+    if((nactive > 1) && (nactive % 2)) {
+
+      //      printf("LIBGPU :: -- GPU-GPU Reduction  post clean-up odd reciever  nactive= %i  nrecv= %i\n",nactive,nrecv);
+      
+      int dest = nactive - 2;
+      int src = nactive - 1;
+      
+      my_device_data * dd_dest = &(device_data[dest]);
+      my_device_data * dd_src = &(device_data[src]);
+      
+      // printf("LIBGPU :: -- GPU-GPU Reduction  -- src %i(%p) --> dest %i(%p, %p)\n",
+      // 	     src, dd_src->d_vkk, dest, dd_dest->d_buf3, dd_dest->d_vkk);
+      
+      if(dd_src->d_vkk) {
+	// because we reuse d_buf3, need to ensure dest is done using it
+	
+	pm->dev_set_device(dest);
+	
+	pm->dev_stream_wait();
+	
+	// src initiates transfer
+	
+	pm->dev_set_device(src);
+	
+	//	pm->dev_stream_wait(); // why?
+	
+	pm->dev_memcpy_peer(dd_dest->d_buf3, dest, dd_src->d_vkk, src, size);
+	
+	// dest launches kernel
+	
+	pm->dev_set_device(dest); 
+	
+	vecadd(dd_dest->d_buf3, dd_dest->d_vkk, N);
+      }
+      
+      //      nrecv--;
+      nactive--;
+    }
+    
+    // binary tree reduction
+    
     if(nactive > nrecv) {
 
+      //      printf("LIBGPU :: -- GPU-GPU Reduction  binary reduction   nactive= %i  nrecv= %i\n",nactive,nrecv);
+      
       int nsend = nactive - nrecv;
-
+      
       for(int i=0; i<nsend; ++i) {
 
 	int dest = i;
@@ -997,14 +1116,27 @@ void Device::pull_get_jk(py::array_t<double> _vj, py::array_t<double> _vk, int n
 	my_device_data * dd_dest = &(device_data[dest]);
 	my_device_data * dd_src = &(device_data[src]);
 	
-	//	printf("LIBGPU :: -- GPU-GPU Reduction  -- %i --> %i\n",src,dest);
-
+	// printf("LIBGPU :: -- GPU-GPU Reduction  -- src %i(%p) --> dest %i(%p, %p)\n",
+	//        src, dd_src->d_vkk, dest, dd_dest->d_buf3, dd_dest->d_vkk);
+	
 	if(dd_src->d_vkk) {
-	  pm->dev_set_device(src);  // src initiates transfer
+	  // because we reuse d_buf3, need to ensure dest is done using it
+	  
+	  pm->dev_set_device(dest);
+
+	  pm->dev_stream_wait();
+
+	  // src initiates transfer
+	  
+	  pm->dev_set_device(src);
+	  
+	  //	  pm->dev_stream_wait(); // why?
 	  
 	  pm->dev_memcpy_peer(dd_dest->d_buf3, dest, dd_src->d_vkk, src, size);
 
-	  pm->dev_set_device(dest);  // dest launches kernel
+	  // dest launches kernel
+	  
+	  pm->dev_set_device(dest);  
 	  
 	  vecadd(dd_dest->d_buf3, dd_dest->d_vkk, N);
 	}
@@ -1024,15 +1156,27 @@ void Device::pull_get_jk(py::array_t<double> _vj, py::array_t<double> _vk, int n
 	my_device_data * dd_dest = &(device_data[dest]);
 	my_device_data * dd_src = &(device_data[src]);
 	
-	//printf("LIBGPU :: -- GPU-GPU Reduction  -- src %i(%p) --> dest %i(%p, %p)\n",
-	//	       src, dd_src->d_vj, dest, dd_dest->d_buf3, dd_dest->d_vj);
+	// printf("LIBGPU :: -- GPU-GPU Reduction  -- src %i(%p) --> dest %i(%p, %p)\n",
+	//        src, dd_src->d_vkk, dest, dd_dest->d_buf3, dd_dest->d_vkk);
 
 	if(dd_src->d_vkk) {
-	  pm->dev_set_device(src); // src initiates transfer
+	  // because we reuse d_buf3, need to ensure dest is done using it
+	  
+	  pm->dev_set_device(dest);
+
+	  pm->dev_stream_wait();
+
+	  // src initiates transfer
+	  
+	  pm->dev_set_device(src);
+	  
+	  //	  pm->dev_stream_wait(); // why?
 	  
 	  pm->dev_memcpy_peer(dd_dest->d_buf3, dest, dd_src->d_vkk, src, size);
 
-	  pm->dev_set_device(dest); // dest launches kernel
+	  // dest launches kernel
+	  
+	  pm->dev_set_device(dest); 
 	  
 	  vecadd(dd_dest->d_buf3, dd_dest->d_vkk, N);
 	}
@@ -1048,6 +1192,8 @@ void Device::pull_get_jk(py::array_t<double> _vj, py::array_t<double> _vk, int n
 
   // accumulate result on host
   
+  //  printf("LIBGPU :: -- GPU-GPU Reduction  transferring result to host\n");
+  
   pm->dev_set_device(0);
 
   dd = &(device_data[0]);
@@ -1059,6 +1205,8 @@ void Device::pull_get_jk(py::array_t<double> _vj, py::array_t<double> _vk, int n
     for(int j=0; j<N; ++j) vk[j] += buf_vk[j];
   }
 
+  //  printf("LIBGPU :: -- GPU-GPU Reduction  finished\n");
+  
   pm->dev_profile_stop();
   
   double t1 = omp_get_wtime();
