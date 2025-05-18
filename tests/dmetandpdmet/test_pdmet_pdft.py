@@ -79,9 +79,7 @@ class KnownValues(unittest.TestCase):
         mo = mc.sort_mo(orblst[-mc.ncas:], base=0)
         mc.fcisolver  = csf_solver(cell, smult=2)
         mc.kernel(mo)
-
         del mc
-        
         e_ref0 = mc._scf.e_tot
         e_ref1 = mc.e_cas
         e_ref2 = mc.e_tot
