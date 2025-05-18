@@ -1,58 +1,8 @@
+import numpy as np
 from functools import reduce
 from pyscf import lo, lib
 from pyscf.pbc import gto, scf, dft
 from mrh.my_pyscf.pdmet._pdmet import _pDMET 
-import numpy as np
-
-def getorbindex(cell, mo_coeff, lo_method='meta-lowdin', activespacesize=1, s=None, ao_label=None, ghostatom=None):
-    '''
-    Based on the ao_label find the orb which MO has
-    highest character of that AO and return the index of that MO
-    Args:
-        mol : Mole object
-            Molecule object
-        mo_coeff : np.array
-            Molecular orbital coefficients
-        s : np.array
-            Overlap matrix
-        ao_label : list
-            List of atomic orbital labels
-        activespacesize : int
-            Active space size
-        ghostatom: dict
-            Dictionary containing the ghost atom index information using 
-            which the ghost atom orbitals can be selected
-    '''
-    
-    if s is None:
-        s = cell.pbc_intor('int1e_ovlp')
-    
-    if ghostatom is not None:
-        fraginfo = ghostatom['fraginfo']
-        aoslices = cell.aoslice_by_atom()[:,2:]
-        baslst = [i for a in fraginfo for i in range(aoslices[a][0], aoslices[a][1])]
-    if ao_label is not None:
-        baslst.extend(cell.search_ao_label(ao_label))
-        
-    assert len(baslst) >=activespacesize
-    orbindex=[]
-
-    assert lo_method in ['lowdin', 'meta_lowdin']
-
-    orth_coeff = lo.orth.orth_ao(cell, lo_method, s=s)
-
-    C = reduce(np.dot,(orth_coeff.conj().T, s, mo_coeff))
-
-    for orb in baslst:
-        cont = np.argsort(C[orb] ** 2)[-activespacesize:][::-1]
-        orbsel = next((orb for orb in cont if orb not in orbindex), None)
-        if orbsel is not None:
-            orbindex.append(orbsel)
- 
-    orbind = sorted(list(set(orbindex)))
-    orbind = [x+1 for x in orbind]
-    
-    return sorted(orbind[:activespacesize])
 
 def _energy_contribution(mydmet, dmet_mf, verbose=None):
     log = lib.logger.new_logger(mydmet, verbose)
