@@ -2,6 +2,8 @@ import numpy as np
 
 # Author: Bhavnesh Jangid <jangidbhavnesh@uchicago.edu>
 
+# TODO: Fragmentation based on orbindexes, atomlables.
+
 class Fragmentation:
     '''
     Fragmentation class for DMET
@@ -21,7 +23,9 @@ class Fragmentation:
         
         self.mf = mf
         self.mol = mf.mol
-        self.fraginfo = atmlst if atmlst is not None else atmlabel
+        self.fraginfo = atmlst 
+        if atmlst is None and atmlabel is not None:
+            raise NotImplementedError("Yet to be implemented")
 
     def _fragmentation_by_atmlist(self):
         '''
@@ -41,28 +45,6 @@ class Fragmentation:
 
         mask = np.zeros(nao, dtype=bool)
         mask[frag_idx] = True
-        return mask
-
-    def _fragmentation_by_atmlabels(self):
-        '''
-        Get the Fragmentation Information based on atom labels.
-        Return:
-            mask:  1D list of size nao
-                containing the mask for the fragment orbitals in localized basis.
-        '''
-        mol = self.mol
-        fraginfo = self.fraginfo
-        nao = mol.nao
-        
-        aolabels = mol.ao_labels()
-        frag_ind = []
-        for iao, label in enumerate(aolabels):
-            i, e, l = label.split()
-            if int(i) == iatom and l in labels:
-                frag_ind.append(iao)
-
-        mask = np.zeros(nao, dtype=bool)
-        mask[frag_ind] = True
         return mask
 
     def _environment(self, mask):
