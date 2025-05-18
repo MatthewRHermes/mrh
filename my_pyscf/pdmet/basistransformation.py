@@ -99,8 +99,10 @@ class BasisTransform:
             eri2 = ao2mo._ao2mo.nr_e2(eri1, moij, ijslice, aosym='s4', mosym=ijmosym, out=eri2)
             b0 = b1
 
+        cderi_file = fsgdf.replace(".h5", "_df.h5") if fsgdf.endswith(".h5") else fsgdf + "_df"
+
         old_gdf = h5py.File(fsgdf, 'r')
-        new_gdf = h5py.File(f'df_{fsgdf}', 'w')
+        new_gdf = h5py.File(cderi_file, 'w')
         for key in old_gdf.keys():
             if key == 'j3c':
                 new_gdf['j3c/0/0'] = Lij
@@ -108,7 +110,7 @@ class BasisTransform:
                 old_gdf.copy(old_gdf[key], new_gdf, key)
         old_gdf.close()
         new_gdf.close()
-        return f'df_{fsgdf}'
+        return cderi_file
 
 
     def _get_eri_transformed(self, ao2eo=None):
