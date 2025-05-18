@@ -9,8 +9,8 @@ from mrh.my_pyscf.pdmet.fragmentation import Fragmentation
 # Author: Bhavnesh Jangid <jangidbhavnesh@uchicago.edu>
 
 def is_close_to_integer(num, tolerance=1e-6):
-    warning_msg = 'SVD for this RDM has some problem'
-    assert (np.abs(num - np.round(num)) < tolerance), warning_msg
+    assert (np.abs(num - np.round(num)) < tolerance), \
+        f'SVD for this RDM has some problem: Difference is {np.abs(num - np.round(num))}'
 
 get_basis_transform = bt.BasisTransform._get_basis_transformed
 
@@ -182,7 +182,7 @@ class _pDMET:
             dm_lo = np.array([get_basis_transform(dm_, eo2ao.T) for dm_ in dm_full_ao])
             nelecs_spin = [np.trace(dm_) for dm_ in dm_lo]
             nelecs = np.sum(nelecs_spin)
-            for x in nelecs: is_close_to_integer(x)
+            for x in nelecs_spin: is_close_to_integer(x)
             # Sanity check for the spin
             nalpha, nbeta = cell.nelec
             if nalpha != nbeta:
@@ -262,7 +262,6 @@ class _pDMET:
         Get the veff terms
         '''
         mftemp = scf.RHF(cell, exxdiv = None).density_fit()
-
         if density_fit:
             mftemp.with_df._cderi = eri
         else:
