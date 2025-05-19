@@ -35,8 +35,6 @@ from mrh.my_pyscf.lassi.sitools import make_sdm1
 from mrh.tests.lassi.addons import case_contract_hlas_ci, case_lassis_fbf_2_model_state
 from mrh.tests.lassi.addons import case_lassis_fbfdm, case_contract_op_si, debug_contract_op_si
 
-lib.logger.TIMER_LEVEL = lib.logger.INFO
-
 def setUpModule ():
     global mol, mf, las, nroots, nelec_frs, si
     # State list contains a couple of different 4-frag interactions
@@ -66,7 +64,7 @@ def setUpModule ():
     1       -3.206320000     -3.233120000      0.000000000'''
     
     mol = gto.M (atom = xyz, basis='STO-3G', symmetry=False,
-        verbose=4, output='debug_4frag.log')
+        verbose=5, output='debug_4frag.log')
         #verbose=0, output='/dev/null')
     mf = scf.RHF (mol).run ()
     las = LASSCF (mf, (2,2,2,2),((1,1),(1,1),(1,1),(1,1)))
