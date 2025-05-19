@@ -335,3 +335,65 @@ void libgpu_compute_eri_impham_v2(void * ptr,
 }
 
 /* ---------------------------------------------------------------------- */
+void libgpu_init_mo_grid(void * ptr, 
+                             int ngrid, int nmo)
+{
+  Device * dev = (Device *) ptr;
+  dev->init_mo_grid(ngrid, nmo);
+}
+
+/* ---------------------------------------------------------------------- */
+void libgpu_push_ao_grid(void * ptr, 
+                           py::array_t<double> ao, int ngrid, int nao)
+{
+  Device * dev = (Device *) ptr;
+  dev->push_ao_grid(ao, ngrid, nao);
+}
+
+/* ---------------------------------------------------------------------- */
+void libgpu_compute_mo_grid(void * ptr, 
+                            int ngrid, int nao, int nmo)
+{
+  Device * dev = (Device *) ptr;
+  dev->compute_mo_grid(ngrid, nao, nmo);
+}
+/* ---------------------------------------------------------------------- */
+void libgpu_pull_mo_grid(void * ptr, 
+                          py::array_t<double> mo_grid, int ngrid, int nao)
+{
+  Device * dev = (Device *) ptr;
+  dev->pull_mo_grid(mo_grid, ngrid, nao);
+}
+/* ---------------------------------------------------------------------- */
+void libgpu_init_Pi(void * ptr,  
+                     int ngrid)
+{
+  Device * dev = (Device *) ptr;
+  dev->init_Pi(ngrid);
+}
+
+/* ---------------------------------------------------------------------- */
+void libgpu_push_cascm2 (void * ptr,
+                 py::array_t<double> cascm2, int ncas) 
+{
+  Device * dev = (Device *) ptr;
+  dev->push_cascm2(cascm2, ncas);
+}
+
+/* ---------------------------------------------------------------------- */
+void libgpu_compute_Pi (void * ptr,
+                 int ngrid, int ncas)
+{
+  Device * dev = (Device *) ptr;
+  dev->compute_Pi(ngrid, ncas);
+}
+
+/* ---------------------------------------------------------------------- */
+void libgpu_pull_Pi (void * ptr,
+                 py::array_t<double> Pi, int ngrid) 
+{
+  Device * dev = (Device *) ptr;
+  dev->pull_Pi(Pi, ngrid);
+}
+
+/* ---------------------------------------------------------------------- */
