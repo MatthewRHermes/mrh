@@ -1,0 +1,703 @@
+---
+MainSourceFile:  '/lus/grand/projects/LASSCF_gpudev/knight/soft/mrh/gpu/mini-apps/syclomatic/pm/MainSrcFiles_placehold'
+Replacements:
+  - FilePath:        '/lus/grand/projects/LASSCF_gpudev/knight/soft/mrh/gpu/mini-apps/syclomatic/pm/pm_cuda.cpp'
+    Offset:          24
+    Length:          0
+    ReplacementText: "#include <sycl/sycl.hpp>\n#include <dpct/dpct.hpp>\n"
+    ConstantFlag:    ''
+    ConstantOffset:  0
+    InitStr:         ''
+    NewHostVarName:  ''
+    BlockLevelFormatFlag: false
+  - FilePath:        '/lus/grand/projects/LASSCF_gpudev/knight/soft/mrh/gpu/mini-apps/syclomatic/pm/pm_cuda.cpp'
+    Offset:          322
+    Length:          0
+    ReplacementText: "    /*\n    DPCT1093:1: The \"i\" device may be not the one intended for use. Adjust the selected device if needed.\n    */\n"
+    ConstantFlag:    ''
+    ConstantOffset:  0
+    InitStr:         ''
+    NewHostVarName:  ''
+    BlockLevelFormatFlag: false
+  - FilePath:        '/lus/grand/projects/LASSCF_gpudev/knight/soft/mrh/gpu/mini-apps/syclomatic/pm/pm_cuda.cpp'
+    Offset:          326
+    Length:          13
+    ReplacementText: 'dpct::select_device'
+    ConstantFlag:    ''
+    ConstantOffset:  0
+    InitStr:         ''
+    NewHostVarName:  ''
+    BlockLevelFormatFlag: false
+  - FilePath:        '/lus/grand/projects/LASSCF_gpudev/knight/soft/mrh/gpu/mini-apps/syclomatic/pm/pm_cuda.cpp'
+    Offset:          375
+    Length:          12
+    ReplacementText: 'dpct::queue_ptr'
+    ConstantFlag:    ''
+    ConstantOffset:  0
+    InitStr:         ''
+    NewHostVarName:  ''
+    BlockLevelFormatFlag: false
+  - FilePath:        '/lus/grand/projects/LASSCF_gpudev/knight/soft/mrh/gpu/mini-apps/syclomatic/pm/pm_cuda.cpp'
+    Offset:          395
+    Length:          20
+    ReplacementText: 's = dpct::get_current_device().create_queue()'
+    ConstantFlag:    ''
+    ConstantOffset:  0
+    InitStr:         ''
+    NewHostVarName:  ''
+    BlockLevelFormatFlag: false
+  - FilePath:        '/lus/grand/projects/LASSCF_gpudev/knight/soft/mrh/gpu/mini-apps/syclomatic/pm/pm_cuda.cpp'
+    Offset:          451
+    Length:          0
+    ReplacementText: "  /*\n  DPCT1093:0: The \"0\" device may be not the one intended for use. Adjust the selected device if needed.\n  */\n"
+    ConstantFlag:    ''
+    ConstantOffset:  0
+    InitStr:         ''
+    NewHostVarName:  ''
+    BlockLevelFormatFlag: false
+  - FilePath:        '/lus/grand/projects/LASSCF_gpudev/knight/soft/mrh/gpu/mini-apps/syclomatic/pm/pm_cuda.cpp'
+    Offset:          453
+    Length:          13
+    ReplacementText: 'dpct::select_device'
+    ConstantFlag:    ''
+    ConstantOffset:  0
+    InitStr:         ''
+    NewHostVarName:  ''
+    BlockLevelFormatFlag: false
+  - FilePath:        '/lus/grand/projects/LASSCF_gpudev/knight/soft/mrh/gpu/mini-apps/syclomatic/pm/pm_cuda.cpp'
+    Offset:          540
+    Length:          31
+    ReplacementText: 'dpct::get_current_device().destroy_queue(my_queues[i])'
+    ConstantFlag:    ''
+    ConstantOffset:  0
+    InitStr:         ''
+    NewHostVarName:  ''
+    BlockLevelFormatFlag: false
+  - FilePath:        '/lus/grand/projects/LASSCF_gpudev/knight/soft/mrh/gpu/mini-apps/syclomatic/pm/pm_cuda.cpp'
+    Offset:          670
+    Length:          10
+    ReplacementText: 'std::array<unsigned char, 16>'
+    ConstantFlag:    ''
+    ConstantOffset:  0
+    InitStr:         ''
+    NewHostVarName:  ''
+    BlockLevelFormatFlag: false
+  - FilePath:        '/lus/grand/projects/LASSCF_gpudev/knight/soft/mrh/gpu/mini-apps/syclomatic/pm/pm_cuda.cpp'
+    Offset:          982
+    Length:          6
+    ReplacementText: ''
+    ConstantFlag:    ''
+    ConstantOffset:  0
+    InitStr:         ''
+    NewHostVarName:  ''
+    BlockLevelFormatFlag: false
+  - FilePath:        '/lus/grand/projects/LASSCF_gpudev/knight/soft/mrh/gpu/mini-apps/syclomatic/pm/pm_cuda.cpp'
+    Offset:          1146
+    Length:          32
+    ReplacementText: 'num_devices = dpct::dev_mgr::instance().device_count()'
+    ConstantFlag:    ''
+    ConstantOffset:  0
+    InitStr:         ''
+    NewHostVarName:  ''
+    BlockLevelFormatFlag: false
+  - FilePath:        '/lus/grand/projects/LASSCF_gpudev/knight/soft/mrh/gpu/mini-apps/syclomatic/pm/pm_cuda.cpp'
+    Offset:          1478
+    Length:          14
+    ReplacementText: 'dpct::device_info'
+    ConstantFlag:    ''
+    ConstantOffset:  0
+    InitStr:         ''
+    NewHostVarName:  ''
+    BlockLevelFormatFlag: false
+  - FilePath:        '/lus/grand/projects/LASSCF_gpudev/knight/soft/mrh/gpu/mini-apps/syclomatic/pm/pm_cuda.cpp'
+    Offset:          1503
+    Length:          33
+    ReplacementText: 'dpct::get_device_info(prop, dpct::dev_mgr::instance().get_device(i))'
+    ConstantFlag:    ''
+    ConstantOffset:  0
+    InitStr:         ''
+    NewHostVarName:  ''
+    BlockLevelFormatFlag: false
+  - FilePath:        '/lus/grand/projects/LASSCF_gpudev/knight/soft/mrh/gpu/mini-apps/syclomatic/pm/pm_cuda.cpp'
+    Offset:          1607
+    Length:          4
+    ReplacementText: 'get_name()'
+    ConstantFlag:    ''
+    ConstantOffset:  0
+    InitStr:         ''
+    NewHostVarName:  ''
+    BlockLevelFormatFlag: false
+  - FilePath:        '/lus/grand/projects/LASSCF_gpudev/knight/soft/mrh/gpu/mini-apps/syclomatic/pm/pm_cuda.cpp'
+    Offset:          1727
+    Length:          4
+    ReplacementText: 'get_uuid()'
+    ConstantFlag:    ''
+    ConstantOffset:  0
+    InitStr:         ''
+    NewHostVarName:  ''
+    BlockLevelFormatFlag: false
+  - FilePath:        '/lus/grand/projects/LASSCF_gpudev/knight/soft/mrh/gpu/mini-apps/syclomatic/pm/pm_cuda.cpp'
+    Offset:          2090
+    Length:          0
+    ReplacementText: "    /*\n    DPCT1093:6: The \"ig\" device may be not the one intended for use. Adjust the selected device if needed.\n    */\n"
+    ConstantFlag:    ''
+    ConstantOffset:  0
+    InitStr:         ''
+    NewHostVarName:  ''
+    BlockLevelFormatFlag: false
+  - FilePath:        '/lus/grand/projects/LASSCF_gpudev/knight/soft/mrh/gpu/mini-apps/syclomatic/pm/pm_cuda.cpp'
+    Offset:          2094
+    Length:          13
+    ReplacementText: 'dpct::select_device'
+    ConstantFlag:    ''
+    ConstantOffset:  0
+    InitStr:         ''
+    NewHostVarName:  ''
+    BlockLevelFormatFlag: false
+  - FilePath:        '/lus/grand/projects/LASSCF_gpudev/knight/soft/mrh/gpu/mini-apps/syclomatic/pm/pm_cuda.cpp'
+    Offset:          2296
+    Length:          40
+    ReplacementText: 'access = dpct::dev_mgr::instance().get_device(ig).ext_oneapi_can_access_peer(dpct::dev_mgr::instance().get_device(jg))'
+    ConstantFlag:    ''
+    ConstantOffset:  0
+    InitStr:         ''
+    NewHostVarName:  ''
+    BlockLevelFormatFlag: false
+  - FilePath:        '/lus/grand/projects/LASSCF_gpudev/knight/soft/mrh/gpu/mini-apps/syclomatic/pm/pm_cuda.cpp'
+    Offset:          2856
+    Length:          0
+    ReplacementText: "    /*\n    DPCT1093:7: The \"ig\" device may be not the one intended for use. Adjust the selected device if needed.\n    */\n"
+    ConstantFlag:    ''
+    ConstantOffset:  0
+    InitStr:         ''
+    NewHostVarName:  ''
+    BlockLevelFormatFlag: false
+  - FilePath:        '/lus/grand/projects/LASSCF_gpudev/knight/soft/mrh/gpu/mini-apps/syclomatic/pm/pm_cuda.cpp'
+    Offset:          2860
+    Length:          13
+    ReplacementText: 'dpct::select_device'
+    ConstantFlag:    ''
+    ConstantOffset:  0
+    InitStr:         ''
+    NewHostVarName:  ''
+    BlockLevelFormatFlag: false
+  - FilePath:        '/lus/grand/projects/LASSCF_gpudev/knight/soft/mrh/gpu/mini-apps/syclomatic/pm/pm_cuda.cpp'
+    Offset:          2939
+    Length:          33
+    ReplacementText: 'dpct::get_current_device().ext_oneapi_enable_peer_access(dpct::dev_mgr::instance().get_device(jg))'
+    ConstantFlag:    ''
+    ConstantOffset:  0
+    InitStr:         ''
+    NewHostVarName:  ''
+    BlockLevelFormatFlag: false
+  - FilePath:        '/lus/grand/projects/LASSCF_gpudev/knight/soft/mrh/gpu/mini-apps/syclomatic/pm/pm_cuda.cpp'
+    Offset:          3172
+    Length:          0
+    ReplacementText: "  /*\n  DPCT1093:8: The \"id\" device may be not the one intended for use. Adjust the selected device if needed.\n  */\n"
+    ConstantFlag:    ''
+    ConstantOffset:  0
+    InitStr:         ''
+    NewHostVarName:  ''
+    BlockLevelFormatFlag: false
+  - FilePath:        '/lus/grand/projects/LASSCF_gpudev/knight/soft/mrh/gpu/mini-apps/syclomatic/pm/pm_cuda.cpp'
+    Offset:          3174
+    Length:          13
+    ReplacementText: 'dpct::select_device'
+    ConstantFlag:    ''
+    ConstantOffset:  0
+    InitStr:         ''
+    NewHostVarName:  ''
+    BlockLevelFormatFlag: false
+  - FilePath:        '/lus/grand/projects/LASSCF_gpudev/knight/soft/mrh/gpu/mini-apps/syclomatic/pm/pm_cuda.cpp'
+    Offset:          3465
+    Length:          18
+    ReplacementText: 'id = dpct::dev_mgr::instance().current_device_id()'
+    ConstantFlag:    ''
+    ConstantOffset:  0
+    InitStr:         ''
+    NewHostVarName:  ''
+    BlockLevelFormatFlag: false
+  - FilePath:        '/lus/grand/projects/LASSCF_gpudev/knight/soft/mrh/gpu/mini-apps/syclomatic/pm/pm_cuda.cpp'
+    Offset:          3799
+    Length:          28
+    ReplacementText: 'ptr = (void *)sycl::malloc_device(N, dpct::get_in_order_queue())'
+    ConstantFlag:    ''
+    ConstantOffset:  0
+    InitStr:         ''
+    NewHostVarName:  ''
+    BlockLevelFormatFlag: false
+  - FilePath:        '/lus/grand/projects/LASSCF_gpudev/knight/soft/mrh/gpu/mini-apps/syclomatic/pm/pm_cuda.cpp'
+    Offset:          4128
+    Length:          0
+    ReplacementText: "  /*\n  DPCT1007:9: Migration of cudaMallocAsync is not supported.\n  */\n"
+    ConstantFlag:    ''
+    ConstantOffset:  0
+    InitStr:         ''
+    NewHostVarName:  ''
+    BlockLevelFormatFlag: false
+  - FilePath:        '/lus/grand/projects/LASSCF_gpudev/knight/soft/mrh/gpu/mini-apps/syclomatic/pm/pm_cuda.cpp'
+    Offset:          4347
+    Length:          12
+    ReplacementText: 'dpct::queue_ptr'
+    ConstantFlag:    ''
+    ConstantOffset:  0
+    InitStr:         ''
+    NewHostVarName:  ''
+    BlockLevelFormatFlag: false
+  - FilePath:        '/lus/grand/projects/LASSCF_gpudev/knight/soft/mrh/gpu/mini-apps/syclomatic/pm/pm_cuda.cpp'
+    Offset:          4512
+    Length:          0
+    ReplacementText: "  /*\n  DPCT1007:10: Migration of cudaMallocAsync is not supported.\n  */\n"
+    ConstantFlag:    ''
+    ConstantOffset:  0
+    InitStr:         ''
+    NewHostVarName:  ''
+    BlockLevelFormatFlag: false
+  - FilePath:        '/lus/grand/projects/LASSCF_gpudev/knight/soft/mrh/gpu/mini-apps/syclomatic/pm/pm_cuda.cpp'
+    Offset:          4806
+    Length:          32
+    ReplacementText: 'ptr = (void *)sycl::malloc_host(N, dpct::get_in_order_queue())'
+    ConstantFlag:    ''
+    ConstantOffset:  0
+    InitStr:         ''
+    NewHostVarName:  ''
+    BlockLevelFormatFlag: false
+  - FilePath:        '/lus/grand/projects/LASSCF_gpudev/knight/soft/mrh/gpu/mini-apps/syclomatic/pm/pm_cuda.cpp'
+    Offset:          5066
+    Length:          13
+    ReplacementText: 'dpct::dpct_free(ptr, dpct::get_in_order_queue())'
+    ConstantFlag:    ''
+    ConstantOffset:  0
+    InitStr:         ''
+    NewHostVarName:  ''
+    BlockLevelFormatFlag: false
+  - FilePath:        '/lus/grand/projects/LASSCF_gpudev/knight/soft/mrh/gpu/mini-apps/syclomatic/pm/pm_cuda.cpp'
+    Offset:          5338
+    Length:          0
+    ReplacementText: "  /*\n  DPCT1007:11: Migration of cudaFreeAsync is not supported.\n  */\n"
+    ConstantFlag:    ''
+    ConstantOffset:  0
+    InitStr:         ''
+    NewHostVarName:  ''
+    BlockLevelFormatFlag: false
+  - FilePath:        '/lus/grand/projects/LASSCF_gpudev/knight/soft/mrh/gpu/mini-apps/syclomatic/pm/pm_cuda.cpp'
+    Offset:          5529
+    Length:          12
+    ReplacementText: 'dpct::queue_ptr'
+    ConstantFlag:    ''
+    ConstantOffset:  0
+    InitStr:         ''
+    NewHostVarName:  ''
+    BlockLevelFormatFlag: false
+  - FilePath:        '/lus/grand/projects/LASSCF_gpudev/knight/soft/mrh/gpu/mini-apps/syclomatic/pm/pm_cuda.cpp'
+    Offset:          5671
+    Length:          0
+    ReplacementText: "  /*\n  DPCT1007:12: Migration of cudaFreeAsync is not supported.\n  */\n"
+    ConstantFlag:    ''
+    ConstantOffset:  0
+    InitStr:         ''
+    NewHostVarName:  ''
+    BlockLevelFormatFlag: false
+  - FilePath:        '/lus/grand/projects/LASSCF_gpudev/knight/soft/mrh/gpu/mini-apps/syclomatic/pm/pm_cuda.cpp'
+    Offset:          5929
+    Length:          17
+    ReplacementText: 'sycl::free(ptr, dpct::get_in_order_queue())'
+    ConstantFlag:    ''
+    ConstantOffset:  0
+    InitStr:         ''
+    NewHostVarName:  ''
+    BlockLevelFormatFlag: false
+  - FilePath:        '/lus/grand/projects/LASSCF_gpudev/knight/soft/mrh/gpu/mini-apps/syclomatic/pm/pm_cuda.cpp'
+    Offset:          6173
+    Length:          10
+    ReplacementText: 'dpct::get_in_order_queue().memcpy'
+    ConstantFlag:    ''
+    ConstantOffset:  0
+    InitStr:         ''
+    NewHostVarName:  ''
+    BlockLevelFormatFlag: false
+  - FilePath:        '/lus/grand/projects/LASSCF_gpudev/knight/soft/mrh/gpu/mini-apps/syclomatic/pm/pm_cuda.cpp'
+    Offset:          6199
+    Length:          24
+    ReplacementText: ''
+    ConstantFlag:    ''
+    ConstantOffset:  0
+    InitStr:         ''
+    NewHostVarName:  ''
+    BlockLevelFormatFlag: false
+  - FilePath:        '/lus/grand/projects/LASSCF_gpudev/knight/soft/mrh/gpu/mini-apps/syclomatic/pm/pm_cuda.cpp'
+    Offset:          6224
+    Length:          0
+    ReplacementText: '.wait()'
+    ConstantFlag:    ''
+    ConstantOffset:  0
+    InitStr:         ''
+    NewHostVarName:  ''
+    BlockLevelFormatFlag: false
+  - FilePath:        '/lus/grand/projects/LASSCF_gpudev/knight/soft/mrh/gpu/mini-apps/syclomatic/pm/pm_cuda.cpp'
+    Offset:          6457
+    Length:          15
+    ReplacementText: "/*\n  DPCT1124:13: cudaMemcpyAsync is migrated to asynchronous memcpy API. While the origin API might be synchronous, it depends on the type of operand memory, so you may need to call wait() on event return by memcpy API to ensure synchronization behavior.\n  */\n  *current_queue->memcpy"
+    ConstantFlag:    ''
+    ConstantOffset:  0
+    InitStr:         ''
+    NewHostVarName:  ''
+    BlockLevelFormatFlag: false
+  - FilePath:        '/lus/grand/projects/LASSCF_gpudev/knight/soft/mrh/gpu/mini-apps/syclomatic/pm/pm_cuda.cpp'
+    Offset:          6488
+    Length:          24
+    ReplacementText: ''
+    ConstantFlag:    ''
+    ConstantOffset:  0
+    InitStr:         ''
+    NewHostVarName:  ''
+    BlockLevelFormatFlag: false
+  - FilePath:        '/lus/grand/projects/LASSCF_gpudev/knight/soft/mrh/gpu/mini-apps/syclomatic/pm/pm_cuda.cpp'
+    Offset:          6512
+    Length:          16
+    ReplacementText: ''
+    ConstantFlag:    ''
+    ConstantOffset:  0
+    InitStr:         ''
+    NewHostVarName:  ''
+    BlockLevelFormatFlag: false
+  - FilePath:        '/lus/grand/projects/LASSCF_gpudev/knight/soft/mrh/gpu/mini-apps/syclomatic/pm/pm_cuda.cpp'
+    Offset:          6710
+    Length:          12
+    ReplacementText: 'dpct::queue_ptr'
+    ConstantFlag:    ''
+    ConstantOffset:  0
+    InitStr:         ''
+    NewHostVarName:  ''
+    BlockLevelFormatFlag: false
+  - FilePath:        '/lus/grand/projects/LASSCF_gpudev/knight/soft/mrh/gpu/mini-apps/syclomatic/pm/pm_cuda.cpp'
+    Offset:          6801
+    Length:          15
+    ReplacementText: "/*\n  DPCT1124:18: cudaMemcpyAsync is migrated to asynchronous memcpy API. While the origin API might be synchronous, it depends on the type of operand memory, so you may need to call wait() on event return by memcpy API to ensure synchronization behavior.\n  */\n  s->memcpy"
+    ConstantFlag:    ''
+    ConstantOffset:  0
+    InitStr:         ''
+    NewHostVarName:  ''
+    BlockLevelFormatFlag: false
+  - FilePath:        '/lus/grand/projects/LASSCF_gpudev/knight/soft/mrh/gpu/mini-apps/syclomatic/pm/pm_cuda.cpp'
+    Offset:          6832
+    Length:          24
+    ReplacementText: ''
+    ConstantFlag:    ''
+    ConstantOffset:  0
+    InitStr:         ''
+    NewHostVarName:  ''
+    BlockLevelFormatFlag: false
+  - FilePath:        '/lus/grand/projects/LASSCF_gpudev/knight/soft/mrh/gpu/mini-apps/syclomatic/pm/pm_cuda.cpp'
+    Offset:          6856
+    Length:          3
+    ReplacementText: ''
+    ConstantFlag:    ''
+    ConstantOffset:  0
+    InitStr:         ''
+    NewHostVarName:  ''
+    BlockLevelFormatFlag: false
+  - FilePath:        '/lus/grand/projects/LASSCF_gpudev/knight/soft/mrh/gpu/mini-apps/syclomatic/pm/pm_cuda.cpp'
+    Offset:          7104
+    Length:          10
+    ReplacementText: 'dpct::get_in_order_queue().memcpy'
+    ConstantFlag:    ''
+    ConstantOffset:  0
+    InitStr:         ''
+    NewHostVarName:  ''
+    BlockLevelFormatFlag: false
+  - FilePath:        '/lus/grand/projects/LASSCF_gpudev/knight/soft/mrh/gpu/mini-apps/syclomatic/pm/pm_cuda.cpp'
+    Offset:          7130
+    Length:          24
+    ReplacementText: ''
+    ConstantFlag:    ''
+    ConstantOffset:  0
+    InitStr:         ''
+    NewHostVarName:  ''
+    BlockLevelFormatFlag: false
+  - FilePath:        '/lus/grand/projects/LASSCF_gpudev/knight/soft/mrh/gpu/mini-apps/syclomatic/pm/pm_cuda.cpp'
+    Offset:          7155
+    Length:          0
+    ReplacementText: '.wait()'
+    ConstantFlag:    ''
+    ConstantOffset:  0
+    InitStr:         ''
+    NewHostVarName:  ''
+    BlockLevelFormatFlag: false
+  - FilePath:        '/lus/grand/projects/LASSCF_gpudev/knight/soft/mrh/gpu/mini-apps/syclomatic/pm/pm_cuda.cpp'
+    Offset:          7389
+    Length:          15
+    ReplacementText: "/*\n  DPCT1124:19: cudaMemcpyAsync is migrated to asynchronous memcpy API. While the origin API might be synchronous, it depends on the type of operand memory, so you may need to call wait() on event return by memcpy API to ensure synchronization behavior.\n  */\n  *current_queue->memcpy"
+    ConstantFlag:    ''
+    ConstantOffset:  0
+    InitStr:         ''
+    NewHostVarName:  ''
+    BlockLevelFormatFlag: false
+  - FilePath:        '/lus/grand/projects/LASSCF_gpudev/knight/soft/mrh/gpu/mini-apps/syclomatic/pm/pm_cuda.cpp'
+    Offset:          7420
+    Length:          24
+    ReplacementText: ''
+    ConstantFlag:    ''
+    ConstantOffset:  0
+    InitStr:         ''
+    NewHostVarName:  ''
+    BlockLevelFormatFlag: false
+  - FilePath:        '/lus/grand/projects/LASSCF_gpudev/knight/soft/mrh/gpu/mini-apps/syclomatic/pm/pm_cuda.cpp'
+    Offset:          7444
+    Length:          16
+    ReplacementText: ''
+    ConstantFlag:    ''
+    ConstantOffset:  0
+    InitStr:         ''
+    NewHostVarName:  ''
+    BlockLevelFormatFlag: false
+  - FilePath:        '/lus/grand/projects/LASSCF_gpudev/knight/soft/mrh/gpu/mini-apps/syclomatic/pm/pm_cuda.cpp'
+    Offset:          7627
+    Length:          12
+    ReplacementText: 'dpct::queue_ptr'
+    ConstantFlag:    ''
+    ConstantOffset:  0
+    InitStr:         ''
+    NewHostVarName:  ''
+    BlockLevelFormatFlag: false
+  - FilePath:        '/lus/grand/projects/LASSCF_gpudev/knight/soft/mrh/gpu/mini-apps/syclomatic/pm/pm_cuda.cpp'
+    Offset:          7718
+    Length:          15
+    ReplacementText: "/*\n  DPCT1124:20: cudaMemcpyAsync is migrated to asynchronous memcpy API. While the origin API might be synchronous, it depends on the type of operand memory, so you may need to call wait() on event return by memcpy API to ensure synchronization behavior.\n  */\n  s->memcpy"
+    ConstantFlag:    ''
+    ConstantOffset:  0
+    InitStr:         ''
+    NewHostVarName:  ''
+    BlockLevelFormatFlag: false
+  - FilePath:        '/lus/grand/projects/LASSCF_gpudev/knight/soft/mrh/gpu/mini-apps/syclomatic/pm/pm_cuda.cpp'
+    Offset:          7749
+    Length:          24
+    ReplacementText: ''
+    ConstantFlag:    ''
+    ConstantOffset:  0
+    InitStr:         ''
+    NewHostVarName:  ''
+    BlockLevelFormatFlag: false
+  - FilePath:        '/lus/grand/projects/LASSCF_gpudev/knight/soft/mrh/gpu/mini-apps/syclomatic/pm/pm_cuda.cpp'
+    Offset:          7773
+    Length:          3
+    ReplacementText: ''
+    ConstantFlag:    ''
+    ConstantOffset:  0
+    InitStr:         ''
+    NewHostVarName:  ''
+    BlockLevelFormatFlag: false
+  - FilePath:        '/lus/grand/projects/LASSCF_gpudev/knight/soft/mrh/gpu/mini-apps/syclomatic/pm/pm_cuda.cpp'
+    Offset:          8036
+    Length:          0
+    ReplacementText: "  /*\n  DPCT1007:21: Migration of cudaMemcpyPeer is not supported.\n  */\n"
+    ConstantFlag:    ''
+    ConstantOffset:  0
+    InitStr:         ''
+    NewHostVarName:  ''
+    BlockLevelFormatFlag: false
+  - FilePath:        '/lus/grand/projects/LASSCF_gpudev/knight/soft/mrh/gpu/mini-apps/syclomatic/pm/pm_cuda.cpp'
+    Offset:          8352
+    Length:          0
+    ReplacementText: "  /*\n  DPCT1007:22: Migration of cudaMemcpyPeerAsync is not supported.\n  */\n"
+    ConstantFlag:    ''
+    ConstantOffset:  0
+    InitStr:         ''
+    NewHostVarName:  ''
+    BlockLevelFormatFlag: false
+  - FilePath:        '/lus/grand/projects/LASSCF_gpudev/knight/soft/mrh/gpu/mini-apps/syclomatic/pm/pm_cuda.cpp'
+    Offset:          8650
+    Length:          10
+    ReplacementText: 'dpct::get_in_order_queue().memcpy'
+    ConstantFlag:    ''
+    ConstantOffset:  0
+    InitStr:         ''
+    NewHostVarName:  ''
+    BlockLevelFormatFlag: false
+  - FilePath:        '/lus/grand/projects/LASSCF_gpudev/knight/soft/mrh/gpu/mini-apps/syclomatic/pm/pm_cuda.cpp'
+    Offset:          8673
+    Length:          26
+    ReplacementText: ''
+    ConstantFlag:    ''
+    ConstantOffset:  0
+    InitStr:         ''
+    NewHostVarName:  ''
+    BlockLevelFormatFlag: false
+  - FilePath:        '/lus/grand/projects/LASSCF_gpudev/knight/soft/mrh/gpu/mini-apps/syclomatic/pm/pm_cuda.cpp'
+    Offset:          8942
+    Length:          21
+    ReplacementText: 'dpct::pointer_attributes'
+    ConstantFlag:    ''
+    ConstantOffset:  0
+    InitStr:         ''
+    NewHostVarName:  ''
+    BlockLevelFormatFlag: false
+  - FilePath:        '/lus/grand/projects/LASSCF_gpudev/knight/soft/mrh/gpu/mini-apps/syclomatic/pm/pm_cuda.cpp'
+    Offset:          8978
+    Length:          42
+    ReplacementText: 'attributes.init(ptr)'
+    ConstantFlag:    ''
+    ConstantOffset:  0
+    InitStr:         ''
+    NewHostVarName:  ''
+    BlockLevelFormatFlag: false
+  - FilePath:        '/lus/grand/projects/LASSCF_gpudev/knight/soft/mrh/gpu/mini-apps/syclomatic/pm/pm_cuda.cpp'
+    Offset:          9027
+    Length:          24
+    ReplacementText: 'attributes.get_device_pointer()'
+    ConstantFlag:    ''
+    ConstantOffset:  0
+    InitStr:         ''
+    NewHostVarName:  ''
+    BlockLevelFormatFlag: false
+  - FilePath:        '/lus/grand/projects/LASSCF_gpudev/knight/soft/mrh/gpu/mini-apps/syclomatic/pm/pm_cuda.cpp'
+    Offset:          9117
+    Length:          22
+    ReplacementText: 'attributes.get_host_pointer()'
+    ConstantFlag:    ''
+    ConstantOffset:  0
+    InitStr:         ''
+    NewHostVarName:  ''
+    BlockLevelFormatFlag: false
+  - FilePath:        '/lus/grand/projects/LASSCF_gpudev/knight/soft/mrh/gpu/mini-apps/syclomatic/pm/pm_cuda.cpp'
+    Offset:          9373
+    Length:          23
+    ReplacementText: 'dpct::get_current_device().queues_wait_and_throw()'
+    ConstantFlag:    ''
+    ConstantOffset:  0
+    InitStr:         ''
+    NewHostVarName:  ''
+    BlockLevelFormatFlag: false
+  - FilePath:        '/lus/grand/projects/LASSCF_gpudev/knight/soft/mrh/gpu/mini-apps/syclomatic/pm/pm_cuda.cpp'
+    Offset:          9941
+    Length:          12
+    ReplacementText: 'dpct::queue_ptr'
+    ConstantFlag:    ''
+    ConstantOffset:  0
+    InitStr:         ''
+    NewHostVarName:  ''
+    BlockLevelFormatFlag: false
+  - FilePath:        '/lus/grand/projects/LASSCF_gpudev/knight/soft/mrh/gpu/mini-apps/syclomatic/pm/pm_cuda.cpp'
+    Offset:          10581
+    Length:          12
+    ReplacementText: 'dpct::queue_ptr'
+    ConstantFlag:    ''
+    ConstantOffset:  0
+    InitStr:         ''
+    NewHostVarName:  ''
+    BlockLevelFormatFlag: false
+  - FilePath:        '/lus/grand/projects/LASSCF_gpudev/knight/soft/mrh/gpu/mini-apps/syclomatic/pm/pm_cuda.cpp'
+    Offset:          10926
+    Length:          37
+    ReplacementText: '*current_queue->wait()'
+    ConstantFlag:    ''
+    ConstantOffset:  0
+    InitStr:         ''
+    NewHostVarName:  ''
+    BlockLevelFormatFlag: false
+  - FilePath:        '/lus/grand/projects/LASSCF_gpudev/knight/soft/mrh/gpu/mini-apps/syclomatic/pm/pm_cuda.cpp'
+    Offset:          11093
+    Length:          12
+    ReplacementText: 'dpct::queue_ptr'
+    ConstantFlag:    ''
+    ConstantOffset:  0
+    InitStr:         ''
+    NewHostVarName:  ''
+    BlockLevelFormatFlag: false
+  - FilePath:        '/lus/grand/projects/LASSCF_gpudev/knight/soft/mrh/gpu/mini-apps/syclomatic/pm/pm_cuda.cpp'
+    Offset:          11186
+    Length:          24
+    ReplacementText: 's->wait()'
+    ConstantFlag:    ''
+    ConstantOffset:  0
+    InitStr:         ''
+    NewHostVarName:  ''
+    BlockLevelFormatFlag: false
+  - FilePath:        '/lus/grand/projects/LASSCF_gpudev/knight/soft/mrh/gpu/mini-apps/syclomatic/pm/pm_cuda.cpp'
+    Offset:          11551
+    Length:          12
+    ReplacementText: 'dpct::queue_ptr'
+    ConstantFlag:    ''
+    ConstantOffset:  0
+    InitStr:         ''
+    NewHostVarName:  ''
+    BlockLevelFormatFlag: false
+  - FilePath:        '/lus/grand/projects/LASSCF_gpudev/knight/soft/mrh/gpu/mini-apps/syclomatic/pm/pm_cuda.cpp'
+    Offset:          11657
+    Length:          12
+    ReplacementText: 'dpct::queue_ptr'
+    ConstantFlag:    ''
+    ConstantOffset:  0
+    InitStr:         ''
+    NewHostVarName:  ''
+    BlockLevelFormatFlag: false
+MainSourceFilesDigest:
+  - MainSourceFile:  '/lus/grand/projects/LASSCF_gpudev/knight/soft/mrh/gpu/mini-apps/syclomatic/pm/pm_cuda.cpp'
+    Digest:          eaaf1fc85cdb12b549f85b935d744fdd
+DpctVersion:     19.0.0
+MainHelperFileName: ''
+USMLevel:        ''
+FeatureMap:      {}
+CompileTargets:  {}
+OptionMap:
+  AnalysisScopePath:
+    Value:           '/lus/grand/projects/LASSCF_gpudev/knight/soft/mrh/gpu/mini-apps/syclomatic/pm'
+    Specified:       false
+  AsyncHandler:
+    Value:           'false'
+    Specified:       false
+  BuildScript:
+    Value:           '0'
+    Specified:       false
+  CodePinEnabled:
+    Value:           'false'
+    Specified:       false
+  CommentsEnabled:
+    Value:           'false'
+    Specified:       false
+  CompilationsDir:
+    Value:           ''
+    Specified:       false
+  CtadEnabled:
+    Value:           'false'
+    Specified:       false
+  EnablepProfiling:
+    Value:           'false'
+    Specified:       false
+  ExperimentalFlag:
+    Value:           '0'
+    Specified:       false
+  ExplicitNamespace:
+    Value:           '20'
+    Specified:       false
+  ExtensionDDFlag:
+    Value:           '0'
+    Specified:       false
+  ExtensionDEFlag:
+    Value:           '4294967295'
+    Specified:       false
+  HelperFuncPreferenceFlag:
+    Value:           '0'
+    Specified:       false
+  NDRangeDim:
+    Value:           '3'
+    Specified:       false
+  NoDRYPattern:
+    Value:           'false'
+    Specified:       false
+  OptimizeMigration:
+    Value:           'false'
+    Specified:       false
+  ProcessAll:
+    Value:           'false'
+    Specified:       false
+  RuleFile:
+    Value:           ''
+    Specified:       false
+  SyclNamedLambda:
+    Value:           'false'
+    Specified:       false
+  UsmLevel:
+    Value:           '1'
+    Specified:       false
+...
