@@ -1,5 +1,6 @@
 import numpy as np
 from mrh.my_pyscf.dmet.fragmentation import Fragmentation as molFragmentation
+
 # Author: Bhavnesh Jangid <jangidbhavnesh@uchicago.edu>
 
 class Fragmentation(molFragmentation):
