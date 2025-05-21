@@ -3107,10 +3107,19 @@ void Device::get_h2eff_df_v2(py::array_t<double> _cderi,
   const int _size_mo_cas = nao*ncas;
 
   const int _size_eri_unpacked = naux * nao * nao;
-  const int bump_buvp = naux * ncas * (ncas + nao); 
+  const int bump_buvp = naux * ncas * (ncas + nao);
+  
+  // buf2 will hold vuwm
+  
   const int size_vuwm = ncas * ncas * ncas * nao;
 
-  const int max_size_buf = (_size_eri_unpacked > _size_eri_h2eff) ? _size_eri_unpacked : _size_eri_h2eff;
+  // buf1 will hold both bumP & buvP
+
+  const int size_bumP_buvP = (naux*ncas*nao) + (naux*ncas*ncas);
+  
+  int max_size_buf = (_size_eri_unpacked > _size_eri_h2eff) ? _size_eri_unpacked : _size_eri_h2eff;
+  if(size_vuwm > max_size_buf) max_size_buf = size_vuwm;
+  if(size_bumP_buvP > max_size_buf) max_size_buf = size_bumP_buvP;
   
   if (max_size_buf > dd->size_buf){
     dd->size_buf = max_size_buf;
@@ -3185,19 +3194,22 @@ void Device::get_h2eff_df_v2(py::array_t<double> _cderi,
 
   transpose_120(d_bPmu, d_bumP, naux, ncas, nao, 1); // this call distributes work items differently 
 
-  double * d_buvP = dd->d_buf1+naux*ncas*nao;
+  double * d_buvP = dd->d_buf1 + naux*ncas*nao;
 
+  // printf("size_buf1= %i  size_bumP= %i  size_buvP= %i  sum= %i\n",
+  // 	 dd->size_buf, naux*ncas*nao, naux*ncas*ncas, naux*ncas*nao + naux*ncas*ncas);
+  
   //transpose bPvu
 
   transpose_210(d_bPvu, d_buvP, naux, ncas, ncas);
 
-  const int _size_mwvu = nao*ncas*ncas*ncas;
-
+  // printf("size_buf2= %i  _size_mwvu= %i\n",dd->size_buf, size_vuwm);
+  
   double * d_vuwm = dd->d_buf2; 
 
   ml->gemm((char *) "T", (char *) "N", &ncas_nao, &ncas2, &naux,
 	   &alpha, d_bumP, &naux, d_buvP, &naux, &beta, d_vuwm, &ncas_nao);
-
+  
   double * d_vuwM = dd->d_buf1;
 
   ml->gemm_batch((char *) "T", (char *) "T", &ncas, &nao, &nao,
@@ -3212,7 +3224,7 @@ void Device::get_h2eff_df_v2(py::array_t<double> _cderi,
     vecadd(dd->d_buf3, dd->d_eri_h2eff, _size_eri_h2eff);
   }
 
-  #if 0
+#if 0
   double * h_eri_h2eff = (double *) pm->dev_malloc_host(nao*ncas*ncas_pair*sizeof(double));
   pm->dev_pull_async(dd->d_eri_h2eff, h_eri_h2eff, nao*ncas*ncas_pair*sizeof(double));
   pm->dev_stream_wait();
@@ -3224,7 +3236,8 @@ void Device::get_h2eff_df_v2(py::array_t<double> _cderi,
     }printf("\n");
   }
   pm->dev_free_host(h_eri_h2eff);
-  #endif
+#endif
+  
   pm->dev_profile_stop();
   
   double t1 = omp_get_wtime();
