@@ -673,7 +673,7 @@ void Device::pack_eri(double * eri1, double * buf2, int * map, int naux, int nao
 
 #ifdef _DEBUG_DEVICE
   printf("LIBGPU :: _pack_eri1 :: naux= %i  nao= %i _UNPACK_BLOCK_SIZE= %i  grid_size= %i %i %i  block_size= %i %i %i\n",
-         naux, nao, _UNPACK_BLOCK_SIZE, grid_size.x,grid_size.y,grid_size.z,block_size.x,block_size.y,block_size.z);
+         naux, nao, _UNPACK_BLOCK_SIZE, grid_size[0],grid_size[1],grid_size[2],block_size[0],block_size[1],block_size[2]);
   pm->dev_check_errors();
 #endif
 }
@@ -1155,7 +1155,7 @@ void Device::vecadd(const double * in, double * out, int N)
 
 #ifdef _DEBUG_DEVICE
   printf("LIBGPU ::  -- general::vecadd :: N= %i  grid_size= %i %i %i  block_size= %i %i %i\n",
-         N, grid_size.x,grid_size.y,grid_size.z,block_size.x,block_size.y,block_size.z);
+         N, grid_size[0],grid_size[1],grid_size[2],block_size[0],block_size[1],block_size[2]);
   pm->dev_check_errors();
 #endif
 }
