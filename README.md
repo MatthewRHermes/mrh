@@ -37,7 +37,7 @@ git clone git@github.com:MatthewRHermes/mrh.git
 pip install -e ./mrh
 ```
 
-== Installing on macOS
+## Installing on macOS
 
 OpenMP is required to build mrh. On macOS, CMake [cannot detect](https://stackoverflow.com/questions/46414660/macos-cmake-and-openmp) OpenMP when using the default compiler. The easiest work-around is to install GCC and OpenMP through [Homebrew](https://brew.sh/) and tell PySCF/pyscf-forge/mrh to [build with these compilers](https://pyscf.org/install.html#build-from-source-with-pip).
 
