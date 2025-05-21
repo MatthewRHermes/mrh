@@ -3,7 +3,7 @@
 
 import os
 import sys
-from setuptools import setup, find_packages
+from setuptools import setup
 from setuptools.command.build_py import build_py
 from pathlib import Path
 
@@ -43,12 +43,14 @@ class CMakeBuildPy(build_py):
         Build artifict will be added to the `build` directory in the project root.
         Extension modules will be left in-place in the source directoris.
         """
+        src_dir = Path(src_dir)
+
         # Create build directory
-        build_dir = (self.build_base / src_dir / f"tmp.{self.plat_name}").absolute()
+        build_dir = (src_dir / "build" / f"tmp.{self.plat_name}").absolute()
         build_dir.mkdir(parents=True, exist_ok=True)
 
         # Pass CMake an absolute path
-        src_dir = Path(src_dir).absolute()
+        src_dir = src_dir.absolute()
 
         # Configure project
         self.announce(f'Configuring {src_dir}...', level=0)
@@ -69,7 +71,6 @@ class CMakeBuildPy(build_py):
 
     def run(self):
         self.plat_name = get_platform()
-        self.build_base = Path("build")
 
         configure_args = os.getenv('CMAKE_CONFIGURE_ARGS')
         self.configure_args = configure_args.split(' ') if configure_args else []

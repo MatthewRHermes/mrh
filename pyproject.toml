@@ -9,11 +9,8 @@ name = "mrh"
 authors = []
 description = ""
 dependencies = [
-    # Tested PySCF commit
-    "pyscf@git+https://github.com/pyscf/pyscf.git@befb2fed666ba5c4f074923c66a48ab81854dc65",
-    # Tested PySCF commit
-    "pyscf-forge@git+https://github.com/pyscf/pyscf-forge.git@4d0c803326b4250fbb28dd7ce0f3167af8cd2b93",
-    # Other dependencies
+    "pyscf",
+    "pyscf-forge",
     "numpy",
     "scipy"
 ]
