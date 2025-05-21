@@ -24,6 +24,8 @@ using namespace MATHLIB_NS;
 #define _USE_ERI_CACHE
 #define _ERI_CACHE_EXTRA 2
 
+#define _ENABLE_P2P
+
 //#define _DEBUG_DEVICE
 //#define _DEBUG_ERI_CACHE
 //#define _DEBUG_H2EFF

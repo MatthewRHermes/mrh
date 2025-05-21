@@ -63,8 +63,8 @@ namespace PM_NS {
     
     int dev_num_devices();
     void dev_properties(int);
-
     int dev_check_peer(int, int);
+
     void dev_check_errors();
 
     void dev_set_device(int);
@@ -92,6 +92,10 @@ namespace PM_NS {
     void dev_pull_async(void * d_ptr, void * h_ptr, size_t N);
     void dev_pull_async(void * d_ptr, void * h_ptr, size_t N, sycl::queue &s);
 
+    void dev_enable_peer(int, int);
+    void dev_memcpy_peer(void * d_ptr, int dest, void * s_ptr, int src, size_t N);
+    void dev_memcpy_peer_async(void * d_ptr, int dest, void * s_ptr, int src, size_t N);
+    
     void dev_check_pointer(int, const char *, void *);
 
     int dev_stream_create();
