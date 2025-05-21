@@ -10,6 +10,7 @@ __pycache__/
 
 # Compilation
 lib/build/
+build/
 CMakeCache.txt
 CMakeFiles
 Makefile
