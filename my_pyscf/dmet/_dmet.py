@@ -15,71 +15,85 @@ from mrh.my_pyscf.dmet.basistransformation import BasisTransform
 get_basis_transform = BasisTransform._get_basis_transformed
 
 def is_close_to_integer(num, tolerance=1e-6):
-    warning_msg = 'SVD for this RDM has some problem'
-    assert (np.abs(num - np.round(num)) < tolerance), warning_msg
+    warning_msg = f'SVD for this RDM has some problem {(np.abs(num - np.round(num)) < tolerance)}'
+    assert (np.abs(num - np.round(num)) < tolerance), warning_msg 
 
 class _DMET:
     '''
     Density Matrix Embedding Theory
     '''
-    def __init__(self, mf, lo_method='meta_lowdin', bath_tol=1e-6, atmlst=None, atmlabel=None, density_fit=True, **kwargs):
+    def __init__(self, mf, lo_method='meta_lowdin', bath_tol=1e-6, atmlst=None, density_fit=True, **kwargs):
+        _keys = ['loc_rdm1','mask_frag','mask_env','ao2lo','ao2eo',
+                 'ao2co','lo2eo','lo2co','imp_nelec','core_nelec',]
         '''
         Args:
             mf : SCF object
                 SCF object for the molecule
-            lo : str
+            lo_method : str
                 Localization method
             bath_tol : float
                 Bath tolerance
             atm_lst : list
                 List of atom indices
-            atm_label : list
-                List of atom labels
+            density_fit: boolean
+                DF option for the embedded part
             verbose : int
                 Print level
+            nao: int
+                number of atomic orb. (cGTOs/basis)
+            nlo: int
+                number of localized orb.
+            neo: int
+                number of embedded orb (Impurity + bath)
+            loc_rdm1: np.array (nao,nao)
+                mean-field 1RDM in localized orb basis
+            mask_frag: vector (nao,)
+                orbital index which are centered on fragment
+            mask_env: vector(nao,)
+                orbital index for the environment orbitals
+            ao2lo: np.array (nao,nlo)
+                localized orbital coeffcient
+            ao2eo: np.array (nao,neo)
+                embedding orbital coeffcient
+            ao2co: np.array (nao,nlo-neo)
+                core orbital coeffcient
+            lo2eo: np.array (nlo, neo)
+                transf. matrix for ao2lo->ao2eo
+            lo2eo: np.array (nlo, nlo-neo)
+                transf. matrix for ao2lo->ao2co
+            imp_nelec: int
+                number of electrons in embedding subspace
+            core_nelec: int
+                number of electrons in core subspace
         '''
         self.mol = mf.mol
         self.mf = mf
         self.lo_method = lo_method
         self.atmlst = atmlst
-        self.atmlabel = atmlabel
         self.bath_tol = bath_tol
-        self.loc_rdm1 = None
-        self.mask_frag = None
-        self.mask_env = None
-        self.ao2lo = None
-        self.ao2eo = None
-        self.ao2co = None
-        self.lo2eo = None
-        self.lo2co = None
-        self.imp_nelec = None
-        self.core_nelec = None
         self.density_fit = density_fit
-        
-    def do_localization(self, **kwargs):
+        self.__dict__.update({key: None for key in _keys})
+       
+    def do_localization_(self, **kwargs):
         '''
-        Localize the orbitals using the specified method
+        Localize the entire orbital space. Then assigning
+        the rdm1 and mo_coeff to instance.
         '''
-        mf = self.mf
-        lo_method = self.lo_method
-        loc = Localization(mf, lo_method=lo_method)
+        loc = Localization(self.mf, lo_method=self.lo_method)
         ao2lo = loc.get_localized_orbitals()
         loc_rdm1 = loc.localized_rdm1(ao2lo)
+        # Now set these values.
         self.ao2lo = ao2lo
         self.loc_rdm1 = loc_rdm1
         return self
     
-    def do_fragmentation(self, **kwargs):
+    def do_fragmentation_(self, **kwargs):
         '''
         Fragment the molecule
         '''
-        mf = self.mf
-        lo_method = self.lo_method
-        atmlst = self.atmlst
-        atmlabel = self.atmlabel
-
-        frag = Fragmentation(mf, atmlst=atmlst, atmlabel=atmlabel)
-        mask_frag, mask_env = frag.get_fragments(atmlst=atmlst, atmlabel=atmlabel)
+        frag = Fragmentation(self.mf, atmlst=self.atmlst)
+        mask_frag, mask_env = frag.get_fragments(atmlst=self.atmlst)
+        # Assign the fragment and env orbitals.
         self.mask_frag = mask_frag
         self.mask_env = mask_env
         return self 
@@ -98,7 +112,7 @@ class _DMET:
         env_basis = self.ao2lo[:, self.mask_env]
         return env_basis
     
-    def _construct_bath_and_core(self):
+    def perform_schmidt_decomposition(self):
         '''
         Construct the bath and core orbitals.
         '''
@@ -136,11 +150,11 @@ class _DMET:
         if np.any(idx_core):
             u_core = u[:, idx_core].copy()
         else:
-            u_core = np.zeros([np.sum(self.mask_env), ncore], dtype=frag_basis.dtype) 
+            u_core = np.empty([np.sum(self.mask_env), ncore], dtype=frag_basis.dtype) 
 
         return u_selected, u_core
     
-    def get_impurity_subspace(self):
+    def generate_impurity_subspace_(self):
         '''
         Get the impurity subspace orbitals
         '''
@@ -148,7 +162,7 @@ class _DMET:
         # Get the mask and rotations matrices
         frag_basis = self._get_fragment_basis()
         env_basis = self._get_environment_basis()
-        u_selected, u_core = self._construct_bath_and_core()
+        u_selected, u_core = self.perform_schmidt_decomposition()
         
         # Number of orbitals
         nlo, nfragorb = frag_basis.shape
@@ -156,12 +170,12 @@ class _DMET:
         ncore = nlo-nfragorb-nbath
 
         # Define the impurity subspace
-        imp_basis = np.zeros([nlo, nfragorb+nbath], dtype=frag_basis.dtype)
+        imp_basis = np.empty([nlo, nfragorb+nbath], dtype=frag_basis.dtype)
         imp_basis[self.mask_frag, :nfragorb] = np.eye(nfragorb)
         imp_basis[self.mask_env, nfragorb:] = u_selected
         
         # Define the core subspace
-        core_basis = np.zeros([nlo, ncore], dtype=frag_basis.dtype)
+        core_basis = np.empty([nlo, ncore], dtype=frag_basis.dtype)
         core_basis[self.mask_env, :] = u_core
 
         # Convert localized orbitals to the impurity subspace
@@ -232,16 +246,16 @@ class _DMET:
         log.info('Number of elecs = %s', self.mol.nelectron)
         log.info('Number of atoms = %s', self.mol.natm)
         log.info("******** Fragment's Information ********")
-        log.info('Fragment type = %s', 'atom list' if self.atmlst is not None else 'atom label')
+        log.info('Fragment type = %s', 'atom list' )
         log.info('Lo_method = %s', self.lo_method)
         log.info('Bath_tol = %s', self.bath_tol)
         log.info('Number of frag orb = %s', sum(self.mask_frag))
         log.info('Number of env orb = %s',  sum(self.mask_env))
-        log.info('Number of imp. electrons = %s',  round(self.imp_nelec))
-        log.info('Number of core electrons = %s',  round(self.core_nelec))
         log.info('Number of imp orb = %s',  self.ao2eo.shape[1])
         log.info('Number of bath orb = %s', self.ao2eo.shape[1] - sum(self.mask_frag))
         log.info('Number of core orb = %s', self.ao2co.shape[1])
+        log.info('Number of imp. electrons = %s',  round(self.imp_nelec))
+        log.info('Number of core electrons = %s',  round(self.core_nelec))
         return self
 
     def _dummy_mol(self):
@@ -363,9 +377,9 @@ class _DMET:
             ao2co : np.array
                 Core coefficient matrix
         '''
-        self.do_localization()
-        self.do_fragmentation()
-        self.get_impurity_subspace()
+        self.do_localization_()
+        self.do_fragmentation_()
+        self.generate_impurity_subspace_()
         self.get_imp_nelecs()
         self.get_core_elecs()
         self.dump_flags()
@@ -400,7 +414,7 @@ class _DMET:
        
         core_dm = 0.5 * (core_dm + core_dm.T)
 
-        globalrdm = scipy.linalg.block_diag(np.zeros([neo, neo]), core_dm)
+        globalrdm = scipy.linalg.block_diag(np.empty([neo, neo], dtype=core_dm.dtype), core_dm)
        
         # Convert the globalrdm to the AO basis
         ao2eo = np.hstack([ao2eo, ao2co])
@@ -431,10 +445,12 @@ class _DMET:
             mf: RHF/ROHF object
                 mean-field object for the full system
             ao2eo: np.array (nao, neo)
-                transformation matrix from the full system to the embedded system. Note that
+                transformation matrix from the full system to the 
+                        embedded system. Note that
                 nao: number of orbitals in the full system
                 neo: number of orbitals in the embedded system
-                ncore: number of core orbitals from the environment. (Don't get confuse with the ncore of mcscf)
+                ncore: number of core orbitals from the environment.
+                         (Don't get confuse with the ncore of mcscf)
                 nao = neo + ncore
             ao2co: np.array (nao, ncore)
                 transformation matrix from the full system to the core space
