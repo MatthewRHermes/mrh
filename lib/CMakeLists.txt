@@ -1,3 +1,5 @@
+cmake_minimum_required(VERSION 3.19)
+
 # Modified from QC-DMET; see below
 #project (clib_qcdmet)
 #set (QC_DMET_VERSION      "0.1")
@@ -27,7 +29,7 @@ link_directories ($ENV{LD_LIBRARY_PATH})
 find_package (LAPACK REQUIRED)
 
 # OpenMP
-find_package (OpenMP)
+find_package (OpenMP REQUIRED)
 if (OPENMP_FOUND)
     set (CMAKE_C_FLAGS "${CMAKE_C_FLAGS} ${OpenMP_C_FLAGS}")
     set (CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} ${OpenMP_CXX_FLAGS}")
@@ -58,20 +60,29 @@ set (CMAKE_C_FLAGS "${CMAKE_C_FLAGS} -g -O3")
 if (PYSCFLIB)
     message (STATUS "PYSCFLIB set by user: ${PYSCFLIB}")
 else ()
-    find_package (Python)
+    if (DEFINED ENV{VIRTUAL_ENV})
+        # There is a bug in FindPython where if the system version of
+        # Python is greater than the venv version of Python, CMake chooses
+        # the system version.
+        # (e.g. System: 3.13, VENV: 3.9 CMake choses 3.13)
+        # I will be open a bug.
+        set (Python_FIND_VIRTUALENV ONLY)
+    endif ()
+    find_package(Python)
+
     execute_process(
       COMMAND "${Python_EXECUTABLE}" -c "if True:
         import os
         from pyscf import lib
-        print (os.path.dirname (lib.__file__))"
+        print(os.path.dirname(lib.__file__))"
       OUTPUT_VARIABLE PYSCFLIB
       OUTPUT_STRIP_TRAILING_WHITESPACE)
     message (STATUS "Trying to find PYSCFLIB: ${PYSCFLIB}")
 endif ()
 if (EXISTS ${PYSCFLIB})
-    message (STATUS "PYSCFLIB found!")
+    message(STATUS "PYSCFLIB found!")
 else ()
-    message (STATUS "PYSCFLIB not found!")
+    message(FATAL_ERROR "PYSCFLIB not found!")
 endif ()
 include_directories(${PYSCFLIB})
 include_directories(${PYSCFLIB}/deps/include)
@@ -80,7 +91,7 @@ link_directories(${PYSCFLIB})
 
 find_library(DFT_LIBRARY dft HINTS ${PYSCFLIB} )
 if(NOT DFT_LIBRARY)
-  message(FATAL_ERROR "PySCF dft library not found")
+  message(FATAL_ERROR  "PySCF dft library not found")
 endif()
 
 # Build the QC-DMET shared library
