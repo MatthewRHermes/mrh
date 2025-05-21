@@ -41,13 +41,20 @@ pip install -e ./mrh
 
 OpenMP is required to build mrh. On macOS, CMake [cannot detect](https://stackoverflow.com/questions/46414660/macos-cmake-and-openmp) OpenMP when using the default compiler. The easiest work-around is to install GCC and OpenMP through [Homebrew](https://brew.sh/) and tell PySCF/pyscf-forge/mrh to [build with these compilers](https://pyscf.org/install.html#build-from-source-with-pip).
 
-See [brew.sh](https://brew.sh/) for Homebrew installation instructions and then install OpenMP by running `brew install libomp`.
+PySCF-Forge does not build correctly with the version of LibXC which is built or bundled with PySCF on macOS. It is easier to use a Homebrew-provided version.
+
+See [brew.sh](https://brew.sh/) for Homebrew installation instructions and then install OpenMP and LibXC by running `brew install libomp libxc`.
 
 Once installed, tell PySCF and related packages to use GCC 14 instead of macOS's Clang-based compiler by setting the `CMAKE_CONFIGURE_ARGS` environment variable.
 
 ```bash
 # Set the compiler
-export CMAKE_CONFIGURE_ARGS="-DCMAKE_C_COMPILER=gcc-14 -DCMAKE_CXX_COMPILER=g++-14"
+export CMAKE_CONFIGURE_ARGS="-DCMAKE_C_COMPILER=gcc-14 -DCMAKE_CXX_COMPILER=g++-14 -DBUILD_LIBXC=OFF"
+
+# Set these to use the local libxc
+export LIBRARY_PATH="/opt/homebrew/lib"
+export C_INCLUDE_PATH="/opt/homebrew/include"
+export CPLUS_INCLUDE_PATH="/opt/homebrew/lib"
 
 # Enable a multi-threaded build (replace 12 with how many CPUs you have)
 export CMAKE_BUILD_ARGS="-- -j12"
