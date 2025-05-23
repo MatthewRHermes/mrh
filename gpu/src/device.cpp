@@ -3113,13 +3113,17 @@ void Device::get_h2eff_df_v2(py::array_t<double> _cderi,
   
   const int size_vuwm = ncas * ncas * ncas * nao;
 
-  // buf1 will hold both bumP & buvP
+  // buf1 will hold 1) cderi_unpacked 2) both bumP & buvP 3) vuwM
 
+  const int size_cderi_unpacked = naux * nao * nao_pair;
   const int size_bumP_buvP = (naux*ncas*nao) + (naux*ncas*ncas);
+  const int size_vuwM = nmo * ncas * ncas_pair;
   
   int max_size_buf = (_size_eri_unpacked > _size_eri_h2eff) ? _size_eri_unpacked : _size_eri_h2eff;
   if(size_vuwm > max_size_buf) max_size_buf = size_vuwm;
+  if(size_cderi_unpacked > max_size_buf) max_size_buf = size_cderi_unpacked;
   if(size_bumP_buvP > max_size_buf) max_size_buf = size_bumP_buvP;
+  if(size_vuwM > max_size_buf) max_size_buf = size_vuwM;
   
   if (max_size_buf > dd->size_buf){
     dd->size_buf = max_size_buf;
@@ -3159,7 +3163,7 @@ void Device::get_h2eff_df_v2(py::array_t<double> _cderi,
 
   int * d_my_unpack_map_ptr = dd_fetch_pumap(dd, nao, _PUMAP_2D_UNPACK);
 
-  getjk_unpack_buf2(d_cderi_unpacked,d_cderi,d_my_unpack_map_ptr,naux, nao, nao_pair);
+  getjk_unpack_buf2(d_cderi_unpacked, d_cderi, d_my_unpack_map_ptr, naux, nao, nao_pair);
   
   //bPmu = np.einsum('Pmn,nu->Pmu',cderi,mo_cas)
   
@@ -3207,11 +3211,13 @@ void Device::get_h2eff_df_v2(py::array_t<double> _cderi,
   
   double * d_vuwm = dd->d_buf2; 
 
+  ml->set_handle();
   ml->gemm((char *) "T", (char *) "N", &ncas_nao, &ncas2, &naux,
 	   &alpha, d_bumP, &naux, d_buvP, &naux, &beta, d_vuwm, &ncas_nao);
   
   double * d_vuwM = dd->d_buf1;
 
+  ml->set_handle();
   ml->gemm_batch((char *) "T", (char *) "T", &ncas, &nao, &nao,
 		 &alpha, d_vuwm, &nao, &ncas_nao, d_mo_coeff, &nao, &zero, &beta, d_vuwM, &ncas, &ncas_nao, &ncas2);
 
