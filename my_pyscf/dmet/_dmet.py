@@ -72,7 +72,6 @@ class _DMET:
         self.atmlst = atmlst
         self.bath_tol = bath_tol
         self.density_fit = density_fit
-        self.__dict__.update({key: None for key in _keys})
        
     def do_localization_(self, **kwargs):
         '''
@@ -150,7 +149,7 @@ class _DMET:
         if np.any(idx_core):
             u_core = u[:, idx_core].copy()
         else:
-            u_core = np.empty([np.sum(self.mask_env), ncore], dtype=frag_basis.dtype) 
+            u_core = np.zeros([np.sum(self.mask_env), ncore], dtype=frag_basis.dtype) 
 
         return u_selected, u_core
     
@@ -170,12 +169,12 @@ class _DMET:
         ncore = nlo-nfragorb-nbath
 
         # Define the impurity subspace
-        imp_basis = np.empty([nlo, nfragorb+nbath], dtype=frag_basis.dtype)
+        imp_basis = np.zeros([nlo, nfragorb+nbath], dtype=frag_basis.dtype)
         imp_basis[self.mask_frag, :nfragorb] = np.eye(nfragorb)
         imp_basis[self.mask_env, nfragorb:] = u_selected
         
         # Define the core subspace
-        core_basis = np.empty([nlo, ncore], dtype=frag_basis.dtype)
+        core_basis = np.zeros([nlo, ncore], dtype=frag_basis.dtype)
         core_basis[self.mask_env, :] = u_core
 
         # Convert localized orbitals to the impurity subspace
@@ -414,7 +413,7 @@ class _DMET:
        
         core_dm = 0.5 * (core_dm + core_dm.T)
 
-        globalrdm = scipy.linalg.block_diag(np.empty([neo, neo], dtype=core_dm.dtype), core_dm)
+        globalrdm = scipy.linalg.block_diag(np.zeros([neo, neo], dtype=core_dm.dtype), core_dm)
        
         # Convert the globalrdm to the AO basis
         ao2eo = np.hstack([ao2eo, ao2co])
@@ -487,7 +486,7 @@ class _DMET:
         neo = ao2eo.shape[1]
 
         # Now we can assemble the full space mo_coeffs.
-        mo_coeff = np.empty_like(mf.mo_coeff)
+        mo_coeff = np.zeros_like(mf.mo_coeff)
         mo_coeff[:, :ncore] = ao2co[:, :ncore]
         mo_coeff[:, ncore:ncore+neo] = ao2eo
         mo_coeff[:, ncore+neo:] = ao2co[:, ncore:]
