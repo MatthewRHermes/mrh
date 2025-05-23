@@ -3,6 +3,9 @@
 #ifndef MATHLIB_H
 #define MATHLIB_H
 
+//#define _DEBUG_ML
+#define _PROFILE_ML
+
 #ifdef _SINGLE_PRECISION
   typedef float real_t;
 #else
