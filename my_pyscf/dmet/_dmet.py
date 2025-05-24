@@ -1,8 +1,6 @@
 import numpy as np
 import scipy
-from pyscf import lo
 from pyscf import gto, ao2mo, lib, scf
-from functools import reduce
 from mrh.my_pyscf.dmet.localization import Localization
 from mrh.my_pyscf.dmet.fragmentation import Fragmentation
 from mrh.my_pyscf.dmet.basistransformation import BasisTransform
@@ -21,13 +19,27 @@ def is_close_to_integer(num, tolerance=1e-6):
 
 def perform_schmidt_decomposition_type1(rdm, nfragorb, nlo, bath_tol=1e-5):
     '''
-    Args:
     This way of schmidt decomposition corresponds to previous implementation
     where one will consider all the singly occupied orbital in the bath, whether they
     are in impurity space or not.
 
     Not a wise way of doing it, still having it to make sure we have functionalies of previous
     implementations.
+
+    Args:
+        rdm: np.ndarray (2, n, n); 
+             n=number of enviroment orbitals
+        nfragorb: int
+            no of fragment orb
+        nlo: int
+            no of localized orb, basically this will be same as that of total number of atomic orbital.
+        bath_tol: float
+            threshold to keep an orbital in the embedding space or through it out.
+    return
+        u_selected: np.array (nlo, neo)
+            unitary matrix which will transform the localized orbitals to the bath orbitals 
+        u_core: np.array(nlo, ncore)
+            unitary matrix which will transform the localized orbitals to the core orbitals 
     '''
     alpha_evecs, alpha_evals = np.linalg.svd(rdm[0])[:2]
     beta_evecs, beta_evals= np.linalg.svd(rdm[1])[:2]
@@ -200,7 +212,7 @@ class _DMET:
             loc_rdm1 = self.loc_rdm1
         
         env_frag_rdm1 = loc_rdm1[self.mask_env][:, self.mask_frag]
-        u, b, vh = np.linalg.svd(env_frag_rdm1, full_matrices=True)
+        u, b = np.linalg.svd(env_frag_rdm1, full_matrices=True)[:2]
         
         # Selecting the bath orbitals and define the embedding and core space.
         idx_emb = np.where(b > bath_tol)[0]
