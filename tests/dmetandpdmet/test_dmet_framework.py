@@ -49,7 +49,7 @@ def add_hydrogen_to_water(atom, com, d):
     atom.append(['H', [x, y, z]])
     return atom
 
-def get_mole3():
+def get_mole3(d=5.0):
     mol = gto.Mole(basis='CC-PVDZ', spin=0, charge=0, verbose=0)
     mol.atom = [['O', [0.0000, 0.0000, 0.0000]],
                 ['H', [0.9572, 0.0000, 0.0000]],
@@ -57,7 +57,7 @@ def get_mole3():
     mol.build()
     
     # Now add Hydrogen
-    dis = 4.0
+    dis = d
     mass = mol.atom_mass_list()
     coords = mol.atom_coords()
     com = mass.dot(coords) / mass.sum()
@@ -140,6 +140,20 @@ class KnownValues(unittest.TestCase):
         mf.kernel()
         e_ref = mf.e_tot
         dmet_mf = runDMET(mf, lo_method='lowdin', bath_tol=1e-10, atmlst=[3])[0]
+        e_check = dmet_mf.e_tot
+        del mol, mf, dmet_mf
+        self.assertAlmostEqual(e_ref, e_check, 6)
+    
+    def test_previous_svd(self):
+        '''
+        In this test, I am only having I am keeping the singly occupied orbital
+        in the environment by default.
+        '''
+        mol = get_mole3(d=20)
+        mf = scf.ROHF(mol)
+        mf.kernel()
+        e_ref = mf.e_tot
+        dmet_mf = runDMET(mf, lo_method='lowdin', bath_tol=1e-10, atmlst=[0])[0]
         e_check = dmet_mf.e_tot
         del mol, mf, dmet_mf
         self.assertAlmostEqual(e_ref, e_check, 6)
