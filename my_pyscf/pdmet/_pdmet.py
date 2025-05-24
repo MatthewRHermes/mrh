@@ -1,249 +1,48 @@
 import numpy as np
-from pyscf import lo, lib, ao2mo
+from pyscf import ao2mo
 from pyscf.pbc import gto, scf
 from functools import reduce
 from mrh.my_pyscf.pdmet import basistransformation as bt
 from mrh.my_pyscf.pdmet.localization import Localization
 from mrh.my_pyscf.pdmet.fragmentation import Fragmentation
-
+from mrh.my_pyscf.dmet._dmet import _DMET as molDMET
 # Author: Bhavnesh Jangid <jangidbhavnesh@uchicago.edu>
-
-def is_close_to_integer(num, tolerance=1e-6):
-    assert (np.abs(num - np.round(num)) < tolerance), \
-        f'SVD for this RDM has some problem: Difference is {np.abs(num - np.round(num))}'
 
 get_basis_transform = bt.BasisTransform._get_basis_transformed
 
-class _pDMET:
+class _pDMET(molDMET):
     '''
     DMET class for PBC Supercell:
+    Child Class of Molecular DMET class.
     '''
-    def __init__(self, kmf, lo_method='meta_lowdin', bath_tol=1e-6, atmlst=None, atmlabel=None, density_fit=False, **kwargs):
-        '''
-        Args:
-            kmf : SCF object in PBC
-                SCF object for the cell
-            lo : str
-                Localization method
-            bath_tol : float
-                Bath tolerance
-            atm_lst : list
-                List of atom indices
-            atm_label : list
-                List of atom labels
-            verbose : int
-                Print level
-        '''
-        self.kmf = kmf
+    def __init__(self, kmf, lo_method='meta_lowdin', bath_tol=1e-6, atmlst=None, density_fit=False, **kwargs):
+        super().__init__(kmf, lo_method=lo_method, bath_tol=bath_tol, atmlst=atmlst, density_fit=density_fit, **kwargs)
         self.cell = kmf.cell
-        self.lo_method = lo_method
-        self.atmlst = atmlst
-        self.atmlabel = atmlabel
-        self.bath_tol = bath_tol
-        self.loc_rdm1 = None
-        self.mask_frag = None
-        self.mask_env = None
-        self.ao2lo = None
-        self.ao2eo = None
-        self.lo2eo = None
-        self.lo2co = None
-        self.ao2co = None
-        self.imp_nelec = None
-        self.core_nelec = None
-        self.density_fit = density_fit # Density Fitting for the embedded space. 
-       
-    def do_localization(self, **kwargs):
+        
+    def do_localization_(self, **kwargs):
         '''
-        Localize the orbitals using the specified method
+        Localize the entire orbital space. Then assigning
+        the rdm1 and mo_coeff to instance.
         '''
-        kmf = self.kmf
-        lo_method = self.lo_method
-
-        loc = Localization(kmf, lo_method=lo_method)
+        loc = Localization(self.mf, lo_method=self.lo_method)
         ao2lo = loc.get_localized_orbitals()
         loc_rdm1 = loc.localized_rdm1(ao2lo)
-
+        # Now set these values.
         self.ao2lo = ao2lo
         self.loc_rdm1 = loc_rdm1
         return self
     
-    def do_fragmentation(self, **kwargs):
+    def do_fragmentation_(self, **kwargs):
         '''
         Fragment the molecule
         '''
-        kmf = self.kmf
-        atm_lst = self.atmlst
-        atm_label = self.atmlabel
-        
-        frag = Fragmentation(kmf, atmlst=atm_lst, atmlabel=atm_label)
-        mask_frag, mask_env = frag.get_fragments(atmlst=atm_lst, atmlabel=atm_label)
+        frag = Fragmentation(self.mf, atmlst=self.atmlst)
+        mask_frag, mask_env = frag.get_fragments(atmlst=self.atmlst)
+        # Assign the fragment and env orbitals.
         self.mask_frag = mask_frag
         self.mask_env = mask_env
         return self 
-
-    def _get_fragment_basis(self):
-        '''
-        Get the fragment basis
-        '''
-        frag_basis = self.ao2lo[:, self.mask_frag]
-        return frag_basis
     
-    def _get_environment_basis(self):
-        '''
-        Get the environment basis
-        '''
-        env_basis = self.ao2lo[:, self.mask_env]
-        return env_basis
-    
-    def _construct_bath_and_core(self):
-        '''
-        Construct the bath and core orbitals.
-        '''
-        bath_tol = self.bath_tol
-        frag_basis = self._get_fragment_basis()
-        nfragorb = frag_basis.shape[1]
-        nlo = self.ao2lo.shape[1]
-
-        if self.loc_rdm1.ndim > 2:
-            # Why it's working with only alpha?
-            # Should I have to take the SVD of the SDM instead of the RDM?
-            nelec = self.cell.nelec
-            assert len(nelec) == 2, "Electron should have been stored as a tuple (alpha, beta)"
-            pos = np.argmax(self.cell.nelec)
-            loc_rdm1 = self.loc_rdm1[pos]
-        else:
-            loc_rdm1 = self.loc_rdm1
-
-        env_frag_rdm1 = loc_rdm1[self.mask_env][:, self.mask_frag]
-        u, b, vh = np.linalg.svd(env_frag_rdm1, full_matrices=True)
-        
-        # Selecting the bath orbitals and define the embedding and core space.
-        idx_emb = np.where(b > bath_tol)[0]
-        idx_core = np.ones(u.shape[1], dtype=bool)
-        idx_core[idx_emb] = False 
-
-        # Number of bath and core orbitals
-        nbath = len(idx_emb) 
-        neo = nbath + nfragorb
-        ncore = nlo-neo
-
-        # Arrange the rotation matrix for the bath and core orbitals
-        u_selected = u[:, idx_emb].copy()
-
-        if np.any(idx_core):
-            u_core = u[:, idx_core].copy()
-        else:
-            u_core = np.zeros([np.sum(self.mask_env), ncore], dtype=frag_basis.dtype) 
-
-        return u_selected, u_core
-    
-    def get_impurity_subspace(self):
-        '''
-        Get the impurity subspace orbitals
-        '''
-        
-        # Get the mask and rotations matrices
-        frag_basis = self._get_fragment_basis()
-        u_selected, u_core = self._construct_bath_and_core()
-        
-        # Number of orbitals
-        nlo, nfragorb = frag_basis.shape
-        nbath = u_selected.shape[1]
-        ncore = nlo-nfragorb-nbath
-
-        # Define the impurity subspace
-        imp_basis = np.zeros([nlo, nfragorb+nbath], dtype=frag_basis.dtype)
-        imp_basis[self.mask_frag, :nfragorb] = np.eye(nfragorb)
-        imp_basis[self.mask_env, nfragorb:] = u_selected
-        
-        # Define the core subspace
-        core_basis = np.zeros([nlo, ncore], dtype=frag_basis.dtype)
-        core_basis[self.mask_env, :] = u_core
-
-        # Convert localized orbitals to the impurity subspace
-        self.lo2eo = imp_basis
-        self.lo2co = core_basis
-        self.ao2eo = self.ao2lo @ imp_basis
-        self.ao2co = self.ao2lo @ core_basis
-        return self
-    
-    def get_imp_nelecs(self):
-        '''
-        Count the number of electrons in the impurity subspace
-        '''
-        kmf = self.kmf
-        ao2eo =  self.ao2eo
-        cell = kmf.cell
-        s = kmf.get_ovlp()
-        dm_full_ao = kmf.make_rdm1()
-        eo2ao = ao2eo.T @ s
-
-        if dm_full_ao.ndim > 2:
-            dm_lo = np.array([get_basis_transform(dm_, eo2ao.T) for dm_ in dm_full_ao])
-            nelecs_spin = [np.trace(dm_) for dm_ in dm_lo]
-            nelecs = np.sum(nelecs_spin)
-            for x in nelecs_spin: is_close_to_integer(x)
-            # Sanity check for the spin
-            nalpha, nbeta = cell.nelec
-            if nalpha != nbeta:
-                assert np.isclose(abs(nelecs_spin[1] - nelecs_spin[0]), abs(nalpha - nbeta), atol=1e-6),\
-                                "Impurity subspace should have the same spin as the molecule. \
-                                Non-zeros spin for the environment is not implemented yet."
-        else:
-            dm_lo = get_basis_transform(dm_full_ao, eo2ao.T)
-            nelecs = np.trace(dm_lo)
-            is_close_to_integer(nelecs)
-
-        # Set up this value.
-        self.imp_nelec = int(round(nelecs))
-    
-        return self
-
-    def get_core_elecs(self):
-        '''
-        Get the core electrons
-        '''
-        kmf = self.kmf
-        ovlp = kmf.get_ovlp()
-        ao2co = self.ao2co
-
-        dm_full_ao = kmf.make_rdm1()
-        cor2ao = ao2co.T @ ovlp
-        
-        if dm_full_ao.ndim > 2:
-            ncore = np.sum([np.trace(get_basis_transform(dm_, cor2ao.T)) for dm_ in dm_full_ao])
-        else:
-            ncore = np.trace(get_basis_transform(dm_full_ao, cor2ao.T))
-
-        self.core_nelec = int(round(ncore))
-        return self
-
-    def dump_flags(self):
-        '''
-        Print the flags
-        '''
-        log = lib.logger.new_logger(self, self.kmf.verbose)
-        log.info('')
-        log.info('************************************************')
-        log.info('******* Density Matrix Embedding Theory ********')
-        log.info('************************************************')
-        log.info("******** System's Information ********")
-        log.info('Number of cGTOs = %s', self.cell.nao)
-        log.info('Number of elecs = %s', self.cell.nelectron)
-        log.info('Number of atoms = %s', self.cell.natm)
-        log.info("******** Fragment's Information ********")
-        log.info('Fragment type = %s', 'atom list' if self.atmlst is not None else 'atom label')
-        log.info('Lo_method = %s', self.lo_method)
-        log.info('Bath_tol = %s', self.bath_tol)
-        log.info('Number of frag orb = %s', sum(self.mask_frag))
-        log.info('Number of env orb = %s',  sum(self.mask_env))
-        log.info('Number of imp. electrons = %s',  round(self.imp_nelec))
-        log.info('Number of core electrons = %s',  round(self.core_nelec))
-        log.info('Number of imp orb = %s',  self.ao2eo.shape[1])
-        log.info('Number of bath orb = %s', self.ao2eo.shape[1] - sum(self.mask_frag))
-        log.info('Number of core orb = %s', self.ao2co.shape[1])
-        return self
-
     def _dummy_cell(self):
         '''
         Create a dummy cell
@@ -274,7 +73,7 @@ class _pDMET:
         '''
         Get the DMET mean-field object
         '''
-        kmf = self.kmf
+        kmf = self.mf
         neo = self.ao2eo.shape[1]
         ao2eo = self.ao2eo
         ao2co = self.ao2co
@@ -347,19 +146,6 @@ class _pDMET:
 
         assert emb_mf.converged, 'DMET mean-field did not converge'
         return emb_mf
-
-    def runDMET(self):
-        '''
-        Run the DMET calculation
-        '''
-        self.do_localization()
-        self.do_fragmentation()
-        self.get_impurity_subspace()
-        self.get_imp_nelecs()
-        self.get_core_elecs()
-        self.dump_flags()
-        dmet_mf = self._get_dmet_mf()
-        return dmet_mf
     
     def _get_core_contribution(self, ao2eo=None, ao2co=None):
         '''
@@ -377,13 +163,13 @@ class _pDMET:
         Core orbitals are doubly occupied therefore, can get 
         away with this.
         '''
-        dm_full_ao = self.kmf.make_rdm1()
+        dm_full_ao = self.mf.make_rdm1()
         if dm_full_ao.ndim > 2:
             dm = dm_full_ao[0] + dm_full_ao[1]
         else:
             dm = dm_full_ao
 
-        cor2ao = ao2co.T @ self.kmf.get_ovlp()
+        cor2ao = ao2co.T @ self.mf.get_ovlp()
 
         core_dm = reduce(np.dot, (cor2ao, dm, cor2ao.T))
         core_dm = 0.5*(core_dm + core_dm.T)
@@ -394,68 +180,15 @@ class _pDMET:
         globalrdm1 = reduce(np.dot, (ao2eo, globalrdm, ao2eo.T))
 
         # This piece of code can be further optimized.
-        h1e = self.kmf.get_hcore()
+        h1e = self.mf.get_hcore()
        
         if dm_full_ao.ndim > 2:
-            h1e += 0.25 * (self.kmf.get_veff(dm=globalrdm1)[0] + self.kmf.get_veff(dm=globalrdm1)[1])
+            h1e += 0.25 * (self.mf.get_veff(dm=globalrdm1)[0] + self.mf.get_veff(dm=globalrdm1)[1])
         else:
-            h1e += 0.5 * self.kmf.get_veff(dm=globalrdm1)
+            h1e += 0.5 * self.mf.get_veff(dm=globalrdm1)
         energy  = np.einsum('ij, ij->', h1e, globalrdm1) 
-        energy += self.kmf.energy_nuc()
+        energy += self.mf.energy_nuc()
         return energy
-    
-    def assemble_mo(self, mc_mo_coeff):
-        '''
-        Assemble the mo_coeff to run the PDFT with the dmet_mf object.
-        args:
-            mf: RHF/ROHF object
-                mean-field object for the full system
-            ao2eo: np.array (nao, neo)
-                transformation matrix from the full system to the embedded system. Note that
-                nao: number of orbitals in the full system
-                neo: number of orbitals in the embedded system
-                ncore: number of core orbitals from the environment. (Don't get confuse with the ncore of mcscf)
-                nao = neo + ncore
-            ao2co: np.array (nao, ncore)
-                transformation matrix from the full system to the core space
-            mc_mo_coeff: np.array (neo, neo)
-                mo_coeff for the embedded CASSCF calculation
-        returns:
-            mo_coeff: np.ndarray
-                mo_coeff for the full system
-        '''
-        mf = self.kmf
-        ao2co = self.ao2co
-        ao2eo = self.ao2eo
-        
-        dm = mf.make_rdm1()
-        s = mf.get_ovlp()
-        
-        cor2ao = ao2co.T @ s
-
-        if dm.ndim > 2:
-            dm = dm[0] + dm[1]
-        
-        # Generate the core density matrix and using that transform the ao2co
-        # to the canonical basis.
-        core_dm = get_basis_transform(dm, cor2ao.T)
-        e, eigvec = np.linalg.eigh(core_dm)
-        sorted_indices = np.argsort(e)[::-1]
-        eigvec_sorted = eigvec[:, sorted_indices]  
-        ao2co = ao2co @ eigvec_sorted
-        core_nelec = self.core_nelec
-        assert core_nelec % 2 == 0, "Core nelec should be even., Something went wrong."
-        ao2eo = ao2eo @ mc_mo_coeff
-
-        ncore = core_nelec//2
-        neo = ao2eo.shape[1]
-
-        # Now we can assemble the full space mo_coeffs.
-        mo_coeff = np.empty_like(mf.mo_coeff)
-        mo_coeff[:, :ncore] = ao2co[:, :ncore]
-        mo_coeff[:, ncore:ncore+neo] = ao2eo
-        mo_coeff[:, ncore+neo:] = ao2co[:, ncore:]
-        return mo_coeff
     
     # For pyscf like interface
     def kernel(self):
