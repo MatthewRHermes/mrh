@@ -18,6 +18,46 @@ def is_close_to_integer(num, tolerance=1e-6):
     warning_msg = f'SVD for this RDM has some problem {(np.abs(num - np.round(num)) < tolerance)}'
     assert (np.abs(num - np.round(num)) < tolerance), warning_msg 
 
+
+def perform_schmidt_decomposition_type1(rdm, nfragorb, nlo, bath_tol=1e-5):
+    '''
+    Args:
+    This way of schmidt decomposition corresponds to previous implementation
+    where one will consider all the singly occupied orbital in the bath, whether they
+    are in impurity space or not.
+
+    Not a wise way of doing it, still having it to make sure we have functionalies of previous
+    implementations.
+    '''
+    alpha_evecs, alpha_evals = np.linalg.svd(rdm[0])[:2]
+    beta_evecs, beta_evals= np.linalg.svd(rdm[1])[:2]
+    b, u = (alpha_evals, alpha_evecs) \
+        if np.sum(alpha_evals) >= np.sum(beta_evals) else (beta_evals, beta_evecs)
+
+    # Select all the orbitals which are above the bath_tolerance
+    # in this way, if their are any singly occupied orbital in environment
+    # that will taken into the bath orbital.
+
+    idx_emb = np.where(b > bath_tol)[0]
+
+    idx_core = np.ones(u.shape[1], dtype=bool)
+    idx_core[idx_emb] = False
+
+    # Number of bath and core orbitals
+    nbath = len(idx_emb)
+    neo = nbath + nfragorb
+    ncore = nlo-neo
+
+    # Arrange the rotation matrix for the bath and core orbitals
+    u_selected = u[:, idx_emb].copy()
+    
+    if np.any(idx_core):
+        u_core = u[:, idx_core].copy()
+    else:
+        u_core = np.zeros([nlo-nfragorb, ncore], dtype=rdm.dtype)
+    return u_selected, u_core
+
+
 class _DMET:
     '''
     Density Matrix Embedding Theory
@@ -106,11 +146,31 @@ class _DMET:
     
     def _get_environment_basis(self):
         '''
-        Get the environment basis
+        Get environment orbitals
         '''
         env_basis = self.ao2lo[:, self.mask_env]
         return env_basis
     
+    def _check_env_basis_for_single_orb(self, loc_rdm1):
+        '''
+        If environment has the singly occupied orbital
+        return 1, which will direct the program to use the
+        previous schmidt decomposition technique.
+        '''
+        rdm = np.array([loc_rdm1[x][self.mask_env][:, self.mask_env] for x in range(2)])
+        alpha_evecs, alpha_evals = np.linalg.svd(rdm[0])[:2]
+        beta_evecs, beta_evals = np.linalg.svd(rdm[1])[:2]
+        if np.max(np.sort(alpha_evals) - np.sort(beta_evals)) < 1e-4:
+            return 0
+        else:
+            lib.logger.warn(self.mf, 'Your environment has the singly occupied orbital.'
+                        'Please choose your fragmentation wisely.')
+            return 1
+
+    @staticmethod
+    def perform_schmidt_decomposition_type1(rdm, nfragorb, nlo, bath_tol=1e-5):
+        return perform_schmidt_decomposition_type1(rdm, nfragorb, nlo, bath_tol=1e-5)
+
     def perform_schmidt_decomposition(self):
         '''
         Construct the bath and core orbitals.
@@ -121,10 +181,16 @@ class _DMET:
         nlo = self.ao2lo.shape[1]
 
         if self.loc_rdm1.ndim > 2:
-            # Why it's working with only alpha?
-            # Should I take the SVD of the SDM instead of the RDM?
+            # Switch to previous SVD 
+            # As in by fiat keep all the singly occupied orbitals in the bath orbital.
+            # Only perform this if env has more than 0 orbitals.
+            if sum(self.mask_env) and self._check_env_basis_for_single_orb(self.loc_rdm1):
+                rdm = np.array([self.loc_rdm1[x][self.mask_env][:, self.mask_env] for x in range(2)])
+                u_selected, u_core = perform_schmidt_decomposition_type1(rdm, nfragorb, nlo, bath_tol=self.bath_tol)
+                return u_selected, u_core
+
             nelec = self.mol.nelec
-            assert len(nelec) == 2, "Electron should have been stored as a tuple (alpha, beta)"
+            assert len(nelec) == 2
             pos = np.argmax(self.mol.nelec)
             loc_rdm1 = self.loc_rdm1[pos]
         else:
@@ -157,10 +223,8 @@ class _DMET:
         '''
         Get the impurity subspace orbitals
         '''
-        
         # Get the mask and rotations matrices
         frag_basis = self._get_fragment_basis()
-        env_basis = self._get_environment_basis()
         u_selected, u_core = self.perform_schmidt_decomposition()
         
         # Number of orbitals
@@ -265,7 +329,7 @@ class _DMET:
         mol.atom = 'He 0 0 0'
         mol.spin = self.mol.spin
         mol.verbose = self.mf.verbose
-        mol.max_memory = self.mol.max_memory
+        mol.max_memory = self.mol.max_memory # Could assign the remaining memory, but I am lazy.
         mol.output = self.mol.output
         return mol
     
