@@ -1,6 +1,8 @@
 # Byte-compiled / optimized / DLL files
 __pycache__/
 *.py[cod]
+*.egg-info
+*.info
 
 # C extensions
 *.so
@@ -8,6 +10,7 @@ __pycache__/
 
 # Compilation
 lib/build/
+build/
 CMakeCache.txt
 CMakeFiles
 Makefile
