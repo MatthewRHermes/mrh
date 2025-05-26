@@ -14,6 +14,7 @@ from mrh.my_pyscf.gpu import libgpu
 def kernel (las, mo_coeff=None, ci0=None, conv_tol_grad=1e-4,
             assert_no_dupes=False, verbose=lib.logger.NOTE, frags_orbs=None,
             **kwargs):
+    t_setup = (lib.logger.process_clock(), lib.logger.perf_counter())    
     if mo_coeff is None: mo_coeff = las.mo_coeff
     if assert_no_dupes: las.assert_no_duplicates ()
     h2eff_sub = las.get_h2eff (mo_coeff)
@@ -38,6 +39,7 @@ def kernel (las, mo_coeff=None, ci0=None, conv_tol_grad=1e-4,
     gvec = las.get_grad (ugg=ugg, kf=kf0)
     norm_gvec = linalg.norm (gvec)
     log.info ('LASSCF macro 0 : E = %.15g ; |g| = %.15g', e_tot, norm_gvec)
+    t_setup = log.timer( "LASSCF setup", *t_setup)
 
     ###############################################################################################
     ################################## Begin actual kernel logic ##################################
@@ -55,14 +57,19 @@ def kernel (las, mo_coeff=None, ci0=None, conv_tol_grad=1e-4,
     t1 = log.timer_debug1 ('impurity solver construction', *t0)
     # GRAND CHALLENGE: replace rigid algorithm below with dynamic task scheduling
     for it in range (las.max_cycle_macro):
+        t_macro = (lib.logger.process_clock(), lib.logger.perf_counter())    
         # 1. Divide into fragments
-        for impurity in impurities: impurity._pull_keyframe_(kf1)
+        for impurity in impurities: 
+            impurity._pull_keyframe_(kf1)
+            t_macro = log.timer("Pull keyframe for fragment",*t_macro)
         
         # 2. CASSCF on each fragment
         kf2_list = []
         for impurity in impurities:
             impurity.kernel ()
+            t_macro = log.timer("Fragment CASSCF",*t_macro)
             kf2_list.append (impurity._push_keyframe (kf1))
+            t_macro = log.timer("Push keyframe for fragment",*t_macro)
 
             
         # 3. Combine from fragments. It should not be necessary to do this in any particular order,
@@ -81,6 +88,7 @@ def kernel (las, mo_coeff=None, ci0=None, conv_tol_grad=1e-4,
             kf3_list = []
             for kf2, kf3 in zip (kf2_list[::2],kf2_list[1::2]):
                 kf3_list.append (combine.combine_pair (las, kf2, kf3, kf_ref=kf1))
+                t_macro = log.timer("Recombination",*t_macro)
             if nkfi%2: kf3_list.insert (len(kf3_list)-1, kf2_list[-1])
             # Insert this at second-to-last position so that it gets "mixed in" next cycle
             kf2_list = kf3_list
