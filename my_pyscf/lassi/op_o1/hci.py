@@ -5,7 +5,7 @@ from pyscf.lib import logger
 from pyscf.fci import cistring 
 from mrh.my_pyscf.lassi.op_o1 import stdm, frag, hams2ovlp, hsi
 from mrh.my_pyscf.lassi.op_o1.utilities import *
-from mrh.my_pyscf.lassi.citools import get_lroots, hci_dot_sivecs
+from mrh.my_pyscf.lassi.citools import get_lroots, hci_dot_sivecs, hci_dot_sivecs_ij
 
 class ContractHamCI_CHC (stdm.LSTDM):
     __doc__ = stdm.LSTDM.__doc__ + '''
@@ -466,15 +466,36 @@ class ContractHamCI_SHS (stdm.LSTDM):
         return bra_r, bra_envaddr, addressible, si_bra
 
     def _put_Svecs_(self, bras, kets, facs, vecs, *inv):
-        si_kets = self.si_ket[kets,:] * facs
-        for bra, si_ket, fac in zip (bras, si_kets, facs):
-            bra_r, bra_envaddr, addressible, si_bra = self._bra_address (bra, *inv)
-            assert (len (addressible))
-            for i, addr in zip (addressible, bra_envaddr):
-                self.hci_fr_pabq[i][bra_r][:,addr,:,:,:] += (
-                    si_bra[:,None,None,None]
-                    * vecs[i][None,:,:,None]
-                    * si_ket[None,None,None,:])
+        for i in inv:
+            self._put_Svecs_i_(bras, kets, facs, vecs[i], i)
+
+    def _put_Svecs_i_(self, bras, kets, facs, vecs, i):
+        idx = (self.envaddr[:,i][idx] == 0)
+        if np.count_nonzero (idx) == 0: return
+        bras = bras[idx]
+        kets = kets[idx]
+        facs = facs[idx]
+        bras_r = set (self.rootaddr[bras])
+        for bra_r in bras_r:
+            self._put_Svecs_ir_(bras, kets, facs, vecs, i, bra_r)
+        return
+
+    def _put_Svecs_ir_(self, bras, kets, facs, vecs, i, bra_r):
+        idx = self.rootaddr[bras]==bra_r
+        bras = bras[idx]
+        kets = kets[idx]
+        facs = facs[idx]
+        lroots_i = self.lroots[i,bra_r]
+        offs = self.strides[bras_r][:,None] * np.arange (lroots_i, dtype=int)[None,:]
+        bras = bras[:,None] + offs
+        si_bra = self.si_bra[bras.flat,:].reshape (nel, lroots_i, self.nroots_si_bra)
+        si_ket = self.si_ket[kets,:]
+        dm_plq = lib.einsum ('alp,aq->plq', si_bra.conj (), si_ket)
+        hci_plabq = self.hci_fr_pabq[i][bra_r]
+        hci = dm_plq[:,:,:,None,None] * vecs[None,None,None,:,:]
+        hci_plabq[:,:,:,:,:] += hci.transpose (0,1,3,4,2)
+        return
+
 
 def ContractHamCI (ints, nlas, hopping_index, lroots, h1, h2, si_bra=None, si_ket=None,
                    mask_bra_space=None, mask_ket_space=None, log=None, max_memory=2000,
@@ -588,7 +609,12 @@ def contract_ham_ci (las, h1, h2, ci_fr_ket, nelec_frs_ket, ci_fr_bra, nelec_frs
                 if nelec_bra==nelec_ket:
                     h0ket = h0 * ci_fr_ket[0][iket].transpose (1,2,0)
                     hket_fr_pabq[0][ibra][0,:,:,i:j] += h0ket
-    return hci_dot_sivecs (hket_fr_pabq, si_bra, si_ket, get_lroots (ci_fr_bra))
+
+    lroots_bra = get_lroots (ci_fr_bra)
+    for i, hket_r_pabq in enumerate (hket_fr_pabq):
+        for j, hket_pabq in enumerate (hket_r_pabq):
+            hket_fr_pabq[i][j] = hci_dot_sivecs_ij (hket_pabq, si_bra, si_ket, lroots_bra, i, j)
+    return hket_fr_pabq
 
 def gen_contract_ham_ci_const (ifrag, nbra, las, h1, h2, ci, nelec_frs, soc=0, h0=0, orbsym=None,
                                wfnsym=None):
