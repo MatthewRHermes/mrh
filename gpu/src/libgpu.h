@@ -111,7 +111,7 @@ extern "C"
   void libgpu_push_cascm2 (void * ptr,
                    py::array_t<double>, int); 
   void libgpu_compute_Pi (void * ptr,
-                   int, int); 
+                   int, int, int); 
   void libgpu_pull_Pi (void * ptr,
                    py::array_t<double>, int); 
 }

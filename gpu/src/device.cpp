@@ -99,9 +99,9 @@ Device::Device()
     //pdft
     device_data[i].size_mo_grid=0;
     device_data[i].size_ao_grid=0;
+    device_data[i].size_buf_pdft=0;
     device_data[i].size_cascm2=0;
     device_data[i].size_Pi=0;
-    device_data[i].size_buf_pdft=0;
     
     device_data[i].d_rho = nullptr;
     device_data[i].d_vj = nullptr;
@@ -133,8 +133,8 @@ Device::Device()
     device_data[i].d_mo_grid=nullptr;
     device_data[i].d_cascm2=nullptr;
     device_data[i].d_Pi=nullptr;
-    device_data[i].d_buf_grid1=nullptr;
-    device_data[i].d_buf_grid2=nullptr;
+    device_data[i].d_buf_pdft1=nullptr;
+    device_data[i].d_buf_pdft2=nullptr;
 
 
 
@@ -3296,7 +3296,7 @@ void Device::push_cascm2 (py::array_t<double> _cascm2, int ncas)
       if (dd->d_cascm2) pm->dev_free_async(dd->d_cascm2);
       dd->d_cascm2 = (double *) pm->dev_malloc_async(dd->size_cascm2*sizeof(double));
     }
-    pm->dev_push_async(dd->d_cascm2, cascm2, size_cascm2);
+    pm->dev_push_async(dd->d_cascm2, cascm2, size_cascm2*sizeof(double));
   }
   double t1 = omp_get_wtime();
   
@@ -3306,66 +3306,151 @@ void Device::push_cascm2 (py::array_t<double> _cascm2, int ncas)
 
 
 /* ---------------------------------------------------------------------- */
-void Device::compute_Pi (int ngrid, int ncas) 
+void Device::compute_Pi (int ngrid, int ncas, int nao) 
 {
   
   double t0 = omp_get_wtime();
-  const int device_id = 1;//count % num_devices;
+  const int device_id = 0;//count % num_devices;
   pm->dev_set_device(device_id);
   my_device_data * dd = &(device_data[device_id]);
   const double alpha = 1.0;
   const double beta = 0.0;
+  const int one = 1; 
   ml->set_handle();
   int _size_buf_pdft = ngrid*ncas*ncas; 
   if (_size_buf_pdft>dd->size_buf_pdft){
-      dd->size_buf_grid = _size_buf_pdft;
+      dd->size_buf_pdft = _size_buf_pdft;
       if (dd->d_buf_pdft1) pm->dev_free_async(dd->d_buf_pdft1);
       if (dd->d_buf_pdft2) pm->dev_free_async(dd->d_buf_pdft2);
-      dd->d_buf_pdft1 = (double *) pm->dev_malloc_async(dd->size_buf_grid*sizeof(double));
-      dd->d_buf_pdft2 = (double *) pm->dev_malloc_async(dd->size_buf_grid*sizeof(double));
+      dd->d_buf_pdft1 = (double *) pm->dev_malloc_async(dd->size_buf_pdft*sizeof(double));
+      dd->d_buf_pdft2 = (double *) pm->dev_malloc_async(dd->size_buf_pdft*sizeof(double));
     }
 
+  int ncas2 = ncas*ncas;
   //make mo_grid to ngrid*ncas*ncas (ai,aj->aij)
   ml->set_handle();
-  const double alpha = 1.0;
-  const double beta = 0.0;
-  const int one = 0; 
+
+  ml->gemm((char *) "N", (char *) "N", 
+             &ncas, &ngrid, &nao,
+             &alpha, 
+             dd->d_mo_coeff, &ncas, 
+             dd->d_ao_grid, &nao, 
+             &beta, 
+             dd->d_mo_grid, &ncas
+             );
+
+  #if 0
+  double * h_mo_grid = (double *)pm->dev_malloc_host(ngrid*ncas*sizeof(double));
+  pm->dev_pull_async(dd->d_mo_grid, h_mo_grid, ngrid*ncas*sizeof(double));
+  pm->dev_stream_wait();
+  for (int i =0;i<3;++i){for (int j=0;j<ncas;++j){printf("%f\t",h_mo_grid[i*ncas+j]);}printf("\n");}
+  #endif
+  #if 1
   ml->gemm_batch((char *) "N",(char *) "T",
                    &ncas, &ncas, &one,
                    &alpha,
-                   dd->d_mo_grid, &one, &ncas,
-                   dd->d_mo_grid, &one, &ncas, 
+                   //dd->d_mo_grid, &one, &ncas,
+                   //dd->d_mo_grid, &one, &ncas,
+                   dd->d_mo_grid, &ncas, &ncas, 
+                   dd->d_mo_grid, &ncas, &ncas, 
                    &beta, 
-                   dd->d_buf_pdft1, &ncas, &ncas, 
+                   dd->d_buf_pdft1, &ncas, &ncas2, 
                    &ngrid);
-  int ncas2 = ncas*ncas;
-  #if 1
-  double * h_buf1 = (double *) pm->dev_malloc_async(dd->size_buf_grid*sizeof(double));
-  pm->dev_pull_async(dd->d_buf_pdft1, h_buf1, dd->size_buf_grid*sizeof(double));
+  #endif
+  #if 0
+  printf("starting pull\n");
+  double * h_buf1 = (double *) pm->dev_malloc_host(_size_buf_pdft*sizeof(double));
+  pm->dev_pull_async(dd->d_buf_pdft1, h_buf1, _size_buf_pdft*sizeof(double));
   pm->dev_stream_wait();
-  for (int i=0;i<10;++i){for (int j=0; j<ncas*ncas;++j){printf("%f\t",h_buf[i*ncas*ncas+j]);}printf("\n");}
+  printf("pull finished\n");
+  for (int i=0;i<2;++i){for (int j=0; j<ncas*ncas;++j){printf("%f\t",h_buf1[i*ncas*ncas+j]);}printf("\n");}
+  #endif
+  
+  #if 0
+  printf("allocating buf2\n");
+  double * h_buf2 = (double *) pm->dev_malloc_host(_size_buf_pdft*sizeof(double));
+  for (int i=0;i<ngrid*ncas*ncas;++i){h_buf2[i]=0.0;}
+  printf("allocating mo_grid\n");
+  double * h_mo_grid = (double *) pm->dev_malloc_host(ngrid*ncas*sizeof(double));
+  printf("pulling mo_grid\n");
+  if (dd->d_mo_grid){printf("pulling\n"); pm->dev_pull_async(dd->d_mo_grid, h_mo_grid, ngrid*ncas*sizeof(double));}
+  printf("waiting\n");
+  pm->dev_stream_wait();
+  printf("starting calc\n");
+  for (int i =0; i<ngrid; ++i){
+    for (int j=0;j<ncas; ++j){
+      for (int k=0;k<ncas; ++k){
+          for (int l=0; l<1; ++l){
+            h_buf2[i*ncas*ncas + j*ncas+k]+=h_mo_grid[i*ncas+j*1+l]*h_mo_grid[i*ncas+k*1+l];
+          }
+       }
+    }
+  }
+  printf("finished calc\n");
+  //for (int i=0;i<2;++i){for (int j=0; j<ncas;++j){for (int k=0;k<ncas;++k){printf("%f\t",h_buf2[i*ncas*ncas+j*ncas+k]);}printf("\n");}printf("\n");}
+  printf("finished printing\n");
   #endif
   // do buf1 = aij, ijkl->akl, mo, cascm2
-  #if 0
-  ml->gemm_batch ((char *) "N", (char *) "T",
-             &one, &one, &ncas2; 
+  #if 1
+  ml->gemm ((char *) "N", (char *) "N",
+             &ngrid, &ncas2, &ncas2, 
              &alpha,
-             dd->d_buf_pdft1, &one, &ncas2
-             dd->d_cascm2, &one, &ncas2
+             dd->d_buf_pdft1, &ngrid,
+             dd->d_cascm2, &ncas2,
              &beta, 
-             dd->d_buf_pdft2, &one, &one, 
-             &ngrid);
+             dd->d_buf_pdft2, &ngrid);
+             
   #endif
+  #if 0
+  printf("allocating buf2\n");
+  double * h_buf1 = (double *) pm->dev_malloc_host(_size_buf_pdft*sizeof(double));
+  pm->dev_pull_async(dd->d_buf_pdft1, h_buf1, _size_buf_pdft*sizeof(double));
+  pm->dev_stream_wait();
+  double * h_buf2 = (double *) pm->dev_malloc_host(_size_buf_pdft*sizeof(double));
+  for (int i=0;i<ngrid*ncas*ncas;++i){h_buf2[i]=0.0;}
+  printf("allocating mo_grid\n");
+  double * h_cascm2 = (double *) pm->dev_malloc_host(ncas*ncas*ncas*ncas*sizeof(double));
+  printf("pulling mo_grid\n");
+  if (dd->d_cascm2){printf("pulling\n"); pm->dev_pull_async(dd->d_cascm2, h_cascm2, ncas*ncas*ncas*ncas*sizeof(double));}
+  printf("waiting\n");
+  pm->dev_stream_wait();
+  //for (int i=0;i<ncas;++i){
+  //for (int j=0;j<ncas;++j){
+  //for (int k=0;k<ncas;++k){
+  //for (int l=0;l<ncas;++l){printf("%f\t",h_cascm2[((i*ncas+j)*ncas+k)*ncas+l]);}
+  //printf("\n");}printf("\n");}printf("\n");}
+  printf("starting calc\n");
+  for (int i =0; i<ngrid; ++i){
+    for (int j=0;j<ncas*ncas; ++j){
+      for (int k=0;k<ncas*ncas; ++k){
+            h_buf2[i*ncas*ncas+j]+=h_buf1[i*ncas*ncas+k]*h_cascm2[k*ncas*ncas+j];
+       }
+    }
+  }
+  printf("finished calc\n");
+  for (int i=0;i<2;++i){for (int j=0; j<ncas;++j){for (int k=0;k<ncas;++k){printf("%f\t",h_buf2[i*ncas*ncas+j*ncas+k]);}printf("\n");}printf("\n");}
+  printf("finished printing\n");
+  #endif
+
+  #if 0
+  printf("starting pull\n");
+  double * h_buf1 = (double *) pm->dev_malloc_host(_size_buf_pdft*sizeof(double));
+  pm->dev_pull_async(dd->d_buf_pdft2, h_buf1, _size_buf_pdft*sizeof(double));
+  pm->dev_stream_wait();
+  printf("pull finished\n");
+  for (int i=0;i<2;++i){for (int j=0; j<ncas*ncas;++j){printf("%f\t",h_buf1[i*ncas*ncas+j]);}  printf("\n");}
+  #endif
+
   // do Pi = (akl,akl->a, buf1, mo)/2
   #if 0
   const double half=0.5;
   ml->gemm_batch ((char *) "N",(char *) "T", 
              &one, &one, &ncas2,
              &half, 
-             d->d_bufpdft_1, &ncas2, &ncas2, 
-             d->d_buf_pdft2, &ncas2, &ncas2, 
+             dd->d_buf_pdft1, &ncas2, &ncas2, 
+             dd->d_buf_pdft2, &ncas2, &ncas2, 
              &beta, 
-             d->d_Pi, &one, &one, 
+             dd->d_Pi, &one, &one, 
              &ngrid);
   #endif
              
