@@ -98,6 +98,12 @@ Device::Device()
     device_data[i].size_bufpa = 0;
     device_data[i].size_bufaa = 0;
     device_data[i].size_eri_h2eff=0;
+    //pdft
+    device_data[i].size_mo_grid=0;
+    device_data[i].size_ao_grid=0;
+    device_data[i].size_cascm2=0;
+    device_data[i].size_Pi=0;
+    device_data[i].size_buf_pdft=0;
     
     device_data[i].d_rho = nullptr;
     device_data[i].d_vj = nullptr;
@@ -123,6 +129,16 @@ Device::Device()
     device_data[i].d_bufpa = nullptr;
     device_data[i].d_bufaa = nullptr;
     device_data[i].d_papa = nullptr;//initialized, but not allocated (used dd->d_buf3)
+
+    // pdft
+    device_data[i].d_ao_grid=nullptr;
+    device_data[i].d_mo_grid=nullptr;
+    device_data[i].d_cascm2=nullptr;
+    device_data[i].d_Pi=nullptr;
+    device_data[i].d_buf_grid1=nullptr;
+    device_data[i].d_buf_grid2=nullptr;
+
+
 
 #if defined (_USE_GPU)
     device_data[i].handle = nullptr;
@@ -3612,6 +3628,218 @@ void Device::pull_eri_impham(py::array_t<double> _eri, int naoaux, int nao_f, in
 }
 
 /* ---------------------------------------------------------------------- */
+void Device::init_mo_grid(int ngrid, int nmo)
+{
+  printf("starting init mo_grid\n");
+  double t0 = omp_get_wtime();
+  
+  for(int id=0; id<1; ++id) {
+    pm->dev_set_device(id);
+    my_device_data * dd = &(device_data[id]);
+    int size_mo_grid = ngrid*nmo;
+    if (size_mo_grid > dd->size_mo_grid){
+      dd->size_mo_grid = size_mo_grid;
+      if (dd->d_mo_grid) pm->dev_free_async(dd->d_mo_grid);
+      dd->d_mo_grid = (double *) pm->dev_malloc_async(size_mo_grid*sizeof(double));
+    }
+  }
+  double t1 = omp_get_wtime();
+  
+  //TODO:t_array[] += t1 - t0;
+  // counts in pull Pi
+}
+
+/* ---------------------------------------------------------------------- */
+void Device::push_ao_grid(py::array_t<double> _ao, int ngrid, int nao)
+{
+  printf("starting push_mo_grid\n");
+  double t0 = omp_get_wtime();
+  
+  py::buffer_info info_ao = _ao.request(); // 2D array (ngrid, nao)
+  double * ao = static_cast<double*>(info_ao.ptr);
+  for(int id=0; id<1; ++id) {
+    pm->dev_set_device(id);
+    my_device_data * dd = &(device_data[id]);
+    int size_ao_grid = ngrid*nao;
+    if (size_ao_grid > dd->size_ao_grid){
+      dd->size_ao_grid = size_ao_grid;
+      if (dd->d_ao_grid) {printf("doing free");pm->dev_free_async(dd->d_ao_grid);}
+      dd->d_ao_grid = (double *) pm->dev_malloc_async(size_ao_grid*sizeof(double));
+    }
+    pm->dev_push_async(dd->d_ao_grid, ao, size_ao_grid*sizeof(double));
+  }
+  double t1 = omp_get_wtime();
+  
+  //TODO:t_array[] += t1 - t0;
+  // counts in pull Pi
+}
+
+
+/* ---------------------------------------------------------------------- */
+void Device::compute_mo_grid(int ngrid, int nao, int nmo)
+{
+  printf("starting compute\n");
+  double t0 = omp_get_wtime();
+  const int device_id =0;// count % num_devices;
+  pm->dev_set_device(device_id);
+  my_device_data * dd = &(device_data[device_id]);
+  const double alpha = 1.0;
+  const double beta = 0.0;
+  #if 0
+  double * h_mo_coeff = (double *)pm->dev_malloc_host(nao*nmo*sizeof(double));
+  pm->dev_pull_async(dd->d_mo_coeff, h_mo_coeff, nao*nmo*sizeof(double));
+  pm->dev_stream_wait();
+  for (int i =0;i<nao;++i){for (int j=0;j<nmo;++j){printf("%f\t",h_mo_coeff[i*nmo+j]);}printf("\n");}
+  #endif
+  ml->set_handle();
+  ml->gemm((char *) "N", (char *) "N", 
+             &nmo, &ngrid, &nao,
+             &alpha, 
+             dd->d_mo_coeff, &nmo, 
+             dd->d_ao_grid, &nao, 
+             &beta, 
+             dd->d_mo_grid, &nmo
+             );
+  double t1 = omp_get_wtime();  
+  //TODO:t_array[] += t1 - t0;
+  // counts in pull Pi
+}
+/* ---------------------------------------------------------------------- */
+void Device::pull_mo_grid(py::array_t<double>_mo, int ngrid, int nmo)
+{
+double t0 = omp_get_wtime();
+
+py::buffer_info info_mo = _mo.request(); // 2D array (ngrid, nao)
+double * mo = static_cast<double*>(info_mo.ptr);
+
+for(int id=0; id<1; ++id) {
+  pm->dev_set_device(id);
+  my_device_data * dd = &(device_data[id]);
+  int size_mo_grid = ngrid*nmo;
+  
+  if(dd->d_mo_grid) {pm->dev_pull_async(dd->d_mo_grid, mo, size_mo_grid*sizeof(double));
+  pm->dev_stream_wait();}
+  pm->dev_barrier(); 
+  
+}
+double t1 = omp_get_wtime();
+}
+/* ---------------------------------------------------------------------- */
+void Device::init_Pi(int ngrid)
+{
+  double t0 = omp_get_wtime();
+  
+  for(int id=0; id<1; ++id) {
+    pm->dev_set_device(id);
+    my_device_data * dd = &(device_data[id]);
+    int size_Pi = ngrid;
+    if (size_Pi > dd->size_Pi){
+      dd->size_Pi = size_Pi;
+      if (dd->d_Pi) pm->dev_free_async(dd->d_Pi);
+      dd->d_Pi = (double *) pm->dev_malloc_async(dd->size_Pi*sizeof(double));
+    }
+  }
+  double t1 = omp_get_wtime();
+  
+  //TODO:t_array[] += t1 - t0;
+  // counts in pull Pi
+}
+
+/* ---------------------------------------------------------------------- */
+void Device::push_cascm2 (py::array_t<double> _cascm2, int ncas) 
+{
+  double t0 = omp_get_wtime();
+   
+  py::buffer_info info_cascm2 = _cascm2.request(); // 2D array (ngrid, nao)
+  double * cascm2 = static_cast<double*>(info_cascm2.ptr);
+
+  for(int id=0; id<1; ++id) {
+    pm->dev_set_device(id);
+    my_device_data * dd = &(device_data[id]);
+    int size_cascm2 = ncas*ncas*ncas*ncas;
+    if (size_cascm2 > dd->size_cascm2){
+      dd->size_cascm2 = size_cascm2;
+      if (dd->d_cascm2) pm->dev_free_async(dd->d_cascm2);
+      dd->d_cascm2 = (double *) pm->dev_malloc_async(dd->size_cascm2*sizeof(double));
+    }
+    pm->dev_push_async(dd->d_cascm2, cascm2, size_cascm2);
+  }
+  double t1 = omp_get_wtime();
+  
+  //TODO:t_array[] += t1 - t0;
+  // counts in pull Pi
+}
+
+
+/* ---------------------------------------------------------------------- */
+void Device::compute_Pi (int ngrid, int ncas) 
+{
+  
+  double t0 = omp_get_wtime();
+  const int device_id = 1;//count % num_devices;
+  pm->dev_set_device(device_id);
+  my_device_data * dd = &(device_data[device_id]);
+  const double alpha = 1.0;
+  const double beta = 0.0;
+  ml->set_handle();
+  int _size_buf_pdft = ngrid*ncas*ncas; 
+  if (_size_buf_pdft>dd->size_buf_pdft){
+      dd->size_buf_grid = _size_buf_pdft;
+      if (dd->d_buf_pdft1) pm->dev_free_async(dd->d_buf_pdft1);
+      if (dd->d_buf_pdft2) pm->dev_free_async(dd->d_buf_pdft2);
+      dd->d_buf_pdft1 = (double *) pm->dev_malloc_async(dd->size_buf_grid*sizeof(double));
+      dd->d_buf_pdft2 = (double *) pm->dev_malloc_async(dd->size_buf_grid*sizeof(double));
+    }
+
+  //make mo_grid to ngrid*ncas*ncas (ai,aj->aij)
+  ml->set_handle();
+  const double alpha = 1.0;
+  const double beta = 0.0;
+  const int one = 0; 
+  ml->gemm_batch((char *) "N",(char *) "T",
+                   &ncas, &ncas, &one,
+                   &alpha,
+                   dd->d_mo_grid, &one, &ncas,
+                   dd->d_mo_grid, &one, &ncas, 
+                   &beta, 
+                   dd->d_buf_pdft1, &ncas, &ncas, 
+                   &ngrid);
+  int ncas2 = ncas*ncas;
+  #if 1
+  double * h_buf1 = (double *) pm->dev_malloc_async(dd->size_buf_grid*sizeof(double));
+  pm->dev_pull_async(dd->d_buf_pdft1, h_buf1, dd->size_buf_grid*sizeof(double));
+  pm->dev_stream_wait();
+  for (int i=0;i<10;++i){for (int j=0; j<ncas*ncas;++j){printf("%f\t",h_buf[i*ncas*ncas+j]);}printf("\n");}
+  #endif
+  // do buf1 = aij, ijkl->akl, mo, cascm2
+  #if 0
+  ml->gemm_batch ((char *) "N", (char *) "T",
+             &one, &one, &ncas2; 
+             &alpha,
+             dd->d_buf_pdft1, &one, &ncas2
+             dd->d_cascm2, &one, &ncas2
+             &beta, 
+             dd->d_buf_pdft2, &one, &one, 
+             &ngrid);
+  #endif
+  // do Pi = (akl,akl->a, buf1, mo)/2
+  #if 0
+  const double half=0.5;
+  ml->gemm_batch ((char *) "N",(char *) "T", 
+             &one, &one, &ncas2,
+             &half, 
+             d->d_bufpdft_1, &ncas2, &ncas2, 
+             d->d_buf_pdft2, &ncas2, &ncas2, 
+             &beta, 
+             d->d_Pi, &one, &one, 
+             &ngrid);
+  #endif
+             
+}
+/* ---------------------------------------------------------------------- */
+void Device::pull_Pi (py::array_t<double> _Pi, int ngrid){} 
+/* ---------------------------------------------------------------------- */
+
 
 
 // Is both _ocm2 in/out as it get over-written and resized?
