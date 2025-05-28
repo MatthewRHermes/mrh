@@ -518,13 +518,9 @@ class ContractHamCI_SHS (ContractHamCI_CHC):
                                      log=log, max_memory=max_memory, dtype=dtype)
         self.las = las
         self.h0 = h0
-        self.si_bra_is1d = si_bra.ndim==1
         self.si_bra = si_bra.copy ()
-        if self.si_bra_is1d: self.si_bra = self.si_bra[:,None]
         self.nroots_si_bra = self.si_bra.shape[-1]
-        self.si_ket_is1d = si_ket.ndim==1
         self.si_ket = si_ket.copy ()
-        if self.si_ket_is1d: self.si_ket = self.si_ket[:,None]
         self.nroots_si_ket = self.si_ket.shape[-1]
         self.nbra = len (mask_bra_space)
         self.hci_fr_pabq = self._init_vecs ()
@@ -583,17 +579,6 @@ class ContractHamCI_SHS (ContractHamCI_CHC):
         hci = dm_plq[:,:,:,None,None] * vecs[None,None,None,:,:]
         hci_plabq[:,:,:,:,:] += hci.transpose (0,1,3,4,2)
         return
-
-    def kernel (self):
-        self.hci_fr_pabq, t0 = super().kernel ()
-        for i, hci_r_pabq in enumerate (self.hci_fr_pabq):
-            for j, hci_pabq in enumerate (hci_r_pabq):
-                if self.si_ket_is1d:
-                    hci_pabq = hci_pabq[:,:,:,:,0]
-                if self.si_bra_is1d:
-                    hci_pabq = hci_pabq[0]
-                self.hci_fr_pabq[i][j] = hci_pabq
-        return self.hci_fr_pabq, t0
 
 def ContractHamCI (las, ints, nlas, hopping_index, lroots, h0, h1, h2, si_bra=None, si_ket=None,
                    mask_bra_space=None, mask_ket_space=None, log=None, max_memory=2000,
@@ -682,6 +667,13 @@ def contract_ham_ci (las, h1, h2, ci_fr_ket, nelec_frs_ket, ci_fr_bra, nelec_frs
                                                   mask_ints=mask_ints)
 
     # Second pass: upper-triangle
+    si_bra_is1d = si_ket_is1d = False
+    if si_bra is not None:
+        si_bra_is1d = si_bra.ndim==1
+        if si_bra_is1d: si_bra = si_bra[:,None]
+    if si_ket is not None:
+        si_ket_is1d = si_ket.ndim==1
+        if si_ket_is1d: si_ket = si_ket[:,None]
     t0 = (lib.logger.process_clock (), lib.logger.perf_counter ())
     max_memory = getattr (las, 'max_memory', las.mol.max_memory)
     contracter = ContractHamCI (las, ints, nlas, hopping_index, lroots, h0, h1, h2, si_bra=si_bra,
@@ -690,6 +682,13 @@ def contract_ham_ci (las, h1, h2, ci_fr_ket, nelec_frs_ket, ci_fr_bra, nelec_frs
                                 max_memory=max_memory, log=log)
     lib.logger.timer (las, 'LASSI Hamiltonian contraction second intermediate indexing setup', *t0)        
     hket_fr_pabq, t0 = contracter.kernel ()
+    for i, hket_r_pabq in enumerate (hket_fr_pabq):
+        for j, hket_pabq in enumerate (hket_r_pabq):
+            if si_ket_is1d:
+                hket_pabq = hket_pabq[:,:,:,:,0]
+            if si_bra_is1d:
+                hket_pabq = hket_pabq[0]
+            hket_fr_pabq[i][j] = hket_pabq
     lib.logger.timer (las, 'LASSI Hamiltonian contraction second intermediate crunching', *t0)
     if las.verbose >= lib.logger.TIMER_LEVEL:
         lib.logger.info (las, 'LASSI Hamiltonian contraction crunching profile:\n%s',
