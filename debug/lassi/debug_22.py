@@ -138,10 +138,10 @@ class KnownValues(unittest.TestCase):
     #    lsi1 = LASSIrqCT (las, 2, 3).run ()
     #    self.assertAlmostEqual (lsi1.e_roots[0], -4.2879945248402445, 8)
 
-    #def test_contract_hlas_ci (self):
-    #    e_roots, si, las = lsi.e_roots, lsi.si, lsi._las
-    #    h0, h1, h2 = lsi.ham_2q ()
-    #    case_contract_hlas_ci (self, las, h0, h1, h2, las.ci, lsi.get_nelec_frs ())
+    def test_contract_hlas_ci (self):
+        e_roots, si, las = lsi.e_roots, lsi.si, lsi._las
+        h0, h1, h2 = lsi.ham_2q ()
+        case_contract_hlas_ci (self, las, h0, h1, h2, las.ci, lsi.get_nelec_frs ())
 
     #def test_contract_op_si (self):
     #    e_roots, si, las = lsi.e_roots, lsi.si, lsi._las
@@ -191,8 +191,8 @@ class KnownValues(unittest.TestCase):
     #def test_lassis_grads (self):
     #    case_lassis_grads (self, lsis)
 
-    def test_lassis_hessian (self):
-        case_lassis_hessian (self, lsis)
+    #def test_lassis_hessian (self):
+    #    case_lassis_hessian (self, lsis)
 
     #def test_fdm1 (self):
     #    make_fdm1 = get_fdm1_maker (lsi, lsi.ci, lsi.get_nelec_frs (), lsi.si)

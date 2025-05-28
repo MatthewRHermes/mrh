@@ -72,17 +72,16 @@ def case_contract_hlas_ci (ks, las, h0, h1, h2, ci_fr, nelec_frs):
                                        dneleca=nelec[:,r,0]-nelec[:,s,0],
                                        dnelecb=nelec[:,r,1]-nelec[:,s,1]):
                         ks.assertAlmostEqual (lib.fp (hket_pq_s), lib.fp (hket_ref_s), 8)
-        h_ref = np.dot (si_bra.conj (), np.dot (ham, si_ket))
+        hket_ref = np.dot (ham, si_ket)
         hket_fr_pabq = op[opt].contract_ham_ci (las, h1, h2, ci_fr, nelec, ci_fr, nelec, h0=h0,
                                                 si_bra=si_bra, si_ket=si_ket)
         for f, (ci_r, hket_r_pabq) in enumerate (zip (ci_fr, hket_fr_pabq)):
-            h_test = 0
             for r, (ci, hket_pabq) in enumerate (zip (ci_r, hket_r_pabq)):
                 if ci.ndim < 3: ci = ci[None,:,:]
                 with ks.subTest (opt=opt, frag=f, bra_space=r, nelec=nelec[f,r]):
-                    h_test += lib.einsum ('pab,pab->', hket_pabq, ci.conj ())
-            with ks.subTest (opt=opt, frag=f, bra_space=r, nelec=nelec[f,r]):
-                ks.assertAlmostEqual (h_test, h_ref, 8)
+                    h_test = lib.einsum ('pab,pab->', hket_pabq, ci.conj ())
+                    h_ref = np.dot (si_bra[ni[r]:nj[r]].conj (), hket_ref[ni[r]:nj[r]])
+                    ks.assertAlmostEqual (h_test, h_ref, 8)
     return hket_fr_pabq
 
 def case_contract_op_si (ks, las, h1, h2, ci_fr, nelec_frs, soc=0):
