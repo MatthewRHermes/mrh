@@ -60,6 +60,41 @@ class ContractHamCI_CHC (stdm.LSTDM):
             hci_fr_pabq.append (hci_r_pabq)
         return hci_fr_pabq
 
+    def init_profiling (self):
+        self.dt_1d, self.dw_1d = 0.0, 0.0
+        self.dt_2d, self.dw_2d = 0.0, 0.0
+        self.dt_1c, self.dw_1c = 0.0, 0.0
+        self.dt_1c1d, self.dw_1c1d = 0.0, 0.0
+        self.dt_1s, self.dw_1s = 0.0, 0.0
+        self.dt_1s1c, self.dw_1s1c = 0.0, 0.0
+        self.dt_2c, self.dw_2c = 0.0, 0.0
+        self.dt_o, self.dw_o = 0.0, 0.0
+        self.dt_u, self.dw_u = 0.0, 0.0
+        self.dt_p, self.dw_p = 0.0, 0.0
+        self.dt_i, self.dw_i = 0.0, 0.0
+        self.dt_g, self.dw_g = 0.0, 0.0
+        self.dt_s, self.dw_s = 0.0, 0.0
+        self.dt_c, self.dw_c = 0.0, 0.0
+
+    def sprint_profile (self):
+        fmt_str = '{:>5s} CPU: {:9.2f} ; wall: {:9.2f}'
+        profile = fmt_str.format ('1d', self.dt_1d, self.dw_1d)
+        profile += '\n' + fmt_str.format ('2d', self.dt_2d, self.dw_2d)
+        profile += '\n' + fmt_str.format ('1c', self.dt_1c, self.dw_1c)
+        profile += '\n' + fmt_str.format ('1c1d', self.dt_1c1d, self.dw_1c1d)
+        profile += '\n' + fmt_str.format ('1s', self.dt_1s, self.dw_1s)
+        profile += '\n' + fmt_str.format ('1s1c', self.dt_1s1c, self.dw_1s1c)
+        profile += '\n' + fmt_str.format ('2c', self.dt_2c, self.dw_2c)
+        profile += '\n' + fmt_str.format ('hcon', self.dt_c, self.dw_c)
+        profile += '\n' + fmt_str.format ('ovlp', self.dt_o, self.dw_o)
+        profile += '\n' + fmt_str.format ('umat', self.dt_u, self.dw_u)
+        profile += '\n' + fmt_str.format ('put', self.dt_p, self.dw_p)
+        profile += '\n' + fmt_str.format ('idx', self.dt_i, self.dw_i)
+        profile += '\n' + 'Decomposing put:'
+        profile += '\n' + fmt_str.format ('gsao', self.dt_g, self.dw_g)
+        profile += '\n' + fmt_str.format ('putS', self.dt_s, self.dw_s)
+        return profile
+
     def _crunch_1d_(self, bra, ket, i):
         '''Compute a single-fragment density fluctuation, for both the 1- and 2-RDMs.'''
         t0, w0 = logger.process_clock (), logger.perf_counter ()
@@ -381,11 +416,14 @@ class ContractHamCI_CHC (stdm.LSTDM):
         self.dt_p, self.dw_p = self.dt_p + dt, self.dw_p + dw
 
     def _put_Svecs_(self, bras, kets, facs, vecs, *inv):
+        t0, w0 = logger.process_clock (), logger.perf_counter ()
         for bra, ket, fac in zip (bras, kets, facs):
             bra_r, bra_envaddr, addressible = self._bra_address (bra, *inv)
             assert (len (addressible))
             for i, addr in zip (addressible, bra_envaddr):
                 self.hci_fr_pabq[i][bra_r][addr,:,:,ket] += fac * vecs[i]
+        dt, dw = logger.process_clock () - t0, logger.perf_counter () - w0
+        self.dt_s, self.dw_s = self.dt_s + dt, self.dw_s + dw
 
     #def _crunch_all_(self):
     #    for row in self.exc_1c: self._crunch_env_(self._crunch_1c_, *row)
@@ -398,6 +436,7 @@ class ContractHamCI_CHC (stdm.LSTDM):
         pass
 
     def _hconst_ci_(self):
+        t0, w0 = logger.process_clock (), logger.perf_counter ()
         si_bra = getattr (self, 'si_bra', None)
         si_ket = getattr (self, 'si_ket', None)
         nbra, nroots, nelec_frs = self.nbra, self.nroots, self.nelec_frs
@@ -432,6 +471,8 @@ class ContractHamCI_CHC (stdm.LSTDM):
                 self.hci_fr_pabq[0][ibra][:] += hci_dot_sivecs_ij (
                     hket_pabq, si_bra, si_ket, lroots_bra, 0, ibra
                 )
+        dt, dw = logger.process_clock () - t0, logger.perf_counter () - w0
+        self.dt_c, self.dw_c = self.dt_c + dt, self.dw_c + dw
 
     def kernel (self):
         ''' Main driver method of class.
@@ -507,8 +548,11 @@ class ContractHamCI_SHS (ContractHamCI_CHC):
         return hci_fr_plabq
 
     def _put_Svecs_(self, bras, kets, facs, vecs, *inv):
+        t0, w0 = logger.process_clock (), logger.perf_counter ()
         for i in set (inv):
             self._put_Svecs_i_(bras, kets, facs, vecs[i], i)
+        dt, dw = logger.process_clock () - t0, logger.perf_counter () - w0
+        self.dt_s, self.dw_s = self.dt_s + dt, self.dw_s + dw
 
     def _put_Svecs_i_(self, bras, kets, facs, vecs, i):
         idx = (self.envaddr[:,i][bras] == 0)
@@ -648,7 +692,7 @@ def contract_ham_ci (las, h1, h2, ci_fr_ket, nelec_frs_ket, ci_fr_bra, nelec_frs
     hket_fr_pabq, t0 = contracter.kernel ()
     lib.logger.timer (las, 'LASSI Hamiltonian contraction second intermediate crunching', *t0)
     if las.verbose >= lib.logger.TIMER_LEVEL:
-        lib.logger.info (las, 'LASSI Hamiltonian contraction crunching profile:\n%s'
+        lib.logger.info (las, 'LASSI Hamiltonian contraction crunching profile:\n%s',
                          contracter.sprint_profile ())
 
     return hket_fr_pabq
