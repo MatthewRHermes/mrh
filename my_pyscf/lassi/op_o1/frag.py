@@ -14,6 +14,7 @@ from mrh.my_pyscf.fci.rdm import trans_rdm13ha_des, trans_rdm13hb_des
 from mrh.my_pyscf.fci.rdm import trans_sfddm1, trans_hhdm
 from mrh.my_pyscf.fci.direct_halfelectron import contract_1he, absorb_h1he, contract_3he
 from mrh.my_pyscf.fci.direct_nosym_uhf import contract_1e as contract_1e_nosym_uhf
+from mrh.my_pyscf.fci.direct_nosym_ghf import contract_1e as contract_1e_nosym_ghf
 from pyscf import __config__
 
 SCREEN_THRESH = getattr (__config__, 'lassi_frag_screen_thresh', 1e-10)
@@ -628,26 +629,21 @@ class FragTDMInt (object):
         r = self.rootaddr[ket]
         n = self.fragaddr[ket]
         norb, nelec = self.norb, self.nelec_r[r]
-        linkstr = self._check_linkstr_cache (norb, nelec[0], nelec[1])
         ci = self.ci[r][n]
         # 0, 1, 2, 3 = aa, ab, ba, bb
         s11 = spin // 2
         s12 = spin % 2
         if s11==s12:
+            linkstr = self._check_linkstr_cache (norb, nelec[0], nelec[1])
             h1e = [np.zeros_like (h_11), np.zeros_like (h_11)]
             h1e[s11] = h_11
             hci = contract_1e_nosym_uhf (h1e, ci, norb, nelec, link_index=linkstr)
         else:
-            cre_op = (cre_a, cre_b)[s11]
-            des_op = (des_a, des_b)[s12]
-            hci = 0
-            if nelec[s12] == 0: return hci
-            nelecq = list (nelec)
-            nelecq[s12] = nelecq[s12] - 1
-            for q in range (self.norb):
-                qci = des_op (ci, norb, nelec, q)
-                for p in range (self.norb):
-                    hci += h_11[p,q] * cre_op (qci, norb, nelecq, p)
+            linkstr = self._check_linkstr_cache (2*norb, nelec[0]+nelec[1], 0)
+            spin = spin - 1
+            h1e = np.zeros ((2*norb, 2*norb), dtype=h_11.dtype)
+            h1e[spin*norb:(spin+1)*norb,(1-spin)*norb:(2-spin)*norb] = h_11[:,:]
+            hci = contract_1e_nosym_ghf (h1e, ci, norb, nelec, link_index=linkstr)[2*spin]
         return hci
 
 def make_ints (las, ci, nelec_frs, screen_linequiv=DO_SCREEN_LINEQUIV, nlas=None,
