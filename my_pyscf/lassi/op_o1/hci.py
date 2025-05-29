@@ -680,7 +680,7 @@ def contract_ham_ci (las, h1, h2, ci_fr_ket, nelec_frs_ket, ci_fr_bra, nelec_frs
                                 si_ket=si_ket, mask_bra_space=mask_bra_space,
                                 mask_ket_space=mask_ket_space, dtype=ci[0][0].dtype,
                                 max_memory=max_memory, log=log)
-    lib.logger.timer (las, 'LASSI Hamiltonian contraction second intermediate indexing setup', *t0)        
+    lib.logger.timer (las, 'LASSI hci setup', *t0)
     hket_fr_pabq, t0 = contracter.kernel ()
     for i, hket_r_pabq in enumerate (hket_fr_pabq):
         for j, hket_pabq in enumerate (hket_r_pabq):
@@ -689,9 +689,9 @@ def contract_ham_ci (las, h1, h2, ci_fr_ket, nelec_frs_ket, ci_fr_bra, nelec_frs
             if si_bra_is1d:
                 hket_pabq = hket_pabq[0]
             hket_fr_pabq[i][j] = hket_pabq
-    lib.logger.timer (las, 'LASSI Hamiltonian contraction second intermediate crunching', *t0)
+    lib.logger.timer (las, 'LASSI hci crunching', *t0)
     if las.verbose >= lib.logger.TIMER_LEVEL:
-        lib.logger.info (las, 'LASSI Hamiltonian contraction crunching profile:\n%s',
+        lib.logger.info (las, 'LASSI hci crunching profile:\n%s',
                          contracter.sprint_profile ())
 
     return hket_fr_pabq

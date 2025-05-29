@@ -476,12 +476,12 @@ def ham (las, h1, h2, ci, nelec_frs, soc=0, nlas=None, _HamS2Ovlp_class=HamS2Ovl
                                      max_memory=max_memory, log=log)
     if soc and not spin_pure:
         outerprod.spin_shuffle = spin_shuffle_fac
-    lib.logger.timer (las, 'LASSI Hamiltonian second intermediate indexing setup', *t0)
+    lib.logger.timer (las, 'LASSI ham setup', *t0)
     if not _do_kernel: return outerprod
     ham, s2, ovlp, t0 = outerprod.kernel ()
-    lib.logger.timer (las, 'LASSI Hamiltonian second intermediate crunching', *t0)
+    lib.logger.timer (las, 'LASSI ham crunching', *t0)
     if las.verbose >= lib.logger.TIMER_LEVEL:
-        lib.logger.info (las, 'LASSI Hamiltonian crunching profile:\n%s', outerprod.sprint_profile ())
+        lib.logger.info (las, 'LASSI ham crunching profile:\n%s', outerprod.sprint_profile ())
 
     #raw2orth = citools.get_orth_basis (ci, las.ncas_sub, nelec_frs,
     #                                   _get_ovlp=outerprod.get_ovlp)
