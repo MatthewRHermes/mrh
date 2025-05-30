@@ -15,6 +15,7 @@ from mrh.my_pyscf.fci.rdm import trans_sfddm1, trans_hhdm
 from mrh.my_pyscf.fci.direct_halfelectron import contract_1he, absorb_h1he, contract_3he
 from mrh.my_pyscf.fci.direct_nosym_uhf import contract_1e as contract_1e_nosym_uhf
 from mrh.my_pyscf.fci.direct_nosym_ghf import contract_1e as contract_1e_nosym_ghf
+from mrh.my_pyscf.fci.pair_op import contract_pair_op
 from pyscf import __config__
 
 SCREEN_THRESH = getattr (__config__, 'lassi_frag_screen_thresh', 1e-10)
@@ -595,15 +596,12 @@ class FragTDMInt (object):
         # 0, 1, 2 = aa, ab, bb
         s11 = int (spin>1)
         s12 = int (spin>0)
-        cre_op1 = (cre_a, cre_b)[s11]
-        cre_op2 = (cre_a, cre_b)[s12]
-        hci = 0
-        nelecq = list (nelec)
-        nelecq[s12] = nelecq[s12] + 1
-        for q in range (self.norb):
-            qci = cre_op2 (ci, norb, nelec, q)
-            for p in range (self.norb):
-                hci += h_20[p,q] * cre_op1 (qci, norb, nelecq, p)
+        norbd = norb + 2 - int (spin==1)
+        nelecd = [n for n in nelec]
+        nelecd[s11] += 1
+        nelecd[s12] += 1
+        linkstrl = self._check_linkstrl_cache (norbd, nelecd[0], nelecd[1])
+        hci = contract_pair_op (h_20, True, spin, ci, norb, nelec, link_index=linkstrl)
         return hci
 
     def contract_h02 (self, spin, h_02, ket):
@@ -614,15 +612,9 @@ class FragTDMInt (object):
         # 0, 1, 2 = aa, ab, bb
         s11 = int (spin>1)
         s12 = int (spin>0)
-        des_op1 = (des_a, des_b)[s11]
-        des_op2 = (des_a, des_b)[s12]
-        hci = 0
-        nelecq = list (nelec)
-        nelecq[s11] = nelecq[s11] - 1
-        for q in range (self.norb):
-            qci = des_op1 (ci, norb, nelec, q)
-            for p in range (self.norb):
-                hci += h_02[p,q] * des_op2 (qci, norb, nelecq, p)
+        norbd = norb + 2 - int (spin==1)
+        linkstrl = self._check_linkstrl_cache (norbd, nelec[0], nelec[1])
+        hci = contract_pair_op (h_02, False, spin, ci, norb, nelec, link_index=linkstrl)
         return hci
 
     def contract_h11 (self, spin, h_11, ket):
