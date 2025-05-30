@@ -3,7 +3,7 @@ from scipy import linalg
 from pyscf import lib
 from pyscf.lib import logger
 from pyscf.fci import cistring 
-from mrh.my_pyscf.lassi.op_o1 import stdm, frag, hams2ovlp, hsi
+from mrh.my_pyscf.lassi.op_o1 import stdm, frag, hams2ovlp, hsi, rdm
 from mrh.my_pyscf.lassi.op_o1.utilities import *
 from mrh.my_pyscf.lassi.citools import get_lroots, hci_dot_sivecs, hci_dot_sivecs_ij
 
@@ -527,6 +527,13 @@ class ContractHamCI_SHS (ContractHamCI_CHC):
         self.nelec_frs = np.asarray ([[list (i.nelec_r[ket]) for i in ints]
                                       for ket in range (self.nroots)]).transpose (1,0,2)
 
+
+    get_single_rootspace_sivec = rdm.LRRDM.get_single_rootspace_sivec
+    get_frag_transposed_sivec = rdm.LRRDM.get_frag_transposed_sivec
+    get_fdm_1space = rdm.LRRDM.get_fdm_1space
+    get_fdm = rdm.LRRDM.get_fdm
+    _lowertri_fdm = True
+
     def _init_vecs (self):
         hci_fr_plabq = []
         for i in range (self.nfrags):
@@ -588,18 +595,16 @@ def ContractHamCI (las, ints, nlas, hopping_index, lroots, h0, h1, h2, si_bra=No
                                   mask_bra_space=mask_bra_space,
                                   mask_ket_space=mask_ket_space,
                                   log=log, max_memory=2000, dtype=np.float64)
-    elif si_bra is None:
-        raise NotImplementedError
-        return ContractHamCI_CHS (las, ints, nlas, hopping_index, lroots, h0, h1, h2, si_ket,
-                                  mask_bra_space=mask_bra_space,
-                                  mask_ket_space=mask_ket_space,
-                                  log=log, max_memory=2000, dtype=np.float64)
-    elif si_ket is None:
-        raise NotImplementedError
-        return ContractHamCI_SHC (las, ints, nlas, hopping_index, lroots, h0, h1, h2, si_bra,
-                                  mask_bra_space=mask_bra_space,
-                                  mask_ket_space=mask_ket_space,
-                                  log=log, max_memory=2000, dtype=np.float64)
+    elif (si_bra is None) or (si_ket is None):
+        class ContractHamCI (ContractHamCI_CHC):
+            def kernel (self):
+                hci, t0 = super ().kernel ()
+                hci = hci_dot_sivecs (hci, si_bra, si_ket, self.lroots)
+                return hci, t0
+        return ContractHamCI (las, ints, nlas, hopping_index, lroots, h0, h1, h2,
+                              mask_bra_space=mask_bra_space,
+                              mask_ket_space=mask_ket_space,
+                              log=log, max_memory=2000, dtype=np.float64)
     else:
         return ContractHamCI_SHS (las, ints, nlas, hopping_index, lroots, h0, h1, h2, si_bra,
                                   si_ket, mask_bra_space=mask_bra_space,
