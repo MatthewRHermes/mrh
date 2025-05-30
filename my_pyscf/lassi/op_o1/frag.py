@@ -17,6 +17,8 @@ from mrh.my_pyscf.fci.direct_nosym_uhf import contract_1e as contract_1e_nosym_u
 from mrh.my_pyscf.fci.direct_nosym_ghf import contract_1e as contract_1e_nosym_ghf
 from mrh.my_pyscf.fci.pair_op import contract_pair_op
 from pyscf import __config__
+import functools
+import copy
 
 SCREEN_THRESH = getattr (__config__, 'lassi_frag_screen_thresh', 1e-10)
 DO_SCREEN_LINEQUIV = getattr (__config__, 'lassi_frag_do_screen_linequiv', True)
@@ -534,11 +536,11 @@ class FragTDMInt (object):
         
         return t0
 
-    def contract_h00 (self, h_00, h_11, h_22, ket):
+    def contract_h00 (self, h_00, h_11, h_22, ket, dn=0):
         r = self.rootaddr[ket]
         n = self.fragaddr[ket]
         norb, nelec = self.norb, self.nelec_r[r]
-        ci = self.ci[r][n]
+        ci = self.ci[r][n+dn]
         h_uhf = (h_11[0] - h_11[1]) / 2
         h_uhf = [h_uhf, -h_uhf]
         h_11 = h_11.sum (0) / 2
@@ -554,14 +556,14 @@ class FragTDMInt (object):
                                 link_index=linkstrl)
         return hci
 
-    def contract_h10 (self, spin, h_10, h_21, ket):
+    def contract_h10 (self, spin, h_10, h_21, ket, dn=0):
         r = self.rootaddr[ket]
         n = self.fragaddr[ket]
         norb, nelec = self.norb, self.nelec_r[r]
         nelec_bra = [nelec[0], nelec[1]]
         nelec_bra[spin] += 1
         linkstrl = self._check_linkstrl_cache (norb+1, nelec_bra[0], nelec_bra[1])
-        ci = self.ci[r][n]
+        ci = self.ci[r][n+dn]
         hci = 0
         if h_21 is None:
             hci = contract_1he (h_10, True, spin, ci, norb, nelec,
@@ -572,12 +574,12 @@ class FragTDMInt (object):
                                 link_index=linkstrl)
         return hci
 
-    def contract_h01 (self, spin, h_01, h_12, ket):
+    def contract_h01 (self, spin, h_01, h_12, ket, dn=0):
         rket = self.rootaddr[ket]
         n = self.fragaddr[ket]
         norb, nelec = self.norb, self.nelec_r[rket]
         linkstrl = self._check_linkstrl_cache (norb+1, nelec[0], nelec[1])
-        ci = self.ci[rket][n]
+        ci = self.ci[rket][n+dn]
         hci = 0
         if h_12 is None:
             hci = contract_1he (h_01, False, spin, ci, norb, nelec,
@@ -588,11 +590,11 @@ class FragTDMInt (object):
                                 link_index=linkstrl)
         return hci
 
-    def contract_h20 (self, spin, h_20, ket):
+    def contract_h20 (self, spin, h_20, ket, dn=0):
         r = self.rootaddr[ket]
         n = self.fragaddr[ket]
         norb, nelec = self.norb, self.nelec_r[r]
-        ci = self.ci[r][n]
+        ci = self.ci[r][n+dn]
         # 0, 1, 2 = aa, ab, bb
         s11 = int (spin>1)
         s12 = int (spin>0)
@@ -604,11 +606,11 @@ class FragTDMInt (object):
         hci = contract_pair_op (h_20, True, spin, ci, norb, nelec, link_index=linkstrl)
         return hci
 
-    def contract_h02 (self, spin, h_02, ket):
+    def contract_h02 (self, spin, h_02, ket, dn=0):
         r = self.rootaddr[ket]
         n = self.fragaddr[ket]
         norb, nelec = self.norb, self.nelec_r[r]
-        ci = self.ci[r][n]
+        ci = self.ci[r][n+dn]
         # 0, 1, 2 = aa, ab, bb
         s11 = int (spin>1)
         s12 = int (spin>0)
@@ -617,11 +619,11 @@ class FragTDMInt (object):
         hci = contract_pair_op (h_02, False, spin, ci, norb, nelec, link_index=linkstrl)
         return hci
 
-    def contract_h11 (self, spin, h_11, ket):
+    def contract_h11 (self, spin, h_11, ket, dn=0):
         r = self.rootaddr[ket]
         n = self.fragaddr[ket]
         norb, nelec = self.norb, self.nelec_r[r]
-        ci = self.ci[r][n]
+        ci = self.ci[r][n+dn]
         # 0, 1, 2, 3 = aa, ab, ba, bb
         s11 = spin // 2
         s12 = spin % 2
@@ -637,6 +639,105 @@ class FragTDMInt (object):
             h1e[spin*norb:(spin+1)*norb,(1-spin)*norb:(2-spin)*norb] = h_11[:,:]
             hci = contract_1e_nosym_ghf (h1e, ci, norb, nelec, link_index=linkstr)[2*spin]
         return hci
+
+    def contract_h11_uhf (self, h_11_s, ket, dn=0):
+        # when you have both spins in the operator
+        r = self.rootaddr[ket]
+        n = self.fragaddr[ket]
+        norb, nelec = self.norb, self.nelec_r[r]
+        ci = self.ci[r][n+dn]
+        linkstr = self._check_linkstr_cache (norb, nelec[0], nelec[1])
+        hci = contract_1e_nosym_uhf (h_11_s, ci, norb, nelec, link_index=linkstr)
+        return hci
+
+    def _init_ham_(self, nsi_bra, nsi_ket):
+        self._ham = {}
+        self.nsi_bra = nsi_bra
+        self.nsi_ket = nsi_ket
+
+    def _put_ham_(self, bra, ket, h0, h1, h2, spin=None, hermi=0):
+        i = self.unique_root[self.rootaddr[bra]]
+        j = self.unique_root[self.rootaddr[ket]]
+        hterm0 = self._ham.get ((i, j, hermi), 0)
+        hterm1 = HamTerm (self, ket, i, j, h0, h1, h2, hermi=hermi, spin=spin)
+        self._ham[(i,j,hermi)] = hterm1 + hterm0 
+
+    def _ham_op (self):
+        hci_r_plabq = []
+        for c in self.ci:
+            hci_qplab = np.zeros_like ([self.nsi_ket,self.nsi_bra] + list (c.shape),
+                                       dtype=c.dtype)
+            hci_r_plabq.append (hci_qplab.transpose (1,2,3,4,0))
+        for ((i, j), hterm) in self._ham.items ():
+            hci_pqlab = hterm.op_(hci_r_plabq[i])
+            hci_r_plabq[i] += hci_pqlab.transpose (0,2,3,4,1)        
+        return hci_r_plabq
+
+class HamTerm:
+    def __init__(self, parent, ket, ir, jr, h0, h1, h2, hermi=0, spin=None):
+        self.parent = parent
+        self.ir = ir
+        self.jr = jr
+        dnelec = parent.nelec_r[ir] - parent.nelec_r[jr]
+        self.h0 = self.h1 = self.h2 = None
+        self.np, self.nq, self.li, self.lj = h1.shape[:4]
+        self.spin = spin
+        if dnelec == (0,0) and hermi==1:
+            self.h0 = h0
+            self.h1 = h1
+            self.h2 = h2
+            self._op = parent.contract_h00
+        elif dnelec == (0,0):
+            spin = spin // 2
+            self.h1 = np.zeros (list (h1.shape[:4]) + [2,] + list (h1.shape[4:]), dtype=h1.dtype)
+            self.h1[:,:,:,:,spin,:,:] = h1
+            self.spin = None
+            self._op = parent.contract_h11_uhf
+        elif sum (dnelec) == 0:
+            self.h1 = h1
+            self._op = parent.contract_h11
+        else:
+            dnelec = sum (dnelec)
+            self.h1 = h1
+            if abs (dnelec) == 1: self.h2 = h2
+            idx = dnelec+2
+            if idx>1: idx = idx-1
+            self._op = [parent.contract_h02,
+                        parent.contract_h01,
+                        parent.contract_h10,
+                        parent.contract_h20][idx]
+        self._hargs = self._get_args ()
+
+    def _get_args (self):
+        hargs = []
+        if self.h0 is not None: hargs.append (self.h0)
+        if self.h1 is not None: hargs.append (self.h1)
+        if self.h2 is not None: hargs.append (self.h2)
+        return hargs
+
+    def op (self):
+        np, nq, li, lj = self.np, self.nq, self.li, self.lj
+        ndeta = self.parent.ndeta_r[self.ir]
+        ndetb = self.parent.ndetb_r[self.ir]
+        sargs = []
+        if self.spin is not None: sargs.append (spin)
+        hci_pqlab = np.zeros ((np,nq,li,ndeta,ndetb), dtype=self.parent.dtype)
+        for p,q,i,j in product (range (np), range (nq), range (li), range (lj)):
+            args = sargs + [h[p,q,i,j] for h in self._hargs] + [self.jr,]
+            hci_pqlab[p,q,i] += self._op (*args, dn=j)
+        return hci_pqlab
+
+    def __add__(self, other):
+        if other==0: return self
+        mysum = copy.copy (self)
+        if self.h0 is not None:
+            mysum.h0 = self.h0 + other.h0
+        if self.h1 is not None:
+            mysum.h1 = self.h1 + other.h1
+        if self.h2 is not None:
+            mysum.h2 = self.h2 + other.h2
+        return mysum
+
 
 def make_ints (las, ci, nelec_frs, screen_linequiv=DO_SCREEN_LINEQUIV, nlas=None,
                _FragTDMInt_class=FragTDMInt, mask_ints=None):
