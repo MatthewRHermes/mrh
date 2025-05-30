@@ -669,8 +669,7 @@ class FragTDMInt (object):
                                        dtype=c.dtype)
             hci_r_plabq.append (hci_qplab.transpose (1,2,3,4,0))
         for ((i, j), hterm) in self._ham.items ():
-            hci_pqlab = hterm.op_(hci_r_plabq[i])
-            hci_r_plabq[i] += hci_pqlab.transpose (0,2,3,4,1)        
+            hci_r_plabq[i] += hterm.op ().transpose (0,2,3,4,1)
         return hci_r_plabq
 
 class HamTerm:
