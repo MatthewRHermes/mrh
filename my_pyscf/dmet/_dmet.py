@@ -492,27 +492,23 @@ class _DMET:
        
         core_dm = 0.5 * (core_dm + core_dm.T)
 
-        globalrdm = scipy.linalg.block_diag(np.zeros([neo, neo], dtype=core_dm.dtype), core_dm)
-       
-        # Convert the globalrdm to the AO basis
-        ao2eo = np.hstack([ao2eo, ao2co])
-        globalrdm1 = get_basis_transform(globalrdm, ao2eo.T)
-        globalrdm1 = 0.5 * (globalrdm1 + globalrdm1.T)
+        globalrdm = get_basis_transform (core_dm, ao2co.T)
+        globalrdm = 0.5 * (globalrdm + globalrdm.T)
 
         # This piece of code can be further optimized.
         h1e = mf.get_hcore()
        
         if dm_full_ao.ndim > 2:
-            veff = mf.get_veff(dm=globalrdm1)
+            veff = mf.get_veff(dm=globalrdm)
             h1e += 0.25 * (veff[0] + veff[1])
             del veff
         else:
-            h1e += 0.5 * mf.get_veff(dm=globalrdm1)
+            h1e += 0.5 * mf.get_veff(dm=globalrdm)
 
-        energy  = np.einsum('ij, ij->', h1e, globalrdm1) 
+        energy  = np.einsum('ij, ij->', h1e, globalrdm) 
         energy += mf.energy_nuc()
 
-        del core_dm, globalrdm, globalrdm1, h1e, cor2ao, ao2eo
+        del core_dm, globalrdm, h1e, cor2ao, ao2eo
 
         return energy
 
