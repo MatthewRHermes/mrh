@@ -1,5 +1,5 @@
 import numpy as np
-from pyscf import gto, scf, mcscf, mrpt
+from pyscf import gto, scf, mcscf, mrpt, df
 from mrh.my_pyscf.fci import csf_solver
 from mrh.my_pyscf.dmet import runDMET
 
@@ -27,6 +27,7 @@ He 0 0 10
 mol.build()
 
 mf = scf.ROHF(mol).density_fit()
+mf.with_df.auxbasis = df.make_auxbasis(mol) # For the He: auto-assigned CC-PVDZ-JK-FIT is not available, hence I am turning on the ETB.
 mf.kernel()
 
 # Set the density fitting to False, by default it is True.
