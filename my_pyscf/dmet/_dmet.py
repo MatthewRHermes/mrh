@@ -41,20 +41,11 @@ def perform_schmidt_decomposition_type1(rdm, nfragorb, nlo, bath_tol=1e-5):
         u_core: np.array(nlo, ncore)
             unitary matrix which will transform the localized orbitals to the core orbitals 
     '''
-    alpha_evecs, alpha_evals = np.linalg.svd(rdm[0])[:2]
-    beta_evecs, beta_evals= np.linalg.svd(rdm[1])[:2]
-    occ, u, alpha = (alpha_evals, alpha_evecs, 1) \
-        if np.sum(alpha_evals) >= np.sum(beta_evals) else (beta_evals, beta_evecs, 0)
+    # Selecting all the orbitals for which have occupancy anywhere 
+    # between bath tol and doubly occupied.
+    bathocc, u = np.linalg.eigh(np.sum(rdm, axis=0))
 
-    # Select all the orbitals which are above the bath_tolerance
-    # in this way, if their are any singly occupied orbital in environment
-    # that will taken into the bath orbital.
-    sinorbthresh = 0.9
-    occ1, occ2 = occ, beta_evals if alpha else alpha_evals
-    bathocc = np.array([(ai - bi) if ai > sinorbthresh and bi > sinorbthresh \
-        else ai for ai, bi in zip(occ1, occ2)])
-
-    idx_emb = np.where(bathocc > bath_tol)[0]
+    idx_emb = np.where((bathocc > bath_tol) & (bathocc < 2))[0] 
     idx_core = np.ones(u.shape[1], dtype=bool)
     idx_core[idx_emb] = False
 
