@@ -490,7 +490,7 @@ class ContractHamCI_CHC (stdm.LSTDM):
         self._hconst_ci_()
         return self.hci_fr_pabq, t0
 
-class ContractHamCI_SHS (ContractHamCI_CHC):
+class ContractHamCI_SHS (rdm.LRRDM):
     __doc__ = stdm.LSTDM.__doc__ + '''
 
     SUBCLASS: Contract Hamiltonian on CI vectors and SI vector and integrate over all but one
@@ -512,80 +512,179 @@ class ContractHamCI_SHS (ContractHamCI_CHC):
     def __init__(self, las, ints, nlas, hopping_index, lroots, h0, h1, h2, si_bra, si_ket,
                  mask_bra_space=None, mask_ket_space=None, log=None, max_memory=2000,
                  dtype=np.float64):
-        hams2ovlp.HamS2Ovlp.__init__(self, ints, nlas, hopping_index, lroots, h1, h2,
-                                     mask_bra_space = mask_bra_space,
-                                     mask_ket_space = mask_ket_space,
-                                     log=log, max_memory=max_memory, dtype=dtype)
+        rdm.LRRDM.__init__(self, ints, nlas, hopping_index, lroots, si_bra, si_ket,
+                           mask_bra_space = mask_bra_space,
+                           mask_ket_space = mask_ket_space,
+                           log=log, max_memory=max_memory, dtype=dtype)
         self.las = las
+        if h1.ndim==2: h1 = np.stack ([h1,h1], axis=0)
         self.h0 = h0
-        self.si_bra = si_bra.copy ()
-        self.nroots_si_bra = self.si_bra.shape[-1]
-        self.si_ket = si_ket.copy ()
-        self.nroots_si_ket = self.si_ket.shape[-1]
+        self.h1 = np.ascontiguousarray (h1)
+        self.h2 = np.ascontiguousarray (h2)
         self.nbra = len (mask_bra_space)
-        self.hci_fr_pabq = self._init_vecs ()
         self.nelec_frs = np.asarray ([[list (i.nelec_r[ket]) for i in ints]
                                       for ket in range (self.nroots)]).transpose (1,0,2)
 
+    get_ham_2q = hams2ovlp.HamS2Ovlp.get_ham_2q
 
-    get_single_rootspace_sivec = rdm.LRRDM.get_single_rootspace_sivec
-    get_frag_transposed_sivec = rdm.LRRDM.get_frag_transposed_sivec
-    get_fdm_1space = rdm.LRRDM.get_fdm_1space
-    get_fdm = rdm.LRRDM.get_fdm
-    _lowertri_fdm = True
+    # Handling for 1s1c: need to do both a'.sm.b and b'.sp.a explicitly
+    all_interactions_full_square = True
+    interaction_has_spin = ('_1c_', '_1c1d_', '_1s1c_', '_2c_')
+    ltri_ambiguous = False
 
     def _init_vecs (self):
-        hci_fr_plabq = []
+        hci_fr_plab = []
         for i in range (self.nfrags):
             lroots_bra = self.lroots[i,-self.nbra:].copy ()
-            hci_r_plabq = []
+            hci_r_plab = []
             norb = self.ints[i].norb
             for r in range (self.nbra):
                 nelec = self.ints[i].nelec_r[r+self.nroots-self.nbra]
                 ndeta = cistring.num_strings (norb, nelec[0])
                 ndetb = cistring.num_strings (norb, nelec[1])
-                hci_r_plabq.append (np.zeros (
-                    (self.nroots_si_ket, self.nroots_si_bra, lroots_bra[r], ndeta, ndetb),
-                    dtype=self.dtype).transpose (1,2,3,4,0))
-            hci_fr_plabq.append (hci_r_plabq)
-        return hci_fr_plabq
+                hci_r_plab.append (np.zeros (
+                    (self.nroots_si, lroots_bra[r], ndeta, ndetb),
+                    dtype=self.dtype))
+            hci_fr_plab.append (hci_r_plab)
+        return hci_fr_plab
 
-    def _put_Svecs_(self, bras, kets, facs, vecs, *inv):
+    def _crunch_env_(self, _crunch_fn, *row):
+        if self._fn_row_has_spin (_crunch_fn):
+            inv = row[2:-1]
+        else:
+            inv = row[2:]
+        _crunch_fn (*row)
+        bra, ket = row[:2]
+        for i, ham in hams:
+            self._put_ham_op_(bra, ket, i, *ham)
+
+    def _crunch_1d_(self, bra, ket, i):
+        '''Compute a single-fragment density fluctuation, for both the 1- and 2-RDMs.'''
+        d_rII = self.get_fdm (bra, ket, i) # time-profiled by itself
         t0, w0 = logger.process_clock (), logger.perf_counter ()
-        for i in set (inv):
-            self._put_Svecs_i_(bras, kets, facs, vecs[i], i)
+        h0 = self.h0 * d_rII
+        h1 = np.multiply.outer (d_rII, self.get_ham_2q (i,i))
+        h2 = np.multiply.outer (d_rII, self.get_ham_2q (i,i,i,i))
+        self.ints[i]._put_ham_(bra, ket, h0, h1, h2, hermi=1)
         dt, dw = logger.process_clock () - t0, logger.perf_counter () - w0
-        self.dt_s, self.dw_s = self.dt_s + dt, self.dw_s + dw
+        self.dt_1d, self.dw_1d = self.dt_1d + dt, self.dw_1d + dw
 
-    def _put_Svecs_i_(self, bras, kets, facs, vecs, i):
-        idx = (self.envaddr[:,i][bras] == 0)
-        if np.count_nonzero (idx) == 0: return
-        bras = bras[idx]
-        kets = kets[idx]
-        facs = facs[idx]
-        bras_r = set (self.rootaddr[bras])
-        for bra_r in bras_r:
-            self._put_Svecs_ir_(bras, kets, facs, vecs, i, bra_r)
-        return
+    def _crunch_2d_(self, bra, ket, i, j):
+        '''Compute a two-fragment density fluctuation.'''
+        d_rJJII = self.get_fdm (bra, ket, i, j) # time-profiled by itself
+        t0, w0 = logger.process_clock (), logger.perf_counter ()
+        d2 = self._get_D2_(bra, ket)
+        def _perm (k, l, d_rKKLL):
+            h2_kkll = self.get_ham_2q (k,k,l,l)
+            h2_kllk = self.get_ham_2q (k,l,l,k)
+            d1s_ll = self.ints[l].get_dm1 (bra, ket)
+            d_rKKsll = np.tensordot (d_rKKLL, d1s_ll, axes=2)
+            h_rKKskk = np.tensordot (d_rKKsll, h2_kkll, axes=((-2,-1),(2,3)))
+            h_rKKskk += h_rKKskk[:,:,:,::-1,:,:]
+            h_rKKskk -= np.tensordot (d_rKKsll, h2_kllk, axes=((-2,-1),(2,1)))
+            h_srKKkk = h_rKKskk.transpose (3,0,1,2,4,5)
+            self.ints[k]._put_ham_(bra, ket, 0, h_srKKkk[0], 0, spin=0)
+            self.ints[k]._put_ham_(bra, ket, 0, h_srKKkk[1], 0, spin=3)
+            return 
+        _perm (j,i,d_rJJII)
+        _perm (i,j,d_rJJII.transpose (0,3,4,1,2))
+        dt, dw = logger.process_clock () - t0, logger.perf_counter () - w0
+        self.dt_2d, self.dw_2d = self.dt_2d + dt, self.dw_2d + dw
 
-    def _put_Svecs_ir_(self, bras, kets, facs, vecs, i, bra_r):
-        nket = self.nroots - self.nbra
-        idx = self.rootaddr[bras]==bra_r
-        nel = np.count_nonzero (idx)
-        bras = bras[idx]
-        kets = kets[idx]
-        facs = facs[idx]
-        lroots_i = self.lroots[i,bra_r]
-        offs = self.strides[bra_r,i] * np.arange (lroots_i, dtype=int)
-        offs -= self.offs_lroots[nket][0]
-        bras = bras[:,None] + offs[None,:]
-        si_bra = self.si_bra[bras.flat,:].reshape (nel, lroots_i, self.nroots_si_bra)
-        si_ket = facs[:,None] * self.si_ket[kets,:]
-        dm_plq = lib.einsum ('alp,aq->plq', si_bra.conj (), si_ket)
-        hci_plabq = self.hci_fr_pabq[i][bra_r-nket]
-        hci = dm_plq[:,:,:,None,None] * vecs[None,None,None,:,:]
-        hci_plabq[:,:,:,:,:] += hci.transpose (0,1,3,4,2)
-        return
+    def _crunch_1c_(self, bra, ket, i, j, s1):
+        '''Compute the reduced density matrix elements of a single electron hop; i.e.,
+        
+        <bra|j'(s1)i(s1)|ket>
+        
+        i.e.,
+        
+        j ---s1---> i
+            
+        and conjugate transpose
+        '''
+        d_rJJII = self.get_fdm (bra, ket, i, j) # time-profiled by itself
+        t0, w0 = logger.process_clock (), logger.perf_counter ()
+        d1 = self._get_D1_(bra, ket)
+        d2 = self._get_D2_(bra, ket)
+        inti, intj = self.ints[i], self.ints[j]
+        p, q = self.get_range (i)
+        r, s = self.get_range (j)
+        fac = 1
+        nelec_f_bra = self.nelec_rf[bra]
+        nelec_f_ket = self.nelec_rf[ket]
+        fac *= fermion_des_shuffle (nelec_f_bra, (i, j), i)
+        fac *= fermion_des_shuffle (nelec_f_ket, (i, j), j)
+        d_rJJII *= fac
+        d_rJJi = np.tensordot (d_rJJII, inti.get_p (bra, ket, s1), axes=2)
+        h_rJJj = np.tensordot (d_rJJi, self.get_ham_2q (j,i).T, axes=1)
+        h_rJJjjj = np.tensordot (d_rJJi, self.get_ham_2q (j,j,j,i), axes=((-1),(-1)))
+        h_iiij = self.get_ham_2q (j,i,i,i).transpose (1,3,2,0) # Mulliken -> Dirac order
+        h_IIj = np.tensordot (inti.get_pph (bra, ket, s1).sum (2), h_iiij, axes=3)
+        h_rJJj += np.tensordot (d_rJJII, h_IIj, axes=2)
+        intj._put_ham_(bra, ket, 0, h_rJJj, h_rJJjjj, spin=s1)
+        d_rIIj = np.tensordot (d_rJJII, intj.get_h (bra, ket, s1), axes=((1,2),(0,1)))
+        h_rIIi = np.tensordot (d_rIIj, self.get_ham_2q (j,i), axes=1)
+        h_rIIiii = np.tensordot (d_rIIj, self.get_ham_2q (j,i,i,i), axes=1)
+        h_jjji = self.get_ham_2q (j,j,j,i).transpose (1,0,2,3) # Mulliken -> Dirac order
+        h_JJi = np.tensordot (intj.get_phh (bra, ket, s1).sum (2), h_jjji, axes=3)
+        h_rIIi += np.tensordot (d_rJJII, h_JJi, axes=((1,2),(0,1)))
+        inti._put_ham_(bra, ket, 0, h_rIIi, h_rIIiii, spin=s1)
+        dt, dw = logger.process_clock () - t0, logger.perf_counter () - w0
+        self.dt_1c, self.dw_1c = self.dt_1c + dt, self.dw_1c + dw
+
+    def _crunch_1c1d_(self, bra, ket, i, j, k, s1):
+        raise NotImplementedError
+
+    def _crunch_1s_(self, bra, ket, i, j):
+        '''Compute the reduced density matrix elements of a spin unit hop; i.e.,
+
+        <bra|i'(a)j'(b)i(b)j(a)|ket>
+
+        i.e.,
+
+        j ---a---> i
+        i ---b---> j
+    
+        and conjugate transpose
+        '''
+        d_ = self.get_fdm (bra, ket, i, j) # time-profiled by itself
+        t0, w0 = logger.process_clock (), logger.perf_counter ()
+        inti, intj = self.ints[i], self.ints[j]
+        d2 = self._get_D2_(bra, ket) # aa, ab, ba, bb -> 0, 1, 2, 3
+        p, q = self.get_range (i)
+        r, s = self.get_range (j)
+        fac = -1
+        d_ = fac * d_
+        h_jjii = self.get_ham_2q (j,i,i,j).transpose (0,3,2,1)
+        d_rJJii = np.tensordot (d_, inti.get_sp (bra, ket), axes=2)
+        h_rJJjj = np.tensordot (d_rJJii, h_jjii, axes=((-2,-1),(-2,-1)))
+        intj._put_ham_(bra, ket, 0, h_rJJjj, 0, spin=2)
+        d_ = d_.transpose (0,3,4,1,2)
+        d_rIIjj = np.tensordot (d_, intj.get_sm (bra, ket), axes=2)
+        h_rIIii = np.tensordot (d_rIIjj, h_jjii, axes=2)
+        inti._put_ham_(bra, ket, 0, h_rIIii, 0, spin=1)
+        dt, dw = logger.process_clock () - t0, logger.perf_counter () - w0
+        self.dt_1s, self.dw_1s = self.dt_1s + dt, self.dw_1s + dw
+
+    def _crunch_1s1c_(self, bra, ket, i, j, k):
+        raise NotImplementedError
+
+    def _crunch_2c_(self, bra, ket, i, j, k, l, s2lt):
+        raise NotImplementedError
+
+    def kernel (self):
+        ''' Main driver method of class.
+
+        Returns:
+            hci_fr_pabq : list of length nfrags of list of length nroots of ndarray
+        '''
+        t0 = (lib.logger.process_clock (), lib.logger.perf_counter ())
+        self.init_profiling ()
+        self.hci_fr_plab = self._init_vecs ()
+        self._crunch_all_()
+        self._hconst_ci_() # TODO: Does umat_linequiv_loop mess this up?
+        return self.hci_fr_plab, t0
+
 
 def ContractHamCI (las, ints, nlas, hopping_index, lroots, h0, h1, h2, si_bra=None, si_ket=None,
                    mask_bra_space=None, mask_ket_space=None, log=None, max_memory=2000,

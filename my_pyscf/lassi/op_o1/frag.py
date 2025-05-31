@@ -650,27 +650,26 @@ class FragTDMInt (object):
         hci = contract_1e_nosym_uhf (h_11_s, ci, norb, nelec, link_index=linkstr)
         return hci
 
-    def _init_ham_(self, nsi_bra, nsi_ket):
+    def _init_ham_(self, nroots_si):
         self._ham = {}
-        self.nsi_bra = nsi_bra
-        self.nsi_ket = nsi_ket
+        self.nroots_si = nroots_si
 
     def _put_ham_(self, bra, ket, h0, h1, h2, spin=None, hermi=0):
-        i = self.unique_root[self.rootaddr[bra]]
-        j = self.unique_root[self.rootaddr[ket]]
+        i = self.unique_root[bra]
+        j = self.unique_root[ket]
         hterm0 = self._ham.get ((i, j, hermi), 0)
         hterm1 = HamTerm (self, ket, i, j, h0, h1, h2, hermi=hermi, spin=spin)
         self._ham[(i,j,hermi)] = hterm1 + hterm0 
 
     def _ham_op (self):
-        hci_r_plabq = []
+        hci_r_plab = []
         for c in self.ci:
-            hci_qplab = np.zeros_like ([self.nsi_ket,self.nsi_bra] + list (c.shape),
+            hci_plab = np.zeros_like ([self.nroots_si,] + list (c.shape),
                                        dtype=c.dtype)
-            hci_r_plabq.append (hci_qplab.transpose (1,2,3,4,0))
+            hci_r_plab.append (hci_plab)
         for ((i, j), hterm) in self._ham.items ():
-            hci_r_plabq[i] += hterm.op ().transpose (0,2,3,4,1)
-        return hci_r_plabq
+            hci_r_plab[i] += hterm.op ()
+        return hci_r_plab
 
 class HamTerm:
     def __init__(self, parent, ket, ir, jr, h0, h1, h2, hermi=0, spin=None):
@@ -679,7 +678,7 @@ class HamTerm:
         self.jr = jr
         dnelec = parent.nelec_r[ir] - parent.nelec_r[jr]
         self.h0 = self.h1 = self.h2 = None
-        self.np, self.nq, self.li, self.lj = h1.shape[:4]
+        self.np, self.li, self.lj = h1.shape[:3]
         self.spin = spin
         if dnelec == (0,0) and hermi==1:
             self.h0 = h0
@@ -715,16 +714,16 @@ class HamTerm:
         return hargs
 
     def op (self):
-        np, nq, li, lj = self.np, self.nq, self.li, self.lj
+        np, li, lj = self.np, self.li, self.lj
         ndeta = self.parent.ndeta_r[self.ir]
         ndetb = self.parent.ndetb_r[self.ir]
         sargs = []
         if self.spin is not None: sargs.append (spin)
-        hci_pqlab = np.zeros ((np,nq,li,ndeta,ndetb), dtype=self.parent.dtype)
-        for p,q,i,j in product (range (np), range (nq), range (li), range (lj)):
-            args = sargs + [h[p,q,i,j] for h in self._hargs] + [self.jr,]
-            hci_pqlab[p,q,i] += self._op (*args, dn=j)
-        return hci_pqlab
+        hci_plab = np.zeros ((np,li,ndeta,ndetb), dtype=self.parent.dtype)
+        for p,i,j in product (range (np), range (li), range (lj)):
+            args = sargs + [h[p,i,j] for h in self._hargs] + [self.jr,]
+            hci_plab[p,i] += self._op (*args, dn=j)
+        return hci_plab
 
     def __add__(self, other):
         if other==0: return self
