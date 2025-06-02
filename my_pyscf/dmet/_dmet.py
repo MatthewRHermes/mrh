@@ -48,7 +48,7 @@ def perform_schmidt_decomposition_type1(rdm, nfragorb, nlo, bath_tol=1e-5):
     # Selecting all the orbitals for which have occupancy anywhere 
     # between bath tol and doubly occupied.
     u, bathocc = np.linalg.svd(np.sum(rdm, axis=0))[:2]
-    idx_emb = np.where((bathocc > bath_tol) & (bathocc < 2))[0] 
+    idx_emb = np.where((2-bathocc) > bath_tol)[0] 
     idx_core = np.ones(u.shape[1], dtype=bool)
     idx_core[idx_emb] = False
 
