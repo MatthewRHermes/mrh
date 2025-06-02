@@ -676,7 +676,7 @@ class HamTerm:
         self.parent = parent
         self.ir = ir
         self.jr = jr
-        dnelec = parent.nelec_r[ir] - parent.nelec_r[jr]
+        dnelec = tuple (np.asarray (parent.nelec_r[ir]) - np.asarray (parent.nelec_r[jr]))
         self.h0 = self.h1 = self.h2 = None
         self.np, self.li, self.lj = h1.shape[:3]
         self.spin = spin

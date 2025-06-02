@@ -319,8 +319,16 @@ def hci_dot_sivecs_ij (hci_pabq, si_bra, si_ket, lroots, i, j):
         is1d = (si_bra.ndim==1)
         c = np.asfortranarray (si_bra[j0[j]:j1[j]])
         c = transpose_sivec_make_fragments_slow (c, lroots[:,j], i)
-        if is1d: c = c[0]
         hci_pabq = np.tensordot (c.conj (), hci_pabq, axes=1)
+        if si_ket is not None:
+            if si_ket.ndim == 1:
+                assert (hci_pabq.shape[0] == 1)
+                hci_pabq = hci_pabq[0]
+            else:
+                assert (hci_pabq.shape[0] == hci_pabq.shape[4])
+                hci_pabq = np.diagonal (hci_pabq, axis1=0, axis2=4)
+                hci_pabq = hci_pabq.transpose (3,0,1,2)
+                if is1d: hci_pabq = hci_pabq[0]
     return hci_pabq
 
 

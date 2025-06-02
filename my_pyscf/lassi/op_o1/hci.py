@@ -435,7 +435,8 @@ class ContractHamCI_CHC (stdm.LSTDM):
         # TODO: is this even possible?
         pass
 
-    def _hconst_ci_(self):
+    def _hconst_ci_(self, hci=None):
+        if hci is None: hci = self.hci_fr_pabq
         t0, w0 = logger.process_clock (), logger.perf_counter ()
         si_bra = getattr (self, 'si_bra', None)
         si_ket = getattr (self, 'si_ket', None)
@@ -450,7 +451,7 @@ class ContractHamCI_CHC (stdm.LSTDM):
             for ifrag in range (nfrags):
                 gen_hket = gen_contract_ham_ci_const (ifrag, nbra, las, h1, h2, ci, nelec_frs, h0=h0)
                 for ibra, hket_pabq in enumerate (gen_hket):
-                    self.hci_fr_pabq[ifrag][ibra][:] += hci_dot_sivecs_ij (
+                    hci[ifrag][ibra][:] += hci_dot_sivecs_ij (
                         hket_pabq, si_bra, si_ket, lroots_bra, ifrag, ibra
                     )
         elif h0:
@@ -468,7 +469,7 @@ class ContractHamCI_CHC (stdm.LSTDM):
                     if nelec_bra==nelec_ket:
                         h0ket = h0 * ci[0][iket].transpose (1,2,0)
                         hket_pabq[0,:,:,i:j] += h0ket
-                self.hci_fr_pabq[0][ibra][:] += hci_dot_sivecs_ij (
+                hci[0][ibra][:] += hci_dot_sivecs_ij (
                     hket_pabq, si_bra, si_ket, lroots_bra, 0, ibra
                 )
         dt, dw = logger.process_clock () - t0, logger.perf_counter () - w0
@@ -522,10 +523,15 @@ class ContractHamCI_SHS (rdm.LRRDM):
         self.h1 = np.ascontiguousarray (h1)
         self.h2 = np.ascontiguousarray (h2)
         self.nbra = len (mask_bra_space)
+        self.nket = len (mask_ket_space)
+        self.off_bra = self.offs_lroots[self.nket][0]
         self.nelec_frs = np.asarray ([[list (i.nelec_r[ket]) for i in ints]
                                       for ket in range (self.nroots)]).transpose (1,0,2)
 
     get_ham_2q = hams2ovlp.HamS2Ovlp.get_ham_2q
+    _hconst_ci_ = ContractHamCI_CHC._hconst_ci_
+    init_profiling = ContractHamCI_CHC.init_profiling
+    sprint_profile = ContractHamCI_CHC.sprint_profile
 
     # Handling for 1s1c: need to do both a'.sm.b and b'.sp.a explicitly
     all_interactions_full_square = True
@@ -535,6 +541,7 @@ class ContractHamCI_SHS (rdm.LRRDM):
     def _init_vecs (self):
         hci_fr_plab = []
         for i in range (self.nfrags):
+            self.ints[i]._init_ham_(self.nroots_si)
             lroots_bra = self.lroots[i,-self.nbra:].copy ()
             hci_r_plab = []
             norb = self.ints[i].norb
@@ -548,15 +555,33 @@ class ContractHamCI_SHS (rdm.LRRDM):
             hci_fr_plab.append (hci_r_plab)
         return hci_fr_plab
 
+    def get_single_rootspace_sivec (self, iroot, bra=False):
+        '''A single-rootspace slice of the SI vectors.
+
+        Args:
+            iroot: integer
+                Rootspace index
+
+        Returns:
+            sivec: col-major ndarray of shape (np.prod (lroots[:,iroot], nroots_si)
+                SI vectors
+        '''
+        i, j = self.offs_lroots[iroot]
+        if self._transpose: bra = not bra
+        if bra:
+            i = i - self.off_bra
+            j = j - self.off_bra
+            si = self.si_bra
+        else:
+            si = self.si_ket
+        return si[i:j,:]
+
     def _crunch_env_(self, _crunch_fn, *row):
         if self._fn_row_has_spin (_crunch_fn):
             inv = row[2:-1]
         else:
             inv = row[2:]
         _crunch_fn (*row)
-        bra, ket = row[:2]
-        for i, ham in hams:
-            self._put_ham_op_(bra, ket, i, *ham)
 
     def _crunch_1d_(self, bra, ket, i):
         '''Compute a single-fragment density fluctuation, for both the 1- and 2-RDMs.'''
@@ -682,7 +707,7 @@ class ContractHamCI_SHS (rdm.LRRDM):
         self.init_profiling ()
         self.hci_fr_plab = self._init_vecs ()
         self._crunch_all_()
-        self._hconst_ci_() # TODO: Does umat_linequiv_loop mess this up?
+        self._hconst_ci_(hci=self.hci_fr_plab) # TODO: Does umat_linequiv_loop mess this up?
         return self.hci_fr_plab, t0
 
 
@@ -778,6 +803,9 @@ def contract_ham_ci (las, h1, h2, ci_fr_ket, nelec_frs_ket, ci_fr_bra, nelec_frs
     if si_ket is not None:
         si_ket_is1d = si_ket.ndim==1
         if si_ket_is1d: si_ket = si_ket[:,None]
+    if si_bra is not None and si_ket is not None:
+        assert (si_bra.shape[1] == si_ket.shape[1])
+        si_ket_is1d = False
     t0 = (lib.logger.process_clock (), lib.logger.perf_counter ())
     max_memory = getattr (las, 'max_memory', las.mol.max_memory)
     contracter = ContractHamCI (las, ints, nlas, hopping_index, lroots, h0, h1, h2, si_bra=si_bra,
@@ -788,10 +816,10 @@ def contract_ham_ci (las, h1, h2, ci_fr_ket, nelec_frs_ket, ci_fr_bra, nelec_frs
     hket_fr_pabq, t0 = contracter.kernel ()
     for i, hket_r_pabq in enumerate (hket_fr_pabq):
         for j, hket_pabq in enumerate (hket_r_pabq):
-            if si_ket_is1d:
-                hket_pabq = hket_pabq[:,:,:,:,0]
             if si_bra_is1d:
                 hket_pabq = hket_pabq[0]
+            if si_ket_is1d:
+                hket_pabq = hket_pabq[:,:,:,:,0]
             hket_fr_pabq[i][j] = hket_pabq
     lib.logger.timer (las, 'LASSI hci crunching', *t0)
     if las.verbose >= lib.logger.TIMER_LEVEL:
