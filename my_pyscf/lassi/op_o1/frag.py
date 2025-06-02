@@ -695,8 +695,8 @@ class HamTerm:
             self._op = parent.contract_h00
         elif dnelec == (0,0):
             spin = spin // 2
-            self.h1 = np.zeros (list (h1.shape[:4]) + [2,] + list (h1.shape[4:]), dtype=h1.dtype)
-            self.h1[:,:,:,:,spin,:,:] = h1
+            self.h1 = np.zeros (list (h1.shape[:3]) + [2,] + list (h1.shape[3:]), dtype=h1.dtype)
+            self.h1[:,:,:,spin,:,:] = h1
             self.spin = None
             self._op = parent.contract_h11_uhf
         elif sum (dnelec) == 0:
