@@ -680,6 +680,14 @@ class HamTerm:
         self.h0 = self.h1 = self.h2 = None
         self.nsi, self.li, self.lj = h1.shape[:3]
         self.spin = spin
+        self.dnelec = dnelec
+        # interpret "0" as h0, h1, h2
+        ham = [h0, h1, h2]
+        shape = [self.nsi, self.li, self.lj] + [self.parent.norb,]*4
+        for i, hi in enumerate (ham):
+            if hi is not None and not isinstance (hi, np.ndarray):
+                ham[i] = hi * np.ones (shape[:3+(2*i)], dtype=float)
+        h0, h1, h2 = ham
         if dnelec == (0,0) and hermi==1:
             self.h0 = h0
             self.h1 = h1
