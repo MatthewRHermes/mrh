@@ -664,10 +664,10 @@ class FragTDMInt (object):
     def _ham_op (self):
         hci_r_plab = []
         for c in self.ci:
-            hci_plab = np.zeros_like ([self.nroots_si,] + list (c.shape),
-                                       dtype=c.dtype)
+            hci_plab = np.zeros ([self.nroots_si,] + list (c.shape),
+                                 dtype=c.dtype)
             hci_r_plab.append (hci_plab)
-        for ((i, j), hterm) in self._ham.items ():
+        for ((i, j, hermi), hterm) in self._ham.items ():
             hci_r_plab[i] += hterm.op ()
         return hci_r_plab
 
@@ -678,7 +678,7 @@ class HamTerm:
         self.jr = jr
         dnelec = tuple (np.asarray (parent.nelec_r[ir]) - np.asarray (parent.nelec_r[jr]))
         self.h0 = self.h1 = self.h2 = None
-        self.np, self.li, self.lj = h1.shape[:3]
+        self.nsi, self.li, self.lj = h1.shape[:3]
         self.spin = spin
         if dnelec == (0,0) and hermi==1:
             self.h0 = h0
@@ -714,13 +714,13 @@ class HamTerm:
         return hargs
 
     def op (self):
-        np, li, lj = self.np, self.li, self.lj
+        nsi, li, lj = self.nsi, self.li, self.lj
         ndeta = self.parent.ndeta_r[self.ir]
         ndetb = self.parent.ndetb_r[self.ir]
         sargs = []
         if self.spin is not None: sargs.append (spin)
-        hci_plab = np.zeros ((np,li,ndeta,ndetb), dtype=self.parent.dtype)
-        for p,i,j in product (range (np), range (li), range (lj)):
+        hci_plab = np.zeros ((nsi,li,ndeta,ndetb), dtype=self.parent.dtype)
+        for p,i,j in product (range (nsi), range (li), range (lj)):
             args = sargs + [h[p,i,j] for h in self._hargs] + [self.jr,]
             hci_plab[p,i] += self._op (*args, dn=j)
         return hci_plab

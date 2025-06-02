@@ -587,7 +587,7 @@ class ContractHamCI_SHS (rdm.LRRDM):
         '''Compute a single-fragment density fluctuation, for both the 1- and 2-RDMs.'''
         d_rII = self.get_fdm (bra, ket, i) # time-profiled by itself
         t0, w0 = logger.process_clock (), logger.perf_counter ()
-        h0 = self.h0 * d_rII
+        h0 = self.h0 * d_rII * 0 # TODO: clean this up
         h1 = np.multiply.outer (d_rII, self.get_ham_2q (i,i))
         h2 = np.multiply.outer (d_rII, self.get_ham_2q (i,i,i,i))
         self.ints[i]._put_ham_(bra, ket, h0, h1, h2, hermi=1)
@@ -707,6 +707,7 @@ class ContractHamCI_SHS (rdm.LRRDM):
         self.init_profiling ()
         self.hci_fr_plab = self._init_vecs ()
         self._crunch_all_()
+        self.hci_fr_plab = [inti._ham_op () for inti in self.ints]
         self._hconst_ci_(hci=self.hci_fr_plab) # TODO: Does umat_linequiv_loop mess this up?
         return self.hci_fr_plab, t0
 
