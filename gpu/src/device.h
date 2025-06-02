@@ -24,6 +24,8 @@ using namespace MATHLIB_NS;
 #define _USE_ERI_CACHE
 #define _ERI_CACHE_EXTRA 2
 
+#define _ENABLE_P2P
+
 //#define _DEBUG_DEVICE
 //#define _DEBUG_ERI_CACHE
 //#define _DEBUG_H2EFF
@@ -153,13 +155,26 @@ public :
   void pull_eri_impham( py::array_t<double>, int, int, int);
   void compute_eri_impham_v2(int, int, int, int, int, size_t, size_t);
   void pack_eri(double *, double *, int *, int, int, int); 
+  
+  //PDFT
+  void init_mo_grid(int, int);
+  void push_ao_grid(py::array_t<double>, int, int);
+  void compute_mo_grid(int, int, int);
+  void pull_mo_grid(py::array_t<double>, int, int);
+  void init_Pi(int);
+  void push_cascm2 (py::array_t<double>, int); 
+  void compute_Pi (int, int); 
+  void pull_Pi (py::array_t<double>, int); 
 
+  //inner functions
   void extract_mo_cas(int, int, int);//TODO: fix the difference - changed slightly
   void get_mo_cas(const double *, double *, int, int, int);
   void pack_d_vuwM(const double *, double *, int *, int, int, int);
   void pack_d_vuwM_add(const double *, double *, int *, int, int, int);
   
   void push_mo_coeff(py::array_t<double>, int);
+
+  void vecadd(const double *, double *, int);
 private:
 
   class PM * pm;
@@ -168,10 +183,6 @@ private:
   
   double host_compute(double *);
   void get_cores(char *);
-
-  void profile_start(const char *);
-  void profile_stop();
-  void profile_next(const char *);
 
   int verbose_level;
   
@@ -226,6 +237,8 @@ private:
   // eri_impham
   int size_eri_impham;
   double * pin_eri_impham;
+ 
+ 
 
   // eri caching on device
 
@@ -290,6 +303,13 @@ private:
     int size_eri_unpacked;
     int size_eri_h2eff;
 
+    //pdft
+    int size_mo_grid;
+    int size_ao_grid;
+    int size_cascm2;
+    int size_Pi;
+    int size_buf_pdft;
+
     double * d_rho;
     double * d_vj;
     double * d_buf1;
@@ -314,6 +334,13 @@ private:
     double * d_papa;
     // eri_h2eff
     double * d_eri_h2eff;
+    //pdft
+    double * d_ao_grid;
+    double * d_cascm2;
+    double * d_mo_grid;
+    double * d_Pi;
+    double * d_buf_grid1;
+    double * d_buf_grid2;
 
     std::vector<int> type_pumap;
     std::vector<int> size_pumap;

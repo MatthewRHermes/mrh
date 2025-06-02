@@ -270,10 +270,10 @@ def get_jk_debug(dfobj, dm, hermi=1, with_j=True, with_k=True, direct_scf_tol=1e
             
             #log.debug("count= ", count, "nao= ", nao, " naux= ", naux, "  nao_pair= ", nao_pair, " blksize= ", 0, " nset= ", nset, " eri1= ", eri1.shape, " dmtril= ", dmtril.shape, " dms= ", numpy.shape(dms))
             #log.debug("vj= ", vj_tmp.shape)
-            log.debug1("count= %3d nao= %3d naux= %3d nao_pair= %3d blksize= %3d nset= %3d eri=(%3d, %3d)", count, nao, naux, nao_pair, 0, nset, eri1.shape[0],eri1.shape[1])#
-            log.debug1("dmtril ".join(str(value) for value in dmtril.shape)+ " dms ".join(str(value) for value in numpy.shape(dms)))
-            log.debug1("vj= "+str(vj_tmp.shape))
-            log.debug1("addr of dfobj= "+ str(hex(id(dfobj)))+ "  addr of eri1= " + str( hex(id(eri1))) + " count= " +str( count))
+            log.debug("count= %3d nao= %3d naux= %3d nao_pair= %3d blksize= %3d nset= %3d eri=(%3d, %3d)", count, nao, naux, nao_pair, 0, nset, eri1.shape[0],eri1.shape[1])#
+            log.debug("dmtril ".join(str(value) for value in dmtril.shape)+ " dms ".join(str(value) for value in numpy.shape(dms)))
+            log.debug("vj= "+str(vj_tmp.shape))
+            log.debug("addr of dfobj= "+ str(hex(id(dfobj)))+ "  addr of eri1= " + str( hex(id(eri1))) + " count= " +str( count))
             
             #if count == 0:
             libgpu.init_get_jk(gpu, eri1, dmtril, blksize, nset, nao, 0, count)
@@ -287,7 +287,7 @@ def get_jk_debug(dfobj, dm, hermi=1, with_j=True, with_k=True, direct_scf_tol=1e
             
         libgpu.pull_get_jk(gpu, vj_tmp, vk_tmp, nao, nset, 0)
         
-        log.debug1("vj= " + str(vj.shape))
+        log.debug("vj= " + str(vj.shape))
         vj_err = 0.0
         for i in range(nset):
             for j in range(vj.shape[1]):
@@ -298,7 +298,7 @@ def get_jk_debug(dfobj, dm, hermi=1, with_j=True, with_k=True, direct_scf_tol=1e
         if(vj_err > 1e-8): stop = True
         
         vj_err = "{:e}".format( math.sqrt(vj_err) )
-        log.debug1("count= " +str( count) + "  vj_err= " +str( vj_err))
+        log.debug("count= " +str( count) + "  vj_err= " +str( vj_err))
 
         if stop:
             log.debug("JK ERROR:: Results don't agree!!")
@@ -410,7 +410,7 @@ def get_jk_debug(dfobj, dm, hermi=1, with_j=True, with_k=True, direct_scf_tol=1e
         libgpu.pull_get_jk(gpu, vj_tmp, vk_tmp, nao, nset, 1)
             
         #log.debug("vj= ", vj.shape, " vk= ", vk.shape)
-        log.debug1("vj= "+str( vj.shape)+ " vk= " +str(vk.shape))
+        log.debug("vj= "+str( vj.shape)+ " vk= " +str(vk.shape))
         vj_err = 0.0
         for i in range(nset):
             for j in range(vj.shape[1]):
@@ -430,7 +430,7 @@ def get_jk_debug(dfobj, dm, hermi=1, with_j=True, with_k=True, direct_scf_tol=1e
         
         vj_err = "{:e}".format( math.sqrt(vj_err) )
         vk_err = "{:e}".format( math.sqrt(vk_err) )
-        log.debug1("count= " +str( count) + "  vj_err= " +str( vj_err) + "  vk_err= "+str(vk_err))
+        log.debug("count= " +str( count) + "  vj_err= " +str( vj_err) + "  vk_err= "+str(vk_err))
         #log.debug("count= ", count, "  vj_err= ", vj_err,"  vk_err= ", vk_err)
 
         if stop:
