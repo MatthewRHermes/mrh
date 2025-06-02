@@ -641,19 +641,19 @@ class ContractHamCI_SHS (rdm.LRRDM):
         fac *= fermion_des_shuffle (nelec_f_ket, (i, j), j)
         d_rJJII *= fac
         d_rJJi = np.tensordot (d_rJJII, inti.get_p (bra, ket, s1), axes=2)
-        h_rJJsj = np.tensordot (d_rJJi, self.get_ham_2q (i,j), axes=((-1),(-1)))
+        h_rJJj = np.tensordot (d_rJJi, self.get_ham_2q (i,j)[s1], axes=((-1),(-1)))
         h_rJJjjj = np.tensordot (d_rJJi, self.get_ham_2q (j,j,j,i), axes=((-1),(-1)))
         h_iiij = self.get_ham_2q (j,i,i,i).transpose (1,3,2,0) # Mulliken -> Dirac order
-        h_IIsj = np.tensordot (inti.get_pph (bra, ket, s1), h_iiij, axes=3)
-        h_rJJsj += np.tensordot (d_rJJII, h_IIsj, axes=2)
-        intj._put_ham_(bra, ket, 0, h_rJJsj, h_rJJjjj, spin=s1)
+        h_IIj = np.tensordot (inti.get_pph (bra, ket, s1).sum (2), h_iiij, axes=3)
+        h_rJJj += np.tensordot (d_rJJII, h_IIj, axes=2)
+        intj._put_ham_(bra, ket, 0, h_rJJj, h_rJJjjj, spin=s1)
         d_rIIj = np.tensordot (d_rJJII, intj.get_h (bra, ket, s1), axes=((1,2),(0,1)))
-        h_rIIsi = np.tensordot (d_rIIj, self.get_ham_2q (j,i), axes=((-1),(-2)))
+        h_rIIi = np.tensordot (d_rIIj, self.get_ham_2q (j,i)[s1], axes=((-1),(-2)))
         h_rIIiii = np.tensordot (d_rIIj, self.get_ham_2q (j,i,i,i), axes=1)
         h_jjji = self.get_ham_2q (j,j,j,i).transpose (1,0,2,3) # Mulliken -> Dirac order
-        h_JJsi = np.tensordot (intj.get_phh (bra, ket, s1), h_jjji, axes=3)
-        h_rIIsi += np.tensordot (d_rJJII, h_JJsi, axes=((1,2),(0,1)))
-        inti._put_ham_(bra, ket, 0, h_rIIsi, h_rIIiii, spin=s1)
+        h_JJi = np.tensordot (intj.get_phh (bra, ket, s1).sum (2), h_jjji, axes=3)
+        h_rIIi += np.tensordot (d_rJJII, h_JJi, axes=((1,2),(0,1)))
+        inti._put_ham_(bra, ket, 0, h_rIIi, h_rIIiii, spin=s1)
         dt, dw = logger.process_clock () - t0, logger.perf_counter () - w0
         self.dt_1c, self.dw_1c = self.dt_1c + dt, self.dw_1c + dw
 
@@ -695,7 +695,87 @@ class ContractHamCI_SHS (rdm.LRRDM):
         raise NotImplementedError
 
     def _crunch_2c_(self, bra, ket, i, j, k, l, s2lt):
-        raise NotImplementedError
+        '''Compute the reduced density matrix elements of a two-electron hop; i.e.,
+    
+        <bra|i'(s1)k'(s2)l(s2)j(s1)|ket>
+        
+        i.e.,                   
+                                
+        j ---s1---> i           
+        l ---s2---> k           
+        
+        with
+        
+        s2lt = 0, 1, 2
+        s1   = a, a, b
+        s2   = a, b, b
+        
+        and conjugate transpose
+        
+        Note that this includes i=k and/or j=l cases, but no other coincident fragment indices. Any
+        other coincident fragment index (that is, any coincident index between the bra and the ket)
+        turns this into one of the other interactions implemented in the above _crunch_ functions:
+        s1 = s2  AND SORT (ik) = SORT (jl)                 : _crunch_1d_ and _crunch_2d_
+        s1 = s2  AND (i = j XOR i = l XOR j = k XOR k = l) : _crunch_1c_ and _crunch_1c1d_
+        s1 != s2 AND (i = l AND j = k)                     : _crunch_1s_
+        s1 != s2 AND (i = l XOR j = k)                     : _crunch_1s1c_
+        '''
+        d_rJLKI = self.get_fdm (bra, ket, i, k, l, j, keyorder=[i,j,k,l]) # time-profiled by itself
+        t0, w0 = logger.process_clock (), logger.perf_counter ()
+        # s2lt: 0, 1, 2 -> aa, ab, bb
+        # s2: 0, 1, 2, 3 -> aa, ab, ba, bb
+        s2  = (0, 1, 3)[s2lt] # aa, ab, bb
+        s2T = (0, 2, 3)[s2lt] # aa, ba, bb -> when you populate the e1 <-> e2 permutation
+        s11 = s2 // 2
+        s12 = s2 % 2
+        nelec_f_bra = self.nelec_rf[bra]
+        nelec_f_ket = self.nelec_rf[ket]
+        d2 = self._get_D2_(bra, ket)
+        fac = 1 / (1 + int (s11==s12 and i==k and j==l))
+        h_iklj = self.get_ham_2q (i,j,k,l).transpose (0,2,3,1) # Dirac order
+        if i == k: # d_r...II
+            d_rJLik = np.tensordot (d_rJLKI, self.ints[i].get_pp (bra, ket, s2lt), axes=2)
+            d_rKIJL = np.moveaxis (d_rJLKI, (-2,-1), (1,2))
+        else: # d_r...KKII
+            d_rJLKi = np.tensordot (d_rJLKI, self.ints[i].get_p (bra, ket, s11), axes=2)
+            d_rJLik = np.tensordot (d_rJLKi, self.ints[k].get_p (bra, ket, s12),
+                               axes=((-3,-2),(0,1)))
+            fac *= (1,-1)[int (i>k)]
+            fac *= fermion_des_shuffle (nelec_f_bra, (i, j, k, l), i)
+            fac *= fermion_des_shuffle (nelec_f_bra, (i, j, k, l), k)
+            d_rKIJL = np.moveaxis (d_rJLKI, (-4,-3,-2,-1), (1,2,3,4))
+        if j == l: # d_rikJJ, h_ikjj
+            d_rKIlj = np.tensordot (d_rKIJL, self.ints[j].get_hh (bra, ket, s2lt), axes=2)
+            h_rJJjj = fac * np.tensordot (d_rJLik, h_iklj, axes=((-2,-1),(0,1)))
+            self.ints[j]._put_ham_(bra, ket, 0, h_rJJjj, 0, spin=s2lt)
+        else: # d_rikJJLL
+            d_rKIJl = np.tensordot (d_rKIJL, self.ints[l].get_h (bra, ket, s12), axes=2)
+            d_rKIlj = np.tensordot (d_rKIJl, self.ints[j].get_h (bra, ket, s11),
+                                    axes=((-3,-2),(0,1))) # r_iklj
+            fac *= (1,-1)[int (j>l)]
+            fac *= fermion_des_shuffle (nelec_f_ket, (i, j, k, l), j)
+            fac *= fermion_des_shuffle (nelec_f_ket, (i, j, k, l), l)
+            d_rikJJLL = np.moveaxis (d_rJLik, (-2,-1), (1,2))
+            d_rikJJl = np.tensordot (d_rikJJLL, self.ints[l].get_h (bra, ket, s12), axes=2)
+            d_rikLLj = np.tensordot (d_rikJJLL, self.ints[j].get_h (bra, ket, s11),
+                                     axes=((-4,-3),(0,1)))
+            h_rJJj = fac * np.tensordot (d_rikJJl, h_iklj, axes=((1,2,5),(0,1,2)))
+            self.ints[j]._put_ham_(bra, ket, 0, h_rJJj, 0, s11)
+            h_rLLl = fac * np.tensordot (d_rikLLj, h_iklj, axes=((1,2,5),(0,1,3)))
+            self.ints[l]._put_ham_(bra, ket, 0, h_rLLl, 0, s12)
+        if i == k: # d_rKKlj
+            h_rIIii = fac * np.tensordot (d_rKIlj, h_iklj, axes=((-2,-1),(2,3)))
+        else: # d_rljKKII
+            d_rljKKII = np.moveaxis (d_rKIlj, axes=((-2,-1),(1,2)))
+            d_rljKKi = np.tensordot (d_rljKKII, self.ints[i].get_p (bra, ket, s11), axes=2)
+            d_rljIIk = np.tensordot (d_rljKKII, self.ints[k].get_p (bra, ket, s12),
+                                     axes=((-4,-3),(0,1)))
+            h_rKKk = fac * np.tensordot (d_rljKKi, h_iklj, axes=((1,2,5),(2,3,0)))
+            self.ints[k]._put_ham_(bra, ket, 0, h_rKKk, 0, s12)
+            h_rIIi = fac * np.tensordot (d_rljIIk, h_iklj, axes=((1,2,5),(2,3,1)))
+            self.ints[i]._put_ham_(bra, ket, 0, h_rIIi, 0, s11)
+        dt, dw = logger.process_clock () - t0, logger.perf_counter () - w0
+        self.dt_2c, self.dw_2c = self.dt_2c + dt, self.dw_2c + dw
 
     def kernel (self):
         ''' Main driver method of class.

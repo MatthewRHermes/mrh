@@ -118,6 +118,7 @@ class FragTDMInt (object):
         self.linkstr_cache = {}
         self.linkstrl_cache = {}
         self.rootaddr = rootaddr
+        self.rootinvaddr = np.unique (rootaddr, return_index=True)[1]
         self.fragaddr = fragaddr
         self.idx_frag = idx_frag
         self.mask_ints = mask_ints
@@ -676,6 +677,7 @@ class HamTerm:
         self.parent = parent
         self.ir = ir
         self.jr = jr
+        self.ket = parent.rootinvaddr[jr]
         dnelec = tuple (np.asarray (parent.nelec_r[ir]) - np.asarray (parent.nelec_r[jr]))
         self.h0 = self.h1 = self.h2 = None
         self.nsi, self.li, self.lj = h1.shape[:3]
@@ -726,10 +728,10 @@ class HamTerm:
         ndeta = self.parent.ndeta_r[self.ir]
         ndetb = self.parent.ndetb_r[self.ir]
         sargs = []
-        if self.spin is not None: sargs.append (spin)
+        if self.spin is not None: sargs.append (self.spin)
         hci_plab = np.zeros ((nsi,li,ndeta,ndetb), dtype=self.parent.dtype)
         for p,i,j in product (range (nsi), range (li), range (lj)):
-            args = sargs + [h[p,i,j] for h in self._hargs] + [self.jr,]
+            args = sargs + [h[p,i,j] for h in self._hargs] + [self.ket,]
             hci_plab[p,i] += self._op (*args, dn=j)
         return hci_plab
 
