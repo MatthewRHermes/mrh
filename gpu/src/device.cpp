@@ -53,9 +53,11 @@ Device::Device()
   pin_fxpp = nullptr;//remove when ao2mo_v3 is running
   pin_bufpa = nullptr;//remove when ao2mo_v4 is running
   // h2eff_df
-  size_buf_eri_h2eff=0;
-  buf_eri_h2eff=nullptr;
+  size_buf_eri_h2eff = 0;
+  buf_eri_h2eff = nullptr;
+
   // eri_impham
+
   size_eri_impham = 0;
   pin_eri_impham = nullptr;
 
@@ -117,7 +119,7 @@ Device::Device()
     device_data[i].d_ucas = nullptr;
     device_data[i].d_umat = nullptr;
     device_data[i].d_h2eff = nullptr;
-    device_data[i].d_eri_h2eff = nullptr;//for h2eff_df_v2
+    device_data[i].d_eri_h2eff = nullptr; //for h2eff_df_v2
     
     device_data[i].d_pumap_ptr = nullptr;
     
@@ -150,6 +152,12 @@ Device::Device()
   for(int i=0; i<_NUM_SIMPLE_TIMER; ++i) t_array[i] = 0.0;
   count_array = (int* ) malloc(_NUM_SIMPLE_COUNTER * sizeof(int));
   for(int i=0; i<_NUM_SIMPLE_COUNTER; ++i) count_array[i] = 0;
+
+  // check device connectivity
+
+  int rank = 0;
+  int peer_error = pm->dev_check_peer(rank, num_devices);
+  if(!peer_error) pm->dev_enable_peer(rank, num_devices);
 }
 
 /* ---------------------------------------------------------------------- */
@@ -498,10 +506,10 @@ void Device::get_dfobj_status(size_t addr_dfobj, py::array_t<int> _arg)
 void Device::init_get_jk(py::array_t<double> _eri1, py::array_t<double> _dmtril, int blksize, int nset, int nao, int naux, int count)
 {
 #ifdef _DEBUG_DEVICE
-  printf("LIBGPU :: Inside Device::init_get_jk()\n");
+  printf("LIBGPU :: Inside Device::init_get_jk() :: blksize= %i  nset= %i  nao= %i  naux= %i  count= %i\n",blksize,nset,nao,naux,count);
 #endif
 
-  profile_start("init_get_jk");
+  pm->dev_profile_start("init_get_jk");
   
   double t0 = omp_get_wtime();
 
@@ -598,7 +606,7 @@ void Device::init_get_jk(py::array_t<double> _eri1, py::array_t<double> _dmtril,
   //   //    dd->handle = ml->get_handle();
   // }
   
-  profile_stop();
+  pm->dev_profile_stop();
     
   double t1 = omp_get_wtime();
   t_array[0] += t1 - t0;
@@ -624,7 +632,7 @@ void Device::get_jk(int naux, int nao, int nset,
   
   double t0 = omp_get_wtime();
 
-  profile_start("get_jk :: init");
+  pm->dev_profile_start("get_jk :: init");
 
   const int device_id = count % num_devices;
   
@@ -650,6 +658,38 @@ void Device::get_jk(int naux, int nao, int nset,
     d_eri = dd->d_eri1;
   }
 
+#if defined(_ENABLE_P2P)
+  if(count == 0) {
+    // pm->dev_set_device(0); // not needed as device 0 handles count == 0
+
+    size_t size = nset * nao_pair * sizeof(double);
+    
+    int err = pm->dev_push_async(dd->d_dmtril, dmtril, size);
+    if(err) {
+      printf("LIBGPU:: dev_push_async(d_dmtril) failed on count= %i\n",count);
+      exit(1);
+    }
+
+    // Bcast() from master device
+    
+    for(int i=1; i<num_devices; ++i) {
+      my_device_data * dest = &(device_data[i]);
+
+      // ensure memory allocated ; duplicating what's in init_get_jk()
+      if(size > dest->size_dmtril) {
+	dest->size_dmtril = size;
+
+	pm->dev_set_device(i);
+	if(dest->d_dmtril) pm->dev_free(dest->d_dmtril);
+	dest->d_dmtril = (double *) pm->dev_malloc(size * sizeof(double));
+
+	pm->dev_set_device(0);
+      }
+      
+      pm->dev_memcpy_peer(dest->d_dmtril, i, dd->d_dmtril, 0, size);
+    }
+  }
+#else
   if(count < num_devices) {
     int err = pm->dev_push_async(dd->d_dmtril, dmtril, nset * nao_pair * sizeof(double));
     if(err) {
@@ -657,6 +697,7 @@ void Device::get_jk(int naux, int nao, int nset,
       exit(1);
     }
   }
+#endif
   
   int _size_rho = nset * naux;
   if(_size_rho > dd->size_rho) {
@@ -689,7 +730,7 @@ void Device::get_jk(int naux, int nao, int nset,
   if(use_eri_cache)
     d_eri = dd_fetch_eri(dd, eri1, naux, nao_pair, addr_dfobj, count);
   
-  profile_stop();
+  pm->dev_profile_stop();
   
 #ifdef _DEBUG_DEVICE
   printf("LIBGPU :: Starting with_j calculation\n");
@@ -697,7 +738,7 @@ void Device::get_jk(int naux, int nao, int nset,
   
   if (with_j){
     
-    profile_start("get_jk :: with_j");
+    pm->dev_profile_start("get_jk :: with_j");
     
     // rho = numpy.einsum('ix,px->ip', dmtril, eri1)
 
@@ -709,7 +750,7 @@ void Device::get_jk(int naux, int nao, int nset,
   
     getjk_vj(dd->d_vj, dd->d_rho, d_eri, nset, nao_pair, naux, init);
 
-    profile_stop();
+    pm->dev_profile_stop();
   }
     
   if(!with_k) {
@@ -727,7 +768,7 @@ void Device::get_jk(int naux, int nao, int nset,
   
   // buf2 = lib.unpack_tril(eri1, out=buf[1])
     
-  profile_start("get_jk :: with_k");
+  pm->dev_profile_start("get_jk :: with_k");
 
   getjk_unpack_buf2(dd->d_buf2, d_eri, dd->d_pumap_ptr, naux, nao, nao_pair);
 
@@ -806,7 +847,7 @@ void Device::get_jk(int naux, int nao, int nset,
     
   } // for(nset)
   
-  profile_stop();
+  pm->dev_profile_stop();
     
   double t1 = omp_get_wtime();
   t_array[2] += t1 - t0;
@@ -820,6 +861,379 @@ void Device::get_jk(int naux, int nao, int nset,
   
 /* ---------------------------------------------------------------------- */
 
+#if defined(_ENABLE_P2P)
+void Device::pull_get_jk(py::array_t<double> _vj, py::array_t<double> _vk, int nao, int nset, int with_k)
+{
+#ifdef _DEBUG_DEVICE
+  printf("LIBGPU :: -- Inside Device::pull_get_jk()\n");
+#endif
+
+  double t0 = omp_get_wtime();
+  
+  pm->dev_profile_start("pull_get_jk");
+  
+  py::buffer_info info_vj = _vj.request(); // 2D array (nset, nao_pair)
+  
+  double * vj = static_cast<double*>(info_vj.ptr);
+
+  int nao_pair = nao * (nao+1) / 2;
+  
+  int N = nset * nao_pair;
+	  
+  int size = N * sizeof(double);
+
+  double * tmp;
+
+  int nrecv = num_devices / 2;
+
+  int nactive = num_devices;
+
+  // accumulate result to device 0 using binary tree reduction
+  
+  int il = 0;
+  while(nrecv > 0) {
+
+    //    printf("LIBGPU :: -- GPU-GPU Reduction  il= %i  nactive= %i  nrecv= %i\n",il,nactive,nrecv);
+
+    // odd number of recievers and not last level (clean-up pre-reduction)
+      
+    if((nactive > 1) && (nactive % 2)) {
+
+      //      printf("LIBGPU :: -- GPU-GPU Reduction  pre clean-up odd reciever  nactive= %i  nrecv= %i\n",nactive,nrecv);
+      
+      int dest = nactive - 2;
+      int src = nactive - 1;
+      
+      my_device_data * dd_dest = &(device_data[dest]);
+      my_device_data * dd_src = &(device_data[src]);
+      
+      // printf("LIBGPU :: -- GPU-GPU Reduction  -- src %i(%p) --> dest %i(%p, %p)\n",
+      // 	     src, dd_src->d_vj, dest, dd_dest->d_buf3, dd_dest->d_vj);
+      
+      if(dd_src->d_vj) {
+	// because we reuse d_buf3, need to ensure dest is done using it
+	
+	pm->dev_set_device(dest);
+	
+	pm->dev_stream_wait();
+	
+	// src initiates transfer
+	
+	pm->dev_set_device(src);
+	
+	//pm->dev_stream_wait(); // why?
+	
+	pm->dev_memcpy_peer(dd_dest->d_buf3, dest, dd_src->d_vj, src, size);
+	
+	// dest launches kernel
+	
+	pm->dev_set_device(dest); 
+	
+	vecadd(dd_dest->d_buf3, dd_dest->d_vj, N);
+      }
+      
+      //nrecv--;
+      nactive--;
+    }
+    
+    // binary tree reduction
+    
+    if(nactive > nrecv) {
+
+      //      printf("LIBGPU :: -- GPU-GPU Reduction  binary reduction   nactive= %i  nrecv= %i\n",nactive,nrecv);
+      
+      int nsend = nactive - nrecv;
+
+      for(int i=0; i<nsend; ++i) {
+
+	int dest = i;
+	int src = nrecv + i;
+
+	my_device_data * dd_dest = &(device_data[dest]);
+	my_device_data * dd_src = &(device_data[src]);
+	
+	// printf("LIBGPU :: -- GPU-GPU Reduction  -- src %i(%p) --> dest %i(%p, %p)\n",
+	//        src, dd_src->d_vj, dest, dd_dest->d_buf3, dd_dest->d_vj);
+
+	if(dd_src->d_vj) {
+	  // because we reuse d_buf3, need to ensure dest is done using it
+	  
+	  pm->dev_set_device(dest);
+	  
+	  pm->dev_stream_wait();
+
+	  // src initiates transfer
+	  
+	  pm->dev_set_device(src);
+	  
+	  //	  pm->dev_stream_wait(); // why?
+	  
+	  pm->dev_memcpy_peer(dd_dest->d_buf3, dest, dd_src->d_vj, src, size);
+
+	  // dest launches kernel
+	  
+	  pm->dev_set_device(dest); 
+	  
+	  vecadd(dd_dest->d_buf3, dd_dest->d_vj, N);
+	}
+      }
+
+      nactive = nrecv;
+
+      // odd number of recievers and not last level (clean-up post-reduction)
+      
+      if((nrecv > 1) && (nrecv % 2)) {
+
+	//	printf("LIBGPU :: -- GPU-GPU Reduction  post clean-up odd reciever  nactive= %i  nrecv= %i\n",nactive,nrecv);
+    
+	int dest = nrecv - 2;
+	int src = nrecv - 1;
+	
+	my_device_data * dd_dest = &(device_data[dest]);
+	my_device_data * dd_src = &(device_data[src]);
+	
+	// printf("LIBGPU :: -- GPU-GPU Reduction  -- src %i(%p) --> dest %i(%p, %p)\n",
+	//        src, dd_src->d_vj, dest, dd_dest->d_buf3, dd_dest->d_vj);
+
+	if(dd_src->d_vj) {
+	  // because we reuse d_buf3, need to ensure dest is done using it
+	  
+	  pm->dev_set_device(dest);
+
+	  pm->dev_stream_wait();
+
+	  // src initiates transfer
+	  
+	  pm->dev_set_device(src);
+	  
+	  //	  pm->dev_stream_wait(); // why?
+	  
+	  pm->dev_memcpy_peer(dd_dest->d_buf3, dest, dd_src->d_vj, src, size);
+
+	  // dest launches kernel
+	  
+	  pm->dev_set_device(dest); 
+	  
+	  vecadd(dd_dest->d_buf3, dd_dest->d_vj, N);
+	}
+
+	nrecv--;
+	nactive--;
+      }
+      
+    }
+
+    nrecv /= 2;
+    il++;
+  }
+
+  // accumulate result on host
+
+  //  printf("LIBGPU :: -- GPU-GPU Reduction  transferring result to host\n");
+  
+  pm->dev_set_device(0);
+
+  my_device_data * dd = &(device_data[0]);
+  
+  if(dd->d_vj) {
+    pm->dev_pull(dd->d_vj, buf_vj, size);
+    
+#pragma omp parallel for
+    for(int j=0; j<N; ++j) vj[j] += buf_vj[j];
+  }
+  
+  update_dfobj = 0;
+  
+  //  printf("LIBGPU :: -- GPU-GPU Reduction  finished\n");
+  
+  if(!with_k) {
+    pm->dev_profile_stop();
+    
+#ifdef _DEBUG_DEVICE
+    printf("LIBGPU :: -- Leaving Device::pull_get_jk()\n");
+#endif
+    
+    return;
+  }
+    
+  py::buffer_info info_vk = _vk.request(); // 3D array (nset, nao, nao)
+    
+  double * vk = static_cast<double*>(info_vk.ptr);
+
+  N = nset * nao * nao;
+  
+  size = N * sizeof(double);
+
+  nrecv = num_devices / 2;
+
+  nactive = num_devices;
+  
+  // accumulate result to device 0 using binary tree reduction
+
+  il = 0;
+  while(nrecv > 0) {
+
+    //    printf("LIBGPU :: -- GPU-GPU Reduction  il= %i  ngpus_active= %i  ngpus_recv= %i\n",il,nactive,nrecv);
+    
+    // odd number of recievers and not last level (clean-up pre-reduction)
+      
+    if((nactive > 1) && (nactive % 2)) {
+
+      //      printf("LIBGPU :: -- GPU-GPU Reduction  post clean-up odd reciever  nactive= %i  nrecv= %i\n",nactive,nrecv);
+      
+      int dest = nactive - 2;
+      int src = nactive - 1;
+      
+      my_device_data * dd_dest = &(device_data[dest]);
+      my_device_data * dd_src = &(device_data[src]);
+      
+      // printf("LIBGPU :: -- GPU-GPU Reduction  -- src %i(%p) --> dest %i(%p, %p)\n",
+      // 	     src, dd_src->d_vkk, dest, dd_dest->d_buf3, dd_dest->d_vkk);
+      
+      if(dd_src->d_vkk) {
+	// because we reuse d_buf3, need to ensure dest is done using it
+	
+	pm->dev_set_device(dest);
+	
+	pm->dev_stream_wait();
+	
+	// src initiates transfer
+	
+	pm->dev_set_device(src);
+	
+	//	pm->dev_stream_wait(); // why?
+	
+	pm->dev_memcpy_peer(dd_dest->d_buf3, dest, dd_src->d_vkk, src, size);
+	
+	// dest launches kernel
+	
+	pm->dev_set_device(dest); 
+	
+	vecadd(dd_dest->d_buf3, dd_dest->d_vkk, N);
+      }
+      
+      //      nrecv--;
+      nactive--;
+    }
+    
+    // binary tree reduction
+    
+    if(nactive > nrecv) {
+
+      //      printf("LIBGPU :: -- GPU-GPU Reduction  binary reduction   nactive= %i  nrecv= %i\n",nactive,nrecv);
+      
+      int nsend = nactive - nrecv;
+      
+      for(int i=0; i<nsend; ++i) {
+
+	int dest = i;
+	int src = nrecv + i;
+
+	my_device_data * dd_dest = &(device_data[dest]);
+	my_device_data * dd_src = &(device_data[src]);
+	
+	// printf("LIBGPU :: -- GPU-GPU Reduction  -- src %i(%p) --> dest %i(%p, %p)\n",
+	//        src, dd_src->d_vkk, dest, dd_dest->d_buf3, dd_dest->d_vkk);
+	
+	if(dd_src->d_vkk) {
+	  // because we reuse d_buf3, need to ensure dest is done using it
+	  
+	  pm->dev_set_device(dest);
+
+	  pm->dev_stream_wait();
+
+	  // src initiates transfer
+	  
+	  pm->dev_set_device(src);
+	  
+	  //	  pm->dev_stream_wait(); // why?
+	  
+	  pm->dev_memcpy_peer(dd_dest->d_buf3, dest, dd_src->d_vkk, src, size);
+
+	  // dest launches kernel
+	  
+	  pm->dev_set_device(dest);  
+	  
+	  vecadd(dd_dest->d_buf3, dd_dest->d_vkk, N);
+	}
+      }
+
+      nactive = nrecv;
+      
+      // odd number of recievers and not last level
+      
+      if((nrecv > 1) && (nrecv % 2)) {
+
+	//	printf("LIBGPU :: -- GPU-GPU Reduction  post clean-up odd reciever  nactive= %i  nrecv= %i\n",nactive,nrecv);
+    
+	int dest = nrecv - 2;
+	int src = nrecv - 1;
+	
+	my_device_data * dd_dest = &(device_data[dest]);
+	my_device_data * dd_src = &(device_data[src]);
+	
+	// printf("LIBGPU :: -- GPU-GPU Reduction  -- src %i(%p) --> dest %i(%p, %p)\n",
+	//        src, dd_src->d_vkk, dest, dd_dest->d_buf3, dd_dest->d_vkk);
+
+	if(dd_src->d_vkk) {
+	  // because we reuse d_buf3, need to ensure dest is done using it
+	  
+	  pm->dev_set_device(dest);
+
+	  pm->dev_stream_wait();
+
+	  // src initiates transfer
+	  
+	  pm->dev_set_device(src);
+	  
+	  //	  pm->dev_stream_wait(); // why?
+	  
+	  pm->dev_memcpy_peer(dd_dest->d_buf3, dest, dd_src->d_vkk, src, size);
+
+	  // dest launches kernel
+	  
+	  pm->dev_set_device(dest); 
+	  
+	  vecadd(dd_dest->d_buf3, dd_dest->d_vkk, N);
+	}
+
+	nrecv--;
+	nactive--;
+      }
+    }
+
+    nrecv /= 2;
+    il++;
+  }
+
+  // accumulate result on host
+  
+  //  printf("LIBGPU :: -- GPU-GPU Reduction  transferring result to host\n");
+  
+  pm->dev_set_device(0);
+
+  dd = &(device_data[0]);
+  
+  if(dd->d_vkk) {
+    pm->dev_pull(dd->d_vkk, buf_vk, size);
+    
+#pragma omp parallel for
+    for(int j=0; j<N; ++j) vk[j] += buf_vk[j];
+  }
+
+  //  printf("LIBGPU :: -- GPU-GPU Reduction  finished\n");
+  
+  pm->dev_profile_stop();
+  
+  double t1 = omp_get_wtime();
+  t_array[1] += t1 - t0;
+  count_array[0]+=1; // just doing this addition in pull, not in init or compute
+    
+#ifdef _DEBUG_DEVICE
+  printf("LIBGPU :: -- Leaving Device::pull_get_jk()\n");
+#endif
+}
+#else
 void Device::pull_get_jk(py::array_t<double> _vj, py::array_t<double> _vk, int nao, int nset, int with_k)
 {
 #ifdef _DEBUG_DEVICE
@@ -828,7 +1242,7 @@ void Device::pull_get_jk(py::array_t<double> _vj, py::array_t<double> _vk, int n
 
   double t0 = omp_get_wtime();
     
-  profile_start("pull_get_jk");
+  pm->dev_profile_start("pull_get_jk");
   
   py::buffer_info info_vj = _vj.request(); // 2D array (nset, nao_pair)
   
@@ -870,7 +1284,7 @@ void Device::pull_get_jk(py::array_t<double> _vj, py::array_t<double> _vk, int n
   update_dfobj = 0;
   
   if(!with_k) {
-    profile_stop();
+    pm->dev_profile_stop();
     
 #ifdef _DEBUG_DEVICE
     printf("LIBGPU :: -- Leaving Device::pull_get_jk()\n");
@@ -913,7 +1327,7 @@ void Device::pull_get_jk(py::array_t<double> _vj, py::array_t<double> _vk, int n
 
   }
 
-  profile_stop();
+  pm->dev_profile_stop();
   
   double t1 = omp_get_wtime();
   t_array[1] += t1 - t0;
@@ -923,6 +1337,7 @@ void Device::pull_get_jk(py::array_t<double> _vj, py::array_t<double> _vk, int n
   printf("LIBGPU :: -- Leaving Device::pull_get_jk()\n");
 #endif
 }
+#endif
 
 /* ---------------------------------------------------------------------- */
 
@@ -1078,6 +1493,11 @@ double * Device::dd_fetch_eri(my_device_data * dd, double * eri1, int naux, int 
 	printf("LIBGPU:: dev_push_async(d_eri) updating eri block\n");
 	exit(1);
       }
+    }
+
+    if(naux != eri_extra[id*2] || nao_pair != eri_extra[id*2+1]) {
+      printf("LIBGPU :: dd_fetch_eri() has inconsistent naux= {%i, %i} and nao_pair= {%i, %i} for block id= %i\n",naux, eri_extra[id*2], nao_pair, eri_extra[id*2+1], id);
+      exit(1);
     }
     
   } else {
@@ -1395,7 +1815,9 @@ void Device::init_eri_h2eff(int nmo, int ncas)
     }
 
   }
-  int _size_buf_eri_h2eff = num_devices*nmo*ncas*ncas_pair;
+  
+  int _size_buf_eri_h2eff = num_devices * size_eri_h2eff;
+
   if(_size_buf_eri_h2eff > size_buf_eri_h2eff) {
     size_buf_eri_h2eff = _size_buf_eri_h2eff;
     if(buf_eri_h2eff) pm->dev_free_host(buf_eri_h2eff);
@@ -1743,7 +2165,7 @@ void Device::df_ao2mo_v3 (int blksize, int nmo, int nao, int ncore, int ncas, in
 {
   double t0 = omp_get_wtime();
   
-  profile_start("AO2MO v3");
+  pm->dev_profile_start("AO2MO v3");
 
   const int device_id = count % num_devices;
 
@@ -1955,7 +2377,7 @@ void Device::df_ao2mo_v3 (int blksize, int nmo, int nao, int ncore, int ncas, in
 #endif
 #endif
   
-  profile_stop();
+  pm->dev_profile_stop();
   
   double t1 = omp_get_wtime();
   t_array[9] += t1 - t0;
@@ -1968,7 +2390,7 @@ void Device::df_ao2mo_v4 (int blksize, int nmo, int nao, int ncore, int ncas, in
 {
   double t0 = omp_get_wtime();
   
-  profile_start("AO2MO v4");
+  pm->dev_profile_start("AO2MO v4");
 
   const int device_id = count % num_devices;
 
@@ -2141,7 +2563,7 @@ void Device::df_ao2mo_v4 (int blksize, int nmo, int nao, int ncore, int ncas, in
 #endif
 #endif
   
-  profile_stop();
+  pm->dev_profile_stop();
   
   double t1 = omp_get_wtime();
   t_array[9] += t1 - t0;
@@ -2162,7 +2584,7 @@ void Device::update_h2eff_sub(int ncore, int ncas, int nocc, int nmo,
   printf("LIBGPU :: Inside Device :: Starting update_h2eff_sub function\n");
 #endif
 
-  profile_start("Setup initial h2eff_sub");
+  pm->dev_profile_start("Setup initial h2eff_sub");
   
   py::buffer_info info_umat = _umat.request(); // 2d array nmo*nmo
   py::buffer_info info_h2eff_sub = _h2eff_sub.request();// 2d array (nmo * ncas) x (ncas*(ncas+1)/2)
@@ -2222,7 +2644,7 @@ void Device::update_h2eff_sub(int ncore, int ncas, int nocc, int nmo,
   printf("LIBGPU :: Inside Device :: -- Setup update function\n");
 #endif
   
-  profile_next("extraction");
+  pm->dev_profile_next("extraction");
   
   //ucas = umat[ncore:nocc, ncore:nocc]
 
@@ -2242,11 +2664,11 @@ void Device::update_h2eff_sub(int ncore, int ncas, int nocc, int nmo,
   
   pm->dev_push_async(d_h2eff_sub, h2eff_sub, _size_h2eff_packed * sizeof(double));
 
-  profile_next("map creation and pushed");
+  pm->dev_profile_next("map creation and pushed");
   
   int * d_my_unpack_map_ptr = dd_fetch_pumap(dd, ncas, _PUMAP_H2EFF_UNPACK);
 
-  profile_next("unpacking");
+  pm->dev_profile_next("unpacking");
 
 #ifdef _DEBUG_H2EFF
   printf("LIBGPU :: Inside Device :: -- created and pushed unpacking map\n");
@@ -2254,7 +2676,7 @@ void Device::update_h2eff_sub(int ncore, int ncas, int nocc, int nmo,
 
   unpack_h2eff_2d(d_h2eff_sub, d_h2eff_unpacked, d_my_unpack_map_ptr, nmo, ncas, ncas_pair);
   
-  profile_next("2 dgemms");
+  pm->dev_profile_next("2 dgemms");
   
 #ifdef _DEBUG_H2EFF
   printf("LIBGPU :: Inside Device :: -- unpacked h2eff_sub \n");
@@ -2288,7 +2710,7 @@ void Device::update_h2eff_sub(int ncore, int ncas, int nocc, int nmo,
   ml->gemm_batch((char *) "N", (char *) "T", &ncas, &ncas, &ncas,
 		 &alpha, d_h2eff_step1, &ncas, &ncas2, dd->d_ucas, &ncas, &zero, &beta, d_h2eff_step2, &ncas, &ncas2, &ncas_nmo);
   
-  profile_next("transpose");
+  pm->dev_profile_next("transpose");
   
 #ifdef _DEBUG_H2EFF
   printf("LIBGPU :: Inside Device :: -- Finished first 2 cublasDgemmStridedBatched Functions \n");
@@ -2300,7 +2722,7 @@ void Device::update_h2eff_sub(int ncore, int ncas, int nocc, int nmo,
 
   transpose_2310(d_h2eff_step2, d_h2eff_transposed, nmo, ncas);
   
-  profile_next("last 2 dgemm");
+  pm->dev_profile_next("last 2 dgemm");
   
 #ifdef _DEBUG_H2EFF
   printf("LIBGPU :: Inside Device :: -- Finished transposing\n");
@@ -2320,7 +2742,7 @@ void Device::update_h2eff_sub(int ncore, int ncas, int nocc, int nmo,
   ml->gemm_batch((char *) "N", (char *) "N", &nmo, &ncas, &nmo,
 		 &alpha, dd->d_umat, &nmo, &zero, d_h2eff_step3, &nmo, &ncas_nmo, &beta, d_h2eff_step4, &nmo, &ncas_nmo, &ncas2);
   
-  profile_next("2nd transpose");
+  pm->dev_profile_next("2nd transpose");
 
 #ifdef _DEBUG_H2EFF
   printf("LIBGPU :: Inside Device :: -- Finished last 2 cublasDgemmStridedBatched Functions \n");
@@ -2341,7 +2763,7 @@ void Device::update_h2eff_sub(int ncore, int ncas, int nocc, int nmo,
   //h2eff_sub = h2eff_sub[:,:,(ix_i*ncas)+ix_j]
   //h2eff_sub = h2eff_sub.reshape (nmo, -1)
 
-  profile_next("second map and packing");
+  pm->dev_profile_next("second map and packing");
   
   int * d_my_pack_map_ptr = dd_fetch_pumap(dd, ncas, _PUMAP_H2EFF_PACK);
 
@@ -2355,7 +2777,7 @@ void Device::update_h2eff_sub(int ncore, int ncas, int nocc, int nmo,
 
   pm->dev_stream_wait(); // is this required or can we delay waiting?
   
-  profile_stop();
+  pm->dev_profile_stop();
   
 #ifdef _DEBUG_DEVICE
   printf("LIBGPU :: Inside Device :: Leaving update function\n");
@@ -2384,7 +2806,7 @@ void Device::get_h2eff_df(py::array_t<double> _cderi,
   printf("LIBGPU:: dfobj= %#012x count= %i combined= %#012x %p update_dfobj= %i\n",addr_dfobj,count,addr_dfobj+count,addr_dfobj+count,update_dfobj);
 #endif 
   
-  profile_start("h2eff df setup");
+  pm->dev_profile_start("h2eff df setup");
   
   py::buffer_info info_eri = _eri.request(); //2D array nao * ncas * ncas_pair
   
@@ -2513,9 +2935,9 @@ void Device::get_h2eff_df(py::array_t<double> _cderi,
 
   pm->dev_free_async(d_eri);
 
-  pm->dev_stream_wait();
+  pm->dev_stream_wait(); // is this required?
   
-  profile_stop();
+  pm->dev_profile_stop();
   
   double t1 = omp_get_wtime();
   t_array[6] += t1 - t0;//TODO: add the array size
@@ -2533,7 +2955,7 @@ void Device::get_h2eff_df_v1(py::array_t<double> _cderi,
   printf("LIBGPU:: dfobj= %#012x count= %i combined= %#012x %p update_dfobj= %i\n",addr_dfobj,count,addr_dfobj+count,addr_dfobj+count,update_dfobj);
 #endif 
   
-  profile_start("h2eff df setup");
+  pm->dev_profile_start("h2eff df setup");
   
   py::buffer_info info_eri = _eri.request(); //2D array nao * ncas * ncas_pair
   
@@ -2553,21 +2975,11 @@ void Device::get_h2eff_df_v1(py::array_t<double> _cderi,
   const int bump_buvp = naux * ncas * (ncas + nao); 
   const int size_vuwm = ncas * ncas * ncas * nao;
   
-#if 1
-
-#if 1
   // assume nao>ncas
   
   int _size_cderi_unpacked = eri_size;
   if(bump_buvp > _size_cderi_unpacked) _size_cderi_unpacked = bump_buvp;
   if(size_vuwm > _size_cderi_unpacked) _size_cderi_unpacked = size_vuwm;
-  
-  // the above exercise is done so as to avoid new memory allocations during the calculations and allocate the largest needed arrays.
-  // bump and buvp is done together because they need to exist simultaneously. naux*nao^2 vs naux*ncas*(nao+ncas) vs nmo*ncas^3 
-#else
-  // doing this because naux*nao**2 > nao*ncas**3 and naux*nao**2 > naux*ncas*(ncas+nao)
-  const int _size_cderi_unpacked = naux * nao * nao; 
-#endif
   
   if(_size_cderi_unpacked > dd->size_buf) {
   //printf("Size ERI in h2eff v2: %i", dd->size_eri_unpacked);
@@ -2583,7 +2995,6 @@ void Device::get_h2eff_df_v1(py::array_t<double> _cderi,
     dd->d_buf2 = (double *) pm->dev_malloc_async ( dd->size_buf * sizeof(double));
     dd->d_buf3 = (double *) pm->dev_malloc_async ( dd->size_buf * sizeof(double));
   }
-#endif
   
   double * eri = static_cast<double*>(info_eri.ptr);
   double * d_mo_coeff = dd->d_mo_coeff;
@@ -2641,6 +3052,7 @@ void Device::get_h2eff_df_v1(py::array_t<double> _cderi,
   //eri = np.einsum('Pmw,Pvu->mwvu', bPmu, bPvu)
 
   //transpose bPmu
+  
   double * d_bumP = dd->d_buf1;
 
   transpose_120(d_bPmu, d_bumP, naux, ncas, nao, 1); // this call distributes work items differently 
@@ -2673,7 +3085,7 @@ void Device::get_h2eff_df_v1(py::array_t<double> _cderi,
 
   pm->dev_stream_wait(); // this is required because 1) eri immediately consumed on python side and 2) all devices would write to same array
   
-  profile_stop();
+  pm->dev_profile_stop();
   
   double t1 = omp_get_wtime();
   t_array[6] += t1 - t0;//TODO: add the array size
@@ -2690,11 +3102,11 @@ void Device::get_h2eff_df_v2(py::array_t<double> _cderi,
   double t0 = omp_get_wtime();
 
 #ifdef _DEBUG_DEVICE
-  printf("LIBGPU :: Inside Device :: Starting h2eff_df_contract1 function");
+  printf("LIBGPU :: Inside Device::get_h2eff_df_v2()\n");
   printf("LIBGPU:: dfobj= %#012x count= %i combined= %#012x %p update_dfobj= %i\n",addr_dfobj,count,addr_dfobj+count,addr_dfobj+count,update_dfobj);
 #endif 
   
-  profile_start("h2eff df setup");
+  pm->dev_profile_start("h2eff df setup");
   
   py::buffer_info info_eri = _eri.request(); //2D array nao * ncas * ncas_pair
   
@@ -2711,51 +3123,36 @@ void Device::get_h2eff_df_v2(py::array_t<double> _cderi,
   const int _size_mo_cas = nao*ncas;
 
   const int _size_eri_unpacked = naux * nao * nao;
-  const int bump_buvp = naux * ncas * (ncas + nao); 
-  const int size_vuwm = ncas * ncas * ncas * nao;
-#if 0
-  #if 1
-  // assume nao>ncas
+  const int bump_buvp = naux * ncas * (ncas + nao);
   
-  if (eri_size>=bump_buvp)
-     {
-     if (eri_size>=size_vuwm){_size_cderi_unpacked = eri_size;}
-     else {_size_cderi_unpacked = size_vuwm;}
-     }
-  else 
-     {
-     if (bump_buvp>=size_vuwm){ _size_cderi_unpacked = bump_buvp;}
-     else {_size_cderi_unpacked = size_vuwm;}
-     }
-  // the above exercise is done so as to avoid new memory allocations during the calculations and allocate the largest needed arrays. bump and buvp is done together because they need to exist simultaneously.     blksize*nao^2 vs blksize*ncas*(nao+ncas) vs nmo*ncas^3 
-  #else
-  // doing this because blksize*nao**2 > nao*ncas**3 and blksize*nao**2 > naux*ncas*(ncas+nao)
-  const int _size_cderi_unpacked = naux * nao * nao; 
-  #endif
-  if (_size_cderi_unpacked > dd->size_eri_unpacked){
-  //printf("Size ERI in h2eff v2: %i", dd->size_eri_unpacked);
-  dd->size_eri_unpacked = _size_cderi_unpacked;
-  if (dd->d_buf1) pm->dev_free_async(dd->d_buf1);
-  if (dd->d_buf2) pm->dev_free_async(dd->d_buf2);
-  dd->d_buf1 = (double *) pm->dev_malloc_async ( dd->size_eri_unpacked * sizeof(double));
-  dd->d_buf2 = (double *) pm->dev_malloc_async ( dd->size_eri_unpacked * sizeof(double));
-  }
-#else
-  if (_size_eri_unpacked > dd->size_buf){
-     dd->size_buf = _size_eri_unpacked;
+  // buf2 will hold vuwm
+  
+  const int size_vuwm = ncas * ncas * ncas * nao;
+
+  // buf1 will hold 1) cderi_unpacked 2) both bumP & buvP 3) vuwM
+
+  const int size_cderi_unpacked = naux * nao * nao_pair;
+  const int size_bumP_buvP = (naux*ncas*nao) + (naux*ncas*ncas);
+  const int size_vuwM = nmo * ncas * ncas_pair;
+  
+  int max_size_buf = (_size_eri_unpacked > _size_eri_h2eff) ? _size_eri_unpacked : _size_eri_h2eff;
+  if(size_vuwm > max_size_buf) max_size_buf = size_vuwm;
+  if(size_cderi_unpacked > max_size_buf) max_size_buf = size_cderi_unpacked;
+  if(size_bumP_buvP > max_size_buf) max_size_buf = size_bumP_buvP;
+  if(size_vuwM > max_size_buf) max_size_buf = size_vuwM;
+  
+  if (max_size_buf > dd->size_buf){
+    dd->size_buf = max_size_buf;
+
     if(dd->d_buf1) pm->dev_free_async(dd->d_buf1);
     if(dd->d_buf2) pm->dev_free_async(dd->d_buf2);
+    if(dd->d_buf3) pm->dev_free_async(dd->d_buf3);
+
     dd->d_buf1 = (double *) pm->dev_malloc_async(dd->size_buf * sizeof(double));
     dd->d_buf2 = (double *) pm->dev_malloc_async(dd->size_buf * sizeof(double));
-  }
-  if (_size_eri_h2eff>dd->size_buf){
-     //buf3 is used for storage. is nmo*ncas*ncas_pair<blksize*nao*nao? (maybe not always in really large active spaces?)
-    printf("I am in this one\n");
-    dd->size_buf = _size_eri_h2eff; 
-    if(dd->d_buf3) pm->dev_free_async(dd->d_buf3);
     dd->d_buf3 = (double *) pm->dev_malloc_async(dd->size_buf * sizeof(double));
-  } 
-#endif
+  }
+  
   double * eri = static_cast<double*>(info_eri.ptr);
   double * d_mo_coeff = dd->d_mo_coeff;
   double * d_mo_cas = dd->d_mo_cas; 
@@ -2782,7 +3179,7 @@ void Device::get_h2eff_df_v2(py::array_t<double> _cderi,
 
   int * d_my_unpack_map_ptr = dd_fetch_pumap(dd, nao, _PUMAP_2D_UNPACK);
 
-  getjk_unpack_buf2(d_cderi_unpacked,d_cderi,d_my_unpack_map_ptr,naux, nao, nao_pair);
+  getjk_unpack_buf2(d_cderi_unpacked, d_cderi, d_my_unpack_map_ptr, naux, nao, nao_pair);
   
   //bPmu = np.einsum('Pmn,nu->Pmu',cderi,mo_cas)
   
@@ -2800,6 +3197,7 @@ void Device::get_h2eff_df_v2(py::array_t<double> _cderi,
   ml->gemm_batch((char *) "N", (char *) "N", &nao, &ncas, &nao,
 		 &alpha, d_cderi_unpacked, &nao, &nao2, d_mo_cas, &nao, &zero, &beta, d_bPmu, &nao, &ncas_nao, &naux);
   const int _size_bPvu = naux*ncas*ncas;
+  
   //bPvu = np.einsum('mv,Pmu->Pvu',mo_cas.conjugate(),bPmu)
 
   double * d_bPvu= dd->d_buf2 + naux*ncas*nao;
@@ -2809,32 +3207,46 @@ void Device::get_h2eff_df_v2(py::array_t<double> _cderi,
 		 &alpha, d_mo_cas, &nao, &zero, d_bPmu, &nao, &ncas_nao, &beta, d_bPvu, &ncas, &ncas2, &naux);
   
   //eri = np.einsum('Pmw,Pvu->mwvu', bPmu, bPvu)
+
   //transpose bPmu
+
   double * d_bumP = dd->d_buf1;
+
   transpose_120(d_bPmu, d_bumP, naux, ncas, nao, 1); // this call distributes work items differently 
-  double * d_buvP = dd->d_buf1+naux*ncas*nao;
+
+  double * d_buvP = dd->d_buf1 + naux*ncas*nao;
+
+  // printf("size_buf1= %i  size_bumP= %i  size_buvP= %i  sum= %i\n",
+  // 	 dd->size_buf, naux*ncas*nao, naux*ncas*ncas, naux*ncas*nao + naux*ncas*ncas);
+  
   //transpose bPvu
+
   transpose_210(d_bPvu, d_buvP, naux, ncas, ncas);
 
-  const int _size_mwvu = nao*ncas*ncas*ncas;
+  // printf("size_buf2= %i  _size_mwvu= %i\n",dd->size_buf, size_vuwm);
+  
   double * d_vuwm = dd->d_buf2; 
+
+  ml->set_handle();
   ml->gemm((char *) "T", (char *) "N", &ncas_nao, &ncas2, &naux,
 	   &alpha, d_bumP, &naux, d_buvP, &naux, &beta, d_vuwm, &ncas_nao);
+  
   double * d_vuwM = dd->d_buf1;
+
+  ml->set_handle();
   ml->gemm_batch((char *) "T", (char *) "T", &ncas, &nao, &nao,
 		 &alpha, d_vuwm, &nao, &ncas_nao, d_mo_coeff, &nao, &zero, &beta, d_vuwM, &ncas, &ncas_nao, &ncas2);
-  dd->d_eri_h2eff = dd->d_buf3;
+
   int * my_d_tril_map_ptr = dd_fetch_pumap(dd, ncas, _PUMAP_2D_UNPACK);
   
-  if (count < num_devices){  
-    printf("count<num\n");
-    pack_d_vuwM(d_vuwM, dd->d_eri_h2eff, my_d_tril_map_ptr, nmo, ncas, ncas_pair); 
-  } 
-  else{  
-    printf("count>num\n");
-    pack_d_vuwM_add(d_vuwM, dd->d_eri_h2eff, my_d_tril_map_ptr, nmo, ncas, ncas_pair);
+  if (count < num_devices) {
+    pack_d_vuwM(d_vuwM, dd->d_eri_h2eff, my_d_tril_map_ptr, nmo, ncas, ncas_pair);
+  } else {
+    pack_d_vuwM(d_vuwM, dd->d_buf3, my_d_tril_map_ptr, nmo, ncas, ncas_pair);
+    vecadd(dd->d_buf3, dd->d_eri_h2eff, _size_eri_h2eff);
   }
-  #if 1
+
+#if 0
   double * h_eri_h2eff = (double *) pm->dev_malloc_host(nao*ncas*ncas_pair*sizeof(double));
   pm->dev_pull_async(dd->d_eri_h2eff, h_eri_h2eff, nao*ncas*ncas_pair*sizeof(double));
   pm->dev_stream_wait();
@@ -2845,25 +3257,37 @@ void Device::get_h2eff_df_v2(py::array_t<double> _cderi,
       } printf("\n");  
     }printf("\n");
   }
-  #endif
-  profile_stop();
+  pm->dev_free_host(h_eri_h2eff);
+#endif
+  
+  pm->dev_profile_stop();
   
   double t1 = omp_get_wtime();
   t_array[6] += t1 - t0;//TODO: add the array size
   count_array[4] += 1; // see v1 comment
+  
+#ifdef _DEBUG_DEVICE
+  printf("LIBGPU :: Leaving Device::get_h2eff_df_v2()\n");
+#endif  
 }
 
 
 /* ---------------------------------------------------------------------- */
 void Device::pull_eri_h2eff(py::array_t<double> _eri, int nmo, int ncas)
 {
+#ifdef _DEBUG_DEVICE
+  printf("LIBGPU :: -- Inside Device::pull_eri_h2eff()\n");
+#endif
+  
   py::buffer_info info_eri = _eri.request(); //2D array (nmo * (ncas*ncas_pair))
   double * eri = static_cast<double*>(info_eri.ptr);
   double * tmp;
 
-  const int size_eri_h2eff = nmo*ncas*ncas*(ncas+1)/2;
-  //printf("pulling eri\n");
+  const int ncas_pair = ncas*(ncas+1)/2;
+  const int size_eri_h2eff = nmo*ncas*ncas_pair;
+  
   // Pulling eri from all devices
+  
   for (int i=0; i<num_devices; ++i){
     pm->dev_set_device(i);
 
@@ -2873,7 +3297,9 @@ void Device::pull_eri_h2eff(py::array_t<double> _eri, int nmo, int ncas)
     
     if (dd->d_eri_h2eff) pm->dev_pull_async(dd->d_eri_h2eff, tmp, size_eri_h2eff*sizeof(double));
   }
+  
   // Adding eri from all devices
+  
   for(int i=0; i<num_devices; ++i) {
     pm->dev_set_device(i);
 
@@ -2887,72 +3313,87 @@ void Device::pull_eri_h2eff(py::array_t<double> _eri, int nmo, int ncas)
 //#pragma omp parallel for
       for(int j=0; j< size_eri_h2eff; ++j) buf_eri_h2eff[j] += tmp[j];
     }
-  std::memcpy(eri,buf_eri_h2eff,size_eri_h2eff*sizeof(double));
-#if 0
-for (int i = 0; i<nmo; ++i){
-for (int j = 0; j<ncas*ncas*(ncas+1)/2; ++j){
- printf("%i \t", eri[i*ncas*ncas*(ncas+1)/2 + j]);}printf("\n");
-}printf("\n\n\n\n\n\n\n\n\n\n\n\n");
-#else
-#endif
   }
+  
+  std::memcpy(eri, buf_eri_h2eff, size_eri_h2eff*sizeof(double));
+  
+#ifdef _DEBUG_DEVICE
+  printf("LIBGPU :: Leaving Device::get_h2eff_df_v2()\n");
+#endif
 }
+
 /* ---------------------------------------------------------------------- */
+
 void Device::init_eri_impham(int naoaux, int nao_f, int return_4c2eeri)
 {
+#ifdef _DEBUG_DEVICE
+  printf("LIBGPU :: Inside Device::init_eri_impham()  return_4c2eeri= %i\n",return_4c2eeri);
+  if (return_4c2eeri) printf("LIBGPU :: -- returning 4c2e\n");
+  else printf("LIBGPU :: -- returning 3c2e\n");
+#endif
+  
   double t0 = omp_get_wtime();
   
-  profile_start("init_eri_impham");
+  pm->dev_profile_start("init_eri_impham");
 
   int nao_f_pair = nao_f*(nao_f+1)/2;
-  int _size_eri_impham;
-  if (return_4c2eeri) {
-  #ifdef _DEBUG_DEVICE
-    printf("returning 4c2e\n");
-  #endif
-    _size_eri_impham = num_devices*nao_f_pair*nao_f_pair;}//when used like this, answer accumulates on gpu
-  else {
-  #ifdef _DEBUG_DEVICE
-    printf("returning 3c2e\n");
-  #endif
-    _size_eri_impham = naoaux*nao_f_pair;} // answer accumulates on cpu
-  if (_size_eri_impham > size_eri_impham){
+  int _size_eri_impham = 0;
+  
+  if (return_4c2eeri) _size_eri_impham = num_devices * nao_f_pair*nao_f_pair;  //when used like this, answer accumulates on gpu
+  else _size_eri_impham = naoaux*nao_f_pair;  // answer accumulates on cpu
+  
+  if (_size_eri_impham > size_eri_impham) {
     size_eri_impham = _size_eri_impham;
-  #ifdef _DEBUG_DEVICE
+    
+#ifdef _DEBUG_DEVICE
     printf("resizing eri_impham in init\n");
     printf("size_eri %d\n",size_eri_impham );
-  #endif
+#endif
+    
     if (pin_eri_impham) pm->dev_free_host(pin_eri_impham);
     pin_eri_impham = (double *) pm->dev_malloc_host(size_eri_impham*sizeof(double));
   }
   
   double t1 = omp_get_wtime();
   t_array[11] += t1 - t0;
+  
+  pm->dev_profile_stop();
+  
   // counts in pull eri_impham
+  
+#ifdef _DEBUG_DEVICE
+  printf("LIBGPU :: Leaving Device::init_eri_impah()\n");
+#endif
 }
 /* ---------------------------------------------------------------------- */
 void Device::compute_eri_impham(int nao_s, int nao_f, int blksize, int naux, int count, size_t addr_dfobj, int return_4c2eeri)
 {
 #ifdef _DEBUG_DEVICE
   printf("LIBGPU :: Inside Device::comute_eri_impham()\n");
+  printf("LIBGPU :: -- from gpu: %i %i %i %i %i\n",nao_s, nao_f, blksize, naux, count);
 #endif
-
-  //printf("from gpu: %i %i %i %i %i\n",nao_s, nao_f, blksize, naux, count); 
-  profile_start("compute_eri_impham");
+  
+  pm->dev_profile_start("compute_eri_impham");
+  
   double t0 = omp_get_wtime();
 
   const int device_id = count % num_devices;
+  
   pm->dev_set_device(device_id);
+  
   my_device_data * dd = &(device_data[device_id]);
-  double * d_cderi = nullptr;
+
   // using fetch_eri, assume it's already there
+
   int nao_s_pair = nao_s * (nao_s + 1)/2;
-  d_cderi = dd_fetch_eri(dd, nullptr, naux, nao_s_pair, addr_dfobj, count);
+
+  double * d_cderi = dd_fetch_eri(dd, nullptr, naux, nao_s_pair, addr_dfobj, count);
+
   double * d_cderi_unpacked = dd->d_buf1;
 
   int * d_my_unpack_map_ptr = dd_fetch_pumap(dd, nao_s, _PUMAP_2D_UNPACK);
 
-  getjk_unpack_buf2(d_cderi_unpacked,d_cderi,d_my_unpack_map_ptr,naux, nao_s, nao_s_pair);
+  getjk_unpack_buf2(d_cderi_unpacked,d_cderi, d_my_unpack_map_ptr, naux, nao_s, nao_s_pair);
 
   const double alpha = 1.0;
   const double beta = 0.0;
@@ -2963,7 +3404,8 @@ void Device::compute_eri_impham(int nao_s, int nao_f, int blksize, int naux, int
   int nao_f_pair = nao_f * (nao_f+1)/2;
   double * d_bPeu = dd->d_buf2;
 
-    // b^P_ue = b^P_uu * M_ue
+  // b^P_ue = b^P_uu * M_ue
+  
   ml->set_handle();
   ml->gemm_batch((char *) "N", (char *) "T", 
                &nao_s, &nao_f, &nao_s,
@@ -2974,7 +3416,8 @@ void Device::compute_eri_impham(int nao_s, int nao_f, int blksize, int naux, int
                d_bPeu, &nao_s, &nao_sf, 
                &naux);
 
-    // b^P_ee = b^P_ue * M_ue
+  // b^P_ee = b^P_ue * M_ue
+  
   double * d_bPee = dd->d_buf1; 
   ml->gemm_batch((char *) "N", (char *) "N", 
                &nao_f, &nao_f, &nao_s,
@@ -2985,46 +3428,59 @@ void Device::compute_eri_impham(int nao_s, int nao_f, int blksize, int naux, int
                d_bPee, &nao_f, &nao_f2, 
                &naux);
 
-    //do packing
+  //do packing
+ 
   d_my_unpack_map_ptr = dd_fetch_pumap(dd, nao_f, _PUMAP_2D_UNPACK);
-  double * d_eri_packed = dd->d_buf2;
-  pack_eri(d_eri_packed, d_bPee,d_my_unpack_map_ptr, naux, nao_f, nao_f_pair);
+
+  double * d_eri_unpacked = dd->d_buf2;
+
+  pack_eri(d_eri_unpacked, d_bPee, d_my_unpack_map_ptr, naux, nao_f, nao_f_pair);
+
   if (return_4c2eeri){
     double beta_ = (count < num_devices) ? 0.0 : 1.0;
-    #ifdef _DEBUG_DEVICE
+#ifdef _DEBUG_DEVICE
     printf("returning 4c2e\n");
     printf("beta %f\n",beta_);
-    #endif
+#endif
+    
     ml->gemm((char *) "N", (char *) "T", &nao_f_pair, &nao_f_pair, &naux,
-	   &alpha, d_eri_packed, &nao_f_pair,d_eri_packed, &nao_f_pair, &beta_, dd->d_buf3, &nao_f_pair);
-  }
-  else {
-    #ifdef _DEBUG_DEVICE
+	     &alpha, d_eri_unpacked, &nao_f_pair, d_eri_unpacked, &nao_f_pair, &beta_, dd->d_buf3, &nao_f_pair);
+
+  } else {
+#ifdef _DEBUG_DEVICE
     printf("returning 3c2e\n");
-    #endif
-    double * eri_impham = &(pin_eri_impham[count*blksize*nao_f_pair]);
-    pm->dev_pull_async(d_eri_packed, eri_impham, naux*nao_f_pair*sizeof(double));
+#endif
+    
+    double * eri_impham = &(pin_eri_impham[count*blksize * nao_f_pair]);
+
+    pm->dev_pull_async(d_eri_unpacked, eri_impham, naux*nao_f_pair*sizeof(double));
   }
-  #if 0
+  
+#if 0
   double * h_eri_impham = (double *)pm->dev_malloc_host(nao_f_pair*nao_f_pair*sizeof(double));
-  pm->dev_pull_async(dd->d_buf3, h_eri_impham,nao_f_pair*nao_f_pair*sizeof(double));
+  pm->dev_pull_async(dd->d_buf3, h_eri_impham, nao_f_pair*nao_f_pair*sizeof(double));
   pm->dev_stream_wait();
   for (int i =0;i<nao_f_pair;++i){ for (int j=0;j<nao_f_pair;++j){printf("%f\t",h_eri_impham[i*nao_f_pair+j]); }printf("\n");}
-  #endif
-  profile_stop();
+  pm->dev_free_host(h_eri_impham);
+#endif
+  
   double t1 = omp_get_wtime();
   t_array[12] += t1 - t0;
+  
+  pm->dev_profile_stop();
+  
   // counts in pull eri_impham
+}
 
-} 
 /* ---------------------------------------------------------------------- */
+
 void Device::compute_eri_impham_v2(int nao_s, int nao_f, int blksize, int naux, int count, size_t addr_dfobj_in, size_t addr_dfobj_out)
 {
 #ifdef _DEBUG_DEVICE
   printf("LIBGPU :: Inside Device::comute_eri_impham()\n");
 #endif
 
-  profile_start("compute_eri_impham");
+  pm->dev_profile_start("compute_eri_impham");
   double t0 = omp_get_wtime();
 
   const int device_id = count % num_devices;
@@ -3070,6 +3526,7 @@ void Device::compute_eri_impham_v2(int nao_s, int nao_f, int blksize, int naux, 
                &naux);
 
   //do packing
+  
   d_my_unpack_map_ptr = dd_fetch_pumap(dd, nao_f, _PUMAP_2D_UNPACK);
   // new (transfer to exisiting smaller cholesky vector)
   double * d_cderi_out = dd_fetch_eri(dd, nullptr, naux, nao_f_pair, addr_dfobj_out, count);
@@ -3077,7 +3534,8 @@ void Device::compute_eri_impham_v2(int nao_s, int nao_f, int blksize, int naux, 
   //ml->gemm((char *) "T", (char *) "N", &nao_f_pair, &nao_f_pair, &naux, &alpha, dd->d_buf2, &ldb, dd->d_buf3, &lda, &beta, (dd->d_vkk)+vk_offset, &ldc);
 
   pack_eri(d_cderi_out, d_bPee,d_my_unpack_map_ptr, naux, nao_f, nao_f_pair);
-  profile_stop();
+  pm->dev_profile_stop();
+  
   double t1 = omp_get_wtime();
   t_array[12] += t1 - t0;
   count_array[7]+=1; // just doing this addition in pull, not in init or compute
@@ -3093,64 +3551,71 @@ void Device::pull_eri_impham(py::array_t<double> _eri, int naoaux, int nao_f, in
 #ifdef _DEBUG_DEVICE
   printf("LIBGPU :: -- Inside Device::pull_eri_impham()\n");
 #endif
-
+  
+  pm->dev_profile_start("pull_eri_impham");
+  
   double t0 = omp_get_wtime();
+  
   int nao_f_pair = nao_f * (nao_f+1)/2;
   py::buffer_info info_eri = _eri.request(); 
   double * eri = static_cast<double*>(info_eri.ptr);
-  #if 0
+  
+#if 0
   printf("starting pull\n");
   for (int i=0;i<nao_f_pair*nao_f_pair; ++i){printf("%f\t",eri[i]);}printf("\n");
-  #endif
+#endif
 
   if (return_4c2eeri){
   
-  for (int i =0;i<num_devices;++i){
+    for (int i=0; i<num_devices; ++i){
       pm->dev_set_device(i); 
       my_device_data * dd = &(device_data[i]);
-      double * eri_impham =&pin_eri_impham[i*nao_f_pair*nao_f_pair];
-      if (dd->d_buf3) pm->dev_pull_async(dd->d_buf3,eri_impham, nao_f_pair*nao_f_pair*sizeof(double));}
-  
-  for (int i =0;i<num_devices;++i){
-      pm->dev_set_device(i); 
-      my_device_data * dd = &(device_data[i]);
-      pm->dev_stream_wait();}
-
-
-  #ifdef _DEBUG_DEVICE
-  printf("returning 4c2e\n");
-  for (int i=0;i<num_devices;++i){
-    pm->dev_set_device(i); 
-    my_device_data * dd = &(device_data[i]);
-    if (dd->d_buf3){
-    for (int j=0;j <nao_f_pair;++j){
-      for (int k=0;k <nao_f_pair;++k){
-        printf("%f\t",pin_eri_impham[i*nao_f_pair*nao_f_pair+j*nao_f_pair+k]);
-      } printf("\n");
-    }} printf("\n");
-  }
-  #endif
-
-  for(int i=0; i<num_devices; ++i) {
-    pm->dev_set_device(i);
-    my_device_data * dd = &(device_data[i]);
-    double * tmp;
-    if (dd->d_buf3){
-      tmp = &(pin_eri_impham[i * nao_f_pair* nao_f_pair]);
-//#pragma omp parallel for
-      for(int j=0; j<nao_f_pair*nao_f_pair; ++j) eri[j] += tmp[j];}
+      double * eri_impham =&pin_eri_impham[i * nao_f_pair*nao_f_pair];
+      if (dd->d_buf3) pm->dev_pull_async(dd->d_buf3, eri_impham, nao_f_pair*nao_f_pair*sizeof(double));
     }
-  }
-  else{
-  #ifdef _DEBUG_DEVICE
+
+#ifdef _DEBUG_DEVICE
+    printf("returning 4c2e\n");
+    for (int i=0;i<num_devices;++i){
+      pm->dev_set_device(i); 
+      my_device_data * dd = &(device_data[i]);
+      pm->dev_stream_wait();
+      if (dd->d_buf3){
+	for (int j=0;j <nao_f_pair;++j){
+	  for (int k=0;k <nao_f_pair;++k){
+	    printf("%f\t",pin_eri_impham[i*nao_f_pair*nao_f_pair+j*nao_f_pair+k]);
+	  } printf("\n");
+	}} printf("\n");
+    }
+#endif
+
+    for(int i=0; i<num_devices; ++i) {
+      pm->dev_set_device(i);
+      my_device_data * dd = &(device_data[i]);
+      pm->dev_stream_wait();
+      
+      if (dd->d_buf3){
+	double * tmp = &(pin_eri_impham[i * nao_f_pair*nao_f_pair]);
+#pragma omp parallel for
+	for(int j=0; j<nao_f_pair*nao_f_pair; ++j) eri[j] += tmp[j];
+      }
+    }
+
+  } else {
+    
+#ifdef _DEBUG_DEVICE
     printf("returning 3c2e\n");
-  #endif
-  pm->dev_barrier();
-  std::memcpy(eri, pin_eri_impham, naoaux*nao_f_pair*sizeof(double));
-  pm->dev_barrier();
+#endif
+
+    for(int i=0; i<num_devices; ++i) {
+      pm->dev_set_device(i);
+      pm->dev_barrier();
+    }
+    
+    std::memcpy(eri, pin_eri_impham, naoaux*nao_f_pair*sizeof(double));
   }
 
-  profile_stop();
+  pm->dev_profile_stop();
   
   double t1 = omp_get_wtime();
   t_array[13] += t1 - t0;
@@ -3161,6 +3626,7 @@ void Device::pull_eri_impham(py::array_t<double> _eri, int naoaux, int nao_f, in
 #endif
 
 }
+
 /* ---------------------------------------------------------------------- */
 void Device::init_mo_grid(int ngrid, int nmo)
 {
@@ -3742,33 +4208,3 @@ void Device::orbital_response(py::array_t<double> _f1_prime,
 }
 
 /* ---------------------------------------------------------------------- */
-
-void Device::profile_start(const char * label)
-{
-#ifdef _USE_NVTX
-  nvtxRangePushA(label);
-#endif
-}
-
-/* ---------------------------------------------------------------------- */
-
-void Device::profile_stop()
-{
-#ifdef _USE_NVTX
-  nvtxRangePop();
-#endif
-}
-
-/* ---------------------------------------------------------------------- */
-
-void Device::profile_next(const char * label)
-{
-#ifdef _USE_NVTX
-  nvtxRangePop();
-  nvtxRangePushA(label);
-#endif
-}
-
-/* ---------------------------------------------------------------------- */
-
-

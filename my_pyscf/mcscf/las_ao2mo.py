@@ -133,7 +133,7 @@ def get_h2eff_gpu_v2 (las,mo_coeff):
     eri =np.zeros((nmo,  int(ncas*ncas*(ncas+1)/2)))
     t0 = (lib.logger.process_clock (), lib.logger.perf_counter ())
     eri1 = np.zeros((nmo, int(ncas*ncas*(ncas+1)/2)),dtype='d')
-    if DEBUG and gpu:
+    if las.verbose==lib.logger.DEBUG and gpu:
         eri_cpu = np.zeros((nmo, int(ncas*ncas*(ncas+1)/2)))
     for cderi in las.with_df.loop (blksize=blksize):
         t1 = lib.logger.timer (las, 'Sparsedf', *t0)
@@ -184,7 +184,7 @@ def get_h2eff (las, mo_coeff=None):
         raise MemoryError ("{} MB of {}/{} MB av/total for ERI array".format (
             mem_eris, mem_remaining, las.max_memory))
     if getattr (las, 'with_df', None) is not None:
-        if las.use_gpu: eri = get_h2eff_gpu (las,mo_coeff)#the full version is not working yet.
+        if las.use_gpu: eri = get_h2eff_gpu_v2 (las,mo_coeff)#the full version is not working yet.
         else: eri = get_h2eff_df (las, mo_coeff)
     elif getattr (las._scf, '_eri', None) is not None:
         eri = ao2mo.incore.general (las._scf._eri, mo, compact=True)

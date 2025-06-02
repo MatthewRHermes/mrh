@@ -24,6 +24,8 @@ using namespace MATHLIB_NS;
 #define _USE_ERI_CACHE
 #define _ERI_CACHE_EXTRA 2
 
+#define _ENABLE_P2P
+
 //#define _DEBUG_DEVICE
 //#define _DEBUG_ERI_CACHE
 //#define _DEBUG_H2EFF
@@ -171,6 +173,8 @@ public :
   void pack_d_vuwM_add(const double *, double *, int *, int, int, int);
   
   void push_mo_coeff(py::array_t<double>, int);
+
+  void vecadd(const double *, double *, int);
 private:
 
   class PM * pm;
@@ -179,10 +183,6 @@ private:
   
   double host_compute(double *);
   void get_cores(char *);
-
-  void profile_start(const char *);
-  void profile_stop();
-  void profile_next(const char *);
 
   int verbose_level;
   
