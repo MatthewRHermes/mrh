@@ -532,6 +532,7 @@ class ContractHamCI_SHS (rdm.LRRDM):
     _hconst_ci_ = ContractHamCI_CHC._hconst_ci_
     init_profiling = ContractHamCI_CHC.init_profiling
     sprint_profile = ContractHamCI_CHC.sprint_profile
+    def _add_transpose_(self): return
 
     # Handling for 1s1c: need to do both a'.sm.b and b'.sp.a explicitly
     all_interactions_full_square = True
