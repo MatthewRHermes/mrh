@@ -160,7 +160,7 @@ class LRRDM (stdm.LSTDM):
         sivec = self.get_single_rootspace_sivec (iroot, bra=bra)
         return transpose_sivec_make_fragments_slow (sivec, self.lroots[:,iroot], *inv)
 
-    def get_fdm (self, rbra, rket, *inv, keyorder=None):
+    def get_fdm (self, rbra, rket, *inv, keyorder=None, _braket_table=None):
         '''Get the n-fragment density matrices for the fragments identified by inv in the bra and
         spaces given by rbra and rket, summing over nonunique excitations
 
@@ -176,6 +176,8 @@ class LRRDM (stdm.LSTDM):
             keyorder: list of integers
                 The same fragments as inv in a different order, in case the key in self.nonuniq_exc
                 uses a different order than desired in the output
+            _braket_table: ndarray of shape (*,2)
+                Overrides the lookup of self.nonuniq_exc if provided.
 
         Returns:
             fdm : ndarray of shape (nroots_si, ..., lroots[inv[1],rbra], lroots[inv[1],rket],
@@ -185,7 +187,10 @@ class LRRDM (stdm.LSTDM):
         t0, w0 = logger.process_clock (), logger.perf_counter ()
         if keyorder is None: keyorder = inv
         key = tuple ((rbra,rket)) + tuple (keyorder)
-        braket_table = self.nonuniq_exc[key]
+        if _braket_table is None:
+            braket_table = self.nonuniq_exc[key]
+        else:
+            braket_table = _braket_table
         invset = set ()
         inv = [i for i in inv if not (i in invset or invset.add (i))]
         # must eliminate duplicates, but must also preserve order

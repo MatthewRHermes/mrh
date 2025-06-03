@@ -691,16 +691,23 @@ class HamTerm:
         self.ket = parent.rootinvaddr[jr]
         dnelec = tuple (np.asarray (parent.nelec_r[ir]) - np.asarray (parent.nelec_r[jr]))
         self.h0 = self.h1 = self.h2 = None
-        self.nsi, self.li, self.lj = h1.shape[:3]
+        if isinstance (h1, np.ndarray):
+            self.nsi, self.li, self.lj = h1.shape[:3]
+        else:
+            self.nsi, self.li, self.lj = h0.shape[:3]
         self.spin = spin
         self.dnelec = dnelec
         # interpret "0" as h0, h1, h2
-        ham = [h0, h1, h2]
         shape = [self.nsi, self.li, self.lj] + [self.parent.norb,]*4
-        for i, hi in enumerate (ham):
-            if hi is not None and not isinstance (hi, np.ndarray):
-                ham[i] = hi * np.ones (shape[:3+(2*i)], dtype=float)
-        h0, h1, h2 = ham
+        if not isinstance (h2, np.ndarray):
+            h2 = h2 * np.ones (shape, dtype=float)
+        shape = shape[:3]
+        if not isinstance (h0, np.ndarray):
+            h0 = h0 * np.ones (shape, dtype=float)
+        if dnelec == (0,0): shape = shape + [2,]
+        shape = shape + [self.parent.norb,]*2
+        if not isinstance (h1, np.ndarray):
+            h1 = h1 * np.ones (shape, dtype=float)
         if dnelec == (0,0) and hermi==1:
             self.h0 = h0
             self.h1 = h1

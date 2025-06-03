@@ -573,14 +573,40 @@ class ContractHamCI_SHS (rdm.LRRDM):
             inv = row[2:]
         _crunch_fn (*row)
 
+    def _put_hconst_(self, op, bra, ket, *inv):
+        print ("_put_hconst_ top:", bra, ket, inv)
+        spec = np.ones (self.nfrags, dtype=bool)
+        spec[list(set (inv))] = False
+        spec = np.where (spec)[0]
+        tab = self.nonuniq_exc[tuple((bra,ket)) + tuple (inv)]
+        for i in spec:
+            bras = np.atleast_1d (self.ints[i]._braunique_root[tab[:,0]-self.nket]+self.nket)
+            kets = np.atleast_1d (self.urootstr[i,tab[:,1]])
+            tab_i = np.stack ([bras, kets], axis=1)
+            myinv = list (inv) + [i,]
+            rows, invs = np.unique (tab_i, return_inverse=True, axis=0)
+            for j, (bra, ket) in enumerate (rows):
+                sub_tab = tab[invs==j]
+                print (bra, ket, myinv)
+                d_rIIop = self.get_fdm (bra, ket, *myinv, _braket_table=sub_tab)
+                h_rII = np.tensordot (d_rIIop, op, axes=op.ndim)
+                self.ints[i]._put_ham_(bra, ket, h_rII, 0, 0, hermi=1)
+
     def _crunch_1d_(self, bra, ket, i):
         '''Compute a single-fragment density fluctuation, for both the 1- and 2-RDMs.'''
         d_rII = self.get_fdm (bra, ket, i) # time-profiled by itself
         t0, w0 = logger.process_clock (), logger.perf_counter ()
-        h0 = 0 #self.h0 * d_rII 
-        h1 = np.multiply.outer (d_rII, self.get_ham_2q (i,i))
-        h2 = np.multiply.outer (d_rII, self.get_ham_2q (i,i,i,i))
+        h1_sii = self.get_ham_2q (i,i)
+        h2_iiii = self.get_ham_2q (i,i,i,i)
+        h0 = self.h0 * d_rII 
+        h1 = np.multiply.outer (d_rII, h1_sii)
+        h2 = np.multiply.outer (d_rII, h2_iiii)
         self.ints[i]._put_ham_(bra, ket, h0, h1, h2, hermi=1)
+        d1s = self.ints[i].get_dm1 (bra, ket).transpose (0,1,2,4,3)
+        d2 = self.ints[i].get_dm2 (bra, ket).sum (2).transpose (0,1,3,2,5,4)
+        op = np.tensordot (d1s, h1_sii, axes=3)
+        op += np.tensordot (d2, h2_iiii, axes=4)
+        self._put_hconst_(op, bra, ket, i)
         dt, dw = logger.process_clock () - t0, logger.perf_counter () - w0
         self.dt_1d, self.dw_1d = self.dt_1d + dt, self.dw_1d + dw
 
@@ -785,7 +811,6 @@ class ContractHamCI_SHS (rdm.LRRDM):
         self.hci_fr_plab = [inti._ham_op () for inti in self.ints]
         dt, dw = logger.process_clock () - t1, logger.perf_counter () - w1
         self.dt_p, self.dw_p = self.dt_p + dt, self.dw_p + dw
-        self._hconst_ci_(hci=self.hci_fr_plab) # TODO: Does umat_linequiv_loop mess this up?
         return self.hci_fr_plab, t0
 
 
