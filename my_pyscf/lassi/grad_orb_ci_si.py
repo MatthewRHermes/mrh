@@ -86,7 +86,8 @@ def get_grad_orb (lsi, mo_coeff=None, ci=None, si=None, state=None, weights=None
     else:
         raise ValueError ("kwarg 'hermi' must = -1, 0, or +1")
 
-def get_grad_ci (lsi, mo_coeff=None, ci=None, si=None, state=None, weights=None, opt=None):
+def get_grad_ci (lsi, mo_coeff=None, ci=None, si=None, state=None, weights=None, opt=None,
+                 sum_bra=False):
     '''Return energy gradient for CI rotation.
 
     Args:
@@ -105,6 +106,9 @@ def get_grad_ci (lsi, mo_coeff=None, ci=None, si=None, state=None, weights=None,
             Weights for the columns of si vectors
         opt : integer
             Optimization level
+        sum_bra : logical
+            If true, a summation is pushed inside the contract_ham_ci call that
+            obscures gradients for everything but LASSIS
 
     Returns:
         gci_fr_pabq : nested list of shape (nfrags, nroots) containing ndarrays
@@ -128,7 +132,8 @@ def get_grad_ci (lsi, mo_coeff=None, ci=None, si=None, state=None, weights=None,
     else:
         n = 1
         assert (weights is None)
-    hci = op[opt].contract_ham_ci (lsi, h1, h2, ci, nelec_frs, ci, nelec_frs, sivec, sivec, h0=h0)
+    hci = op[opt].contract_ham_ci (lsi, h1, h2, ci, nelec_frs, ci, nelec_frs, sivec, sivec, h0=h0,
+                                   sum_bra=sum_bra)
     for f in range (lsi.nfrags):
         for r in range (lsi.nroots):
             c = ci[f][r].reshape (lroots[f][r],-1)

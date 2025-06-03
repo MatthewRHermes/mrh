@@ -509,10 +509,15 @@ class ContractHamCI_SHS (rdm.LRRDM):
             Contains LASSI eigenvectors on the bra
         si_ket : ndarray of shape (nprod, nroots_si_ket)
             Contains LASSI eigenvectors on the ket
+
+    Additional kwargs:
+        sum_bra : logical
+            If true, vectors in equivalent rootspaces will be summed together, leaving nonzero
+            values in only one of the equivalent set for each fragment
     '''
     def __init__(self, las, ints, nlas, hopping_index, lroots, h0, h1, h2, si_bra, si_ket,
-                 mask_bra_space=None, mask_ket_space=None, log=None, max_memory=2000,
-                 dtype=np.float64):
+                 mask_bra_space=None, mask_ket_space=None, sum_bra=False, log=None,
+                 max_memory=2000, dtype=np.float64):
         rdm.LRRDM.__init__(self, ints, nlas, hopping_index, lroots, si_bra, si_ket,
                            mask_bra_space = mask_bra_space,
                            mask_ket_space = mask_ket_space,
@@ -527,6 +532,7 @@ class ContractHamCI_SHS (rdm.LRRDM):
         self.off_bra = self.offs_lroots[self.nket][0]
         self.nelec_frs = np.asarray ([[list (i.nelec_r[ket]) for i in ints]
                                       for ket in range (self.nroots)]).transpose (1,0,2)
+        self.sum_bra = sum_bra
 
     get_ham_2q = hams2ovlp.HamS2Ovlp.get_ham_2q
     _hconst_ci_ = ContractHamCI_CHC._hconst_ci_
@@ -773,7 +779,7 @@ class ContractHamCI_SHS (rdm.LRRDM):
         '''
         t0 = (lib.logger.process_clock (), lib.logger.perf_counter ())
         self.init_profiling ()
-        for inti in self.ints: inti._init_ham_(self.nroots_si, self.nket)
+        for inti in self.ints: inti._init_ham_(self.nroots_si, self.nket, sum_bra=self.sum_bra)
         self._crunch_all_()
         t1, w1 = logger.process_clock (), logger.perf_counter ()
         self.hci_fr_plab = [inti._ham_op () for inti in self.ints]
@@ -784,8 +790,8 @@ class ContractHamCI_SHS (rdm.LRRDM):
 
 
 def ContractHamCI (las, ints, nlas, hopping_index, lroots, h0, h1, h2, si_bra=None, si_ket=None,
-                   mask_bra_space=None, mask_ket_space=None, log=None, max_memory=2000,
-                   dtype=np.float64):
+                   mask_bra_space=None, mask_ket_space=None, sum_bra=False, log=None,
+                   max_memory=2000, dtype=np.float64):
     if si_bra is None and si_ket is None:
         return ContractHamCI_CHC (las, ints, nlas, hopping_index, lroots, h0, h1, h2,
                                   mask_bra_space=mask_bra_space,
@@ -804,11 +810,12 @@ def ContractHamCI (las, ints, nlas, hopping_index, lroots, h0, h1, h2, si_bra=No
     else:
         return ContractHamCI_SHS (las, ints, nlas, hopping_index, lroots, h0, h1, h2, si_bra,
                                   si_ket, mask_bra_space=mask_bra_space,
-                                  mask_ket_space=mask_ket_space,
+                                  mask_ket_space=mask_ket_space, sum_bra=sum_bra,
                                   log=log, max_memory=2000, dtype=np.float64)
 
 def contract_ham_ci (las, h1, h2, ci_fr_ket, nelec_frs_ket, ci_fr_bra, nelec_frs_bra,
-                     si_bra=None, si_ket=None, h0=0, soc=0, orbsym=None, wfnsym=None):
+                     si_bra=None, si_ket=None, h0=0, soc=0, sum_bra=False, orbsym=None,
+                     wfnsym=None):
     '''Evaluate the action of the state interaction Hamiltonian on a set of ket CI vectors,
     projected onto a basis of bra CI vectors, leaving one fragment of the bra uncontracted.
 
@@ -832,22 +839,27 @@ def contract_ham_ci (las, h1, h2, ci_fr_ket, nelec_frs_ket, ci_fr_bra, nelec_frs
             fragment for the bra vectors
 
     Kwargs:
-        si_bra : ndarray of shape (ndim_bra, *)
+        si_bra : ndarray of shape (ndim_bra, nroots_si)
             SI vectors for the bra. If provided, the p dimension on the return object is contracted
-        si_ket : ndarray of shape (ndim_ket, *)
+        si_ket : ndarray of shape (ndim_ket, nroots_si)
             SI vectors for the bra. If provided, the q dimension on the return object is contracted
         soc : integer
             Order of spin-orbit coupling included in the Hamiltonian
         h0 : float
             Constant term in the Hamiltonian
+        sum_bra : logical
+            If true and both si_bra and si_ket are provided, then equivalent bra rootspaces are
+            summed together and only one of the equivalent set of vectors is nonzero.
         orbsym : list of int of length (ncas)
             Irrep ID for each orbital
         wfnsym : int
             Irrep ID for target matrix block
 
     Returns:
-        hket_fr_pabq : nested list of shape (nfrags, nroots_bra)
-            Element i,j is an ndarray of shape (ndim_bra//ci_fr_bra[i][j].shape[0],
+        hket_fr : nested list of shape (nfrags, nroots_bra)
+            If si_bra and si_ket are both provided, then element i,j is an ndarray of shape
+            [nroots_si,] + list (ci_fr_bra[i][j].shape).
+            Otherwise, element i,j is an ndarray of shape (ndim_bra//ci_fr_bra[i][j].shape[0],
             ndeta_bra[i,j],ndetb_bra[i,j],ndim_ket).
     '''
     log = lib.logger.new_logger (las, las.verbose)
