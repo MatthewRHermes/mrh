@@ -626,16 +626,17 @@ class ContractHamCI_SHS (rdm.LRRDM):
         d_rJJII *= fac
         d_rJJi = np.tensordot (d_rJJII, inti.get_p (bra, ket, s1), axes=2)
         h_rJJj = np.tensordot (d_rJJi, self.get_ham_2q (i,j)[s1], axes=1)
-        h_rJJjjj = np.tensordot (d_rJJi, self.get_ham_2q (j,j,j,i), axes=((-1),(-1)))
-        h_iiij = self.get_ham_2q (j,i,i,i).transpose (1,3,2,0) # Mulliken -> Dirac order
+        h_ijjj = self.get_ham_2q (i,j,j,j).transpose (0,2,3,1)
+        h_rJJjjj = np.tensordot (d_rJJi, h_ijjj, axes=((-1),(-1)))
+        h_iiij = self.get_ham_2q (i,i,i,j).transpose (2,0,1,3) 
         h_IIj = np.tensordot (inti.get_pph (bra, ket, s1).sum (2), h_iiij, axes=3)
         h_rJJj += np.tensordot (d_rJJII, h_IIj, axes=2)
         intj._put_ham_(bra, ket, 0, h_rJJj, h_rJJjjj, spin=s1)
         d_rIIj = np.tensordot (d_rJJII, intj.get_h (bra, ket, s1), axes=((1,2),(0,1)))
         h_rIIi = np.tensordot (d_rIIj, self.get_ham_2q (i,j)[s1], axes=((-1),(-1)))
-        h_rIIiii = np.tensordot (d_rIIj, self.get_ham_2q (j,i,i,i), axes=1)
-        h_jjji = self.get_ham_2q (j,j,j,i).transpose (1,0,2,3) # Mulliken -> Dirac order
-        h_JJi = np.tensordot (intj.get_phh (bra, ket, s1).sum (2), h_jjji, axes=3)
+        h_rIIiii = np.tensordot (d_rIIj, self.get_ham_2q (i,i,i,j), axes=((-1),(-1)))
+        h_JJi = np.tensordot (intj.get_phh (bra, ket, s1).sum (2), self.get_ham_2q (i,j,j,j),
+                              axes=((4,2,3),(1,2,3)))
         h_rIIi += np.tensordot (d_rJJII, h_JJi, axes=((1,2),(0,1)))
         inti._put_ham_(bra, ket, 0, h_rIIi, h_rIIiii, spin=s1)
         dt, dw = logger.process_clock () - t0, logger.perf_counter () - w0
@@ -664,7 +665,7 @@ class ContractHamCI_SHS (rdm.LRRDM):
         r, s = self.get_range (j)
         fac = -1
         d_ = fac * d_
-        h_jjii = self.get_ham_2q (j,i,i,j).transpose (0,3,2,1)
+        h_jjii = self.get_ham_2q (i,j,j,i).transpose (2,1,0,3)
         d_rJJii = np.tensordot (d_, inti.get_sp (bra, ket), axes=2)
         h_rJJjj = np.tensordot (d_rJJii, h_jjii, axes=((-2,-1),(-2,-1)))
         intj._put_ham_(bra, ket, 0, h_rJJjj, 0, spin=2)
