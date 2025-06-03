@@ -22,6 +22,11 @@ using namespace MATHLIB_NS;
 // B is (k, n) matrix
 // C is (m, n) matrix
 
+// -replay to rerun workloads sampled from mrh4gpu run
+// -replay gemm_batch T T 92 92 92 1 0 240
+// -replay gemm N N 92 92 22080 1 0
+
+// -fortran-order
 // Column-ordering transposes everything
 // To compute A.B, then to call API with B.A
 
