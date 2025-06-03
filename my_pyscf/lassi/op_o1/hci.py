@@ -574,7 +574,6 @@ class ContractHamCI_SHS (rdm.LRRDM):
         _crunch_fn (*row)
 
     def _put_hconst_(self, op, bra, ket, *inv):
-        print ("_put_hconst_ top:", bra, ket, inv)
         spec = np.ones (self.nfrags, dtype=bool)
         spec[list(set (inv))] = False
         spec = np.where (spec)[0]
@@ -587,7 +586,6 @@ class ContractHamCI_SHS (rdm.LRRDM):
             rows, invs = np.unique (tab_i, return_inverse=True, axis=0)
             for j, (bra, ket) in enumerate (rows):
                 sub_tab = tab[invs==j]
-                print (bra, ket, myinv)
                 d_rIIop = self.get_fdm (bra, ket, *myinv, _braket_table=sub_tab)
                 h_rII = np.tensordot (d_rIIop, op, axes=op.ndim)
                 self.ints[i]._put_ham_(bra, ket, h_rII, 0, 0, hermi=1)
