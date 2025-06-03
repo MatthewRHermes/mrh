@@ -30,12 +30,17 @@ using namespace MATHLIB_NS;
 struct input_t {
   bool check_result = false;
   bool do_batched = false;
+  bool fortran = false;
   int num_batches = 1;
   int num_iter = 100;
   int num_repeat = 1;
   int m = 1024;
   int n = 1024;
   int k = 1024;
+  double alpha = 1.0;
+  double beta = 0.0;
+  char * transa = (char *) "N";
+  char * transb = (char *) "N";
 };
 
 // ----------------------------------------------------------------
@@ -54,10 +59,26 @@ void parse_command_line(int argc, char * argv[], input_t & inp)
       inp.n = atoi(argv[++indx]);
       inp.k = atoi(argv[++indx]);
     }
+    else if(strcmp(argv[indx], "-trans") == 0) {
+      inp.transa = argv[++indx];
+      inp.transb = argv[++indx];
+    }
+    else if(strcmp(argv[indx],"-replay") == 0) {
+      if(strcmp(argv[++indx], "gemm_batch") == 0) inp.do_batched = true;
+      inp.transa = argv[++indx];
+      inp.transb = argv[++indx];
+      inp.m = atoi(argv[++indx]);
+      inp.n = atoi(argv[++indx]);
+      inp.k = atoi(argv[++indx]);
+      inp.alpha = atof(argv[++indx]);
+      inp.beta = atof(argv[++indx]);
+      if(inp.do_batched) inp.num_batches = atoi(argv[++indx]);
+    }
     else if(strcmp(argv[indx], "-num_iter") == 0) inp.num_iter = atoi(argv[++indx]);
     else if(strcmp(argv[indx], "-batched") == 0) inp.do_batched = true;
     else if(strcmp(argv[indx], "-num_batches") == 0) inp.num_batches = atoi(argv[++indx]);
     else if(strcmp(argv[indx], "-num_repeat") == 0) inp.num_repeat = atoi(argv[++indx]);
+    else if(strcmp(argv[indx], "-fortran-order") == 0) inp.fortran = true;
 
     indx++;
   }
@@ -65,11 +86,13 @@ void parse_command_line(int argc, char * argv[], input_t & inp)
   printf("\ninput_params\n");
   printf("------------\n");
   printf("check_result= %i\n",inp.check_result);
+  printf("trans= %s %s\n",inp.transa, inp.transb);
   printf("mnk= %i %i %i\n",inp.m, inp.n, inp.k);
   printf("num_iter= %i\n",inp.num_iter);
   printf("do_batched= %i\n",inp.do_batched);
   printf("num_batches= %i\n",inp.num_batches);
   printf("num_repeat= %i\n",inp.num_repeat);
+  printf("fortran= %i\n",inp.fortran);
 }
 
 // ----------------------------------------------------------------
@@ -305,34 +328,76 @@ int main( int argc, char* argv[] )
   
   const double alpha = 1.0;
   const double beta = 0.0;
-  
-  const int m = inp.n;  // # rows of first matrix B^T
-  const int n = inp.m;  // # cols of second matrix A^T
-  const int k = inp.k;  // # cols of first matrix B^T
-  
-  const int ldb = inp.n; // lead dimension of first matrix B^T
-  const int lda = inp.k; // lead dimension of second matrix A^T
-  const int ldc = inp.n; // lead dimension of result matrix C
 
-  const int strideA = inp.k * inp.n; // stride matrix B
-  const int strideB = inp.m * inp.k; // stride matrix A
-  const int strideC = inp.m * inp.n; // stride matrix C
+  int m, n, k;
+  int lda, ldb, ldc;
+  int strideA, strideB, strideC;
 
+  if(inp.fortran) {
+  
+    m = inp.n;  // # rows of first matrix B^T
+    n = inp.m;  // # cols of second matrix A^T
+    k = inp.k;  // # cols of first matrix B^T
+    
+    ldb = inp.n; // lead dimension of first matrix B^T
+    lda = inp.k; // lead dimension of second matrix A^T
+    ldc = inp.n; // lead dimension of result matrix C
+    
+    strideA = inp.k * inp.n; // stride matrix B
+    strideB = inp.m * inp.k; // stride matrix A
+    strideC = inp.m * inp.n; // stride matrix C
+
+  } else {
+
+    m = inp.m;
+    n = inp.n;
+    k = inp.k;
+
+    lda = inp.k;
+    ldb = inp.n;
+    ldc = inp.n;
+
+    strideA = inp.m * inp.k;
+    strideB = inp.k * inp.m;
+    strideC = inp.m * inp.n;
+    
+  }
+    
   for(int i=0; i<num_devices; ++i) {
     pm->dev_set_device(i);
     ml->set_handle();
 
     if(inp.do_batched) {
-      
-      ml->gemm_batch((char *) "N", (char *) "N", &m, &n, &k,
-		     &alpha, d_b[i], &ldb, &strideB,
-		     d_a[i], &lda, &strideA,
-		     &beta, d_c[i], &ldc, &strideC,
-		     &(inp.num_batches));
+
+      if(inp.fortran) {
+	
+	ml->gemm_batch((char *) "N", (char *) "N", &m, &n, &k,
+		       &alpha, d_b[i], &ldb, &strideB,
+		       d_a[i], &lda, &strideA,
+		       &beta, d_c[i], &ldc, &strideC,
+		       &(inp.num_batches));
+
+      } else {
+
+	ml->gemm_batch((char *) "N", (char *) "N", &m, &n, &k,
+		       &alpha, d_a[i], &lda, &strideA,
+		       d_b[i], &ldb, &strideB,
+		       &beta, d_c[i], &ldc, &strideC,
+		       &(inp.num_batches));
+	
+      }
       
     } else {
       
-      ml->gemm((char *) "N", (char *) "N", &m, &n, &k, &alpha, d_b[i], &ldb, d_a[i], &lda, &beta, d_c[i], &ldc);
+      if(inp.fortran) {
+
+	ml->gemm((char *) "N", (char *) "N", &m, &n, &k, &alpha, d_b[i], &ldb, d_a[i], &lda, &beta, d_c[i], &ldc);
+
+      } else {
+	
+	ml->gemm((char *) "N", (char *) "N", &m, &n, &k, &alpha, d_a[i], &lda, d_b[i], &ldb, &beta, d_c[i], &ldc);
+
+      }
 
     }
   
@@ -355,16 +420,36 @@ int main( int argc, char* argv[] )
 	ml->set_handle();
 
 	if(inp.do_batched) {
+
+	  if(inp.fortran) {
+	    
+	    ml->gemm_batch((char *) "N", (char *) "N", &m, &n, &k,
+			   &alpha, d_b[j], &ldb, &strideB,
+			   d_a[j], &lda, &strideA,
+			   &beta, d_c[j], &ldc, &strideC,
+			   &(inp.num_batches));
+
+	  } else {
+
+	    ml->gemm_batch((char *) "N", (char *) "N", &m, &n, &k,
+			   &alpha, d_a[j], &lda, &strideA,
+			   d_b[j], &ldb, &strideB,
+			   &beta, d_c[j], &ldc, &strideC,
+			   &(inp.num_batches));
 	  
-	  ml->gemm_batch((char *) "N", (char *) "N", &m, &n, &k,
-			 &alpha, d_b[j], &ldb, &strideB,
-			 d_a[j], &lda, &strideA,
-			 &beta, d_c[j], &ldc, &strideC,
-			 &(inp.num_batches));
+	  }
 
 	} else {
+
+	  if(inp.fortran) {
+	    
+	    ml->gemm((char *) "N", (char *) "N", &m, &n, &k, &alpha, d_b[j], &ldb, d_a[j], &lda, &beta, d_c[j], &ldc);
+
+	  } else {
+
+	    ml->gemm((char *) "N", (char *) "N", &m, &n, &k, &alpha, d_a[j], &lda, d_b[j], &ldb, &beta, d_c[j], &ldc);
 	  
-	  ml->gemm((char *) "N", (char *) "N", &m, &n, &k, &alpha, d_b[j], &ldb, d_a[j], &lda, &beta, d_c[j], &ldc);
+	  }
 
 	}
       }
