@@ -12,6 +12,10 @@
   typedef double real_t;
 #endif
 
+#if defined(_PROFILE_ML)
+#include <algorithm>
+#endif
+
 #if defined(_USE_GPU)
 
 // set default based on backend if one not explicitly set
