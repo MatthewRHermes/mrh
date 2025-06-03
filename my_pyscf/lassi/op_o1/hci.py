@@ -625,14 +625,14 @@ class ContractHamCI_SHS (rdm.LRRDM):
         fac *= fermion_des_shuffle (nelec_f_ket, (i, j), j)
         d_rJJII *= fac
         d_rJJi = np.tensordot (d_rJJII, inti.get_p (bra, ket, s1), axes=2)
-        h_rJJj = np.tensordot (d_rJJi, self.get_ham_2q (i,j)[s1], axes=((-1),(-1)))
+        h_rJJj = np.tensordot (d_rJJi, self.get_ham_2q (i,j)[s1], axes=1)
         h_rJJjjj = np.tensordot (d_rJJi, self.get_ham_2q (j,j,j,i), axes=((-1),(-1)))
         h_iiij = self.get_ham_2q (j,i,i,i).transpose (1,3,2,0) # Mulliken -> Dirac order
         h_IIj = np.tensordot (inti.get_pph (bra, ket, s1).sum (2), h_iiij, axes=3)
         h_rJJj += np.tensordot (d_rJJII, h_IIj, axes=2)
         intj._put_ham_(bra, ket, 0, h_rJJj, h_rJJjjj, spin=s1)
         d_rIIj = np.tensordot (d_rJJII, intj.get_h (bra, ket, s1), axes=((1,2),(0,1)))
-        h_rIIi = np.tensordot (d_rIIj, self.get_ham_2q (j,i)[s1], axes=((-1),(-2)))
+        h_rIIi = np.tensordot (d_rIIj, self.get_ham_2q (i,j)[s1], axes=((-1),(-1)))
         h_rIIiii = np.tensordot (d_rIIj, self.get_ham_2q (j,i,i,i), axes=1)
         h_jjji = self.get_ham_2q (j,j,j,i).transpose (1,0,2,3) # Mulliken -> Dirac order
         h_JJi = np.tensordot (intj.get_phh (bra, ket, s1).sum (2), h_jjji, axes=3)
