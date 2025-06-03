@@ -22,7 +22,7 @@ using namespace MATHLIB_NS;
 // B is (k, n) matrix
 // C is (m, n) matrix
 
-// -replay to rerun workloads sampled from mrh4gpu run
+// -replay to rerun workloads sampled from gpu4mrh run
 // -replay gemm_batch T T 92 92 92 1 0 240
 // -replay gemm N N 92 92 22080 1 0
 
