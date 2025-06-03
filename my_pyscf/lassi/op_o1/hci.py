@@ -582,15 +582,14 @@ class ContractHamCI_SHS (rdm.LRRDM):
         '''Compute a two-fragment density fluctuation.'''
         d_rJJII = self.get_fdm (bra, ket, i, j) # time-profiled by itself
         t0, w0 = logger.process_clock (), logger.perf_counter ()
-        d2 = self._get_D2_(bra, ket)
         def _perm (k, l, d_rKKLL):
             h2_kkll = self.get_ham_2q (k,k,l,l)
             h2_kllk = self.get_ham_2q (k,l,l,k)
             d1s_ll = self.ints[l].get_dm1 (bra, ket)
-            d_rKKsll = np.tensordot (d_rKKLL, d1s_ll, axes=2)
-            h_rKKskk = np.tensordot (d_rKKsll, h2_kkll, axes=((-2,-1),(2,3)))
-            h_rKKskk += h_rKKskk[:,:,:,::-1,:,:]
-            h_rKKskk -= np.tensordot (d_rKKsll, h2_kllk, axes=((-2,-1),(2,1)))
+            veff_LL = -np.tensordot (d1s_ll, h2_kllk, axes=((-2,-1),(2,1)))
+            vj_LL = np.tensordot (d1s_ll.sum (2), h2_kkll, axes=((-2,-1),(-2,-1)))
+            veff_LL += vj_LL[:,:,None,:,:]
+            h_rKKskk = np.tensordot (d_rKKLL, veff_LL, axes=2)
             h_srKKkk = h_rKKskk.transpose (3,0,1,2,4,5)
             self.ints[k]._put_ham_(bra, ket, 0, h_srKKkk[0], 0, spin=0)
             self.ints[k]._put_ham_(bra, ket, 0, h_srKKkk[1], 0, spin=3)

@@ -659,7 +659,7 @@ class FragTDMInt (object):
     def _put_ham_(self, bra, ket, h0, h1, h2, spin=None, hermi=0):
         i = bra
         j = self.unique_root[ket]
-        hterm0 = self._ham.get ((i, j, hermi), 0)
+        hterm0 = self._ham.get ((i-self.nbra_off, j, hermi), 0)
         hterm1 = HamTerm (self, ket, i, j, h0, h1, h2, hermi=hermi, spin=spin)
         self._ham[(i-self.nbra_off,j,hermi)] = hterm1 + hterm0 
 
@@ -715,9 +715,8 @@ class HamTerm:
                         parent.contract_h01,
                         parent.contract_h10,
                         parent.contract_h20][idx]
-        self._hargs = self._get_args ()
 
-    def _get_args (self):
+    def _get_hargs (self):
         hargs = []
         if self.h0 is not None: hargs.append (self.h0)
         if self.h1 is not None: hargs.append (self.h1)
@@ -730,9 +729,10 @@ class HamTerm:
         ndetb = self.parent.ndetb_r[self.ir]
         sargs = []
         if self.spin is not None: sargs.append (self.spin)
+        hargs = self._get_hargs ()
         hci_plab = np.zeros ((nsi,li,ndeta,ndetb), dtype=self.parent.dtype)
         for p,i,j in product (range (nsi), range (li), range (lj)):
-            args = sargs + [h[p,i,j] for h in self._hargs] + [self.ket,]
+            args = sargs + [h[p,i,j] for h in hargs] + [self.ket,]
             hci_plab[p,i] += self._op (*args, dn=j)
         return hci_plab
 
