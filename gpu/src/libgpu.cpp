@@ -382,10 +382,10 @@ void libgpu_push_cascm2 (void * ptr,
 
 /* ---------------------------------------------------------------------- */
 void libgpu_compute_Pi (void * ptr,
-                 int ngrid, int ncas)
+                 int ngrid, int ncas, int nao)
 {
   Device * dev = (Device *) ptr;
-  dev->compute_Pi(ngrid, ncas);
+  dev->compute_Pi(ngrid, ncas, nao);
 }
 
 /* ---------------------------------------------------------------------- */

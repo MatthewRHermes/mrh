@@ -30,7 +30,7 @@ nruns=20
 if gpu_run:gpu = libgpu.init()
 lib.logger.TIMER_LEVEL=lib.logger.INFO
 
-nfrags=4;basis='ccpvtz';
+nfrags=4;basis='631g';
 if gpu_run:mol=gto.M(use_gpu=gpu, atom=generator(nfrags),basis=basis)#,verbose=4,output=outputfile,max_memory=160000)
 #else: mol=gto.M(atom=generator(nfrags),basis=basis)
 mf=scf.RHF(mol)
@@ -50,8 +50,19 @@ def prange(start, end, step):
     for i in range(start, end, step):
         yield i, min(i+step, end)
 
+
+
+
+
+
+
 def init_eri_cpu (mo, casscf, with_df):
     mo = numpy.asarray(mo, order='F')
+    nao,nmo=mo.shape
+    ncore=casscf.ncore
+    ncas=casscf.ncas
+    naoaux = with_df.get_naoaux()
+    nocc=ncas+ncore
     fxpp = numpy.empty ((nmo, nmo, naoaux))
     bufpa = numpy.empty((naoaux,nmo,ncas))
     fxpp_keys = []
@@ -60,7 +71,7 @@ def init_eri_cpu (mo, casscf, with_df):
     k_pc_cpu = numpy.zeros((nmo,ncore))
     k_cp = numpy.zeros((ncore,nmo))
     ppaa_cpu = numpy.zeros((nmo, nmo, ncas,ncas))
-    papa_cpu = numpy.zeros((nmo, ncas, nmo,nmo))
+    papa_cpu = numpy.zeros((nmo, ncas, nmo,ncas))
     fxpp = numpy.empty ((nmo, nmo, naoaux))
     blksize = with_df.blockdim
     bufpa = numpy.empty((naoaux,nmo,ncas))
@@ -87,8 +98,10 @@ def init_eri_cpu (mo, casscf, with_df):
         b0 += naux
     #bufs1 = bufpp = None
     k_pc_cpu = k_cp.T.copy()
-    bufaa = bufpa[:,ncore:nocc,:].copy()#.reshape(-1,ncas**2)
-    for p0, p1 in prange(0, nmo, nblk):
+    bufaa = bufpa[:,ncore:nocc,:].copy().reshape(-1,ncas**2)
+    bufs1 = numpy.empty((blksize,nmo,naoaux))
+    bufs2 = numpy.empty((blksize,nmo,ncas,ncas))
+    for p0, p1 in prange(0, nmo, blksize):
         nrow = p1 - p0
         buf = bufs1[:nrow]
         tmp = bufs2[:nrow].reshape(-1,ncas**2)
@@ -97,15 +110,51 @@ def init_eri_cpu (mo, casscf, with_df):
             buf[:nrow,:,col0:col1] = fxpp[:,:,col0:col1][p0:p1]
         lib.dot(buf.reshape(-1,naoaux), bufaa, 1, tmp)
         ppaa_cpu[p0:p1] = tmp.reshape(p1-p0,nmo,ncas,ncas)
-    bufs1 = numpy.empty((nblk,ncas,nmo,ncas))
+    bufs1 = None
+    bufs1 = numpy.empty((blksize,ncas,nmo,ncas))
     dgemm = lib.numpy_helper._dgemm
-    for p0, p1 in prange(0, nmo, nblk):
+    for p0, p1 in prange(0, nmo, blksize):
         tmp = numpy.dot(bufpa[:,p0:p1].reshape(naoaux,-1).T,
                             bufpa.reshape(naoaux,-1))
         papa_cpu[p0:p1] = tmp.reshape(p1-p0,ncas,nmo,ncas)
  
 
     return j_pc_cpu, k_pc_cpu, ppaa_cpu, papa_cpu
+
+def init_eri_gpu_v4 (mo, casscf, with_df):
+    mo = numpy.asarray(mo, order='F')
+    nao,nmo=mo.shape
+    b0 = 0
+    blksize=with_df.blockdim
+    ncas=casscf.ncas
+    ncore=casscf.ncore
+    j_pc = numpy.zeros((nmo,ncore))
+    k_pc = numpy.zeros((nmo,ncore))
+    k_cp = numpy.zeros((ncore,nmo))
+    ppaa = numpy.zeros((nmo, nmo, ncas,ncas))
+    papa = numpy.zeros((nmo, ncas, nmo,ncas))
+    if gpu:
+        arg = numpy.array([-1, -1, -1, -1], dtype=numpy.int32)
+        libgpu.get_dfobj_status(gpu, id(with_df), arg)
+        if arg[2] > -1: load_eri = False
+    libgpu.push_mo_coeff(gpu, mo, nao*nmo)
+    libgpu.init_jk_ao2mo(gpu, ncore, nmo) 
+    libgpu.init_ppaa_papa_ao2mo(gpu, nmo, ncas) 
+    count = 0
+    for k, eri1 in enumerate(with_df.loop(blksize)):
+        naux = eri1.shape[0]
+        b0+=naux
+    for count in range(k+1):
+        arg = numpy.array([-1, -1, count, -1], dtype = numpy.int32)
+        libgpu.get_dfobj_status(gpu, id(with_df),arg)
+        naux = arg[0]
+        libgpu.df_ao2mo_v4(gpu,blksize,nmo,nao,ncore,ncas,naux,count,id(with_df)) 
+    libgpu.pull_jk_ao2mo_v4 (gpu, j_pc, k_cp, nmo, ncore)
+    libgpu.pull_ppaa_papa_ao2mo_v4(gpu, ppaa, papa, nmo, ncas) #pull ppaa
+    k_pc = k_cp.T.copy()
+
+    return j_pc,k_pc, ppaa, papa
+
 
 
 def init_eri_gpu_v3 (mo, casscf, with_df):
@@ -147,46 +196,14 @@ def init_eri_gpu_v3 (mo, casscf, with_df):
 
     return j_pc,k_pc, ppaa, papa
 
-def init_eri_gpu_v4 (mo, casscf, with_df):
-    mo = numpy.asarray(mo, order='F')
-    fxpp = numpy.empty ((nmo, nmo, naoaux))
-    bufpa = numpy.empty((naoaux,nmo,ncas))
-    b0 = 0
-    j_pc = numpy.zeros((nmo,ncore))
-    k_pc = numpy.zeros((nmo,ncore))
-    k_cp = numpy.zeros((ncore,nmo))
-    ppaa = numpy.zeros((nmo, nmo, ncas,ncas))
-    papa = numpy.zeros((nmo, ncas, nmo,ncas))
-    if gpu:
-        arg = numpy.array([-1, -1, -1, -1], dtype=numpy.int32)
-        libgpu.get_dfobj_status(gpu, id(with_df), arg)
-        if arg[2] > -1: load_eri = False
-    libgpu.push_mo_coeff(gpu, mo, nao*nmo)
-    libgpu.init_jk_ao2mo(gpu, ncore, nmo) 
-    libgpu.init_ppaa_papa_ao2mo(gpu, nmo, ncas) 
-    count = 0
-    for k, eri1 in enumerate(with_df.loop(blksize)):
-        naux = eri1.shape[0]
-        b0+=naux
-    for count in range(k+1):
-        arg = numpy.array([-1, -1, count, -1], dtype = numpy.int32)
-        libgpu.get_dfobj_status(gpu, id(with_df),arg)
-        naux = arg[0]
-        libgpu.df_ao2mo_v4(gpu,blksize,nmo,nao,ncore,ncas,naux,count,id(with_df)) 
-    libgpu.pull_jk_ao2mo_v4 (gpu, j_pc, k_cp, nmo, ncore)
-    libgpu.pull_ppaa_papa_ao2mo_v4(gpu, ppaa, papa, nmo, ncas) #pull ppaa
-    k_pc = k_cp.T.copy()
-
-    return j_pc,k_pc, ppaa, papa
-
 #Warm up iteration
-for _ in range(1): j_pc_v3, k_pc_v3, ppaa_v3, papa_v3 = init_eri_gpu_v3 (mf.mo_coeff, mc, with_df) 
+for _ in range(1): j_pc_v3, k_pc_v3, ppaa_v3, papa_v3 = init_eri_cpu (mf.mo_coeff, mc, with_df) 
 for _ in range(1): j_pc_v4, k_pc_v4, ppaa_v4, papa_v4 = init_eri_gpu_v4 (mf.mo_coeff, mc, with_df) 
 if DEBUG: 
     print('i_pc check ',numpy.allclose(j_pc_v4,j_pc_v3))
     print('k_pc check ',numpy.allclose(k_pc_v4,k_pc_v3))
-    print('ppaa check ',numpy.allclose(ppaa_v4,ppaa_v3))
-    print('papa check ',numpy.allclose(papa_v4,papa_v3))
+    print('ppaa check ',numpy.allclose(ppaa_v4,ppaa_v3), numpy.max(numpy.abs(ppaa_v3-ppaa_v4)))
+    print('papa check ',numpy.allclose(papa_v4,papa_v3), numpy.max(numpy.abs(papa_v3-papa_v4)))
 
 if PERFORMANCE:
     t0=time.time()

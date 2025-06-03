@@ -163,7 +163,7 @@ public :
   void pull_mo_grid(py::array_t<double>, int, int);
   void init_Pi(int);
   void push_cascm2 (py::array_t<double>, int); 
-  void compute_Pi (int, int); 
+  void compute_Pi (int, int, int); 
   void pull_Pi (py::array_t<double>, int); 
 
   //inner functions
@@ -339,8 +339,8 @@ private:
     double * d_cascm2;
     double * d_mo_grid;
     double * d_Pi;
-    double * d_buf_grid1;
-    double * d_buf_grid2;
+    double * d_buf_pdft1;
+    double * d_buf_pdft2;
 
     std::vector<int> type_pumap;
     std::vector<int> size_pumap;
