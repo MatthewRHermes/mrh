@@ -141,18 +141,9 @@ class KnownValues(unittest.TestCase):
     def test_contract_hlas_ci (self):
         e_roots, si, las = lsi.e_roots, lsi.si, lsi._las
         h0, h1, h2 = lsi.ham_2q ()
-        # pph, phh
-        #h2[2:,:2,:2,:2] = 0
-        #h2[:2,2:,2:,2:] = 0
-        #h2[:2,2:,:2,:2] = 0
-        #h2[2:,:2,2:,2:] = 0
-        #h2[:2,:2,2:,:2] = 0
-        #h2[2:,2:,:2,2:] = 0
-        #h2[:2,:2,:2,2:] = 0
-        #h2[2:,2:,2:,:2] = 0
         # 2c
-        #h2[2:,:2,2:,:2] = 0
-        #h2[:2,2:,:2,2:] = 0
+        h2[2:,:2,2:,:2] = 0
+        h2[:2,2:,:2,2:] = 0
         case_contract_hlas_ci (self, las, h0, h1, h2, las.ci, lsi.get_nelec_frs ())
 
     def test_contract_op_si (self):
