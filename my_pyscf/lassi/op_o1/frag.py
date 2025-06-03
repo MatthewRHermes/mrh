@@ -651,20 +651,21 @@ class FragTDMInt (object):
         hci = contract_1e_nosym_uhf (h_11_s, ci, norb, nelec, link_index=linkstr)
         return hci
 
-    def _init_ham_(self, nroots_si):
+    def _init_ham_(self, nroots_si, nbra_off):
         self._ham = {}
         self.nroots_si = nroots_si
+        self.nbra_off = nbra_off
 
     def _put_ham_(self, bra, ket, h0, h1, h2, spin=None, hermi=0):
-        i = self.unique_root[bra]
+        i = bra
         j = self.unique_root[ket]
         hterm0 = self._ham.get ((i, j, hermi), 0)
         hterm1 = HamTerm (self, ket, i, j, h0, h1, h2, hermi=hermi, spin=spin)
-        self._ham[(i,j,hermi)] = hterm1 + hterm0 
+        self._ham[(i-self.nbra_off,j,hermi)] = hterm1 + hterm0 
 
     def _ham_op (self):
         hci_r_plab = []
-        for c in self.ci:
+        for c in self.ci[self.nbra_off:]:
             hci_plab = np.zeros ([self.nroots_si,] + list (c.shape),
                                  dtype=c.dtype)
             hci_r_plab.append (hci_plab)

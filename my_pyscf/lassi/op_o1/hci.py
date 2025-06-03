@@ -539,23 +539,6 @@ class ContractHamCI_SHS (rdm.LRRDM):
     interaction_has_spin = ('_1c_', '_1c1d_', '_1s1c_', '_2c_')
     ltri_ambiguous = False
 
-    def _init_vecs (self):
-        hci_fr_plab = []
-        for i in range (self.nfrags):
-            self.ints[i]._init_ham_(self.nroots_si)
-            lroots_bra = self.lroots[i,-self.nbra:].copy ()
-            hci_r_plab = []
-            norb = self.ints[i].norb
-            for r in range (self.nbra):
-                nelec = self.ints[i].nelec_r[r+self.nroots-self.nbra]
-                ndeta = cistring.num_strings (norb, nelec[0])
-                ndetb = cistring.num_strings (norb, nelec[1])
-                hci_r_plab.append (np.zeros (
-                    (self.nroots_si, lroots_bra[r], ndeta, ndetb),
-                    dtype=self.dtype))
-            hci_fr_plab.append (hci_r_plab)
-        return hci_fr_plab
-
     def get_single_rootspace_sivec (self, iroot, bra=False):
         '''A single-rootspace slice of the SI vectors.
 
@@ -786,7 +769,7 @@ class ContractHamCI_SHS (rdm.LRRDM):
         '''
         t0 = (lib.logger.process_clock (), lib.logger.perf_counter ())
         self.init_profiling ()
-        self.hci_fr_plab = self._init_vecs ()
+        for inti in self.ints: inti._init_ham_(self.nroots_si, self.nket)
         self._crunch_all_()
         self.hci_fr_plab = [inti._ham_op () for inti in self.ints]
         self._hconst_ci_(hci=self.hci_fr_plab) # TODO: Does umat_linequiv_loop mess this up?
