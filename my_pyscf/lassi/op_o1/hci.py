@@ -775,7 +775,10 @@ class ContractHamCI_SHS (rdm.LRRDM):
         self.init_profiling ()
         for inti in self.ints: inti._init_ham_(self.nroots_si, self.nket)
         self._crunch_all_()
+        t1, w1 = logger.process_clock (), logger.perf_counter ()
         self.hci_fr_plab = [inti._ham_op () for inti in self.ints]
+        dt, dw = logger.process_clock () - t1, logger.perf_counter () - w1
+        self.dt_p, self.dw_p = self.dt_p + dt, self.dw_p + dw
         self._hconst_ci_(hci=self.hci_fr_plab) # TODO: Does umat_linequiv_loop mess this up?
         return self.hci_fr_plab, t0
 
