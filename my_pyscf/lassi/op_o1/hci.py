@@ -752,6 +752,7 @@ class ContractHamCI_SHS (rdm.LRRDM):
             self.ints[l]._put_ham_(bra, ket, 0, h_rLLl, 0, s12)
         if i == k: # d_rKKlj
             h_rIIii = fac * np.tensordot (d_rKIlj, h_iklj, axes=((-2,-1),(2,3)))
+            self.ints[i]._put_ham_(bra, ket, 0, h_rIIii, 0, spin=s2lt)
         else: # d_rljKKII
             d_rljKKII = np.moveaxis (d_rKIlj, axes=((-2,-1),(1,2)))
             d_rljKKi = np.tensordot (d_rljKKII, self.ints[i].get_p (bra, ket, s11), axes=2)
