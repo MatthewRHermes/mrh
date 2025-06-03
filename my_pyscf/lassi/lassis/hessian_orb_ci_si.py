@@ -83,15 +83,15 @@ class HessianOperator (sparse_linalg.LinearOperator):
         if ci_01 is not None:
             for i in range (self.nfrags):
                 for r in range (self.nroots):
-                    ci1[i][r] += ci_01[i][r][0,...,0]
+                    ci1[i][r] += ci_01[i][r][0]
         if ci_10 is not None:
             for i,j in permutations (range (self.nfrags), 2):
                 ci_10_i = ci_10[i][self.nroots*(j+1):self.nroots*(j+2)]
                 for r in range (self.nroots):
-                    ci1[i][r] += ci_10_i[r][0,...,0]
+                    ci1[i][r] += ci_10_i[r][0]
             for i in range (self.nfrags):
                 for r in range (self.nroots):
-                    ci1[i][r] += ci_10[i][r][0,...,0]
+                    ci1[i][r] += ci_10[i][r][0]
         for i in range (self.nfrags):
             for r in range (self.nroots):
                 my_shape = ci1[i][r].shape
