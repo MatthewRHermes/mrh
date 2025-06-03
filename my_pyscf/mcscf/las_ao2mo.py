@@ -136,7 +136,7 @@ def get_h2eff_gpu_v2 (las,mo_coeff):
     if las.verbose==lib.logger.DEBUG and gpu:
         eri_cpu = np.zeros((nmo, int(ncas*ncas*(ncas+1)/2)))
     for cderi in las.with_df.loop (blksize=blksize):
-        t1 = lib.logger.timer (las, 'Sparsedf', *t0)
+        #t1 = lib.logger.timer (las, 'Sparsedf', *t0)
         naux = cderi.shape[0]
         if las.verbose>=lib.logger.DEBUG and gpu:
             libgpu.get_h2eff_df_v2(gpu, cderi, nao, nmo, ncas, naux, ncore,eri1, count, id(las.with_df))
@@ -158,8 +158,9 @@ def get_h2eff_gpu_v2 (las,mo_coeff):
             eri1 = lib.pack_tril (eri1.reshape (nmo*ncas, ncas, ncas)).reshape (nmo, -1)
             cderi = bPmn = bmuP1 = buvP = None
         
-        t1 = lib.logger.timer (las, 'contract1 gpu', *t1)
+        #t1 = lib.logger.timer (las, 'contract1 gpu', *t1)
         count+=1
+    t0 = lib.logger.timer (las, 'las_ao2mo', *t0)
     libgpu.pull_eri_h2eff(gpu, eri, nmo, ncas)
     if las.verbose>=lib.logger.DEBUG and gpu:
         if np.allclose(eri, eri_cpu): log.debug("h2eff_v2 working")

@@ -202,7 +202,7 @@ class ImpuritySCF (scf.hf.SCF):
                         exit()
 
                 
-            elif mf.mol.use_gpu:
+            elif mf.mol.use_gpu and 0:
                 gpu=mf.mol.use_gpu
                 naoaux = mf.with_df.get_naoaux()
                 nao_s, nao_f = imporb_coeff.shape
