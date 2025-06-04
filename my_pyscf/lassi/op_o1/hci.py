@@ -579,7 +579,9 @@ class ContractHamCI_SHS (rdm.LRRDM):
         spec = np.where (spec)[0]
         tab = self.nonuniq_exc[tuple((bra,ket)) + tuple (inv)]
         for i in spec:
-            bras = np.atleast_1d (self.ints[i]._get_bra_i (tab[:,0]))
+            bras = tab[:,0]
+            if self.sum_bra:
+                bras = np.atleast_1d (self.urootstr[i,tab[:,0]])
             kets = np.atleast_1d (self.urootstr[i,tab[:,1]])
             tab_i = np.stack ([bras, kets], axis=1)
             myinv = list (inv) + [i,]
@@ -816,10 +818,10 @@ class ContractHamCI_SHS (rdm.LRRDM):
         '''
         t0 = (lib.logger.process_clock (), lib.logger.perf_counter ())
         self.init_profiling ()
-        for inti in self.ints: inti._init_ham_(self.nroots_si, self.nket, sum_bra=self.sum_bra)
+        for inti in self.ints: inti._init_ham_(self.nroots_si, sum_bra=self.sum_bra)
         self._crunch_all_()
         t1, w1 = logger.process_clock (), logger.perf_counter ()
-        self.hci_fr_plab = [inti._ham_op () for inti in self.ints]
+        self.hci_fr_plab = [inti._ham_op ()[self.nket:] for inti in self.ints]
         dt, dw = logger.process_clock () - t1, logger.perf_counter () - w1
         self.dt_p, self.dw_p = self.dt_p + dt, self.dw_p + dw
         return self.hci_fr_plab, t0
