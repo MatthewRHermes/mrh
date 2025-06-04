@@ -220,7 +220,8 @@ def get_orth_basis (ci_fr, norb_f, nelec_frs, _get_ovlp=None):
                                          matvec=raw2orth,
                                          rmatvec=orth2raw)
 
-def get_unique_roots (ci, nelec_r, screen_linequiv=True, screen_thresh=SCREEN_THRESH):
+def get_unique_roots (ci, nelec_r, screen_linequiv=True, screen_thresh=SCREEN_THRESH,
+                      discriminator=None):
     '''Identify which groups of CI vectors are equal or equivalent from a list.
 
     Args:
@@ -236,6 +237,8 @@ def get_unique_roots (ci, nelec_r, screen_linequiv=True, screen_thresh=SCREEN_TH
         screen_thresh: float
             epsilon for linear equivalence between CI vector spaces
             meaningless if screen_linequiv==False
+        discriminator: sequence of length nroots
+            Tags to forcibly discriminate otherwise equivalent rootspaces
 
     Returns:
         root_unique: ndarray of logical of length nroots
@@ -247,6 +250,7 @@ def get_unique_roots (ci, nelec_r, screen_linequiv=True, screen_thresh=SCREEN_TH
             its unique image
     '''
     nroots = len (ci)
+    if discriminator is None: discriminator = np.zeros (nroots, dtype=int)
     lroots = get_lroots (ci)
     root_unique = np.ones (nroots, dtype=bool)
     unique_root = np.arange (nroots, dtype=int)
@@ -257,6 +261,7 @@ def get_unique_roots (ci, nelec_r, screen_linequiv=True, screen_thresh=SCREEN_TH
         if nelec_r[i] != nelec_r[j]: continue
         if lroots[i] != lroots[j]: continue
         if ci[i].shape != ci[j].shape: continue
+        if discriminator[i] != discriminator[j]: continue
         isequal = False
         if ci[i] is ci[j]: isequal = True
         else:

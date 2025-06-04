@@ -579,7 +579,7 @@ class ContractHamCI_SHS (rdm.LRRDM):
         spec = np.where (spec)[0]
         tab = self.nonuniq_exc[tuple((bra,ket)) + tuple (inv)]
         for i in spec:
-            bras = np.atleast_1d (self.ints[i]._braunique_root[tab[:,0]-self.nket]+self.nket)
+            bras = np.atleast_1d (self.ints[i]._get_bra_i (tab[:,0]))
             kets = np.atleast_1d (self.urootstr[i,tab[:,1]])
             tab_i = np.stack ([bras, kets], axis=1)
             myinv = list (inv) + [i,]
