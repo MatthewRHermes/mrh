@@ -705,22 +705,28 @@ class ContractHamCI_SHS (rdm.LRRDM):
     
         and conjugate transpose
         '''
-        d_ = self.get_fdm (bra, ket, i, j) # time-profiled by itself
+        d_rJJII = self.get_fdm (bra, ket, i, j) # time-profiled by itself
         t0, w0 = logger.process_clock (), logger.perf_counter ()
         inti, intj = self.ints[i], self.ints[j]
         d2 = self._get_D2_(bra, ket) # aa, ab, ba, bb -> 0, 1, 2, 3
         p, q = self.get_range (i)
         r, s = self.get_range (j)
         fac = -1
-        d_ = fac * d_
+        d_rJJII = fac * d_rJJII
         h_jjii = self.get_ham_2q (i,j,j,i).transpose (2,1,0,3)
-        d_rJJii = np.tensordot (d_, inti.get_sp (bra, ket), axes=2)
-        h_rJJjj = np.tensordot (d_rJJii, h_jjii, axes=((-2,-1),(-2,-1)))
+ 
+        h_JJii = np.tensordot (intj.get_sm (bra, ket), h_jjii, axes=2)
+        h_IIjj = np.tensordot (inti.get_sp (bra, ket), h_jjii, axes=((-2,-1),(-2,-1)))
+        
+        h_rJJjj = np.tensordot (d_rJJII, h_IIjj, axes=2)
         intj._put_ham_(bra, ket, 0, h_rJJjj, 0, spin=2)
-        d_ = d_.transpose (0,3,4,1,2)
-        d_rIIjj = np.tensordot (d_, intj.get_sm (bra, ket), axes=2)
-        h_rIIii = np.tensordot (d_rIIjj, h_jjii, axes=2)
+
+        h_rIIii = np.tensordot (d_rJJII, h_JJii, axes=((1,2),(0,1)))
         inti._put_ham_(bra, ket, 0, h_rIIii, 0, spin=1)
+
+        h_JJII = np.tensordot (h_JJii, inti.get_sp (bra, ket), axes=((-2,-1),(-2,-1)))
+        self._put_hconst_(h_JJII, bra, ket, i, j)
+
         dt, dw = logger.process_clock () - t0, logger.perf_counter () - w0
         self.dt_1s, self.dw_1s = self.dt_1s + dt, self.dw_1s + dw
 
