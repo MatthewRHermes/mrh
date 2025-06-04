@@ -685,7 +685,7 @@ class ContractHamCI_SHS (rdm.LRRDM):
 
         h_JJII = np.tensordot (h_JJi, d_IIi, axes=((-1),(-1)))
         h_JJII += np.tensordot (h_JJiii, d_IIiii, axes=((-3,-2,-1),(-3,-2,-1)))
-        self._put_hconst_(h_JJII, bra, ket, i, j)
+        self._put_hconst_(fac*h_JJII, bra, ket, i, j)
 
         dt, dw = logger.process_clock () - t0, logger.perf_counter () - w0
         self.dt_1c, self.dw_1c = self.dt_1c + dt, self.dw_1c + dw
@@ -712,8 +712,7 @@ class ContractHamCI_SHS (rdm.LRRDM):
         p, q = self.get_range (i)
         r, s = self.get_range (j)
         fac = -1
-        d_rJJII = fac * d_rJJII
-        h_jjii = self.get_ham_2q (i,j,j,i).transpose (2,1,0,3)
+        h_jjii = fac *self.get_ham_2q (i,j,j,i).transpose (2,1,0,3)
  
         h_JJii = np.tensordot (intj.get_sm (bra, ket), h_jjii, axes=2)
         h_IIjj = np.tensordot (inti.get_sp (bra, ket), h_jjii, axes=((-2,-1),(-2,-1)))
@@ -769,51 +768,63 @@ class ContractHamCI_SHS (rdm.LRRDM):
         s12 = s2 % 2
         nelec_f_bra = self.nelec_rf[bra]
         nelec_f_ket = self.nelec_rf[ket]
-        d2 = self._get_D2_(bra, ket)
         fac = 1 / (1 + int (s11==s12 and i==k and j==l))
-        h_iklj = self.get_ham_2q (i,j,k,l).transpose (0,2,3,1) # Dirac order
-        if i == k: # d_r...II
-            d_rJLik = np.tensordot (d_rJLKI, self.ints[i].get_pp (bra, ket, s2lt), axes=2)
-            d_rKIJL = np.moveaxis (d_rJLKI, (-2,-1), (1,2))
-        else: # d_r...KKII
-            d_rJLKi = np.tensordot (d_rJLKI, self.ints[i].get_p (bra, ket, s11), axes=2)
-            d_rJLik = np.tensordot (d_rJLKi, self.ints[k].get_p (bra, ket, s12),
-                               axes=((-3,-2),(0,1)))
+        if i != j:
             fac *= (1,-1)[int (i>k)]
             fac *= fermion_des_shuffle (nelec_f_bra, (i, j, k, l), i)
             fac *= fermion_des_shuffle (nelec_f_bra, (i, j, k, l), k)
-            d_rKIJL = np.moveaxis (d_rJLKI, (-4,-3,-2,-1), (1,2,3,4))
-        if j == l: # d_rikJJ, h_ikjj
-            d_rKIlj = np.tensordot (d_rKIJL, self.ints[j].get_hh (bra, ket, s2lt), axes=2)
-            h_rJJjj = fac * np.tensordot (d_rJLik, h_iklj, axes=((-2,-1),(0,1)))
-            self.ints[j]._put_ham_(bra, ket, 0, h_rJJjj, 0, spin=s2lt)
-        else: # d_rikJJLL
-            d_rKIJl = np.tensordot (d_rKIJL, self.ints[l].get_h (bra, ket, s12), axes=2)
-            d_rKIlj = np.tensordot (d_rKIJl, self.ints[j].get_h (bra, ket, s11),
-                                    axes=((-3,-2),(0,1))) # r_iklj
+        if j != l:
             fac *= (1,-1)[int (j>l)]
             fac *= fermion_des_shuffle (nelec_f_ket, (i, j, k, l), j)
             fac *= fermion_des_shuffle (nelec_f_ket, (i, j, k, l), l)
-            d_rikJJLL = np.moveaxis (d_rJLik, (-2,-1), (1,2))
-            d_rikJJl = np.tensordot (d_rikJJLL, self.ints[l].get_h (bra, ket, s12), axes=2)
-            d_rikLLj = np.tensordot (d_rikJJLL, self.ints[j].get_h (bra, ket, s11),
-                                     axes=((-4,-3),(0,1)))
-            h_rJJj = fac * np.tensordot (d_rikJJl, h_iklj, axes=((1,2,5),(0,1,2)))
-            self.ints[j]._put_ham_(bra, ket, 0, h_rJJj, 0, s11)
-            h_rLLl = fac * np.tensordot (d_rikLLj, h_iklj, axes=((1,2,5),(0,1,3)))
-            self.ints[l]._put_ham_(bra, ket, 0, h_rLLl, 0, s12)
-        if i == k: # d_rKKlj
-            h_rIIii = fac * np.tensordot (d_rKIlj, h_iklj, axes=((-2,-1),(2,3)))
-            self.ints[i]._put_ham_(bra, ket, 0, h_rIIii, 0, spin=s2lt)
-        else: # d_rljKKII
-            d_rljKKII = np.moveaxis (d_rKIlj, axes=((-2,-1),(1,2)))
-            d_rljKKi = np.tensordot (d_rljKKII, self.ints[i].get_p (bra, ket, s11), axes=2)
-            d_rljIIk = np.tensordot (d_rljKKII, self.ints[k].get_p (bra, ket, s12),
-                                     axes=((-4,-3),(0,1)))
-            h_rKKk = fac * np.tensordot (d_rljKKi, h_iklj, axes=((1,2,5),(2,3,0)))
-            self.ints[k]._put_ham_(bra, ket, 0, h_rKKk, 0, s12)
-            h_rIIi = fac * np.tensordot (d_rljIIk, h_iklj, axes=((1,2,5),(2,3,1)))
-            self.ints[i]._put_ham_(bra, ket, 0, h_rIIi, 0, s11)
+        h_iklj = fac * self.get_ham_2q (i,j,k,l).transpose (0,2,3,1) # Dirac order
+
+        # First pass: opposite fragment
+        if i == k:
+            h_KIlj = np.tensordot (self.ints[i].get_pp (bra, ket, s2lt), h_iklj, axes=2)
+            h_rJLlj = np.tensordot (d_rJLKI, h_KIlj, axes=2)
+        else:
+            h_Iklj = np.tensordot (self.ints[i].get_p (bra, ket, s11), axes=1)
+            h_KIlj = np.tensordot (self.ints[k].get_p (bra, ket, s12),
+                                   axes=((-1),(-3)))
+            h_rJLlj = np.tensordot (d_rJLKI, h_KIlj, axes=4)
+        if j == l:
+            d_JLlj = self.ints[l].get_hh (bra, ket, s2lt)
+            h_JLik = np.tensordot (d_JLlj, h_iklj, axes=((-2,-1),(-2,-1)))
+            h_rKIik = np.tensordot (d_rJLKI, h_JLik, axes=((1,2),(0,1)))
+            h_JLKI = np.tensordot (d_JLlj, h_KIlj, axes=((-2,-1),(-2,-1)))
+        else:
+            d_Ll = self.ints[l].get_h (bra, ket, s12)
+            h_Likj = np.tensordot (d_Ll, h_iklj, axes=((-1),(-2)))
+            h_LKIj = np.tensordot (d_Ll, h_KIlj, axes=((-1),(-2)))
+            d_Jj = self.ints[j].get_h (bra, ket, s11)
+            h_JLik = np.tensordot (d_Jj, h_Likj, axes=((-1),(-1)))
+            h_rKIik = np.tensordot (d_rJLKI, h_JLik, axes=((1,2,3,4),(0,1,2,3)))
+            h_JLKI = np.tensordot (d_Jj, h_LKIj, axes=((-1),(-1)))
+
+        self._put_hconst_(h_JLKI, bra, ket, i, j, k, l)
+
+        # Second pass: with fragment 
+
+        if i == k:
+            self.ints[i]._put_ham_(bra, ket, 0, h_rKIik, 0, spin=s2lt)
+        else:
+            h_rKkIi = np.moveaxis (h_rKIik, -1, 3)
+            h_rKk = np.tensordot (h_rKkIi, self.ints[i].get_p (bra, ket, s11), axes=3)
+            self.ints[k]._put_ham_(bra, ket, 0, h_rKk, 0, spin=s12)
+            h_rIiKk = np.moveaxis (h_rKIik, (1,2), (-3,-2))
+            h_rIi = np.tensordot (h_rIiKk, self.ints[k].get_p (bra, ket, s12), axes=3)
+            self.ints[i]._put_ham_(bra, ket, 0, h_rIi, 0, spin=s11)
+        if j == l:
+            self.ints[j]._put_ham_(bra, ket, 0, h_rJLlj, 0, spin=s2lt)
+        else:
+            h_rJjLl = np.moveaxis (h_rJLlj, -1, 3)
+            h_rJj = np.tensordot (h_rJjLl, self.ints[l].get_h (bra, ket, s12), axes=3)
+            self.ints[j]._put_ham_(bra, ket, 0, h_rJj, 0, spin=s11)
+            h_rLlJj = np.moveaxis (h_rJLlj, (1,2), (-3,-2))
+            h_rLl = np.tensordot (h_rLlJl, self.ints[j].get_h (bra, ket, s11), axes=3)
+            self.ints[l]._put_ham_(bra, ket, 0, h_rLl, 0, spin=s12)
+
         dt, dw = logger.process_clock () - t0, logger.perf_counter () - w0
         self.dt_2c, self.dw_2c = self.dt_2c + dt, self.dw_2c + dw
 
