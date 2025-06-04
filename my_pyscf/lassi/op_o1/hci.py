@@ -603,7 +603,7 @@ class ContractHamCI_SHS (rdm.LRRDM):
         d1s = self.ints[i].get_dm1 (bra, ket).transpose (0,1,2,4,3)
         d2 = self.ints[i].get_dm2 (bra, ket).sum (2).transpose (0,1,3,2,5,4)
         op = np.tensordot (d1s, h1_sii, axes=3)
-        op += np.tensordot (d2, h2_iiii, axes=4)
+        op += .5*np.tensordot (d2, h2_iiii, axes=4)
         self._put_hconst_(op, bra, ket, i)
         dt, dw = logger.process_clock () - t0, logger.perf_counter () - w0
         self.dt_1d, self.dw_1d = self.dt_1d + dt, self.dw_1d + dw
