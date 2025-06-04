@@ -585,8 +585,9 @@ class ContractHamCI_SHS (rdm.LRRDM):
             kets = np.atleast_1d (self.urootstr[i,tab[:,1]])
             tab_i = np.stack ([bras, kets], axis=1)
             myinv = list (inv) + [i,]
-            rows, invs = np.unique (tab_i, return_inverse=True, axis=0)
-            for j, (bra, ket) in enumerate (rows):
+            idx, invs = np.unique (tab_i, return_index=True, return_inverse=True, axis=0)[1:]
+            for j, ix in enumerate (idx):
+                bra, ket = tab[ix]
                 sub_tab = tab[invs==j]
                 d_rIIop = self.get_fdm (bra, ket, *myinv, _braket_table=sub_tab)
                 h_rII = np.tensordot (d_rIIop, op, axes=op.ndim)
