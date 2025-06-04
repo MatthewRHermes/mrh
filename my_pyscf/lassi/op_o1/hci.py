@@ -909,11 +909,14 @@ def contract_ham_ci (las, h1, h2, ci_fr_ket, nelec_frs_ket, ci_fr_bra, nelec_frs
     mask_ket_space = list (range (nket))
     mask_ints = np.zeros ((nroots,nroots), dtype=bool)
     mask_ints[np.ix_(mask_bra_space,mask_ket_space)] = True
+    discriminator = np.zeros (nroots, dtype=int)
+    discriminator[nket:] = 1
 
     # First pass: single-fragment intermediates
     hopping_index, ints, lroots = frag.make_ints (las, ci, nelec_frs, nlas=nlas,
                                                   screen_linequiv=False,
-                                                  mask_ints=mask_ints)
+                                                  mask_ints=mask_ints,
+                                                  discriminator=discriminator)
 
     # Second pass: upper-triangle
     si_bra_is1d = si_ket_is1d = False

@@ -91,13 +91,15 @@ class FragTDMInt (object):
         Kwargs:
             dtype : instance of np.dtype
                 Currently not used
+            discriminator : sequence of length nroots
+                Additional information to discriminate between otherwise-equivalent rootspaces
             screen_linequiv : logical
                 Whether to compress data by aggressively identifying linearly equivalent
                 rootspaces and storing the relevant unitary matrices.
     '''
 
     def __init__(self, ci, hopping_index, zerop_index, onep_index, norb, nroots, nelec_rs,
-                 rootaddr, fragaddr, idx_frag, mask_ints, dtype=np.float64,
+                 rootaddr, fragaddr, idx_frag, mask_ints, dtype=np.float64, discriminator=None,
                  screen_linequiv=DO_SCREEN_LINEQUIV):
         # TODO: if it actually helps, cache the "linkstr" arrays
         self.ci = ci
@@ -122,6 +124,7 @@ class FragTDMInt (object):
         self.fragaddr = fragaddr
         self.idx_frag = idx_frag
         self.mask_ints = mask_ints
+        self.discriminator = discriminator
 
         # Consistent array shape
         self.ndeta_r = np.array ([cistring.num_strings (norb, nelec[0]) for nelec in self.nelec_r])
@@ -353,7 +356,8 @@ class FragTDMInt (object):
 
         # index down to only the unique rootspaces
         self.root_unique, self.unique_root, self.umat_root = get_unique_roots (
-            ci, self.nelec_r, screen_linequiv=screen_linequiv, screen_thresh=SCREEN_THRESH
+            ci, self.nelec_r, screen_linequiv=screen_linequiv, screen_thresh=SCREEN_THRESH,
+            discriminator=self.discriminator
         )
         idx_uniq = self.root_unique
 
@@ -766,7 +770,7 @@ class HamTerm:
 
 
 def make_ints (las, ci, nelec_frs, screen_linequiv=DO_SCREEN_LINEQUIV, nlas=None,
-               _FragTDMInt_class=FragTDMInt, mask_ints=None):
+               _FragTDMInt_class=FragTDMInt, mask_ints=None, discriminator=None):
     ''' Build fragment-local intermediates (`FragTDMInt`) for LASSI o1
 
     Args:
@@ -783,6 +787,8 @@ def make_ints (las, ci, nelec_frs, screen_linequiv=DO_SCREEN_LINEQUIV, nlas=None
             rootspaces and storing the relevant unitary matrices.
         mask_ints : ndarray of shape (nroots,nroots)
             Mask index down to only the included interactions
+        discriminator : sequence of length (nroots)
+            Additional information to descriminate between otherwise-equivalent rootspaces
 
     Returns:
         hopping_index : ndarray of ints of shape (nfrags, 2, nroots, nroots)
@@ -803,6 +809,7 @@ def make_ints (las, ci, nelec_frs, screen_linequiv=DO_SCREEN_LINEQUIV, nlas=None
         tdmint = _FragTDMInt_class (ci[ifrag], hopping_index[ifrag], zerop_index, onep_index,
                                    nlas[ifrag], nroots, nelec_frs[ifrag], rootaddr,
                                    fragaddr[ifrag], ifrag, mask_ints,
+                                   discriminator=discriminator,
                                    screen_linequiv=screen_linequiv)
         lib.logger.timer (las, 'LAS-state TDM12s fragment {} intermediate crunching'.format (
             ifrag), *tdmint.time_crunch)
