@@ -92,11 +92,12 @@ class ContractHamCI_SHS (rdm.LRRDM):
             tab_i = tab[invs==i]
             yield bra, ket, tab_i
 
-    def _put_hconst_(self, op, bra, ket, *inv):
+    def _put_hconst_(self, op, bra, ket, *inv, keyorder=None):
         spec = np.ones (self.nfrags, dtype=bool)
         spec[list(set (inv))] = False
         spec = np.where (spec)[0]
-        tab = self.nonuniq_exc[tuple((bra,ket)) + tuple (inv)]
+        if keyorder is None: keyorder = inv
+        tab = self.nonuniq_exc[tuple((bra,ket)) + tuple (keyorder)]
         for i in spec:
             myinv = list (inv) + [i,]
             for bra, ket, tab_i in self.split_exc_table_along_frag (tab, i):
@@ -233,12 +234,12 @@ class ContractHamCI_SHS (rdm.LRRDM):
         h_rKKkk -= np.tensordot (d_rKKij, h_ikkj.transpose (0,3,2,1), axes=2)
         intk._put_ham_(bra, ket, 0, h_rKKkk, 0, spin=3*s1)
 
-        h_KKij = np.tensordot (d_KKkk, h_ijkk, axes=((2,3),(2,3)))
-        h_KKij -= np.tensordot (d_sKKkk[s1], h_ikkj, axes=((2,3),(2,1)))
+        h_KKij = np.tensordot (dj_KKkk, h_ijkk, axes=((2,3),(2,3)))
+        h_KKij -= np.tensordot (dk_KKkk, h_ikkj, axes=((2,3),(2,1)))
         h_rJJj = np.tensordot (d_rKKJJi, h_KKij, axes=((1,2,5),(0,1,2)))
-        intj._put_ham_(bra, ket, 0, h_rJJj, 0)
+        intj._put_ham_(bra, ket, 0, h_rJJj, 0, spin=s1)
         h_rIIi = np.tensordot (d_rKKIIj, h_KKij, axes=((1,2,5),(0,1,3)))
-        inti._put_ham_(bra, ket, 0, h_rIIi, 0)
+        inti._put_ham_(bra, ket, 0, h_rIIi, 0, spin=s1)
 
         h_KKiJJ = np.tensordot (h_KKij, d_JJj, axes=((-1,),(-1,)))
         h_KKJJII = np.tensordot (h_KKiJJ, d_IIi, axes=((2,),(-1)))
@@ -323,9 +324,9 @@ class ContractHamCI_SHS (rdm.LRRDM):
 
         h_KKij = np.tensordot (d_KKkk, h_ikkj, axes=((2,3),(2,1)))
         h_rJJj = np.tensordot (d_rKKJJi, h_KKij, axes=((1,2,5),(0,1,2)))
-        intj._put_ham_(bra, ket, 0, h_rJJj, 0)
+        intj._put_ham_(bra, ket, 0, h_rJJj, 0, spin=s12)
         h_rIIi = np.tensordot (d_rKKIIj, h_KKij, axes=((1,2,5),(0,1,3)))
-        inti._put_ham_(bra, ket, 0, h_rIIi, 0)
+        inti._put_ham_(bra, ket, 0, h_rIIi, 0, spin=s11)
 
         h_KKiJJ = np.tensordot (h_KKij, d_JJj, axes=((-1,),(-1,)))
         h_KKJJII = np.tensordot (h_KKiJJ, d_IIi, axes=((2,),(-1)))
@@ -388,8 +389,8 @@ class ContractHamCI_SHS (rdm.LRRDM):
             h_KIlj = np.tensordot (self.ints[i].get_pp (bra, ket, s2lt), h_iklj, axes=2)
             h_rJLlj = np.tensordot (d_rJLKI, h_KIlj, axes=2)
         else:
-            h_Iklj = np.tensordot (self.ints[i].get_p (bra, ket, s11), axes=1)
-            h_KIlj = np.tensordot (self.ints[k].get_p (bra, ket, s12),
+            h_Iklj = np.tensordot (self.ints[i].get_p (bra, ket, s11), h_iklj, axes=1)
+            h_KIlj = np.tensordot (self.ints[k].get_p (bra, ket, s12), h_Iklj,
                                    axes=((-1),(-3)))
             h_rJLlj = np.tensordot (d_rJLKI, h_KIlj, axes=4)
         if j == l:
@@ -406,7 +407,7 @@ class ContractHamCI_SHS (rdm.LRRDM):
             h_rKIik = np.tensordot (d_rJLKI, h_JLik, axes=((1,2,3,4),(0,1,2,3)))
             h_JLKI = np.tensordot (d_Jj, h_LKIj, axes=((-1),(-1)))
 
-        self._put_hconst_(h_JLKI, bra, ket, i, j, k, l)
+        self._put_hconst_(h_JLKI, bra, ket, i, k, l, j, keyorder=[i,j,k,l])
 
         # Second pass: with fragment 
 
@@ -426,7 +427,7 @@ class ContractHamCI_SHS (rdm.LRRDM):
             h_rJj = np.tensordot (h_rJjLl, self.ints[l].get_h (bra, ket, s12), axes=3)
             self.ints[j]._put_ham_(bra, ket, 0, h_rJj, 0, spin=s11)
             h_rLlJj = np.moveaxis (h_rJLlj, (1,2), (-3,-2))
-            h_rLl = np.tensordot (h_rLlJl, self.ints[j].get_h (bra, ket, s11), axes=3)
+            h_rLl = np.tensordot (h_rLlJj, self.ints[j].get_h (bra, ket, s11), axes=3)
             self.ints[l]._put_ham_(bra, ket, 0, h_rLl, 0, spin=s12)
 
         dt, dw = logger.process_clock () - t0, logger.perf_counter () - w0

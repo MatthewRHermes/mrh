@@ -692,6 +692,7 @@ class HamTerm:
         self.dnelec = dnelec
         # interpret "0" as h0, h1, h2
         shape = [self.nsi, self.li, self.lj] + [self.parent.norb,]*4
+        if abs (sum (dnelec)) == 1: shape = shape[:-1]
         if not isinstance (h2, np.ndarray):
             h2 = h2 * np.ones (shape, dtype=float)
         shape = shape[:3]
