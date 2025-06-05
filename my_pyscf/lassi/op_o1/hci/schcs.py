@@ -202,7 +202,50 @@ class ContractHamCI_SHS (rdm.LRRDM):
         self.dt_1c, self.dw_1c = self.dt_1c + dt, self.dw_1c + dw
 
     def _crunch_1c1d_(self, bra, ket, i, j, k, s1):
-        raise NotImplementedError
+        '''Compute the reduced density matrix elements of a coupled electron-hop and
+        density fluctuation.'''
+        d_rKKJJII = self.get_fdm (bra, ket, i, j, k) # time-profiled by itself
+        t0, w0 = logger.process_clock (), logger.perf_counter ()
+        inti, intj, intk = self.ints[i], self.ints[j], self.ints[k]
+        fac = 1
+        nelec_f_bra = self.nelec_rf[bra]
+        nelec_f_ket = self.nelec_rf[ket]
+        fac *= fermion_des_shuffle (nelec_f_bra, (i, j, k), i)
+        fac *= fermion_des_shuffle (nelec_f_ket, (i, j, k), j)
+
+        h_ijkk = fac * self.get_ham_2q (i,j,k,k)
+        h_ikkj = fac * self.get_ham_2q (i,k,k,j)
+
+        d_IIi = inti.get_p (bra, ket, s1)
+        d_JJj = intj.get_h (bra, ket, s1)
+        d_sKKkk = np.moveaxis (intk.get_dm1 (bra, ket), 2, 0)
+        dj_KKkk = d_sKKkk.sum (0)
+        dk_KKkk = d_sKKkk[s1]
+
+        d_rKKJJi = np.tensordot (d_rKKJJII, d_IIi, axes=2)
+        d_rKKIIj = np.tensordot (d_rKKJJII, d_JJj, axes=((3,4),(0,1)))
+        d_rKKij = np.tensordot (d_rKKJJi, d_JJj, axes=((3,4),(0,1)))
+
+        # opposite-spin: Coulomb effect only
+        h_rKKkk = np.tensordot (d_rKKij, h_ijkk, axes=2)
+        intk._put_ham_(bra, ket, 0, h_rKKkk, 0, spin=3*(1-s1))
+        # same spin: Coulomb and exchange
+        h_rKKkk -= np.tensordot (d_rKKij, h_ikkj.transpose (0,3,2,1), axes=2)
+        intk._put_ham_(bra, ket, 0, h_rKKkk, 0, spin=3*s1)
+
+        h_KKij = np.tensordot (d_KKkk, h_ijkk, axes=((2,3),(2,3)))
+        h_KKij -= np.tensordot (d_sKKkk[s1], h_ikkj, axes=((2,3),(2,1)))
+        h_rJJj = np.tensordot (d_rKKJJi, h_KKij, axes=((1,2,5),(0,1,2)))
+        intj._put_ham_(bra, ket, 0, h_rJJj, 0)
+        h_rIIi = np.tensordot (d_rKKIIj, h_KKij, axes=((1,2,5),(0,1,3)))
+        inti._put_ham_(bra, ket, 0, h_rIIi, 0)
+
+        h_KKiJJ = np.tensordot (h_KKij, d_JJj, axes=((-1,),(-1,)))
+        h_KKJJII = np.tensordot (h_KKiJJ, d_IIi, axes=((2,),(-1)))
+        self._put_hconst_(h_KKJJII, bra, ket, i, j, k)
+
+        dt, dw = logger.process_clock () - t0, logger.perf_counter () - w0
+        self.dt_1c1d, self.dw_1c1d = self.dt_1c1d + dt, self.dw_1c1d + dw
 
     def _crunch_1s_(self, bra, ket, i, j):
         '''Compute the reduced density matrix elements of a spin unit hop; i.e.,
@@ -240,8 +283,58 @@ class ContractHamCI_SHS (rdm.LRRDM):
         dt, dw = logger.process_clock () - t0, logger.perf_counter () - w0
         self.dt_1s, self.dw_1s = self.dt_1s + dt, self.dw_1s + dw
 
-    def _crunch_1s1c_(self, bra, ket, i, j, k):
-        raise NotImplementedError
+        return
+
+    def _crunch_1s1c_(self, bra, ket, i, j, k, s1):
+        '''Compute the reduced density matrix elements of a spin-charge unit hop; i.e.,
+
+        <bra|i'(a)k'(b)j(b)k(a)|ket>
+
+        i.e.,
+
+        k ---a---> i
+        j ---b---> k
+
+        and conjugate transpose
+        '''
+        d_rKKJJII = self.get_fdm (bra, ket, i, j, k) # time-profiled by itself
+        t0, w0 = logger.process_clock (), logger.perf_counter ()
+        inti, intj, intk = self.ints[i], self.ints[j], self.ints[k]
+        s11 = s1
+        s12 = 1-s1
+        s2 = 2-s1
+        nelec_f_bra = self.nelec_rf[self.rootaddr[bra]]
+        nelec_f_ket = self.nelec_rf[self.rootaddr[ket]]
+        fac = -1 # a'bb'a -> a'ab'b signi
+        fac *= fermion_des_shuffle (nelec_f_bra, (i, j, k), i)
+        fac *= fermion_des_shuffle (nelec_f_ket, (i, j, k), j)
+        h_ikkj = fac * self.get_ham_2q (i,k,k,j)
+
+        d_IIi = inti.get_p (bra, ket, s11)
+        d_JJj = intj.get_h (bra, ket, s12)
+        d_KKkk = intk.get_smp (bra, ket, s1)
+
+        d_rKKJJi = np.tensordot (d_rKKJJII, d_IIi, axes=2)
+        d_rKKIIj = np.tensordot (d_rKKJJII, d_JJj, axes=((3,4),(0,1)))
+        d_rKKij = np.tensordot (d_rKKJJi, d_JJj, axes=((3,4),(0,1)))
+
+        h_rKKkk = np.tensordot (d_rKKij, h_ikkj.transpose (0,3,2,1), axes=2)
+        intk._put_ham_(bra, ket, 0, h_rKKkk, 0, spin=s2)
+
+        h_KKij = np.tensordot (d_KKkk, h_ikkj, axes=((2,3),(2,1)))
+        h_rJJj = np.tensordot (d_rKKJJi, h_KKij, axes=((1,2,5),(0,1,2)))
+        intj._put_ham_(bra, ket, 0, h_rJJj, 0)
+        h_rIIi = np.tensordot (d_rKKIIj, h_KKij, axes=((1,2,5),(0,1,3)))
+        inti._put_ham_(bra, ket, 0, h_rIIi, 0)
+
+        h_KKiJJ = np.tensordot (h_KKij, d_JJj, axes=((-1,),(-1,)))
+        h_KKJJII = np.tensordot (h_KKiJJ, d_IIi, axes=((2,),(-1)))
+        self._put_hconst_(h_KKJJII, bra, ket, i, j, k)
+
+        dt, dw = logger.process_clock () - t0, logger.perf_counter () - w0
+        self.dt_1s1c, self.dw_1s1c = self.dt_1s1c + dt, self.dw_1s1c + dw
+
+        return
 
     def _crunch_2c_(self, bra, ket, i, j, k, l, s2lt):
         '''Compute the reduced density matrix elements of a two-electron hop; i.e.,
