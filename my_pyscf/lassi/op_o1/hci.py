@@ -509,14 +509,9 @@ class ContractHamCI_SHS (rdm.LRRDM):
             Contains LASSI eigenvectors on the bra
         si_ket : ndarray of shape (nprod, nroots_si_ket)
             Contains LASSI eigenvectors on the ket
-
-    Additional kwargs:
-        sum_bra : logical
-            If true, vectors in equivalent rootspaces will be summed together, leaving nonzero
-            values in only one of the equivalent set for each fragment
     '''
     def __init__(self, las, ints, nlas, hopping_index, lroots, h0, h1, h2, si_bra, si_ket,
-                 mask_bra_space=None, mask_ket_space=None, sum_bra=False, log=None,
+                 mask_bra_space=None, mask_ket_space=None, log=None,
                  max_memory=2000, dtype=np.float64):
         rdm.LRRDM.__init__(self, ints, nlas, hopping_index, lroots, si_bra, si_ket,
                            mask_bra_space = mask_bra_space,
@@ -532,7 +527,6 @@ class ContractHamCI_SHS (rdm.LRRDM):
         self.off_bra = self.offs_lroots[self.nket][0]
         self.nelec_frs = np.asarray ([[list (i.nelec_r[ket]) for i in ints]
                                       for ket in range (self.nroots)]).transpose (1,0,2)
-        self.sum_bra = sum_bra
 
     get_ham_2q = hams2ovlp.HamS2Ovlp.get_ham_2q
     _hconst_ci_ = ContractHamCI_CHC._hconst_ci_
@@ -573,23 +567,23 @@ class ContractHamCI_SHS (rdm.LRRDM):
             inv = row[2:]
         _crunch_fn (*row)
 
+    def split_exc_table_along_frag (self, tab, ifrag):
+        tab_i = self.urootstr[ifrag][tab]
+        idx, invs = np.unique (tab_i, return_index=True, return_inverse=True, axis=0)[1:]
+        for i, ix in enumerate (idx):
+            bra, ket = tab[ix]
+            tab_i = tab[invs==i]
+            yield bra, ket, tab_i
+
     def _put_hconst_(self, op, bra, ket, *inv):
         spec = np.ones (self.nfrags, dtype=bool)
         spec[list(set (inv))] = False
         spec = np.where (spec)[0]
         tab = self.nonuniq_exc[tuple((bra,ket)) + tuple (inv)]
         for i in spec:
-            bras = tab[:,0]
-            if self.sum_bra:
-                bras = np.atleast_1d (self.urootstr[i,tab[:,0]])
-            kets = np.atleast_1d (self.urootstr[i,tab[:,1]])
-            tab_i = np.stack ([bras, kets], axis=1)
             myinv = list (inv) + [i,]
-            idx, invs = np.unique (tab_i, return_index=True, return_inverse=True, axis=0)[1:]
-            for j, ix in enumerate (idx):
-                bra, ket = tab[ix]
-                sub_tab = tab[invs==j]
-                d_rIIop = self.get_fdm (bra, ket, *myinv, _braket_table=sub_tab)
+            for bra, ket, tab_i in self.split_exc_table_along_frag (tab, i):
+                d_rIIop = self.get_fdm (bra, ket, *myinv, _braket_table=tab_i)
                 h_rII = np.tensordot (d_rIIop, op, axes=op.ndim)
                 self.ints[i]._put_ham_(bra, ket, h_rII, 0, 0, hermi=1)
 
@@ -836,7 +830,7 @@ class ContractHamCI_SHS (rdm.LRRDM):
         '''
         t0 = (lib.logger.process_clock (), lib.logger.perf_counter ())
         self.init_profiling ()
-        for inti in self.ints: inti._init_ham_(self.nroots_si, sum_bra=self.sum_bra)
+        for inti in self.ints: inti._init_ham_(self.nroots_si)
         self._crunch_all_()
         t1, w1 = logger.process_clock (), logger.perf_counter ()
         self.hci_fr_plab = [inti._ham_op ()[self.nket:] for inti in self.ints]
@@ -846,7 +840,7 @@ class ContractHamCI_SHS (rdm.LRRDM):
 
 
 def ContractHamCI (las, ints, nlas, hopping_index, lroots, h0, h1, h2, si_bra=None, si_ket=None,
-                   mask_bra_space=None, mask_ket_space=None, sum_bra=False, log=None,
+                   mask_bra_space=None, mask_ket_space=None, log=None,
                    max_memory=2000, dtype=np.float64):
     if si_bra is None and si_ket is None:
         return ContractHamCI_CHC (las, ints, nlas, hopping_index, lroots, h0, h1, h2,
@@ -866,7 +860,7 @@ def ContractHamCI (las, ints, nlas, hopping_index, lroots, h0, h1, h2, si_bra=No
     else:
         return ContractHamCI_SHS (las, ints, nlas, hopping_index, lroots, h0, h1, h2, si_bra,
                                   si_ket, mask_bra_space=mask_bra_space,
-                                  mask_ket_space=mask_ket_space, sum_bra=sum_bra,
+                                  mask_ket_space=mask_ket_space,
                                   log=log, max_memory=2000, dtype=np.float64)
 
 def contract_ham_ci (las, h1, h2, ci_fr_ket, nelec_frs_ket, ci_fr_bra, nelec_frs_bra,
@@ -905,7 +899,9 @@ def contract_ham_ci (las, h1, h2, ci_fr_ket, nelec_frs_ket, ci_fr_bra, nelec_frs
             Constant term in the Hamiltonian
         sum_bra : logical
             If true and both si_bra and si_ket are provided, then equivalent bra rootspaces are
-            summed together and only one of the equivalent set of vectors is nonzero.
+            summed together and only one of the equivalent set of vectors is nonzero. Otherwise,
+            if si_bra and si_ket are both provided, all bra rootspaces are forcibly considered
+            distinct. This is necessary for a certain unit test but it hurts performance.
         orbsym : list of int of length (ncas)
             Irrep ID for each orbital
         wfnsym : int
@@ -930,15 +926,6 @@ def contract_ham_ci (las, h1, h2, ci_fr_ket, nelec_frs_ket, ci_fr_bra, nelec_frs
     mask_ints = np.zeros ((nroots,nroots), dtype=bool)
     mask_ints[np.ix_(mask_bra_space,mask_ket_space)] = True
     discriminator = np.zeros (nroots, dtype=int)
-    discriminator[nket:] = 1
-
-    # First pass: single-fragment intermediates
-    hopping_index, ints, lroots = frag.make_ints (las, ci, nelec_frs, nlas=nlas,
-                                                  screen_linequiv=False,
-                                                  mask_ints=mask_ints,
-                                                  discriminator=discriminator)
-
-    # Second pass: upper-triangle
     si_bra_is1d = si_ket_is1d = False
     if si_bra is not None:
         si_bra_is1d = si_bra.ndim==1
@@ -949,6 +936,17 @@ def contract_ham_ci (las, h1, h2, ci_fr_ket, nelec_frs_ket, ci_fr_bra, nelec_frs
     if si_bra is not None and si_ket is not None:
         assert (si_bra.shape[1] == si_ket.shape[1])
         si_ket_is1d = False
+        discriminator[nket:] = 1
+        if not sum_bra:
+            discriminator[nket:] += np.arange (nbra, dtype=int)
+
+    # First pass: single-fragment intermediates
+    hopping_index, ints, lroots = frag.make_ints (las, ci, nelec_frs, nlas=nlas,
+                                                  screen_linequiv=False,
+                                                  mask_ints=mask_ints,
+                                                  discriminator=discriminator)
+
+    # Second pass: upper-triangle
     t0 = (lib.logger.process_clock (), lib.logger.perf_counter ())
     max_memory = getattr (las, 'max_memory', las.mol.max_memory)
     contracter = ContractHamCI (las, ints, nlas, hopping_index, lroots, h0, h1, h2, si_bra=si_bra,
