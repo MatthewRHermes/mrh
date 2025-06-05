@@ -443,7 +443,7 @@ def gen_contract_op_si_hdiag (las, h1, h2, ci, nelec_frs, soc=0, nlas=None,
                                      max_memory=max_memory, log=log)
     if soc and not spin_pure:
         outerprod.spin_shuffle = spin_shuffle_fac
-    lib.logger.timer (las, 'LASSI Hamiltonian second intermediate indexing setup', *t0)
+    lib.logger.timer (las, 'LASSI hsi operator build', *t0)
 
     if _return_int: return outerprod
 

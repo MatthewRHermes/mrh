@@ -5,30 +5,35 @@ from pyscf.lib import logger
 from pyscf.fci import cistring 
 from mrh.my_pyscf.lassi.op_o1 import stdm, frag, hams2ovlp, hsi
 from mrh.my_pyscf.lassi.op_o1.utilities import *
-from mrh.my_pyscf.lassi.citools import get_lroots, hci_dot_sivecs
+from mrh.my_pyscf.lassi.citools import get_lroots, hci_dot_sivecs, hci_dot_sivecs_ij
 
-class ContractHamCI (stdm.LSTDM):
+class ContractHamCI_CHC (stdm.LSTDM):
     __doc__ = stdm.LSTDM.__doc__ + '''
 
     SUBCLASS: Contract Hamiltonian on CI vectors and integrate over all but one fragment,
     for all fragments.
 
     Additional args:
+        h0 : float
+            Constant part of the Hamiltonian
         h1 : ndarray of size ncas**2 or 2*(ncas**2)
             Contains effective 1-electron Hamiltonian amplitudes in second quantization,
             optionally spin-separated
         h2 : ndarray of size ncas**4
             Contains 2-electron Hamiltonian amplitudes in second quantization
     '''
-    def __init__(self, ints, nlas, hopping_index, lroots, h1, h2, mask_bra_space=None,
+    def __init__(self, las, ints, nlas, hopping_index, lroots, h0, h1, h2, mask_bra_space=None,
                  mask_ket_space=None, log=None, max_memory=2000, dtype=np.float64):
         hams2ovlp.HamS2Ovlp.__init__(self, ints, nlas, hopping_index, lroots, h1, h2,
                                      mask_bra_space = mask_bra_space,
                                      mask_ket_space = mask_ket_space,
                                      log=log, max_memory=max_memory, dtype=dtype)
+        self.las = las
+        self.h0 = h0
         self.nbra = len (mask_bra_space)
         self.hci_fr_pabq = self._init_vecs ()
-
+        self.nelec_frs = np.asarray ([[list (i.nelec_r[ket]) for i in ints]
+                                      for ket in range (self.nroots)]).transpose (1,0,2)
     get_ham_2q = hams2ovlp.HamS2Ovlp.get_ham_2q
 
     # Handling for 1s1c: need to do both a'.sm.b and b'.sp.a explicitly
@@ -54,6 +59,41 @@ class ContractHamCI (stdm.LSTDM):
                                              dtype=self.dtype).transpose (1,2,3,0))
             hci_fr_pabq.append (hci_r_pabq)
         return hci_fr_pabq
+
+    def init_profiling (self):
+        self.dt_1d, self.dw_1d = 0.0, 0.0
+        self.dt_2d, self.dw_2d = 0.0, 0.0
+        self.dt_1c, self.dw_1c = 0.0, 0.0
+        self.dt_1c1d, self.dw_1c1d = 0.0, 0.0
+        self.dt_1s, self.dw_1s = 0.0, 0.0
+        self.dt_1s1c, self.dw_1s1c = 0.0, 0.0
+        self.dt_2c, self.dw_2c = 0.0, 0.0
+        self.dt_o, self.dw_o = 0.0, 0.0
+        self.dt_u, self.dw_u = 0.0, 0.0
+        self.dt_p, self.dw_p = 0.0, 0.0
+        self.dt_i, self.dw_i = 0.0, 0.0
+        self.dt_g, self.dw_g = 0.0, 0.0
+        self.dt_s, self.dw_s = 0.0, 0.0
+        self.dt_c, self.dw_c = 0.0, 0.0
+
+    def sprint_profile (self):
+        fmt_str = '{:>5s} CPU: {:9.2f} ; wall: {:9.2f}'
+        profile = fmt_str.format ('1d', self.dt_1d, self.dw_1d)
+        profile += '\n' + fmt_str.format ('2d', self.dt_2d, self.dw_2d)
+        profile += '\n' + fmt_str.format ('1c', self.dt_1c, self.dw_1c)
+        profile += '\n' + fmt_str.format ('1c1d', self.dt_1c1d, self.dw_1c1d)
+        profile += '\n' + fmt_str.format ('1s', self.dt_1s, self.dw_1s)
+        profile += '\n' + fmt_str.format ('1s1c', self.dt_1s1c, self.dw_1s1c)
+        profile += '\n' + fmt_str.format ('2c', self.dt_2c, self.dw_2c)
+        profile += '\n' + fmt_str.format ('hcon', self.dt_c, self.dw_c)
+        profile += '\n' + fmt_str.format ('ovlp', self.dt_o, self.dw_o)
+        profile += '\n' + fmt_str.format ('umat', self.dt_u, self.dw_u)
+        profile += '\n' + fmt_str.format ('put', self.dt_p, self.dw_p)
+        profile += '\n' + fmt_str.format ('idx', self.dt_i, self.dw_i)
+        profile += '\n' + 'Decomposing put:'
+        profile += '\n' + fmt_str.format ('gsao', self.dt_g, self.dw_g)
+        profile += '\n' + fmt_str.format ('putS', self.dt_s, self.dw_s)
+        return profile
 
     def _crunch_1d_(self, bra, ket, i):
         '''Compute a single-fragment density fluctuation, for both the 1- and 2-RDMs.'''
@@ -357,11 +397,13 @@ class ContractHamCI (stdm.LSTDM):
 
     def _get_vecs_(self, bra, ket, *inv):
         bra_r, bra_envaddr, addressible = self._bra_address (bra, *inv)
+        nket = self.nroots - self.nbra
         hci_f_ab = [0 for i in range (self.nfrags)]
         for i, addr in zip (addressible, bra_envaddr):
-            hci_r_pabq = self.hci_fr_pabq[i]
-            # TODO: buffer
-            hci_f_ab[i] = np.zeros_like (hci_r_pabq[bra_r][addr,:,:,ket])
+            dtype = self.hci_fr_pabq[i][bra_r].dtype
+            na = self.ints[i].ndeta_r[bra_r+nket]
+            nb = self.ints[i].ndetb_r[bra_r+nket]
+            hci_f_ab[i] = np.zeros ((na,nb), dtype=dtype)
         iad = [i in addressible for i in inv]
         skip = not any (iad)
         return hci_f_ab, iad, skip
@@ -369,15 +411,19 @@ class ContractHamCI (stdm.LSTDM):
     def _put_vecs_(self, bra, ket, vecs, *inv):
         t0, w0 = logger.process_clock (), logger.perf_counter ()
         bras, kets, facs = self._get_spec_addr_ovlp (bra, ket, *inv)
-        for bra, ket, fac in zip (bras, kets, facs):
-            self._put_Svecs_(bra, ket, [fac*vec for vec in vecs], *inv)
+        self._put_Svecs_(bras, kets, facs, vecs, *inv)
         dt, dw = logger.process_clock () - t0, logger.perf_counter () - w0
         self.dt_p, self.dw_p = self.dt_p + dt, self.dw_p + dw
 
-    def _put_Svecs_(self, bra, ket, vecs, *inv):
-        bra_r, bra_envaddr, addressible = self._bra_address (bra, *inv)
-        for i, addr in zip (addressible, bra_envaddr):
-            self.hci_fr_pabq[i][bra_r][addr,:,:,ket] += vecs[i]
+    def _put_Svecs_(self, bras, kets, facs, vecs, *inv):
+        t0, w0 = logger.process_clock (), logger.perf_counter ()
+        for bra, ket, fac in zip (bras, kets, facs):
+            bra_r, bra_envaddr, addressible = self._bra_address (bra, *inv)
+            assert (len (addressible))
+            for i, addr in zip (addressible, bra_envaddr):
+                self.hci_fr_pabq[i][bra_r][addr,:,:,ket] += fac * vecs[i]
+        dt, dw = logger.process_clock () - t0, logger.perf_counter () - w0
+        self.dt_s, self.dw_s = self.dt_s + dt, self.dw_s + dw
 
     #def _crunch_all_(self):
     #    for row in self.exc_1c: self._crunch_env_(self._crunch_1c_, *row)
@@ -388,6 +434,45 @@ class ContractHamCI (stdm.LSTDM):
     def _umat_linequiv_(self, ifrag, iroot, umat, *args):
         # TODO: is this even possible?
         pass
+
+    def _hconst_ci_(self):
+        t0, w0 = logger.process_clock (), logger.perf_counter ()
+        si_bra = getattr (self, 'si_bra', None)
+        si_ket = getattr (self, 'si_ket', None)
+        nbra, nroots, nelec_frs = self.nbra, self.nroots, self.nelec_frs
+        las, nfrags = self.las, self.nfrags
+        h0, h1, h2 = self.h0, self.h1, self.h2
+        ints = self.ints
+        ci = [i.ci for i in ints]
+        nket = nroots - nbra
+        lroots_bra = self.lroots[:,-nbra:]
+        if nfrags>1:
+            for ifrag in range (nfrags):
+                gen_hket = gen_contract_ham_ci_const (ifrag, nbra, las, h1, h2, ci, nelec_frs, h0=h0)
+                for ibra, hket_pabq in enumerate (gen_hket):
+                    self.hci_fr_pabq[ifrag][ibra][:] += hci_dot_sivecs_ij (
+                        hket_pabq, si_bra, si_ket, lroots_bra, ifrag, ibra
+                    )
+        elif h0:
+            nelec_frs_ket = nelec_frs[:,:nket,:]
+            nelec_frs_bra = nelec_frs[:,-nbra:,:]
+            for ibra in range (nbra):
+                nelec_bra = tuple (nelec_frs_bra[0,ibra])
+                na = ints[0].ndeta_r[ibra+nket]
+                nb = ints[0].ndetb_r[ibra+nket]
+                hket_pabq = np.zeros ((1, na, nb, np.prod (lroots_bra,axis=0).sum ()),
+                                      dtype=ci[0][nket+ibra].dtype)
+                for iket in range (nket):
+                    i, j = self.offs_lroots[iket]
+                    nelec_ket = tuple (nelec_frs_ket[0,iket])
+                    if nelec_bra==nelec_ket:
+                        h0ket = h0 * ci[0][iket].transpose (1,2,0)
+                        hket_pabq[0,:,:,i:j] += h0ket
+                self.hci_fr_pabq[0][ibra][:] += hci_dot_sivecs_ij (
+                    hket_pabq, si_bra, si_ket, lroots_bra, 0, ibra
+                )
+        dt, dw = logger.process_clock () - t0, logger.perf_counter () - w0
+        self.dt_c, self.dw_c = self.dt_c + dt, self.dw_c + dw
 
     def kernel (self):
         ''' Main driver method of class.
@@ -402,7 +487,124 @@ class ContractHamCI (stdm.LSTDM):
                 hci_pabq[:,:,:,:] = 0.0
         self._crunch_all_()
         self._umat_linequiv_loop_()
+        self._hconst_ci_()
         return self.hci_fr_pabq, t0
+
+class ContractHamCI_SHS (ContractHamCI_CHC):
+    __doc__ = stdm.LSTDM.__doc__ + '''
+
+    SUBCLASS: Contract Hamiltonian on CI vectors and SI vector and integrate over all but one
+    fragment, for all fragments, projecting on bra CI/SI vectors.
+
+    Additional args:
+        h0 : float
+            Constant part of the Hamiltonian
+        h1 : ndarray of size ncas**2 or 2*(ncas**2)
+            Contains effective 1-electron Hamiltonian amplitudes in second quantization,
+            optionally spin-separated
+        h2 : ndarray of size ncas**4
+            Contains 2-electron Hamiltonian amplitudes in second quantization
+        si_bra : ndarray of shape (nprod, nroots_si_bra)
+            Contains LASSI eigenvectors on the bra
+        si_ket : ndarray of shape (nprod, nroots_si_ket)
+            Contains LASSI eigenvectors on the ket
+    '''
+    def __init__(self, las, ints, nlas, hopping_index, lroots, h0, h1, h2, si_bra, si_ket,
+                 mask_bra_space=None, mask_ket_space=None, log=None, max_memory=2000,
+                 dtype=np.float64):
+        hams2ovlp.HamS2Ovlp.__init__(self, ints, nlas, hopping_index, lroots, h1, h2,
+                                     mask_bra_space = mask_bra_space,
+                                     mask_ket_space = mask_ket_space,
+                                     log=log, max_memory=max_memory, dtype=dtype)
+        self.las = las
+        self.h0 = h0
+        self.si_bra = si_bra.copy ()
+        self.nroots_si_bra = self.si_bra.shape[-1]
+        self.si_ket = si_ket.copy ()
+        self.nroots_si_ket = self.si_ket.shape[-1]
+        self.nbra = len (mask_bra_space)
+        self.hci_fr_pabq = self._init_vecs ()
+        self.nelec_frs = np.asarray ([[list (i.nelec_r[ket]) for i in ints]
+                                      for ket in range (self.nroots)]).transpose (1,0,2)
+
+    def _init_vecs (self):
+        hci_fr_plabq = []
+        for i in range (self.nfrags):
+            lroots_bra = self.lroots[i,-self.nbra:].copy ()
+            hci_r_plabq = []
+            norb = self.ints[i].norb
+            for r in range (self.nbra):
+                nelec = self.ints[i].nelec_r[r+self.nroots-self.nbra]
+                ndeta = cistring.num_strings (norb, nelec[0])
+                ndetb = cistring.num_strings (norb, nelec[1])
+                hci_r_plabq.append (np.zeros (
+                    (self.nroots_si_ket, self.nroots_si_bra, lroots_bra[r], ndeta, ndetb),
+                    dtype=self.dtype).transpose (1,2,3,4,0))
+            hci_fr_plabq.append (hci_r_plabq)
+        return hci_fr_plabq
+
+    def _put_Svecs_(self, bras, kets, facs, vecs, *inv):
+        t0, w0 = logger.process_clock (), logger.perf_counter ()
+        for i in set (inv):
+            self._put_Svecs_i_(bras, kets, facs, vecs[i], i)
+        dt, dw = logger.process_clock () - t0, logger.perf_counter () - w0
+        self.dt_s, self.dw_s = self.dt_s + dt, self.dw_s + dw
+
+    def _put_Svecs_i_(self, bras, kets, facs, vecs, i):
+        idx = (self.envaddr[:,i][bras] == 0)
+        if np.count_nonzero (idx) == 0: return
+        bras = bras[idx]
+        kets = kets[idx]
+        facs = facs[idx]
+        bras_r = set (self.rootaddr[bras])
+        for bra_r in bras_r:
+            self._put_Svecs_ir_(bras, kets, facs, vecs, i, bra_r)
+        return
+
+    def _put_Svecs_ir_(self, bras, kets, facs, vecs, i, bra_r):
+        nket = self.nroots - self.nbra
+        idx = self.rootaddr[bras]==bra_r
+        nel = np.count_nonzero (idx)
+        bras = bras[idx]
+        kets = kets[idx]
+        facs = facs[idx]
+        lroots_i = self.lroots[i,bra_r]
+        offs = self.strides[bra_r,i] * np.arange (lroots_i, dtype=int)
+        offs -= self.offs_lroots[nket][0]
+        bras = bras[:,None] + offs[None,:]
+        si_bra = self.si_bra[bras.flat,:].reshape (nel, lroots_i, self.nroots_si_bra)
+        si_ket = facs[:,None] * self.si_ket[kets,:]
+        dm_plq = lib.einsum ('alp,aq->plq', si_bra.conj (), si_ket)
+        hci_plabq = self.hci_fr_pabq[i][bra_r-nket]
+        hci = dm_plq[:,:,:,None,None] * vecs[None,None,None,:,:]
+        hci_plabq[:,:,:,:,:] += hci.transpose (0,1,3,4,2)
+        return
+
+def ContractHamCI (las, ints, nlas, hopping_index, lroots, h0, h1, h2, si_bra=None, si_ket=None,
+                   mask_bra_space=None, mask_ket_space=None, log=None, max_memory=2000,
+                   dtype=np.float64):
+    if si_bra is None and si_ket is None:
+        return ContractHamCI_CHC (las, ints, nlas, hopping_index, lroots, h0, h1, h2,
+                                  mask_bra_space=mask_bra_space,
+                                  mask_ket_space=mask_ket_space,
+                                  log=log, max_memory=2000, dtype=np.float64)
+    elif si_bra is None:
+        raise NotImplementedError
+        return ContractHamCI_CHS (las, ints, nlas, hopping_index, lroots, h0, h1, h2, si_ket,
+                                  mask_bra_space=mask_bra_space,
+                                  mask_ket_space=mask_ket_space,
+                                  log=log, max_memory=2000, dtype=np.float64)
+    elif si_ket is None:
+        raise NotImplementedError
+        return ContractHamCI_SHC (las, ints, nlas, hopping_index, lroots, h0, h1, h2, si_bra,
+                                  mask_bra_space=mask_bra_space,
+                                  mask_ket_space=mask_ket_space,
+                                  log=log, max_memory=2000, dtype=np.float64)
+    else:
+        return ContractHamCI_SHS (las, ints, nlas, hopping_index, lroots, h0, h1, h2, si_bra,
+                                  si_ket, mask_bra_space=mask_bra_space,
+                                  mask_ket_space=mask_ket_space,
+                                  log=log, max_memory=2000, dtype=np.float64)
 
 def contract_ham_ci (las, h1, h2, ci_fr_ket, nelec_frs_ket, ci_fr_bra, nelec_frs_bra,
                      si_bra=None, si_ket=None, h0=0, soc=0, orbsym=None, wfnsym=None):
@@ -465,32 +667,34 @@ def contract_ham_ci (las, h1, h2, ci_fr_ket, nelec_frs_ket, ci_fr_bra, nelec_frs
                                                   mask_ints=mask_ints)
 
     # Second pass: upper-triangle
+    si_bra_is1d = si_ket_is1d = False
+    if si_bra is not None:
+        si_bra_is1d = si_bra.ndim==1
+        if si_bra_is1d: si_bra = si_bra[:,None]
+    if si_ket is not None:
+        si_ket_is1d = si_ket.ndim==1
+        if si_ket_is1d: si_ket = si_ket[:,None]
     t0 = (lib.logger.process_clock (), lib.logger.perf_counter ())
     max_memory = getattr (las, 'max_memory', las.mol.max_memory)
-    contracter = ContractHamCI (ints, nlas, hopping_index, lroots, h1, h2,
-                                mask_bra_space=mask_bra_space, mask_ket_space=mask_ket_space,
-                                dtype=ci[0][0].dtype, max_memory=max_memory, log=log)
-    lib.logger.timer (las, 'LASSI Hamiltonian contraction second intermediate indexing setup', *t0)        
+    contracter = ContractHamCI (las, ints, nlas, hopping_index, lroots, h0, h1, h2, si_bra=si_bra,
+                                si_ket=si_ket, mask_bra_space=mask_bra_space,
+                                mask_ket_space=mask_ket_space, dtype=ci[0][0].dtype,
+                                max_memory=max_memory, log=log)
+    lib.logger.timer (las, 'LASSI hci setup', *t0)
     hket_fr_pabq, t0 = contracter.kernel ()
-    lib.logger.timer (las, 'LASSI Hamiltonian contraction second intermediate crunching', *t0)
+    for i, hket_r_pabq in enumerate (hket_fr_pabq):
+        for j, hket_pabq in enumerate (hket_r_pabq):
+            if si_ket_is1d:
+                hket_pabq = hket_pabq[:,:,:,:,0]
+            if si_bra_is1d:
+                hket_pabq = hket_pabq[0]
+            hket_fr_pabq[i][j] = hket_pabq
+    lib.logger.timer (las, 'LASSI hci crunching', *t0)
+    if las.verbose >= lib.logger.TIMER_LEVEL:
+        lib.logger.info (las, 'LASSI hci crunching profile:\n%s',
+                         contracter.sprint_profile ())
 
-    # Third pass: multiplicative part
-    if nfrags>1:
-        for ifrag in range (nfrags):
-            gen_hket = gen_contract_ham_ci_const (ifrag, nbra, las, h1, h2, ci, nelec_frs, soc=soc,
-                                                  h0=h0, orbsym=orbsym, wfnsym=wfnsym)
-            for ibra, hket_pabq in enumerate (gen_hket):
-                hket_fr_pabq[ifrag][ibra][:] += hket_pabq[:]
-    elif h0:
-        for ibra in range (nbra):
-            nelec_bra = tuple (nelec_frs_bra[0,ibra])
-            for iket in range (nket):
-                i, j = contracter.offs_lroots[iket]
-                nelec_ket = tuple (nelec_frs_ket[0,iket])
-                if nelec_bra==nelec_ket:
-                    h0ket = h0 * ci_fr_ket[0][iket].transpose (1,2,0)
-                    hket_fr_pabq[0][ibra][0,:,:,i:j] += h0ket
-    return hci_dot_sivecs (hket_fr_pabq, si_bra, si_ket, get_lroots (ci_fr_bra))
+    return hket_fr_pabq
 
 def gen_contract_ham_ci_const (ifrag, nbra, las, h1, h2, ci, nelec_frs, soc=0, h0=0, orbsym=None,
                                wfnsym=None):

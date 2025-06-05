@@ -302,22 +302,25 @@ def _fake_gen_contract_op_si_hdiag (matrix_builder, las, h1, h2, ci_fr, nelec_fr
     return contract_ham_si, contract_s2, contract_ovlp, hdiag, _get_ovlp
 
 def hci_dot_sivecs (hci_fr_pabq, si_bra, si_ket, lroots):
+    nfrags, nroots = lroots.shape
+    for i, hci_r_pabq in enumerate (hci_fr_pabq):
+        for j, hci_pabq in enumerate (hci_r_pabq):
+            hci_fr_pabq[i][j] = hci_dot_sivecs_ij (hci_pabq, si_bra, si_ket, lroots, i, j)
+    return hci_fr_pabq
+
+def hci_dot_sivecs_ij (hci_pabq, si_bra, si_ket, lroots, i, j):
     nprods = np.prod (lroots, axis=0)
     j1 = np.cumsum (nprods)
     j0 = j1 - nprods
     if si_ket is not None:
-        for hci_r_pabq in hci_fr_pabq:
-            for i, hci_pabq in enumerate (hci_r_pabq):
-                hci_r_pabq[i] = np.tensordot (hci_pabq, si_ket, axes=1)
+        hci_pabq = np.tensordot (hci_pabq, si_ket, axes=1)
     if si_bra is not None:
         from mrh.my_pyscf.lassi.op_o1.utilities import transpose_sivec_make_fragments_slow
         is1d = (si_bra.ndim==1)
-        for i, hci_r_pabq in enumerate (hci_fr_pabq):
-            for j, hci_pabq in enumerate (hci_r_pabq):
-                c = np.asfortranarray (si_bra[j0[j]:j1[j]])
-                c = transpose_sivec_make_fragments_slow (c, lroots[:,j], i)
-                if is1d: c = c[0]
-                hci_r_pabq[j] = np.tensordot (c.conj (), hci_pabq, axes=1)
-    return hci_fr_pabq
+        c = np.asfortranarray (si_bra[j0[j]:j1[j]])
+        c = transpose_sivec_make_fragments_slow (c, lroots[:,j], i)
+        if is1d: c = c[0]
+        hci_pabq = np.tensordot (c.conj (), hci_pabq, axes=1)
+    return hci_pabq
 
 
