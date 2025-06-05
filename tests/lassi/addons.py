@@ -404,4 +404,22 @@ def case_lassis_ugg (ks, lsis):
         mo0, _, _, _, si0 = ugg.unpack (x0)
         x1 = ugg.pack (mo0, hci_ref, hci_sf, hci_ch, si0)
 
+def mask_eri_nfrag (nlas):
+    faddr = []
+    for i, n in enumerate (nlas):
+        faddr += [i,]*n
+    faddr = np.asarray (faddr)
+    norb = sum (nlas)
+    eri_idx = np.zeros ((4,norb,norb,norb,norb), dtype=int)
+    eri_idx[0] = faddr[:,None,None,None]
+    eri_idx[1] = faddr[None,:,None,None]
+    eri_idx[2] = faddr[None,None,:,None]
+    eri_idx[3] = faddr[None,None,None,:]
+    eri_idx = eri_idx.reshape (4,norb**4).T
+    eri_idx = np.sort (eri_idx, axis=1)
+    eri_idx = (eri_idx[:,1:] != eri_idx[:,:-1]).sum (1) + 1
+    return eri_idx.reshape (norb,norb,norb,norb)
+
+
+
 

@@ -44,6 +44,7 @@ class ContractHamCI_SHS (rdm.LRRDM):
         self.off_bra = self.offs_lroots[self.nket][0]
         self.nelec_frs = np.asarray ([[list (i.nelec_r[ket]) for i in ints]
                                       for ket in range (self.nroots)]).transpose (1,0,2)
+        self._ispec = None
 
     get_ham_2q = hams2ovlp.HamS2Ovlp.get_ham_2q
     _hconst_ci_ = ContractHamCI_CHC._hconst_ci_
@@ -84,13 +85,20 @@ class ContractHamCI_SHS (rdm.LRRDM):
             inv = row[2:]
         _crunch_fn (*row)
 
+    def fermion_frag_shuffle (self, iroot, frags):
+        if self._ispec in frags:
+            frags = list (frags)
+            frags.remove (self._ispec)
+        return super().fermion_frag_shuffle (iroot, frags)
+
     def split_exc_table_along_frag (self, tab, ifrag):
         tab_i = self.urootstr[ifrag][tab]
         idx, invs = np.unique (tab_i, return_index=True, return_inverse=True, axis=0)[1:]
-        for i, ix in enumerate (idx):
-            bra, ket = tab[ix]
-            tab_i = tab[invs==i]
-            yield bra, ket, tab_i
+        with lib.temporary_env (self, _ispec=ifrag):
+            for i, ix in enumerate (idx):
+                bra, ket = tab[ix]
+                tab_i = tab[invs==i]
+                yield bra, ket, tab_i
 
     def _put_hconst_(self, op, bra, ket, *inv, keyorder=None):
         spec = np.ones (self.nfrags, dtype=bool)
@@ -104,6 +112,7 @@ class ContractHamCI_SHS (rdm.LRRDM):
                 d_rIIop = self.get_fdm (bra, ket, *myinv, _braket_table=tab_i)
                 h_rII = np.tensordot (d_rIIop, op, axes=op.ndim)
                 self.ints[i]._put_ham_(bra, ket, h_rII, 0, 0, hermi=1)
+        assert (self._ispec is None)
 
     def _crunch_1d_(self, bra, ket, i):
         '''Compute a single-fragment density fluctuation, for both the 1- and 2-RDMs.'''

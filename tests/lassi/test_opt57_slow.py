@@ -31,6 +31,7 @@ from mrh.my_pyscf.lassi.citools import get_lroots, get_rootaddr_fragaddr
 from mrh.my_pyscf.lassi import op_o0
 from mrh.my_pyscf.lassi import op_o1
 from mrh.tests.lassi.addons import case_contract_hlas_ci, case_contract_op_si
+from mrh.tests.lassi.addons import mask_eri_nfrag
 
 op = (op_o0, op_o1)
 
@@ -189,6 +190,12 @@ class KnownValues(unittest.TestCase):
 
     def test_contract_hlas_ci (self):
         h0, h1, h2 = ham_2q (las, las.mo_coeff)
+        #h0 = 0
+        #h1[:] = 0
+        nfrag = mask_eri_nfrag (las.ncas_sub)
+        #h2[nfrag==1] = 0
+        #h2[nfrag==2] = 0
+        #h2[nfrag==3] = 0
         case_contract_hlas_ci (self, las, h0, h1, h2, las.ci, nelec_frs)
 
     def test_contract_op_si (self):
