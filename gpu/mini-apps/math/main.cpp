@@ -42,6 +42,9 @@ struct input_t {
   int m = 1024;
   int n = 1024;
   int k = 1024;
+  int lda = 1024;
+  int ldb = 1024;
+  int ldc = 1024;
   double alpha = 1.0;
   double beta = 0.0;
   char * transa = (char *) "N";
@@ -67,6 +70,17 @@ void parse_command_line(int argc, char * argv[], input_t & inp)
     else if(strcmp(argv[indx], "-trans") == 0) {
       inp.transa = argv[++indx];
       inp.transb = argv[++indx];
+      
+      if(strcmp(inp.transa, "N") == 0) inp.lda = inp.k;
+      else inp.lda = inp.m;
+
+      if(strcmp(inp.transb, "N") == 0) {
+	inp.ldb = inp.n;
+	inp.ldc = inp.n;
+      } else {
+	inp.ldb = inp.k;
+	inp.ldc = inp.k;
+      }
     }
     else if(strcmp(argv[indx],"-replay") == 0) {
       if(strcmp(argv[++indx], "gemm_batch") == 0) inp.do_batched = true;
@@ -75,6 +89,9 @@ void parse_command_line(int argc, char * argv[], input_t & inp)
       inp.m = atoi(argv[++indx]);
       inp.n = atoi(argv[++indx]);
       inp.k = atoi(argv[++indx]);
+      inp.lda = atoi(argv[++indx]);
+      inp.ldb = atoi(argv[++indx]);
+      inp.ldc = atoi(argv[++indx]);
       inp.alpha = atof(argv[++indx]);
       inp.beta = atof(argv[++indx]);
       if(inp.do_batched) inp.num_batches = atoi(argv[++indx]);
@@ -93,6 +110,7 @@ void parse_command_line(int argc, char * argv[], input_t & inp)
   printf("check_result= %i\n",inp.check_result);
   printf("trans= %s %s\n",inp.transa, inp.transb);
   printf("mnk= %i %i %i\n",inp.m, inp.n, inp.k);
+  printf("ld= %i %i %i\n",inp.lda, inp.ldb, inp.ldc);
   printf("num_iter= %i\n",inp.num_iter);
   printf("do_batched= %i\n",inp.do_batched);
   printf("num_batches= %i\n",inp.num_batches);
@@ -159,14 +177,14 @@ void print_matrix(real_t * data, int num_rows, int num_cols, const char * name)
 
 // ----------------------------------------------------------------
 
-double print_summary(double t, int num_rows_a, int num_cols_a, int num_cols_b, int num_iter, int num_batch, const char * name)
+double print_summary(int id, double t, int num_rows_a, int num_cols_a, int num_cols_b, int num_iter, int num_batch, const char * name)
 {
   double flop = num_batch * num_rows_a * num_cols_b * (2.0 * num_cols_a - 1.0) / 1024.0 / 1024.0 / 1024.0; // TFlop
 
   double flops = flop * num_iter / t; // GFlop/s
 
-  printf("\nMatrix[%s] : mnk= %i %i %i  num_batch= %i  num_iter= %i  time= %f  [ms]  flops= %f  [GFlops/s]\n",
-	 name, num_rows_a, num_cols_b, num_cols_a, num_batch, num_iter, t*1000.0, flops);
+  printf("\nMatrix[%s : %i] : mnk= %i %i %i  num_batch= %i  num_iter= %i  time= %f  [ms]  flops= %f  [GFlops/s]\n",
+	 name, id, num_rows_a, num_cols_b, num_cols_a, num_batch, num_iter, t*1000.0, flops);
 
   fflush(stdout);
   
@@ -259,9 +277,9 @@ int main( int argc, char* argv[] )
   // ----------------------------------------------------------------
 
   double t;
-  
-  printf("\nMatrix Multiplication :: C(%i x %i) = A(%i x %i).B(%i x %i)\n",
-	 inp.m, inp.n, inp.m, inp.k, inp.k, inp.n);
+
+  printf("\nMatrix Multiplication :: C(%i x %i) = A(%i x %i)^%s . B(%i x %i)^%s\n",
+	 inp.m, inp.n, inp.m, inp.k, inp.transa, inp.k, inp.n, inp.transb);
 
   if(inp.check_result) {
   
@@ -279,10 +297,10 @@ int main( int argc, char* argv[] )
       const int m = inp.m;  // # rows of first matrix A
       const int n = inp.n;  // # cols of second matrix B
       const int k = inp.k;  // # cols of first matrix A
-      
-      const int lda = inp.k; // lead dimension of first matrix A
-      const int ldb = inp.n; // lead dimension of second matrix B
-      const int ldc = inp.n; // lead dimension of result matrix C
+
+      const int lda = inp.lda;
+      const int ldb = inp.ldb;
+      const int ldc = inp.ldc;
       
       gemm_NN0_naive_cpu(&m, &n, &k, &alpha, a, &lda, b, &ldb, &beta, c, &ldc);
       
@@ -292,7 +310,7 @@ int main( int argc, char* argv[] )
       t = MPI_Wtime() - t0;
     }
     
-    print_summary(t, inp.m, inp.k, inp.n, _NUM_ITERATIONS_CPU, 1, "gemm_NN0_naive_cpu");
+    print_summary(0, t, inp.m, inp.k, inp.n, _NUM_ITERATIONS_CPU, 1, "gemm_NN0_naive_cpu");
     
     check_result(r, c, inp.m*inp.n, "naive_cpu");
     
@@ -344,9 +362,9 @@ int main( int argc, char* argv[] )
     n = inp.m;  // # cols of second matrix A^T
     k = inp.k;  // # cols of first matrix B^T
     
-    ldb = inp.n; // lead dimension of first matrix B^T
-    lda = inp.k; // lead dimension of second matrix A^T
-    ldc = inp.n; // lead dimension of result matrix C
+    ldb = inp.ldb; // lead dimension of first matrix B^T
+    lda = inp.lda; // lead dimension of second matrix A^T
+    ldc = inp.ldc; // lead dimension of result matrix C
     
     strideA = inp.k * inp.n; // stride matrix B
     strideB = inp.m * inp.k; // stride matrix A
@@ -358,9 +376,9 @@ int main( int argc, char* argv[] )
     n = inp.n;
     k = inp.k;
 
-    lda = inp.k;
-    ldb = inp.n;
-    ldc = inp.n;
+    lda = inp.lda;
+    ldb = inp.ldb;
+    ldc = inp.ldc;
 
     strideA = inp.m * inp.k;
     strideB = inp.k * inp.m;
@@ -376,7 +394,7 @@ int main( int argc, char* argv[] )
 
       if(inp.fortran) {
 	
-	ml->gemm_batch((char *) "N", (char *) "N", &m, &n, &k,
+	ml->gemm_batch(inp.transa, inp.transb, &m, &n, &k,
 		       &alpha, d_b[i], &ldb, &strideB,
 		       d_a[i], &lda, &strideA,
 		       &beta, d_c[i], &ldc, &strideC,
@@ -384,7 +402,7 @@ int main( int argc, char* argv[] )
 
       } else {
 
-	ml->gemm_batch((char *) "N", (char *) "N", &m, &n, &k,
+	ml->gemm_batch(inp.transa, inp.transb, &m, &n, &k,
 		       &alpha, d_a[i], &lda, &strideA,
 		       d_b[i], &ldb, &strideB,
 		       &beta, d_c[i], &ldc, &strideC,
@@ -396,11 +414,11 @@ int main( int argc, char* argv[] )
       
       if(inp.fortran) {
 
-	ml->gemm((char *) "N", (char *) "N", &m, &n, &k, &alpha, d_b[i], &ldb, d_a[i], &lda, &beta, d_c[i], &ldc);
+	ml->gemm(inp.transa, inp.transb, &m, &n, &k, &alpha, d_b[i], &ldb, d_a[i], &lda, &beta, d_c[i], &ldc);
 
       } else {
 	
-	ml->gemm((char *) "N", (char *) "N", &m, &n, &k, &alpha, d_a[i], &lda, d_b[i], &ldb, &beta, d_c[i], &ldc);
+	ml->gemm(inp.transa, inp.transb, &m, &n, &k, &alpha, d_a[i], &lda, d_b[i], &ldb, &beta, d_c[i], &ldc);
 
       }
 
@@ -428,7 +446,7 @@ int main( int argc, char* argv[] )
 
 	  if(inp.fortran) {
 	    
-	    ml->gemm_batch((char *) "N", (char *) "N", &m, &n, &k,
+	    ml->gemm_batch(inp.transa, inp.transb, &m, &n, &k,
 			   &alpha, d_b[j], &ldb, &strideB,
 			   d_a[j], &lda, &strideA,
 			   &beta, d_c[j], &ldc, &strideC,
@@ -436,7 +454,7 @@ int main( int argc, char* argv[] )
 
 	  } else {
 
-	    ml->gemm_batch((char *) "N", (char *) "N", &m, &n, &k,
+	    ml->gemm_batch(inp.transa, inp.transb, &m, &n, &k,
 			   &alpha, d_a[j], &lda, &strideA,
 			   d_b[j], &ldb, &strideB,
 			   &beta, d_c[j], &ldc, &strideC,
@@ -448,11 +466,11 @@ int main( int argc, char* argv[] )
 
 	  if(inp.fortran) {
 	    
-	    ml->gemm((char *) "N", (char *) "N", &m, &n, &k, &alpha, d_b[j], &ldb, d_a[j], &lda, &beta, d_c[j], &ldc);
+	    ml->gemm(inp.transa, inp.transb, &m, &n, &k, &alpha, d_b[j], &ldb, d_a[j], &lda, &beta, d_c[j], &ldc);
 
 	  } else {
 
-	    ml->gemm((char *) "N", (char *) "N", &m, &n, &k, &alpha, d_a[j], &lda, d_b[j], &ldb, &beta, d_c[j], &ldc);
+	    ml->gemm(inp.transa, inp.transb, &m, &n, &k, &alpha, d_a[j], &lda, d_b[j], &ldb, &beta, d_c[j], &ldc);
 	  
 	  }
 
@@ -476,7 +494,7 @@ int main( int argc, char* argv[] )
       
       pm->dev_pull(d_c[i], c, inp.m * inp.n * inp.num_batches * sizeof(real_t));
       
-      double flops = print_summary(t, inp.m, inp.k, inp.n, inp.num_iter, inp.num_batches, "MATHLIB gemm"); // GFlops
+      double flops = print_summary(i, t, inp.m, inp.k, inp.n, inp.num_iter, inp.num_batches, "MATHLIB gemm"); // GFlops
 
       total_flops += flops;
       total_flops2 += flops * flops;
@@ -490,13 +508,13 @@ int main( int argc, char* argv[] )
 
   }
 
-  double avg_flops = total_flops / double(inp.num_repeat);
-  double avg_flops2 = total_flops2 / double(inp.num_repeat);
-  double std_flops = sqrt(avg_flops2 - avg_flops*avg_flops);
-
+  double avg_flops = total_flops / double(inp.num_repeat) / double(num_devices);
+  double avg_flops2 = total_flops2 / double(inp.num_repeat) / double(num_devices);
+  double std_flops = sqrt(avg_flops2 - avg_flops*avg_flops + 1e-18);
+  
   double avg_time = total_time / double(inp.num_repeat);
   double avg_time2 = total_time2 / double(inp.num_repeat);
-  double std_time = sqrt(avg_time2 - avg_time*avg_time);
+  double std_time = sqrt(avg_time2 - avg_time*avg_time + 1e-18);
   
   printf("\n[MATHLIB gemm] %f +/- %f [ms]   %f +/- %f [TFlops]\n", avg_time*1000.0, std_time*1000.0, avg_flops/1000.0, std_flops/1000.0);
     

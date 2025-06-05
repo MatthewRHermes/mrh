@@ -97,7 +97,8 @@ void MATHLIB::gemm(const char * transa, const char * transb,
 
 #if defined(_PROFILE_ML)
   std::ostringstream name_;
-  name_ << "gemm " << transa << " " << transb << " " << *m << " " << *n << " " << *k << " " << *alpha << " " << *beta;
+  name_ << "gemm " << transa << " " << transb << " " << *m << " " << *n << " " << *k << " "
+	<< *lda << " " << *ldb << " " << *ldc << " " << *alpha << " " << *beta;
   std::string name = name_.str();
 
   auto it_ = std::find(profile_name.begin(), profile_name.end(), name);
@@ -153,7 +154,8 @@ void MATHLIB::gemm_batch(const char * transa, const char * transb,
   
 #if defined(_PROFILE_ML)
   std::ostringstream name_;
-  name_ << "gemm_batch " << transa << " " << transb << " " << *m << " " << *n << " " << *k << " " << *alpha << " " << *beta << " " << *batchCount;
+  name_ << "gemm_batch " << transa << " " << transb << " " << *m << " " << *n << " " << *k << " " <<
+    << *lda << " " << *ldb << " " << *ldc << " " *alpha << " " << *beta << " " << *batchCount;
   std::string name = name_.str();
 
   auto it_ = std::find(profile_name.begin(), profile_name.end(), name);
