@@ -31,7 +31,7 @@ def describe_interactions (nelec_frs):
     return interactions, interidx
 
 # TODO: SOC generalization!
-def case_contract_hlas_ci (ks, las, h0, h1, h2, ci_fr, nelec_frs):
+def case_contract_hlas_ci (ks, las, h0, h1, h2, ci_fr, nelec_frs, si_bra=None, si_ket=None):
     interactions, interidx = describe_interactions (nelec_frs)
     nelec = nelec_frs
 
@@ -42,8 +42,22 @@ def case_contract_hlas_ci (ks, las, h0, h1, h2, ci_fr, nelec_frs):
     nj = np.cumsum (lroots_prod)
     ni = nj - lroots_prod
     ndim = nj[-1]
-    si_bra = np.random.rand (ndim)
-    si_ket = np.random.rand (ndim)
+    sivec_bra = np.random.rand (ndim)
+    sivec_ket = np.random.rand (ndim)
+    if si_bra is not None:
+        if np.issubdtype (np.asarray (si_bra).dtype, np.integer):
+            sivec_bra[:] = 0
+            sivec_bra[np.asarray (si_bra)] = 1
+        elif isinstance (si_bra, str):
+            if 'flat' in si_bra.lower ():
+                sivec_bra[:] = 1
+    if si_ket is not None:
+        if np.issubdtype (np.asarray (si_ket).dtype, np.integer):
+            sivec_ket[:] = 0
+            sivec_ket[np.asarray (si_ket)] = 1
+        elif isinstance (si_ket, str):
+            if 'flat' in si_ket.lower ():
+                sivec_ket[:] = 1
     for opt in range (2):
         ham, _, ovlp = op[opt].ham (las, h1, h2, ci_fr, nelec)[:3]
         ham += h0 * ovlp
@@ -73,15 +87,15 @@ def case_contract_hlas_ci (ks, las, h0, h1, h2, ci_fr, nelec_frs):
                                        dnelecb=nelec[:,r,1]-nelec[:,s,1]):
                         pass
                         #ks.assertAlmostEqual (lib.fp (hket_pq_s), lib.fp (hket_ref_s), 8)
-        hket_ref = np.dot (ham, si_ket)
+        hket_ref = np.dot (ham, sivec_ket)
         hket_fr_pabq = op[opt].contract_ham_ci (las, h1, h2, ci_fr, nelec, ci_fr, nelec, h0=h0,
-                                                si_bra=si_bra, si_ket=si_ket)
+                                                si_bra=sivec_bra, si_ket=sivec_ket)
         for f, (ci_r, hket_r_pabq) in enumerate (zip (ci_fr, hket_fr_pabq)):
             for r, (ci, hket_pabq) in enumerate (zip (ci_r, hket_r_pabq)):
                 if ci.ndim < 3: ci = ci[None,:,:]
                 with ks.subTest (opt=opt, frag=f, bra_space=r, nelec=nelec[f,r]):
                     h_test = lib.einsum ('pab,pab->', hket_pabq, ci.conj ())
-                    h_ref = np.dot (si_bra[ni[r]:nj[r]].conj (), hket_ref[ni[r]:nj[r]])
+                    h_ref = np.dot (sivec_bra[ni[r]:nj[r]].conj (), hket_ref[ni[r]:nj[r]])
                     ks.assertAlmostEqual (h_test, h_ref, 8)
     return hket_fr_pabq
 

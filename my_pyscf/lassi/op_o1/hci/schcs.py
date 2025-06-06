@@ -310,10 +310,9 @@ class ContractHamCI_SHS (rdm.LRRDM):
         s11 = s1
         s12 = 1-s1
         s2 = 2-s1
-        nelec_f_bra = self.nelec_rf[self.rootaddr[bra]]
-        nelec_f_ket = self.nelec_rf[self.rootaddr[ket]]
-        fac = -1 # a'bb'a -> a'ab'b signi
-        fac *= (1,-1)[int (i>k)] * (1,-1)[int (k>j)]
+        nelec_f_bra = self.nelec_rf[bra]
+        nelec_f_ket = self.nelec_rf[ket]
+        fac = -1 # i'k'jk -> i'k'kj sign
         fac *= fermion_des_shuffle (nelec_f_bra, (i, j, k), i)
         fac *= fermion_des_shuffle (nelec_f_ket, (i, j, k), j)
         h_ikkj = fac * self.get_ham_2q (i,k,k,j)
