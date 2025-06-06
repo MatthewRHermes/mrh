@@ -272,9 +272,6 @@ class ContractHamCI_SHS (rdm.LRRDM):
         d_rJJII = self.get_fdm (bra, ket, i, j) # time-profiled by itself
         t0, w0 = logger.process_clock (), logger.perf_counter ()
         inti, intj = self.ints[i], self.ints[j]
-        d2 = self._get_D2_(bra, ket) # aa, ab, ba, bb -> 0, 1, 2, 3
-        p, q = self.get_range (i)
-        r, s = self.get_range (j)
         fac = -1
         h_jjii = fac *self.get_ham_2q (i,j,j,i).transpose (2,1,0,3)
  
@@ -316,6 +313,7 @@ class ContractHamCI_SHS (rdm.LRRDM):
         nelec_f_bra = self.nelec_rf[self.rootaddr[bra]]
         nelec_f_ket = self.nelec_rf[self.rootaddr[ket]]
         fac = -1 # a'bb'a -> a'ab'b signi
+        fac *= (1,-1)[int (i>k)] * (1,-1)[int (k>j)]
         fac *= fermion_des_shuffle (nelec_f_bra, (i, j, k), i)
         fac *= fermion_des_shuffle (nelec_f_ket, (i, j, k), j)
         h_ikkj = fac * self.get_ham_2q (i,k,k,j)
@@ -391,7 +389,10 @@ class ContractHamCI_SHS (rdm.LRRDM):
             fac *= (1,-1)[int (j>l)]
             fac *= fermion_des_shuffle (nelec_f_ket, (i, j, k, l), j)
             fac *= fermion_des_shuffle (nelec_f_ket, (i, j, k, l), l)
-        h_iklj = fac * self.get_ham_2q (i,j,k,l).transpose (0,2,3,1) # Dirac order
+        h_iklj = self.get_ham_2q (i,j,k,l).transpose (0,2,3,1) # Dirac order
+        if s11==s12 and i!=k and j!=l: # exchange
+            h_iklj -= self.get_ham_2q (i,l,k,j).transpose (0,2,1,3)
+        h_iklj[:] *= fac
 
         # First pass: opposite fragment
         if i == k:

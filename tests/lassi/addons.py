@@ -404,7 +404,7 @@ def case_lassis_ugg (ks, lsis):
         mo0, _, _, _, si0 = ugg.unpack (x0)
         x1 = ugg.pack (mo0, hci_ref, hci_sf, hci_ch, si0)
 
-def mask_eri_nfrag (nlas):
+def eri_sector_indexes (nlas):
     faddr = []
     for i, n in enumerate (nlas):
         faddr += [i,]*n
@@ -415,10 +415,27 @@ def mask_eri_nfrag (nlas):
     eri_idx[1] = faddr[None,:,None,None]
     eri_idx[2] = faddr[None,None,:,None]
     eri_idx[3] = faddr[None,None,None,:]
-    eri_idx = eri_idx.reshape (4,norb**4).T
-    eri_idx = np.sort (eri_idx, axis=1)
-    eri_idx = (eri_idx[:,1:] != eri_idx[:,:-1]).sum (1) + 1
-    return eri_idx.reshape (norb,norb,norb,norb)
+    eri_idx = eri_idx.reshape (4,norb**4)
+    sorted_frags = np.sort (eri_idx, axis=0)
+    nfrag = (sorted_frags[1:] != sorted_frags[:-1]).sum (0) + 1
+    idx_j = (nfrag>1) & (
+        (eri_idx[0]==eri_idx[1]) | (eri_idx[2]==eri_idx[3])
+    )
+    idx_k = (nfrag>1) & (
+        (eri_idx[1]==eri_idx[2]) | (eri_idx[0]==eri_idx[3])
+    )
+    idx_pp = (nfrag>1) & (
+        (eri_idx[0]==eri_idx[2]) | (eri_idx[1]==eri_idx[3])
+    )
+    idx_pph = (idx_j & idx_pp)
+    idx_j = (idx_j & (~idx_pp))
+    idx_k = (idx_k & (~idx_pp))
+    idx = {'pph': idx_pph.reshape ([norb,]*4),
+           'j': idx_j.reshape ([norb,]*4),
+           'k': idx_k.reshape ([norb,]*4),
+           'pp': idx_pp.reshape ([norb,]*4)}
+    nfrag = nfrag.reshape ([norb,]*4)
+    return nfrag, idx
 
 
 
