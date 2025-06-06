@@ -33,6 +33,7 @@ using namespace MATHLIB_NS;
 //#define _DEBUG_H2EFF_DF
 //#define _DEBUG_AO2MO
 //#define _DEBUG_PACKING
+//#define _DEBUG_P2P
 
 #define _PUMAP_2D_UNPACK 0       // generic unpacking of 1D array to 2D matrix
 #define _PUMAP_H2EFF_UNPACK 1    // unpacking h2eff array (generic?)
@@ -179,7 +180,7 @@ public :
   // multi-gpu communication (better here or part of PM?)
 
   void mgpu_bcast(std::vector<double *>, double *, size_t);
-  //  void mgpu_reduce();
+  void mgpu_reduce(std::vector<double *>, double *, int, bool, std::vector<double *>);
   
 private:
 

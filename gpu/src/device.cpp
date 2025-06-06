@@ -863,7 +863,7 @@ void Device::pull_get_jk(py::array_t<double> _vj, py::array_t<double> _vk, int n
 #ifdef _DEBUG_DEVICE
   printf("LIBGPU :: -- Inside Device::pull_get_jk()\n");
 #endif
-
+  
   double t0 = omp_get_wtime();
   
   pm->dev_profile_start("pull_get_jk");
@@ -871,176 +871,30 @@ void Device::pull_get_jk(py::array_t<double> _vj, py::array_t<double> _vk, int n
   py::buffer_info info_vj = _vj.request(); // 2D array (nset, nao_pair)
   
   double * vj = static_cast<double*>(info_vj.ptr);
-
+  
   int nao_pair = nao * (nao+1) / 2;
   
   int N = nset * nao_pair;
-	  
+  
   int size = N * sizeof(double);
-
-  double * tmp;
-
-  int nrecv = num_devices / 2;
-
-  int nactive = num_devices;
-
-  // accumulate result to device 0 using binary tree reduction
   
-  int il = 0;
-  while(nrecv > 0) {
-
-    //    printf("LIBGPU :: -- GPU-GPU Reduction  il= %i  nactive= %i  nrecv= %i\n",il,nactive,nrecv);
-
-    // odd number of recievers and not last level (clean-up pre-reduction)
-      
-    if((nactive > 1) && (nactive % 2)) {
-
-      //      printf("LIBGPU :: -- GPU-GPU Reduction  pre clean-up odd reciever  nactive= %i  nrecv= %i\n",nactive,nrecv);
-      
-      int dest = nactive - 2;
-      int src = nactive - 1;
-      
-      my_device_data * dd_dest = &(device_data[dest]);
-      my_device_data * dd_src = &(device_data[src]);
-      
-      // printf("LIBGPU :: -- GPU-GPU Reduction  -- src %i(%p) --> dest %i(%p, %p)\n",
-      // 	     src, dd_src->d_vj, dest, dd_dest->d_buf3, dd_dest->d_vj);
-      
-      if(dd_src->d_vj) {
-	// because we reuse d_buf3, need to ensure dest is done using it
-	
-	pm->dev_set_device(dest);
-	
-	pm->dev_stream_wait();
-	
-	// src initiates transfer
-	
-	pm->dev_set_device(src);
-	
-	//pm->dev_stream_wait(); // why?
-	
-	pm->dev_memcpy_peer(dd_dest->d_buf3, dest, dd_src->d_vj, src, size);
-	
-	// dest launches kernel
-	
-	pm->dev_set_device(dest); 
-	
-	vecadd(dd_dest->d_buf3, dd_dest->d_vj, N);
-      }
-      
-      //nrecv--;
-      nactive--;
-    }
-    
-    // binary tree reduction
-    
-    if(nactive > nrecv) {
-
-      //      printf("LIBGPU :: -- GPU-GPU Reduction  binary reduction   nactive= %i  nrecv= %i\n",nactive,nrecv);
-      
-      int nsend = nactive - nrecv;
-
-      for(int i=0; i<nsend; ++i) {
-
-	int dest = i;
-	int src = nrecv + i;
-
-	my_device_data * dd_dest = &(device_data[dest]);
-	my_device_data * dd_src = &(device_data[src]);
-	
-	// printf("LIBGPU :: -- GPU-GPU Reduction  -- src %i(%p) --> dest %i(%p, %p)\n",
-	//        src, dd_src->d_vj, dest, dd_dest->d_buf3, dd_dest->d_vj);
-
-	if(dd_src->d_vj) {
-	  // because we reuse d_buf3, need to ensure dest is done using it
-	  
-	  pm->dev_set_device(dest);
-	  
-	  pm->dev_stream_wait();
-
-	  // src initiates transfer
-	  
-	  pm->dev_set_device(src);
-	  
-	  //	  pm->dev_stream_wait(); // why?
-	  
-	  pm->dev_memcpy_peer(dd_dest->d_buf3, dest, dd_src->d_vj, src, size);
-
-	  // dest launches kernel
-	  
-	  pm->dev_set_device(dest); 
-	  
-	  vecadd(dd_dest->d_buf3, dd_dest->d_vj, N);
-	}
-      }
-
-      nactive = nrecv;
-
-      // odd number of recievers and not last level (clean-up post-reduction)
-      
-      if((nrecv > 1) && (nrecv % 2)) {
-
-	//	printf("LIBGPU :: -- GPU-GPU Reduction  post clean-up odd reciever  nactive= %i  nrecv= %i\n",nactive,nrecv);
-    
-	int dest = nrecv - 2;
-	int src = nrecv - 1;
-	
-	my_device_data * dd_dest = &(device_data[dest]);
-	my_device_data * dd_src = &(device_data[src]);
-	
-	// printf("LIBGPU :: -- GPU-GPU Reduction  -- src %i(%p) --> dest %i(%p, %p)\n",
-	//        src, dd_src->d_vj, dest, dd_dest->d_buf3, dd_dest->d_vj);
-
-	if(dd_src->d_vj) {
-	  // because we reuse d_buf3, need to ensure dest is done using it
-	  
-	  pm->dev_set_device(dest);
-
-	  pm->dev_stream_wait();
-
-	  // src initiates transfer
-	  
-	  pm->dev_set_device(src);
-	  
-	  //	  pm->dev_stream_wait(); // why?
-	  
-	  pm->dev_memcpy_peer(dd_dest->d_buf3, dest, dd_src->d_vj, src, size);
-
-	  // dest launches kernel
-	  
-	  pm->dev_set_device(dest); 
-	  
-	  vecadd(dd_dest->d_buf3, dd_dest->d_vj, N);
-	}
-
-	nrecv--;
-	nactive--;
-      }
-      
-    }
-
-    nrecv /= 2;
-    il++;
+  std::vector<double *> v_vec(num_devices);
+  std::vector<double *> buf_vec(num_devices);
+  
+  for(int i=0; i<num_devices; ++i) {
+    my_device_data * dd = &(device_data[i]);
+    v_vec[i] = dd->d_vj;
+    buf_vec[i] = dd->d_buf3;
   }
-
-  // accumulate result on host
-
-  //  printf("LIBGPU :: -- GPU-GPU Reduction  transferring result to host\n");
   
-  pm->dev_set_device(0);
-
-  my_device_data * dd = &(device_data[0]);
-  
-  if(dd->d_vj) {
-    pm->dev_pull(dd->d_vj, buf_vj, size);
+  if(v_vec[0]) {
+    mgpu_reduce(v_vec, buf_vj, N, true, buf_vec); 
     
 #pragma omp parallel for
     for(int j=0; j<N; ++j) vj[j] += buf_vj[j];
   }
   
   update_dfobj = 0;
-  
-  //  printf("LIBGPU :: -- GPU-GPU Reduction  finished\n");
   
   if(!with_k) {
     pm->dev_profile_stop();
@@ -1051,185 +905,38 @@ void Device::pull_get_jk(py::array_t<double> _vj, py::array_t<double> _vk, int n
     
     return;
   }
-    
+  
   py::buffer_info info_vk = _vk.request(); // 3D array (nset, nao, nao)
-    
+  
   double * vk = static_cast<double*>(info_vk.ptr);
-
+  
   N = nset * nao * nao;
   
-  size = N * sizeof(double);
-
-  nrecv = num_devices / 2;
-
-  nactive = num_devices;
-  
-  // accumulate result to device 0 using binary tree reduction
-
-  il = 0;
-  while(nrecv > 0) {
-
-    //    printf("LIBGPU :: -- GPU-GPU Reduction  il= %i  ngpus_active= %i  ngpus_recv= %i\n",il,nactive,nrecv);
-    
-    // odd number of recievers and not last level (clean-up pre-reduction)
-      
-    if((nactive > 1) && (nactive % 2)) {
-
-      //      printf("LIBGPU :: -- GPU-GPU Reduction  post clean-up odd reciever  nactive= %i  nrecv= %i\n",nactive,nrecv);
-      
-      int dest = nactive - 2;
-      int src = nactive - 1;
-      
-      my_device_data * dd_dest = &(device_data[dest]);
-      my_device_data * dd_src = &(device_data[src]);
-      
-      // printf("LIBGPU :: -- GPU-GPU Reduction  -- src %i(%p) --> dest %i(%p, %p)\n",
-      // 	     src, dd_src->d_vkk, dest, dd_dest->d_buf3, dd_dest->d_vkk);
-      
-      if(dd_src->d_vkk) {
-	// because we reuse d_buf3, need to ensure dest is done using it
-	
-	pm->dev_set_device(dest);
-	
-	pm->dev_stream_wait();
-	
-	// src initiates transfer
-	
-	pm->dev_set_device(src);
-	
-	//	pm->dev_stream_wait(); // why?
-	
-	pm->dev_memcpy_peer(dd_dest->d_buf3, dest, dd_src->d_vkk, src, size);
-	
-	// dest launches kernel
-	
-	pm->dev_set_device(dest); 
-	
-	vecadd(dd_dest->d_buf3, dd_dest->d_vkk, N);
-      }
-      
-      //      nrecv--;
-      nactive--;
-    }
-    
-    // binary tree reduction
-    
-    if(nactive > nrecv) {
-
-      //      printf("LIBGPU :: -- GPU-GPU Reduction  binary reduction   nactive= %i  nrecv= %i\n",nactive,nrecv);
-      
-      int nsend = nactive - nrecv;
-      
-      for(int i=0; i<nsend; ++i) {
-
-	int dest = i;
-	int src = nrecv + i;
-
-	my_device_data * dd_dest = &(device_data[dest]);
-	my_device_data * dd_src = &(device_data[src]);
-	
-	// printf("LIBGPU :: -- GPU-GPU Reduction  -- src %i(%p) --> dest %i(%p, %p)\n",
-	//        src, dd_src->d_vkk, dest, dd_dest->d_buf3, dd_dest->d_vkk);
-	
-	if(dd_src->d_vkk) {
-	  // because we reuse d_buf3, need to ensure dest is done using it
-	  
-	  pm->dev_set_device(dest);
-
-	  pm->dev_stream_wait();
-
-	  // src initiates transfer
-	  
-	  pm->dev_set_device(src);
-	  
-	  //	  pm->dev_stream_wait(); // why?
-	  
-	  pm->dev_memcpy_peer(dd_dest->d_buf3, dest, dd_src->d_vkk, src, size);
-
-	  // dest launches kernel
-	  
-	  pm->dev_set_device(dest);  
-	  
-	  vecadd(dd_dest->d_buf3, dd_dest->d_vkk, N);
-	}
-      }
-
-      nactive = nrecv;
-      
-      // odd number of recievers and not last level
-      
-      if((nrecv > 1) && (nrecv % 2)) {
-
-	//	printf("LIBGPU :: -- GPU-GPU Reduction  post clean-up odd reciever  nactive= %i  nrecv= %i\n",nactive,nrecv);
-    
-	int dest = nrecv - 2;
-	int src = nrecv - 1;
-	
-	my_device_data * dd_dest = &(device_data[dest]);
-	my_device_data * dd_src = &(device_data[src]);
-	
-	// printf("LIBGPU :: -- GPU-GPU Reduction  -- src %i(%p) --> dest %i(%p, %p)\n",
-	//        src, dd_src->d_vkk, dest, dd_dest->d_buf3, dd_dest->d_vkk);
-
-	if(dd_src->d_vkk) {
-	  // because we reuse d_buf3, need to ensure dest is done using it
-	  
-	  pm->dev_set_device(dest);
-
-	  pm->dev_stream_wait();
-
-	  // src initiates transfer
-	  
-	  pm->dev_set_device(src);
-	  
-	  //	  pm->dev_stream_wait(); // why?
-	  
-	  pm->dev_memcpy_peer(dd_dest->d_buf3, dest, dd_src->d_vkk, src, size);
-
-	  // dest launches kernel
-	  
-	  pm->dev_set_device(dest); 
-	  
-	  vecadd(dd_dest->d_buf3, dd_dest->d_vkk, N);
-	}
-
-	nrecv--;
-	nactive--;
-      }
-    }
-
-    nrecv /= 2;
-    il++;
+  for(int i=0; i<num_devices; ++i) {
+    my_device_data * dd = &(device_data[i]);
+    v_vec[i] = dd->d_vkk;
   }
-
-  // accumulate result on host
   
-  //  printf("LIBGPU :: -- GPU-GPU Reduction  transferring result to host\n");
-  
-  pm->dev_set_device(0);
-
-  dd = &(device_data[0]);
-  
-  if(dd->d_vkk) {
-    pm->dev_pull(dd->d_vkk, buf_vk, size);
+  if(v_vec[0]) {
+    mgpu_reduce(v_vec, buf_vk, N, true, buf_vec);
     
 #pragma omp parallel for
     for(int j=0; j<N; ++j) vk[j] += buf_vk[j];
   }
-
-  //  printf("LIBGPU :: -- GPU-GPU Reduction  finished\n");
   
   pm->dev_profile_stop();
   
   double t1 = omp_get_wtime();
   t_array[1] += t1 - t0;
   count_array[0]+=1; // just doing this addition in pull, not in init or compute
-    
+  
 #ifdef _DEBUG_DEVICE
   printf("LIBGPU :: -- Leaving Device::pull_get_jk()\n");
 #endif
 }
+
 #else
+
 void Device::pull_get_jk(py::array_t<double> _vj, py::array_t<double> _vk, int nao, int nset, int with_k)
 {
 #ifdef _DEBUG_DEVICE
@@ -4326,6 +4033,178 @@ void Device::mgpu_bcast(std::vector<double *> d_ptr, double * h_ptr, size_t size
 
   for(int i=1; i<d_ptr.size(); ++i)
     pm->dev_memcpy_peer(d_ptr[i], i, d_ptr[0], 0, size);
+}
+
+/* ---------------------------------------------------------------------- */
+
+
+void Device::mgpu_reduce(std::vector<double *> d_ptr, double * h_ptr, int N, bool blocking, std::vector<double *> buf_ptr)
+{
+#if defined(_DEBUG_P2P)
+  printf("LIBGPU :: -- GPU-GPU Reduction  Starting!\n");
+#endif
+  
+  size_t size = N * sizeof(double);
+  
+  int nrecv = num_devices / 2;
+
+  int nactive = num_devices;
+
+  // accumulate result to device 0 using binary tree reduction
+  
+  int il = 0;
+  while(nrecv > 0) {
+
+#if defined(_DEBUG_P2P)
+    printf("LIBGPU :: -- GPU-GPU Reduction  il= %i  nactive= %i  nrecv= %i\n",il,nactive,nrecv);
+#endif
+    
+    // odd number of recievers and not last level (clean-up pre-reduction)
+      
+    if((nactive > 1) && (nactive % 2)) {
+
+#if defined(_DEBUG_P2P)
+      printf("LIBGPU :: -- GPU-GPU Reduction  pre clean-up odd reciever  nactive= %i  nrecv= %i\n",nactive,nrecv);
+#endif
+      
+      int dest = nactive - 2;
+      int src = nactive - 1;
+      
+#if defined(_DEBUG_P2P)
+      printf("LIBGPU :: -- GPU-GPU Reduction  -- src %i(%p) --> dest %i(%p, %p)\n",
+       	     src, d_ptr[src], dest, buf_ptr[dest], d_ptr[dest]);
+#endif
+      
+      if(d_ptr[src]) {
+	if(blocking) {
+	  // need to ensure dest is done using buf
+	
+	  pm->dev_set_device(dest);
+	  
+	  pm->dev_stream_wait();
+	}
+	
+	// src initiates transfer
+	
+	pm->dev_set_device(src);
+	
+	pm->dev_memcpy_peer(buf_ptr[dest], dest, d_ptr[src], src, size);
+	
+	// dest launches kernel
+	
+	pm->dev_set_device(dest); 
+	
+	vecadd(buf_ptr[dest], d_ptr[dest], N);
+      }
+      
+      nactive--;
+    }
+    
+    // binary tree reduction
+    
+    if(nactive > nrecv) {
+
+#if defined(_DEBUG_P2P)
+      printf("LIBGPU :: -- GPU-GPU Reduction  binary reduction   nactive= %i  nrecv= %i\n",nactive,nrecv);
+#endif
+      
+      int nsend = nactive - nrecv;
+
+      for(int i=0; i<nsend; ++i) {
+
+	int dest = i;
+	int src = nrecv + i;
+
+#if defined(_DEBUG_P2P)	
+	printf("LIBGPU :: -- GPU-GPU Reduction  -- src %i(%p) --> dest %i(%p, %p)\n",
+	       src, d_ptr[src], dest, buf_ptr[dest], d_ptr[dest]);
+#endif
+
+	if(d_ptr[src]) {
+	  if(blocking) {
+	    // need to ensure dest is done using buf
+	    
+	    pm->dev_set_device(dest);
+	    
+	    pm->dev_stream_wait();
+	  }
+
+	  // src initiates transfer
+	  
+	  pm->dev_set_device(src);
+	  
+	  pm->dev_memcpy_peer(buf_ptr[dest], dest, d_ptr[src], src, size);
+
+	  // dest launches kernel
+	  
+	  pm->dev_set_device(dest); 
+	  
+	  vecadd(buf_ptr[dest], d_ptr[dest], N);
+	}
+      }
+
+      nactive = nrecv;
+
+      // odd number of recievers and not last level (clean-up post-reduction)
+      
+      if((nrecv > 1) && (nrecv % 2)) {
+
+#if defined(_DEBUG_P2P)
+       	printf("LIBGPU :: -- GPU-GPU Reduction  post clean-up odd reciever  nactive= %i  nrecv= %i\n",nactive,nrecv);
+#endif
+    
+	int dest = nrecv - 2;
+	int src = nrecv - 1;
+
+#if defined(_DEBUG_P2P)	
+	printf("LIBGPU :: -- GPU-GPU Reduction  -- src %i(%p) --> dest %i(%p, %p)\n",
+	       src, d_ptr[src], dest, buf_ptr[dest], d_ptr[dest]);
+#endif
+
+	if(d_ptr[src]) {
+	  if(blocking) {
+	    // need to ensure dest is done using buf
+	    pm->dev_set_device(dest);
+	    
+	    pm->dev_stream_wait();
+	  }
+
+	  // src initiates transfer
+	  
+	  pm->dev_set_device(src);
+	  
+	  pm->dev_memcpy_peer(buf_ptr[dest], dest, d_ptr[src], src, size);
+
+	  // dest launches kernel
+	  
+	  pm->dev_set_device(dest); 
+	  
+	  vecadd(buf_ptr[dest], d_ptr[dest], N);
+	}
+
+	nrecv--;
+	nactive--;
+      }
+      
+    }
+
+    nrecv /= 2;
+    il++;
+  }
+
+  // accumulate result on host
+
+#if defined(_DEBUG_P2P)
+  printf("LIBGPU :: -- GPU-GPU Reduction  transferring result to host\n");
+#endif
+  
+  pm->dev_set_device(0);
+  
+  pm->dev_pull(d_ptr[0], h_ptr, size);
+  
+#if defined(_DEBUG_P2P)
+  printf("LIBGPU :: -- GPU-GPU Reduction  completed!\n");
+#endif
 }
 
 /* ---------------------------------------------------------------------- */
