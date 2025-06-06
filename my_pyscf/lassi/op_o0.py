@@ -595,7 +595,8 @@ def ham (las, h1, h2, ci_fr, nelec_frs, soc=0, orbsym=None, wfnsym=None):
     return ham_eff, s2_eff, ovlp_eff, _get_ovlp #raw2orth
 
 def contract_ham_ci (las, h1, h2, ci_fr_ket, nelec_frs_ket, ci_fr_bra, nelec_frs_bra, 
-                     si_bra=None, si_ket=None, h0=0, soc=0, orbsym=None, wfnsym=None):
+                     si_bra=None, si_ket=None, h0=0, soc=0, sum_bra=False, orbsym=None,
+                     wfnsym=None):
     '''Evaluate the action of the state interaction Hamiltonian on a set of ket CI vectors,
     projected onto a basis of bra CI vectors, leaving one fragment of the bra uncontracted.
 
@@ -627,6 +628,8 @@ def contract_ham_ci (las, h1, h2, ci_fr_ket, nelec_frs_ket, ci_fr_bra, nelec_frs
             Order of spin-orbit coupling included in the Hamiltonian
         h0 : float
             Constant term in the Hamiltonian
+        sum_bra : logical
+            Currently does nothing whatsoever (TODO)
         orbsym : list of int of length (ncas)
             Irrep ID for each orbital
         wfnsym : int

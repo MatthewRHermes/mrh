@@ -332,7 +332,7 @@ def hci_dot_sivecs_ij (hci_pabq, si_bra, si_ket, lroots, i, j):
             else:
                 assert (hci_pabq.shape[0] == hci_pabq.shape[4])
                 hci_pabq = np.diagonal (hci_pabq, axis1=0, axis2=4)
-                hci_pabq = hci_pabq.transpose (3,0,1,2)
+                hci_pabq = hci_pabq.transpose (3,0,1,2).copy ()
                 if is1d: hci_pabq = hci_pabq[0]
     return hci_pabq
 
