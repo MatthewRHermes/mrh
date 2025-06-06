@@ -876,8 +876,6 @@ void Device::pull_get_jk(py::array_t<double> _vj, py::array_t<double> _vk, int n
   
   int N = nset * nao_pair;
   
-  int size = N * sizeof(double);
-  
   std::vector<double *> v_vec(num_devices);
   std::vector<double *> buf_vec(num_devices);
   
@@ -1475,7 +1473,9 @@ void Device::init_ints_ao2mo_v3(int naoaux, int nmo, int ncas)
   t_array[8] += t1 - t0;
   // counts in pull ppaa
 }
+
 /* ---------------------------------------------------------------------- */
+
 void Device::init_ppaa_ao2mo( int nmo, int ncas)
 {
   double t0 = omp_get_wtime();
@@ -1492,7 +1492,9 @@ void Device::init_ppaa_ao2mo( int nmo, int ncas)
   t_array[8] += t1 - t0;
   // counts in pull ppaa
 }
+
 /* ---------------------------------------------------------------------- */
+
 void Device::init_ppaa_papa_ao2mo( int nmo, int ncas)
 {
   double t0 = omp_get_wtime();
@@ -1552,7 +1554,9 @@ void Device::init_eri_h2eff(int nmo, int ncas)
   t_array[8] += t1 - t0;
   // counts in pull ppaa
 }
+
 /* ---------------------------------------------------------------------- */
+
 void Device::extract_mo_cas(int ncas, int ncore, int nao)
 {
   double t0 = omp_get_wtime();
@@ -1566,13 +1570,13 @@ void Device::extract_mo_cas(int ncas, int ncore, int nao)
       if (dd->d_mo_cas) pm->dev_free_async(dd->d_mo_cas);
       dd->d_mo_cas = (double *) pm->dev_malloc_async(_size_mo_cas*sizeof(double));
     }
-    #if 0 
+#if 0 
     dim3 block_size(1,1,1);
     dim3 grid_size(_TILE(ncas, block_size.x), _TILE(nao, block_size.y));
     get_mo_cas<<<grid_size, block_size, 0, dd->stream>>>(dd->d_mo_coeff, dd->d_mo_cas, ncas, ncore, nao);
-    #else
+#else
     get_mo_cas(dd->d_mo_coeff,dd->d_mo_cas, ncas, ncore, nao);
-    #endif
+#endif
   }
   
   double t1 = omp_get_wtime();
@@ -1659,6 +1663,54 @@ void Device::pull_jk_ao2mo(py::array_t<double> _j_pc, py::array_t<double> _k_pc,
 }
 
 /* ---------------------------------------------------------------------- */
+
+#if defined(_ENABLE_P2P)
+void Device::pull_jk_ao2mo_v4(py::array_t<double> _j_pc, py::array_t<double> _k_pc, int nmo, int ncore)
+{
+  double t0 = omp_get_wtime();
+
+  py::buffer_info info_j_pc = _j_pc.request(); //2D array (nmo*ncore)
+  double * j_pc = static_cast<double*>(info_j_pc.ptr);
+  
+  py::buffer_info info_k_pc = _k_pc.request(); //2D array (nmo*ncore)
+  double * k_pc = static_cast<double*>(info_k_pc.ptr);
+  
+  int N = nmo * ncore;
+
+  std::vector<double *> pc_vec(num_devices);
+  std::vector<double *> buf_vec(num_devices);
+  
+  for(int i=0; i<num_devices; ++i) {
+    my_device_data * dd = &(device_data[i]);
+    pc_vec[i] = dd->d_j_pc;
+    buf_vec[i] = dd->d_buf1;
+  }
+
+  mgpu_reduce(pc_vec, buf_j_pc, N, true, buf_vec);
+
+#pragma omp parallel for
+  for(int i=0; i<nmo*ncore; ++i) j_pc[i] = buf_j_pc[i];
+
+  // Pulling k_pc from all devices
+
+  for(int i=0; i<num_devices; ++i) {
+    my_device_data * dd = &(device_data[i]);
+    pc_vec[i] = dd->d_k_pc;
+    buf_vec[i] = dd->d_buf1;
+  }
+  
+  mgpu_reduce(pc_vec, buf_k_pc, N, true, buf_vec);
+
+#pragma omp parallel for
+  for(int i=0; i<nmo*ncore; ++i) k_pc[i] = buf_k_pc[i];
+  
+  double t1 = omp_get_wtime();
+  t_array[10] += t1 - t0;
+  // counts in pull ppaa
+}
+
+#else
+
 void Device::pull_jk_ao2mo_v4(py::array_t<double> _j_pc, py::array_t<double> _k_pc, int nmo, int ncore)
 {
   double t0 = omp_get_wtime();
@@ -1669,8 +1721,11 @@ void Device::pull_jk_ao2mo_v4(py::array_t<double> _j_pc, py::array_t<double> _k_
   
   py::buffer_info info_k_pc = _k_pc.request(); //2D array (nmo*ncore)
   double * k_pc = static_cast<double*>(info_k_pc.ptr);
+  
   int size = nmo*ncore;//*sizeof(double);
 
+  printf("nmo= %i  ncore= %i\n",nmo, ncore);
+  
   // Pulling j_pc from all devices
   
   for (int i=0; i<num_devices; ++i){
@@ -1681,7 +1736,9 @@ void Device::pull_jk_ao2mo_v4(py::array_t<double> _j_pc, py::array_t<double> _k_
     
     if (dd->d_j_pc) pm->dev_pull_async(dd->d_j_pc, tmp, size*sizeof(double));
   }
+  
   // Adding j_pc from all devices
+
   for(int i=0; i<num_devices; ++i) {
     pm->dev_set_device(i);
 
@@ -1743,6 +1800,7 @@ void Device::pull_jk_ao2mo_v4(py::array_t<double> _j_pc, py::array_t<double> _k_
   t_array[10] += t1 - t0;
   // counts in pull ppaa
 }
+#endif
 
 /* ---------------------------------------------------------------------- */
 
@@ -1761,6 +1819,7 @@ void Device::pull_ints_ao2mo_v3(py::array_t<double> _bufpa, int blksize, int nao
 }
 
 /* ---------------------------------------------------------------------- */
+
 void Device::pull_ppaa_ao2mo(py::array_t<double> _ppaa, int nmo, int ncas)
 {
   double t0 = omp_get_wtime();
@@ -1803,7 +1862,57 @@ void Device::pull_ppaa_ao2mo(py::array_t<double> _ppaa, int nmo, int ncas)
   t_array[10] += t1 - t0;
   count_array[6] += 1; //doing this in ppaa pull, not in any inits or computes
 }
+
 /* ---------------------------------------------------------------------- */
+
+#if defined(_ENABLE_P2P)
+void Device::pull_ppaa_papa_ao2mo_v4(py::array_t<double> _ppaa, py::array_t<double> _papa, int nmo, int ncas)
+{
+  double t0 = omp_get_wtime();
+
+  py::buffer_info info_ppaa = _ppaa.request(); //2D array (nmo*ncore)
+  py::buffer_info info_papa = _papa.request(); //2D array (nmo*ncore)
+  double * ppaa = static_cast<double*>(info_ppaa.ptr);
+  double * papa = static_cast<double*>(info_papa.ptr);
+
+  int N = nmo*nmo*ncas*ncas;
+  
+  // Pulling ppaa from all devices
+
+  //  printf("nmo= %i  ncas= %i  N= %i\n",nmo, ncas, N);
+
+  std::vector<double *> p_vec(num_devices);
+  std::vector<double *> buf_vec(num_devices);
+  
+  for(int i=0; i<num_devices; ++i) {
+    my_device_data * dd = &(device_data[i]);
+    p_vec[i] = dd->d_ppaa; // pointing at d_buf3
+    buf_vec[i] = dd->d_buf2;
+  }
+
+  mgpu_reduce(p_vec, buf_ppaa, N, true, buf_vec);
+
+#pragma omp parallel for
+  for(int i=0; i<N; ++i) ppaa[i] = buf_ppaa[i];
+
+  // Pulling papa from all devices
+  
+  for(int i=0; i<num_devices; ++i) {
+    my_device_data * dd = &(device_data[i]);
+    p_vec[i] = dd->d_papa; // pointing at d_buf3
+  }
+
+  mgpu_reduce(p_vec, buf_papa, N, true, buf_vec);
+
+#pragma omp parallel for
+  for(int i=0; i<N; ++i) papa[i] = buf_papa[i];
+
+  double t1 = omp_get_wtime();
+  t_array[10] += t1 - t0;
+  count_array[6] += 1; //doing this in ppaa pull, not in any inits or computes
+}
+
+#else
 void Device::pull_ppaa_papa_ao2mo_v4(py::array_t<double> _ppaa, py::array_t<double> _papa, int nmo, int ncas)
 {
   double t0 = omp_get_wtime();
@@ -1879,7 +1988,7 @@ void Device::pull_ppaa_papa_ao2mo_v4(py::array_t<double> _ppaa, py::array_t<doub
   t_array[10] += t1 - t0;
   count_array[6] += 1; //doing this in ppaa pull, not in any inits or computes
 }
-
+#endif
 
 /* ---------------------------------------------------------------------- */
 
@@ -2107,6 +2216,7 @@ void Device::df_ao2mo_v3 (int blksize, int nmo, int nao, int ncore, int ncas, in
   t_array[9] += t1 - t0;
   // counts in pull ppaa
 }
+
 /* ---------------------------------------------------------------------- */
 
 void Device::df_ao2mo_v4 (int blksize, int nmo, int nao, int ncore, int ncas, int naux, 
@@ -2293,9 +2403,6 @@ void Device::df_ao2mo_v4 (int blksize, int nmo, int nao, int ncore, int ncas, in
   t_array[9] += t1 - t0;
   // counts in pull ppaa
 }
-
-
-
 
 /* ---------------------------------------------------------------------- */
 
@@ -2995,8 +3102,41 @@ void Device::get_h2eff_df_v2(py::array_t<double> _cderi,
 #endif  
 }
 
-
 /* ---------------------------------------------------------------------- */
+
+#if defined(_ENABLE_P2P)
+void Device::pull_eri_h2eff(py::array_t<double> _eri, int nmo, int ncas)
+{
+#ifdef _DEBUG_DEVICE
+  printf("LIBGPU :: -- Inside Device::pull_eri_h2eff()\n");
+#endif
+  
+  py::buffer_info info_eri = _eri.request(); //2D array (nmo * (ncas*ncas_pair))
+  double * eri = static_cast<double*>(info_eri.ptr);
+
+  const int ncas_pair = ncas*(ncas+1)/2;
+  
+  const int N = nmo*ncas * ncas_pair;
+
+  std::vector<double *> e_vec(num_devices);
+  std::vector<double *> buf_vec(num_devices);
+  
+  for(int i=0; i<num_devices; ++i) {
+    my_device_data * dd = &(device_data[i]);
+    e_vec[i] = dd->d_eri_h2eff;
+    buf_vec[i] = dd->d_buf3;
+  }
+
+  mgpu_reduce(e_vec, buf_eri_h2eff, N, true, buf_vec);
+
+#pragma omp parallel for
+  for(int i=0; i<N; ++i) eri[i] = buf_eri_h2eff[i];
+  
+#ifdef _DEBUG_DEVICE
+  printf("LIBGPU :: Leaving Device::get_h2eff_df_v2()\n");
+#endif
+}
+#else
 void Device::pull_eri_h2eff(py::array_t<double> _eri, int nmo, int ncas)
 {
 #ifdef _DEBUG_DEVICE
@@ -3045,6 +3185,7 @@ void Device::pull_eri_h2eff(py::array_t<double> _eri, int nmo, int ncas)
   printf("LIBGPU :: Leaving Device::get_h2eff_df_v2()\n");
 #endif
 }
+#endif
 
 /* ---------------------------------------------------------------------- */
 
@@ -3089,7 +3230,9 @@ void Device::init_eri_impham(int naoaux, int nao_f, int return_4c2eeri)
   printf("LIBGPU :: Leaving Device::init_eri_impah()\n");
 #endif
 }
+
 /* ---------------------------------------------------------------------- */
+
 void Device::compute_eri_impham(int nao_s, int nao_f, int blksize, int naux, int count, size_t addr_dfobj, int return_4c2eeri)
 {
 #ifdef _DEBUG_DEVICE
@@ -3265,8 +3408,72 @@ void Device::compute_eri_impham_v2(int nao_s, int nao_f, int blksize, int naux, 
   count_array[7]+=1; // just doing this addition in pull, not in init or compute
   // counts in pull eri_impham
 
-} 
+}
+
 /* ---------------------------------------------------------------------- */
+
+#if defined(_ENABLE_P2P)
+void Device::pull_eri_impham(py::array_t<double> _eri, int naoaux, int nao_f, int return_4c2eeri)
+{
+  //This should be obsolete in a production version. We want this calculation to not exist, and the impurity eri should directly get transferred from gpu to gpu in it's corresponding location. 
+
+  // if not possible, then the cpu version should be refactored to allow pull to happen async (i think it's pageable right now and it will negate all performance when you pull bPee to cpu (and then transfer it back again)) 
+#ifdef _DEBUG_DEVICE
+  printf("LIBGPU :: -- Inside Device::pull_eri_impham()\n");
+#endif
+  
+  pm->dev_profile_start("pull_eri_impham");
+  
+  double t0 = omp_get_wtime();
+  
+  int nao_f_pair = nao_f * (nao_f+1)/2;
+
+  int N = nao_f_pair * nao_f_pair;
+  
+  py::buffer_info info_eri = _eri.request(); 
+  double * eri = static_cast<double*>(info_eri.ptr);
+
+  if (return_4c2eeri){
+
+    std::vector<double *> e_vec(num_devices);
+    std::vector<double *> buf_vec(num_devices);
+  
+    for(int i=0; i<num_devices; ++i) {
+      my_device_data * dd = &(device_data[i]);
+      e_vec[i] = dd->d_buf3; // this has the result
+      buf_vec[i] = dd->d_buf2; // this is a temp buffer
+    }
+
+    mgpu_reduce(e_vec, pin_eri_impham, N, true, buf_vec);
+
+#pragma omp parallel for
+    for(int i=0; i<N; ++i) eri[i] += pin_eri_impham[i];
+
+  } else {
+
+    for(int i=0; i<num_devices; ++i) {
+      pm->dev_set_device(i);
+      pm->dev_barrier();
+    }
+
+#pragma omp parallel for
+    for(int i=0; i<naoaux*nao_f_pair; ++i) eri[i] = pin_eri_impham[i];
+  }
+
+  pm->dev_profile_stop();
+  
+  double t1 = omp_get_wtime();
+  t_array[13] += t1 - t0;
+  count_array[7]+=1; // just doing this addition in pull, not in init or compute
+    
+#ifdef _DEBUG_DEVICE
+  printf("LIBGPU :: -- Leaving Device::pull_eri_impham()\n");
+#endif
+
+}
+
+#else
+
 void Device::pull_eri_impham(py::array_t<double> _eri, int naoaux, int nao_f, int return_4c2eeri)
 {
   //This should be obsolete in a production version. We want this calculation to not exist, and the impurity eri should directly get transferred from gpu to gpu in it's corresponding location. 
@@ -3350,6 +3557,8 @@ void Device::pull_eri_impham(py::array_t<double> _eri, int naoaux, int nao_f, in
 #endif
 
 }
+
+#endif
 
 /* ---------------------------------------------------------------------- */
 void Device::init_mo_grid(int ngrid, int nmo)
