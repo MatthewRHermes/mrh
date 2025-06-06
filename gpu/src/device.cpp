@@ -658,19 +658,15 @@ void Device::get_jk(int naux, int nao, int nset,
     d_eri = dd->d_eri1;
   }
 
+  // Bcast() from master device ; make sure devices arrays allocated
+  
 #if defined(_ENABLE_P2P)
   if(count == 0) {
-    // pm->dev_set_device(0); // not needed as device 0 handles count == 0
-
     size_t size = nset * nao_pair * sizeof(double);
-    
-    int err = pm->dev_push_async(dd->d_dmtril, dmtril, size);
-    if(err) {
-      printf("LIBGPU:: dev_push_async(d_dmtril) failed on count= %i\n",count);
-      exit(1);
-    }
 
-    // Bcast() from master device
+    std::vector<double *> dmtril_vec(num_devices); // array of device addresses 
+
+    dmtril_vec[0] = dd->d_dmtril;
     
     for(int i=1; i<num_devices; ++i) {
       my_device_data * dest = &(device_data[i]);
@@ -682,12 +678,12 @@ void Device::get_jk(int naux, int nao, int nset,
 	pm->dev_set_device(i);
 	if(dest->d_dmtril) pm->dev_free(dest->d_dmtril);
 	dest->d_dmtril = (double *) pm->dev_malloc(size * sizeof(double));
-
-	pm->dev_set_device(0);
       }
       
-      pm->dev_memcpy_peer(dest->d_dmtril, i, dd->d_dmtril, 0, size);
+      dmtril_vec[i] = dest->d_dmtril;
     }
+    
+    mgpu_bcast(dmtril_vec, dmtril, size);  // host -> gpu 0, then Bcast to all gpu
   }
 #else
   if(count < num_devices) {
@@ -1665,7 +1661,27 @@ void Device::push_mo_coeff(py::array_t<double> _mo_coeff, int _size_mo_coeff)
   double * mo_coeff = static_cast<double*>(info_mo_coeff.ptr);
 
   // host pushes to each device; optimize later host->device0 plus device-device transfers (i.e. bcast)
-  
+
+#if defined(_ENABLE_P2P)
+  std::vector<double *> mo_vec(num_devices); // array of device addresses 
+    
+  for(int id=0; id<num_devices; ++id) {
+    pm->dev_set_device(id);
+    
+    my_device_data * dd = &(device_data[id]);
+
+    if (_size_mo_coeff > dd->size_mo_coeff){
+      dd->size_mo_coeff = _size_mo_coeff;
+      if (dd->d_mo_coeff) pm->dev_free_async(dd->d_mo_coeff);
+      dd->d_mo_coeff = (double *) pm->dev_malloc_async(_size_mo_coeff*sizeof(double));
+    }
+    
+    mo_vec[id] = dd->d_mo_coeff;
+  }
+    
+  mgpu_bcast(mo_vec, mo_coeff, _size_mo_coeff*sizeof(double)); // host -> gpu 0, then Bcast to all gpu
+
+#else
   for(int id=0; id<num_devices; ++id) {
     
     pm->dev_set_device(id);
@@ -1680,6 +1696,7 @@ void Device::push_mo_coeff(py::array_t<double> _mo_coeff, int _size_mo_coeff)
     
     pm->dev_push_async(dd->d_mo_coeff, mo_coeff, _size_mo_coeff*sizeof(double));
   }
+#endif
   
   double t1 = omp_get_wtime();
   t_array[7] += t1 - t0;
@@ -4290,6 +4307,25 @@ void Device::orbital_response(py::array_t<double> _f1_prime,
   pm->dev_free_host(_ocm2t);
   pm->dev_free_host(f1_prime);
 
+}
+
+/* ---------------------------------------------------------------------- */
+
+void Device::mgpu_bcast(std::vector<double *> d_ptr, double * h_ptr, size_t size)
+{
+  // push data from host to first device
+  
+  pm->dev_set_device(0);
+    
+  int err = pm->dev_push_async(d_ptr[0], h_ptr, size);
+  
+  if(err) {
+    printf("LIBGPU:: dev_push_async(d_ptr[0]) failed\n");
+    exit(1);
+  }
+
+  for(int i=1; i<d_ptr.size(); ++i)
+    pm->dev_memcpy_peer(d_ptr[i], i, d_ptr[0], 0, size);
 }
 
 /* ---------------------------------------------------------------------- */

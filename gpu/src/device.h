@@ -174,7 +174,13 @@ public :
   
   void push_mo_coeff(py::array_t<double>, int);
 
-  void vecadd(const double *, double *, int);
+  void vecadd(const double *, double *, int); // replace with ml->daxpy()
+
+  // multi-gpu communication (better here or part of PM?)
+
+  void mgpu_bcast(std::vector<double *>, double *, size_t);
+  //  void mgpu_reduce();
+  
 private:
 
   class PM * pm;
