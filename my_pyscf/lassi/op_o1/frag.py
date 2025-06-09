@@ -58,6 +58,8 @@ class FragTDMInt (object):
         single model state indices.
 
         Args:
+            las : instance of :class:`LASCINoSymm`
+                Only las.stdout and las.verbose (sometimes) are used to direct the logger output
             ci : list of ndarray of length nroots
                 Contains CI vectors for the current fragment
             hopping_index: ndarray of ints of shape (2, nroots, nroots)
@@ -96,12 +98,17 @@ class FragTDMInt (object):
             screen_linequiv : logical
                 Whether to compress data by aggressively identifying linearly equivalent
                 rootspaces and storing the relevant unitary matrices.
+            verbose : integer
+                Logger verbosity level
     '''
 
-    def __init__(self, ci, hopping_index, zerop_index, onep_index, norb, nroots, nelec_rs,
+    def __init__(self, las, ci, hopping_index, zerop_index, onep_index, norb, nroots, nelec_rs,
                  rootaddr, fragaddr, idx_frag, mask_ints, dtype=np.float64, discriminator=None,
-                 screen_linequiv=DO_SCREEN_LINEQUIV):
+                 screen_linequiv=DO_SCREEN_LINEQUIV, verbose=None):
         # TODO: if it actually helps, cache the "linkstr" arrays
+        if verbose is None: verbose = las.verbose
+        self.verbose = verbose
+        self.log = lib.logger.new_logger (las, self.verbose)
         self.ci = ci
         self.hopping_index = hopping_index
         self.zerop_index = zerop_index
@@ -488,6 +495,7 @@ class FragTDMInt (object):
         spectator_index[np.triu_indices (nroots, k=1)] = False
         spectator_index = np.stack (np.where (spectator_index), axis=1)
         for i, j in spectator_index:
+            if not self.mask_ints[i,j]: continue
             dm1s, dm2s = trans_rdm12s_loop (j, ci[i], ci[j], do2=zerop_index[i,j])
             self.set_dm1 (i, j, dm1s)
             if zerop_index[i,j]: self.set_dm2 (i, j, dm2s)
@@ -789,7 +797,8 @@ class HamTerm:
         return h0_zero and h1_zero and h2_zero
 
 def make_ints (las, ci, nelec_frs, screen_linequiv=DO_SCREEN_LINEQUIV, nlas=None,
-               _FragTDMInt_class=FragTDMInt, mask_ints=None, discriminator=None):
+               _FragTDMInt_class=FragTDMInt, mask_ints=None, discriminator=None,
+               verbose=None):
     ''' Build fragment-local intermediates (`FragTDMInt`) for LASSI o1
 
     Args:
@@ -808,6 +817,8 @@ def make_ints (las, ci, nelec_frs, screen_linequiv=DO_SCREEN_LINEQUIV, nlas=None
             Mask index down to only the included interactions
         discriminator : sequence of length (nroots)
             Additional information to descriminate between otherwise-equivalent rootspaces
+        verbose : integer
+            Verbosity level of intermediate logger
 
     Returns:
         hopping_index : ndarray of ints of shape (nfrags, 2, nroots, nroots)
@@ -825,11 +836,11 @@ def make_ints (las, ci, nelec_frs, screen_linequiv=DO_SCREEN_LINEQUIV, nlas=None
     rootaddr, fragaddr = get_rootaddr_fragaddr (lroots)
     ints = []
     for ifrag in range (nfrags):
-        tdmint = _FragTDMInt_class (ci[ifrag], hopping_index[ifrag], zerop_index, onep_index,
-                                   nlas[ifrag], nroots, nelec_frs[ifrag], rootaddr,
-                                   fragaddr[ifrag], ifrag, mask_ints,
-                                   discriminator=discriminator,
-                                   screen_linequiv=screen_linequiv)
+        tdmint = _FragTDMInt_class (las, ci[ifrag], hopping_index[ifrag], zerop_index, onep_index,
+                                    nlas[ifrag], nroots, nelec_frs[ifrag], rootaddr,
+                                    fragaddr[ifrag], ifrag, mask_ints,
+                                    discriminator=discriminator,
+                                    screen_linequiv=screen_linequiv, verbose=verbose)
         lib.logger.timer (las, 'LAS-state TDM12s fragment {} intermediate crunching'.format (
             ifrag), *tdmint.time_crunch)
         lib.logger.debug (las, 'UNIQUE ROOTSPACES OF FRAG %d: %d/%d', ifrag,
