@@ -640,6 +640,9 @@ def contract_ham_ci (las, h1, h2, ci_fr_ket, nelec_frs_ket, ci_fr_bra, nelec_frs
             Element i,j is an ndarray of shape (ndim_bra//ci_fr_bra[i][j].shape[0],
             ndeta_bra[i,j],ndetb_bra[i,j],ndim_ket). 
     '''
+    if ci_fr_bra is None and nelec_frs_bra is None:
+        ci_fr_bra = ci_fr_ket
+        nelec_frs_bra = nelec_frs_ket
     if soc>1:
         raise NotImplementedError ("Two-electron spin-orbit coupling")
     mol = las.mol
