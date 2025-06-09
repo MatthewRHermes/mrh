@@ -663,9 +663,10 @@ class FragTDMInt (object):
         hci = contract_1e_nosym_uhf (h_11_s, ci, norb, nelec, link_index=linkstr)
         return hci
 
-    def _init_ham_(self, nroots_si):
+    def _init_ham_(self, nroots_si, dual_spaces=True):
         self._ham = {}
         self.nroots_si = nroots_si
+        self.dual_spaces = dual_spaces
 
     def _put_ham_(self, bra, ket, h0, h1, h2, spin=None, hermi=0):
         i = self.unique_root[bra]
@@ -683,6 +684,8 @@ class FragTDMInt (object):
         for ((i, j, hermi), hterm) in self._ham.items ():
             if hterm.is_zero (): continue
             hci_r_plab[i] += hterm.op ()
+            if not self.dual_spaces and (i!=j):
+                hci_r_plab[j] += hterm.opH ()
         return hci_r_plab
 
 class HamTerm:
@@ -691,6 +694,7 @@ class HamTerm:
         self.ir = ir
         self.jr = jr
         self.ket = parent.rootinvaddr[jr]
+        self.bra = parent.rootinvaddr[ir]
         dnelec = tuple (np.asarray (parent.nelec_r[ir]) - np.asarray (parent.nelec_r[jr]))
         self.h0 = self.h1 = self.h2 = None
         if isinstance (h1, np.ndarray):
@@ -699,23 +703,11 @@ class HamTerm:
             self.nsi, self.li, self.lj = h0.shape[:3]
         self.spin = spin
         self.dnelec = dnelec
-        # interpret "0" as h0, h1, h2
-        #shape = [self.nsi, self.li, self.lj] + [self.parent.norb,]*4
-        #if abs (sum (dnelec)) == 1: shape = shape[:-1]
-        #if not isinstance (h2, np.ndarray):
-        #    h2 = h2 * np.ones (shape, dtype=float)
-        #shape = shape[:3]
-        #if not isinstance (h0, np.ndarray):
-        #    h0 = h0 * np.ones (shape, dtype=float)
-        #if dnelec == (0,0): shape = shape + [2,]
-        #shape = shape + [self.parent.norb,]*2
-        #if not isinstance (h1, np.ndarray):
-        #    h1 = h1 * np.ones (shape, dtype=float)
         if dnelec == (0,0) and hermi==1:
             self.h0 = h0
             self.h1 = h1
             self.h2 = h2
-            self._op = parent.contract_h00
+            self._op = self._opH = parent.contract_h00
         elif dnelec == (0,0):
             spin = spin // 2
             self.h1 = np.zeros (list (h1.shape[:3]) + [2,] + list (h1.shape[3:]), dtype=h1.dtype)
@@ -724,7 +716,7 @@ class HamTerm:
             self._op = parent.contract_h11_uhf
         elif sum (dnelec) == 0:
             self.h1 = h1
-            self._op = parent.contract_h11
+            self._op = self._opH = parent.contract_h11
         else:
             dnelec = sum (dnelec)
             self.h1 = h1
@@ -735,6 +727,10 @@ class HamTerm:
                         parent.contract_h01,
                         parent.contract_h10,
                         parent.contract_h20][idx]
+            self._opH = [parent.contract_h20,
+                         parent.contract_h10,
+                         parent.contract_h01,
+                         parent.contract_h02][idx]
 
     def _get_hargs (self, p, i, j):
         hargs = []
@@ -770,9 +766,42 @@ class HamTerm:
                 hci_plab = np.tensordot (self.h0, ci, axes=1)
         else:
             for p,i,j in product (range (nsi), range (li), range (lj)):
+                if self.is_zero (idx=(p,i,j)): continue
                 args = sargs + self._get_hargs (p,i,j) + [self.ket,]
                 hci_plab[p,i] += self._op (*args, dn=j)
         return hci_plab
+
+    def opH (self):
+        with lib.temporary_env (self, ir=self.jr, jr=self.ir, li=self.lj, lj=self.li, ket=self.bra,
+                                h0=self.get_h0H (), h1=self.get_h1H (), h2=self.get_h2H ()):
+            return self.op ()
+
+    def get_h0H (self):
+        h0 = self.h0
+        if h0 is None or np.asarray (h0).ndim < 3:
+            return h0
+        else:
+            return h0.transpose (0,2,1).conj ()
+
+    def get_h1H (self):
+        h1 = self.h1
+        if h1 is None or np.asarray (h1).ndim < 3:
+            return h1
+        elif self.dnelec == (0,0):
+            return h1.transpose (0,2,1,3,5,4) 
+        elif sum (self.dnelec) == 0:
+            return h1.transpose (0,2,1,4,3)
+        else:
+            return h1.transpose (0,2,1,3)
+
+    def get_h2H (self):
+        h2 = self.h2
+        if h2 is None or np.asarray (h2).ndim < 3:
+            return h2
+        elif abs (sum (self.dnelec)) == 1:
+            return h2.transpose (0,2,1,3,6,5,4)
+        else:
+            return h2.transpose (0,2,1,4,3,6,5)
 
     def __add__(self, other):
         if other==0: return self
@@ -790,10 +819,15 @@ class HamTerm:
         h2_scalar = not isinstance (self.h2, np.ndarray)
         return h1_scalar and h2_scalar and (self.h1==0) and (self.h2==0)
 
-    def is_zero (self):
-        h0_zero = (self.h0 is None) or np.amax (np.abs (self.h0)) < 1e-15
-        h1_zero = (self.h1 is None) or np.amax (np.abs (self.h1)) < 1e-15
-        h2_zero = (self.h2 is None) or np.amax (np.abs (self.h2)) < 1e-15
+    def is_zero (self, idx=None):
+        h0, h1, h2 = self.h0, self.h1, self.h2
+        if idx is not None:
+            if h0 is not None and np.asarray (h0).ndim >= 3: h0 = h0[idx]
+            if h1 is not None and np.asarray (h1).ndim >= 3: h1 = h1[idx]
+            if h2 is not None and np.asarray (h2).ndim >= 3: h2 = h2[idx]
+        h0_zero = (h0 is None) or np.amax (np.abs (h0)) < 1e-15
+        h1_zero = (h1 is None) or np.amax (np.abs (h1)) < 1e-15
+        h2_zero = (h2 is None) or np.amax (np.abs (h2)) < 1e-15
         return h0_zero and h1_zero and h2_zero
 
 def make_ints (las, ci, nelec_frs, screen_linequiv=DO_SCREEN_LINEQUIV, nlas=None,

@@ -12,7 +12,7 @@ from mrh.my_pyscf.lassi.op_o1.hci.schcs import ContractHamCI_SHS
 
 def ContractHamCI (las, ints, nlas, hopping_index, lroots, h0, h1, h2, si_bra=None, si_ket=None,
                    mask_bra_space=None, mask_ket_space=None, log=None,
-                   max_memory=2000, dtype=np.float64):
+                   max_memory=2000, dtype=np.float64, hermi=0):
     if si_bra is None and si_ket is None:
         return ContractHamCI_CHC (las, ints, nlas, hopping_index, lroots, h0, h1, h2,
                                   mask_bra_space=mask_bra_space,
@@ -32,7 +32,7 @@ def ContractHamCI (las, ints, nlas, hopping_index, lroots, h0, h1, h2, si_bra=No
         return ContractHamCI_SHS (las, ints, nlas, hopping_index, lroots, h0, h1, h2, si_bra,
                                   si_ket, mask_bra_space=mask_bra_space,
                                   mask_ket_space=mask_ket_space,
-                                  log=log, max_memory=2000, dtype=np.float64)
+                                  log=log, max_memory=2000, dtype=np.float64, hermi=hermi)
 
 def contract_ham_ci (las, h1, h2, ci_fr_ket, nelec_frs_ket, ci_fr_bra, nelec_frs_bra,
                      si_bra=None, si_ket=None, h0=0, soc=0, sum_bra=False, orbsym=None,
@@ -86,6 +86,15 @@ def contract_ham_ci (las, h1, h2, ci_fr_ket, nelec_frs_ket, ci_fr_bra, nelec_frs
             ndeta_bra[i,j],ndetb_bra[i,j],ndim_ket).
     '''
     log = lib.logger.new_logger (las, las.verbose)
+    hermi = 0
+    if ci_fr_bra is None and nelec_frs_bra is None:
+        ci_fr_bra = ci_fr_ket
+        nelec_frs_bra = nelec_frs_ket
+        if si_bra is not None and si_ket is not None:
+            ci_fr_ket = [[] for ci in ci_fr_bra]
+            nelec_frs_ket = np.zeros ((nelec_frs_bra.shape[0], 0, 2),
+                                      dtype=nelec_frs_bra.dtype)
+            hermi = 1
     nlas = las.ncas_sub
     nfrags, nbra = nelec_frs_bra.shape[:2]
     nket = nelec_frs_ket.shape[1]
@@ -94,8 +103,10 @@ def contract_ham_ci (las, h1, h2, ci_fr_ket, nelec_frs_ket, ci_fr_bra, nelec_frs
     nroots = nbra + nket
     mask_bra_space = list (range (nket,nroots))
     mask_ket_space = list (range (nket))
-    mask_ints = np.zeros ((nroots,nroots), dtype=bool)
-    mask_ints[np.ix_(mask_bra_space,mask_ket_space)] = True
+    mask_ints = None
+    if not hermi:
+        mask_ints = np.zeros ((nroots,nroots), dtype=bool)
+        mask_ints[np.ix_(mask_bra_space,mask_ket_space)] = True
     discriminator = np.zeros (nroots, dtype=int)
     si_bra_is1d = si_ket_is1d = False
     if si_bra is not None:
@@ -123,7 +134,7 @@ def contract_ham_ci (las, h1, h2, ci_fr_ket, nelec_frs_ket, ci_fr_bra, nelec_frs
     contracter = ContractHamCI (las, ints, nlas, hopping_index, lroots, h0, h1, h2, si_bra=si_bra,
                                 si_ket=si_ket, mask_bra_space=mask_bra_space,
                                 mask_ket_space=mask_ket_space, dtype=ci[0][0].dtype,
-                                max_memory=max_memory, log=log)
+                                max_memory=max_memory, log=log, hermi=hermi)
     lib.logger.timer (las, 'LASSI hci setup', *t0)
     hket_fr_pabq, t0 = contracter.kernel ()
     for i, hket_r_pabq in enumerate (hket_fr_pabq):

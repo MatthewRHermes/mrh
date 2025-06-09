@@ -8,7 +8,7 @@ from mrh.my_pyscf.lassi.op_o1.utilities import *
 from mrh.my_pyscf.lassi.citools import get_lroots, hci_dot_sivecs, hci_dot_sivecs_ij
 from mrh.my_pyscf.lassi.op_o1.hci.chc import ContractHamCI_CHC
 
-class ContractHamCI_SHS (rdm.LRRDM):
+class ContractHamCI_SHS_hermi0 (rdm.LRRDM):
     __doc__ = stdm.LSTDM.__doc__ + '''
 
     SUBCLASS: Contract Hamiltonian on CI vectors and SI vector and integrate over all but one
@@ -56,6 +56,7 @@ class ContractHamCI_SHS (rdm.LRRDM):
     all_interactions_full_square = True
     interaction_has_spin = ('_1c_', '_1c1d_', '_1s1c_', '_2c_')
     ltri_ambiguous = False
+    dual_spaces = True
 
     def get_single_rootspace_sivec (self, iroot, bra=False):
         '''A single-rootspace slice of the SI vectors.
@@ -292,7 +293,7 @@ class ContractHamCI_SHS (rdm.LRRDM):
 
         return
 
-    def _crunch_1s1c_(self, bra, ket, i, j, k, s1):
+    def _crunch_1s1c_(self, bra, ket, i, j, k, s1=0):
         '''Compute the reduced density matrix elements of a spin-charge unit hop; i.e.,
 
         <bra|i'(a)k'(b)j(b)k(a)|ket>
@@ -450,11 +451,27 @@ class ContractHamCI_SHS (rdm.LRRDM):
         '''
         t0 = (lib.logger.process_clock (), lib.logger.perf_counter ())
         self.init_profiling ()
-        for inti in self.ints: inti._init_ham_(self.nroots_si)
+        for inti in self.ints: inti._init_ham_(self.nroots_si, self.dual_spaces)
         self._crunch_all_()
         t1, w1 = logger.process_clock (), logger.perf_counter ()
         self.hci_fr_plab = [inti._ham_op ()[self.nket:] for inti in self.ints]
         dt, dw = logger.process_clock () - t1, logger.perf_counter () - w1
         self.dt_p, self.dw_p = self.dt_p + dt, self.dw_p + dw
         return self.hci_fr_plab, t0
+
+class ContractHamCI_SHS_hermi1 (ContractHamCI_SHS_hermi0):
+    all_interactions_full_square = False
+    interaction_has_spin = ('_1c_', '_1c1d_', '_2c_')
+    ltri_ambiguous = True
+    dual_spaces = False
+
+def ContractHamCI_SHS (*args, **kwargs):
+    hermi = kwargs.pop ('hermi', 0)
+    if hermi == 0:
+        return ContractHamCI_SHS_hermi0 (*args, **kwargs)
+    elif hermi == 1:
+        return ContractHamCI_SHS_hermi1 (*args, **kwargs)
+    else:
+        raise RuntimeError ('hermi = 0 or 1')
+
 
