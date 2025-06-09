@@ -2232,7 +2232,6 @@ void Device::df_ao2mo_v4 (int blksize, int nmo, int nao, int ncore, int ncas, in
 
   my_device_data * dd = &(device_data[device_id]);
 
-
   //  py::buffer_info info_eri1 = _eri1.request(); // 2D array (naux, nao_pair) nao_pair= nao*(nao+1)/2
   const int nao_pair = nao*(nao+1)/2;
   //  double * eri = static_cast<double*>(info_eri1.ptr);
@@ -2249,9 +2248,12 @@ void Device::df_ao2mo_v4 (int blksize, int nmo, int nao, int ncore, int ncas, in
   printf("Starting ao2mo Free memory %lu bytes, total memory %lu bytes\n",freeMem,totalMem);
 #endif
 #endif
- 
-  if(_size_eri_unpacked > dd->size_buf) {
-    dd->size_buf = _size_eri_unpacked;
+
+  int max_size_buf = 2 * _size_ppaa;
+  if(_size_eri_unpacked > max_size_buf) max_size_buf = _size_eri_unpacked;
+  
+  if(max_size_buf > dd->size_buf) {
+    dd->size_buf = max_size_buf;
     
     if(dd->d_buf1) pm->dev_free_async(dd->d_buf1);
     if(dd->d_buf2) pm->dev_free_async(dd->d_buf2);
@@ -2261,14 +2263,7 @@ void Device::df_ao2mo_v4 (int blksize, int nmo, int nao, int ncore, int ncas, in
     dd->d_buf2 = (double *) pm->dev_malloc_async(dd->size_buf * sizeof(double));
     dd->d_buf3 = (double *) pm->dev_malloc_async(dd->size_buf * sizeof(double));
   }
-  if ( 2 * _size_ppaa > dd->size_buf){ 
-    printf("naux (%d) * nao_s **2 > nao_f (%d) **2 ncas (%d) ** 2\n",naux,nao,ncas);
-    printf("size_eri (%d) > nao_f (%d) **2 ncas (%d) ** 2\n",_size_eri_unpacked,nao,ncas);
-    printf("you really shouldn't be here, this branch is not tested as well\n");//,_size_eri_unpacked,nao,ncas);
-    dd->size_buf = 2*_size_ppaa;
-    if(dd->d_buf3) pm->dev_free_async(dd->d_buf3);
-    dd->d_buf3 = (double *) pm->dev_malloc_async(2*_size_ppaa * sizeof(double));
-  }
+  
   // I want to fit both ppaa and papa inside buf3 to remove it from cpu side
   // my guess is blksize*nao_s*nao_s > 2 * nmo_f * nmo_f * ncas_f * ncas_f (dd->size_eri_unpacked is for the entire system. Usually nao_s > sqrt(2)*nao_f, blksize = 240, ncas_f must be less than 15)
   double * d_buf = dd->d_buf1; 
