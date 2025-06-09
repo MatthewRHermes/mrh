@@ -163,16 +163,22 @@ class HessianOperator (sparse_linalg.LinearOperator):
         xham_2q[2] = xham_2q[2][ncore:nocc]
 
         rci_01 = self.hci_op (xham_2q, ci1, si0, si0)
-        rci_001 = self.hci_op (ham_2q, ci1, si0, si1)
+        si_01 = np.append (si0, si1, axis=1)
+        si_10 = si_01[:,::-1]
+        rci_01_10 = self.hci_op (ham_2q, ci1, si_01, si_10)
+        rci_10 = []
         for i in range (self.nfrags):
+            rci_10_i = []
             for j in range (len (rci_01[i])):
-                rci_01[i][j] += rci_001[i][j]
-        rci_10 = self.hci_op (ham_2q, ci1, si1, si0)
+                rci_01[i][j][0] += rci_01_10[i][j][0]
+                rci_10_i.append (rci_01_10[i][j][1:])
+            rci_10.append (rci_10_i)
         t3 = log.timer ('LASSIS Hessian-vector CI rows', *t2)
 
         rsi_01 = self.hsi_op (xham_2q, ci1, si0)
-        rsi_01 += self.hsi_op (ham_2q, ci1, si1)
-        rsi_10 = self.hsi_op (ham_2q, ci1, si0)
+        rsi_01_10 = self.hsi_op (ham_2q, ci1, si_10)
+        rsi_01 += rsi_01_10[:,0:1]
+        rsi_10 = rsi_01_10[:,1:]
         t4 = log.timer ('LASSIS Hessian-vector SI rows', *t3)
 
         hx = self.from_hop (rorb, rci_10, rsi_10, rci_01, rsi_01)
