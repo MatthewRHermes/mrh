@@ -658,19 +658,15 @@ void Device::get_jk(int naux, int nao, int nset,
     d_eri = dd->d_eri1;
   }
 
+  // Bcast() from master device ; make sure devices arrays allocated
+  
 #if defined(_ENABLE_P2P)
   if(count == 0) {
-    // pm->dev_set_device(0); // not needed as device 0 handles count == 0
-
     size_t size = nset * nao_pair * sizeof(double);
-    
-    int err = pm->dev_push_async(dd->d_dmtril, dmtril, size);
-    if(err) {
-      printf("LIBGPU:: dev_push_async(d_dmtril) failed on count= %i\n",count);
-      exit(1);
-    }
 
-    // Bcast() from master device
+    std::vector<double *> dmtril_vec(num_devices); // array of device addresses 
+
+    dmtril_vec[0] = dd->d_dmtril;
     
     for(int i=1; i<num_devices; ++i) {
       my_device_data * dest = &(device_data[i]);
@@ -682,12 +678,12 @@ void Device::get_jk(int naux, int nao, int nset,
 	pm->dev_set_device(i);
 	if(dest->d_dmtril) pm->dev_free(dest->d_dmtril);
 	dest->d_dmtril = (double *) pm->dev_malloc(size * sizeof(double));
-
-	pm->dev_set_device(0);
       }
       
-      pm->dev_memcpy_peer(dest->d_dmtril, i, dd->d_dmtril, 0, size);
+      dmtril_vec[i] = dest->d_dmtril;
     }
+    
+    mgpu_bcast(dmtril_vec, dmtril, size);  // host -> gpu 0, then Bcast to all gpu
   }
 #else
   if(count < num_devices) {
@@ -867,7 +863,7 @@ void Device::pull_get_jk(py::array_t<double> _vj, py::array_t<double> _vk, int n
 #ifdef _DEBUG_DEVICE
   printf("LIBGPU :: -- Inside Device::pull_get_jk()\n");
 #endif
-
+  
   double t0 = omp_get_wtime();
   
   pm->dev_profile_start("pull_get_jk");
@@ -875,176 +871,28 @@ void Device::pull_get_jk(py::array_t<double> _vj, py::array_t<double> _vk, int n
   py::buffer_info info_vj = _vj.request(); // 2D array (nset, nao_pair)
   
   double * vj = static_cast<double*>(info_vj.ptr);
-
+  
   int nao_pair = nao * (nao+1) / 2;
   
   int N = nset * nao_pair;
-	  
-  int size = N * sizeof(double);
-
-  double * tmp;
-
-  int nrecv = num_devices / 2;
-
-  int nactive = num_devices;
-
-  // accumulate result to device 0 using binary tree reduction
   
-  int il = 0;
-  while(nrecv > 0) {
-
-    //    printf("LIBGPU :: -- GPU-GPU Reduction  il= %i  nactive= %i  nrecv= %i\n",il,nactive,nrecv);
-
-    // odd number of recievers and not last level (clean-up pre-reduction)
-      
-    if((nactive > 1) && (nactive % 2)) {
-
-      //      printf("LIBGPU :: -- GPU-GPU Reduction  pre clean-up odd reciever  nactive= %i  nrecv= %i\n",nactive,nrecv);
-      
-      int dest = nactive - 2;
-      int src = nactive - 1;
-      
-      my_device_data * dd_dest = &(device_data[dest]);
-      my_device_data * dd_src = &(device_data[src]);
-      
-      // printf("LIBGPU :: -- GPU-GPU Reduction  -- src %i(%p) --> dest %i(%p, %p)\n",
-      // 	     src, dd_src->d_vj, dest, dd_dest->d_buf3, dd_dest->d_vj);
-      
-      if(dd_src->d_vj) {
-	// because we reuse d_buf3, need to ensure dest is done using it
-	
-	pm->dev_set_device(dest);
-	
-	pm->dev_stream_wait();
-	
-	// src initiates transfer
-	
-	pm->dev_set_device(src);
-	
-	//pm->dev_stream_wait(); // why?
-	
-	pm->dev_memcpy_peer(dd_dest->d_buf3, dest, dd_src->d_vj, src, size);
-	
-	// dest launches kernel
-	
-	pm->dev_set_device(dest); 
-	
-	vecadd(dd_dest->d_buf3, dd_dest->d_vj, N);
-      }
-      
-      //nrecv--;
-      nactive--;
-    }
-    
-    // binary tree reduction
-    
-    if(nactive > nrecv) {
-
-      //      printf("LIBGPU :: -- GPU-GPU Reduction  binary reduction   nactive= %i  nrecv= %i\n",nactive,nrecv);
-      
-      int nsend = nactive - nrecv;
-
-      for(int i=0; i<nsend; ++i) {
-
-	int dest = i;
-	int src = nrecv + i;
-
-	my_device_data * dd_dest = &(device_data[dest]);
-	my_device_data * dd_src = &(device_data[src]);
-	
-	// printf("LIBGPU :: -- GPU-GPU Reduction  -- src %i(%p) --> dest %i(%p, %p)\n",
-	//        src, dd_src->d_vj, dest, dd_dest->d_buf3, dd_dest->d_vj);
-
-	if(dd_src->d_vj) {
-	  // because we reuse d_buf3, need to ensure dest is done using it
-	  
-	  pm->dev_set_device(dest);
-	  
-	  pm->dev_stream_wait();
-
-	  // src initiates transfer
-	  
-	  pm->dev_set_device(src);
-	  
-	  //	  pm->dev_stream_wait(); // why?
-	  
-	  pm->dev_memcpy_peer(dd_dest->d_buf3, dest, dd_src->d_vj, src, size);
-
-	  // dest launches kernel
-	  
-	  pm->dev_set_device(dest); 
-	  
-	  vecadd(dd_dest->d_buf3, dd_dest->d_vj, N);
-	}
-      }
-
-      nactive = nrecv;
-
-      // odd number of recievers and not last level (clean-up post-reduction)
-      
-      if((nrecv > 1) && (nrecv % 2)) {
-
-	//	printf("LIBGPU :: -- GPU-GPU Reduction  post clean-up odd reciever  nactive= %i  nrecv= %i\n",nactive,nrecv);
-    
-	int dest = nrecv - 2;
-	int src = nrecv - 1;
-	
-	my_device_data * dd_dest = &(device_data[dest]);
-	my_device_data * dd_src = &(device_data[src]);
-	
-	// printf("LIBGPU :: -- GPU-GPU Reduction  -- src %i(%p) --> dest %i(%p, %p)\n",
-	//        src, dd_src->d_vj, dest, dd_dest->d_buf3, dd_dest->d_vj);
-
-	if(dd_src->d_vj) {
-	  // because we reuse d_buf3, need to ensure dest is done using it
-	  
-	  pm->dev_set_device(dest);
-
-	  pm->dev_stream_wait();
-
-	  // src initiates transfer
-	  
-	  pm->dev_set_device(src);
-	  
-	  //	  pm->dev_stream_wait(); // why?
-	  
-	  pm->dev_memcpy_peer(dd_dest->d_buf3, dest, dd_src->d_vj, src, size);
-
-	  // dest launches kernel
-	  
-	  pm->dev_set_device(dest); 
-	  
-	  vecadd(dd_dest->d_buf3, dd_dest->d_vj, N);
-	}
-
-	nrecv--;
-	nactive--;
-      }
-      
-    }
-
-    nrecv /= 2;
-    il++;
+  std::vector<double *> v_vec(num_devices);
+  std::vector<double *> buf_vec(num_devices);
+  
+  for(int i=0; i<num_devices; ++i) {
+    my_device_data * dd = &(device_data[i]);
+    v_vec[i] = dd->d_vj;
+    buf_vec[i] = dd->d_buf3;
   }
-
-  // accumulate result on host
-
-  //  printf("LIBGPU :: -- GPU-GPU Reduction  transferring result to host\n");
   
-  pm->dev_set_device(0);
-
-  my_device_data * dd = &(device_data[0]);
-  
-  if(dd->d_vj) {
-    pm->dev_pull(dd->d_vj, buf_vj, size);
+  if(v_vec[0]) {
+    mgpu_reduce(v_vec, buf_vj, N, true, buf_vec); 
     
 #pragma omp parallel for
     for(int j=0; j<N; ++j) vj[j] += buf_vj[j];
   }
   
   update_dfobj = 0;
-  
-  //  printf("LIBGPU :: -- GPU-GPU Reduction  finished\n");
   
   if(!with_k) {
     pm->dev_profile_stop();
@@ -1055,185 +903,38 @@ void Device::pull_get_jk(py::array_t<double> _vj, py::array_t<double> _vk, int n
     
     return;
   }
-    
+  
   py::buffer_info info_vk = _vk.request(); // 3D array (nset, nao, nao)
-    
+  
   double * vk = static_cast<double*>(info_vk.ptr);
-
+  
   N = nset * nao * nao;
   
-  size = N * sizeof(double);
-
-  nrecv = num_devices / 2;
-
-  nactive = num_devices;
-  
-  // accumulate result to device 0 using binary tree reduction
-
-  il = 0;
-  while(nrecv > 0) {
-
-    //    printf("LIBGPU :: -- GPU-GPU Reduction  il= %i  ngpus_active= %i  ngpus_recv= %i\n",il,nactive,nrecv);
-    
-    // odd number of recievers and not last level (clean-up pre-reduction)
-      
-    if((nactive > 1) && (nactive % 2)) {
-
-      //      printf("LIBGPU :: -- GPU-GPU Reduction  post clean-up odd reciever  nactive= %i  nrecv= %i\n",nactive,nrecv);
-      
-      int dest = nactive - 2;
-      int src = nactive - 1;
-      
-      my_device_data * dd_dest = &(device_data[dest]);
-      my_device_data * dd_src = &(device_data[src]);
-      
-      // printf("LIBGPU :: -- GPU-GPU Reduction  -- src %i(%p) --> dest %i(%p, %p)\n",
-      // 	     src, dd_src->d_vkk, dest, dd_dest->d_buf3, dd_dest->d_vkk);
-      
-      if(dd_src->d_vkk) {
-	// because we reuse d_buf3, need to ensure dest is done using it
-	
-	pm->dev_set_device(dest);
-	
-	pm->dev_stream_wait();
-	
-	// src initiates transfer
-	
-	pm->dev_set_device(src);
-	
-	//	pm->dev_stream_wait(); // why?
-	
-	pm->dev_memcpy_peer(dd_dest->d_buf3, dest, dd_src->d_vkk, src, size);
-	
-	// dest launches kernel
-	
-	pm->dev_set_device(dest); 
-	
-	vecadd(dd_dest->d_buf3, dd_dest->d_vkk, N);
-      }
-      
-      //      nrecv--;
-      nactive--;
-    }
-    
-    // binary tree reduction
-    
-    if(nactive > nrecv) {
-
-      //      printf("LIBGPU :: -- GPU-GPU Reduction  binary reduction   nactive= %i  nrecv= %i\n",nactive,nrecv);
-      
-      int nsend = nactive - nrecv;
-      
-      for(int i=0; i<nsend; ++i) {
-
-	int dest = i;
-	int src = nrecv + i;
-
-	my_device_data * dd_dest = &(device_data[dest]);
-	my_device_data * dd_src = &(device_data[src]);
-	
-	// printf("LIBGPU :: -- GPU-GPU Reduction  -- src %i(%p) --> dest %i(%p, %p)\n",
-	//        src, dd_src->d_vkk, dest, dd_dest->d_buf3, dd_dest->d_vkk);
-	
-	if(dd_src->d_vkk) {
-	  // because we reuse d_buf3, need to ensure dest is done using it
-	  
-	  pm->dev_set_device(dest);
-
-	  pm->dev_stream_wait();
-
-	  // src initiates transfer
-	  
-	  pm->dev_set_device(src);
-	  
-	  //	  pm->dev_stream_wait(); // why?
-	  
-	  pm->dev_memcpy_peer(dd_dest->d_buf3, dest, dd_src->d_vkk, src, size);
-
-	  // dest launches kernel
-	  
-	  pm->dev_set_device(dest);  
-	  
-	  vecadd(dd_dest->d_buf3, dd_dest->d_vkk, N);
-	}
-      }
-
-      nactive = nrecv;
-      
-      // odd number of recievers and not last level
-      
-      if((nrecv > 1) && (nrecv % 2)) {
-
-	//	printf("LIBGPU :: -- GPU-GPU Reduction  post clean-up odd reciever  nactive= %i  nrecv= %i\n",nactive,nrecv);
-    
-	int dest = nrecv - 2;
-	int src = nrecv - 1;
-	
-	my_device_data * dd_dest = &(device_data[dest]);
-	my_device_data * dd_src = &(device_data[src]);
-	
-	// printf("LIBGPU :: -- GPU-GPU Reduction  -- src %i(%p) --> dest %i(%p, %p)\n",
-	//        src, dd_src->d_vkk, dest, dd_dest->d_buf3, dd_dest->d_vkk);
-
-	if(dd_src->d_vkk) {
-	  // because we reuse d_buf3, need to ensure dest is done using it
-	  
-	  pm->dev_set_device(dest);
-
-	  pm->dev_stream_wait();
-
-	  // src initiates transfer
-	  
-	  pm->dev_set_device(src);
-	  
-	  //	  pm->dev_stream_wait(); // why?
-	  
-	  pm->dev_memcpy_peer(dd_dest->d_buf3, dest, dd_src->d_vkk, src, size);
-
-	  // dest launches kernel
-	  
-	  pm->dev_set_device(dest); 
-	  
-	  vecadd(dd_dest->d_buf3, dd_dest->d_vkk, N);
-	}
-
-	nrecv--;
-	nactive--;
-      }
-    }
-
-    nrecv /= 2;
-    il++;
+  for(int i=0; i<num_devices; ++i) {
+    my_device_data * dd = &(device_data[i]);
+    v_vec[i] = dd->d_vkk;
   }
-
-  // accumulate result on host
   
-  //  printf("LIBGPU :: -- GPU-GPU Reduction  transferring result to host\n");
-  
-  pm->dev_set_device(0);
-
-  dd = &(device_data[0]);
-  
-  if(dd->d_vkk) {
-    pm->dev_pull(dd->d_vkk, buf_vk, size);
+  if(v_vec[0]) {
+    mgpu_reduce(v_vec, buf_vk, N, true, buf_vec);
     
 #pragma omp parallel for
     for(int j=0; j<N; ++j) vk[j] += buf_vk[j];
   }
-
-  //  printf("LIBGPU :: -- GPU-GPU Reduction  finished\n");
   
   pm->dev_profile_stop();
   
   double t1 = omp_get_wtime();
   t_array[1] += t1 - t0;
   count_array[0]+=1; // just doing this addition in pull, not in init or compute
-    
+  
 #ifdef _DEBUG_DEVICE
   printf("LIBGPU :: -- Leaving Device::pull_get_jk()\n");
 #endif
 }
+
 #else
+
 void Device::pull_get_jk(py::array_t<double> _vj, py::array_t<double> _vk, int nao, int nset, int with_k)
 {
 #ifdef _DEBUG_DEVICE
@@ -1665,7 +1366,27 @@ void Device::push_mo_coeff(py::array_t<double> _mo_coeff, int _size_mo_coeff)
   double * mo_coeff = static_cast<double*>(info_mo_coeff.ptr);
 
   // host pushes to each device; optimize later host->device0 plus device-device transfers (i.e. bcast)
-  
+
+#if defined(_ENABLE_P2P)
+  std::vector<double *> mo_vec(num_devices); // array of device addresses 
+    
+  for(int id=0; id<num_devices; ++id) {
+    pm->dev_set_device(id);
+    
+    my_device_data * dd = &(device_data[id]);
+
+    if (_size_mo_coeff > dd->size_mo_coeff){
+      dd->size_mo_coeff = _size_mo_coeff;
+      if (dd->d_mo_coeff) pm->dev_free_async(dd->d_mo_coeff);
+      dd->d_mo_coeff = (double *) pm->dev_malloc_async(_size_mo_coeff*sizeof(double));
+    }
+    
+    mo_vec[id] = dd->d_mo_coeff;
+  }
+    
+  mgpu_bcast(mo_vec, mo_coeff, _size_mo_coeff*sizeof(double)); // host -> gpu 0, then Bcast to all gpu
+
+#else
   for(int id=0; id<num_devices; ++id) {
     
     pm->dev_set_device(id);
@@ -1680,6 +1401,7 @@ void Device::push_mo_coeff(py::array_t<double> _mo_coeff, int _size_mo_coeff)
     
     pm->dev_push_async(dd->d_mo_coeff, mo_coeff, _size_mo_coeff*sizeof(double));
   }
+#endif
   
   double t1 = omp_get_wtime();
   t_array[7] += t1 - t0;
@@ -1751,7 +1473,9 @@ void Device::init_ints_ao2mo_v3(int naoaux, int nmo, int ncas)
   t_array[8] += t1 - t0;
   // counts in pull ppaa
 }
+
 /* ---------------------------------------------------------------------- */
+
 void Device::init_ppaa_ao2mo( int nmo, int ncas)
 {
   double t0 = omp_get_wtime();
@@ -1768,7 +1492,9 @@ void Device::init_ppaa_ao2mo( int nmo, int ncas)
   t_array[8] += t1 - t0;
   // counts in pull ppaa
 }
+
 /* ---------------------------------------------------------------------- */
+
 void Device::init_ppaa_papa_ao2mo( int nmo, int ncas)
 {
   double t0 = omp_get_wtime();
@@ -1828,7 +1554,9 @@ void Device::init_eri_h2eff(int nmo, int ncas)
   t_array[8] += t1 - t0;
   // counts in pull ppaa
 }
+
 /* ---------------------------------------------------------------------- */
+
 void Device::extract_mo_cas(int ncas, int ncore, int nao)
 {
   double t0 = omp_get_wtime();
@@ -1842,13 +1570,13 @@ void Device::extract_mo_cas(int ncas, int ncore, int nao)
       if (dd->d_mo_cas) pm->dev_free_async(dd->d_mo_cas);
       dd->d_mo_cas = (double *) pm->dev_malloc_async(_size_mo_cas*sizeof(double));
     }
-    #if 0 
+#if 0 
     dim3 block_size(1,1,1);
     dim3 grid_size(_TILE(ncas, block_size.x), _TILE(nao, block_size.y));
     get_mo_cas<<<grid_size, block_size, 0, dd->stream>>>(dd->d_mo_coeff, dd->d_mo_cas, ncas, ncore, nao);
-    #else
+#else
     get_mo_cas(dd->d_mo_coeff,dd->d_mo_cas, ncas, ncore, nao);
-    #endif
+#endif
   }
   
   double t1 = omp_get_wtime();
@@ -1935,6 +1663,54 @@ void Device::pull_jk_ao2mo(py::array_t<double> _j_pc, py::array_t<double> _k_pc,
 }
 
 /* ---------------------------------------------------------------------- */
+
+#if defined(_ENABLE_P2P)
+void Device::pull_jk_ao2mo_v4(py::array_t<double> _j_pc, py::array_t<double> _k_pc, int nmo, int ncore)
+{
+  double t0 = omp_get_wtime();
+
+  py::buffer_info info_j_pc = _j_pc.request(); //2D array (nmo*ncore)
+  double * j_pc = static_cast<double*>(info_j_pc.ptr);
+  
+  py::buffer_info info_k_pc = _k_pc.request(); //2D array (nmo*ncore)
+  double * k_pc = static_cast<double*>(info_k_pc.ptr);
+  
+  int N = nmo * ncore;
+
+  std::vector<double *> pc_vec(num_devices);
+  std::vector<double *> buf_vec(num_devices);
+  
+  for(int i=0; i<num_devices; ++i) {
+    my_device_data * dd = &(device_data[i]);
+    pc_vec[i] = dd->d_j_pc;
+    buf_vec[i] = dd->d_buf1;
+  }
+
+  mgpu_reduce(pc_vec, buf_j_pc, N, true, buf_vec);
+
+#pragma omp parallel for
+  for(int i=0; i<nmo*ncore; ++i) j_pc[i] = buf_j_pc[i];
+
+  // Pulling k_pc from all devices
+
+  for(int i=0; i<num_devices; ++i) {
+    my_device_data * dd = &(device_data[i]);
+    pc_vec[i] = dd->d_k_pc;
+    buf_vec[i] = dd->d_buf1;
+  }
+  
+  mgpu_reduce(pc_vec, buf_k_pc, N, true, buf_vec);
+
+#pragma omp parallel for
+  for(int i=0; i<nmo*ncore; ++i) k_pc[i] = buf_k_pc[i];
+  
+  double t1 = omp_get_wtime();
+  t_array[10] += t1 - t0;
+  // counts in pull ppaa
+}
+
+#else
+
 void Device::pull_jk_ao2mo_v4(py::array_t<double> _j_pc, py::array_t<double> _k_pc, int nmo, int ncore)
 {
   double t0 = omp_get_wtime();
@@ -1945,8 +1721,11 @@ void Device::pull_jk_ao2mo_v4(py::array_t<double> _j_pc, py::array_t<double> _k_
   
   py::buffer_info info_k_pc = _k_pc.request(); //2D array (nmo*ncore)
   double * k_pc = static_cast<double*>(info_k_pc.ptr);
+  
   int size = nmo*ncore;//*sizeof(double);
 
+  printf("nmo= %i  ncore= %i\n",nmo, ncore);
+  
   // Pulling j_pc from all devices
   
   for (int i=0; i<num_devices; ++i){
@@ -1957,7 +1736,9 @@ void Device::pull_jk_ao2mo_v4(py::array_t<double> _j_pc, py::array_t<double> _k_
     
     if (dd->d_j_pc) pm->dev_pull_async(dd->d_j_pc, tmp, size*sizeof(double));
   }
+  
   // Adding j_pc from all devices
+
   for(int i=0; i<num_devices; ++i) {
     pm->dev_set_device(i);
 
@@ -2019,6 +1800,7 @@ void Device::pull_jk_ao2mo_v4(py::array_t<double> _j_pc, py::array_t<double> _k_
   t_array[10] += t1 - t0;
   // counts in pull ppaa
 }
+#endif
 
 /* ---------------------------------------------------------------------- */
 
@@ -2037,6 +1819,7 @@ void Device::pull_ints_ao2mo_v3(py::array_t<double> _bufpa, int blksize, int nao
 }
 
 /* ---------------------------------------------------------------------- */
+
 void Device::pull_ppaa_ao2mo(py::array_t<double> _ppaa, int nmo, int ncas)
 {
   double t0 = omp_get_wtime();
@@ -2079,7 +1862,57 @@ void Device::pull_ppaa_ao2mo(py::array_t<double> _ppaa, int nmo, int ncas)
   t_array[10] += t1 - t0;
   count_array[6] += 1; //doing this in ppaa pull, not in any inits or computes
 }
+
 /* ---------------------------------------------------------------------- */
+
+#if defined(_ENABLE_P2P)
+void Device::pull_ppaa_papa_ao2mo_v4(py::array_t<double> _ppaa, py::array_t<double> _papa, int nmo, int ncas)
+{
+  double t0 = omp_get_wtime();
+
+  py::buffer_info info_ppaa = _ppaa.request(); //2D array (nmo*ncore)
+  py::buffer_info info_papa = _papa.request(); //2D array (nmo*ncore)
+  double * ppaa = static_cast<double*>(info_ppaa.ptr);
+  double * papa = static_cast<double*>(info_papa.ptr);
+
+  int N = nmo*nmo*ncas*ncas;
+  
+  // Pulling ppaa from all devices
+
+  //  printf("nmo= %i  ncas= %i  N= %i\n",nmo, ncas, N);
+
+  std::vector<double *> p_vec(num_devices);
+  std::vector<double *> buf_vec(num_devices);
+  
+  for(int i=0; i<num_devices; ++i) {
+    my_device_data * dd = &(device_data[i]);
+    p_vec[i] = dd->d_ppaa; // pointing at d_buf3
+    buf_vec[i] = dd->d_buf2;
+  }
+
+  mgpu_reduce(p_vec, buf_ppaa, N, true, buf_vec);
+
+#pragma omp parallel for
+  for(int i=0; i<N; ++i) ppaa[i] = buf_ppaa[i];
+
+  // Pulling papa from all devices
+  
+  for(int i=0; i<num_devices; ++i) {
+    my_device_data * dd = &(device_data[i]);
+    p_vec[i] = dd->d_papa; // pointing at d_buf3
+  }
+
+  mgpu_reduce(p_vec, buf_papa, N, true, buf_vec);
+
+#pragma omp parallel for
+  for(int i=0; i<N; ++i) papa[i] = buf_papa[i];
+
+  double t1 = omp_get_wtime();
+  t_array[10] += t1 - t0;
+  count_array[6] += 1; //doing this in ppaa pull, not in any inits or computes
+}
+
+#else
 void Device::pull_ppaa_papa_ao2mo_v4(py::array_t<double> _ppaa, py::array_t<double> _papa, int nmo, int ncas)
 {
   double t0 = omp_get_wtime();
@@ -2155,7 +1988,7 @@ void Device::pull_ppaa_papa_ao2mo_v4(py::array_t<double> _ppaa, py::array_t<doub
   t_array[10] += t1 - t0;
   count_array[6] += 1; //doing this in ppaa pull, not in any inits or computes
 }
-
+#endif
 
 /* ---------------------------------------------------------------------- */
 
@@ -2383,6 +2216,7 @@ void Device::df_ao2mo_v3 (int blksize, int nmo, int nao, int ncore, int ncas, in
   t_array[9] += t1 - t0;
   // counts in pull ppaa
 }
+
 /* ---------------------------------------------------------------------- */
 
 void Device::df_ao2mo_v4 (int blksize, int nmo, int nao, int ncore, int ncas, int naux, 
@@ -2569,9 +2403,6 @@ void Device::df_ao2mo_v4 (int blksize, int nmo, int nao, int ncore, int ncas, in
   t_array[9] += t1 - t0;
   // counts in pull ppaa
 }
-
-
-
 
 /* ---------------------------------------------------------------------- */
 
@@ -3271,8 +3102,41 @@ void Device::get_h2eff_df_v2(py::array_t<double> _cderi,
 #endif  
 }
 
-
 /* ---------------------------------------------------------------------- */
+
+#if defined(_ENABLE_P2P)
+void Device::pull_eri_h2eff(py::array_t<double> _eri, int nmo, int ncas)
+{
+#ifdef _DEBUG_DEVICE
+  printf("LIBGPU :: -- Inside Device::pull_eri_h2eff()\n");
+#endif
+  
+  py::buffer_info info_eri = _eri.request(); //2D array (nmo * (ncas*ncas_pair))
+  double * eri = static_cast<double*>(info_eri.ptr);
+
+  const int ncas_pair = ncas*(ncas+1)/2;
+  
+  const int N = nmo*ncas * ncas_pair;
+
+  std::vector<double *> e_vec(num_devices);
+  std::vector<double *> buf_vec(num_devices);
+  
+  for(int i=0; i<num_devices; ++i) {
+    my_device_data * dd = &(device_data[i]);
+    e_vec[i] = dd->d_eri_h2eff;
+    buf_vec[i] = dd->d_buf3;
+  }
+
+  mgpu_reduce(e_vec, buf_eri_h2eff, N, true, buf_vec);
+
+#pragma omp parallel for
+  for(int i=0; i<N; ++i) eri[i] = buf_eri_h2eff[i];
+  
+#ifdef _DEBUG_DEVICE
+  printf("LIBGPU :: Leaving Device::get_h2eff_df_v2()\n");
+#endif
+}
+#else
 void Device::pull_eri_h2eff(py::array_t<double> _eri, int nmo, int ncas)
 {
 #ifdef _DEBUG_DEVICE
@@ -3321,6 +3185,7 @@ void Device::pull_eri_h2eff(py::array_t<double> _eri, int nmo, int ncas)
   printf("LIBGPU :: Leaving Device::get_h2eff_df_v2()\n");
 #endif
 }
+#endif
 
 /* ---------------------------------------------------------------------- */
 
@@ -3365,7 +3230,9 @@ void Device::init_eri_impham(int naoaux, int nao_f, int return_4c2eeri)
   printf("LIBGPU :: Leaving Device::init_eri_impah()\n");
 #endif
 }
+
 /* ---------------------------------------------------------------------- */
+
 void Device::compute_eri_impham(int nao_s, int nao_f, int blksize, int naux, int count, size_t addr_dfobj, int return_4c2eeri)
 {
 #ifdef _DEBUG_DEVICE
@@ -3541,8 +3408,72 @@ void Device::compute_eri_impham_v2(int nao_s, int nao_f, int blksize, int naux, 
   count_array[7]+=1; // just doing this addition in pull, not in init or compute
   // counts in pull eri_impham
 
-} 
+}
+
 /* ---------------------------------------------------------------------- */
+
+#if defined(_ENABLE_P2P)
+void Device::pull_eri_impham(py::array_t<double> _eri, int naoaux, int nao_f, int return_4c2eeri)
+{
+  //This should be obsolete in a production version. We want this calculation to not exist, and the impurity eri should directly get transferred from gpu to gpu in it's corresponding location. 
+
+  // if not possible, then the cpu version should be refactored to allow pull to happen async (i think it's pageable right now and it will negate all performance when you pull bPee to cpu (and then transfer it back again)) 
+#ifdef _DEBUG_DEVICE
+  printf("LIBGPU :: -- Inside Device::pull_eri_impham()\n");
+#endif
+  
+  pm->dev_profile_start("pull_eri_impham");
+  
+  double t0 = omp_get_wtime();
+  
+  int nao_f_pair = nao_f * (nao_f+1)/2;
+
+  int N = nao_f_pair * nao_f_pair;
+  
+  py::buffer_info info_eri = _eri.request(); 
+  double * eri = static_cast<double*>(info_eri.ptr);
+
+  if (return_4c2eeri){
+
+    std::vector<double *> e_vec(num_devices);
+    std::vector<double *> buf_vec(num_devices);
+  
+    for(int i=0; i<num_devices; ++i) {
+      my_device_data * dd = &(device_data[i]);
+      e_vec[i] = dd->d_buf3; // this has the result
+      buf_vec[i] = dd->d_buf2; // this is a temp buffer
+    }
+
+    mgpu_reduce(e_vec, pin_eri_impham, N, true, buf_vec);
+
+#pragma omp parallel for
+    for(int i=0; i<N; ++i) eri[i] += pin_eri_impham[i];
+
+  } else {
+
+    for(int i=0; i<num_devices; ++i) {
+      pm->dev_set_device(i);
+      pm->dev_barrier();
+    }
+
+#pragma omp parallel for
+    for(int i=0; i<naoaux*nao_f_pair; ++i) eri[i] = pin_eri_impham[i];
+  }
+
+  pm->dev_profile_stop();
+  
+  double t1 = omp_get_wtime();
+  t_array[13] += t1 - t0;
+  count_array[7]+=1; // just doing this addition in pull, not in init or compute
+    
+#ifdef _DEBUG_DEVICE
+  printf("LIBGPU :: -- Leaving Device::pull_eri_impham()\n");
+#endif
+
+}
+
+#else
+
 void Device::pull_eri_impham(py::array_t<double> _eri, int naoaux, int nao_f, int return_4c2eeri)
 {
   //This should be obsolete in a production version. We want this calculation to not exist, and the impurity eri should directly get transferred from gpu to gpu in it's corresponding location. 
@@ -3626,6 +3557,8 @@ void Device::pull_eri_impham(py::array_t<double> _eri, int naoaux, int nao_f, in
 #endif
 
 }
+
+#endif
 
 /* ---------------------------------------------------------------------- */
 void Device::init_mo_grid(int ngrid, int nmo)
@@ -4290,6 +4223,197 @@ void Device::orbital_response(py::array_t<double> _f1_prime,
   pm->dev_free_host(_ocm2t);
   pm->dev_free_host(f1_prime);
 
+}
+
+/* ---------------------------------------------------------------------- */
+
+void Device::mgpu_bcast(std::vector<double *> d_ptr, double * h_ptr, size_t size)
+{
+  // push data from host to first device
+  
+  pm->dev_set_device(0);
+    
+  int err = pm->dev_push_async(d_ptr[0], h_ptr, size);
+  
+  if(err) {
+    printf("LIBGPU:: dev_push_async(d_ptr[0]) failed\n");
+    exit(1);
+  }
+
+  for(int i=1; i<d_ptr.size(); ++i)
+    pm->dev_memcpy_peer(d_ptr[i], i, d_ptr[0], 0, size);
+}
+
+/* ---------------------------------------------------------------------- */
+
+
+void Device::mgpu_reduce(std::vector<double *> d_ptr, double * h_ptr, int N, bool blocking, std::vector<double *> buf_ptr)
+{
+#if defined(_DEBUG_P2P)
+  printf("LIBGPU :: -- GPU-GPU Reduction  Starting!\n");
+#endif
+  
+  size_t size = N * sizeof(double);
+  
+  int nrecv = num_devices / 2;
+
+  int nactive = num_devices;
+
+  // accumulate result to device 0 using binary tree reduction
+  
+  int il = 0;
+  while(nrecv > 0) {
+
+#if defined(_DEBUG_P2P)
+    printf("LIBGPU :: -- GPU-GPU Reduction  il= %i  nactive= %i  nrecv= %i\n",il,nactive,nrecv);
+#endif
+    
+    // odd number of recievers and not last level (clean-up pre-reduction)
+      
+    if((nactive > 1) && (nactive % 2)) {
+
+#if defined(_DEBUG_P2P)
+      printf("LIBGPU :: -- GPU-GPU Reduction  pre clean-up odd reciever  nactive= %i  nrecv= %i\n",nactive,nrecv);
+#endif
+      
+      int dest = nactive - 2;
+      int src = nactive - 1;
+      
+#if defined(_DEBUG_P2P)
+      printf("LIBGPU :: -- GPU-GPU Reduction  -- src %i(%p) --> dest %i(%p, %p)\n",
+       	     src, d_ptr[src], dest, buf_ptr[dest], d_ptr[dest]);
+#endif
+      
+      if(d_ptr[src]) {
+	if(blocking) {
+	  // need to ensure dest is done using buf
+	
+	  pm->dev_set_device(dest);
+	  
+	  pm->dev_stream_wait();
+	}
+	
+	// src initiates transfer
+	
+	pm->dev_set_device(src);
+	
+	pm->dev_memcpy_peer(buf_ptr[dest], dest, d_ptr[src], src, size);
+	
+	// dest launches kernel
+	
+	pm->dev_set_device(dest); 
+	
+	vecadd(buf_ptr[dest], d_ptr[dest], N);
+      }
+      
+      nactive--;
+    }
+    
+    // binary tree reduction
+    
+    if(nactive > nrecv) {
+
+#if defined(_DEBUG_P2P)
+      printf("LIBGPU :: -- GPU-GPU Reduction  binary reduction   nactive= %i  nrecv= %i\n",nactive,nrecv);
+#endif
+      
+      int nsend = nactive - nrecv;
+
+      for(int i=0; i<nsend; ++i) {
+
+	int dest = i;
+	int src = nrecv + i;
+
+#if defined(_DEBUG_P2P)	
+	printf("LIBGPU :: -- GPU-GPU Reduction  -- src %i(%p) --> dest %i(%p, %p)\n",
+	       src, d_ptr[src], dest, buf_ptr[dest], d_ptr[dest]);
+#endif
+
+	if(d_ptr[src]) {
+	  if(blocking) {
+	    // need to ensure dest is done using buf
+	    
+	    pm->dev_set_device(dest);
+	    
+	    pm->dev_stream_wait();
+	  }
+
+	  // src initiates transfer
+	  
+	  pm->dev_set_device(src);
+	  
+	  pm->dev_memcpy_peer(buf_ptr[dest], dest, d_ptr[src], src, size);
+
+	  // dest launches kernel
+	  
+	  pm->dev_set_device(dest); 
+	  
+	  vecadd(buf_ptr[dest], d_ptr[dest], N);
+	}
+      }
+
+      nactive = nrecv;
+
+      // odd number of recievers and not last level (clean-up post-reduction)
+      
+      if((nrecv > 1) && (nrecv % 2)) {
+
+#if defined(_DEBUG_P2P)
+       	printf("LIBGPU :: -- GPU-GPU Reduction  post clean-up odd reciever  nactive= %i  nrecv= %i\n",nactive,nrecv);
+#endif
+    
+	int dest = nrecv - 2;
+	int src = nrecv - 1;
+
+#if defined(_DEBUG_P2P)	
+	printf("LIBGPU :: -- GPU-GPU Reduction  -- src %i(%p) --> dest %i(%p, %p)\n",
+	       src, d_ptr[src], dest, buf_ptr[dest], d_ptr[dest]);
+#endif
+
+	if(d_ptr[src]) {
+	  if(blocking) {
+	    // need to ensure dest is done using buf
+	    pm->dev_set_device(dest);
+	    
+	    pm->dev_stream_wait();
+	  }
+
+	  // src initiates transfer
+	  
+	  pm->dev_set_device(src);
+	  
+	  pm->dev_memcpy_peer(buf_ptr[dest], dest, d_ptr[src], src, size);
+
+	  // dest launches kernel
+	  
+	  pm->dev_set_device(dest); 
+	  
+	  vecadd(buf_ptr[dest], d_ptr[dest], N);
+	}
+
+	nrecv--;
+	nactive--;
+      }
+      
+    }
+
+    nrecv /= 2;
+    il++;
+  }
+
+  // accumulate result on host
+
+#if defined(_DEBUG_P2P)
+  printf("LIBGPU :: -- GPU-GPU Reduction  transferring result to host\n");
+#endif
+  
+  pm->dev_set_device(0);
+  
+  pm->dev_pull(d_ptr[0], h_ptr, size);
+  
+#if defined(_DEBUG_P2P)
+  printf("LIBGPU :: -- GPU-GPU Reduction  completed!\n");
+#endif
 }
 
 /* ---------------------------------------------------------------------- */
