@@ -234,8 +234,11 @@ class LSTDM (object):
         # and store those fragment indices along with the state indices.
 
         # Zero-electron interactions
-        tril_index = np.zeros_like (conserv_index)
-        tril_index[np.tril_indices (self.nroots)] = True
+        if self.dual_spaces or (not self.all_interactions_full_square):
+            tril_index = np.zeros_like (conserv_index)
+            tril_index[np.tril_indices (self.nroots)] = True
+        else:
+            tril_index = np.ones_like (conserv_index)
         idx = conserv_index & tril_index & (nop == 0)
         exc['null'] = np.vstack (list (np.where (idx))).T
  
@@ -336,6 +339,7 @@ class LSTDM (object):
         return exc
 
     all_interactions_full_square = False
+    dual_spaces = False
     interaction_has_spin = ('_1c_', '_1c1d_', '_2c_')
     ltri_ambiguous = True
 

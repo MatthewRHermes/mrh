@@ -293,7 +293,7 @@ class ContractHamCI_SHS_hermi0 (rdm.LRRDM):
 
         return
 
-    def _crunch_1s1c_(self, bra, ket, i, j, k, s1=0):
+    def _crunch_1s1c_(self, bra, ket, i, j, k, s1):
         '''Compute the reduced density matrix elements of a spin-charge unit hop; i.e.,
 
         <bra|i'(a)k'(b)j(b)k(a)|ket>
@@ -451,7 +451,7 @@ class ContractHamCI_SHS_hermi0 (rdm.LRRDM):
         '''
         t0 = (lib.logger.process_clock (), lib.logger.perf_counter ())
         self.init_profiling ()
-        for inti in self.ints: inti._init_ham_(self.nroots_si, self.dual_spaces)
+        for inti in self.ints: inti._init_ham_(self.nroots_si)
         self._crunch_all_()
         self.hci_fr_plab = self.get_vecs ()
         return self.hci_fr_plab, t0
@@ -464,9 +464,9 @@ class ContractHamCI_SHS_hermi0 (rdm.LRRDM):
         return hci_fr_plab
 
 class ContractHamCI_SHS_hermi1 (ContractHamCI_SHS_hermi0):
-    all_interactions_full_square = False
-    interaction_has_spin = ('_1c_', '_1c1d_', '_2c_')
-    ltri_ambiguous = True
+    #all_interactions_full_square = False
+    #interaction_has_spin = ('_1c_', '_1c1d_', '_2c_')
+    #ltri_ambiguous = True
     dual_spaces = False
     get_single_rootspace_sivec = rdm.LRRDM.get_single_rootspace_sivec
     _lowertri_fdm = False
