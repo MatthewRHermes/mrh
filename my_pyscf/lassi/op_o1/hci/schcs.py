@@ -41,7 +41,7 @@ class ContractHamCI_SHS_hermi0 (rdm.LRRDM):
         self.h2 = np.ascontiguousarray (h2)
         self.nbra = len (mask_bra_space)
         self.nket = len (mask_ket_space)
-        self.off_bra = self.offs_lroots[self.nket][0]
+        self.off_bra = self.offs_lroots[self.nket-1][1]
         self.nelec_frs = np.asarray ([[list (i.nelec_r[ket]) for i in ints]
                                       for ket in range (self.nroots)]).transpose (1,0,2)
         self._ispec = None
@@ -469,6 +469,7 @@ class ContractHamCI_SHS_hermi1 (ContractHamCI_SHS_hermi0):
     ltri_ambiguous = True
     dual_spaces = False
     get_single_rootspace_sivec = rdm.LRRDM.get_single_rootspace_sivec
+    _lowertri_fdm = False
     def get_vecs (self):
         t1, w1 = logger.process_clock (), logger.perf_counter ()
         hci_fr_plab = [inti._ham_op () for inti in self.ints]
@@ -481,7 +482,7 @@ def ContractHamCI_SHS (*args, **kwargs):
     if dual_spaces:
         return ContractHamCI_SHS_hermi0 (*args, **kwargs)
     else:
-        mask_bra_space = kwargs.pop ('mask_bra_space', None)
+        mask_bra_space = kwargs.get ('mask_bra_space', None)
         kwargs['mask_ket_space'] = mask_bra_space
         return ContractHamCI_SHS_hermi1 (*args, **kwargs)
 

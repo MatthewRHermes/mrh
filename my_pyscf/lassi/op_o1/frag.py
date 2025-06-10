@@ -713,7 +713,7 @@ class HamTerm:
             self.h1 = np.zeros (list (h1.shape[:3]) + [2,] + list (h1.shape[3:]), dtype=h1.dtype)
             self.h1[:,:,:,spin,:,:] = h1
             self.spin = None
-            self._op = parent.contract_h11_uhf
+            self._op = self._opH = parent.contract_h11_uhf
         elif sum (dnelec) == 0:
             self.h1 = h1
             self._op = self._opH = parent.contract_h11
@@ -773,7 +773,8 @@ class HamTerm:
 
     def opH (self):
         with lib.temporary_env (self, ir=self.jr, jr=self.ir, li=self.lj, lj=self.li, ket=self.bra,
-                                h0=self.get_h0H (), h1=self.get_h1H (), h2=self.get_h2H ()):
+                                h0=self.get_h0H (), h1=self.get_h1H (), h2=self.get_h2H (),
+                                _op=self._opH):
             return self.op ()
 
     def get_h0H (self):
@@ -789,7 +790,7 @@ class HamTerm:
             return h1
         elif self.dnelec == (0,0):
             return h1.transpose (0,2,1,3,5,4) 
-        elif sum (self.dnelec) == 0:
+        elif sum (self.dnelec)%2 == 0:
             return h1.transpose (0,2,1,4,3)
         else:
             return h1.transpose (0,2,1,3)
@@ -799,7 +800,7 @@ class HamTerm:
         if h2 is None or np.asarray (h2).ndim < 3:
             return h2
         elif abs (sum (self.dnelec)) == 1:
-            return h2.transpose (0,2,1,3,6,5,4)
+            return h2.transpose (0,2,1,5,4,3)
         else:
             return h2.transpose (0,2,1,4,3,6,5)
 
