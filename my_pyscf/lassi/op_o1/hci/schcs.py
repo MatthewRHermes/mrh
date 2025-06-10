@@ -464,9 +464,6 @@ class ContractHamCI_SHS_hermi0 (rdm.LRRDM):
         return hci_fr_plab
 
 class ContractHamCI_SHS_hermi1 (ContractHamCI_SHS_hermi0):
-    #all_interactions_full_square = False
-    #interaction_has_spin = ('_1c_', '_1c1d_', '_2c_')
-    #ltri_ambiguous = True
     dual_spaces = False
     get_single_rootspace_sivec = rdm.LRRDM.get_single_rootspace_sivec
     _lowertri_fdm = False

@@ -663,10 +663,9 @@ class FragTDMInt (object):
         hci = contract_1e_nosym_uhf (h_11_s, ci, norb, nelec, link_index=linkstr)
         return hci
 
-    def _init_ham_(self, nroots_si, dual_spaces=True):
+    def _init_ham_(self, nroots_si):
         self._ham = {}
         self.nroots_si = nroots_si
-        self.dual_spaces = dual_spaces
 
     def _put_ham_(self, bra, ket, h0, h1, h2, spin=None, hermi=0):
         i = self.unique_root[bra]
@@ -684,8 +683,6 @@ class FragTDMInt (object):
         for ((i, j, hermi), hterm) in self._ham.items ():
             if hterm.is_zero (): continue
             hci_r_plab[i] += hterm.op ()
-            if not self.dual_spaces and (i!=j):
-                hci_r_plab[j] += hterm.opH ()
         return hci_r_plab
 
 class HamTerm:
