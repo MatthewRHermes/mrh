@@ -453,25 +453,36 @@ class ContractHamCI_SHS_hermi0 (rdm.LRRDM):
         self.init_profiling ()
         for inti in self.ints: inti._init_ham_(self.nroots_si, self.dual_spaces)
         self._crunch_all_()
+        self.hci_fr_plab = self.get_vecs ()
+        return self.hci_fr_plab, t0
+
+    def get_vecs (self):
         t1, w1 = logger.process_clock (), logger.perf_counter ()
-        self.hci_fr_plab = [inti._ham_op ()[self.nket:] for inti in self.ints]
+        hci_fr_plab = [inti._ham_op ()[self.nket:] for inti in self.ints]
         dt, dw = logger.process_clock () - t1, logger.perf_counter () - w1
         self.dt_p, self.dw_p = self.dt_p + dt, self.dw_p + dw
-        return self.hci_fr_plab, t0
+        return hci_fr_plab
 
 class ContractHamCI_SHS_hermi1 (ContractHamCI_SHS_hermi0):
     all_interactions_full_square = False
     interaction_has_spin = ('_1c_', '_1c1d_', '_2c_')
     ltri_ambiguous = True
     dual_spaces = False
+    get_single_rootspace_sivec = rdm.LRRDM.get_single_rootspace_sivec
+    def get_vecs (self):
+        t1, w1 = logger.process_clock (), logger.perf_counter ()
+        hci_fr_plab = [inti._ham_op () for inti in self.ints]
+        dt, dw = logger.process_clock () - t1, logger.perf_counter () - w1
+        self.dt_p, self.dw_p = self.dt_p + dt, self.dw_p + dw
+        return hci_fr_plab
 
 def ContractHamCI_SHS (*args, **kwargs):
-    hermi = kwargs.pop ('hermi', 0)
-    if hermi == 0:
+    dual_spaces = kwargs.pop ('dual_spaces', True)
+    if dual_spaces:
         return ContractHamCI_SHS_hermi0 (*args, **kwargs)
-    elif hermi == 1:
-        return ContractHamCI_SHS_hermi1 (*args, **kwargs)
     else:
-        raise RuntimeError ('hermi = 0 or 1')
+        mask_bra_space = kwargs.pop ('mask_bra_space', None)
+        kwargs['mask_ket_space'] = mask_bra_space
+        return ContractHamCI_SHS_hermi1 (*args, **kwargs)
 
 
