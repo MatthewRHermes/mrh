@@ -125,7 +125,7 @@ class HessianOperator (sparse_linalg.LinearOperator):
         nocc = ncore+ncas
         h0, h1, h2 = ham_2q
         return op[self.opt].contract_ham_ci (
-            self.lsi, h1, h2, ci, nelec_frs, ci, nelec_frs,
+            self.lsi, h1, h2, ci, nelec_frs, None, None,
             si_bra=si_bra, si_ket=si_ket, h0=h0, sum_bra=True
         )
 
