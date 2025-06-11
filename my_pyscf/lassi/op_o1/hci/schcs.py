@@ -39,9 +39,8 @@ class ContractHamCI_SHS (rdm.LRRDM):
         self.h0 = h0
         self.h1 = np.ascontiguousarray (h1)
         self.h2 = np.ascontiguousarray (h2)
-        self.nbra = len (mask_bra_space)
-        self.nket = len (mask_ket_space)
-        self.off_bra = self.offs_lroots[self.nket][0]
+        self.mask_bra_space = mask_bra_space
+        self.mask_ket_space = mask_ket_space
         self.nelec_frs = np.asarray ([[list (i.nelec_r[ket]) for i in ints]
                                       for ket in range (self.nroots)]).transpose (1,0,2)
         self._ispec = None
@@ -56,6 +55,7 @@ class ContractHamCI_SHS (rdm.LRRDM):
     all_interactions_full_square = True
     interaction_has_spin = ('_1c_', '_1c1d_', '_1s1c_', '_2c_')
     ltri_ambiguous = False
+    _lowertri_fdm = False
 
     def get_single_rootspace_sivec (self, iroot, bra=False):
         '''A single-rootspace slice of the SI vectors.
@@ -68,14 +68,15 @@ class ContractHamCI_SHS (rdm.LRRDM):
             sivec: col-major ndarray of shape (np.prod (lroots[:,iroot], nroots_si)
                 SI vectors
         '''
-        i, j = self.offs_lroots[iroot]
         if self._transpose: bra = not bra
         if bra:
-            i = i - self.off_bra
-            j = j - self.off_bra
             si = self.si_bra
+            mask = self.mask_bra_space
         else:
             si = self.si_ket
+            mask = self.mask_ket_space
+        iroot = np.where (mask==iroot)[0][0]
+        i, j = self.offs_lroots[iroot]
         return si[i:j,:]
 
     def _crunch_env_(self, _crunch_fn, *row):
@@ -452,9 +453,16 @@ class ContractHamCI_SHS (rdm.LRRDM):
         self.init_profiling ()
         for inti in self.ints: inti._init_ham_(self.nroots_si)
         self._crunch_all_()
+        self.hci_fr_plab = self.get_vecs ()
+        return self.hci_fr_plab, t0
+
+    def get_vecs (self):
         t1, w1 = logger.process_clock (), logger.perf_counter ()
-        self.hci_fr_plab = [inti._ham_op ()[self.nket:] for inti in self.ints]
+        hci_fr_plab = []
+        for inti in self.ints:
+            hci_r_plab = inti._ham_op ()
+            hci_fr_plab.append ([hci_r_plab[i] for i in self.mask_bra_space])
         dt, dw = logger.process_clock () - t1, logger.perf_counter () - w1
         self.dt_p, self.dw_p = self.dt_p + dt, self.dw_p + dw
-        return self.hci_fr_plab, t0
+        return hci_fr_plab
 

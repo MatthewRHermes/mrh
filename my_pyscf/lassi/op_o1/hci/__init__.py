@@ -34,9 +34,8 @@ def ContractHamCI (las, ints, nlas, hopping_index, lroots, h0, h1, h2, si_bra=No
                                   mask_ket_space=mask_ket_space,
                                   log=log, max_memory=2000, dtype=np.float64)
 
-def contract_ham_ci (las, h1, h2, ci_fr_ket, nelec_frs_ket, ci_fr_bra, nelec_frs_bra,
-                     si_bra=None, si_ket=None, h0=0, soc=0, sum_bra=False, orbsym=None,
-                     wfnsym=None):
+def contract_ham_ci (las, h1, h2, ci_fr, nelec_frs, si_bra=None, si_ket=None, ci_fr_bra=None,
+                     nelec_frs_bra=None, h0=0, soc=0, sum_bra=False, orbsym=None, wfnsym=None):
     '''Evaluate the action of the state interaction Hamiltonian on a set of ket CI vectors,
     projected onto a basis of bra CI vectors, leaving one fragment of the bra uncontracted.
 
@@ -46,24 +45,24 @@ def contract_ham_ci (las, h1, h2, ci_fr_ket, nelec_frs_ket, ci_fr_bra, nelec_frs
             Spin-orbit-free one-body CAS Hamiltonian
         h2 : ndarray of shape (ncas, ncas, ncas, ncas)
             Spin-orbit-free two-body CAS Hamiltonian
-        ci_fr_ket : nested list of shape (nfrags, nroots_ket)
-            Contains CI vectors for the ket; element [i,j] is ndarray of shape
+        ci_fr : nested list of shape (nfrags, nroots)
+            Contains CI vectors; element [i,j] is ndarray of shape
             (ndeta_ket[i,j],ndetb_ket[i,j])
-        nelec_frs_ket : ndarray of shape (nfrags, nroots_ket, 2)
+        nelec_frs : ndarray of shape (nfrags, nroots, 2)
             Number of electrons of each spin in each rootspace in each
-            fragment for the ket vectors
-        ci_fr_bra : nested list of shape (nfrags, nroots_bra)
-            Contains CI vectors for the bra; element [i,j] is ndarray of shape
-            (ndeta_bra[i,j],ndetb_bra[i,j])
-        nelec_frs_bra : ndarray of shape (nfrags, nroots_bra, 2)
-            Number of electrons of each spin in each
-            fragment for the bra vectors
+            fragment
 
     Kwargs:
         si_bra : ndarray of shape (ndim_bra, nroots_si)
             SI vectors for the bra. If provided, the p dimension on the return object is contracted
         si_ket : ndarray of shape (ndim_ket, nroots_si)
             SI vectors for the bra. If provided, the q dimension on the return object is contracted
+        ci_fr_bra : nested list of shape (nfrags, nroots_bra)
+            Contains CI vectors for the bra; element [i,j] is ndarray of shape
+            (ndeta_bra[i,j],ndetb_bra[i,j]). Defaults to ci_fr.
+        nelec_frs_bra : ndarray of shape (nfrags, nroots_bra, 2)
+            Number of electrons of each spin in each
+            fragment for the bra vectors. Defaults to nelec_frs.
         soc : integer
             Order of spin-orbit coupling included in the Hamiltonian
         h0 : float
@@ -87,15 +86,23 @@ def contract_ham_ci (las, h1, h2, ci_fr_ket, nelec_frs_ket, ci_fr_bra, nelec_frs
     '''
     log = lib.logger.new_logger (las, las.verbose)
     nlas = las.ncas_sub
-    nfrags, nbra = nelec_frs_bra.shape[:2]
-    nket = nelec_frs_ket.shape[1]
-    ci = [ci_r_ket + ci_r_bra for ci_r_bra, ci_r_ket in zip (ci_fr_bra, ci_fr_ket)]
-    nelec_frs = np.append (nelec_frs_ket, nelec_frs_bra, axis=1)
-    nroots = nbra + nket
-    mask_bra_space = list (range (nket,nroots))
-    mask_ket_space = list (range (nket))
-    mask_ints = np.zeros ((nroots,nroots), dtype=bool)
-    mask_ints[np.ix_(mask_bra_space,mask_ket_space)] = True
+    ci_fr_ket = ci_fr
+    nelec_frs_ket = nelec_frs
+    nfrags, nket = nelec_frs.shape[:2]
+    if ci_fr_bra is None and nelec_frs_bra is None:
+        ci = ci_fr
+        nroots = nbra = nket
+        mask_bra_space = mask_ket_space = list (range (nroots))
+        mask_ints = None
+    else:
+        nbra = nelec_frs_bra.shape[1]
+        ci = [ci_r_ket + ci_r_bra for ci_r_bra, ci_r_ket in zip (ci_fr_bra, ci_fr_ket)]
+        nelec_frs = np.append (nelec_frs_ket, nelec_frs_bra, axis=1)
+        nroots = nbra + nket
+        mask_bra_space = list (range (nket,nroots))
+        mask_ket_space = list (range (nket))
+        mask_ints = np.zeros ((nroots,nroots), dtype=bool)
+        mask_ints[np.ix_(mask_bra_space,mask_ket_space)] = True
     discriminator = np.zeros (nroots, dtype=int)
     si_bra_is1d = si_ket_is1d = False
     if si_bra is not None:
@@ -107,9 +114,9 @@ def contract_ham_ci (las, h1, h2, ci_fr_ket, nelec_frs_ket, ci_fr_bra, nelec_frs
     if si_bra is not None and si_ket is not None:
         assert (si_bra.shape[1] == si_ket.shape[1])
         si_ket_is1d = False
-        discriminator[nket:] = 1
+        discriminator[mask_bra_space] = 1
         if not sum_bra:
-            discriminator[nket:] += np.arange (nbra, dtype=int)
+            discriminator[mask_bra_space] += np.arange (nbra, dtype=int)
 
     # First pass: single-fragment intermediates
     hopping_index, ints, lroots = frag.make_ints (las, ci, nelec_frs, nlas=nlas,

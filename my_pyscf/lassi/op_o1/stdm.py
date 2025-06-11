@@ -236,6 +236,8 @@ class LSTDM (object):
         # Zero-electron interactions
         tril_index = np.zeros_like (conserv_index)
         tril_index[np.tril_indices (self.nroots)] = True
+        if self.all_interactions_full_square:
+            tril_index[:] = True
         idx = conserv_index & tril_index & (nop == 0)
         exc['null'] = np.vstack (list (np.where (idx))).T
  
