@@ -38,7 +38,6 @@ class ContractHamCI_CHC (stdm.LSTDM):
 
     # Handling for 1s1c: need to do both a'.sm.b and b'.sp.a explicitly
     all_interactions_full_square = True
-    dual_spaces = True
     interaction_has_spin = ('_1c_', '_1c1d_', '_1s1c_', '_2c_')
     ltri_ambiguous = False
 

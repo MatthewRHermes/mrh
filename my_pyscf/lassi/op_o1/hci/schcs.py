@@ -56,7 +56,6 @@ class ContractHamCI_SHS_hermi0 (rdm.LRRDM):
     all_interactions_full_square = True
     interaction_has_spin = ('_1c_', '_1c1d_', '_1s1c_', '_2c_')
     ltri_ambiguous = False
-    dual_spaces = True
 
     def get_single_rootspace_sivec (self, iroot, bra=False):
         '''A single-rootspace slice of the SI vectors.
@@ -464,7 +463,6 @@ class ContractHamCI_SHS_hermi0 (rdm.LRRDM):
         return hci_fr_plab
 
 class ContractHamCI_SHS_hermi1 (ContractHamCI_SHS_hermi0):
-    dual_spaces = False
     get_single_rootspace_sivec = rdm.LRRDM.get_single_rootspace_sivec
     _lowertri_fdm = False
     def get_vecs (self):
