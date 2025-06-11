@@ -28,7 +28,7 @@ class ContractHamCI_SHS (rdm.LRRDM):
             Contains LASSI eigenvectors on the ket
     '''
     def __init__(self, las, ints, nlas, hopping_index, lroots, h0, h1, h2, si_bra, si_ket,
-                 mask_bra_space=None, mask_ket_space=None, dual_spaces=False, log=None,
+                 mask_bra_space=None, mask_ket_space=None, log=None,
                  max_memory=2000, dtype=np.float64):
         rdm.LRRDM.__init__(self, ints, nlas, hopping_index, lroots, si_bra, si_ket,
                            mask_bra_space = mask_bra_space,
@@ -39,10 +39,8 @@ class ContractHamCI_SHS (rdm.LRRDM):
         self.h0 = h0
         self.h1 = np.ascontiguousarray (h1)
         self.h2 = np.ascontiguousarray (h2)
-        self.off_bra_r = self.off_bra = 0
-        if dual_spaces:
-            self.off_bra_r = len (mask_ket_space)
-            self.off_bra = self.offs_lroots[self.off_bra_r][0]
+        self.mask_bra_space = mask_bra_space
+        self.mask_ket_space = mask_ket_space
         self.nelec_frs = np.asarray ([[list (i.nelec_r[ket]) for i in ints]
                                       for ket in range (self.nroots)]).transpose (1,0,2)
         self._ispec = None
@@ -70,14 +68,15 @@ class ContractHamCI_SHS (rdm.LRRDM):
             sivec: col-major ndarray of shape (np.prod (lroots[:,iroot], nroots_si)
                 SI vectors
         '''
-        i, j = self.offs_lroots[iroot]
         if self._transpose: bra = not bra
         if bra:
-            i = i - self.off_bra
-            j = j - self.off_bra
             si = self.si_bra
+            mask = self.mask_bra_space
         else:
             si = self.si_ket
+            mask = self.mask_ket_space
+        iroot = np.where (mask==iroot)[0][0]
+        i, j = self.offs_lroots[iroot]
         return si[i:j,:]
 
     def _crunch_env_(self, _crunch_fn, *row):
@@ -459,7 +458,10 @@ class ContractHamCI_SHS (rdm.LRRDM):
 
     def get_vecs (self):
         t1, w1 = logger.process_clock (), logger.perf_counter ()
-        hci_fr_plab = [inti._ham_op ()[self.off_bra_r:] for inti in self.ints]
+        hci_fr_plab = []
+        for inti in self.ints:
+            hci_r_plab = inti._ham_op ()
+            hci_fr_plab.append ([hci_r_plab[i] for i in self.mask_bra_space])
         dt, dw = logger.process_clock () - t1, logger.perf_counter () - w1
         self.dt_p, self.dw_p = self.dt_p + dt, self.dw_p + dw
         return hci_fr_plab

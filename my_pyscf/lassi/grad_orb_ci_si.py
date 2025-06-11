@@ -132,7 +132,7 @@ def get_grad_ci (lsi, mo_coeff=None, ci=None, si=None, state=None, weights=None,
     else:
         n = 1
         assert (weights is None)
-    hci = op[opt].contract_ham_ci (lsi, h1, h2, ci, nelec_frs, None, None, sivec, sivec, h0=h0,
+    hci = op[opt].contract_ham_ci (lsi, h1, h2, ci, nelec_frs, sivec, sivec, h0=h0,
                                    sum_bra=sum_bra)
     for f in range (lsi.nfrags):
         for r in range (lsi.nroots):
