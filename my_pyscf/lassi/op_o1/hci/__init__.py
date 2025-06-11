@@ -12,7 +12,7 @@ from mrh.my_pyscf.lassi.op_o1.hci.schcs import ContractHamCI_SHS
 
 def ContractHamCI (las, ints, nlas, hopping_index, lroots, h0, h1, h2, si_bra=None, si_ket=None,
                    mask_bra_space=None, mask_ket_space=None, log=None,
-                   max_memory=2000, dtype=np.float64, dual_spaces=0):
+                   max_memory=2000, dtype=np.float64, dual_spaces=False):
     if si_bra is None and si_ket is None:
         return ContractHamCI_CHC (las, ints, nlas, hopping_index, lroots, h0, h1, h2,
                                   mask_bra_space=mask_bra_space,
@@ -87,6 +87,7 @@ def contract_ham_ci (las, h1, h2, ci_fr_ket, nelec_frs_ket, ci_fr_bra, nelec_frs
             ndeta_bra[i,j],ndetb_bra[i,j],ndim_ket).
     '''
     log = lib.logger.new_logger (las, las.verbose)
+    nlas = las.ncas_sub
     dual_spaces = True
     if ci_fr_bra is None and nelec_frs_bra is None:
         ci_fr_bra = ci_fr_ket
@@ -96,16 +97,15 @@ def contract_ham_ci (las, h1, h2, ci_fr_ket, nelec_frs_ket, ci_fr_bra, nelec_frs
             nelec_frs_ket = np.zeros ((nelec_frs_bra.shape[0], 0, 2),
                                       dtype=nelec_frs_bra.dtype)
             dual_spaces = False
-    nlas = las.ncas_sub
     nfrags, nbra = nelec_frs_bra.shape[:2]
     nket = nelec_frs_ket.shape[1]
     ci = [ci_r_ket + ci_r_bra for ci_r_bra, ci_r_ket in zip (ci_fr_bra, ci_fr_ket)]
     nelec_frs = np.append (nelec_frs_ket, nelec_frs_bra, axis=1)
     nroots = nbra + nket
-    mask_bra_space = list (range (nket,nroots))
-    mask_ket_space = list (range (nket))
+    mask_bra_space = mask_ket_space = list (range (nket,nroots))
     mask_ints = None
     if dual_spaces:
+        mask_ket_space = list (range (nket))
         mask_ints = np.zeros ((nroots,nroots), dtype=bool)
         mask_ints[np.ix_(mask_bra_space,mask_ket_space)] = True
     discriminator = np.zeros (nroots, dtype=int)

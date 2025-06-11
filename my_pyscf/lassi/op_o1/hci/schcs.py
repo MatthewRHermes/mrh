@@ -8,7 +8,7 @@ from mrh.my_pyscf.lassi.op_o1.utilities import *
 from mrh.my_pyscf.lassi.citools import get_lroots, hci_dot_sivecs, hci_dot_sivecs_ij
 from mrh.my_pyscf.lassi.op_o1.hci.chc import ContractHamCI_CHC
 
-class ContractHamCI_SHS_hermi0 (rdm.LRRDM):
+class ContractHamCI_SHS (rdm.LRRDM):
     __doc__ = stdm.LSTDM.__doc__ + '''
 
     SUBCLASS: Contract Hamiltonian on CI vectors and SI vector and integrate over all but one
@@ -28,7 +28,7 @@ class ContractHamCI_SHS_hermi0 (rdm.LRRDM):
             Contains LASSI eigenvectors on the ket
     '''
     def __init__(self, las, ints, nlas, hopping_index, lroots, h0, h1, h2, si_bra, si_ket,
-                 mask_bra_space=None, mask_ket_space=None, log=None,
+                 mask_bra_space=None, mask_ket_space=None, dual_spaces=False, log=None,
                  max_memory=2000, dtype=np.float64):
         rdm.LRRDM.__init__(self, ints, nlas, hopping_index, lroots, si_bra, si_ket,
                            mask_bra_space = mask_bra_space,
@@ -39,9 +39,10 @@ class ContractHamCI_SHS_hermi0 (rdm.LRRDM):
         self.h0 = h0
         self.h1 = np.ascontiguousarray (h1)
         self.h2 = np.ascontiguousarray (h2)
-        self.nbra = len (mask_bra_space)
-        self.nket = len (mask_ket_space)
-        self.off_bra = self.offs_lroots[self.nket-1][1]
+        self.off_bra_r = self.off_bra = 0
+        if dual_spaces:
+            self.off_bra_r = len (mask_ket_space)
+            self.off_bra = self.offs_lroots[self.off_bra_r][0]
         self.nelec_frs = np.asarray ([[list (i.nelec_r[ket]) for i in ints]
                                       for ket in range (self.nroots)]).transpose (1,0,2)
         self._ispec = None
@@ -56,6 +57,7 @@ class ContractHamCI_SHS_hermi0 (rdm.LRRDM):
     all_interactions_full_square = True
     interaction_has_spin = ('_1c_', '_1c1d_', '_1s1c_', '_2c_')
     ltri_ambiguous = False
+    _lowertri_fdm = False
 
     def get_single_rootspace_sivec (self, iroot, bra=False):
         '''A single-rootspace slice of the SI vectors.
@@ -457,28 +459,8 @@ class ContractHamCI_SHS_hermi0 (rdm.LRRDM):
 
     def get_vecs (self):
         t1, w1 = logger.process_clock (), logger.perf_counter ()
-        hci_fr_plab = [inti._ham_op ()[self.nket:] for inti in self.ints]
+        hci_fr_plab = [inti._ham_op ()[self.off_bra_r:] for inti in self.ints]
         dt, dw = logger.process_clock () - t1, logger.perf_counter () - w1
         self.dt_p, self.dw_p = self.dt_p + dt, self.dw_p + dw
         return hci_fr_plab
-
-class ContractHamCI_SHS_hermi1 (ContractHamCI_SHS_hermi0):
-    get_single_rootspace_sivec = rdm.LRRDM.get_single_rootspace_sivec
-    _lowertri_fdm = False
-    def get_vecs (self):
-        t1, w1 = logger.process_clock (), logger.perf_counter ()
-        hci_fr_plab = [inti._ham_op () for inti in self.ints]
-        dt, dw = logger.process_clock () - t1, logger.perf_counter () - w1
-        self.dt_p, self.dw_p = self.dt_p + dt, self.dw_p + dw
-        return hci_fr_plab
-
-def ContractHamCI_SHS (*args, **kwargs):
-    dual_spaces = kwargs.pop ('dual_spaces', True)
-    if dual_spaces:
-        return ContractHamCI_SHS_hermi0 (*args, **kwargs)
-    else:
-        mask_bra_space = kwargs.get ('mask_bra_space', None)
-        kwargs['mask_ket_space'] = mask_bra_space
-        return ContractHamCI_SHS_hermi1 (*args, **kwargs)
-
 
