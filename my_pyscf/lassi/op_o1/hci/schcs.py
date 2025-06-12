@@ -28,11 +28,12 @@ class ContractHamCI_SHS (rdm.LRRDM):
             Contains LASSI eigenvectors on the ket
     '''
     def __init__(self, las, ints, nlas, hopping_index, lroots, h0, h1, h2, si_bra, si_ket,
-                 mask_bra_space=None, mask_ket_space=None, log=None,
-                 max_memory=2000, dtype=np.float64):
+                 mask_bra_space=None, mask_ket_space=None, pt_order=None, do_pt_order=None,
+                 log=None, max_memory=2000, dtype=np.float64):
         rdm.LRRDM.__init__(self, ints, nlas, hopping_index, lroots, si_bra, si_ket,
                            mask_bra_space = mask_bra_space,
                            mask_ket_space = mask_ket_space,
+                           pt_order=pt_order, do_pt_order=do_pt_order,
                            log=log, max_memory=max_memory, dtype=dtype)
         self.las = las
         if h1.ndim==2: h1 = np.stack ([h1,h1], axis=0)

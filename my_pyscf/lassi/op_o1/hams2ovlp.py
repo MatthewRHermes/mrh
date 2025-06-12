@@ -28,10 +28,12 @@ class HamS2Ovlp (stdm.LSTDM):
             Contains 2-electron Hamiltonian amplitudes in second quantization
     '''
     def __init__(self, ints, nlas, hopping_index, lroots, h1, h2, mask_bra_space=None,
-                 mask_ket_space=None, log=None, max_memory=2000, dtype=np.float64):
+                 mask_ket_space=None, pt_order=None, do_pt_order=None, log=None, max_memory=2000,
+                 dtype=np.float64):
         stdm.LSTDM.__init__(self, ints, nlas, hopping_index, lroots,
-                                mask_bra_space=mask_bra_space, mask_ket_space=mask_ket_space,
-                                log=log, max_memory=max_memory, dtype=dtype)
+                            mask_bra_space=mask_bra_space, mask_ket_space=mask_ket_space,
+                            pt_order=pt_order, do_pt_order=do_pt_order,
+                            log=log, max_memory=max_memory, dtype=dtype)
         if h1.ndim==2: h1 = np.stack ([h1,h1], axis=0)
         self.h1 = np.ascontiguousarray (h1)
         self.h2 = np.ascontiguousarray (h2)

@@ -104,7 +104,8 @@ class FragTDMInt (object):
 
     def __init__(self, las, ci, hopping_index, zerop_index, onep_index, norb, nroots, nelec_rs,
                  rootaddr, fragaddr, idx_frag, mask_ints, dtype=np.float64, discriminator=None,
-                 screen_linequiv=DO_SCREEN_LINEQUIV, verbose=None):
+                 pt_order=None, do_pt_order=None, screen_linequiv=DO_SCREEN_LINEQUIV,
+                 verbose=None):
         # TODO: if it actually helps, cache the "linkstr" arrays
         if verbose is None: verbose = las.verbose
         self.verbose = verbose
@@ -132,6 +133,10 @@ class FragTDMInt (object):
         self.idx_frag = idx_frag
         self.mask_ints = mask_ints
         self.discriminator = discriminator
+
+        if pt_order is None: pt_order = np.zeros (nroots, dtype=int)
+        self.pt_order = pt_order
+        self.do_pt_order = do_pt_order
 
         # Consistent array shape
         self.ndeta_r = np.array ([cistring.num_strings (norb, nelec[0]) for nelec in self.nelec_r])
@@ -337,7 +342,7 @@ class FragTDMInt (object):
         self.dm2[i][j] = x
 
     def get_lroots (self, i):
-        return self.get_ovlp (i,i).shape[1]
+        return self.ci[i].shape[0]
 
     def _init_crunch_(self, screen_linequiv):
         ''' Compute the transition density matrix factors.
@@ -354,6 +359,13 @@ class FragTDMInt (object):
         self.mask_ints = np.logical_or (
             self.mask_ints, self.mask_ints.T
         )
+        if self.do_pt_order is not None:
+            pt_mask = np.add.outer (self.pt_order, self.pt_order)
+            pt_mask = np.isin (pt_mask, self.do_pt_order)
+            self.mask_ints = np.logical_and (
+                self.mask_ints, pt_mask
+            )
+                
         #self.mask_ints[:,:] = True
 
         nroots, norb = self.nroots, self.norb
@@ -670,6 +682,8 @@ class FragTDMInt (object):
     def _put_ham_(self, bra, ket, h0, h1, h2, spin=None, hermi=0):
         i = self.unique_root[bra]
         j = self.unique_root[ket]
+        # TODO: if you ever resurrect HamTerm.opH, you'll have to reconsider this branch
+        if self.pt_order[i]>0: return # no populating the perturbative-space CI vectors
         hterm0 = self._ham.get ((i, j, hermi), 0)
         hterm1 = HamTerm (self, ket, i, j, h0, h1, h2, hermi=hermi, spin=spin)
         self._ham[(i,j,hermi)] = hterm1 + hterm0 
@@ -830,7 +844,7 @@ class HamTerm:
 
 def make_ints (las, ci, nelec_frs, screen_linequiv=DO_SCREEN_LINEQUIV, nlas=None,
                _FragTDMInt_class=FragTDMInt, mask_ints=None, discriminator=None,
-               verbose=None):
+               pt_order=None, do_pt_order=None, verbose=None):
     ''' Build fragment-local intermediates (`FragTDMInt`) for LASSI o1
 
     Args:
@@ -872,7 +886,9 @@ def make_ints (las, ci, nelec_frs, screen_linequiv=DO_SCREEN_LINEQUIV, nlas=None
                                     nlas[ifrag], nroots, nelec_frs[ifrag], rootaddr,
                                     fragaddr[ifrag], ifrag, mask_ints,
                                     discriminator=discriminator,
-                                    screen_linequiv=screen_linequiv, verbose=verbose)
+                                    screen_linequiv=screen_linequiv,
+                                    pt_order=pt_order, do_pt_order=do_pt_order,
+                                    verbose=verbose)
         lib.logger.timer (las, 'LAS-state TDM12s fragment {} intermediate crunching'.format (
             ifrag), *tdmint.time_crunch)
         lib.logger.debug (las, 'UNIQUE ROOTSPACES OF FRAG %d: %d/%d', ifrag,

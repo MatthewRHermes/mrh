@@ -65,6 +65,10 @@ class LSTDM (object):
             mask_ket_space : sequence of int or mask array of shape (nroots,)
                 If included, only matrix elements involving the corresponding ket rootspaces are
                 computed.
+            pt_order : ndarray of shape (nroots,)
+                Order in perturbation theory of each rootspace. Defaults to all 0.
+            do_pt_order : ndarray
+                Orders of perturbation theory to compute. Defaults to all.
             dtype : instance of np.dtype
                 Currently not used; TODO: generalize to ms-broken fragment-local states?
         '''
@@ -75,13 +79,14 @@ class LSTDM (object):
     # TODO: at some point, if it ever becomes rate-limiting, make this multithread better
 
     def __init__(self, ints, nlas, hopping_index, lroots, mask_bra_space=None, mask_ket_space=None,
-                 log=None, max_memory=2000, dtype=np.float64):
+                 pt_order=None, do_pt_order=None, log=None, max_memory=2000, dtype=np.float64):
         self.ints = ints
         self.log = log
         self.max_memory = max_memory
         self.nlas = nlas
         self.norb = sum (nlas)
         self.lroots = lroots
+
         self.rootaddr, self.envaddr = get_rootaddr_fragaddr (lroots)
         self.envaddr = np.ascontiguousarray (self.envaddr.T)
         nprods = np.prod (lroots, axis=0)
@@ -89,6 +94,9 @@ class LSTDM (object):
         offs0 = offs1 - nprods
         self.offs_lroots = np.stack ([offs0, offs1], axis=1)
         self.nfrags, _, self.nroots, _ = hopping_index.shape
+        self.pt_order = pt_order
+        self.do_pt_order = do_pt_order
+
         self.strides = np.append (np.ones (self.nroots, dtype=int)[None,:],
                                   np.cumprod (lroots[:-1,:], axis=0),
                                   axis=0).T
@@ -345,6 +353,14 @@ class LSTDM (object):
         idx  = mask_exc_table (exc, col=0, mask_space=mask_bra_space)
         idx &= mask_exc_table (exc, col=1, mask_space=mask_ket_space)
         exc = exc[idx]
+        # Part 2: 
+        if self.do_pt_order is not None:
+            nexc = len (exc)
+            order = self.pt_order[exc[:,:2]].sum (1)
+            idx = np.isin (order, self.do_pt_order)
+            exc = exc[idx]
+            self.log.debug ('%d/%d interactions of PT order in %s',
+                            len (exc), nexc, str(self.do_pt_order))
         # Part 2: identify interactions which are equivalent except for the overlap
         # factor of spectator fragments. Reduce the exc table only to the unique
         # interactions and populate self.nonuniq_exc with the corresponding

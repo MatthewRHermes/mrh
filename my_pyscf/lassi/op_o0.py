@@ -491,7 +491,7 @@ def get_orth_basis (ci_fr, norb_f, nelec_frs, _get_ovlp=get_ovlp):
 
     return raw2orth, orth2raw
 
-def ham (las, h1, h2, ci_fr, nelec_frs, soc=0, orbsym=None, wfnsym=None):
+def ham (las, h1, h2, ci_fr, nelec_frs, soc=0, orbsym=None, wfnsym=None, **kwargs):
     '''Build LAS state interaction Hamiltonian, S2, and ovlp matrices
 
     Args:
@@ -595,7 +595,8 @@ def ham (las, h1, h2, ci_fr, nelec_frs, soc=0, orbsym=None, wfnsym=None):
     return ham_eff, s2_eff, ovlp_eff, _get_ovlp #raw2orth
 
 def contract_ham_ci (las, h1, h2, ci_fr, nelec_frs, si_bra=None, si_ket=None, ci_fr_bra=None,
-                     nelec_frs_bra=None, h0=0, soc=0, sum_bra=False, orbsym=None, wfnsym=None):
+                     nelec_frs_bra=None, h0=0, soc=0, sum_bra=False, orbsym=None, wfnsym=None,
+                     **kwargs):
     '''Evaluate the action of the state interaction Hamiltonian on a set of ket CI vectors,
     projected onto a basis of bra CI vectors, leaving one fragment of the bra uncontracted.
 
@@ -809,7 +810,8 @@ def make_stdm12s (las, ci_fr, nelec_frs, orbsym=None, wfnsym=None):
 
     return stdm1s, stdm2s 
 
-def root_trans_rdm12s (las, ci_fr, nelec_frs, si_bra, si_ket, ix, orbsym=None, wfnsym=None):
+def root_trans_rdm12s (las, ci_fr, nelec_frs, si_bra, si_ket, ix, orbsym=None, wfnsym=None,
+                       **kwargs):
     '''Build LAS state interaction reduced transition density matrices for 1 final pair of
     LASSI eigenstates.
 
@@ -925,7 +927,7 @@ def root_trans_rdm12s (las, ci_fr, nelec_frs, si_bra, si_ket, ix, orbsym=None, w
 
     return rdm1s, rdm2s
 
-def root_make_rdm12s (las, ci_fr, nelec_frs, si, ix, orbsym=None, wfnsym=None):
+def root_make_rdm12s (las, ci_fr, nelec_frs, si, ix, orbsym=None, wfnsym=None, **kwargs):
     '''Build LAS state interaction reduced density matrices for 1 final
     LASSI eigenstate.
 
@@ -957,9 +959,10 @@ def root_make_rdm12s (las, ci_fr, nelec_frs, si, ix, orbsym=None, wfnsym=None):
         rdm2s : ndarray of length (2, ncas, ncas, 2, ncas, ncas)
             Two-body transition density matrices between LAS states
     '''
-    return root_trans_rdm12s (las, ci_fr, nelec_frs, si, si, ix, orbsym=None, wfnsym=None)
+    return root_trans_rdm12s (las, ci_fr, nelec_frs, si, si, ix, orbsym=None, wfnsym=None,
+                              **kwargs)
 
-def roots_make_rdm12s (las, ci_fr, nelec_frs, si, orbsym=None, wfnsym=None):
+def roots_make_rdm12s (las, ci_fr, nelec_frs, si, orbsym=None, wfnsym=None, **kwargs):
     '''Build LAS state interaction reduced density matrices for final
     LASSI eigenstates.
 
@@ -992,12 +995,13 @@ def roots_make_rdm12s (las, ci_fr, nelec_frs, si, orbsym=None, wfnsym=None):
     rdm1s = []
     rdm2s = []
     for ix in range (si.shape[1]):
-        d1, d2 = root_make_rdm12s (las, ci_fr, nelec_frs, si, ix, orbsym=orbsym, wfnsym=wfnsym)
+        d1, d2 = root_make_rdm12s (las, ci_fr, nelec_frs, si, ix, orbsym=orbsym, wfnsym=wfnsym,
+                                   **kwargs)
         rdm1s.append (d1)
         rdm2s.append (d2)
     return np.stack (rdm1s, axis=0), np.stack (rdm2s, axis=0)
 
-def roots_trans_rdm12s (las, ci_fr, nelec_frs, si_bra, si_ket, orbsym=None, wfnsym=None):
+def roots_trans_rdm12s (las, ci_fr, nelec_frs, si_bra, si_ket, orbsym=None, wfnsym=None, **kwargs):
     '''Build LAS state interaction reduced transition density matrices for final
     LASSI eigenstates.
 
@@ -1034,7 +1038,8 @@ def roots_trans_rdm12s (las, ci_fr, nelec_frs, si_bra, si_ket, orbsym=None, wfns
     rdm2s = []
     assert (si_bra.shape == si_ket.shape)
     for ix in range (si_bra.shape[1]):
-        d1, d2 = root_trans_rdm12s (las, ci_fr, nelec_frs, si_bra, si_ket, ix, orbsym=orbsym, wfnsym=wfnsym)
+        d1, d2 = root_trans_rdm12s (las, ci_fr, nelec_frs, si_bra, si_ket, ix, orbsym=orbsym,
+                                    wfnsym=wfnsym, **kwargs)
         rdm1s.append (d1)
         rdm2s.append (d2)
     return np.stack (rdm1s, axis=0), np.stack (rdm2s, axis=0)

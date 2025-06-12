@@ -294,9 +294,9 @@ def get_unique_roots (ci, nelec_r, screen_linequiv=True, screen_thresh=SCREEN_TH
     return root_unique, unique_root, umat_root
 
 def _fake_gen_contract_op_si_hdiag (matrix_builder, las, h1, h2, ci_fr, nelec_frs, soc=0,
-                                    orbsym=None, wfnsym=None):
+                                    orbsym=None, wfnsym=None, **kwargs):
     ham, s2, ovlp, _get_ovlp = matrix_builder (las, h1, h2, ci_fr, nelec_frs, soc=soc,
-                                               orbsym=orbsym, wfnsym=wfnsym)
+                                               orbsym=orbsym, wfnsym=wfnsym, **kwargs)
     def contract_ham_si (x):
         return ham @ x
     def contract_s2 (x):

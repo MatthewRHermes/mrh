@@ -42,10 +42,13 @@ class LRRDM (stdm.LSTDM):
     # spinorbital basis
 
     def __init__(self, ints, nlas, hopping_index, lroots, si_bra, si_ket, mask_bra_space=None,
-                 mask_ket_space=None, log=None, max_memory=2000, dtype=np.float64):
+                 mask_ket_space=None, pt_order=None, do_pt_order=None, log=None, max_memory=2000,
+                 dtype=np.float64):
         stdm.LSTDM.__init__(self, ints, nlas, hopping_index, lroots,
                                 mask_bra_space=mask_bra_space,
                                 mask_ket_space=mask_ket_space,
+                                pt_order=pt_order,
+                                do_pt_order=do_pt_order,
                                 log=log, max_memory=max_memory,
                                 dtype=dtype)
         self.nroots_si = si_bra.shape[-1]
@@ -635,6 +638,8 @@ def roots_trans_rdm12s (las, ci, nelec_frs, si_bra, si_ket, **kwargs):
     log = lib.logger.new_logger (las, las.verbose)
     nlas = las.ncas_sub
     ncas = las.ncas
+    pt_order = kwargs.get ('pt_order', None)
+    do_pt_order = kwargs.get ('do_pt_order', None)
     assert (si_bra.dtype == si_ket.dtype)
     assert (si_bra.shape == si_ket.shape)
     nroots_si = si_ket.shape[-1]
@@ -659,7 +664,9 @@ def roots_trans_rdm12s (las, ci, nelec_frs, si_bra, si_ket, **kwargs):
 
     # First pass: single-fragment intermediates
     hopping_index, ints, lroots = frag.make_ints (las, ci, nelec_frs, nlas=nlas,
-                                                  _FragTDMInt_class=FragTDMInt)
+                                                  _FragTDMInt_class=FragTDMInt,
+                                                  pt_order=pt_order,
+                                                  do_pt_order=do_pt_order)
     nstates = np.sum (np.prod (lroots, axis=0))
     
     # Memory check
@@ -671,8 +678,10 @@ def roots_trans_rdm12s (las, ci, nelec_frs, si_bra, si_ket, **kwargs):
 
     # Second pass: upper-triangle
     t0 = (lib.logger.process_clock (), lib.logger.perf_counter ())
-    outerprod = LRRDM (ints, nlas, hopping_index, lroots, si_bra, si_ket, dtype=dtype,
-                          max_memory=max_memory, log=log)
+    outerprod = LRRDM (ints, nlas, hopping_index, lroots, si_bra, si_ket,
+                       pt_order=pt_order, do_pt_order=do_pt_order,
+                       dtype=dtype, max_memory=max_memory, log=log)
+
     if not spin_pure:
         outerprod.spin_shuffle = spin_shuffle_fac
     lib.logger.timer (las, 'LASSI root RDM12s second intermediate indexing setup', *t0)

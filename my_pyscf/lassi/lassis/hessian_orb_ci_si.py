@@ -19,6 +19,8 @@ class HessianOperator (sparse_linalg.LinearOperator):
         self.nfrags = ugg.nfrags
         self.ci = ugg.ci
         self.nroots = len (ugg.ci[0])
+        self.pt_order = np.zeros (self.nroots*(self.nfrags+1), dtype=int)
+        self.pt_order[self.nroots:] = 1
         self.lsi = lsi = ugg.lsi
         self.log = lib.logger.new_logger (lsi, lsi.verbose)
         self.opt = lsi.opt
@@ -48,6 +50,8 @@ class HessianOperator (sparse_linalg.LinearOperator):
         self.spaces = list_spaces (lsi)
         self.e_roots_si = np.zeros (self.nroots_si)
         self.e_roots_si = np.dot (self.si.conj ().T, self.hsi_op (self.ham_2q, self.ci, self.si))
+
+    do_pt_order = (0,1)
 
     def get_fock1 (self, h1, h2_paaa, casdm1, casdm2, _coreocc=2):
         ncore, ncas = self.lsi.ncore, self.lsi.ncas
@@ -124,10 +128,12 @@ class HessianOperator (sparse_linalg.LinearOperator):
         ncore, ncas = self.lsi.ncore, self.lsi.ncas
         nocc = ncore+ncas
         h0, h1, h2 = ham_2q
-        return op[self.opt].contract_ham_ci (
+        hci_fr = op[self.opt].contract_ham_ci (
             self.lsi, h1, h2, ci, nelec_frs,
-            si_bra=si_bra, si_ket=si_ket, h0=h0, sum_bra=True
+            si_bra=si_bra, si_ket=si_ket, h0=h0, sum_bra=True,
+            pt_order=self.pt_order, do_pt_order=self.do_pt_order,
         )
+        return hci_fr
 
     def hsi_op (self, ham_2q, ci, si):
         nelec_frs = self.get_nelec_frs (nr=len(ci[0]))
@@ -135,7 +141,8 @@ class HessianOperator (sparse_linalg.LinearOperator):
         nocc = ncore+ncas
         h0, h1, h2 = ham_2q
         ham_op, _, ovlp_op = op[self.opt].gen_contract_op_si_hdiag (
-            self.lsi, h1, h2, ci, nelec_frs
+            self.lsi, h1, h2, ci, nelec_frs,
+            pt_order=self.pt_order[:len(ci[0])], do_pt_order=self.do_pt_order,
         )[:3]
         return ham_op (si) - (self.e_roots_si - h0) * si
 
@@ -193,7 +200,10 @@ class HessianOperator (sparse_linalg.LinearOperator):
 
     def hoa (self, ci1, si0, si1):
         casdm1, casdm2 = self.lsi.trans_casdm12 (ci=ci1, si_bra=si0, si_ket=si1,
-                                                 spaces=self.spaces*(self.nfrags+1), opt=self.opt)
+                                                 spaces=self.spaces*(self.nfrags+1),
+                                                 pt_order=self.pt_order,
+                                                 do_pt_order=self.do_pt_order,
+                                                 opt=self.opt)
         casdm1 += casdm1.T
         casdm2 += casdm2.transpose (1,0,3,2)
         fx = self.get_fock1 (self.h1, self.h2_paaa, casdm1, casdm2, _coreocc=0)
