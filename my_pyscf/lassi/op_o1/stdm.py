@@ -236,7 +236,7 @@ class LSTDM (object):
         # Zero-electron interactions
         tril_index = np.zeros_like (conserv_index)
         tril_index[np.tril_indices (self.nroots)] = True
-        if self.all_interactions_full_square:
+        if not self.ltri:
             tril_index[:] = True
         idx = conserv_index & tril_index & (nop == 0)
         exc['null'] = np.vstack (list (np.where (idx))).T
@@ -323,7 +323,7 @@ class LSTDM (object):
             ispin[idx]]
         ).T
 
-        if self.all_interactions_full_square and nfrags > 2:
+        if nfrags > 2 and not self.ltri:
             exc['1s1c'] = np.append (
                 np.pad (exc['1s1c'], ((0,0),(0,1)), constant_values=0),
                 np.pad (exc_1s1cT,   ((0,0),(0,1)), constant_values=1),
@@ -337,9 +337,8 @@ class LSTDM (object):
 
         return exc
 
-    all_interactions_full_square = False
+    ltri = True
     interaction_has_spin = ('_1c_', '_1c1d_', '_2c_')
-    ltri_ambiguous = True
 
     def mask_exc_table_(self, exc, lbl, mask_bra_space=None, mask_ket_space=None):
         # Part 1: restrict to the caller-specified rectangle
@@ -358,7 +357,7 @@ class LSTDM (object):
         for row in excp:
             bra, ket = row[:2]
             frags = row[2:]
-            fpLT = self.interaction_fprint (bra, ket, frags, ltri=self.ltri_ambiguous)
+            fpLT = self.interaction_fprint (bra, ket, frags, ltri=self.ltri)
             fprintLT.append (fpLT.ravel ())
             fp = self.interaction_fprint (bra, ket, frags, ltri=False)
             fprint.append (fp.ravel ())

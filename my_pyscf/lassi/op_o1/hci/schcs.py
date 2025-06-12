@@ -52,10 +52,8 @@ class ContractHamCI_SHS (rdm.LRRDM):
     def _add_transpose_(self): return
 
     # Handling for 1s1c: need to do both a'.sm.b and b'.sp.a explicitly
-    all_interactions_full_square = True
+    ltri = False
     interaction_has_spin = ('_1c_', '_1c1d_', '_1s1c_', '_2c_')
-    ltri_ambiguous = False
-    _lowertri_fdm = False
 
     def get_single_rootspace_sivec (self, iroot, bra=False):
         '''A single-rootspace slice of the SI vectors.

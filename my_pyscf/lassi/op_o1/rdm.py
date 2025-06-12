@@ -140,8 +140,6 @@ class LRRDM (stdm.LSTDM):
         si = self.si_bra if bra else self.si_ket
         return si[i:j,:]
 
-    _lowertri_fdm = True
-
     def get_frag_transposed_sivec (self, iroot, *inv, bra=False):
         '''A single-rootspace slice of the SI vectors, transposed so that involved fragments
         are slower-moving
@@ -241,7 +239,7 @@ class LRRDM (stdm.LSTDM):
             o = np.multiply.outer (i.get_ovlp (rbra, rket), o).transpose (0,2,1,3)
             o = o.reshape (o.shape[0]*o.shape[1], o.shape[2]*o.shape[3])
         idx = np.abs(o) > 1e-8
-        if self._lowertri_fdm and (rbra==rket): # not bra==ket b/c _loop_lroots_ isn't tril
+        if self.ltri and (rbra==rket): # not bra==ket b/c _loop_lroots_ isn't tril
             o[np.diag_indices_from (o)] *= 0.5
             idx[np.triu_indices_from (idx, k=1)] = False
         o = o[idx]
@@ -604,7 +602,7 @@ def get_fdm1_maker (las, ci, nelec_frs, si, **kwargs):
                           max_memory=max_memory, log=log)
 
     # Spoof nonuniq_exc to avoid summing together things that need to be separate
-    outerprod._lowertri_fdm = False
+    outerprod.ltri = False
     def make_fdm1 (iroot, ifrag):
         fdm = outerprod.get_fdm_1space (iroot, iroot, ifrag)
         if iroot in ints[ifrag].umat_root:

@@ -38,9 +38,8 @@ class ContractHamCI_CHC (stdm.LSTDM):
     get_ham_2q = hams2ovlp.HamS2Ovlp.get_ham_2q
 
     # Handling for 1s1c: need to do both a'.sm.b and b'.sp.a explicitly
-    all_interactions_full_square = True
+    ltri = False
     interaction_has_spin = ('_1c_', '_1c1d_', '_1s1c_', '_2c_')
-    ltri_ambiguous = False
 
     def _init_vecs (self):
         hci_fr_pabq = []
