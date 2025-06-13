@@ -353,7 +353,7 @@ class LSTDM (object):
         idx  = mask_exc_table (exc, col=0, mask_space=mask_bra_space)
         idx &= mask_exc_table (exc, col=1, mask_space=mask_ket_space)
         exc = exc[idx]
-        # Part 2: 
+        # Part 2: perturbation theory order
         if self.do_pt_order is not None:
             nexc = len (exc)
             order = self.pt_order[exc[:,:2]].sum (1)
@@ -361,7 +361,7 @@ class LSTDM (object):
             exc = exc[idx]
             self.log.debug ('%d/%d interactions of PT order in %s',
                             len (exc), nexc, str(self.do_pt_order))
-        # Part 2: identify interactions which are equivalent except for the overlap
+        # Part 3: identify interactions which are equivalent except for the overlap
         # factor of spectator fragments. Reduce the exc table only to the unique
         # interactions and populate self.nonuniq_exc with the corresponding
         # nonunique images.

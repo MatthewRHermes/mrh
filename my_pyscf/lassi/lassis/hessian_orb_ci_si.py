@@ -51,8 +51,6 @@ class HessianOperator (sparse_linalg.LinearOperator):
         self.e_roots_si = np.zeros (self.nroots_si)
         self.e_roots_si = np.dot (self.si.conj ().T, self.hsi_op (self.ham_2q, self.ci, self.si))
 
-    do_pt_order = (0,1)
-
     def get_fock1 (self, h1, h2_paaa, casdm1, casdm2, _coreocc=2):
         ncore, ncas = self.lsi.ncore, self.lsi.ncas
         nocc = ncore + ncas
@@ -123,7 +121,7 @@ class HessianOperator (sparse_linalg.LinearOperator):
             nelec_frs = np.concatenate ([nelec_frs,]*(nr//nr0), axis=1)
         return nelec_frs 
 
-    def hci_op (self, ham_2q, ci, si_bra, si_ket):
+    def hci_op (self, ham_2q, ci, si_bra, si_ket, pto=(0,1)):
         nelec_frs = self.get_nelec_frs (nr=len(ci[0]))
         ncore, ncas = self.lsi.ncore, self.lsi.ncas
         nocc = ncore+ncas
@@ -131,18 +129,18 @@ class HessianOperator (sparse_linalg.LinearOperator):
         hci_fr = op[self.opt].contract_ham_ci (
             self.lsi, h1, h2, ci, nelec_frs,
             si_bra=si_bra, si_ket=si_ket, h0=h0, sum_bra=True,
-            pt_order=self.pt_order, do_pt_order=self.do_pt_order,
+            pt_order=self.pt_order, do_pt_order=pto,
         )
         return hci_fr
 
-    def hsi_op (self, ham_2q, ci, si):
+    def hsi_op (self, ham_2q, ci, si, pto=(0,1)):
         nelec_frs = self.get_nelec_frs (nr=len(ci[0]))
         ncore, ncas = self.lsi.ncore, self.lsi.ncas
         nocc = ncore+ncas
         h0, h1, h2 = ham_2q
         ham_op, _, ovlp_op = op[self.opt].gen_contract_op_si_hdiag (
             self.lsi, h1, h2, ci, nelec_frs,
-            pt_order=self.pt_order[:len(ci[0])], do_pt_order=self.do_pt_order,
+            pt_order=self.pt_order[:len(ci[0])], do_pt_order=pto,
         )[:3]
         return ham_op (si) - (self.e_roots_si - h0) * si
 
@@ -169,7 +167,7 @@ class HessianOperator (sparse_linalg.LinearOperator):
         xham_2q[1] = xham_2q[1][ncore:nocc,ncore:nocc]
         xham_2q[2] = xham_2q[2][ncore:nocc]
 
-        rci_01 = self.hci_op (xham_2q, ci1, si0, si0)
+        rci_01 = self.hci_op (xham_2q, ci1, si0, si0, pto=0)
         si_01 = np.append (si0, si1, axis=1)
         si_10 = si_01[:,::-1]
         rci_01_10 = self.hci_op (ham_2q, ci1, si_01, si_10)
@@ -182,7 +180,7 @@ class HessianOperator (sparse_linalg.LinearOperator):
             rci_10.append (rci_10_i)
         t3 = log.timer ('LASSIS Hessian-vector CI rows', *t2)
 
-        rsi_01 = self.hsi_op (xham_2q, ci1, si0)
+        rsi_01 = self.hsi_op (xham_2q, ci1, si0, pto=0)
         rsi_01_10 = self.hsi_op (ham_2q, ci1, si_10)
         rsi_01 += rsi_01_10[:,0:1]
         rsi_10 = rsi_01_10[:,1:]
@@ -202,7 +200,7 @@ class HessianOperator (sparse_linalg.LinearOperator):
         casdm1, casdm2 = self.lsi.trans_casdm12 (ci=ci1, si_bra=si0, si_ket=si1,
                                                  spaces=self.spaces*(self.nfrags+1),
                                                  pt_order=self.pt_order,
-                                                 do_pt_order=self.do_pt_order,
+                                                 do_pt_order=(0,1),
                                                  opt=self.opt)
         casdm1 += casdm1.T
         casdm2 += casdm2.transpose (1,0,3,2)
