@@ -701,7 +701,7 @@ void Device::get_jk(int naux, int nao, int nset,
     if(dd->d_rho) pm->dev_free_async(dd->d_rho);
     dd->d_rho = (double *) pm->dev_malloc_async(_size_rho * sizeof(double));
   }
-
+  
 #if 0
   py::buffer_info info_vj = _vj.request(); // 2D array (nset, nao_pair)
   py::buffer_info info_vk = _vk.request(); // 3D array (nset, nao, nao)
@@ -725,7 +725,7 @@ void Device::get_jk(int naux, int nao, int nset,
   
   if(use_eri_cache)
     d_eri = dd_fetch_eri(dd, eri1, naux, nao_pair, addr_dfobj, count);
-  
+   
   pm->dev_profile_stop();
   
 #ifdef _DEBUG_DEVICE
@@ -1215,16 +1215,21 @@ double * Device::dd_fetch_eri(my_device_data * dd, double * eri1, int naux, int 
     eri_extra.push_back(naux);
     eri_extra.push_back(nao_pair);
     
-    int id = d_eri_cache.size();
+    int id_ = d_eri_cache.size();
     
     d_eri_cache.push_back( (double *) pm->dev_malloc_async(naux * nao_pair * sizeof(double)));
-    d_eri = d_eri_cache[ id ];
+    d_eri = d_eri_cache[ id_ ];
     
     int err = pm->dev_push_async(d_eri, eri1, naux * nao_pair * sizeof(double));
     if(err) {
       printf("LIBGPU:: dev_push_async(d_eri) initializing new eri block\n");
       exit(1);
     }
+
+#if defined(_GPU_SYCL)
+    //pm->dev_barrier(); // FIXME :: needed for villotc single-point energy workload on Aurora
+		       // related to https://github.com/argonne-lcf/AuroraBugTracking/issues/22 ?
+#endif
 
 #ifdef _DEBUG_DEVICE
     printf("LIBGPU:: dd_fetch_eri :: addr= %p  count= %i  naux= %i  nao_pair= %i\n",addr_dfobj+count, count, naux, nao_pair);
@@ -1324,13 +1329,13 @@ double * Device::dd_fetch_eri_debug(my_device_data * dd, double * eri1, int naux
     eri_extra.push_back(naux);
     eri_extra.push_back(nao_pair);
     
-    int id = d_eri_cache.size();
+    int id_ = d_eri_cache.size();
 #ifdef _DEBUG_DEVICE
     printf("LIBGPU :: -- allocating new eri block: %i\n",id);
 #endif
     
     d_eri_cache.push_back( (double *) pm->dev_malloc_async(naux * nao_pair * sizeof(double)));
-    d_eri = d_eri_cache[ id ];
+    d_eri = d_eri_cache[ id_ ];
     
 #ifdef _DEBUG_DEVICE
     printf("LIBGPU :: -- initializing eri block\n");
@@ -1343,7 +1348,7 @@ double * Device::dd_fetch_eri_debug(my_device_data * dd, double * eri1, int naux
     
 #ifdef _DEBUG_ERI_CACHE
     d_eri_host.push_back( (double *) pm->dev_malloc_host(naux*nao_pair * sizeof(double)) );
-    double * d_eri_host_ = d_eri_host[id];
+    double * d_eri_host_ = d_eri_host[id_];
     for(int i=0; i<naux*nao_pair; ++i) d_eri_host_[i] = eri1[i];
 #endif
     
