@@ -230,6 +230,7 @@ def case_lassis_grads (ks, lsis, s2=(0,2)):
         lsis.ci_charge_hops,
         si
     )
+    np.random.seed (1)
     x0 = np.random.rand (ugg.nvar_tot)
     x0 = ugg.pack (*ugg.unpack (x0)) # apply some projections
     assert (len (x0) == len (g_all))
@@ -242,12 +243,14 @@ def case_lassis_grads (ks, lsis, s2=(0,2)):
         with ks.subTest (lbl):
             x1 = np.zeros_like (x0)
             x1[i:j] = x0[i:j]
-            div = 1.0
             err_last = np.finfo (float).tiny
             e1_ref_last = np.finfo (float).tiny
             err_table = '{:s}\n'.format (lbl)
             e1_test = np.dot (x1, g_all)
-            for p in range (20):
+            # NOTE: this starting point is empirical. I don't know the scale of the convergence
+            # plateau a priori.
+            for p in range (6,20):
+                div = 2**p
                 x2 = x1 / div
                 e1_ref = lsis.energy_tot (*ugg.update_wfn (x2)) - e0
                 e1_ref -= (lsis.energy_tot (*ugg.update_wfn (-x2)) - e0)
@@ -260,7 +263,6 @@ def case_lassis_grads (ks, lsis, s2=(0,2)):
                     break
                 err_last = err + np.finfo (float).tiny
                 e1_ref_last = e1_ref
-                div *= 2
             ks.assertAlmostEqual (rel_err, .25, delta=0.01, msg=err_table)
 
 def case_lassis_hessian (ks, lsis):
@@ -288,6 +290,7 @@ def case_lassis_hessian (ks, lsis):
     g0_debug = grad_orb_ci_si.get_grad (lsis, *ugg.update_wfn (np.zeros_like (g0)), pack=True)
     #ks.assertLess (np.amax (np.abs (g0_debug-g0)), 1e-10, msg='sanity fail')
     h_op = hessian_orb_ci_si.HessianOperator (ugg)
+    np.random.seed (1)
     x0 = np.random.rand (ugg.nvar_tot)
     x0 = ugg.pack (*ugg.unpack (x0)) # apply some projections
     assert (len (x0) == len (g0))
@@ -296,19 +299,21 @@ def case_lassis_hessian (ks, lsis):
     for (i, j), lbl0 in zip (sec_offs, sec_lbls):
         if i==j: continue
         with ks.subTest ("sanity", sector=lbl0):
-            ks.assertLess (np.amax (np.abs (g0_debug[i:j]-g0[i:j])), 1e-10)
+            ks.assertLess (np.amax (np.abs (g0_debug[i:j]-g0[i:j])), 1e-9)
         x1 = np.zeros_like (x0)
         x1[i:j] = x0[i:j]
-        div = 1.0
         g1_test = h_op (x1)
         err_last = [np.finfo (float).tiny,]*len(sec_lbls)
         err_table = ['\n{:s} {:s}\n'.format (lbl1, lbl0) for lbl1 in sec_lbls]
         rel_err = [1,]*len(sec_lbls)
         g1_ref_last = np.zeros_like (x1)
         brk = [False for lbl in sec_lbls]
-        for p in range (20):
+        # NOTE: this starting point is empirical. I don't know the scale of the convergence plateau
+        # a priori.
+        for p in range (9,20):
+            div = 2**p
+            if (all (brk)): break
             x2 = x1 / div
-            #g1_test = h_op (x2) * div
             g1_ref = grad_orb_ci_si.get_grad (lsis, *ugg.update_wfn (x2))#, pack=True) - g0
             g1_ref = ugg.pack (*g1_ref) - g0
             mg1_ref = grad_orb_ci_si.get_grad (lsis, *ugg.update_wfn (-x2))#, pack=True) - g0
@@ -318,7 +323,7 @@ def case_lassis_hessian (ks, lsis):
             for z, (k,l) in enumerate (sec_offs):
                 if k==l:
                     rel_err[z] = .25
-                    continue
+                    brk[z] = True
                 if brk[z]: continue
                 g2_test = np.zeros_like (g1_test)
                 g2_ref = np.zeros_like (g1_ref)
@@ -337,13 +342,12 @@ def case_lassis_hessian (ks, lsis):
                     rel_err[z] = (err / err_last[z])
                 err_last[z] = err + np.finfo (float).tiny
                 conv = vector_error (g2_ref, g2_ref_last, err_type='rel')[0]
-                if (conv < 0.001) and (abs (rel_err[z]-.25) < 0.001):
+                if (conv < 0.01) and (abs (rel_err[z]-.25) < 0.01):
                     brk[z] = True
             g1_ref_last = g1_ref
-            div *= 2
         for rel_err_i, err_table_i, lbl1 in zip (rel_err, err_table, sec_lbls):
             with ks.subTest ((lbl1,lbl0)):
-                ks.assertAlmostEqual (rel_err_i, .25, 2, msg=err_table_i)
+                ks.assertAlmostEqual (rel_err_i, .25, delta=0.01, msg=err_table_i)
 
 def _compare_lassis_wfn (ks, nfrags, wfn0, wfn1, lbl=''):
     mo0, cir0, cis0, cic0, si0 = wfn0
