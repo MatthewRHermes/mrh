@@ -43,9 +43,13 @@ class HessianOperator (sparse_linalg.LinearOperator):
         self.h2_paaa = np.stack (self.h2_paaa, axis=0)
         dm0 = 2*mo_coeff[:,:ncore] @ mo_coeff[:,:ncore].conj ().T
         self.veff_c = np.squeeze (las.get_veff (dm=dm0))
+        dm1 = mo_coeff[:,ncore:nocc] @ self.casdm1 @ mo_coeff[:,ncore:nocc].conj ().T
+        self.veff_a = np.squeeze (las.get_veff (dm=dm1))
+        v1_pc = mo_coeff.conj ().T @ self.veff_a @ mo_coeff
+        v1_pc[:,ncore:] = 0
         self.ham_2q = lsi.ham_2q (mo_coeff)
         h1 = lsi._las.get_hcore () + self.veff_c
-        self.h1 = mo_coeff.conj ().T @ h1 @ mo_coeff
+        self.h1 = mo_coeff.conj ().T @ h1 @ mo_coeff + v1_pc
         self.fock1 = self.get_fock1 (self.h1, self.h2_paaa, self.casdm1, self.casdm2)
         self.spaces = list_spaces (lsi)
         self.e_roots_si = np.zeros (self.nroots_si)
@@ -146,7 +150,7 @@ class HessianOperator (sparse_linalg.LinearOperator):
 
     def get_xham_2q (self, kappa):
         return xham_2q (self.lsi, kappa, mo_coeff=self.mo_coeff, eris=self.eris,
-                        veff_c=self.veff_c, casdm1=self.casdm1)
+                        veff_c=self.veff_c, veff_a=self.veff_a, casdm1=self.casdm1)
 
     def _matvec (self, x):
         log = self.log
@@ -194,6 +198,7 @@ class HessianOperator (sparse_linalg.LinearOperator):
     def hoo (self, xham_2q, kappa):
         h0, h1, h2 = xham_2q
         fx = self.get_fock1 (h1, h2, self.casdm1, self.casdm2)
+        fx += kappa @ (self.fock1 - self.fock1.T)
         return (fx - fx.T) / 2
 
     def hoa (self, ci1, si0, si1):
@@ -214,7 +219,7 @@ class HessianOperator (sparse_linalg.LinearOperator):
         fx[:,:self.lsi.ncore] += 2 * veff[:,:self.lsi.ncore]
         return fx - fx.T
 
-def xham_2q (lsi, kappa, mo_coeff=None, eris=None, veff_c=None, casdm1=None):
+def xham_2q (lsi, kappa, mo_coeff=None, eris=None, veff_c=None, veff_a=None, casdm1=None):
     las = lsi._las
     if mo_coeff is None: mo_coeff=lsi.mo_coeff
     if eris is None: eris = lsi.get_casscf_eris (mo_coeff)
@@ -227,6 +232,12 @@ def xham_2q (lsi, kappa, mo_coeff=None, eris=None, veff_c=None, casdm1=None):
             veff_c = np.squeeze (las.get_veff (dm=dm0))
         else:
             veff_c = 0
+    if veff_a is None:
+        if ncas:
+            dm1 = mo_coeff[:,ncore:nocc] @ casdm1 @ mo_coeff[:,ncore:nocc].conj ().T
+            veff_a = np.squeeze (las.get_veff (dm=dm1))
+        else:
+            veff_a = 0
 
     h0 = 0
 
@@ -238,11 +249,7 @@ def xham_2q (lsi, kappa, mo_coeff=None, eris=None, veff_c=None, casdm1=None):
     h1 = mo0H @ h1_0 @ mo1 - mo1H @ h1_0 @ mo0
     h2 = np.stack ([eris.ppaa[i][ncore:nocc] for i in range (nmo)], axis=0)
     if ncore:
-        dm1 = np.zeros ((nmo,nmo), dtype=casdm1.dtype)
-        dm1[ncore:nocc,ncore:nocc] = casdm1
-        dm1 = mo0 @ dm1 @ mo0H
-        v_c1a0 = np.squeeze (las.get_veff (dm=dm1))
-        v_c1a0 = mo0H @ v_c1a0 @ mo1 - mo1H @ v_c1a0 @ mo0
+        v_c1a0 = mo0H @ veff_a @ mo1 - mo1H @ veff_a @ mo0
         v_c1a0[:,ncore:] = 0
         dm1 = 2*np.eye (nmo)
         dm1[ncore:] = 0

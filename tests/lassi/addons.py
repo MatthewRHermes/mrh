@@ -80,7 +80,7 @@ def case_contract_hlas_ci (ks, las, h0, h1, h2, ci_fr, nelec_frs, si_bra=None, s
                     hket_ref_s = hket_ref[:,k:l]
                     # TODO: opt>0 for things other than single excitation
                     #if opt>0 and not spaces[r].is_single_excitation_of (spaces[s]): continue
-                    #elif opt==1: print (r,s, round (lib.fp (hket_pq_s)-lib.fp (hket_ref_s),3))
+                    #elif opt==1: print (r,s, round (lib.fp (hket_pq_s)-lib.fp (hket_ref_s),2))
                     with ks.subTest (opt=opt, frag=f, bra_space=r, ket_space=s,
                                        intyp=interactions[interidx[r,s]],
                                        dneleca=nelec[:,r,0]-nelec[:,s,0],
@@ -278,7 +278,7 @@ def case_lassis_hessian (ks, lsis):
     #for ci_i in ci_ref:
     #    ci_i[:,:] = 0
     #    ci_i[0,0] = 1
-    g0 = grad_orb_ci_si.get_grad (lsis, ci_ref=ci_ref, si=si, pack=True)
+    g0_sec = list (grad_orb_ci_si.get_grad (lsis, ci_ref=ci_ref, si=si, pack=False))
     ugg = coords.UnitaryGroupGenerators (
         lsis,
         lsis.mo_coeff,
@@ -287,8 +287,8 @@ def case_lassis_hessian (ks, lsis):
         lsis.ci_charge_hops,
         si
     )
+    g0 = ugg.pack (*g0_sec)
     g0_debug = grad_orb_ci_si.get_grad (lsis, *ugg.update_wfn (np.zeros_like (g0)), pack=True)
-    #ks.assertLess (np.amax (np.abs (g0_debug-g0)), 1e-10, msg='sanity fail')
     h_op = hessian_orb_ci_si.HessianOperator (ugg)
     np.random.seed (1)
     x0 = np.random.rand (ugg.nvar_tot)
@@ -296,12 +296,26 @@ def case_lassis_hessian (ks, lsis):
     assert (len (x0) == len (g0))
     sec_lbls = ['orb', 'ci_ref', 'ci_sf', 'ci_ch', 'si_avg', 'si_ext']
     sec_offs = ugg.get_sector_offsets ()
+    nao, nmo = lsis.mo_coeff.shape
+    ncas, ncore = sum (lsis.ncas_sub), lsis.ncore
+    nocc = ncore + ncas
+    # A lot rides on this correction being accurate
+    def orbital_frame_correction (xi):
+        i, j = sec_offs[0]
+        gorb = g0_sec[0]
+        xorb = ugg.unpack (xi)[0]
+        dgorb = (xorb @ gorb - gorb @ xorb) / 2
+        dgi = [dgorb,] + g0_sec[1:]
+        dgi = ugg.pack (*dgi)
+        dgi[j:] = 0
+        return dgi
     for (i, j), lbl0 in zip (sec_offs, sec_lbls):
         if i==j: continue
         with ks.subTest ("sanity", sector=lbl0):
             ks.assertLess (np.amax (np.abs (g0_debug[i:j]-g0[i:j])), 1e-9)
         x1 = np.zeros_like (x0)
         x1[i:j] = x0[i:j]
+        dg1_ref = orbital_frame_correction (x1)
         g1_test = h_op (x1)
         err_last = [np.finfo (float).tiny,]*len(sec_lbls)
         err_table = ['\n{:s} {:s}\n'.format (lbl1, lbl0) for lbl1 in sec_lbls]
@@ -320,6 +334,7 @@ def case_lassis_hessian (ks, lsis):
             mg1_ref = ugg.pack (*mg1_ref) - g0
             g1_ref -= mg1_ref
             g1_ref *= .5 * div
+            g1_ref += dg1_ref
             for z, (k,l) in enumerate (sec_offs):
                 if k==l:
                     rel_err[z] = .25
