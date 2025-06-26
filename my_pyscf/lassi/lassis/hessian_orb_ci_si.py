@@ -53,7 +53,65 @@ class HessianOperator (sparse_linalg.LinearOperator):
         self.fock1 = self.get_fock1 (self.h1, self.h2_paaa, self.casdm1, self.casdm2)
         self.spaces = list_spaces (lsi)
         self.e_roots_si = np.zeros (self.nroots_si)
-        self.e_roots_si = np.dot (self.si.conj ().T, self.hsi_op (self.ham_2q, self.ci, self.si))
+        self.e_roots_si = np.dot (self.si.conj ().T, self.hsi_op (self.ci, self.si))
+        if self.opt > 0:
+            self._init_orbcol_()
+            self._init_cisicol_()
+
+    def _init_orbcol_(self):
+        from mrh.my_pyscf.lassi.op_o1 import frag
+        from mrh.my_pyscf.lassi.op_o1.hsi import HamS2OvlpOperators
+        from mrh.my_pyscf.lassi.op_o1.hci import ContractHamCI
+        las, ci, nlas = self.lsi, self.ci, self.lsi.ncas_sub
+        nelec_frs = self.get_nelec_frs (nr=self.nroots)
+        max_memory = getattr (las, 'max_memory', las.mol.max_memory)
+        hopping_index, ints, lroots = frag.make_ints (las, ci, nelec_frs, nlas=nlas,
+                                                      screen_linequiv=False,
+                                                      pt_order=self.pt_order[:self.nroots],
+                                                      do_pt_order=0)
+        h0, h1, h2 = self.ham_2q
+        self._hsi_orbcol = HamS2OvlpOperators (ints, nlas, hopping_index, lroots, h1, h2,
+                                               pt_order=self.pt_order[:self.nroots], do_pt_order=0,
+                                               dtype=h1.dtype, max_memory=max_memory, log=self.log)
+        self._hci_orbcol = ContractHamCI (las, ints, nlas, hopping_index, lroots, h0, h1, h2,
+                                          si_bra=self.si, si_ket=self.si,
+                                          pt_order=self.pt_order[:self.nroots], do_pt_order=0,
+                                          dtype=h1.dtype, max_memory=max_memory, log=self.log)
+
+    def _init_cisicol_(self):
+        from mrh.my_pyscf.lassi.op_o1 import frag
+        from mrh.my_pyscf.lassi.op_o1.hsi import HamS2OvlpOperators
+        from mrh.my_pyscf.lassi.op_o1.hci import ContractHamCI
+        from mrh.my_pyscf.lassi.op_o1.rdm import LRRDM
+        las, nlas = self.lsi, self.lsi.ncas_sub
+        ci = [c*(self.nfrags+1) for c in self.ci]
+        for i in range (self.nfrags):
+            for j in range (self.nroots):
+                ci[i][self.nroots*(i+1)+j] = np.zeros_like (ci[i][j])
+        nelec_frs = self.get_nelec_frs (nr=len(ci[0]))
+        max_memory = getattr (las, 'max_memory', las.mol.max_memory)
+        hopping_index, ints, lroots = frag.make_ints (las, ci, nelec_frs, nlas=nlas,
+                                                      screen_linequiv=False,
+                                                      pt_order=self.pt_order,
+                                                      do_pt_order=(0,1))
+        h0, h1, h2 = self.ham_2q
+        self._fragints_cisicol = ints
+        self._hsi_cisicol = HamS2OvlpOperators (ints, nlas, hopping_index, lroots, h1, h2,
+                                                pt_order=self.pt_order, do_pt_order=(0,1),
+                                                dtype=h1.dtype, max_memory=max_memory,
+                                                log=self.log)
+        self._hci_cisicol = ContractHamCI (las, ints, nlas, hopping_index, lroots, h0, h1, h2,
+                                           si_bra=self.si, si_ket=self.si, pt_order=self.pt_order,
+                                           do_pt_order=(0,1), dtype=h1.dtype,
+                                           max_memory=max_memory, log=self.log)
+        si0 = np.tile (self.si, (self.nfrags+1,1))
+        si1 = si0.copy ()
+        si0[self.nprods:,:] = 0.0
+        si1[:self.nprods,:] = 0.0
+        self._rdm_cisicol = LRRDM (ints, nlas, hopping_index, lroots, si0, si1,
+                                   pt_order=self.pt_order, do_pt_order=(0,1), dtype=si0.dtype,
+                                   max_memory=max_memory, log=self.log)
+
 
     def get_fock1 (self, h1, h2_paaa, casdm1, casdm2, _coreocc=2):
         ncore, ncas = self.lsi.ncore, self.lsi.ncas
@@ -72,6 +130,8 @@ class HessianOperator (sparse_linalg.LinearOperator):
         n = len (xci[0])
         for i in range (self.nfrags):
             ci1[i][n*(i+1):n*(i+2)] = xci[i]
+            if self.opt > 0:
+                self._fragints_cisicol[i].update_ci_(range(n*(i+1),n*(i+2)),xci[i])
         si0 = np.tile (self.si, (self.nfrags+1,1))
         si1 = si0.copy ()
         si0[self.nprods:,:] = 0.0
@@ -125,7 +185,8 @@ class HessianOperator (sparse_linalg.LinearOperator):
             nelec_frs = np.concatenate ([nelec_frs,]*(nr//nr0), axis=1)
         return nelec_frs 
 
-    def hci_op (self, ham_2q, ci, si_bra, si_ket, pto=(0,1)):
+    def hci_op (self, ci, si_bra, si_ket, pto=(0,1), ham_2q=None):
+        if ham_2q is None: ham_2q = self.ham_2q
         nelec_frs = self.get_nelec_frs (nr=len(ci[0]))
         ncore, ncas = self.lsi.ncore, self.lsi.ncas
         nocc = ncore+ncas
@@ -137,7 +198,8 @@ class HessianOperator (sparse_linalg.LinearOperator):
         )
         return hci_fr
 
-    def hsi_op (self, ham_2q, ci, si, pto=(0,1)):
+    def hsi_op (self, ci, si, pto=(0,1), ham_2q=None):
+        if ham_2q is None: ham_2q = self.ham_2q
         nelec_frs = self.get_nelec_frs (nr=len(ci[0]))
         ncore, ncas = self.lsi.ncore, self.lsi.ncas
         nocc = ncore+ncas
@@ -157,7 +219,6 @@ class HessianOperator (sparse_linalg.LinearOperator):
         t0 = (lib.logger.process_clock (), lib.logger.perf_counter ())
         kappa, ci1, si0, si1 = self.to_hop (x)
         xham_2q = self.get_xham_2q (kappa)
-        ham_2q = self.ham_2q
         t1 = log.timer ('LASSIS Hessian-vector preprocessing', *t0)
 
         rorb = self.hoo (xham_2q, kappa)
@@ -171,10 +232,10 @@ class HessianOperator (sparse_linalg.LinearOperator):
         xham_2q[1] = xham_2q[1][ncore:nocc,ncore:nocc]
         xham_2q[2] = xham_2q[2][ncore:nocc]
 
-        rci_01 = self.hci_op (xham_2q, ci1, si0, si0, pto=0)
+        rci_01 = self.hci_op (ci1, si0, si0, pto=0, ham_2q=xham_2q)
         si_01 = np.append (si0, si1, axis=1)
         si_10 = si_01[:,::-1]
-        rci_01_10 = self.hci_op (ham_2q, ci1, si_01, si_10)
+        rci_01_10 = self.hci_op (ci1, si_01, si_10)
         rci_10 = []
         for i in range (self.nfrags):
             rci_10_i = []
@@ -184,8 +245,8 @@ class HessianOperator (sparse_linalg.LinearOperator):
             rci_10.append (rci_10_i)
         t3 = log.timer ('LASSIS Hessian-vector CI rows', *t2)
 
-        rsi_01 = self.hsi_op (xham_2q, ci1, si0, pto=0)
-        rsi_01_10 = self.hsi_op (ham_2q, ci1, si_10)
+        rsi_01 = self.hsi_op (ci1, si0, pto=0, ham_2q=xham_2q)
+        rsi_01_10 = self.hsi_op (ci1, si_10)
         rsi_01 += rsi_01_10[:,0:1]
         rsi_10 = rsi_01_10[:,1:]
         t4 = log.timer ('LASSIS Hessian-vector SI rows', *t3)
