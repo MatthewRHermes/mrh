@@ -366,22 +366,13 @@ class FragTDMInt (object):
                 self.mask_ints, pt_mask
             )
                 
-        #self.mask_ints[:,:] = True
-
-        nroots, norb = self.nroots, self.norb
-        t0 = (lib.logger.process_clock (), lib.logger.perf_counter ())
-
-        lroots = [c.shape[0] for c in ci]
-
-        # index down to only the unique rootspaces
         self.root_unique, self.unique_root, self.umat_root = get_unique_roots (
             ci, self.nelec_r, screen_linequiv=screen_linequiv, screen_thresh=SCREEN_THRESH,
             discriminator=self.discriminator
         )
-        idx_uniq = self.root_unique
 
         # Update connectivity arrays and mask_ints
-        for i in np.where (idx_uniq)[0]:
+        for i in np.where (self.root_unique)[0]:
             images = np.where (self.unique_root==i)[0]
             for j in images:
                 self.onep_index[i] |= self.onep_index[j]
@@ -395,17 +386,42 @@ class FragTDMInt (object):
                     self.mask_ints[:,i], self.mask_ints[:,j]
                 )
 
+        return self._make_dms_()
+
+    def update_ci_(self, iroot, ci):
+        update_mask = np.zeros ((self.nroots, self.nroots), dtype=bool)
+        for i, civec in zip (iroot, ci):
+            assert (self.root_unique[i]), 'Cannot update non-unique CI vectors'
+            update_mask[i,:] = True
+            update_mask[:,i] = True
+            self.ci[i] = civec.reshape (-1, self.ndeta_r[i], self.ndetb_r[i])
+        mask_ints = self.mask_ints & update_mask
+        t0 = self._make_dms_(mask_ints=mask_ints)
+        self.log.timer ('Update density matrices of fragment intermediate', *t0)
+
+    def _make_dms_(self, mask_ints=None):
+        if mask_ints is None: mask_ints=self.mask_ints
+        t0 = (lib.logger.process_clock (), lib.logger.perf_counter ())
+        ci = self.ci
+        ndeta, ndetb = self.ndeta_r, self.ndetb_r
+        hopping_index = self.hopping_index
+        zerop_index = self.zerop_index
+        onep_index = self.onep_index
+        idx_uniq = self.root_unique
+        lroots = [c.shape[0] for c in ci]
+        nroots, norb = self.nroots, self.norb
+
         # Overlap matrix
         offs = np.cumsum (lroots)
         for i, j in combinations (np.where (idx_uniq)[0], 2):
             if self.nelec_r[i] != self.nelec_r[j]: continue
-            if not self.mask_ints[i,j]: continue
+            if not mask_ints[i,j]: continue
             ci_i = ci[i].reshape (lroots[i], -1)
             ci_j = ci[j].reshape (lroots[j], -1)
             self.ovlp[i][j] = np.dot (ci_i.conj (), ci_j.T)
             self.ovlp[j][i] = self.ovlp[i][j].conj ().T
         for i in np.where (idx_uniq)[0]:
-            if not self.mask_ints[i,i]: continue
+            if not mask_ints[i,i]: continue
             ci_i = ci[i].reshape (lroots[i], -1)
             self.ovlp[i][i] = np.dot (ci_i.conj (), ci_i.T)
             #errmat = self.ovlp[i][i] - np.eye (lroots[i])
@@ -414,8 +430,6 @@ class FragTDMInt (object):
             #    errmsg = ('States w/in single Hilbert space must be orthonormal; '
             #              'eigvals (ovlp) = {}')
             #    raise RuntimeError (errmsg.format (w))
-
-        linkstr_cache = {}
 
         # Loop over lroots functions
         def des_loop (des_fn, c, nelec, p):
@@ -507,7 +521,7 @@ class FragTDMInt (object):
         spectator_index[np.triu_indices (nroots, k=1)] = False
         spectator_index = np.stack (np.where (spectator_index), axis=1)
         for i, j in spectator_index:
-            if not self.mask_ints[i,j]: continue
+            if not mask_ints[i,j]: continue
             dm1s, dm2s = trans_rdm12s_loop (j, ci[i], ci[j], do2=zerop_index[i,j])
             self.set_dm1 (i, j, dm1s)
             if zerop_index[i,j]: self.set_dm2 (i, j, dm2s)
@@ -518,7 +532,7 @@ class FragTDMInt (object):
         # a_p|i>; shape = (norb, lroots[ket], ndeta[*], ndetb[ket])
         for ket in hidx_ket_a:
             for bra in np.where ((hopping_index[0,:,ket] < 0) & idx_uniq)[0]:
-                if not self.mask_ints[bra,ket]: continue
+                if not mask_ints[bra,ket]: continue
                 # <j|a_p|i>
                 if np.all (hopping_index[:,bra,ket] == [-1,0]):
                     h, phh = trans_rdm13h_loop (bra, ket, spin=0)
@@ -543,7 +557,7 @@ class FragTDMInt (object):
         # b_p|i>
         for ket in hidx_ket_b:
             for bra in np.where ((hopping_index[1,:,ket] < 0) & idx_uniq)[0]:
-                if not self.mask_ints[bra,ket]: continue
+                if not mask_ints[bra,ket]: continue
                 # <j|b_p|i>
                 if np.all (hopping_index[:,bra,ket] == [0,-1]):
                     h, phh = trans_rdm13h_loop (bra, ket, spin=1)
