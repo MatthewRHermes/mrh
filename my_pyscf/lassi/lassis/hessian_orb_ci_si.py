@@ -103,10 +103,10 @@ class HessianOperator (sparse_linalg.LinearOperator):
         si0[self.nprods:,:] = 0.0
         si1[:self.nprods,:] = xsi[:]
         if self.opt > 0:
-            env = lib.temporary_env (frag, make_ints=self._make_ints_cache)
+            fragcache = lib.temporary_env (frag, make_ints=self._make_ints_cache)
         else:
-            env = contextlib.nullcontext ()
-        return xorb, ci1, si0, si1, env
+            fragcache = contextlib.nullcontext ()
+        return xorb, ci1, si0, si1, fragcache
 
     def from_hop (self, kappa=None, ci_10=None, si_10=None, ci_01=None, si_01=None):
         '''Add the orbital internal indices into ?i_01'''
@@ -187,11 +187,14 @@ class HessianOperator (sparse_linalg.LinearOperator):
     def _matvec (self, x):
         log = self.log
         t0 = (lib.logger.process_clock (), lib.logger.perf_counter ())
-        kappa, ci1, si0, si1, env = self.to_hop (x)
+        kappa, ci1, si0, si1, fragcache = self.to_hop (x)
         xham_2q = self.get_xham_2q (kappa)
         t1 = log.timer ('LASSIS Hessian-vector preprocessing', *t0)
 
-        with env:
+        # In o1, use this context manager to not recompute the fragment TDM intermediates
+        # repeatedly. NOTE: this deoptimizes trans_casdm12 slightly, unless I make the context
+        # manager a little more complicated
+        with fragcache:
             rorb = self.hoo (xham_2q, kappa)
             rorb += self.hoa (ci1, si0, si1)
             t2 = log.timer ('LASSIS Hessian-vector orb rows', *t1)
