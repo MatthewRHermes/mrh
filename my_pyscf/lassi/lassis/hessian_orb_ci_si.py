@@ -271,12 +271,9 @@ class HessianOperator (sparse_linalg.LinearOperator):
         t3 = log.timer ('LASSIS Hessian-vector CI rows', *t2)
 
         rsi_01 = self.hsi_op (ci1, si0, pto=0, ham_2q=xham_2q)
-        print ('<i|~H|I>', self.opt, lib.fp (rsi_01))
         rsi_01_10 = self.hsi_op (ci1, si_10)
         rsi_01 += rsi_01_10[:,0:1]
-        print ('<i|H|~I>', self.opt, lib.fp (rsi_01_10[:,0:1]))
         rsi_10 = rsi_01_10[:,1:]
-        print ('<~i|H|I>', self.opt, lib.fp (rsi_10))
         t4 = log.timer ('LASSIS Hessian-vector SI rows', *t3)
 
         hx = self.from_hop (rorb, rci_10, rsi_10, rci_01, rsi_01)
