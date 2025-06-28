@@ -75,6 +75,11 @@ class HessianOperator (sparse_linalg.LinearOperator):
                                          screen_linequiv=False,
                                          pt_order=self.pt_order,
                                          do_pt_order=(0,1))
+        for i, myint in enumerate (self._fragints[1]):
+            ptmap = np.arange (self.nroots, dtype=int)
+            ptmap = np.stack ([ptmap, ptmap], axis=-1)
+            ptmap[:,1] += self.nroots*(i+1)
+            myint.symmetrize_pt1_(ptmap)
 
     def _make_ints_cache (self, *args, **kwargs):
         return self._fragints

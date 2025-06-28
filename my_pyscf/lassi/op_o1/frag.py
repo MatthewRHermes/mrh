@@ -575,6 +575,110 @@ class FragTDMInt (object):
         
         return t0
 
+    def symmetrize_pt1_(self, ptmap):
+        ''' Symmetrize transition density matrices of first order in perturbation theory '''
+        pt_mask = np.add.outer (self.pt_order, self.pt_order)
+        pt_mask = pt_mask==1
+        mask_ints = np.logical_and (
+           self.mask_ints, pt_mask
+        )
+        ptmap = np.append (ptmap, ptmap[:,::-1], axis=0)
+        ptmap = {i:j for i,j in ptmap}
+        idx_uniq = self.root_unique
+        for i, j in combinations (np.where (idx_uniq)[0], 2):
+            if not mask_ints[i,j]: continue
+            if self.nelec_r[i] != self.nelec_r[j]: continue
+            k, l = ptmap[i], ptmap[j]
+            o = (self.get_ovlp (i,j) + self.get_ovlp (k,l)) / 2
+            self.ovlp[i][j] = self.ovlp[k][l] = o
+
+        # Spectator fragment contribution
+        hopping_index = self.hopping_index
+        zerop_index = self.zerop_index
+        onep_index = self.onep_index
+        idx_uniq = self.root_unique
+        nroots = self.nroots
+        spectator_index = np.all (hopping_index == 0, axis=0)
+        spectator_index[~idx_uniq,:] = False
+        spectator_index[:,~idx_uniq] = False
+        spectator_index[np.triu_indices (nroots, k=1)] = False
+        spectator_index = np.stack (np.where (spectator_index), axis=1)
+        for i, j in spectator_index:
+            if not mask_ints[i,j]: continue
+            k, l = ptmap[i], ptmap[j]
+            dm1s = (self.get_dm1 (i, j) + self.get_dm1 (k, l)) / 2
+            self.set_dm1 (i, j, dm1s)
+            if k >= l:
+                self.set_dm1 (k, l, dm1s)
+            else:
+                self.set_dm1 (l, k, dm1s.conj ().transpose (1,0,2,4,3))
+            if not zerop_index[i,j]: continue
+            dm2s = (self.get_dm2 (i, j) + self.get_dm2 (k, l)) / 2
+            self.set_dm2 (i, j, dm2s)
+            if k < l: k, l, dm2s = l, k, dm2s.conj ().transpose (1,0,2,4,3,6,5)
+            self.set_dm2 (k, l, dm2s)
+
+        hidx_ket_a = np.where (np.any (hopping_index[0] < 0, axis=0) & idx_uniq)[0]
+        hidx_ket_b = np.where (np.any (hopping_index[1] < 0, axis=0) & idx_uniq)[0]
+
+        # a_p|i>; shape = (norb, lroots[ket], ndeta[*], ndetb[ket])
+        for ket in hidx_ket_a:
+            for bra in np.where ((hopping_index[0,:,ket] < 0) & idx_uniq)[0]:
+                if not mask_ints[bra,ket]: continue
+                bet = ptmap[bra]
+                kra = ptmap[ket]
+                # <j|a_p|i>
+                if np.all (hopping_index[:,bra,ket] == [-1,0]):
+                    h = (self.get_h (bra, ket, 0) + self.get_h (bet, kra, 0)) / 2
+                    self.set_h (bra, ket, 0, h)
+                    self.set_h (bet, kra, 0, h)
+                    # <j|a'_q a_r a_p|i>, <j|b'_q b_r a_p|i> - how to tell if consistent sign rule?
+                    if onep_index[bra,ket]:
+                        phh = (self.get_phh (bra, ket, 0) + self.get_phh (bet, kra, 0)) / 2
+                        self.set_phh (bra, ket, 0, phh)
+                        self.set_phh (bet, kra, 0, phh)
+                # <j|b'_q a_p|i> = <j|s-|i>
+                elif np.all (hopping_index[:,bra,ket] == [-1,1]):
+                    sm = (self.get_sm (bra, ket) + self.get_sm (bet, kra)) / 2
+                    self.set_sm (bra, ket, sm)
+                    self.set_sm (bet, kra, sm)
+                # <j|b_q a_p|i>
+                elif np.all (hopping_index[:,bra,ket] == [-1,-1]):
+                    hh = (self.get_hh (bra, ket, 1) + self.get_hh (bet, kra, 1)) / 2
+                    self.set_hh (bra, ket, 1, hh)
+                    self.set_hh (bet, kra, 1, hh)
+                # <j|a_q a_p|i>
+                elif np.all (hopping_index[:,bra,ket] == [-2,0]):
+                    hh = (self.get_hh (bra, ket, 0) + self.get_hh (bet, kra, 0)) / 2
+                    self.set_hh (bra, ket, 0, hh)
+                    self.set_hh (bet, kra, 0, hh)
+                
+        # b_p|i>
+        for ket in hidx_ket_b:
+            for bra in np.where ((hopping_index[1,:,ket] < 0) & idx_uniq)[0]:
+                if not mask_ints[bra,ket]: continue
+                bet = ptmap[bra]
+                kra = ptmap[ket]
+                # <j|b_p|i>
+                if np.all (hopping_index[:,bra,ket] == [0,-1]):
+                    h = (self.get_h (bra, ket, 1) + self.get_h (bet, kra, 1)) / 2
+                    self.set_h (bra, ket, 1, h)
+                    self.set_h (bet, kra, 1, h)
+                    # <j|a'_q a_r b_p|i>, <j|b'_q b_r b_p|i> - how to tell if consistent sign rule?
+                    if onep_index[bra,ket]:
+                        phh = (self.get_phh (bra, ket, 1) + self.get_phh (bet, kra, 1)) / 2
+                        self.set_phh (bra, ket, 1, phh)
+                        self.set_phh (bet, kra, 1, phh)
+                # <j|b_q b_p|i>
+                elif np.all (hopping_index[:,bra,ket] == [0,-2]):
+                    hh = (self.get_hh (bra, ket, 2) + self.get_hh (bet, kra, 2)) / 2
+                    self.set_hh (bra, ket, 2, hh)
+                    self.set_hh (bet, kra, 2, hh)
+        
+        return
+
+
+
     def contract_h00 (self, h_00, h_11, h_22, ket, dn=0):
         r = self.rootaddr[ket]
         n = self.fragaddr[ket]
@@ -855,6 +959,8 @@ class HamTerm:
         h1_zero = (h1 is None) or np.amax (np.abs (h1)) < 1e-15
         h2_zero = (h2 is None) or np.amax (np.abs (h2)) < 1e-15
         return h0_zero and h1_zero and h2_zero
+
+
 
 def make_ints (las, ci, nelec_frs, screen_linequiv=DO_SCREEN_LINEQUIV, nlas=None,
                _FragTDMInt_class=FragTDMInt, mask_ints=None, discriminator=None,
