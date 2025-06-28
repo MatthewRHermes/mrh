@@ -29,7 +29,7 @@ class ContractHamCI_SHS (rdm.LRRDM):
     '''
     def __init__(self, las, ints, nlas, hopping_index, lroots, h0, h1, h2, si_bra, si_ket,
                  mask_bra_space=None, mask_ket_space=None, pt_order=None, do_pt_order=None,
-                 log=None, max_memory=2000, dtype=np.float64):
+                 add_transpose=False, log=None, max_memory=2000, dtype=np.float64):
         rdm.LRRDM.__init__(self, ints, nlas, hopping_index, lroots, si_bra, si_ket,
                            mask_bra_space = mask_bra_space,
                            mask_ket_space = mask_ket_space,
@@ -45,6 +45,7 @@ class ContractHamCI_SHS (rdm.LRRDM):
         self.nelec_frs = np.asarray ([[list (i.nelec_r[ket]) for i in ints]
                                       for ket in range (self.nroots)]).transpose (1,0,2)
         self._ispec = None
+        self.add_transpose = add_transpose
 
     get_ham_2q = hams2ovlp.HamS2Ovlp.get_ham_2q
     _hconst_ci_ = ContractHamCI_CHC._hconst_ci_
@@ -77,6 +78,13 @@ class ContractHamCI_SHS (rdm.LRRDM):
         iroot = np.where (mask==iroot)[0][0]
         i, j = self.offs_lroots[iroot]
         return si[i:j,:]
+
+    def get_fdm_1space (self, rbra, rket, *inv):
+        fdm = super().get_fdm_1space (rbra, rket, *inv)
+        if self.add_transpose:
+            with lib.temporary_env (self, _transpose=True):
+                fdm += super().get_fdm_1space (rbra, rket, *inv)
+        return fdm
 
     def _crunch_env_(self, _crunch_fn, *row):
         if self._fn_row_has_spin (_crunch_fn):

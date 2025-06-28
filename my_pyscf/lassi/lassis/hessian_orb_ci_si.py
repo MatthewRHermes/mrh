@@ -160,7 +160,7 @@ class HessianOperator (sparse_linalg.LinearOperator):
             nelec_frs = np.concatenate ([nelec_frs,]*(nr//nr0), axis=1)
         return nelec_frs 
 
-    def hci_op (self, ci, si_bra, si_ket, pto=(0,1), ham_2q=None):
+    def hci_op (self, ci, si_bra, si_ket, pto=(0,1), ham_2q=None, add_transpose=False):
         if ham_2q is None: ham_2q = self.ham_2q
         nelec_frs = self.get_nelec_frs (nr=len(ci[0]))
         ncore, ncas = self.lsi.ncore, self.lsi.ncas
@@ -170,6 +170,7 @@ class HessianOperator (sparse_linalg.LinearOperator):
             self.lsi, h1, h2, ci, nelec_frs,
             si_bra=si_bra, si_ket=si_ket, h0=h0, sum_bra=True,
             pt_order=self.pt_order, do_pt_order=pto,
+            add_transpose=add_transpose
         )
         return hci_fr
 
@@ -212,22 +213,19 @@ class HessianOperator (sparse_linalg.LinearOperator):
             xham_2q[2] = xham_2q[2][ncore:nocc]
 
             rci_01 = self.hci_op (ci1, si0, si0, pto=0, ham_2q=xham_2q)
-            si_01 = np.append (si0, si1, axis=1)
-            si_10 = si_01[:,::-1]
-            rci_01_10 = self.hci_op (ci1, si_01, si_10)
-            rci_10 = []
+            rci = self.hci_op (ci1, si0, si1, add_transpose=True)
+            rci_10 = None
             for i in range (self.nfrags):
-                rci_10_i = []
                 for j in range (len (rci_01[i])):
-                    rci_01[i][j][0] += rci_01_10[i][j][0]
-                    rci_10_i.append (rci_01_10[i][j][1:])
-                rci_10.append (rci_10_i)
+                    rci_01[i][j][0] += rci[i][j][0]
             t3 = log.timer ('LASSIS Hessian-vector CI rows', *t2)
 
+            # NOTE: factor of 2 corresponds to <i1|H|Psi0>, which corresponds to a factor of 2 on
+            # the symmetrized TDMs in <i0|H|Psi1>
+            si1[self.nprods:] *= 2
             rsi_01 = self.hsi_op (ci1, si0, pto=0, ham_2q=xham_2q)
-            rsi_01_10 = self.hsi_op (ci1, si_10)
-            rsi_01 += rsi_01_10[:,0:1]
-            rsi_10 = rsi_01_10[:,1:]
+            rsi_01 += self.hsi_op (ci1, si1)
+            rsi_10 = None
             t4 = log.timer ('LASSIS Hessian-vector SI rows', *t3)
 
         hx = self.from_hop (rorb, rci_10, rsi_10, rci_01, rsi_01)
