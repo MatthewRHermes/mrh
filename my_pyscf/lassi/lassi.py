@@ -914,22 +914,29 @@ class LASSI(lib.StreamObject):
         self.break_symmetry = break_symmetry
         self.soc = soc
         self.opt = opt
+        self.davidson_only = False
         self.level_shift_si = LEVEL_SHIFT_SI
         self.nroots_si = NROOTS_SI
         self.converged_si = False
         self._keys = set((self.__dict__.keys())).union(keys)
 
     def kernel(self, mo_coeff=None, ci=None, veff_c=None, h2eff_sub=None, orbsym=None, soc=None,\
-               break_symmetry=None, opt=None,  **kwargs):
+               break_symmetry=None, opt=None, davidson_only=None, level_shift_si=None,
+               nroots_si=None, **kwargs):
         if soc is None: soc = self.soc
         if break_symmetry is None: break_symmetry = self.break_symmetry
         if opt is None: opt = self.opt
+        if davidson_only is None: davidson_only=self.davidson_only
+        if level_shift_si is not None:
+            self.level_shift_si = level_shift_si
+        if nroots_si is not None:
+            self.nroots_si = nroots_si
         log = lib.logger.new_logger (self, self.verbose)
         t0 = (lib.logger.process_clock (), lib.logger.perf_counter ())
         if not self.converged:
             log.warn ('LASSI state preparation step not converged!')
         e_roots, si = lassi(self, mo_coeff=mo_coeff, ci=ci, veff_c=veff_c, h2eff_sub=h2eff_sub, orbsym=orbsym, \
-                            soc=soc, break_symmetry=break_symmetry, opt=opt)
+                            soc=soc, break_symmetry=break_symmetry, davidson_only=davidson_only, opt=opt)
         self.e_roots = e_roots
         self.si, self.s2, self.nelec, self.wfnsym, self.rootsym, self.break_symmetry, self.soc  = \
             si, si.s2, si.nelec, si.wfnsym, si.rootsym, si.break_symmetry, si.soc
