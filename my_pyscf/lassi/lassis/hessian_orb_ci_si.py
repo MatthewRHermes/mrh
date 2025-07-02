@@ -172,6 +172,11 @@ class HessianOperator (sparse_linalg.LinearOperator):
             pt_order=self.pt_order, do_pt_order=pto,
             add_transpose=add_transpose
         )
+        if add_transpose and self.opt==0:
+            for i,j in permutations (range (self.nfrags), 2):
+                ci_10_i = hci_fr[i][self.nroots*(j+1):self.nroots*(j+2)]
+                for r in range (self.nroots):
+                    hci_fr[i][r] += ci_10_i[r][0]
         return hci_fr
 
     def hsi_op (self, ci, si, pto=(0,1), ham_2q=None):
