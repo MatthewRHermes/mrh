@@ -75,11 +75,13 @@ class HessianOperator (sparse_linalg.LinearOperator):
                                          screen_linequiv=False,
                                          pt_order=self.pt_order,
                                          do_pt_order=(0,1))
+        self._ptmaps = []
         for i, myint in enumerate (self._fragints[1]):
             ptmap = np.arange (self.nroots, dtype=int)
             ptmap = np.stack ([ptmap, ptmap], axis=-1)
             ptmap[:,1] += self.nroots*(i+1)
             myint.symmetrize_pt1_(ptmap)
+            self._ptmaps.append (ptmap)
 
     def _make_ints_cache (self, *args, **kwargs):
         return self._fragints
@@ -103,6 +105,7 @@ class HessianOperator (sparse_linalg.LinearOperator):
             ci1[i][n*(i+1):n*(i+2)] = xci[i]
             if self.opt > 0:
                 self._fragints[1][i].update_ci_(range(n*(i+1),n*(i+2)),xci[i])
+                self._fragints[1][i].symmetrize_pt1_(self._ptmaps[i])
         si0 = np.tile (self.si, (self.nfrags+1,1))
         si1 = si0.copy ()
         si0[self.nprods:,:] = 0.0
