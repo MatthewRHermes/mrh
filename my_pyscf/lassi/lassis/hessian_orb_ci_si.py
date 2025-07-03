@@ -121,7 +121,7 @@ class HessianOperator (sparse_linalg.LinearOperator):
             fragcache = contextlib.nullcontext ()
         return xorb, ci1, si0, si1, fragcache
 
-    def from_hop (self, kappa=None, ci_10=None, si_10=None, ci_01=None, si_01=None):
+    def from_hop (self, kappa=None, ci_orb=None, ci_wfn=None, si1=None):
         '''Add the orbital internal indices into ?i_01'''
         if kappa is None:
             kappa = np.zeros ((self.nmo, self.nmo), dtype=self.mo_coeff.dtype)
@@ -129,18 +129,12 @@ class HessianOperator (sparse_linalg.LinearOperator):
 
         # TODO: SA generalization
 
-        if ci_01 is not None:
-            for i in range (self.nfrags):
-                for r in range (self.nroots):
-                    ci1[i][r] += ci_01[i][r][0]
-        if ci_10 is not None:
-            for i,j in permutations (range (self.nfrags), 2):
-                ci_10_i = ci_10[i][self.nroots*(j+1):self.nroots*(j+2)]
-                for r in range (self.nroots):
-                    ci1[i][r] += ci_10_i[r][0]
-            for i in range (self.nfrags):
-                for r in range (self.nroots):
-                    ci1[i][r] += ci_10[i][r][0]
+        for i in range (self.nfrags):
+            for r in range (self.nroots):
+                if ci_orb is not None:
+                    ci1[i][r] += ci_orb[i][r][0]
+                if ci_wfn is not None:
+                    ci1[i][r] += ci_wfn[i][r][0]
         for i in range (self.nfrags):
             for r in range (self.nroots):
                 my_shape = ci1[i][r].shape
@@ -151,11 +145,7 @@ class HessianOperator (sparse_linalg.LinearOperator):
                 ci1[i][r] += ci1[i][r].conj () # + h.c.
         ci1_ref, ci1_sf, ci1_ch = coords.sum_hci (self.lsi, ci1)
 
-        si1 = np.zeros_like (self.si)
-        if si_01 is not None:
-            si1 += si_01[:self.nprods,:]
-        if si_10 is not None:
-            si1 += si_10.reshape (self.nfrags+1,self.nprods,self.nroots_si)[1:].sum (0)
+        if si1 is None: si1 = np.zeros_like (self.si)
         si1 += si1.conj () # + h.c.
 
         return self.ugg.pack (kappa, ci1_ref, ci1_sf, ci1_ch, si1)
@@ -235,22 +225,18 @@ class HessianOperator (sparse_linalg.LinearOperator):
             xham_2q[1] = xham_2q[1][ncore:nocc,ncore:nocc]
             xham_2q[2] = xham_2q[2][ncore:nocc]
 
-            rci_01 = self.hci_op (ci1, si0, si0, pto=0, ham_2q=xham_2q)
-            rci = self.hci_op (ci1, si0, si1, add_transpose=True)
-            rci_10 = None
-            for i in range (self.nfrags):
-                for j in range (len (rci_01[i])):
-                    rci_01[i][j][0] += rci[i][j][0]
+            rci_orb = self.hci_op (ci1, si0, si0, pto=0, ham_2q=xham_2q)
+            rci_wfn = self.hci_op (ci1, si0, si1, add_transpose=True)
             t3 = log.timer ('LASSIS Hessian-vector CI rows', *t2)
 
             # NOTE: factor of 2 corresponds to <i1|H|Psi0>, which corresponds to a factor of 2 on
             # the symmetrized TDMs in <i0|H|Psi1>
-            rsi_01 = self.hsi_op (ci1, si0, pto=0, ham_2q=xham_2q)
-            rsi_01 += self.hsi_op (ci1, si1, add_transpose=si0)
-            rsi_10 = None
+            rsi = self.hsi_op (ci1, si0, pto=0, ham_2q=xham_2q)
+            rsi += self.hsi_op (ci1, si1, add_transpose=si0)
+            rsi = rsi[:self.nprods]
             t4 = log.timer ('LASSIS Hessian-vector SI rows', *t3)
 
-        hx = self.from_hop (rorb, rci_10, rsi_10, rci_01, rsi_01)
+        hx = self.from_hop (rorb, rci_orb, rci_wfn, rsi)
         log.timer ('LASSIS Hessian-vector postprocessing', *t4)
         log.timer ('LASSIS Hessian-vector full', *t0)
         return hx
