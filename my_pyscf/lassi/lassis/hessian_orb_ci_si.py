@@ -187,7 +187,11 @@ class HessianOperator (sparse_linalg.LinearOperator):
                     hci_fr[i][r] += ci_10_i[r][0]
         return hci_fr
 
-    def hsi_op (self, ci, si, pto=(0,1), ham_2q=None):
+    def hsi_op (self, ci, si, pto=(0,1), ham_2q=None, add_transpose=None):
+        if add_transpose is not None and self.opt==1:
+            # NOTE: factor of 2 corresponds to <i1|H|Psi0>, which corresponds to a factor of 2 on
+            # the symmetrized TDMs in <i0|H|Psi1>
+            si[self.nprods:] *= 2
         if ham_2q is None: ham_2q = self.ham_2q
         nelec_frs = self.get_nelec_frs (nr=len(ci[0]))
         ncore, ncas = self.lsi.ncore, self.lsi.ncas
@@ -197,7 +201,13 @@ class HessianOperator (sparse_linalg.LinearOperator):
             self.lsi, h1, h2, ci, nelec_frs,
             pt_order=self.pt_order[:len(ci[0])], do_pt_order=pto,
         )[0]
-        return ham_op (si) - (self.e_roots_si - h0) * si
+        hsi = ham_op (si) - (self.e_roots_si - h0) * si
+        if add_transpose is not None and self.opt==0:
+            # Symmetrizing the TDMs doesn't do anything in o0, so we have to add this explicitly
+            hsi1 = self.hsi_op (ci, add_transpose, pto=pto, ham_2q=ham_2q)
+            hsi1 = hsi1.reshape (self.nfrags+1, self.nprods, self.nroots_si)
+            hsi[:self.nprods] += hsi1[1:].sum (0)
+        return hsi
 
     def get_xham_2q (self, kappa):
         return xham_2q (self.lsi, kappa, mo_coeff=self.mo_coeff, eris=self.eris,
@@ -235,9 +245,8 @@ class HessianOperator (sparse_linalg.LinearOperator):
 
             # NOTE: factor of 2 corresponds to <i1|H|Psi0>, which corresponds to a factor of 2 on
             # the symmetrized TDMs in <i0|H|Psi1>
-            si1[self.nprods:] *= 2
             rsi_01 = self.hsi_op (ci1, si0, pto=0, ham_2q=xham_2q)
-            rsi_01 += self.hsi_op (ci1, si1)
+            rsi_01 += self.hsi_op (ci1, si1, add_transpose=si0)
             rsi_10 = None
             t4 = log.timer ('LASSIS Hessian-vector SI rows', *t3)
 
