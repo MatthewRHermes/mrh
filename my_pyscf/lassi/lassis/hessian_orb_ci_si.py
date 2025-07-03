@@ -230,8 +230,6 @@ class HessianOperator (sparse_linalg.LinearOperator):
             rci_wfn = self.hci_op (ci1, si0, si1, add_transpose=True)
             t3 = log.timer ('LASSIS Hessian-vector CI rows', *t2)
 
-            # NOTE: factor of 2 corresponds to <i1|H|Psi0>, which corresponds to a factor of 2 on
-            # the symmetrized TDMs in <i0|H|Psi1>
             rsi = self.hsi_op (ci1, si0, pto=0, ham_2q=xham_2q)
             rsi += self.hsi_op (ci1, si1, add_transpose=si0)
             rsi = rsi[:self.nprods]
