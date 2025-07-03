@@ -66,10 +66,11 @@ class HessianOperator (sparse_linalg.LinearOperator):
 
     def _init_fragints_(self):
         las, nlas, max_memory = self.lsi, self.nlas, self.max_memory
+        xorb, xci_ref, xci_sf, xci_ch, xsi = self.ugg.unpack (np.zeros (self.ugg.nvar_tot))
+        xci = self.lsi.prepare_model_states (xci_ref, xci_sf, xci_ch)[0].ci
         ci = [c*(self.nfrags+1) for c in self.ci]
         for i in range (self.nfrags):
-            for j in range (self.nroots):
-                ci[i][self.nroots*(i+1)+j] = np.zeros_like (ci[i][j])
+            ci[i][self.nroots*(i+1):self.nroots*(i+2)] = xci[i]
         nelec_frs = self.get_nelec_frs (nr=len(ci[0]))
         self._fragints = frag.make_ints (las, ci, nelec_frs, nlas=nlas,
                                          screen_linequiv=False,
@@ -104,8 +105,12 @@ class HessianOperator (sparse_linalg.LinearOperator):
         for i in range (self.nfrags):
             ci1[i][n*(i+1):n*(i+2)] = xci[i]
             if self.opt > 0:
-                self._fragints[1][i].update_ci_(range(n*(i+1),n*(i+2)),xci[i])
-                self._fragints[1][i].symmetrize_pt1_(self._ptmaps[i])
+                myint = self._fragints[1][i]
+                myrng = range (n*(i+1),n*(i+2))
+                iroots = [j for j in myrng if myint.root_unique[j]]
+                x = [ci1[i][j] for j in myrng if myint.root_unique[j]]
+                myint.update_ci_(iroots, x)
+                myint.symmetrize_pt1_(self._ptmaps[i])
         si0 = np.tile (self.si, (self.nfrags+1,1))
         si1 = si0.copy ()
         si0[self.nprods:,:] = 0.0
