@@ -170,6 +170,7 @@ class HessianOperator (sparse_linalg.LinearOperator):
             pt_order=self.pt_order, do_pt_order=pto,
             add_transpose=add_transpose
         )
+        # add_transpose doesn't do anything in o0
         if add_transpose and self.opt==0:
             for i,j in permutations (range (self.nfrags), 2):
                 ci_10_i = hci_fr[i][self.nroots*(j+1):self.nroots*(j+2)]
