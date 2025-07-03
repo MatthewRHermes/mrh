@@ -579,6 +579,7 @@ class FragTDMInt (object):
         ''' Symmetrize transition density matrices of first order in perturbation theory '''
         pt_mask = np.add.outer (self.pt_order, self.pt_order)
         pt_mask = pt_mask==1
+        pt_mask[:,self.pt_order==1] = False
         mask_ints = np.logical_and (
            self.mask_ints, pt_mask
         )
@@ -601,7 +602,6 @@ class FragTDMInt (object):
         spectator_index = np.all (hopping_index == 0, axis=0)
         spectator_index[~idx_uniq,:] = False
         spectator_index[:,~idx_uniq] = False
-        spectator_index[np.triu_indices (nroots, k=1)] = False
         spectator_index = np.stack (np.where (spectator_index), axis=1)
         for i, j in spectator_index:
             if not mask_ints[i,j]: continue
