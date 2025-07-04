@@ -51,7 +51,7 @@ class ContractHamCI_SHS (rdm.LRRDM):
                                       for ket in range (self.nroots)]).transpose (1,0,2)
         self._ispec = None
         self.add_transpose = add_transpose
-        self.accum = None
+        self.accum = accum
 
     get_ham_2q = hams2ovlp.HamS2Ovlp.get_ham_2q
     _hconst_ci_ = ContractHamCI_CHC._hconst_ci_
