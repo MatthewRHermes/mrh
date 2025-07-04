@@ -158,7 +158,7 @@ class HessianOperator (sparse_linalg.LinearOperator):
             nelec_frs = np.concatenate ([nelec_frs,]*(nr//nr0), axis=1)
         return nelec_frs 
 
-    def hci_op (self, ci, si_bra, si_ket, pto=(0,1), ham_2q=None, add_transpose=False):
+    def hci_op (self, ci, si_bra, si_ket, pto=(0,1), ham_2q=None, add_transpose=False, accum=None):
         if ham_2q is None: ham_2q = self.ham_2q
         nelec_frs = self.get_nelec_frs (nr=len(ci[0]))
         ncore, ncas = self.lsi.ncore, self.lsi.ncas
@@ -168,7 +168,7 @@ class HessianOperator (sparse_linalg.LinearOperator):
             self.lsi, h1, h2, ci, nelec_frs,
             si_bra=si_bra, si_ket=si_ket, h0=h0, sum_bra=True,
             pt_order=self.pt_order, do_pt_order=pto,
-            add_transpose=add_transpose
+            add_transpose=add_transpose, accum=accum
         )
         # add_transpose doesn't do anything in o0
         if add_transpose and self.opt==0:
@@ -226,8 +226,8 @@ class HessianOperator (sparse_linalg.LinearOperator):
             xham_2q[1] = xham_2q[1][ncore:nocc,ncore:nocc]
             xham_2q[2] = xham_2q[2][ncore:nocc]
 
-            rci_orb = self.hci_op (ci1, si0, si0, pto=0, ham_2q=xham_2q)
-            rci_wfn = self.hci_op (ci1, si0, si1, add_transpose=True)
+            rci_orb = self.hci_op (ci1, si0, si0, pto=0, ham_2q=xham_2q, accum=0)
+            rci_wfn = self.hci_op (ci1, si0, si1, add_transpose=True, accum=1)
             t3 = log.timer ('LASSIS Hessian-vector CI rows', *t2)
 
             rsi = self.hsi_op (ci1, si0, pto=0, ham_2q=xham_2q)

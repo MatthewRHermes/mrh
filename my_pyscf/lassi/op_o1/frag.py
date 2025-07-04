@@ -806,15 +806,16 @@ class FragTDMInt (object):
         hterm1 = HamTerm (self, ket, i, j, h0, h1, h2, hermi=hermi, spin=spin)
         self._ham[(i,j,hermi)] = hterm1 + hterm0 
 
-    def _ham_op (self):
+    def _ham_op (self, _init_only=False):
         hci_r_plab = []
         for c in self.ci:
             hci_plab = np.zeros ([self.nroots_si,] + list (c.shape),
                                  dtype=c.dtype)
             hci_r_plab.append (hci_plab)
-        for ((i, j, hermi), hterm) in self._ham.items ():
-            if hterm.is_zero (): continue
-            hci_r_plab[i] += hterm.op ()
+        if not _init_only:
+            for ((i, j, hermi), hterm) in self._ham.items ():
+                if hterm.is_zero (): continue
+                hci_r_plab[i] += hterm.op ()
         return hci_r_plab
 
 class HamTerm:

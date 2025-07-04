@@ -26,10 +26,15 @@ class ContractHamCI_SHS (rdm.LRRDM):
             Contains LASSI eigenvectors on the bra
         si_ket : ndarray of shape (nprod, nroots_si_ket)
             Contains LASSI eigenvectors on the ket
+
+    Additional kwargs:
+        add_transpose : logical
+            If true, the term with si_bra and si_ket switching places is added to all
+            interactions.
     '''
     def __init__(self, las, ints, nlas, hopping_index, lroots, h0, h1, h2, si_bra, si_ket,
                  mask_bra_space=None, mask_ket_space=None, pt_order=None, do_pt_order=None,
-                 add_transpose=False, log=None, max_memory=2000, dtype=np.float64):
+                 add_transpose=False, accum=None, log=None, max_memory=2000, dtype=np.float64):
         rdm.LRRDM.__init__(self, ints, nlas, hopping_index, lroots, si_bra, si_ket,
                            mask_bra_space = mask_bra_space,
                            mask_ket_space = mask_ket_space,
@@ -46,6 +51,7 @@ class ContractHamCI_SHS (rdm.LRRDM):
                                       for ket in range (self.nroots)]).transpose (1,0,2)
         self._ispec = None
         self.add_transpose = add_transpose
+        self.accum = None
 
     get_ham_2q = hams2ovlp.HamS2Ovlp.get_ham_2q
     _hconst_ci_ = ContractHamCI_CHC._hconst_ci_
@@ -458,7 +464,8 @@ class ContractHamCI_SHS (rdm.LRRDM):
         '''
         t0 = (lib.logger.process_clock (), lib.logger.perf_counter ())
         self.init_profiling ()
-        for inti in self.ints: inti._init_ham_(self.nroots_si)
+        if self.accum != 1:
+            for inti in self.ints: inti._init_ham_(self.nroots_si)
         self._crunch_all_()
         self.hci_fr_plab = self.get_vecs ()
         return self.hci_fr_plab, t0
@@ -467,7 +474,7 @@ class ContractHamCI_SHS (rdm.LRRDM):
         t1, w1 = logger.process_clock (), logger.perf_counter ()
         hci_fr_plab = []
         for inti in self.ints:
-            hci_r_plab = inti._ham_op ()
+            hci_r_plab = inti._ham_op (_init_only=(self.accum==0))
             hci_fr_plab.append ([hci_r_plab[i] for i in self.mask_bra_space])
         dt, dw = logger.process_clock () - t1, logger.perf_counter () - w1
         self.dt_p, self.dw_p = self.dt_p + dt, self.dw_p + dw
