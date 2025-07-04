@@ -401,7 +401,7 @@ class LRRDM (stdm.LSTDM):
         self.dt_1s, self.dw_1s = self.dt_1s + dt, self.dw_1s + dw
         self._put_D2_()
 
-    def _crunch_1s1c_(self, bra, ket, i, j, k):
+    def _crunch_1s1c_(self, bra, ket, i, j, k, s1):
         '''Compute the reduced density matrix elements of a spin-charge unit hop; i.e.,
 
         <bra|i'(a)k'(b)j(b)k(a)|ket>
@@ -415,6 +415,7 @@ class LRRDM (stdm.LSTDM):
         '''
         d_ = self.get_fdm (bra, ket, i, j, k) # time-profiled by itself
         t0, w0 = logger.process_clock (), logger.perf_counter ()
+        s2 = 1 - s1
         d2 = self._get_D2_(bra, ket) # aa, ab, ba, bb -> 0, 1, 2, 3
         p, q = self.get_range (i)
         r, s = self.get_range (j)
@@ -424,12 +425,15 @@ class LRRDM (stdm.LSTDM):
         fac = -1 # a'bb'a -> a'ab'b sign
         fac *= fermion_des_shuffle (nelec_f_bra, (i, j, k), i)
         fac *= fermion_des_shuffle (nelec_f_ket, (i, j, k), j)
-        d_ = np.tensordot (d_, self.ints[i].get_p (bra, ket, 0), axes=2) # _rKKJJi
-        d_ = np.tensordot (d_, self.ints[j].get_h (bra, ket, 1), axes=((3,4),(0,1))) # _rKKij
-        d_ = np.tensordot (d_, self.ints[k].get_sm (bra, ket), axes=((1,2),(0,1))) # _rijk'k
+        d_ = np.tensordot (d_, self.ints[i].get_p (bra, ket, s1), axes=2) # _rKKJJi
+        d_ = np.tensordot (d_, self.ints[j].get_h (bra, ket, s2), axes=((3,4),(0,1))) # _rKKij
+        if s1 == 0:
+            d_ = np.tensordot (d_, self.ints[k].get_sm (bra, ket), axes=((1,2),(0,1))) # _rijk'k
+        else:
+            d_ = np.tensordot (d_, self.ints[k].get_sp (bra, ket), axes=((1,2),(0,1))) # _rijk'k
         d_ = fac * d_.transpose (0,1,4,3,2) # r_ikk'j (a'bb'a -> a'ab'b transpose)
-        d2[:,1,p:q,t:u,t:u,r:s] = d_ #rikkj
-        d2[:,2,t:u,r:s,p:q,t:u] = d_.transpose (0,3,4,1,2)
+        d2[:,1+s1,p:q,t:u,t:u,r:s] = d_ #rikkj
+        d2[:,2-s1,t:u,r:s,p:q,t:u] = d_.transpose (0,3,4,1,2)
         dt, dw = logger.process_clock () - t0, logger.perf_counter () - w0
         self.dt_1s1c, self.dw_1s1c = self.dt_1s1c + dt, self.dw_1s1c + dw
         self._put_D2_()

@@ -281,6 +281,9 @@ class LSTDM (object):
         # Unsymmetric two-electron interactions: full square
         idx_2e = conserv_index & (nop == 4)
 
+        # Symmetric two-electron interactions: lower triangle only
+        idx_2e = idx_2e & tril_index
+
         # Two-electron interaction: ii -> jk ("split").
         idx = idx_2e & (ncharge_index == 3) & (np.amin (charge_index, axis=0) == -2)
         if nfrags > 2: exc_split = np.vstack (
@@ -295,21 +298,26 @@ class LSTDM (object):
             ispin[idx]]
         ).T
 
-        # Two-electron interaction: k(a)j(b) -> i(a)k(b) ("1s1c")
+        if nfrags > 2: exc_split = np.append (exc_split, exc_coalesce, axis=0)
+
+        # Two-electron interaction: k(a)j(b) -> i(a)k(b) ("1s1c") (spin arg = 0)
         idx = idx_2e & (nspin_index==3) & (ncharge_index==2) & (np.amin(spin_index,axis=0)==-2)
         if nfrags > 2: exc['1s1c'] = np.vstack (
             list (np.where (idx)) + [findf[-1][idx], findf[1][idx], findf[0][idx]]
         ).T
 
-        # Two-electron interaction: k(b)j(a) -> i(b)k(a) ("1s1c_T")
-        # This will only be used when we are unable to restrict ourselves to the lower triangle
+        # Two-electron interaction: k(b)j(a) -> i(b)k(a) ("1s1c_T") (spin arg = 1)
         idx = idx_2e & (nspin_index==3) & (ncharge_index==2) & (np.amax(spin_index,axis=0)==2)
         if nfrags > 2: exc_1s1cT = np.vstack (
             list (np.where (idx)) + [findf[-2][idx], findf[0][idx], findf[-1][idx]]
         ).T
 
-        # Symmetric two-electron interactions: lower triangle only
-        idx_2e = idx_2e & tril_index
+        # Combine 1s1c and 1s1c_T with spin argument
+        if nfrags > 2:
+            exc['1s1c'] = np.append (
+                np.pad (exc['1s1c'], ((0,0),(0,1)), constant_values=0),
+                np.pad (exc_1s1cT,   ((0,0),(0,1)), constant_values=1),
+                axis=0)
 
         # Two-electron interaction: i(a)j(b) -> j(a)i(b) ("1s") 
         idx = idx_2e & (ncharge_index == 0) & (nspin_index == 2)
@@ -331,13 +339,6 @@ class LSTDM (object):
             ispin[idx]]
         ).T
 
-        if nfrags > 2 and not self.ltri:
-            exc['1s1c'] = np.append (
-                np.pad (exc['1s1c'], ((0,0),(0,1)), constant_values=0),
-                np.pad (exc_1s1cT,   ((0,0),(0,1)), constant_values=1),
-                axis=0)
-            exc_split = np.append (exc_split, exc_coalesce, axis=0)
-
         # Combine "split", "pair", and "scatter" into "2c"
         if nfrags > 1: exc['2c'] = exc_pair
         if nfrags > 2: exc['2c'] = np.vstack ((exc['2c'], exc_split))
@@ -346,7 +347,7 @@ class LSTDM (object):
         return exc
 
     ltri = True
-    interaction_has_spin = ('_1c_', '_1c1d_', '_2c_')
+    interaction_has_spin = ('_1c_', '_1c1d_', '_1s1c_', '_2c_')
 
     def mask_exc_table_(self, exc, lbl, mask_bra_space=None, mask_ket_space=None):
         # Part 1: restrict to the caller-specified rectangle
@@ -833,19 +834,20 @@ class LSTDM (object):
         self.dt_1s, self.dw_1s = self.dt_1s + dt, self.dw_1s + dw
         self._put_D2_(bra, ket, d2, i, j)
 
-    def _crunch_1s1c_(self, bra, ket, i, j, k):
+    def _crunch_1s1c_(self, bra, ket, i, j, k, s1):
         '''Compute the reduced density matrix elements of a spin-charge unit hop; i.e.,
 
-        <bra|i'(a)k'(b)j(b)k(a)|ket>
+        <bra|i'(s1)k'(1-s1)j(1-s1)k(s1)|ket>
 
         i.e.,
 
-        k ---a---> i
-        j ---b---> k
+        k ---s1---> i
+        j -(1-s1)-> k
 
         and conjugate transpose
         '''
         t0, w0 = logger.process_clock (), logger.perf_counter ()
+        s2 = 1 - s1
         d2 = self._get_D2_(bra, ket) # aa, ab, ba, bb -> 0, 1, 2, 3
         p, q = self.get_range (i)
         r, s = self.get_range (j)
@@ -855,11 +857,15 @@ class LSTDM (object):
         fac = -1 # a'bb'a -> a'ab'b sign
         fac *= fermion_des_shuffle (nelec_f_bra, (i, j, k), i)
         fac *= fermion_des_shuffle (nelec_f_ket, (i, j, k), j)
-        sp = np.multiply.outer (self.ints[i].get_1_p (bra, ket, 0), self.ints[j].get_1_h (bra, ket, 1))
-        sm = self.ints[k].get_1_sm (bra, ket)
-        d2_ikkj = fac * np.multiply.outer (sp, sm).transpose (0,3,2,1) # a'bb'a -> a'ab'b transpose
-        d2[1,p:q,t:u,t:u,r:s] = d2_ikkj
-        d2[2,t:u,r:s,p:q,t:u] = d2_ikkj.transpose (2,3,0,1)
+        d_ij = np.multiply.outer (self.ints[i].get_1_p (bra, ket, s1),
+                                  self.ints[j].get_1_h (bra, ket, s2))
+        if s1==0:
+            d_kk = self.ints[k].get_1_sm (bra, ket)
+        else:
+            d_kk = self.ints[k].get_1_sp (bra, ket)
+        d2_ikkj = fac * np.multiply.outer (d_ij, d_kk).transpose (0,3,2,1) # a'bb'a -> a'ab'b
+        d2[1+s1,p:q,t:u,t:u,r:s] = d2_ikkj
+        d2[2-s1,t:u,r:s,p:q,t:u] = d2_ikkj.transpose (2,3,0,1)
         dt, dw = logger.process_clock () - t0, logger.perf_counter () - w0
         self.dt_1s1c, self.dw_1s1c = self.dt_1s1c + dt, self.dw_1s1c + dw
         self._put_D2_(bra, ket, d2, i, j, k)
