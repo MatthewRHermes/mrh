@@ -814,7 +814,7 @@ class FragTDMInt (object):
             hci_r_plab.append (hci_plab)
         if not _init_only:
             for ((i, j, hermi), hterm) in self._ham.items ():
-                if hterm.is_zero (): continue
+                if hterm.is_zero () or hterm.is_civec_zero (): continue
                 hci_r_plab[i] += hterm.op ()
         return hci_r_plab
 
@@ -961,6 +961,12 @@ class HamTerm:
         h2_zero = (h2 is None) or np.amax (np.abs (h2)) < 1e-15
         return h0_zero and h1_zero and h2_zero
 
+    def is_civec_zero (self, conj=False):
+        if conj:
+            ci = self.parent.ci[self.ir]
+        else:
+            ci = self.parent.ci[self.jr]
+        return np.amax (np.abs (ci)) < 1e-15
 
 
 def make_ints (las, ci, nelec_frs, screen_linequiv=DO_SCREEN_LINEQUIV, nlas=None,
