@@ -295,7 +295,7 @@ class HamS2Ovlp (stdm.LSTDM):
         self.dt_1s, self.dw_1s = self.dt_1s + dt, self.dw_1s + dw
         return ham, s2, (j, i)
 
-    def _crunch_1s1c_(self, bra, ket, i, j, k):
+    def _crunch_1s1c_(self, bra, ket, i, j, k, s1):
         '''Compute the reduced density matrix elements of a spin-charge unit hop; i.e.,
 
         <bra|i'(a)k'(b)j(b)k(a)|ket>
@@ -308,15 +308,20 @@ class HamS2Ovlp (stdm.LSTDM):
         and conjugate transpose
         '''
         t0, w0 = logger.process_clock (), logger.perf_counter ()
+        s2 = 1-s1
         fac = -1 # a'bb'a -> a'ab'b sign; 1/2 factor of h2 canceled by ikkj<->kjik
         nelec_f_bra = self.nelec_rf[bra]
         nelec_f_ket = self.nelec_rf[ket]
         fac *= fermion_des_shuffle (nelec_f_bra, (i, j, k), i)
         fac *= fermion_des_shuffle (nelec_f_ket, (i, j, k), j)
         ham = self.get_ham_2q (j,k,k,i).transpose (1,2,0,3) # BEWARE CONJ
-        ham = np.tensordot (self.ints[i].get_p (bra, ket, 0), ham, axes=((-1),(-1)))
-        ham = np.tensordot (self.ints[j].get_h (bra, ket, 1), ham, axes=((-1),(-1)))
-        ham = np.tensordot (self.ints[k].get_sm (bra, ket), ham, axes=((-2,-1),(-2,-1)))
+        ham = np.tensordot (self.ints[i].get_p (bra, ket, s1), ham, axes=((-1),(-1)))
+        ham = np.tensordot (self.ints[j].get_h (bra, ket, s2), ham, axes=((-1),(-1)))
+        if s1 == 0:
+            dkk = self.ints[k].get_sm (bra, ket)
+        else:
+            dkk = self.ints[k].get_sp (bra, ket)
+        ham = np.tensordot (dkk, ham, axes=((-2,-1),(-2,-1)))
         ham *= fac
         s2 = None
         dt, dw = logger.process_clock () - t0, logger.perf_counter () - w0

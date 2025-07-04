@@ -55,7 +55,6 @@ class ContractHamCI_SHS (rdm.LRRDM):
 
     # Handling for 1s1c: need to do both a'.sm.b and b'.sp.a explicitly
     ltri = False
-    interaction_has_spin = ('_1c_', '_1c1d_', '_1s1c_', '_2c_')
 
     def get_single_rootspace_sivec (self, iroot, bra=False):
         '''A single-rootspace slice of the SI vectors.
