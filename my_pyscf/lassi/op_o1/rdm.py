@@ -425,7 +425,7 @@ class LRRDM (stdm.LSTDM):
         fac = -1 # a'bb'a -> a'ab'b sign
         fac *= fermion_des_shuffle (nelec_f_bra, (i, j, k), i)
         fac *= fermion_des_shuffle (nelec_f_ket, (i, j, k), j)
-        d_ = np.tensordot (d_, self.ints[i].get_p (bra, ket, s1, axes=2)) # _rKKJJi
+        d_ = np.tensordot (d_, self.ints[i].get_p (bra, ket, s1), axes=2) # _rKKJJi
         d_ = np.tensordot (d_, self.ints[j].get_h (bra, ket, s2), axes=((3,4),(0,1))) # _rKKij
         if s1 == 0:
             d_ = np.tensordot (d_, self.ints[k].get_sm (bra, ket), axes=((1,2),(0,1))) # _rijk'k
