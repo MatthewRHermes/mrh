@@ -1,11 +1,12 @@
 import numpy as np
 from scipy import linalg
-from pyscf import lib
+from pyscf import lib, fci
 from pyscf.fci.direct_spin1 import trans_rdm12s, trans_rdm1s
 from pyscf.fci.direct_spin1 import contract_1e, contract_2e, absorb_h1e
 from pyscf.fci.direct_uhf import contract_1e as contract_1e_uhf
 from pyscf.fci.addons import cre_a, cre_b, des_a, des_b
 from pyscf.fci import cistring
+from pyscf.csf_fci import CSFFCISolver
 from itertools import product, combinations
 from mrh.my_pyscf.lassi.citools import get_lroots, get_rootaddr_fragaddr, get_unique_roots
 from mrh.my_pyscf.lassi.op_o1.utilities import *
@@ -881,7 +882,7 @@ class HamTerm:
                 hargs.append (self.h2[p,i,j])
         return hargs
 
-    def op (self):
+    def op (self, _diag=False):
         nsi, li, lj = self.nsi, self.li, self.lj
         ndeta = self.parent.ndeta_r[self.ir]
         ndetb = self.parent.ndetb_r[self.ir]
@@ -891,11 +892,16 @@ class HamTerm:
         if self.is_const ():
             ci = self.parent.ci[self.jr]
             if np.asarray (self.h0).ndim < 3:
-                hci_plab = h0 * self.ci
+                hci_plab = self.h0 * self.ci
             else:
-                hci_plab = np.tensordot (self.h0, ci, axes=1)
+                if _diag:
+                    h0 = np.diagonal (self.h0, axis1=1, axis2=2)
+                    hci_plab = h0[:,:,None,None] * ci[None,:,:,:]
+                else:
+                    hci_plab = np.tensordot (self.h0, ci, axes=1)
         else:
             for p,i,j in product (range (nsi), range (li), range (lj)):
+                if _diag and i!=j: continue
                 if self.is_zero (idx=(p,i,j)): continue
                 args = sargs + self._get_hargs (p,i,j) + [self.ket,]
                 hci_plab[p,i] += self._op (*args, dn=j)
@@ -968,6 +974,55 @@ class HamTerm:
             ci = self.parent.ci[self.jr]
         return np.amax (np.abs (ci)) < 1e-15
 
+    def hdiag (self, fcisolver=None):
+        if self.ir != self.jr: return 0
+        if fcibox is None:
+            fcisolver = fci.solver ()
+        nsi, li, lj = self.nsi, self.li, self.lj
+        ndeta = self.parent.ndeta_r[self.ir]
+        ndetb = self.parent.ndetb_r[self.ir]
+        norb = self.parent.norb
+        nelec = self.parent.nelec_r[self.ir]
+        shape = (nsi,li,ndeta,ndetb)
+        make_hdiag = fcisolver.make_hdiag
+        if isinstance (fcisolver, CSFFCISolver):
+            ncsf = fcisolver.transformer.ncsf
+            shape = (nsi,li,ncsf)
+            make_hdiag = fcisolver.make_hdiag_csf
+        h_plab = np.zeros (shape, dtype=self.parent.dtype)
+        if np.asarray (self.h0).ndim < 3:
+            h_plab[:] = self.h0
+        else:
+            h0 = np.diag (self.h0, axis1=1, axis2=2)
+            for d in range (2,len(shape)):
+                h0 = h0[...,None]
+            h_plab[:] = h0
+        else:
+            for p,i in product (range (nsi), range (li)):
+                if self.is_zero (idx=(p,i,i)): continue
+                h0, h1, h2 = self._get_hargs (p,i,i)
+                args = sargs + self._get_hargs (p,i,j) + [self.ket,]
+                h_plab[p,i] += make_hdiag (h1, h2, norb, nelec)
+        return h_plab
+
+    def hessdiag (self, fcisolver=None):
+        if self.ir != self.jr: return 0
+        hdiag = self.hdiag (fcisolver=fcisolver)
+        hci = self.op (_diag=True)
+        ci = self.parent.ci[self.ir]
+        h_plm = lib.einsum ('plab,mab->plm', hci, ci)
+        if fcibox is None:
+            fcisolver = fci.solver ()
+        nsi, li, lj = self.nsi, self.li, self.lj
+        ndeta = self.parent.ndeta_r[self.ir]
+        ndetb = self.parent.ndetb_r[self.ir]
+        norb = self.parent.norb
+        nelec = self.parent.nelec_r[self.ir]
+        shape = (nsi,li,ndeta,ndetb)
+        if isinstance (fcisolver, CSFFCISolver):
+            ncsf = fcisolver.transformer.ncsf
+            shape = (nsi,li,ncsf)
+        h_plab = np.zeros (shape, dtype=self.parent.dtype)
 
 def make_ints (las, ci, nelec_frs, screen_linequiv=DO_SCREEN_LINEQUIV, nlas=None,
                _FragTDMInt_class=FragTDMInt, mask_ints=None, discriminator=None,

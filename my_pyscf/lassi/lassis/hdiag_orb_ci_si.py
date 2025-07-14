@@ -50,8 +50,7 @@ def get_hdiag_orb (lsi, mo_coeff=None, ci=None, si=None, state=None, weights=Non
         f2d += f2d.T
     return f2d
 
-def get_hdiag_ci (lsi, mo_coeff=None, ci=None, si=None, state=None, weights=None, opt=None,
-                  sum_bra=False):
+def get_hdiag_ci (lsi, mo_coeff=None, ci=None, si=None, state=None, weights=None, opt=None):
     pass
 
 def get_hdiag_si (lsi, mo_coeff=None, ci=None, si=None, opt=None):
