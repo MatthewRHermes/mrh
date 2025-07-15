@@ -819,6 +819,14 @@ class FragTDMInt (object):
                 hci_r_plab[i] += hterm.op ()
         return hci_r_plab
 
+    def _hessdiag (self, fcisolvers=None):
+        if fcisolvers is None: fcisolvers = [None for c in self.ci]
+        hessd_r_plc = [0 for c in self.ci]
+        for ((i, j, hermi), hterm) in self._ham.items ():
+            if hterm.is_zero () or hterm.is_civec_zero () or i!=j: continue
+            hessd_r_plc[i] += hterm.hessdiag (fcisolver=fcisolvers[i])
+        return hessd_r_plc
+
 class HamTerm:
     def __init__(self, parent, ket, ir, jr, h0, h1, h2, hermi=0, spin=None):
         self.parent = parent
@@ -882,7 +890,7 @@ class HamTerm:
                 hargs.append (self.h2[p,i,j])
         return hargs
 
-    def op (self, _diag=False):
+    def op (self, _diag=False, _fix_ket=None):
         nsi, li, lj = self.nsi, self.li, self.lj
         ndeta = self.parent.ndeta_r[self.ir]
         ndetb = self.parent.ndetb_r[self.ir]
@@ -896,6 +904,8 @@ class HamTerm:
             else:
                 if _diag:
                     h0 = np.diagonal (self.h0, axis1=1, axis2=2)
+                    if _fix_ket is not None:
+                        ci = ci[_fix_ket][None,:,:]
                     hci_plab = h0[:,:,None,None] * ci[None,:,:,:]
                 else:
                     hci_plab = np.tensordot (self.h0, ci, axes=1)
@@ -904,7 +914,8 @@ class HamTerm:
                 if _diag and i!=j: continue
                 if self.is_zero (idx=(p,i,j)): continue
                 args = sargs + self._get_hargs (p,i,j) + [self.ket,]
-                hci_plab[p,i] += self._op (*args, dn=j)
+                dn = _fix_ket or j
+                hci_plab[p,i] += self._op (*args, dn=dn)
         return hci_plab
 
     def opH (self):
@@ -976,7 +987,7 @@ class HamTerm:
 
     def hdiag (self, fcisolver=None):
         if self.ir != self.jr: return 0
-        if fcibox is None:
+        if fcisolver is None:
             fcisolver = fci.solver ()
         nsi, li, lj = self.nsi, self.li, self.lj
         ndeta = self.parent.ndeta_r[self.ir]
@@ -997,32 +1008,42 @@ class HamTerm:
             for d in range (2,len(shape)):
                 h0 = h0[...,None]
             h_plab[:] = h0
-        else:
-            for p,i in product (range (nsi), range (li)):
-                if self.is_zero (idx=(p,i,i)): continue
-                h0, h1, h2 = self._get_hargs (p,i,i)
-                args = sargs + self._get_hargs (p,i,j) + [self.ket,]
-                h_plab[p,i] += make_hdiag (h1, h2, norb, nelec)
+        for p,i in product (range (nsi), range (li)):
+            if self.is_zero (idx=(p,i,i)): continue
+            h0, h1, h2 = self._get_hargs (p,i,i)
+            args = sargs + self._get_hargs (p,i,j) + [self.ket,]
+            h_plab[p,i] += make_hdiag (h1, h2, norb, nelec)
         return h_plab
 
     def hessdiag (self, fcisolver=None):
         if self.ir != self.jr: return 0
-        hdiag = self.hdiag (fcisolver=fcisolver)
-        hci = self.op (_diag=True)
-        ci = self.parent.ci[self.ir]
-        h_plm = lib.einsum ('plab,mab->plm', hci, ci)
-        if fcibox is None:
+        if fcisolver is None:
             fcisolver = fci.solver ()
         nsi, li, lj = self.nsi, self.li, self.lj
+        hdiag_piab = self.hdiag (fcisolver=fcisolver)
+        hci_pijab = np.stack ([self.op (_diag=True, _fix_ket=j) for j in range (lj)], axis=2)
+        ci_iab = self.parent.ci[self.ir]
+        hmat_pijk = lib.einsum ('pikab,jab->pijk', hci_pijab, ci_iab.conj ())
         ndeta = self.parent.ndeta_r[self.ir]
         ndetb = self.parent.ndetb_r[self.ir]
-        norb = self.parent.norb
-        nelec = self.parent.nelec_r[self.ir]
-        shape = (nsi,li,ndeta,ndetb)
         if isinstance (fcisolver, CSFFCISolver):
-            ncsf = fcisolver.transformer.ncsf
-            shape = (nsi,li,ncsf)
-        h_plab = np.zeros (shape, dtype=self.parent.dtype)
+            hdiag_pic = hdiag_piab
+            hci = hci_pijab.reshape (nsi*li*lj,ndeta,ndetb)
+            hci = fcisolver.transformer.vec_det2csf (hci, normalize=False)
+            hci_pijc = hci.reshape (nsi,li,lj,fcisolver.transformer.ncsf)
+            ci_ic = fcisolver.transformer.vec_det2csf (ci_iab)
+        else:
+            hdiag_pic = hdiag_piab.reshape (nsi,li,ndeta*ndetb)
+            hci_pijc = hci_pijab.reshape (nsi,li,lj,ndeta*ndetb)
+            ci_ic = ci_iab.reshape (li,ndeta*ndetb)
+        dq = lib.einsum ('pijc,jc->pic', hci_pijc, ci_ic.conj ())
+        hdiag_pic -= (dq + dq.conj ())
+        hdiag_pic += lib.einsum ('jc,pijk,kc->pic', ci_ic.conj (), hmat_pijk, ci_ic)
+        if isinstance (fcisolver, CSFFCISolver):
+            hdiag = hdiag_pic
+        else:
+            hdiag = hdiag_pic.reshape (nsi,li,ndeta,ndetb)
+        return hdiag
 
 def make_ints (las, ci, nelec_frs, screen_linequiv=DO_SCREEN_LINEQUIV, nlas=None,
                _FragTDMInt_class=FragTDMInt, mask_ints=None, discriminator=None,
