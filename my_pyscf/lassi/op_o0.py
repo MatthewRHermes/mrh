@@ -1102,5 +1102,6 @@ if __name__ == '__main__':
     print (las.converged, e_states - (e0 + np.diag (ham_eff)))
 
 gen_contract_op_si_hdiag = functools.partial (citools._fake_gen_contract_op_si_hdiag, ham)
-
+def hessdiag_ci (las, h1, h2, ci_fr, nelec_frs, si_bra, si_ket, h0=0, soc=0):
+    raise NotImplementedError ('o0 version of hdiag_ci')
 

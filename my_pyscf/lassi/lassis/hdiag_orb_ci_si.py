@@ -1,6 +1,8 @@
 import numpy as np
 from pyscf import lib
 from mrh.my_pyscf.lassi.grad_orb_ci_si import get_grad_orb
+from mrh.my_pyscf.lassi.lassis import coords
+from mrh.my_pyscf.lassi.lassis import hessian_orb_ci_si
 
 def get_hdiag_orb (lsi, mo_coeff=None, ci=None, si=None, state=None, weights=None, eris=None,
                    veff=None, dm1s=None, opt=None, hermi=1):
@@ -50,11 +52,21 @@ def get_hdiag_orb (lsi, mo_coeff=None, ci=None, si=None, state=None, weights=Non
         f2d += f2d.T
     return f2d
 
-def get_hdiag_ci (lsi, mo_coeff=None, ci=None, si=None, state=None, weights=None, opt=None):
-    if opt==0:
-        raise NotImplementedError ("o0 version of get_hdiag_ci")
+def get_hdiag_ci (lsi, ei, mo_coeff=None, ci=None, si=None, state=None, weights=None, opt=None):
+    # TODO: multiple states/SA stuff
+    if mo_coeff is None: mo_coeff = lsi.mo_coeff
+    if ci is None: ci = lsi.ci
+    if si is None: si = lsi.si
+    if opt is None: opt = lsi.opt
+    nelec_frs = lsi.get_nelec_frs ()
+    h0, h1, h2 = lsi.ham_2q (mo_coeff)
+    h0 = h0 - ei
+    hdiag = op[opt].hessdiag_ci (lsi, h1, h2, ci, nelec_frs, si, si, h0=h0)
+    return coords.sum_hci (lsi, hdiag)
 
 def get_hdiag_si (lsi, mo_coeff=None, ci=None, si=None, opt=None):
+    # TODO: multiple states proper evaluation of si internal
+    # TODO: lindep orthbasis handling
     log = lib.logger.new_logger (lsi, lsi.verbose)
     t0 = (lib.logger.process_clock (), lib.logger.perf_counter ())
     if ci is None: ci = lsi.ci
@@ -73,7 +85,38 @@ def get_hdiag_si (lsi, mo_coeff=None, ci=None, si=None, opt=None):
     hdiag -= si * hsi.conj ()
     hdiag += hdiag.conj ()
     if is1d: hdiag=hdiag[:,0]
+    return hdiag, ei
+
+def get_hdiag (lsi, mo_coeff=None, ci_ref=None, ci_sf=None, ci_ch=None, si=None, state=None,
+               weights=None, ugg=None):
+    if mo_coeff is None: mo_coeff = lsi.mo_coeff
+    if ci_ref is None: ci_ref = lsi.get_ci_ref ()
+    if ci_sf is None: ci_sf = lsi.ci_spin_flips
+    if ci_ch is None: ci_ch = lsi.ci_charge_hops
+    if si is None: si = lsi.si
+    if ugg is None: ugg = coords.UnitaryGroupGenerators (lsi, mo_coeff, ci_ref, ci_sf, ci_ch, si)
+    ci = lsi.prepare_model_states (ci_ref, ci_sf, ci_ch)[0].ci
+    horb = get_hdiag_orb (lsi, mo_coeff=mo_coeff, ci=ci, si=si, state=state, weights=weights,
+                          opt=opt)
+    hsi, ei = get_hdiag_si (lsi, mo_coeff=mo_coeff, ci=ci, si=si, opt=opt)
+    hci_ref, hci_sf, hci_ch = get_hdiag_ci (lsi, ei, mo_coeff=mo_coeff, ci=ci, si=si, state=state,
+                                            weights=weights, opt=opt)
+    return ugg.pack (horb, hci_ref, hci_sf, hci_ch, hsi, parity=1)
+
+def get_hdiag_ref (lsi, mo_coeff=None, ci_ref=None, ci_sf=None, ci_ch=None, si=None, state=None,
+                   weights=None, ugg=None):
+    if mo_coeff is None: mo_coeff = lsi.mo_coeff
+    if ci_ref is None: ci_ref = lsi.get_ci_ref ()
+    if ci_sf is None: ci_sf = lsi.ci_spin_flips
+    if ci_ch is None: ci_ch = lsi.ci_charge_hops
+    if si is None: si = lsi.si
+    if ugg is None: ugg = coords.UnitaryGroupGenerators (lsi, mo_coeff, ci_ref, ci_sf, ci_ch, si)
+    h_op = hessian_orb_ci_si.HessianOperator (ugg)
+    hdiag = np.zeros (ugg.nvar_tot, h_op.dtype)
+    x = np.zeros (ugg.nvar_tot, h_op.dtype)
+    for i in range (ugg.nvar_tot):
+        x[:] = 0
+        x[i] = 1.0
+        hdiag[i] = h_op (x)[i]
     return hdiag
-
-
 

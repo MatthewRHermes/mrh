@@ -106,9 +106,12 @@ class FragTDMInt (object):
     def __init__(self, las, ci, hopping_index, zerop_index, onep_index, norb, nroots, nelec_rs,
                  rootaddr, fragaddr, idx_frag, mask_ints, dtype=np.float64, discriminator=None,
                  pt_order=None, do_pt_order=None, screen_linequiv=DO_SCREEN_LINEQUIV,
-                 verbose=None):
+                 verbose=None, fcisolvers=None):
         # TODO: if it actually helps, cache the "linkstr" arrays
         if verbose is None: verbose = las.verbose
+        if fcisolvers is None:
+            if hasattr (las, 'fciboxes'):
+                fcisolvers = las.fciboxes[idx_frag].fcisolvers
         self.verbose = verbose
         self.log = lib.logger.new_logger (las, self.verbose)
         self.ci = ci
@@ -134,6 +137,7 @@ class FragTDMInt (object):
         self.idx_frag = idx_frag
         self.mask_ints = mask_ints
         self.discriminator = discriminator
+        self.fcisolvers = fcisolvers
 
         if pt_order is None: pt_order = np.zeros (nroots, dtype=int)
         self.pt_order = pt_order
@@ -820,7 +824,8 @@ class FragTDMInt (object):
         return hci_r_plab
 
     def _hessdiag (self, fcisolvers=None):
-        if fcisolvers is None: fcisolvers = [None for c in self.ci]
+        if fcisolvers is None:
+            fcisolvers = getattr (self, 'fcisolvers', [None for c in self.ci])
         hessd_r_plc = [0 for c in self.ci]
         for ((i, j, hermi), hterm) in self._ham.items ():
             if hterm.is_zero () or hterm.is_civec_zero () or i!=j: continue

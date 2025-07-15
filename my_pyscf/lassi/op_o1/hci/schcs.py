@@ -42,7 +42,7 @@ class ContractHamCI_SHS (rdm.LRRDM):
                            log=log, max_memory=max_memory, dtype=dtype)
         self.las = las
         if h1.ndim==2: h1 = np.stack ([h1,h1], axis=0)
-        self.h0 = h0
+        self.h0 = np.atleast_1d (h0)
         self.h1 = np.ascontiguousarray (h1)
         self.h2 = np.ascontiguousarray (h2)
         self.mask_bra_space = mask_bra_space
@@ -133,7 +133,7 @@ class ContractHamCI_SHS (rdm.LRRDM):
         t0, w0 = logger.process_clock (), logger.perf_counter ()
         h1_sii = self.get_ham_2q (i,i)
         h2_iiii = self.get_ham_2q (i,i,i,i)
-        h0 = self.h0 * d_rII 
+        h0 = self.h0[:,None,None] * d_rII
         h1 = np.multiply.outer (d_rII, h1_sii)
         h2 = np.multiply.outer (d_rII, h2_iiii)
         self.ints[i]._put_ham_(bra, ket, h0, h1, h2, hermi=1)
