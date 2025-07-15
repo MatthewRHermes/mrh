@@ -133,6 +133,10 @@ class ImpuritySCF (scf.hf.SCF):
                                             "supported)"))
         df_eris_mem_error = MemoryError (("Density-fitted two-electron integrals in asynchronous "
                                           "LASSCF (outcore algorithm is not yet supported"))
+        
+        gpu = False
+        if hasattr (mf, 'use_gpu'): gpu = mf.mol.use_gpu
+
         if getattr (mf, 'with_df', None) is not None:
             # TODO: impurity outcore cderi
             imporb_coeff=np.ascontiguousarray(imporb_coeff) 
@@ -140,7 +144,7 @@ class ImpuritySCF (scf.hf.SCF):
             #you need to do this because imporb_coeff is input into the function is F-contiguous during recomb and C-contiguous during fragments 
             #gpu code expects a c-contiguous
             #this does not affect the cpu code because ```ao2mo.incore._conc_mos``` gives back moij which is necessarily in f-contiguous regardless of how imporb_coeff is to start with
-            if mf.mol.verbose>=lib.logger.DEBUG and mf.mol.use_gpu:
+            if mf.mol.verbose>=lib.logger.DEBUG and gpu:
                 #do cpu
                 if not self._is_mem_enough (df_naux = mf.with_df.get_naoaux ()):
                     raise df_eris_mem_error
@@ -162,7 +166,6 @@ class ImpuritySCF (scf.hf.SCF):
                     self._cderi = _cderi
                     self._eri = np.dot (_cderi.conj ().T, _cderi)
                 #do gpu
-                gpu=mf.mol.use_gpu
                 naoaux = mf.with_df.get_naoaux()
                 nao_s, nao_f = imporb_coeff.shape
                 if getattr(self, 'with_df', None) is not None:
@@ -202,8 +205,7 @@ class ImpuritySCF (scf.hf.SCF):
                         exit()
 
                 
-            elif mf.mol.use_gpu:
-                gpu=mf.mol.use_gpu
+            elif gpu:
                 naoaux = mf.with_df.get_naoaux()
                 nao_s, nao_f = imporb_coeff.shape
                 if getattr(self, 'with_df', None) is not None:
