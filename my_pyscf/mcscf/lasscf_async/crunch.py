@@ -8,8 +8,10 @@ from pyscf.mcscf.addons import _state_average_mcscf_solver
 from mrh.my_pyscf.mcscf import _DFLASCI, lasci_sync, lasci
 import copy, json
 
-from mrh.my_pyscf.gpu import libgpu
-#DEBUG=True
+import sys
+if 'gpu4mrh' in sys.modules:
+    from mrh.my_pyscf.gpu import libgpu
+
 class ImpurityMole (gto.Mole):
     def __init__(self, las, stdout=None, output=None):
         gto.Mole.__init__(self)

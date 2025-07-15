@@ -5,7 +5,9 @@ from scipy.sparse import linalg as sparse_linalg
 from scipy import linalg 
 import numpy as np
 
-from mrh.my_pyscf.gpu import libgpu
+import sys
+if 'gpu4mrh' in sys.modules:
+    from mrh.my_pyscf.gpu import libgpu
 
 # This must be locked to CSF solver for the forseeable future, because I know of no other way to
 # handle spin-breaking potentials while retaining spin constraint
