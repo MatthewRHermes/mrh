@@ -5,10 +5,6 @@ from scipy.sparse import linalg as sparse_linalg
 from scipy import linalg 
 import numpy as np
 
-import sys
-if 'gpu4mrh' in sys.modules:
-    from mrh.my_pyscf.gpu import libgpu
-
 # This must be locked to CSF solver for the forseeable future, because I know of no other way to
 # handle spin-breaking potentials while retaining spin constraint
 
@@ -1377,6 +1373,7 @@ class LASCI_HessianOperator (sparse_linalg.LinearOperator):
         return ci1
 
     def _update_h2eff_sub_gpu(self,gpu,mo1,umat,h2eff_sub):
+        from mrh.my_pyscf.gpu import libgpu
         ncore, ncas, nocc, nmo = self.ncore, self.ncas, self.nocc, self.nmo
         #ucas = umat[ncore:nocc, ncore:nocc]
         bmPu = None

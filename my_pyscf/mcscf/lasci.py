@@ -18,10 +18,6 @@ from scipy import linalg
 import numpy as np
 import copy
 
-import sys
-if 'gpu4mrh' in sys.modules:
-    from mrh.my_pyscf.gpu import libgpu
-
 def LASCI (mf_or_mol, ncas_sub, nelecas_sub, **kwargs):
     if isinstance(mf_or_mol, gto.Mole):
         mf = scf.RHF(mf_or_mol)

@@ -8,10 +8,6 @@ from pyscf.mcscf.addons import _state_average_mcscf_solver
 from mrh.my_pyscf.mcscf import _DFLASCI, lasci_sync, lasci
 import copy, json
 
-import sys
-if 'gpu4mrh' in sys.modules:
-    from mrh.my_pyscf.gpu import libgpu
-
 class ImpurityMole (gto.Mole):
     def __init__(self, las, stdout=None, output=None):
         gto.Mole.__init__(self)
@@ -140,6 +136,7 @@ class ImpuritySCF (scf.hf.SCF):
         if hasattr (mf, 'use_gpu'): gpu = mf.mol.use_gpu
 
         if getattr (mf, 'with_df', None) is not None:
+            from mrh.my_pyscf.gpu import libgpu
             # TODO: impurity outcore cderi
             imporb_coeff=np.ascontiguousarray(imporb_coeff) 
             #VA - 4/29/25
@@ -613,6 +610,7 @@ class ImpuritySolver ():
                                       dm1s=None, casdm1rs=None, casdm2rs=None, weights=None):
         '''Update the Hamiltonian data contained within this impurity solver and all encapsulated
         impurity objects'''
+        from mrh.my_pyscf.gpu import libgpu
         las = self.mol._las
         gpu = las.use_gpu
         if h2eff_sub is None: h2eff_sub = las.ao2mo (mo_coeff)
