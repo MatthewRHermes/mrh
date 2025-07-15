@@ -1,4 +1,6 @@
 // A mini app to do matrix multiplication on cpu and gpu
+// This is largely used now to benchmark transforms recorded from production run
+
 #include <stdio.h>
 #include <stdlib.h>
 #include <math.h>
@@ -22,13 +24,17 @@ using namespace MATHLIB_NS;
 // B is (k, n) matrix
 // C is (m, n) matrix
 
-// -replay to rerun workloads sampled from gpu4mrh run
+// -replay to rerun workloads sampled from gpu4mrh run exactly as they were executed
+// -replay [gemm|gemm_batch] [transa] [transb] [m] [n] [k] [lda] [ldb] [ldc] [alpha] [beta] [batch_size]
 // -replay gemm_batch T T 92 92 92 1 0 240
 // -replay gemm N N 92 92 22080 1 0
 
-// -fortran-order
+// -fortran-order : use this with by-hand testing
 // Column-ordering transposes everything
-// To compute A.B, then to call API with B.A
+// To compute A.B, then call Fortran APIs with B.A
+
+// Matrix Multiplication :: C(3 x 4) = A(3 x 2)^N . B(2 x 4)^N
+// OMP_NUM_THREADS=1 ./a.out -replay gemm N N  3 4 2  2 4 4  1.0 0.0 -check_result -fortran-order
 
 // ----------------------------------------------------------------
 
