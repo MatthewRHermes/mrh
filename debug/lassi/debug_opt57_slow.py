@@ -30,8 +30,8 @@ from mrh.my_pyscf.lassi.lassi import roots_make_rdm12s, make_stdm12s, ham_2q
 from mrh.my_pyscf.lassi.citools import get_lroots, get_rootaddr_fragaddr
 from mrh.my_pyscf.lassi import op_o0
 from mrh.my_pyscf.lassi import op_o1
-from mrh.my_pyscf.lassi.spaces import SingleLASRootspace
-from mrh.my_pyscf.lassi.op_o1.utilities import lst_hopping_index
+from mrh.tests.lassi.addons import case_contract_hlas_ci, case_contract_op_si
+from mrh.tests.lassi.addons import eri_sector_indexes
 
 op = (op_o0, op_o1)
 
@@ -86,8 +86,8 @@ def setUpModule ():
     
     dr_nn = 2.0
     mol = struct (dr_nn, dr_nn, '6-31g', symmetry='Cs')
-    mol.verbose = 0 #lib.logger.INFO 
-    mol.output = '/dev/null' #'test_lassi_op.log'
+    mol.verbose = lib.logger.INFO 
+    mol.output = 'debug_opt57_slow.log'
     mol.spin = 0 
     mol.build ()
     mf = scf.RHF (mol).run ()
@@ -159,9 +159,9 @@ class KnownValues(unittest.TestCase):
     #    h1, h2 = ham_2q (las, las.mo_coeff, veff_c=None, h2eff_sub=None)[1:]
     #    lbls = ('ham','s2','ovlp')
     #    t0, w0 = lib.logger.process_clock (), lib.logger.perf_counter ()
-    #    mats_o0 = op_o0.ham (las, h1, h2, las.ci, nelec_frs, orbsym=orbsym, wfnsym=wfnsym)
+    #    mats_o0 = op_o0.ham (las, h1, h2, las.ci, nelec_frs, orbsym=orbsym, wfnsym=wfnsym)[:3]
     #    t1, w1 = lib.logger.process_clock (), lib.logger.perf_counter ()
-    #    mats_o1 = op_o1.ham (las, h1, h2, las.ci, nelec_frs, orbsym=orbsym, wfnsym=wfnsym)
+    #    mats_o1 = op_o1.ham (las, h1, h2, las.ci, nelec_frs, orbsym=orbsym, wfnsym=wfnsym)[:3]
     #    t2, w2 = lib.logger.process_clock (), lib.logger.perf_counter ()
     #    #print (t1-t0, t2-t1)
     #    #print (w1-w0, w2-w1)
@@ -171,10 +171,14 @@ class KnownValues(unittest.TestCase):
     #            self.assertAlmostEqual (lib.fp (mat), fp, 9)
 
     #def test_rdm12s (self):
+    #    si_bra = si
+    #    si_ket = np.roll (si, 1, axis=1)
     #    t0, w0 = lib.logger.process_clock (), lib.logger.perf_counter ()
-    #    d12_o0 = op_o0.roots_make_rdm12s (las, las.ci, nelec_frs, si, orbsym=orbsym, wfnsym=wfnsym)
+    #    d12_o0 = op_o0.roots_trans_rdm12s (las, las.ci, nelec_frs, si_bra, si_ket, orbsym=orbsym,
+    #                                       wfnsym=wfnsym)
     #    t1, w1 = lib.logger.process_clock (), lib.logger.perf_counter ()
-    #    d12_o1 = op_o1.roots_make_rdm12s (las, las.ci, nelec_frs, si, orbsym=orbsym, wfnsym=wfnsym)
+    #    d12_o1 = op_o1.roots_trans_rdm12s (las, las.ci, nelec_frs, si_bra, si_ket, orbsym=orbsym,
+    #                                       wfnsym=wfnsym)
     #    t2, w2 = lib.logger.process_clock (), lib.logger.perf_counter ()
     #    #print (t1-t0, t2-t1, t3-t2)
     #    #print (w1-w0, w2-w1, w3-w2)
@@ -185,58 +189,22 @@ class KnownValues(unittest.TestCase):
     #                    lib.fp (d12_o1[r][i]), 9)
 
     def test_contract_hlas_ci (self):
-        hopping_index, zerop_index, onep_index = lst_hopping_index (nelec_frs)
-        symm_index = np.all (hopping_index.sum (0) == 0, axis=0)
-        twop_index = symm_index & (np.abs (hopping_index).sum ((0,1)) == 4)
-        twoc_index = twop_index & (np.abs (hopping_index.sum (1)).sum (0) == 4)
-        ocos_index = twop_index & (np.abs (hopping_index.sum (1)).sum (0) == 2)
-        ones_index = twop_index & (np.abs (hopping_index.sum (1)).sum (0) == 0)
-        twoc2_index = twoc_index & (np.count_nonzero (hopping_index.sum (1), axis=0) == 2)
-        twoc3_index = twoc_index & (np.count_nonzero (hopping_index.sum (1), axis=0) == 3)
-        twoc4_index = twoc_index & (np.count_nonzero (hopping_index.sum (1), axis=0) == 4)
-        interactions = ['null', '1c', '1s', '1c1s', '2c_2', '2c_3', '2c_4']
-        interidx = (onep_index.astype (int) + 2*ones_index.astype (int)
-                    + 3*ocos_index.astype (int) + 4*twoc2_index.astype (int)
-                    + 5*twoc3_index.astype (int) + 6*twoc4_index.astype (int))
-
         h0, h1, h2 = ham_2q (las, las.mo_coeff)
-        nelec = nelec_frs
-        ci_fr = las.ci
+        nfrag, idx = eri_sector_indexes (las.ncas_sub)
+        #h0 = 0
+        #h1[:] = 0
+        #h2[nfrag==1] = 0
+        #h2[nfrag==2] = 0
+        #h2[(nfrag==3)&idx['j']] = 0
+        #h2[(nfrag==3)&idx['k']] = 1
+        #h2[(nfrag==3)&idx['pp']] = 0
+        case_contract_hlas_ci (self, las, h0, h1, h2, las.ci, nelec_frs,
+                               si_bra='flat',
+                               si_ket=0)
 
-        spaces = [SingleLASRootspace (las, m, s, c, 0) for c,m,s,w in zip (*get_space_info (las))]
-
-        lroots = get_lroots (ci_fr)
-        lroots_prod = np.prod (lroots, axis=0)
-        nj = np.cumsum (lroots_prod)
-        ni = nj - lroots_prod
-        ndim = nj[-1]
-        for opt in range (2):
-            ham = op[opt].ham (las, h1, h2, ci_fr, nelec)[0]
-            hket_fr_pabq = op[opt].contract_ham_ci (las, h1, h2, ci_fr, nelec, ci_fr, nelec)
-            for f, (ci_r, hket_r_pabq) in enumerate (zip (ci_fr, hket_fr_pabq)):
-                current_order = list (range (las.nfrags)) + [las.nfrags]
-                current_order.insert (0, current_order.pop (las.nfrags-1-f))
-                for r, (ci, hket_pabq) in enumerate (zip (ci_r, hket_r_pabq)):
-                    if ci.ndim < 3: ci = ci[None,:,:]
-                    proper_shape = np.append (lroots[::-1,r], ndim)
-                    current_shape = proper_shape[current_order]
-                    to_proper_order = list (np.argsort (current_order))
-                    hket_pq = lib.einsum ('rab,pabq->rpq', ci.conj (), hket_pabq)
-                    hket_pq = hket_pq.reshape (current_shape)
-                    hket_pq = hket_pq.transpose (*to_proper_order)
-                    hket_pq = hket_pq.reshape ((lroots_prod[r], ndim))
-                    hket_ref = ham[ni[r]:nj[r]]
-                    for s, (k, l) in enumerate (zip (ni, nj)):
-                        hket_pq_s = hket_pq[:,k:l]
-                        hket_ref_s = hket_ref[:,k:l]
-                        # TODO: opt>0 for things other than single excitation
-                        #if opt>0 and not spaces[r].is_single_excitation_of (spaces[s]): continue
-                        #elif opt==1: print (r,s, round (lib.fp (hket_pq_s)-lib.fp (hket_ref_s),3))
-                        with self.subTest (opt=opt, frag=f, bra_space=r, ket_space=s,
-                                           intyp=interactions[interidx[r,s]],
-                                           dneleca=nelec[:,r,0]-nelec[:,s,0],
-                                           dnelecb=nelec[:,r,1]-nelec[:,s,1]):
-                            self.assertAlmostEqual (lib.fp (hket_pq_s), lib.fp (hket_ref_s), 8)
+    #def test_contract_op_si (self):
+    #    h0, h1, h2 = ham_2q (las, las.mo_coeff)
+    #    case_contract_op_si (self, las, h1, h2, las.ci, nelec_frs)
 
 
 

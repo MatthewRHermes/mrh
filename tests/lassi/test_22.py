@@ -29,6 +29,7 @@ from mrh.my_pyscf.lassi.sitools import make_sdm1
 from mrh.tests.lassi.addons import case_contract_hlas_ci, case_lassis_fbf_2_model_state
 from mrh.tests.lassi.addons import case_lassis_fbfdm, case_contract_op_si, debug_contract_op_si
 from mrh.tests.lassi.addons import case_lassis_grads, case_lassis_hessian, case_lassis_ugg
+from mrh.tests.lassi.addons import eri_sector_indexes
 
 def setUpModule ():
     global mol, mf, lsi, las, mc, op, lsis
@@ -189,10 +190,12 @@ class KnownValues(unittest.TestCase):
         case_lassis_ugg (self, lsis)
 
     def test_lassis_grads (self):
-        case_lassis_grads (self, lsis)
+        for lsis.opt in range (2):
+            case_lassis_grads (self, lsis)
 
     def test_lassis_hessian (self):
-        case_lassis_hessian (self, lsis)
+        for lsis.opt in range (2):
+            case_lassis_hessian (self, lsis)
 
     def test_fdm1 (self):
         make_fdm1 = get_fdm1_maker (lsi, lsi.ci, lsi.get_nelec_frs (), lsi.si)

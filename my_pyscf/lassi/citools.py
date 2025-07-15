@@ -220,7 +220,8 @@ def get_orth_basis (ci_fr, norb_f, nelec_frs, _get_ovlp=None):
                                          matvec=raw2orth,
                                          rmatvec=orth2raw)
 
-def get_unique_roots (ci, nelec_r, screen_linequiv=True, screen_thresh=SCREEN_THRESH):
+def get_unique_roots (ci, nelec_r, screen_linequiv=True, screen_thresh=SCREEN_THRESH,
+                      discriminator=None):
     '''Identify which groups of CI vectors are equal or equivalent from a list.
 
     Args:
@@ -236,6 +237,8 @@ def get_unique_roots (ci, nelec_r, screen_linequiv=True, screen_thresh=SCREEN_TH
         screen_thresh: float
             epsilon for linear equivalence between CI vector spaces
             meaningless if screen_linequiv==False
+        discriminator: sequence of length nroots
+            Tags to forcibly discriminate otherwise equivalent rootspaces
 
     Returns:
         root_unique: ndarray of logical of length nroots
@@ -247,6 +250,7 @@ def get_unique_roots (ci, nelec_r, screen_linequiv=True, screen_thresh=SCREEN_TH
             its unique image
     '''
     nroots = len (ci)
+    if discriminator is None: discriminator = np.zeros (nroots, dtype=int)
     lroots = get_lroots (ci)
     root_unique = np.ones (nroots, dtype=bool)
     unique_root = np.arange (nroots, dtype=int)
@@ -257,6 +261,7 @@ def get_unique_roots (ci, nelec_r, screen_linequiv=True, screen_thresh=SCREEN_TH
         if nelec_r[i] != nelec_r[j]: continue
         if lroots[i] != lroots[j]: continue
         if ci[i].shape != ci[j].shape: continue
+        if discriminator[i] != discriminator[j]: continue
         isequal = False
         if ci[i] is ci[j]: isequal = True
         else:
@@ -289,9 +294,9 @@ def get_unique_roots (ci, nelec_r, screen_linequiv=True, screen_thresh=SCREEN_TH
     return root_unique, unique_root, umat_root
 
 def _fake_gen_contract_op_si_hdiag (matrix_builder, las, h1, h2, ci_fr, nelec_frs, soc=0,
-                                    orbsym=None, wfnsym=None):
+                                    orbsym=None, wfnsym=None, **kwargs):
     ham, s2, ovlp, _get_ovlp = matrix_builder (las, h1, h2, ci_fr, nelec_frs, soc=soc,
-                                               orbsym=orbsym, wfnsym=wfnsym)
+                                               orbsym=orbsym, wfnsym=wfnsym, **kwargs)
     def contract_ham_si (x):
         return ham @ x
     def contract_s2 (x):
@@ -319,8 +324,16 @@ def hci_dot_sivecs_ij (hci_pabq, si_bra, si_ket, lroots, i, j):
         is1d = (si_bra.ndim==1)
         c = np.asfortranarray (si_bra[j0[j]:j1[j]])
         c = transpose_sivec_make_fragments_slow (c, lroots[:,j], i)
-        if is1d: c = c[0]
         hci_pabq = np.tensordot (c.conj (), hci_pabq, axes=1)
+        if si_ket is not None:
+            if si_ket.ndim == 1:
+                assert (hci_pabq.shape[0] == 1)
+                hci_pabq = hci_pabq[0]
+            else:
+                assert (hci_pabq.shape[0] == hci_pabq.shape[4])
+                hci_pabq = np.diagonal (hci_pabq, axis1=0, axis2=4)
+                hci_pabq = hci_pabq.transpose (3,0,1,2).copy ()
+                if is1d: hci_pabq = hci_pabq[0]
     return hci_pabq
 
 
