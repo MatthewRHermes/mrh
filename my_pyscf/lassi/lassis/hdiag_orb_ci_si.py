@@ -51,7 +51,8 @@ def get_hdiag_orb (lsi, mo_coeff=None, ci=None, si=None, state=None, weights=Non
     return f2d
 
 def get_hdiag_ci (lsi, mo_coeff=None, ci=None, si=None, state=None, weights=None, opt=None):
-    pass
+    if opt==0:
+        raise NotImplementedError ("o0 version of get_hdiag_ci")
 
 def get_hdiag_si (lsi, mo_coeff=None, ci=None, si=None, opt=None):
     log = lib.logger.new_logger (lsi, lsi.verbose)

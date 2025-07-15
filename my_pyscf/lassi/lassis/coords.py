@@ -83,47 +83,64 @@ class UnitaryGroupGenerators (lasscf_sync_o0.LASSCF_UnitaryGroupGenerators):
         self.north = self.raw2orth.shape[0]
         self.si = self.raw2orth (si)
 
-    def pack (self, kappa, ci_ref, ci_sf, ci_ch, si):
-        kappa = .5 * (kappa - kappa.T)
+    def pack (self, kappa, ci_ref, ci_sf, ci_ch, si, parity=-1):
+        # If parity is even, I assume I am dealing with a quadratic quantity and the inputs
+        # must already be in the correct basis and projected appropriately
+        assert (parity in (-1,1)), 'parity must be even (1) or odd (-1)'
+        if parity == -1: kappa = .5 * (kappa - kappa.T)
         x = kappa[self.uniq_orb_idx]
+        def reshape_ci (t, c0, c1, nvecs, ncsf):
+            if (c0 is None) or nvecs>=ncsf:
+                return np.zeros (0, dtype=x.dtype)
+            if parity==-1:
+                c1 = t.vec_det2csf (c1, normalize=False)
+                if c1.ndim==1: c1=c1[None,:]
+                if c0.ndim==1: c0=c0[None,:]
+                c1 -= np.dot (np.dot (c1, c0.conj ().T), c0)
+            return c1
+
         # ci_ref part
         for i in range (self.nfrags):
             t = self.t_ref[i]
             c0 = self.ci_ref[i]
-            c1 = t.vec_det2csf (ci_ref[i], normalize=False)[0]
-            c1 -= c0 * np.dot (c0.conj (), c1)
-            x = np.append (x, c1)
+            c1 = reshape_ci (t, c0, ci_ref[i], 1, self.ncsf_ref[i])
+            x = np.append (x, c1.ravel ())
         # ci_sf part
-        ncsf_sf = self.ncsf_sf
+        nvecs_sf = self.ncsf_sf[:,:,0]
+        ncsf_sf = self.ncsf_sf[:,:,1]
         for i in range (self.nfrags):
             for s in range (2):
                 t = self.t_sf[i][s]
                 c0 = self.ci_sf[i][s]
-                if c0 is not None and (ncsf_sf[i,s,0]<ncsf_sf[i,s,1]):
-                    c1 = t.vec_det2csf (ci_sf[i][s], normalize=False)
-                    c1 -= np.dot (np.dot (c1, c0.conj ().T), c0)
-                    x = np.append (x, c1.ravel ())
+                c1 = reshape_ci (t, c0, ci_sf[i][s], nvecs_sf[i,s], ncsf_sf[i,s])
+                x = np.append (x, c1.ravel ())
         # ci_ch part
-        ncsf_ch = self.ncsf_ch
+        nvecs_ch = self.ncsf_ch[:,:,:,:,0]
+        ncsf_ch = self.ncsf_ch[:,:,:,:,1]
         for i in range (self.nfrags):
             for a in range (self.nfrags):
                 for s in range (4):
                     # p = 0: i
                     c0 = self.ci_ch[i][a][s][0]
+                    c1 = ci_ch[i][a][s][0]
                     t = self.t_ch_i[i][s//2]
-                    if c0 is not None and (ncsf_ch[i,a,s,0,0]<ncsf_ch[i,a,s,0,1]):
-                        c1 = t.vec_det2csf (ci_ch[i][a][s][0], normalize=False)
-                        c1 -= np.dot (np.dot (c1, c0.conj ().T), c0)
-                        x = np.append (x, c1.ravel ())
+                    nvecs = nvecs_ch[i,a,s,0]
+                    ncsf = ncsf_ch[i,a,s,0]
+                    c1 = reshape_ci (t, c0, c1, nvecs, ncsf)
+                    x = np.append (x, c1.ravel ())
                     # p = 1: a
                     c0 = self.ci_ch[i][a][s][1]
+                    c1 = ci_ch[i][a][s][1]
                     t = self.t_ch_a[a][s%2]
-                    if c0 is not None and (ncsf_ch[i,a,s,1,0]<ncsf_ch[i,a,s,1,1]):
-                        c1 = t.vec_det2csf (ci_ch[i][a][s][1], normalize=False)
-                        c1 -= np.dot (np.dot (c1, c0.conj ().T), c0)
-                        x = np.append (x, c1.ravel ())
+                    nvecs = nvecs_ch[i,a,s,1]
+                    ncsf = ncsf_ch[i,a,s,1]
+                    c1 = reshape_ci (t, c0, c1, nvecs, ncsf)
+                    x = np.append (x, c1.ravel ())
         # si part internal
-        si = self.raw2orth (si.reshape (self.nprods, self.nroots_si))
+        if parity == -1:
+            si = self.raw2orth (si.reshape (self.nprods, self.nroots_si))
+        else:
+            si = si.reshape (*self.si.shape)
         z = self.si.conj ().T @ si
         if self.nroots_si>1:
             x = np.append (x, (z-z.T)[np.tril_indices (self.nroots_si, k=-1)])
