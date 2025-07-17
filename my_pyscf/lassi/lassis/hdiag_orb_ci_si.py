@@ -64,7 +64,7 @@ def get_hdiag_ci (lsi, ei, mo_coeff=None, ci=None, si=None, state=None, weights=
     h0, h1, h2 = lsi.ham_2q (mo_coeff)
     h0 = h0 - ei
     hdiag = op[opt].hessdiag_ci (lsi, h1, h2, ci, nelec_frs, si, si, h0=h0)
-    return coords.sum_hci (lsi, hdiag)
+    return coords.sum_hci (lsi, hdiag, _csf_basis=True)
 
 def get_hdiag_si (lsi, mo_coeff=None, ci=None, si=None, opt=None):
     # TODO: multiple states proper evaluation of si internal

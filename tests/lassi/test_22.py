@@ -205,8 +205,9 @@ class KnownValues(unittest.TestCase):
             si = (lsis.si[:,0] + lsis.si[:,i]) * np.sqrt (0.5)
         else:
             si = lsis.si[:,0]
-        hdiag_orb_ci_si.get_hdiag (lsis, si=si)
-        hdiag_orb_ci_si.get_hdiag_ref (lsis, si=si)
+        hdiag_test = hdiag_orb_ci_si.get_hdiag (lsis, si=si)
+        hdiag_ref = hdiag_orb_ci_si.get_hdiag_ref (lsis, si=si)
+        self.assertEqual (hdiag_test.shape, hdiag_ref.shape)
 
     def test_fdm1 (self):
         make_fdm1 = get_fdm1_maker (lsi, lsi.ci, lsi.get_nelec_frs (), lsi.si)

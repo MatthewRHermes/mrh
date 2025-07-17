@@ -407,7 +407,7 @@ def _update_ci_ch (ci0, ci1):
         ci2.append (a2)
     return ci2
 
-def sum_hci (lsi, hci_fr):
+def sum_hci (lsi, hci_fr, _csf_basis=False):
     '''Add hci vectors into LASSIS-shape arrays
 
     Args:
@@ -427,17 +427,20 @@ def sum_hci (lsi, hci_fr):
     hci_ch = [[[[0,0] for s in range (4)]
                for a in range (lsi.nfrags)]
               for i in range (lsi.nfrags)]
+    my_mup = mup
+    if _csf_basis:
+        def my_mup (c, no, ne, s): return c
     for i in range (lsi.nfrags):
         for p, ne in zip (*lsi.get_ref_fbf_rootspaces (i)):
-            hci_ref[i] += mup (hci_fr[i][p], no[i], ne, smult[i][p])
+            hci_ref[i] += my_mup (hci_fr[i][p], no[i], ne, smult[i][p])
         for s in range (2):
             for p, ne in zip (*lsi.get_sf_fbf_rootspaces (i,s)):
-                hci_sf[i][s] += mup (hci_fr[i][p], no[i], ne, smult[i][p])
+                hci_sf[i][s] += my_mup (hci_fr[i][p], no[i], ne, smult[i][p])
         for a in range (lsi.nfrags):
             for s in range (4):
                 for p, nei, nea in zip (*lsi.get_ch_fbf_rootspaces (i, a, s)):
-                    hci_ch[i][a][s][0] += mup (hci_fr[i][p], no[i], nei, smult[i][p])
-                    hci_ch[i][a][s][1] += mup (hci_fr[a][p], no[a], nea, smult[a][p])
+                    hci_ch[i][a][s][0] += my_mup (hci_fr[i][p], no[i], nei, smult[i][p])
+                    hci_ch[i][a][s][1] += my_mup (hci_fr[a][p], no[a], nea, smult[a][p])
     return hci_ref, hci_sf, hci_ch
 
 
