@@ -1009,14 +1009,18 @@ class HamTerm:
         if np.asarray (self.h0).ndim < 3:
             h_plab[:] = self.h0
         else:
-            h0 = np.diag (self.h0, axis1=1, axis2=2)
+            h0 = np.diagonal (self.h0, axis1=1, axis2=2)
             for d in range (2,len(shape)):
                 h0 = h0[...,None]
             h_plab[:] = h0
+        if self.is_const (): return h_plab
         for p,i in product (range (nsi), range (li)):
             if self.is_zero (idx=(p,i,i)): continue
-            h0, h1, h2 = self._get_hargs (p,i,i)
-            args = sargs + self._get_hargs (p,i,j) + [self.ket,]
+            h1 = self.h1[p,i,i]
+            if self.h2 is None:
+                h2 = np.zeros ([norb,]*4, dtype=h1.dtype)
+            else:
+                h2 = self.h2[p,i,i]
             h_plab[p,i] += make_hdiag (h1, h2, norb, nelec)
         return h_plab
 

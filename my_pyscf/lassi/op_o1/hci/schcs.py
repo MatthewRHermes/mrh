@@ -45,6 +45,8 @@ class ContractHamCI_SHS (rdm.LRRDM):
         self.h0 = np.atleast_1d (h0)
         self.h1 = np.ascontiguousarray (h1)
         self.h2 = np.ascontiguousarray (h2)
+        if mask_bra_space is None: mask_bra_space = list (range (self.nroots))
+        if mask_ket_space is None: mask_ket_space = list (range (self.nroots))
         self.mask_bra_space = mask_bra_space
         self.mask_ket_space = mask_ket_space
         self.nelec_frs = np.asarray ([[list (i.nelec_r[ket]) for i in ints]

@@ -19,7 +19,7 @@ from scipy import linalg
 from pyscf import lib, gto, scf, mcscf, ao2mo
 from mrh.my_pyscf.mcscf.lasscf_o0 import LASSCF
 from mrh.my_pyscf.lassi import LASSI, LASSIrq, LASSIrqCT
-from mrh.my_pyscf.lassi.lassis import coords, grad_orb_ci_si
+from mrh.my_pyscf.lassi.lassis import coords, grad_orb_ci_si, hdiag_orb_ci_si
 from mrh.my_pyscf.lassi.lassi import root_make_rdm12s, roots_trans_rdm12s, make_stdm12s
 from mrh.my_pyscf.lassi.spaces import all_single_excitations
 from mrh.my_pyscf.mcscf.lasci import get_space_info
@@ -196,6 +196,17 @@ class KnownValues(unittest.TestCase):
     def test_lassis_hessian (self):
         for lsis.opt in range (2):
             case_lassis_hessian (self, lsis)
+
+    def test_lassis_hessdiag (self):
+        lsis.opt = 1
+        if lsis.converged:
+            de = lsis.e_roots - lsis.e_roots[0]
+            i = np.where (de>1e-4)[0][0]
+            si = (lsis.si[:,0] + lsis.si[:,i]) * np.sqrt (0.5)
+        else:
+            si = lsis.si[:,0]
+        hdiag_orb_ci_si.get_hdiag (lsis, si=si)
+        hdiag_orb_ci_si.get_hdiag_ref (lsis, si=si)
 
     def test_fdm1 (self):
         make_fdm1 = get_fdm1_maker (lsi, lsi.ci, lsi.get_nelec_frs (), lsi.si)

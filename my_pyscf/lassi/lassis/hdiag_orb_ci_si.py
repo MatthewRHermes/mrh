@@ -3,6 +3,8 @@ from pyscf import lib
 from mrh.my_pyscf.lassi.grad_orb_ci_si import get_grad_orb
 from mrh.my_pyscf.lassi.lassis import coords
 from mrh.my_pyscf.lassi.lassis import hessian_orb_ci_si
+from mrh.my_pyscf.lassi import op_o0, op_o1
+op = (op_o0, op_o1)
 
 def get_hdiag_orb (lsi, mo_coeff=None, ci=None, si=None, state=None, weights=None, eris=None,
                    veff=None, dm1s=None, opt=None, hermi=1):
@@ -17,7 +19,7 @@ def get_hdiag_orb (lsi, mo_coeff=None, ci=None, si=None, state=None, weights=Non
                                             weights=weights, opt=opt)
     dm1 = dm1s.sum (0)
     if veff is None: veff = lsi._las.get_veff (dm=dm1)
-    if eris is None: h2eff_sub = lsi.get_casscf_eris (mo_coeff)
+    if eris is None: eris = lsi.get_casscf_eris (mo_coeff)
     nao, nmo = mo_coeff.shape
     ncore = lsi.ncore
     ncas = lsi.ncas
@@ -80,6 +82,7 @@ def get_hdiag_si (lsi, mo_coeff=None, ci=None, si=None, opt=None):
     hsi = hop (si) + (h0*si)
     ei = si.conj ().T @ hsi
     hsi -= si @ ei
+    ei = np.diag (ei)
     hdiag = hdiag[:,None] - ei[None,:]
     hdiag -= si.conj () * hsi
     hdiag -= si * hsi.conj ()
@@ -88,13 +91,14 @@ def get_hdiag_si (lsi, mo_coeff=None, ci=None, si=None, opt=None):
     return hdiag, ei
 
 def get_hdiag (lsi, mo_coeff=None, ci_ref=None, ci_sf=None, ci_ch=None, si=None, state=None,
-               weights=None, ugg=None):
+               weights=None, ugg=None, opt=None):
     if mo_coeff is None: mo_coeff = lsi.mo_coeff
     if ci_ref is None: ci_ref = lsi.get_ci_ref ()
     if ci_sf is None: ci_sf = lsi.ci_spin_flips
     if ci_ch is None: ci_ch = lsi.ci_charge_hops
     if si is None: si = lsi.si
     if ugg is None: ugg = coords.UnitaryGroupGenerators (lsi, mo_coeff, ci_ref, ci_sf, ci_ch, si)
+    if opt is None: opt = lsi.opt
     ci = lsi.prepare_model_states (ci_ref, ci_sf, ci_ch)[0].ci
     horb = get_hdiag_orb (lsi, mo_coeff=mo_coeff, ci=ci, si=si, state=state, weights=weights,
                           opt=opt)
