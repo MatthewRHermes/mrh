@@ -46,7 +46,7 @@ def prepare_model_states (lsi, ci_ref, ci_sf, ci_ch):
             smults1.append (smult+2)
             spins1.append (smult+1)
             ci1.append (ci_sf[i][1])
-        spin_flips.append (SpinFlips (ci1, space0.nlas[i], space0.nelec[i], spins1, smults1))
+        spin_flips.append (SpinFlips (las.mol, ci1, space0.nlas[i], space0.nelec[i], spins1, smults1))
     # Make charge-hop objects
     spaces = [space0]
     for i, a in itertools.product (range (lsi.nfrags), repeat=2):
@@ -69,7 +69,10 @@ def prepare_model_states (lsi, ci_ref, ci_sf, ci_ch):
     entmaps = [space.entmap for space in spaces]
     las = las.state_average (weights=weights, charges=charges, spins=spins, smults=smults, assert_no_dupes=False)
     las.ci = ci
-    las.lasci (_dry_run=True)
+    for ifrag in range (lsi.nfrags):
+        for iroot in range (las.nroots):
+            t = spaces[iroot].fcisolvers[ifrag].transformer
+            las.fciboxes[ifrag].fcisolvers[iroot].transformer = t
     log.timer ("LASSIS model space preparation", *t0)
     return las, entmaps
 
@@ -289,7 +292,8 @@ class SpinFlips (object):
     '''For a single fragment, bundle the ci vectors of various spin-flipped states with their
        corresponding quantum numbers. Instances of this object are stored together in a list
        where position indicates fragment identity.'''
-    def __init__(self, ci, norb, nelec, spins, smults):
+    def __init__(self, mol, ci, norb, nelec, spins, smults):
+        self.mol = mol
         self.norb = norb
         self.nelec = nelec
         self.ci = ci
@@ -309,8 +313,17 @@ class SpinFlips (object):
                     self.ci.append (np.array (ci_list))
                     self.smults.append (smult)
                     self.spins.append (neleca-nelecb)
-
-
+        self.fcisolvers = []
+        for i in range (len (self.ci)):
+            solver = csf_solver (self.mol, smult=self.smults[i])
+            neleca = (self.nelec + self.spins[i]) // 2
+            nelecb = (self.nelec - self.spins[i]) // 2
+            solver.norb = self.norb
+            solver.nelec = (neleca,nelecb)
+            solver.spin = self.spins[i]
+            solver.check_transformer_cache ()
+            self.fcisolvers.append (solver)
+        assert (len (self.ci) == len (self.fcisolvers))
 
 def all_spin_flips (lsi, las, ci_sf, nspin=1, ham_2q=None):
     # NOTE: this actually only uses the -first- rootspace in las, so it can be done before
@@ -395,7 +408,8 @@ def all_spin_flips (lsi, las, ci_sf, nspin=1, ham_2q=None):
         spins1.append (spins1_i)
         ci1.append (ci1_i)
         i = j
-    spin_flips = [SpinFlips (c,no,ne,m,s) for c,no,ne,m,s in zip (ci1,norb0,nelec0,spins1,smults1)]
+    spin_flips = [SpinFlips (las.mol,c,no,ne,m,s)
+                  for c,no,ne,m,s in zip (ci1,norb0,nelec0,spins1,smults1)]
     return converged, spin_flips, ci_sf
 
 def _spin_flip_products (spaces, spin_flips, nroots_ref=1, frozen_frags=None):
@@ -442,32 +456,36 @@ def _spin_shuffle_ci_(spaces, spin_flips, nroots_ref, nroots_refc):
     of vectors per fragment Hilbert space and that all possible individual
     fragment spins must be accounted for already, so we are just recombining
     them.'''
-    old_idx = []
     new_idx = []
     nfrag = spaces[0].nfrag
     for ix, space in enumerate (spaces):
         if space.has_ci ():
-            old_idx.append (ix)
+            space.fcisolvers = space.get_fcisolvers ()
         else:
             assert (ix >= nroots_refc)
             new_idx.append (ix)
             space.ci = [None for ifrag in range (space.nfrag)]
+            space.fcisolvers = [None for ifrag in range (space.nfrag)]
     # Prepare charge-hop szrots
     spaces_1c = spaces[nroots_ref:nroots_refc]
     spaces_1c = [space for space in spaces_1c if len (space.entmap)==1]
     ci_szrot_1c = []
+    solvers_szrot_1c = []
     for ix, space in enumerate (spaces_1c):
         ifrag, jfrag = space.entmap[0] # must be a tuple of length 2
         ci_szrot_1c.append (space.get_ci_szrot (ifrags=(ifrag,jfrag)))
+        solvers_szrot_1c.append (space.get_fcisolvers_szrot (ifrags=(ifrag,jfrag)))
     charges0 = spaces[0].charges
     smults0 = spaces[0].smults
     # Prepare reference szrots
     ci_szrot_ref = spaces[0].get_ci_szrot ()
+    solvers_szrot_ref = spaces[0].get_fcisolvers_szrot ()
     for ix in new_idx:
         idx = spaces[ix].excited_fragments (spaces[0])
         space = spaces[ix]
         for ifrag in np.where (~idx)[0]:
             space.ci[ifrag] = spaces[0].ci[ifrag]
+            space.fcisolvers[ifrag] = spaces[0].fcisolvers[ifrag]
         for ifrag in np.where (idx)[0]:
             if space.charges[ifrag] != charges0[ifrag]: continue
             if space.smults[ifrag] != smults0[ifrag]:
@@ -477,9 +495,11 @@ def _spin_shuffle_ci_(spaces, spin_flips, nroots_ref, nroots_refc):
                 assert (np.count_nonzero (iflp) == 1)
                 iflp = np.where (iflp)[0][0]
                 space.ci[ifrag] = sf.ci[iflp]
+                space.fcisolvers[ifrag] = sf.fcisolvers[iflp]
             else: # Reference-state spin-shuffles
                 space.ci[ifrag] = ci_szrot_ref[ifrag][space.spins[ifrag]]
-        for (ci_i, ci_j), sp_1c in zip (ci_szrot_1c, spaces_1c):
+                space.fcisolvers[ifrag] = solvers_szrot_ref[ifrag][space.spins[ifrag]]
+        for (ci_i, ci_j), (s_i, s_j), sp_1c in zip (ci_szrot_1c, solvers_szrot_1c, spaces_1c):
             ijfrag = sp_1c.entmap[0]
             if ijfrag not in spaces[ix].entmap: continue
             if np.any (sp_1c.charges[list(ijfrag)] != space.charges[list(ijfrag)]): continue
@@ -489,6 +509,8 @@ def _spin_shuffle_ci_(spaces, spin_flips, nroots_ref, nroots_refc):
             assert (space.ci[jfrag] is None)
             space.ci[ifrag] = ci_i[space.spins[ifrag]]
             space.ci[jfrag] = ci_j[space.spins[jfrag]]
+            space.fcisolvers[ifrag] = s_i[space.spins[ifrag]]
+            space.fcisolvers[jfrag] = s_j[space.spins[jfrag]]
         assert (space.has_ci ()), '{} {} {} {}'.format (space.charges, space.smults, space.spins, charges0)
     return spaces
 
