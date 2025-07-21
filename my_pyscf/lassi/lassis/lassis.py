@@ -534,20 +534,17 @@ def charge_excitation_products (lsi, spaces, nroots_ref=0, space0=None):
     if space0 is None: space0 = spaces[0]
     i0, j0 = i, j = nroots_ref, len (spaces)
     for product_order in range (2, (nfrags//2)+1):
-        for i_list in itertools.combinations (range (i,j), product_order):
-            p_list = [spaces[ip] for ip in i_list]
-            nonorth = False
-            for p, q in itertools.combinations (p_list, 2):
-                if not orthogonal_excitations (p, q, space0):
-                    nonorth = True
-                    break
-            if nonorth: continue
-            p = p_list[0]
-            for q in p_list[1:]:
-                p = combine_orthogonal_excitations (p, q, space0)
-            spaces.append (p)
-            log.debug ("Electron hop product space %d (product of %s)", len (spaces) - 1, str (i_list))
-            spaces[-1].table_printlog (tverbose=logger.DEBUG)
+        seen = set ()
+        for p, q in itertools.product (spaces[i:j], spaces[i0:j0]):
+            if not orthogonal_excitations (p, q, space0): continue
+            r = combine_orthogonal_excitations (p, q, space0)
+            if r not in seen:
+                seen.add (r)
+                spaces.append (r)
+                log.debug ("Electron hop product space %d", len (spaces) - 1)
+                spaces[-1].table_printlog (tverbose=logger.DEBUG)
+        i = j
+        j = len (spaces)
     assert (len (spaces) == len (set (spaces)))
     log.timer ("LASSIS charge-hop product generation", *t0)
     return spaces
