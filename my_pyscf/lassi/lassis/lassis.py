@@ -456,16 +456,13 @@ def _spin_shuffle_ci_(spaces, spin_flips, nroots_ref, nroots_refc):
     of vectors per fragment Hilbert space and that all possible individual
     fragment spins must be accounted for already, so we are just recombining
     them.'''
-    new_idx = []
     nfrag = spaces[0].nfrag
-    for ix, space in enumerate (spaces):
-        if space.has_ci ():
-            space.fcisolvers = space.get_fcisolvers ()
-        else:
-            assert (ix >= nroots_refc)
-            new_idx.append (ix)
-            space.ci = [None for ifrag in range (space.nfrag)]
-            space.fcisolvers = [None for ifrag in range (space.nfrag)]
+    charges0 = spaces[0].charges
+    smults0 = spaces[0].smults
+    # Prepare reference szrots
+    spaces[0].fcisolvers = spaces[0].get_fcisolvers ()
+    ci_szrot_ref = spaces[0].get_ci_szrot ()
+    solvers_szrot_ref = spaces[0].get_fcisolvers_szrot ()
     # Prepare charge-hop szrots
     spaces_1c = spaces[nroots_ref:nroots_refc]
     spaces_1c = [space for space in spaces_1c if len (space.entmap)==1]
@@ -475,14 +472,10 @@ def _spin_shuffle_ci_(spaces, spin_flips, nroots_ref, nroots_refc):
         ifrag, jfrag = space.entmap[0] # must be a tuple of length 2
         ci_szrot_1c.append (space.get_ci_szrot (ifrags=(ifrag,jfrag)))
         solvers_szrot_1c.append (space.get_fcisolvers_szrot (ifrags=(ifrag,jfrag)))
-    charges0 = spaces[0].charges
-    smults0 = spaces[0].smults
-    # Prepare reference szrots
-    ci_szrot_ref = spaces[0].get_ci_szrot ()
-    solvers_szrot_ref = spaces[0].get_fcisolvers_szrot ()
-    for ix in new_idx:
-        idx = spaces[ix].excited_fragments (spaces[0])
-        space = spaces[ix]
+    for space in spaces[1:]:
+        space.ci = [None for ifrag in range (space.nfrag)]
+        space.fcisolvers = [None for ifrag in range (space.nfrag)]
+        idx = space.excited_fragments (spaces[0])
         for ifrag in np.where (~idx)[0]:
             space.ci[ifrag] = spaces[0].ci[ifrag]
             space.fcisolvers[ifrag] = spaces[0].fcisolvers[ifrag]
@@ -501,7 +494,7 @@ def _spin_shuffle_ci_(spaces, spin_flips, nroots_ref, nroots_refc):
                 space.fcisolvers[ifrag] = solvers_szrot_ref[ifrag][space.spins[ifrag]]
         for (ci_i, ci_j), (s_i, s_j), sp_1c in zip (ci_szrot_1c, solvers_szrot_1c, spaces_1c):
             ijfrag = sp_1c.entmap[0]
-            if ijfrag not in spaces[ix].entmap: continue
+            if ijfrag not in space.entmap: continue
             if np.any (sp_1c.charges[list(ijfrag)] != space.charges[list(ijfrag)]): continue
             if np.any (sp_1c.smults[list(ijfrag)] != space.smults[list(ijfrag)]): continue
             ifrag, jfrag = ijfrag
@@ -541,7 +534,6 @@ def charge_excitation_products (lsi, spaces, nroots_ref=0, space0=None):
     if space0 is None: space0 = spaces[0]
     i0, j0 = i, j = nroots_ref, len (spaces)
     for product_order in range (2, (nfrags//2)+1):
-        seen = set ()
         for i_list in itertools.combinations (range (i,j), product_order):
             p_list = [spaces[ip] for ip in i_list]
             nonorth = False
