@@ -516,6 +516,7 @@ def _spin_shuffle_ci_(spaces, spin_flips, nroots_ref, nroots_refc):
 
 def spin_flip_products (las, spaces, spin_flips, nroots_ref=1):
     '''Inject spin-flips into spaces in all possible ways, carry out a spin shuffle, and log'''
+    t0 = (logger.process_clock (), logger.perf_counter ())
     log = logger.new_logger (las, las.verbose)
     nspaces = len (spaces)
     spaces = _spin_flip_products (spaces, spin_flips, nroots_ref=nroots_ref)
@@ -529,6 +530,7 @@ def spin_flip_products (las, spaces, spin_flips, nroots_ref=1):
         else:
             log.debug ("Spin-excitation space %d:", i+nspaces)
         space.table_printlog (tverbose=logger.DEBUG)
+    log.timer ("LASSIS spin-flip injection", *t0)
     return spaces
 
 def charge_excitation_products (lsi, spaces, nroots_ref=0, space0=None):
