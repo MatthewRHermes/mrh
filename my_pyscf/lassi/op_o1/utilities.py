@@ -91,8 +91,7 @@ def fermion_des_shuffle (nelec_f, frag_list, i):
 def lst_hopping_index_memsize (nelec_frs):
     nfrags, nroots, _ = nelec_frs.shape
     hopping_index_size = nfrags * nroots * nroots * 2 * 8
-    zerop_index_size = onep_index_size = nroots * nroots
-    return (hopping_index_size + zerop_index_size + onep_index_size) / 1e6
+    return hopping_index_size / 1e6
 
 def lst_hopping_index (nelec_frs):
     ''' Build the LAS state transition hopping index
@@ -106,26 +105,11 @@ def lst_hopping_index (nelec_frs):
             hopping_index: ndarray of ints of shape (nfrags, 2, nroots, nroots)
                 element [i,j,k,l] reports the change of number of electrons of
                 spin j in fragment i between LAS rootspaces k and l
-            zerop_index: ndarray of bools of shape (nroots, nroots)
-                element [i,j] is true where the ith and jth LAS spaces are
-                connected by a null excitation; i.e., no electron, pair,
-                or spin hopping or pair splitting/coalescence. This implies
-                nonzero 1- and 2-body transition density matrices within
-                all fragments.
-            onep_index: ndarray of bools of shape (nroots, nroots)
-                element [i,j] is true where the ith and jth LAS spaces
-                are connected by exactly one electron hop from i to j or vice
-                versa, implying nonzero 1-body transition density matrices
-                within spectator fragments and phh/pph modes within
-                source/dest fragments.
     '''
     nelec_fsr = nelec_frs.transpose (0,2,1)
     hopping_index = np.array ([[np.subtract.outer (spin, spin)
         for spin in frag] for frag in nelec_fsr])
-    symm_index = np.all (hopping_index.sum (0) == 0, axis=0)
-    zerop_index = symm_index & (np.count_nonzero (hopping_index, axis=(0,1)) == 0)
-    onep_index = symm_index & (np.abs (hopping_index).sum ((0,1)) == 2)
-    return hopping_index, zerop_index, onep_index
+    return hopping_index
 
 def get_contig_blks (mask):
     '''Get contiguous chunks from a mask index into an array'''

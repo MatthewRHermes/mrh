@@ -65,18 +65,6 @@ class FragTDMInt (object):
             hopping_index: ndarray of ints of shape (2, nroots, nroots)
                 element [i,j,k] reports the change of number of electrons of
                 spin i in the current fragment between LAS rootspaces j and k
-            zerop_index : ndarray of bools of shape (nroots, nroots)
-                element [i,j] is true where the ith and jth LAS spaces are
-                connected by a null excitation; i.e., no electron, pair,
-                or spin hopping or pair splitting/coalescence. This implies
-                nonzero 1- and 2-body transition density matrices within
-                all fragments.
-            onep_index : ndarray of bools of shape (nroots, nroots)
-                element [i,j] is true where the ith and jth LAS spaces
-                are connected by exactly one electron hop from i to j or vice
-                versa, implying nonzero 1-body transition density matrices
-                within spectator fragments and phh/pph modes within
-                source/dest fragments.
             norb : integer
                 number of active orbitals in the current fragment
             nroots : integer
@@ -102,7 +90,7 @@ class FragTDMInt (object):
                 Logger verbosity level
     '''
 
-    def __init__(self, las, ci, hopping_index, zerop_index, onep_index, norb, nroots, nelec_rs,
+    def __init__(self, las, ci, hopping_index, norb, nroots, nelec_rs,
                  rootaddr, fragaddr, idx_frag, mask_ints, dtype=np.float64, discriminator=None,
                  pt_order=None, do_pt_order=None, screen_linequiv=DO_SCREEN_LINEQUIV,
                  verbose=None):
@@ -112,8 +100,6 @@ class FragTDMInt (object):
         self.log = lib.logger.new_logger (las, self.verbose)
         self.ci = ci
         self.hopping_index = hopping_index
-        self.zerop_index = zerop_index
-        self.onep_index = onep_index
         self.norb = norb
         self.nroots = nroots
         self.dtype = dtype
@@ -356,8 +342,6 @@ class FragTDMInt (object):
         ci = self.ci
         ndeta, ndetb = self.ndeta_r, self.ndetb_r
         hopping_index = self.hopping_index
-        zerop_index = self.zerop_index
-        onep_index = self.onep_index
         self.mask_ints = np.logical_or (
             self.mask_ints, self.mask_ints.T
         )
@@ -391,10 +375,6 @@ class FragTDMInt (object):
         for i in np.where (self.root_unique)[0]:
             images = np.where (self.unique_root==i)[0]
             for j in images:
-                self.onep_index[i] |= self.onep_index[j]
-                self.onep_index[:,i] |= self.onep_index[:,j]
-                self.zerop_index[i] |= self.zerop_index[j]
-                self.zerop_index[:,i] |= self.zerop_index[:,j]
                 self.mask_ints[i,:] = np.logical_or (
                     self.mask_ints[i,:], self.mask_ints[j,:]
                 )
@@ -421,8 +401,6 @@ class FragTDMInt (object):
         ci = self.ci
         ndeta, ndetb = self.ndeta_r, self.ndetb_r
         hopping_index = self.hopping_index
-        zerop_index = self.zerop_index
-        onep_index = self.onep_index
         idx_uniq = self.root_unique
         lroots = [c.shape[0] for c in ci]
         nroots, norb = self.nroots, self.norb
@@ -611,8 +589,6 @@ class FragTDMInt (object):
 
         # Spectator fragment contribution
         hopping_index = self.hopping_index
-        zerop_index = self.zerop_index
-        onep_index = self.onep_index
         idx_uniq = self.root_unique
         nroots = self.nroots
         spectator_index = np.all (hopping_index == 0, axis=0)
@@ -1025,12 +1001,12 @@ def make_ints (las, ci, nelec_frs, screen_linequiv=DO_SCREEN_LINEQUIV, nlas=None
     if reqd_mem > remaining_memory:
         raise MemoryError (('lst_hopping_index requires {} MB of {} MB available ({} MB '
                             'total)').format (reqd_mem, remaining_memory, max_memory))
-    hopping_index, zerop_index, onep_index = lst_hopping_index (nelec_frs)
+    hopping_index = lst_hopping_index (nelec_frs)
     rootaddr, fragaddr = get_rootaddr_fragaddr (lroots)
     ints = []
     for ifrag in range (nfrags):
         m0 = lib.current_memory ()[0]
-        tdmint = _FragTDMInt_class (las, ci[ifrag], hopping_index[ifrag], zerop_index, onep_index,
+        tdmint = _FragTDMInt_class (las, ci[ifrag], hopping_index[ifrag],
                                     nlas[ifrag], nroots, nelec_frs[ifrag], rootaddr,
                                     fragaddr[ifrag], ifrag, mask_ints,
                                     discriminator=discriminator,
