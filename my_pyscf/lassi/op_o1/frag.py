@@ -540,9 +540,9 @@ class FragTDMInt (object):
         spectator_index = np.stack (np.where (spectator_index), axis=1)
         for i, j in spectator_index:
             if not mask_ints[i,j]: continue
-            dm1s, dm2s = trans_rdm12s_loop (j, ci[i], ci[j], do2=zerop_index[i,j])
+            dm1s, dm2s = trans_rdm12s_loop (j, ci[i], ci[j], do2=True)
             self.set_dm1 (i, j, dm1s)
-            if zerop_index[i,j]: self.set_dm2 (i, j, dm2s)
+            self.set_dm2 (i, j, dm2s)
  
         hidx_ket_a = np.where (np.any (hopping_index[0] < 0, axis=0) & idx_uniq)[0]
         hidx_ket_b = np.where (np.any (hopping_index[1] < 0, axis=0) & idx_uniq)[0]
@@ -556,12 +556,11 @@ class FragTDMInt (object):
                     h, phh = trans_rdm13h_loop (bra, ket, spin=0)
                     self.set_h (bra, ket, 0, h)
                     # <j|a'_q a_r a_p|i>, <j|b'_q b_r a_p|i> - how to tell if consistent sign rule?
-                    if onep_index[bra,ket]:
-                        err = np.abs (phh[:,:,0] + phh[:,:,0].transpose (0,1,2,4,3))
-                        assert (np.amax (err) < 1e-8), '{}'.format (np.amax (err)) 
-                        # ^ Passing this assert proves that I have the correct index
-                        # and argument ordering for the call and return of trans_rdm12s
-                        self.set_phh (bra, ket, 0, phh)
+                    err = np.abs (phh[:,:,0] + phh[:,:,0].transpose (0,1,2,4,3))
+                    assert (np.amax (err) < 1e-8), '{}'.format (np.amax (err)) 
+                    # ^ Passing this assert proves that I have the correct index
+                    # and argument ordering for the call and return of trans_rdm12s
+                    self.set_phh (bra, ket, 0, phh)
                 # <j|b'_q a_p|i> = <j|s-|i>
                 elif np.all (hopping_index[:,bra,ket] == [-1,1]):
                     self.set_sm (bra, ket, trans_sfddm_loop (bra, ket))
@@ -581,12 +580,11 @@ class FragTDMInt (object):
                     h, phh = trans_rdm13h_loop (bra, ket, spin=1)
                     self.set_h (bra, ket, 1, h)
                     # <j|a'_q a_r b_p|i>, <j|b'_q b_r b_p|i> - how to tell if consistent sign rule?
-                    if onep_index[bra,ket]:
-                        err = np.abs (phh[:,:,1] + phh[:,:,1].transpose (0,1,2,4,3))
-                        assert (np.amax (err) < 1e-8), '{}'.format (np.amax (err))
-                        # ^ Passing this assert proves that I have the correct index
-                        # and argument ordering for the call and return of trans_rdm12s
-                        self.set_phh (bra, ket, 1, phh)
+                    err = np.abs (phh[:,:,1] + phh[:,:,1].transpose (0,1,2,4,3))
+                    assert (np.amax (err) < 1e-8), '{}'.format (np.amax (err))
+                    # ^ Passing this assert proves that I have the correct index
+                    # and argument ordering for the call and return of trans_rdm12s
+                    self.set_phh (bra, ket, 1, phh)
                 # <j|b_q b_p|i>
                 elif np.all (hopping_index[:,bra,ket] == [0,-2]):
                     self.set_hh (bra, ket, 2, trans_hhdm_loop (bra, ket, spin=2))
@@ -630,7 +628,6 @@ class FragTDMInt (object):
                 self.set_dm1 (k, l, dm1s)
             else:
                 self.set_dm1 (l, k, dm1s.conj ().transpose (1,0,2,4,3))
-            if not zerop_index[i,j]: continue
             dm2s = (self.get_dm2 (i, j) + self.get_dm2 (k, l)) / 2
             self.set_dm2 (i, j, dm2s)
             if k < l: k, l, dm2s = l, k, dm2s.conj ().transpose (1,0,2,4,3,6,5)
@@ -651,10 +648,9 @@ class FragTDMInt (object):
                     self.set_h (bra, ket, 0, h)
                     self.set_h (bet, kra, 0, h)
                     # <j|a'_q a_r a_p|i>, <j|b'_q b_r a_p|i> - how to tell if consistent sign rule?
-                    if onep_index[bra,ket]:
-                        phh = (self.get_phh (bra, ket, 0) + self.get_phh (bet, kra, 0)) / 2
-                        self.set_phh (bra, ket, 0, phh)
-                        self.set_phh (bet, kra, 0, phh)
+                    phh = (self.get_phh (bra, ket, 0) + self.get_phh (bet, kra, 0)) / 2
+                    self.set_phh (bra, ket, 0, phh)
+                    self.set_phh (bet, kra, 0, phh)
                 # <j|b'_q a_p|i> = <j|s-|i>
                 elif np.all (hopping_index[:,bra,ket] == [-1,1]):
                     sm = (self.get_sm (bra, ket) + self.get_sm (bet, kra)) / 2
@@ -683,10 +679,9 @@ class FragTDMInt (object):
                     self.set_h (bra, ket, 1, h)
                     self.set_h (bet, kra, 1, h)
                     # <j|a'_q a_r b_p|i>, <j|b'_q b_r b_p|i> - how to tell if consistent sign rule?
-                    if onep_index[bra,ket]:
-                        phh = (self.get_phh (bra, ket, 1) + self.get_phh (bet, kra, 1)) / 2
-                        self.set_phh (bra, ket, 1, phh)
-                        self.set_phh (bet, kra, 1, phh)
+                    phh = (self.get_phh (bra, ket, 1) + self.get_phh (bet, kra, 1)) / 2
+                    self.set_phh (bra, ket, 1, phh)
+                    self.set_phh (bet, kra, 1, phh)
                 # <j|b_q b_p|i>
                 elif np.all (hopping_index[:,bra,ket] == [0,-2]):
                     hh = (self.get_hh (bra, ket, 2) + self.get_hh (bet, kra, 2)) / 2
