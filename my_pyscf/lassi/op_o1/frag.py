@@ -173,7 +173,7 @@ class FragTDMInt (object):
         else: raise RuntimeError (str (len (args)))
 
     def try_get_dm (self, tab, i, j):
-        ir, jr = self.unique_uroot[i], self.unique_uroot[j]
+        ir, jr = self.uroot_idx[i], self.uroot_idx[j]
         try:
             assert (tab[ir][jr] is not None)
             return tab[ir][jr]
@@ -183,7 +183,7 @@ class FragTDMInt (object):
             raise RuntimeError (errstr)
 
     def try_get_tdm (self, tab, s, i, j):
-        ir, jr = self.unique_uroot[i], self.unique_uroot[j]
+        ir, jr = self.uroot_idx[i], self.uroot_idx[j]
         try:
             assert (tab[s][ir][jr] is not None)
             return tab[s][ir][jr]
@@ -218,7 +218,7 @@ class FragTDMInt (object):
         return self.try_get (self._h, s, i, j)
 
     def set_h (self, i, j, s, x):
-        i, j = self.unique_uroot[i], self.unique_uroot[j]
+        i, j = self.uroot_idx[i], self.uroot_idx[j]
         x = self.setmanip (x)
         self._h[s][i][j] = x
         return x
@@ -239,7 +239,7 @@ class FragTDMInt (object):
         #return self._hh[s][i][j]
 
     def set_hh (self, i, j, s, x):
-        i, j = self.unique_uroot[i], self.unique_uroot[j]
+        i, j = self.uroot_idx[i], self.uroot_idx[j]
         x = self.setmanip (x)
         self._hh[s][i][j] = x
         return x
@@ -260,7 +260,7 @@ class FragTDMInt (object):
         return self.try_get (self._phh, s, i, j)
 
     def set_phh (self, i, j, s, x):
-        i, j = self.unique_uroot[i], self.unique_uroot[j]
+        i, j = self.uroot_idx[i], self.uroot_idx[j]
         x = self.setmanip (x)
         self._phh[s][i][j] = x
         return x
@@ -280,7 +280,7 @@ class FragTDMInt (object):
         return self.try_get (self._sm, i, j)
 
     def set_sm (self, i, j, x):
-        i, j = self.unique_uroot[i], self.unique_uroot[j]
+        i, j = self.uroot_idx[i], self.uroot_idx[j]
         x = self.setmanip (x)
         self._sm[i][j] = x
         return x
@@ -313,7 +313,7 @@ class FragTDMInt (object):
 
     def set_dm1 (self, i, j, x):
         assert (j <= i)
-        i, j = self.unique_uroot[i], self.unique_uroot[j]
+        i, j = self.uroot_idx[i], self.uroot_idx[j]
         x = self.setmanip (x)
         self.dm1[i][j] = x
 
@@ -336,7 +336,7 @@ class FragTDMInt (object):
 
     def set_dm2 (self, i, j, x):
         assert (j <= i)
-        i, j = self.unique_uroot[i], self.unique_uroot[j]
+        i, j = self.uroot_idx[i], self.uroot_idx[j]
         x = self.setmanip (x)
         self.dm2[i][j] = x
 
@@ -370,10 +370,10 @@ class FragTDMInt (object):
             discriminator=self.discriminator
         )
         self.nuroots = nuroots = np.count_nonzero (self.root_unique)
-        fragpos = -1 * np.ones (self.nroots, dtype=int)
-        fragpos[self.root_unique] = np.arange (nuroots, dtype=int)
-        self.unique_uroot = fragpos[self.unique_root]
-        assert (np.all (self.unique_uroot >= 0))
+        self.uroot_inv = -1 * np.ones (self.nroots, dtype=int)
+        self.uroot_inv[self.root_unique] = np.arange (nuroots, dtype=int)
+        self.uroot_idx = self.uroot_inv[self.unique_root]
+        assert (np.all (self.uroot_idx >= 0))
 
         self.ovlp = [[None for i in range (nuroots)] for j in range (nuroots)]
         self._h = [[[None for i in range (nuroots)] for j in range (nuroots)] for s in (0,1)]
@@ -430,13 +430,13 @@ class FragTDMInt (object):
             if not mask_ints[i,j]: continue
             ci_i = ci[i].reshape (lroots[i], -1)
             ci_j = ci[j].reshape (lroots[j], -1)
-            k, l = self.unique_uroot[i], self.unique_uroot[j]
+            k, l = self.uroot_idx[i], self.uroot_idx[j]
             self.ovlp[k][l] = np.dot (ci_i.conj (), ci_j.T)
             self.ovlp[l][k] = self.ovlp[k][l].conj ().T
         for i in np.where (idx_uniq)[0]:
             if not mask_ints[i,i]: continue
             ci_i = ci[i].reshape (lroots[i], -1)
-            j = self.unique_uroot[i]
+            j = self.uroot_idx[i]
             self.ovlp[j][j] = np.dot (ci_i.conj (), ci_i.T)
             #errmat = self.ovlp[i][i] - np.eye (lroots[i])
             #if np.amax (np.abs (errmat)) > 1e-3:
