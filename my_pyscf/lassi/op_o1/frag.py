@@ -62,9 +62,6 @@ class FragTDMInt (object):
                 Only las.stdout and las.verbose (sometimes) are used to direct the logger output
             ci : list of ndarray of length nroots
                 Contains CI vectors for the current fragment
-            hopping_index: ndarray of ints of shape (2, nroots, nroots)
-                element [i,j,k] reports the change of number of electrons of
-                spin i in the current fragment between LAS rootspaces j and k
             norb : integer
                 number of active orbitals in the current fragment
             nroots : integer
@@ -90,7 +87,7 @@ class FragTDMInt (object):
                 Logger verbosity level
     '''
 
-    def __init__(self, las, ci, hopping_index, norb, nroots, nelec_rs,
+    def __init__(self, las, ci, norb, nroots, nelec_rs,
                  rootaddr, fragaddr, idx_frag, mask_ints, dtype=np.float64, discriminator=None,
                  pt_order=None, do_pt_order=None, screen_linequiv=DO_SCREEN_LINEQUIV,
                  verbose=None):
@@ -99,7 +96,6 @@ class FragTDMInt (object):
         self.verbose = verbose
         self.log = lib.logger.new_logger (las, self.verbose)
         self.ci = ci
-        self.hopping_index = hopping_index
         self.norb = norb
         self.nroots = nroots
         self.dtype = dtype
@@ -341,7 +337,6 @@ class FragTDMInt (object):
         '''
         ci = self.ci
         ndeta, ndetb = self.ndeta_r, self.ndetb_r
-        hopping_index = self.hopping_index
         self.mask_ints = np.logical_or (
             self.mask_ints, self.mask_ints.T
         )
@@ -371,7 +366,20 @@ class FragTDMInt (object):
         self.dm1 = [[None for i in range (nuroots)] for j in range (nuroots)]
         self.dm2 = [[None for i in range (nuroots)] for j in range (nuroots)]
 
-        # Update connectivity arrays and mask_ints
+        # Characterize the matrix elements involving these fragment states
+        nelec_frs = np.asarray ([list(self.nelec_r[i]) for i in self.uroot_addr])[None,:,:]
+        self.hopping_index = hopping_index = lst_hopping_index (nelec_frs)[0]
+        self.hopidx_null = np.where (np.all (hopping_index==0, axis=0))
+        self.hopidx_1c = [[np.where (hopping_index[s]==d) for s in (0,1)] for d in (-1,1)]
+        s0 = np.array ([-1,1])[:,None,None]
+        s1 = np.array ([1,-1])[:,None,None]
+        self.hopidx_1s = [np.where (hopping_index==s0), np.where (hopping_index==s1)]
+        s0 = np.array ([2,0])[:,None,None]
+        s1 = np.array ([1,1])[:,None,None]
+        s2 = np.array ([0,2])[:,None,None]
+        self.hopidx_2c = [[np.where (hopping_index==c*s) for s in (s0,s1,s2)] for c in (-1,1)]
+
+        # Update mask_ints
         for i in np.where (self.root_unique)[0]:
             images = np.where (self.unique_root==i)[0]
             for j in images:
@@ -403,7 +411,7 @@ class FragTDMInt (object):
         hopping_index = self.hopping_index
         idx_uniq = self.root_unique
         lroots = [c.shape[0] for c in ci]
-        nroots, norb = self.nroots, self.norb
+        nroots, norb, nuroots = self.nroots, self.norb, self.nuroots
 
         # Overlap matrix
         offs = np.cumsum (lroots)
@@ -512,25 +520,25 @@ class FragTDMInt (object):
 
         # Spectator fragment contribution
         spectator_index = np.all (hopping_index == 0, axis=0)
-        spectator_index[~idx_uniq,:] = False
-        spectator_index[:,~idx_uniq] = False
-        spectator_index[np.triu_indices (nroots, k=1)] = False
+        spectator_index[np.triu_indices (nuroots, k=1)] = False
         spectator_index = np.stack (np.where (spectator_index), axis=1)
         for i, j in spectator_index:
-            if not mask_ints[i,j]: continue
-            dm1s, dm2s = trans_rdm12s_loop (j, ci[i], ci[j], do2=True)
-            self.set_dm1 (i, j, dm1s)
-            self.set_dm2 (i, j, dm2s)
+            k, l = self.uroot_addr[i], self.uroot_addr[j]
+            if not mask_ints[k,l]: continue
+            dm1s, dm2s = trans_rdm12s_loop (l, ci[k], ci[l], do2=True)
+            self.set_dm1 (k, l, dm1s)
+            self.set_dm2 (k, l, dm2s)
  
-        hidx_ket_a = np.where (np.any (hopping_index[0] < 0, axis=0) & idx_uniq)[0]
-        hidx_ket_b = np.where (np.any (hopping_index[1] < 0, axis=0) & idx_uniq)[0]
+        hidx_ket_a = np.where (np.any (hopping_index[0] < 0, axis=0))[0]
+        hidx_ket_b = np.where (np.any (hopping_index[1] < 0, axis=0))[0]
 
         # a_p|i>; shape = (norb, lroots[ket], ndeta[*], ndetb[ket])
-        for ket in hidx_ket_a:
-            for bra in np.where ((hopping_index[0,:,ket] < 0) & idx_uniq)[0]:
+        for k in hidx_ket_a:
+            for b in np.where (hopping_index[0,:,k] < 0)[0]:
+                bra, ket = self.uroot_addr[b], self.uroot_addr[k]
                 if not mask_ints[bra,ket]: continue
                 # <j|a_p|i>
-                if np.all (hopping_index[:,bra,ket] == [-1,0]):
+                if np.all (hopping_index[:,b,k] == [-1,0]):
                     h, phh = trans_rdm13h_loop (bra, ket, spin=0)
                     self.set_h (bra, ket, 0, h)
                     # <j|a'_q a_r a_p|i>, <j|b'_q b_r a_p|i> - how to tell if consistent sign rule?
@@ -540,21 +548,22 @@ class FragTDMInt (object):
                     # and argument ordering for the call and return of trans_rdm12s
                     self.set_phh (bra, ket, 0, phh)
                 # <j|b'_q a_p|i> = <j|s-|i>
-                elif np.all (hopping_index[:,bra,ket] == [-1,1]):
+                elif np.all (hopping_index[:,b,k] == [-1,1]):
                     self.set_sm (bra, ket, trans_sfddm_loop (bra, ket))
                 # <j|b_q a_p|i>
-                elif np.all (hopping_index[:,bra,ket] == [-1,-1]):
+                elif np.all (hopping_index[:,b,k] == [-1,-1]):
                     self.set_hh (bra, ket, 1, trans_hhdm_loop (bra, ket, spin=1))
                 # <j|a_q a_p|i>
-                elif np.all (hopping_index[:,bra,ket] == [-2,0]):
+                elif np.all (hopping_index[:,b,k] == [-2,0]):
                     self.set_hh (bra, ket, 0, trans_hhdm_loop (bra, ket, spin=0))
                 
         # b_p|i>
-        for ket in hidx_ket_b:
-            for bra in np.where ((hopping_index[1,:,ket] < 0) & idx_uniq)[0]:
+        for k in hidx_ket_b:
+            for b in np.where (hopping_index[1,:,k] < 0)[0]:
+                bra, ket = self.uroot_addr[b], self.uroot_addr[k]
                 if not mask_ints[bra,ket]: continue
                 # <j|b_p|i>
-                if np.all (hopping_index[:,bra,ket] == [0,-1]):
+                if np.all (hopping_index[:,b,k] == [0,-1]):
                     h, phh = trans_rdm13h_loop (bra, ket, spin=1)
                     self.set_h (bra, ket, 1, h)
                     # <j|a'_q a_r b_p|i>, <j|b'_q b_r b_p|i> - how to tell if consistent sign rule?
@@ -564,7 +573,7 @@ class FragTDMInt (object):
                     # and argument ordering for the call and return of trans_rdm12s
                     self.set_phh (bra, ket, 1, phh)
                 # <j|b_q b_p|i>
-                elif np.all (hopping_index[:,bra,ket] == [0,-2]):
+                elif np.all (hopping_index[:,b,k] == [0,-2]):
                     self.set_hh (bra, ket, 2, trans_hhdm_loop (bra, ket, spin=2))
         
         return t0
@@ -585,6 +594,8 @@ class FragTDMInt (object):
             if self.nelec_r[i] != self.nelec_r[j]: continue
             k, l = ptmap[i], ptmap[j]
             o = (self.get_ovlp (i,j) + self.get_ovlp (k,l)) / 2
+            i, j = self.uroot_idx[i], self.uroot_idx[j]
+            k, l = self.uroot_idx[k], self.uroot_idx[l]
             self.ovlp[i][j] = self.ovlp[k][l] = o
 
         # Spectator fragment contribution
@@ -592,10 +603,9 @@ class FragTDMInt (object):
         idx_uniq = self.root_unique
         nroots = self.nroots
         spectator_index = np.all (hopping_index == 0, axis=0)
-        spectator_index[~idx_uniq,:] = False
-        spectator_index[:,~idx_uniq] = False
         spectator_index = np.stack (np.where (spectator_index), axis=1)
         for i, j in spectator_index:
+            i, j = self.uroot_addr[i], self.uroot_addr[j]
             if not mask_ints[i,j]: continue
             k, l = ptmap[i], ptmap[j]
             dm1s = (self.get_dm1 (i, j) + self.get_dm1 (k, l)) / 2
@@ -609,17 +619,18 @@ class FragTDMInt (object):
             if k < l: k, l, dm2s = l, k, dm2s.conj ().transpose (1,0,2,4,3,6,5)
             self.set_dm2 (k, l, dm2s)
 
-        hidx_ket_a = np.where (np.any (hopping_index[0] < 0, axis=0) & idx_uniq)[0]
-        hidx_ket_b = np.where (np.any (hopping_index[1] < 0, axis=0) & idx_uniq)[0]
+        hidx_ket_a = np.where (np.any (hopping_index[0] < 0, axis=0))[0]
+        hidx_ket_b = np.where (np.any (hopping_index[1] < 0, axis=0))[0]
 
         # a_p|i>; shape = (norb, lroots[ket], ndeta[*], ndetb[ket])
-        for ket in hidx_ket_a:
-            for bra in np.where ((hopping_index[0,:,ket] < 0) & idx_uniq)[0]:
+        for k in hidx_ket_a:
+            for b in np.where ((hopping_index[0,:,k] < 0))[0]:
+                ket, bra = self.uroot_addr[k], self.uroot_addr[b]
                 if not mask_ints[bra,ket]: continue
                 bet = ptmap[bra]
                 kra = ptmap[ket]
                 # <j|a_p|i>
-                if np.all (hopping_index[:,bra,ket] == [-1,0]):
+                if np.all (hopping_index[:,b,k] == [-1,0]):
                     h = (self.get_h (bra, ket, 0) + self.get_h (bet, kra, 0)) / 2
                     self.set_h (bra, ket, 0, h)
                     self.set_h (bet, kra, 0, h)
@@ -628,29 +639,30 @@ class FragTDMInt (object):
                     self.set_phh (bra, ket, 0, phh)
                     self.set_phh (bet, kra, 0, phh)
                 # <j|b'_q a_p|i> = <j|s-|i>
-                elif np.all (hopping_index[:,bra,ket] == [-1,1]):
+                elif np.all (hopping_index[:,b,k] == [-1,1]):
                     sm = (self.get_sm (bra, ket) + self.get_sm (bet, kra)) / 2
                     self.set_sm (bra, ket, sm)
                     self.set_sm (bet, kra, sm)
                 # <j|b_q a_p|i>
-                elif np.all (hopping_index[:,bra,ket] == [-1,-1]):
+                elif np.all (hopping_index[:,b,k] == [-1,-1]):
                     hh = (self.get_hh (bra, ket, 1) + self.get_hh (bet, kra, 1)) / 2
                     self.set_hh (bra, ket, 1, hh)
                     self.set_hh (bet, kra, 1, hh)
                 # <j|a_q a_p|i>
-                elif np.all (hopping_index[:,bra,ket] == [-2,0]):
+                elif np.all (hopping_index[:,b,k] == [-2,0]):
                     hh = (self.get_hh (bra, ket, 0) + self.get_hh (bet, kra, 0)) / 2
                     self.set_hh (bra, ket, 0, hh)
                     self.set_hh (bet, kra, 0, hh)
                 
         # b_p|i>
-        for ket in hidx_ket_b:
-            for bra in np.where ((hopping_index[1,:,ket] < 0) & idx_uniq)[0]:
+        for k in hidx_ket_b:
+            for b in np.where (hopping_index[1,:,k] < 0)[0]:
+                ket, bra = self.uroot_addr[k], self.uroot_addr[b]
                 if not mask_ints[bra,ket]: continue
                 bet = ptmap[bra]
                 kra = ptmap[ket]
                 # <j|b_p|i>
-                if np.all (hopping_index[:,bra,ket] == [0,-1]):
+                if np.all (hopping_index[:,b,k] == [0,-1]):
                     h = (self.get_h (bra, ket, 1) + self.get_h (bet, kra, 1)) / 2
                     self.set_h (bra, ket, 1, h)
                     self.set_h (bet, kra, 1, h)
@@ -659,7 +671,7 @@ class FragTDMInt (object):
                     self.set_phh (bra, ket, 1, phh)
                     self.set_phh (bet, kra, 1, phh)
                 # <j|b_q b_p|i>
-                elif np.all (hopping_index[:,bra,ket] == [0,-2]):
+                elif np.all (hopping_index[:,b,k] == [0,-2]):
                     hh = (self.get_hh (bra, ket, 2) + self.get_hh (bet, kra, 2)) / 2
                     self.set_hh (bra, ket, 2, hh)
                     self.set_hh (bet, kra, 2, hh)
@@ -1006,7 +1018,7 @@ def make_ints (las, ci, nelec_frs, screen_linequiv=DO_SCREEN_LINEQUIV, nlas=None
     ints = []
     for ifrag in range (nfrags):
         m0 = lib.current_memory ()[0]
-        tdmint = _FragTDMInt_class (las, ci[ifrag], hopping_index[ifrag],
+        tdmint = _FragTDMInt_class (las, ci[ifrag],
                                     nlas[ifrag], nroots, nelec_frs[ifrag], rootaddr,
                                     fragaddr[ifrag], ifrag, mask_ints,
                                     discriminator=discriminator,
