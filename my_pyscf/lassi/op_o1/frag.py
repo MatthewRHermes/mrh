@@ -1016,9 +1016,16 @@ def make_ints (las, ci, nelec_frs, screen_linequiv=DO_SCREEN_LINEQUIV, nlas=None
             Number of states within each fragment and rootspace
     '''
     nfrags, nroots = nelec_frs.shape[:2]
+    log = lib.logger.new_logger (las, las.verbose)
+    max_memory = getattr (las, 'max_memory', las.mol.max_memory)
     if nlas is None: nlas = las.ncas_sub
     if mask_ints is None: mask_ints = np.ones ((nroots,nroots), dtype=bool)
     lroots = get_lroots (ci)
+    remaining_memory = max_memory - lib.current_memory ()[0]
+    reqd_mem = lst_hopping_index_memsize (nelec_frs)
+    if reqd_mem > remaining_memory:
+        raise MemoryError (('lst_hopping_index requires {} MB of {} MB available ({} MB '
+                            'total)').format (reqd_mem, remaining_memory, max_memory))
     hopping_index, zerop_index, onep_index = lst_hopping_index (nelec_frs)
     rootaddr, fragaddr = get_rootaddr_fragaddr (lroots)
     ints = []
@@ -1032,11 +1039,11 @@ def make_ints (las, ci, nelec_frs, screen_linequiv=DO_SCREEN_LINEQUIV, nlas=None
                                     pt_order=pt_order, do_pt_order=do_pt_order,
                                     verbose=verbose)
         m1 = lib.current_memory ()[0]
-        lib.logger.info (las, 'LAS-state TDM12s fragment %d uses %f MB of %f MB total used',
+        log.info ('LAS-state TDM12s fragment %d uses %f MB of %f MB total used',
                          ifrag, m1-m0, m1)
-        lib.logger.timer (las, 'LAS-state TDM12s fragment {} intermediate crunching'.format (
+        log.timer ('LAS-state TDM12s fragment {} intermediate crunching'.format (
             ifrag), *tdmint.time_crunch)
-        lib.logger.debug (las, 'UNIQUE ROOTSPACES OF FRAG %d: %d/%d', ifrag,
+        log.debug ('UNIQUE ROOTSPACES OF FRAG %d: %d/%d', ifrag,
                           np.count_nonzero (tdmint.root_unique), nroots)
         ints.append (tdmint)
     return hopping_index, ints, lroots

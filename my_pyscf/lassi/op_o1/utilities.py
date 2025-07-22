@@ -88,6 +88,12 @@ def fermion_des_shuffle (nelec_f, frag_list, i):
     nperms = sum (nelec_f[:i]) if i else 0
     return (1,-1)[nperms%2]
 
+def lst_hopping_index_memsize (nelec_frs):
+    nfrags, nroots, _ = nelec_frs.shape
+    hopping_index_size = nfrags * nroots * nroots * 2 * 8
+    zerop_index_size = onep_index_size = nroots * nroots
+    return (hopping_index_size + zerop_index_size + onep_index_size) / 1e6
+
 def lst_hopping_index (nelec_frs):
     ''' Build the LAS state transition hopping index
 
