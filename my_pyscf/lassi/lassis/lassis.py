@@ -512,10 +512,14 @@ def spin_flip_products (las, spaces, spin_flips, nroots_ref=1):
     t0 = (logger.process_clock (), logger.perf_counter ())
     log = logger.new_logger (las, las.verbose)
     nspaces = len (spaces)
+    t1 = (logger.process_clock (), logger.perf_counter ())
     spaces = _spin_flip_products (spaces, spin_flips, nroots_ref=nroots_ref)
+    t1=log.timer ("LASSIS spin-flip products", *t1)
     nfrags = spaces[0].nfrag
     spaces = _spin_shuffle (spaces)
+    t1=log.timer ("LASSIS spin-flip shuffle", *t1)
     spaces = _spin_shuffle_ci_(spaces, spin_flips, nroots_ref, nspaces)
+    t1=log.timer ("LASSIS spin-flip shuffle ci", *t1)
     log.debug ("LASSIS spin-excitation spaces: %d-%d", nspaces, len (spaces)-1)
     for i, space in enumerate (spaces[nspaces:]):
         if np.any (space.nelec != spaces[0].nelec):
@@ -523,6 +527,7 @@ def spin_flip_products (las, spaces, spin_flips, nroots_ref=1):
         else:
             log.debug ("Spin-excitation space %d:", i+nspaces)
         space.table_printlog (tverbose=logger.DEBUG)
+    t1=log.timer ("LASSIS spin-flip table_print", *t1)
     log.timer ("LASSIS spin-flip injection", *t0)
     return spaces
 
@@ -533,6 +538,7 @@ def charge_excitation_products (lsi, spaces, nroots_ref=0, space0=None):
     nfrags = lsi.nfrags
     if space0 is None: space0 = spaces[0]
     i0, j0 = i, j = nroots_ref, len (spaces)
+    t1 = (logger.process_clock (), logger.perf_counter ())
     for product_order in range (2, (nfrags//2)+1):
         seen = set ()
         for p, q in itertools.product (spaces[i:j], spaces[i0:j0]):
@@ -543,6 +549,7 @@ def charge_excitation_products (lsi, spaces, nroots_ref=0, space0=None):
                 spaces.append (r)
                 log.debug ("Electron hop product space %d", len (spaces) - 1)
                 spaces[-1].table_printlog (tverbose=logger.DEBUG)
+            t1=log.timer ("LASSIS charge-hop product iteration", *t1)
         i = j
         j = len (spaces)
     assert (len (spaces) == len (set (spaces)))

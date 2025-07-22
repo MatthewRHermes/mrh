@@ -350,7 +350,7 @@ def _eig_block (las, e0, h1, h2, ci_blk, nelec_blk, soc, opt, max_memory=2000,
         if opt==0:
             raise MemoryError ("Need %f MB of %f MB avail (N.B.: o0 Davidson is fake; use opt=1)",
                                req_memory, max_memory-current_memory)
-        lib.logger.info ("Need %f MB of %f MB avail for incore LASSI diag; Davidson alg forced",
+        lib.logger.info (las,"Need %f MB of %f MB avail for incore LASSI diag; Davidson alg forced",
                          req_memory, max_memory-current_memory)
     if davidson_only or current_memory+req_memory > max_memory:
         return _eig_block_Davidson (las, e0, h1, h2, ci_blk, nelec_blk, soc, opt)
