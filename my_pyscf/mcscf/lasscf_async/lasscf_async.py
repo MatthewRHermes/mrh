@@ -9,8 +9,6 @@ from mrh.my_pyscf.mcscf.lasscf_async import keyframe, combine
 from mrh.my_pyscf.mcscf.lasscf_async.split import get_impurity_space_constructor
 from mrh.my_pyscf.mcscf.lasscf_async.crunch import get_impurity_casscf
 
-from mrh.my_pyscf.gpu import libgpu
-
 def kernel (las, mo_coeff=None, ci0=None, conv_tol_grad=1e-4,
             assert_no_dupes=False, verbose=lib.logger.NOTE, frags_orbs=None,
             **kwargs):

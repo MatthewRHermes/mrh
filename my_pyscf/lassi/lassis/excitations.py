@@ -460,8 +460,8 @@ class ExcitationPSFCISolver (ProductStateFCISolver):
         nelec_frs_bra = nelec_rfs_bra.transpose (1,0,2)
         h_op = op[self.opt].contract_ham_ci
         with temporary_env (self, ncas_sub=norb_f, mol=self.fcisolvers[0].mol):
-            hci_fr_pabq = h_op (self, h1, h2, ci_fr_ket, nelec_frs_ket, ci_fr_bra, nelec_frs_bra,
-                                soc=0, orbsym=None, wfnsym=None)
+            hci_fr_pabq = h_op (self, h1, h2, ci_fr_ket, nelec_frs_ket, ci_fr_bra=ci_fr_bra,
+                                nelec_frs_bra=nelec_frs_bra, soc=0, orbsym=None, wfnsym=None)
         hci_f_pabq = [hc[0] for hc in hci_fr_pabq]
         # ZERO-STATE CLUDGE
         for ifrag in range (nfrags):

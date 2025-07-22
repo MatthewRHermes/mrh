@@ -491,7 +491,7 @@ def get_orth_basis (ci_fr, norb_f, nelec_frs, _get_ovlp=get_ovlp):
 
     return raw2orth, orth2raw
 
-def ham (las, h1, h2, ci_fr, nelec_frs, soc=0, orbsym=None, wfnsym=None):
+def ham (las, h1, h2, ci_fr, nelec_frs, soc=0, orbsym=None, wfnsym=None, **kwargs):
     '''Build LAS state interaction Hamiltonian, S2, and ovlp matrices
 
     Args:
@@ -594,8 +594,9 @@ def ham (las, h1, h2, ci_fr, nelec_frs, soc=0, orbsym=None, wfnsym=None):
     #raw2orth = citools.get_orth_basis (ci_fr, norb_f, nelec_frs, _get_ovlp=_get_ovlp)
     return ham_eff, s2_eff, ovlp_eff, _get_ovlp #raw2orth
 
-def contract_ham_ci (las, h1, h2, ci_fr_ket, nelec_frs_ket, ci_fr_bra, nelec_frs_bra, 
-                     si_bra=None, si_ket=None, h0=0, soc=0, orbsym=None, wfnsym=None):
+def contract_ham_ci (las, h1, h2, ci_fr, nelec_frs, si_bra=None, si_ket=None, ci_fr_bra=None,
+                     nelec_frs_bra=None, h0=0, soc=0, sum_bra=False, orbsym=None, wfnsym=None,
+                     add_transpose=False, accum=None, **kwargs):
     '''Evaluate the action of the state interaction Hamiltonian on a set of ket CI vectors,
     projected onto a basis of bra CI vectors, leaving one fragment of the bra uncontracted.
 
@@ -605,28 +606,30 @@ def contract_ham_ci (las, h1, h2, ci_fr_ket, nelec_frs_ket, ci_fr_bra, nelec_frs
             Spin-orbit-free one-body CAS Hamiltonian
         h2 : ndarray of shape (ncas, ncas, ncas, ncas)
             Spin-orbit-free two-body CAS Hamiltonian
-        ci_fr_ket : nested list of shape (nfrags, nroots_ket)
+        ci_fr : nested list of shape (nfrags, nroots)
             Contains CI vectors for the ket; element [i,j] is ndarray of shape
             (ndeta_ket[i,j],ndetb_ket[i,j])
-        nelec_frs_ket : ndarray of shape (nfrags, nroots_ket, 2)
+        nelec_frs : ndarray of shape (nfrags, nroots, 2)
             Number of electrons of each spin in each rootspace in each
-            fragment for the ket vectors
-        ci_fr_bra : nested list of shape (nfrags, nroots_bra)
-            Contains CI vectors for the bra; element [i,j] is ndarray of shape
-            (ndeta_bra[i,j],ndetb_bra[i,j])
-        nelec_frs_bra : ndarray of shape (nfrags, nroots_bra, 2)
-            Number of electrons of each spin in each
-            fragment for the bra vectors
+            fragment
 
     Kwargs:
         si_bra : ndarray of shape (ndim_bra, *)
             SI vectors for the bra. If provided, the p dimension on the return object is contracted
         si_ket : ndarray of shape (ndim_ket, *)
             SI vectors for the bra. If provided, the q dimension on the return object is contracted
+        ci_fr_bra : nested list of shape (nfrags, nroots_bra)
+            Contains CI vectors for the bra; element [i,j] is ndarray of shape
+            (ndeta_bra[i,j],ndetb_bra[i,j]). Defaults to ci_fr.
+        nelec_frs_bra : ndarray of shape (nfrags, nroots_bra, 2)
+            Number of electrons of each spin in each fragment for the bra vectors.
+            Defaults to nelec_frs.
         soc : integer
             Order of spin-orbit coupling included in the Hamiltonian
         h0 : float
             Constant term in the Hamiltonian
+        sum_bra : logical
+            Currently does nothing whatsoever (TODO)
         orbsym : list of int of length (ncas)
             Irrep ID for each orbital
         wfnsym : int
@@ -637,6 +640,23 @@ def contract_ham_ci (las, h1, h2, ci_fr_ket, nelec_frs_ket, ci_fr_bra, nelec_frs
             Element i,j is an ndarray of shape (ndim_bra//ci_fr_bra[i][j].shape[0],
             ndeta_bra[i,j],ndetb_bra[i,j],ndim_ket). 
     '''
+    if add_transpose:
+        assert (ci_fr_bra is None)
+        assert (nelec_frs_bra is None)
+        hket_fr = contract_ham_ci (las, h1, h2, ci_fr, nelec_frs, si_bra=si_bra, si_ket=si_ket,
+                                   h0=h0, soc=soc, sum_bra=sum_bra, orbsym=orbsym, wfnsym=wfnsym,
+                                   add_transpose=False, **kwargs)
+        hketT_fr = contract_ham_ci (las, h1, h2, ci_fr, nelec_frs, si_bra=si_ket, si_ket=si_bra,
+                                    h0=h0, soc=soc, sum_bra=sum_bra, orbsym=orbsym, wfnsym=wfnsym,
+                                    add_transpose=False, **kwargs)
+        for f, hketT_r in enumerate (hketT_fr):
+            for r, hketT in enumerate (hketT_r):
+                hket_fr[f][r] += hketT
+        return hket_fr
+    ci_fr_ket = ci_fr
+    nelec_frs_ket = nelec_frs
+    if ci_fr_bra is None: ci_fr_bra = ci_fr_ket
+    if nelec_frs_bra is None: nelec_frs_bra = nelec_frs_ket
     if soc>1:
         raise NotImplementedError ("Two-electron spin-orbit coupling")
     mol = las.mol
@@ -803,7 +823,8 @@ def make_stdm12s (las, ci_fr, nelec_frs, orbsym=None, wfnsym=None):
 
     return stdm1s, stdm2s 
 
-def root_trans_rdm12s (las, ci_fr, nelec_frs, si_bra, si_ket, ix, orbsym=None, wfnsym=None):
+def root_trans_rdm12s (las, ci_fr, nelec_frs, si_bra, si_ket, ix, orbsym=None, wfnsym=None,
+                       **kwargs):
     '''Build LAS state interaction reduced transition density matrices for 1 final pair of
     LASSI eigenstates.
 
@@ -919,7 +940,7 @@ def root_trans_rdm12s (las, ci_fr, nelec_frs, si_bra, si_ket, ix, orbsym=None, w
 
     return rdm1s, rdm2s
 
-def root_make_rdm12s (las, ci_fr, nelec_frs, si, ix, orbsym=None, wfnsym=None):
+def root_make_rdm12s (las, ci_fr, nelec_frs, si, ix, orbsym=None, wfnsym=None, **kwargs):
     '''Build LAS state interaction reduced density matrices for 1 final
     LASSI eigenstate.
 
@@ -951,9 +972,10 @@ def root_make_rdm12s (las, ci_fr, nelec_frs, si, ix, orbsym=None, wfnsym=None):
         rdm2s : ndarray of length (2, ncas, ncas, 2, ncas, ncas)
             Two-body transition density matrices between LAS states
     '''
-    return root_trans_rdm12s (las, ci_fr, nelec_frs, si, si, ix, orbsym=None, wfnsym=None)
+    return root_trans_rdm12s (las, ci_fr, nelec_frs, si, si, ix, orbsym=None, wfnsym=None,
+                              **kwargs)
 
-def roots_make_rdm12s (las, ci_fr, nelec_frs, si, orbsym=None, wfnsym=None):
+def roots_make_rdm12s (las, ci_fr, nelec_frs, si, orbsym=None, wfnsym=None, **kwargs):
     '''Build LAS state interaction reduced density matrices for final
     LASSI eigenstates.
 
@@ -986,12 +1008,13 @@ def roots_make_rdm12s (las, ci_fr, nelec_frs, si, orbsym=None, wfnsym=None):
     rdm1s = []
     rdm2s = []
     for ix in range (si.shape[1]):
-        d1, d2 = root_make_rdm12s (las, ci_fr, nelec_frs, si, ix, orbsym=orbsym, wfnsym=wfnsym)
+        d1, d2 = root_make_rdm12s (las, ci_fr, nelec_frs, si, ix, orbsym=orbsym, wfnsym=wfnsym,
+                                   **kwargs)
         rdm1s.append (d1)
         rdm2s.append (d2)
     return np.stack (rdm1s, axis=0), np.stack (rdm2s, axis=0)
 
-def roots_trans_rdm12s (las, ci_fr, nelec_frs, si_bra, si_ket, orbsym=None, wfnsym=None):
+def roots_trans_rdm12s (las, ci_fr, nelec_frs, si_bra, si_ket, orbsym=None, wfnsym=None, **kwargs):
     '''Build LAS state interaction reduced transition density matrices for final
     LASSI eigenstates.
 
@@ -1028,7 +1051,8 @@ def roots_trans_rdm12s (las, ci_fr, nelec_frs, si_bra, si_ket, orbsym=None, wfns
     rdm2s = []
     assert (si_bra.shape == si_ket.shape)
     for ix in range (si_bra.shape[1]):
-        d1, d2 = root_trans_rdm12s (las, ci_fr, nelec_frs, si_bra, si_ket, ix, orbsym=orbsym, wfnsym=wfnsym)
+        d1, d2 = root_trans_rdm12s (las, ci_fr, nelec_frs, si_bra, si_ket, ix, orbsym=orbsym,
+                                    wfnsym=wfnsym, **kwargs)
         rdm1s.append (d1)
         rdm2s.append (d2)
     return np.stack (rdm1s, axis=0), np.stack (rdm2s, axis=0)
