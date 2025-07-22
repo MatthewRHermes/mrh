@@ -343,6 +343,9 @@ class FragTDMInt (object):
     def get_lroots (self, i):
         return self.ci[i].shape[0]
 
+    def get_lroots_uroot (self, i):
+        return self.get_lroots (self.uroot_addr[i])
+
     def _init_crunch_(self, screen_linequiv):
         ''' Compute the transition density matrix factors.
 
@@ -373,6 +376,7 @@ class FragTDMInt (object):
         self.uroot_inv = -1 * np.ones (self.nroots, dtype=int)
         self.uroot_inv[self.root_unique] = np.arange (nuroots, dtype=int)
         self.uroot_idx = self.uroot_inv[self.unique_root]
+        self.uroot_addr = np.where (self.root_unique)[0]
         assert (np.all (self.uroot_idx >= 0))
 
         self.ovlp = [[None for i in range (nuroots)] for j in range (nuroots)]

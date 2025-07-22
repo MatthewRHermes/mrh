@@ -210,7 +210,7 @@ class HamS2OvlpOperators (HamS2Ovlp):
             if ifrag in inv:
                 # Collect the nonspectator-fragment dimensions on the minor end
                 for ket, vec in vecs.items ():
-                    lket = self.ints[ifrag].get_lroots (ket[ifrag])
+                    lket = self.ints[ifrag].get_lroots_uroot (ket[ifrag])
                     lr = vec.shape[-1]
                     vecs[ket] = vec.reshape (-1,lr*lket)
             else:
@@ -280,7 +280,7 @@ class HamS2OvlpOperators (HamS2Ovlp):
             vec = vecs[tuple(s)]
             lr = vec.shape[-1]
             bra, ket = os[ifrag], s[ifrag]
-            o = self.ints[ifrag].get_ovlp (bra, ket)
+            o = self.ints[ifrag].ovlp[bra][ket]
             lket = o.shape[1]
             vec = vec.reshape (-1,lket,lr)
             ovecs[tuple(os)] += lib.einsum ('pq,lqr->plr', o, vec).reshape (-1,lr)

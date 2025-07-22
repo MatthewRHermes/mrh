@@ -115,7 +115,7 @@ class LSTDM (object):
                              for nelec_sf in self.nelec_rf]
         self.nelec_rf = self.nelec_rf.sum (1)
 
-        self.urootstr = np.asarray ([[i.unique_root[r] for i in self.ints]
+        self.urootstr = np.asarray ([[i.uroot_idx[r] for i in self.ints]
                                      for r in range (self.nroots)]).T
 
         exc = self.make_exc_tables (hopping_index)
