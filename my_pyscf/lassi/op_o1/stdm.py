@@ -446,7 +446,7 @@ class LSTDM (object):
 
     def crunch_ovlp (self, bra, ket):
         i = self.ints[-1]
-        b, k = i.unique_root[bra], i.unique_root[ket]
+        b, k = i.unique_uroot[bra], i.unique_uroot[ket]
         o = i.ovlp[b][k] / (1 + int (bra==ket))
         for i in self.ints[-2::-1]:
             o = np.multiply.outer (o, i.get_ovlp (bra, ket)).transpose (0,2,1,3)

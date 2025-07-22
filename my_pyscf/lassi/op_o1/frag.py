@@ -118,13 +118,6 @@ class FragTDMInt (object):
         self.nroots = nroots
         self.dtype = dtype
         self.nelec_r = [tuple (n) for n in nelec_rs]
-        self.ovlp = [[None for i in range (nroots)] for j in range (nroots)]
-        self._h = [[[None for i in range (nroots)] for j in range (nroots)] for s in (0,1)]
-        self._hh = [[[None for i in range (nroots)] for j in range (nroots)] for s in (-1,0,1)] 
-        self._phh = [[[None for i in range (nroots)] for j in range (nroots)] for s in (0,1)]
-        self._sm = [[None for i in range (nroots)] for j in range (nroots)]
-        self.dm1 = [[None for i in range (nroots)] for j in range (nroots)]
-        self.dm2 = [[None for i in range (nroots)] for j in range (nroots)]
         self.linkstr_cache = {}
         self.linkstrl_cache = {}
         self.rootaddr = rootaddr
@@ -180,7 +173,7 @@ class FragTDMInt (object):
         else: raise RuntimeError (str (len (args)))
 
     def try_get_dm (self, tab, i, j):
-        ir, jr = self.unique_root[i], self.unique_root[j]
+        ir, jr = self.unique_uroot[i], self.unique_uroot[j]
         try:
             assert (tab[ir][jr] is not None)
             return tab[ir][jr]
@@ -190,7 +183,7 @@ class FragTDMInt (object):
             raise RuntimeError (errstr)
 
     def try_get_tdm (self, tab, s, i, j):
-        ir, jr = self.unique_root[i], self.unique_root[j]
+        ir, jr = self.unique_uroot[i], self.unique_uroot[j]
         try:
             assert (tab[s][ir][jr] is not None)
             return tab[s][ir][jr]
@@ -225,6 +218,7 @@ class FragTDMInt (object):
         return self.try_get (self._h, s, i, j)
 
     def set_h (self, i, j, s, x):
+        i, j = self.unique_uroot[i], self.unique_uroot[j]
         x = self.setmanip (x)
         self._h[s][i][j] = x
         return x
@@ -245,6 +239,7 @@ class FragTDMInt (object):
         #return self._hh[s][i][j]
 
     def set_hh (self, i, j, s, x):
+        i, j = self.unique_uroot[i], self.unique_uroot[j]
         x = self.setmanip (x)
         self._hh[s][i][j] = x
         return x
@@ -265,6 +260,7 @@ class FragTDMInt (object):
         return self.try_get (self._phh, s, i, j)
 
     def set_phh (self, i, j, s, x):
+        i, j = self.unique_uroot[i], self.unique_uroot[j]
         x = self.setmanip (x)
         self._phh[s][i][j] = x
         return x
@@ -284,6 +280,7 @@ class FragTDMInt (object):
         return self.try_get (self._sm, i, j)
 
     def set_sm (self, i, j, x):
+        i, j = self.unique_uroot[i], self.unique_uroot[j]
         x = self.setmanip (x)
         self._sm[i][j] = x
         return x
@@ -316,6 +313,7 @@ class FragTDMInt (object):
 
     def set_dm1 (self, i, j, x):
         assert (j <= i)
+        i, j = self.unique_uroot[i], self.unique_uroot[j]
         x = self.setmanip (x)
         self.dm1[i][j] = x
 
@@ -338,6 +336,7 @@ class FragTDMInt (object):
 
     def set_dm2 (self, i, j, x):
         assert (j <= i)
+        i, j = self.unique_uroot[i], self.unique_uroot[j]
         x = self.setmanip (x)
         self.dm2[i][j] = x
 
@@ -370,6 +369,19 @@ class FragTDMInt (object):
             ci, self.nelec_r, screen_linequiv=screen_linequiv, screen_thresh=SCREEN_THRESH,
             discriminator=self.discriminator
         )
+        self.nuroots = nuroots = np.count_nonzero (self.root_unique)
+        fragpos = -1 * np.ones (self.nroots, dtype=int)
+        fragpos[self.root_unique] = np.arange (nuroots, dtype=int)
+        self.unique_uroot = fragpos[self.unique_root]
+        assert (np.all (self.unique_uroot >= 0))
+
+        self.ovlp = [[None for i in range (nuroots)] for j in range (nuroots)]
+        self._h = [[[None for i in range (nuroots)] for j in range (nuroots)] for s in (0,1)]
+        self._hh = [[[None for i in range (nuroots)] for j in range (nuroots)] for s in (-1,0,1)] 
+        self._phh = [[[None for i in range (nuroots)] for j in range (nuroots)] for s in (0,1)]
+        self._sm = [[None for i in range (nuroots)] for j in range (nuroots)]
+        self.dm1 = [[None for i in range (nuroots)] for j in range (nuroots)]
+        self.dm2 = [[None for i in range (nuroots)] for j in range (nuroots)]
 
         # Update connectivity arrays and mask_ints
         for i in np.where (self.root_unique)[0]:
@@ -418,12 +430,14 @@ class FragTDMInt (object):
             if not mask_ints[i,j]: continue
             ci_i = ci[i].reshape (lroots[i], -1)
             ci_j = ci[j].reshape (lroots[j], -1)
-            self.ovlp[i][j] = np.dot (ci_i.conj (), ci_j.T)
-            self.ovlp[j][i] = self.ovlp[i][j].conj ().T
+            k, l = self.unique_uroot[i], self.unique_uroot[j]
+            self.ovlp[k][l] = np.dot (ci_i.conj (), ci_j.T)
+            self.ovlp[l][k] = self.ovlp[k][l].conj ().T
         for i in np.where (idx_uniq)[0]:
             if not mask_ints[i,i]: continue
             ci_i = ci[i].reshape (lroots[i], -1)
-            self.ovlp[i][i] = np.dot (ci_i.conj (), ci_i.T)
+            j = self.unique_uroot[i]
+            self.ovlp[j][j] = np.dot (ci_i.conj (), ci_i.T)
             #errmat = self.ovlp[i][i] - np.eye (lroots[i])
             #if np.amax (np.abs (errmat)) > 1e-3:
             #    w, v = np.linalg.eigh (self.ovlp[i][i])
@@ -1009,6 +1023,7 @@ def make_ints (las, ci, nelec_frs, screen_linequiv=DO_SCREEN_LINEQUIV, nlas=None
     rootaddr, fragaddr = get_rootaddr_fragaddr (lroots)
     ints = []
     for ifrag in range (nfrags):
+        m0 = lib.current_memory ()[0]
         tdmint = _FragTDMInt_class (las, ci[ifrag], hopping_index[ifrag], zerop_index, onep_index,
                                     nlas[ifrag], nroots, nelec_frs[ifrag], rootaddr,
                                     fragaddr[ifrag], ifrag, mask_ints,
@@ -1016,6 +1031,9 @@ def make_ints (las, ci, nelec_frs, screen_linequiv=DO_SCREEN_LINEQUIV, nlas=None
                                     screen_linequiv=screen_linequiv,
                                     pt_order=pt_order, do_pt_order=do_pt_order,
                                     verbose=verbose)
+        m1 = lib.current_memory ()[0]
+        lib.logger.info (las, 'LAS-state TDM12s fragment %d uses %f MB of %f MB total used',
+                         ifrag, m1-m0, m1)
         lib.logger.timer (las, 'LAS-state TDM12s fragment {} intermediate crunching'.format (
             ifrag), *tdmint.time_crunch)
         lib.logger.debug (las, 'UNIQUE ROOTSPACES OF FRAG %d: %d/%d', ifrag,
