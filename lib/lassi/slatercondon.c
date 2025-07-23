@@ -34,9 +34,9 @@ bool is_interaction_coupled (int * nelec_fs_bra, int * nelec_fs_ket, const int n
     return is_coupled;
 }
 
-long LASSISCcntinter (int * nelec_rfs_bra, int * nelec_rfs_ket,
-                      const long nroots_bra, const long nroots_ket,
-                      const int nfrags)
+long SCcntinter (int * nelec_rfs_bra, int * nelec_rfs_ket,
+                 const long nroots_bra, const long nroots_ket,
+                 const int nfrags)
 {
 /* Count the number of valid interactions between model states based on the electron numbers.
    Input:
@@ -48,8 +48,7 @@ long LASSISCcntinter (int * nelec_rfs_bra, int * nelec_rfs_ket,
 */
 long n = 0;
 const long nroots2 = nroots_bra * nroots_ket;
-const long rstride_bra = nroots_bra * nfrags * 2;
-const long rstride_ket = nroots_ket * nfrags * 2;
+const long rstride = nfrags * 2;
 #pragma omp parallel
 {
     long iket, ibra;
@@ -58,10 +57,10 @@ const long rstride_ket = nroots_ket * nfrags * 2;
     int * nelec_fs_ket;
     #pragma omp for schedule(static)
     for (long iel = 0; iel < nroots2; iel++){
-        iket = iel / nroots_ket;
-        ibra = iel % nroots_ket;
-        nelec_fs_ket = nelec_rfs_ket + (iket * rstride_bra);
-        nelec_fs_bra = nelec_rfs_bra + (ibra * rstride_ket);
+        iket = iel % nroots_ket;
+        ibra = iel / nroots_ket;
+        nelec_fs_ket = nelec_rfs_ket + (iket * rstride);
+        nelec_fs_bra = nelec_rfs_bra + (ibra * rstride);
         if (is_interaction_coupled (nelec_fs_bra, nelec_fs_ket, nfrags)){
             my_n++;
         }
@@ -74,9 +73,9 @@ const long rstride_ket = nroots_ket * nfrags * 2;
 return n;
 }
 
-void LASSISClistinter (long * exc, int * nelec_rfs_bra, int * nelec_rfs_ket,
-                       const long nexc, const long nroots_bra, const long nroots_ket,
-                       const int nfrags)
+void SClistinter (long * exc, int * nelec_rfs_bra, int * nelec_rfs_ket,
+                  const long nexc, const long nroots_bra, const long nroots_ket,
+                  const int nfrags)
 {
 /* List all valid interactions between model states based on the electron numbers
    Input:
@@ -87,8 +86,7 @@ void LASSISClistinter (long * exc, int * nelec_rfs_bra, int * nelec_rfs_ket,
         exc : array of shape (nexc,2)
 */
 const long nroots2 = nroots_bra * nroots_ket;
-const long rstride_bra = nroots_bra * nfrags * 2;
-const long rstride_ket = nroots_ket * nfrags * 2;
+const long rstride = nfrags * 2;
 const long one = 1;
 const long two = 2;
 long iexc = 0;
@@ -103,10 +101,10 @@ long iexc = 0;
     int * nelec_fs_ket;
     #pragma omp for schedule(static)
     for (long iel = 0; iel < nroots2; iel++){
-        iket = iel / nroots_ket;
-        ibra = iel % nroots_ket;
-        nelec_fs_ket = nelec_rfs_ket + (iket * rstride_bra);
-        nelec_fs_bra = nelec_rfs_bra + (ibra * rstride_ket);
+        iket = iel % nroots_ket;
+        ibra = iel / nroots_ket;
+        nelec_fs_ket = nelec_rfs_ket + (iket * rstride);
+        nelec_fs_bra = nelec_rfs_bra + (ibra * rstride);
         if (is_interaction_coupled (nelec_fs_bra, nelec_fs_ket, nfrags)){
             my_exc[my_iexc*two] = ibra;
             my_exc[(my_iexc*two)+one] = iket;
