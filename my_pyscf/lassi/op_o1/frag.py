@@ -995,9 +995,6 @@ def make_ints (las, ci, nelec_frs, screen_linequiv=DO_SCREEN_LINEQUIV, nlas=None
             Verbosity level of intermediate logger
 
     Returns:
-        hopping_index : ndarray of ints of shape (nfrags, 2, nroots, nroots)
-            element [i,j,k,l] reports the change of number of electrons of
-            spin j in fragment i between LAS rootspaces k and l
         ints : list of length nfrags of instances of :class:`FragTDMInt`
         lroots: ndarray of ints of shape (nfrags, nroots)
             Number of states within each fragment and rootspace
@@ -1008,12 +1005,6 @@ def make_ints (las, ci, nelec_frs, screen_linequiv=DO_SCREEN_LINEQUIV, nlas=None
     if nlas is None: nlas = las.ncas_sub
     if mask_ints is None: mask_ints = np.ones ((nroots,nroots), dtype=bool)
     lroots = get_lroots (ci)
-    remaining_memory = max_memory - lib.current_memory ()[0]
-    reqd_mem = lst_hopping_index_memsize (nelec_frs)
-    if reqd_mem > remaining_memory:
-        raise MemoryError (('lst_hopping_index requires {} MB of {} MB available ({} MB '
-                            'total)').format (reqd_mem, remaining_memory, max_memory))
-    hopping_index = lst_hopping_index (nelec_frs)
     rootaddr, fragaddr = get_rootaddr_fragaddr (lroots)
     ints = []
     for ifrag in range (nfrags):
@@ -1033,6 +1024,6 @@ def make_ints (las, ci, nelec_frs, screen_linequiv=DO_SCREEN_LINEQUIV, nlas=None
         log.debug ('UNIQUE ROOTSPACES OF FRAG %d: %d/%d', ifrag,
                           np.count_nonzero (tdmint.root_unique), nroots)
         ints.append (tdmint)
-    return hopping_index, ints, lroots
+    return ints, lroots
 
 

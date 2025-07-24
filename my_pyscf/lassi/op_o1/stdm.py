@@ -52,9 +52,6 @@ class LSTDM (object):
                 fragment-local intermediates
             nlas : list of length nfrags of integers
                 numbers of active orbitals in each fragment
-            hopping_index: ndarray of ints of shape (nfrags, 2, nroots, nroots)
-                element [i,j,k,l] reports the change of number of electrons of
-                spin j in fragment i between LAS rootspaces k and l
             lroots: ndarray of ints of shape (nfrags, nroots)
                 Number of states within each fragment and rootspace
 
@@ -78,7 +75,7 @@ class LSTDM (object):
     # (N.B.: "sp" is just the adjoint of "sm"). 
     # TODO: at some point, if it ever becomes rate-limiting, make this multithread better
 
-    def __init__(self, ints, nlas, hopping_index, lroots, mask_bra_space=None, mask_ket_space=None,
+    def __init__(self, ints, nlas, lroots, mask_bra_space=None, mask_ket_space=None,
                  pt_order=None, do_pt_order=None, log=None, max_memory=2000, dtype=np.float64):
         self.ints = ints
         self.log = log
@@ -86,6 +83,7 @@ class LSTDM (object):
         self.nlas = nlas
         self.norb = sum (nlas)
         self.lroots = lroots
+        self.nfrags, self.nroots = lroots.shape
 
         self.rootaddr, self.envaddr = get_rootaddr_fragaddr (lroots)
         self.envaddr = np.ascontiguousarray (self.envaddr.T)
@@ -93,7 +91,6 @@ class LSTDM (object):
         offs1 = np.cumsum (nprods)
         offs0 = offs1 - nprods
         self.offs_lroots = np.stack ([offs0, offs1], axis=1)
-        self.nfrags, _, self.nroots, _ = hopping_index.shape
         self.pt_order = pt_order
         self.do_pt_order = do_pt_order
 
@@ -182,9 +179,8 @@ class LSTDM (object):
         and 2c), the last column identifies spin case.
 
         Args:
-            hopping_index: ndarray of ints of shape (nfrags, 2, nroots, nroots)
-                element [i,j,k,l] reports the change of number of electrons of
-                spin j in fragment i between LAS rootspaces k and l
+            nelec_frs: ndarray of ints of shape (nfrags, nroots, 2)
+                Number of electrons in each fragment in each space
 
         Returns:
             exc: dict with str keys and ndarray-of-int values. Each row of each ndarray is the
@@ -202,13 +198,20 @@ class LSTDM (object):
         exc['1s1c_T'] = np.empty ((0,5), dtype=int)
         exc['2c'] = np.empty ((0,7), dtype=int)
         nfrags = self.nfrags
-        scai = get_scallowed_interactions (nelec_frs)
+        scai = get_scallowed_interactions (nelec_frs, max_memory=self.max_memory)
 
         if self.ltri:
             tril_index = scai[:,0] >= scai[:,1]
             scai = scai[tril_index]
 
         nelec_rfs = nelec_frs.transpose (1,0,2)
+        nexc = scai.shape[0]
+        rem_mem = self.max_memory - lib.current_memory ()[0]
+        reqd_mem = 3 * nexc * nfrags * 2 * nelec_rfs.dtype.itemsize / 1e6
+        if reqd_mem > rem_mem:
+            raise MemoryError (('Inadequate memory to make_exc_tables: for {} interactions, {} MB'
+                                'required of {} MB available ({} MB total)').format (
+                               nexc, reqd_mem, rem_mem, self.max_memory))
         hopping_index = nelec_rfs[scai[:,0]] - nelec_rfs[scai[:,1]]
 
         # Process connectivity data to quickly distinguish interactions
@@ -1114,7 +1117,7 @@ def make_stdm12s (las, ci, nelec_frs, **kwargs):
         ncas = ncas * 2
 
     # First pass: single-fragment intermediates
-    hopping_index, ints, lroots = frag.make_ints (las, ci, nelec_frs, nlas=nlas)
+    ints, lroots = frag.make_ints (las, ci, nelec_frs, nlas=nlas)
     nstates = np.sum (np.prod (lroots, axis=0))
 
     # Memory check
@@ -1126,7 +1129,7 @@ def make_stdm12s (las, ci, nelec_frs, **kwargs):
 
     # Second pass: upper-triangle
     t0 = (lib.logger.process_clock (), lib.logger.perf_counter ())
-    outerprod = LSTDM (ints, nlas, hopping_index, lroots, dtype=dtype,
+    outerprod = LSTDM (ints, nlas, lroots, dtype=dtype,
                            max_memory=max_memory, log=log)
     if not spin_pure:
         outerprod.spin_shuffle = spin_shuffle_fac
