@@ -204,6 +204,7 @@ class SingleLASRootspace (object):
         for i in range (nflips):
             spins_table = spins_table[:,None,:] - subtrahend
             spins_table = spins_table.reshape (-1, self.nfrag)
+            spins_table = np.unique (spins_table, axis=0)
             # minimum valid value in column i is 1-self.smults[i]
             idx_valid = np.all (spins_table>-self.smults[None,:], axis=1)
             spins_table = spins_table[idx_valid,:]
