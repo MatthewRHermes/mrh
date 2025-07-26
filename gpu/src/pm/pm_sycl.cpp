@@ -387,7 +387,6 @@ void * PM::dev_malloc_async(size_t N)
 #endif
   
   void * ptr = sycl::malloc_device<char>(N, *current_queue);
-  //  current_queue->wait();
   
 #ifdef _DEBUG_PM
   printf(" -- Leaving PM::dev_malloc_async()\n");
