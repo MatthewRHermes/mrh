@@ -8,8 +8,6 @@ from pyscf.mcscf.addons import _state_average_mcscf_solver
 from mrh.my_pyscf.mcscf import _DFLASCI, lasci_sync, lasci
 import copy, json
 
-from mrh.my_pyscf.gpu import libgpu
-#DEBUG=True
 class ImpurityMole (gto.Mole):
     def __init__(self, las, stdout=None, output=None):
         gto.Mole.__init__(self)
@@ -133,12 +131,12 @@ class ImpuritySCF (scf.hf.SCF):
                                             "supported)"))
         df_eris_mem_error = MemoryError (("Density-fitted two-electron integrals in asynchronous "
                                           "LASSCF (outcore algorithm is not yet supported"))
-        if hasattr(self.mol, 'use_gpu'):
-            gpu = self.mol.use_gpu
-        else:
-            gpu = False
+        
+        gpu = False
+        if hasattr (mf, 'use_gpu'): gpu = mf.mol.use_gpu
 
         if getattr (mf, 'with_df', None) is not None:
+            from mrh.my_pyscf.gpu import libgpu
             # TODO: impurity outcore cderi
             imporb_coeff=np.ascontiguousarray(imporb_coeff) 
             #VA - 4/29/25
@@ -206,7 +204,7 @@ class ImpuritySCF (scf.hf.SCF):
                         exit()
 
                 
-            elif gpu and 0:
+            elif gpu:
                 naoaux = mf.with_df.get_naoaux()
                 nao_s, nao_f = imporb_coeff.shape
                 if getattr(self, 'with_df', None) is not None:
@@ -612,6 +610,7 @@ class ImpuritySolver ():
                                       dm1s=None, casdm1rs=None, casdm2rs=None, weights=None):
         '''Update the Hamiltonian data contained within this impurity solver and all encapsulated
         impurity objects'''
+        from mrh.my_pyscf.gpu import libgpu
         las = self.mol._las
         gpu = las.use_gpu
         if h2eff_sub is None: h2eff_sub = las.ao2mo (mo_coeff)

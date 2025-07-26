@@ -42,10 +42,13 @@ class LRRDM (stdm.LSTDM):
     # spinorbital basis
 
     def __init__(self, ints, nlas, hopping_index, lroots, si_bra, si_ket, mask_bra_space=None,
-                 mask_ket_space=None, log=None, max_memory=2000, dtype=np.float64):
+                 mask_ket_space=None, pt_order=None, do_pt_order=None, log=None, max_memory=2000,
+                 dtype=np.float64):
         stdm.LSTDM.__init__(self, ints, nlas, hopping_index, lroots,
                                 mask_bra_space=mask_bra_space,
                                 mask_ket_space=mask_ket_space,
+                                pt_order=pt_order,
+                                do_pt_order=do_pt_order,
                                 log=log, max_memory=max_memory,
                                 dtype=dtype)
         self.nroots_si = si_bra.shape[-1]
@@ -140,8 +143,6 @@ class LRRDM (stdm.LSTDM):
         si = self.si_bra if bra else self.si_ket
         return si[i:j,:]
 
-    _lowertri_fdm = True
-
     def get_frag_transposed_sivec (self, iroot, *inv, bra=False):
         '''A single-rootspace slice of the SI vectors, transposed so that involved fragments
         are slower-moving
@@ -160,7 +161,7 @@ class LRRDM (stdm.LSTDM):
         sivec = self.get_single_rootspace_sivec (iroot, bra=bra)
         return transpose_sivec_make_fragments_slow (sivec, self.lroots[:,iroot], *inv)
 
-    def get_fdm (self, rbra, rket, *inv, keyorder=None):
+    def get_fdm (self, rbra, rket, *inv, keyorder=None, _braket_table=None):
         '''Get the n-fragment density matrices for the fragments identified by inv in the bra and
         spaces given by rbra and rket, summing over nonunique excitations
 
@@ -176,6 +177,8 @@ class LRRDM (stdm.LSTDM):
             keyorder: list of integers
                 The same fragments as inv in a different order, in case the key in self.nonuniq_exc
                 uses a different order than desired in the output
+            _braket_table: ndarray of shape (*,2)
+                Overrides the lookup of self.nonuniq_exc if provided.
 
         Returns:
             fdm : ndarray of shape (nroots_si, ..., lroots[inv[1],rbra], lroots[inv[1],rket],
@@ -185,7 +188,10 @@ class LRRDM (stdm.LSTDM):
         t0, w0 = logger.process_clock (), logger.perf_counter ()
         if keyorder is None: keyorder = inv
         key = tuple ((rbra,rket)) + tuple (keyorder)
-        braket_table = self.nonuniq_exc[key]
+        if _braket_table is None:
+            braket_table = self.nonuniq_exc[key]
+        else:
+            braket_table = _braket_table
         invset = set ()
         inv = [i for i in inv if not (i in invset or invset.add (i))]
         # must eliminate duplicates, but must also preserve order
@@ -236,7 +242,7 @@ class LRRDM (stdm.LSTDM):
             o = np.multiply.outer (i.get_ovlp (rbra, rket), o).transpose (0,2,1,3)
             o = o.reshape (o.shape[0]*o.shape[1], o.shape[2]*o.shape[3])
         idx = np.abs(o) > 1e-8
-        if self._lowertri_fdm and (rbra==rket): # not bra==ket b/c _loop_lroots_ isn't tril
+        if self.ltri and (rbra==rket): # not bra==ket b/c _loop_lroots_ isn't tril
             o[np.diag_indices_from (o)] *= 0.5
             idx[np.triu_indices_from (idx, k=1)] = False
         o = o[idx]
@@ -395,7 +401,7 @@ class LRRDM (stdm.LSTDM):
         self.dt_1s, self.dw_1s = self.dt_1s + dt, self.dw_1s + dw
         self._put_D2_()
 
-    def _crunch_1s1c_(self, bra, ket, i, j, k):
+    def _crunch_1s1c_(self, bra, ket, i, j, k, s1):
         '''Compute the reduced density matrix elements of a spin-charge unit hop; i.e.,
 
         <bra|i'(a)k'(b)j(b)k(a)|ket>
@@ -409,6 +415,7 @@ class LRRDM (stdm.LSTDM):
         '''
         d_ = self.get_fdm (bra, ket, i, j, k) # time-profiled by itself
         t0, w0 = logger.process_clock (), logger.perf_counter ()
+        s2 = 1 - s1
         d2 = self._get_D2_(bra, ket) # aa, ab, ba, bb -> 0, 1, 2, 3
         p, q = self.get_range (i)
         r, s = self.get_range (j)
@@ -418,12 +425,15 @@ class LRRDM (stdm.LSTDM):
         fac = -1 # a'bb'a -> a'ab'b sign
         fac *= fermion_des_shuffle (nelec_f_bra, (i, j, k), i)
         fac *= fermion_des_shuffle (nelec_f_ket, (i, j, k), j)
-        d_ = np.tensordot (d_, self.ints[i].get_p (bra, ket, 0), axes=2) # _rKKJJi
-        d_ = np.tensordot (d_, self.ints[j].get_h (bra, ket, 1), axes=((3,4),(0,1))) # _rKKij
-        d_ = np.tensordot (d_, self.ints[k].get_sm (bra, ket), axes=((1,2),(0,1))) # _rijk'k
+        d_ = np.tensordot (d_, self.ints[i].get_p (bra, ket, s1), axes=2) # _rKKJJi
+        d_ = np.tensordot (d_, self.ints[j].get_h (bra, ket, s2), axes=((3,4),(0,1))) # _rKKij
+        if s1 == 0:
+            d_ = np.tensordot (d_, self.ints[k].get_sm (bra, ket), axes=((1,2),(0,1))) # _rijk'k
+        else:
+            d_ = np.tensordot (d_, self.ints[k].get_sp (bra, ket), axes=((1,2),(0,1))) # _rijk'k
         d_ = fac * d_.transpose (0,1,4,3,2) # r_ikk'j (a'bb'a -> a'ab'b transpose)
-        d2[:,1,p:q,t:u,t:u,r:s] = d_ #rikkj
-        d2[:,2,t:u,r:s,p:q,t:u] = d_.transpose (0,3,4,1,2)
+        d2[:,1+s1,p:q,t:u,t:u,r:s] = d_ #rikkj
+        d2[:,2-s1,t:u,r:s,p:q,t:u] = d_.transpose (0,3,4,1,2)
         dt, dw = logger.process_clock () - t0, logger.perf_counter () - w0
         self.dt_1s1c, self.dw_1s1c = self.dt_1s1c + dt, self.dw_1s1c + dw
         self._put_D2_()
@@ -599,7 +609,7 @@ def get_fdm1_maker (las, ci, nelec_frs, si, **kwargs):
                           max_memory=max_memory, log=log)
 
     # Spoof nonuniq_exc to avoid summing together things that need to be separate
-    outerprod._lowertri_fdm = False
+    outerprod.ltri = False
     def make_fdm1 (iroot, ifrag):
         fdm = outerprod.get_fdm_1space (iroot, iroot, ifrag)
         if iroot in ints[ifrag].umat_root:
@@ -632,6 +642,8 @@ def roots_trans_rdm12s (las, ci, nelec_frs, si_bra, si_ket, **kwargs):
     log = lib.logger.new_logger (las, las.verbose)
     nlas = las.ncas_sub
     ncas = las.ncas
+    pt_order = kwargs.get ('pt_order', None)
+    do_pt_order = kwargs.get ('do_pt_order', None)
     assert (si_bra.dtype == si_ket.dtype)
     assert (si_bra.shape == si_ket.shape)
     nroots_si = si_ket.shape[-1]
@@ -656,7 +668,9 @@ def roots_trans_rdm12s (las, ci, nelec_frs, si_bra, si_ket, **kwargs):
 
     # First pass: single-fragment intermediates
     hopping_index, ints, lroots = frag.make_ints (las, ci, nelec_frs, nlas=nlas,
-                                                  _FragTDMInt_class=FragTDMInt)
+                                                  _FragTDMInt_class=FragTDMInt,
+                                                  pt_order=pt_order,
+                                                  do_pt_order=do_pt_order)
     nstates = np.sum (np.prod (lroots, axis=0))
     
     # Memory check
@@ -668,8 +682,10 @@ def roots_trans_rdm12s (las, ci, nelec_frs, si_bra, si_ket, **kwargs):
 
     # Second pass: upper-triangle
     t0 = (lib.logger.process_clock (), lib.logger.perf_counter ())
-    outerprod = LRRDM (ints, nlas, hopping_index, lroots, si_bra, si_ket, dtype=dtype,
-                          max_memory=max_memory, log=log)
+    outerprod = LRRDM (ints, nlas, hopping_index, lroots, si_bra, si_ket,
+                       pt_order=pt_order, do_pt_order=do_pt_order,
+                       dtype=dtype, max_memory=max_memory, log=log)
+
     if not spin_pure:
         outerprod.spin_shuffle = spin_shuffle_fac
     lib.logger.timer (las, 'LASSI root RDM12s second intermediate indexing setup', *t0)

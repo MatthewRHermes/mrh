@@ -87,7 +87,7 @@ def get_grad_ci (lsi, mo_coeff=None, ci=None, ci_ref=None, ci_sf=None, ci_ch=Non
     '''
     if ci is None: ci = lsi.prepare_model_states (ci_ref, ci_sf, ci_ch)[0].ci
     hci = grad_orb_ci_si.get_grad_ci (
-        lsi, mo_coeff=mo_coeff, ci=ci, si=si, state=state, weights=weights, opt=opt
+        lsi, mo_coeff=mo_coeff, ci=ci, si=si, state=state, weights=weights, opt=opt, sum_bra=True
     )
     return coords.sum_hci (lsi, hci)
 
