@@ -180,7 +180,7 @@ public :
   // multi-gpu communication (better here or part of PM?)
 
   void mgpu_bcast(std::vector<double *>, double *, size_t);
-  void mgpu_reduce(std::vector<double *>, double *, int, bool, std::vector<double *>);
+  void mgpu_reduce(std::vector<double *>, double *, int, bool, std::vector<double *>, std::vector<int>);
   
 private:
 
@@ -245,8 +245,6 @@ private:
   int size_eri_impham;
   double * pin_eri_impham;
  
- 
-
   // eri caching on device
 
   bool use_eri_cache;
@@ -286,7 +284,8 @@ private:
 
   struct my_device_data {
     int device_id;
-    
+    int active; // was device used in calculation and has result to be accumulated?
+
     int size_rho;
     int size_vj;
     int size_vk;

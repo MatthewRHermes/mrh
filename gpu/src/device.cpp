@@ -605,7 +605,12 @@ void Device::init_get_jk(py::array_t<double> _eri1, py::array_t<double> _dmtril,
   //   ml->create_handle();
   //   //    dd->handle = ml->get_handle();
   // }
+ 
+  // do all devices participate in calculation?
   
+  if(count == 0) 
+    for(int i=0; i<num_devices; ++i) device_data[i].active = 0;
+
   pm->dev_profile_stop();
     
   double t1 = omp_get_wtime();
@@ -644,7 +649,9 @@ void Device::get_jk(int naux, int nao, int nset,
   pm->dev_set_device(device_id);
 
   my_device_data * dd = &(device_data[device_id]);
-    
+
+  dd->active = 1;
+
   const int with_j = 1;
   
   py::buffer_info info_eri1 = _eri1.request(); // 2D array (naux, nao_pair)
@@ -747,7 +754,7 @@ void Device::get_jk(int naux, int nao, int nset,
     pm->dev_profile_start("get_jk :: with_j");
     
     // rho = numpy.einsum('ix,px->ip', dmtril, eri1)
-
+    
     getjk_rho(dd->d_rho, dd->d_dmtril, d_eri, nset, naux, nao_pair);
     
     // vj += numpy.einsum('ip,px->ix', rho, eri1)
@@ -755,7 +762,7 @@ void Device::get_jk(int naux, int nao, int nset,
     int init = (count < num_devices) ? 1 : 0;
   
     getjk_vj(dd->d_vj, dd->d_rho, d_eri, nset, nao_pair, naux, init);
-
+    
     pm->dev_profile_stop();
   }
     
@@ -873,7 +880,7 @@ void Device::pull_get_jk(py::array_t<double> _vj, py::array_t<double> _vk, int n
 #ifdef _DEBUG_DEVICE
   printf("LIBGPU :: -- Inside Device::pull_get_jk()\n");
 #endif
-  
+ 
   double t0 = omp_get_wtime();
   
   pm->dev_profile_start("pull_get_jk");
@@ -888,15 +895,17 @@ void Device::pull_get_jk(py::array_t<double> _vj, py::array_t<double> _vk, int n
   
   std::vector<double *> v_vec(num_devices);
   std::vector<double *> buf_vec(num_devices);
+  std::vector<int> active(num_devices);
   
   for(int i=0; i<num_devices; ++i) {
     my_device_data * dd = &(device_data[i]);
     v_vec[i] = dd->d_vj;
     buf_vec[i] = dd->d_buf3;
+    active[i] = dd->active;
   }
   
   if(v_vec[0]) {
-    mgpu_reduce(v_vec, buf_vj, N, true, buf_vec); 
+    mgpu_reduce(v_vec, buf_vj, N, true, buf_vec, active); 
     
 #pragma omp parallel for
     for(int j=0; j<N; ++j) vj[j] += buf_vj[j];
@@ -926,7 +935,7 @@ void Device::pull_get_jk(py::array_t<double> _vj, py::array_t<double> _vk, int n
   }
   
   if(v_vec[0]) {
-    mgpu_reduce(v_vec, buf_vk, N, true, buf_vec);
+    mgpu_reduce(v_vec, buf_vk, N, true, buf_vec, active);
     
 #pragma omp parallel for
     for(int j=0; j<N; ++j) vk[j] += buf_vk[j];
@@ -973,7 +982,7 @@ void Device::pull_get_jk(py::array_t<double> _vj, py::array_t<double> _vk, int n
     if(i == 0) tmp = vj;
     else tmp = &(buf_vj[i * nset * nao_pair]);
     
-    if(dd->d_vj) pm->dev_pull_async(dd->d_vj, tmp, size);
+    if(dd->d_vj && dd->active) pm->dev_pull_async(dd->d_vj, tmp, size);
   }
   
   for(int i=0; i<num_devices; ++i) {
@@ -983,7 +992,7 @@ void Device::pull_get_jk(py::array_t<double> _vj, py::array_t<double> _vk, int n
     
     pm->dev_stream_wait();
 
-    if(i > 0 && dd->d_vj) {
+    if(i > 0 && dd->d_vj && dd->active) {
       
       tmp = &(buf_vj[i * nset * nao_pair]);
 #pragma omp parallel for
@@ -1018,7 +1027,7 @@ void Device::pull_get_jk(py::array_t<double> _vj, py::array_t<double> _vk, int n
     if(i == 0) tmp = vk;
     else tmp = &(buf_vk[i * nset * nao * nao]);
 
-    if(dd->d_vkk) pm->dev_pull_async(dd->d_vkk, tmp, size);
+    if(dd->d_vkk && dd->active) pm->dev_pull_async(dd->d_vkk, tmp, size);
   }
 
   for(int i=0; i<num_devices; ++i) {
@@ -1028,7 +1037,7 @@ void Device::pull_get_jk(py::array_t<double> _vj, py::array_t<double> _vk, int n
     
     pm->dev_stream_wait();
 
-    if(i > 0 && dd->d_vkk) {
+    if(i > 0 && dd->d_vkk && dd->active) {
       
       tmp = &(buf_vk[i * nset * nao * nao]);
 #pragma omp parallel for
@@ -1450,6 +1459,8 @@ void Device::init_jk_ao2mo(int ncore, int nmo)
       if (dd->d_k_pc) pm->dev_free_async(dd->d_k_pc);
       dd->d_k_pc = (double *) pm->dev_malloc_async(size_k_pc*sizeof(double));
     }
+
+    dd->active = 0;
   }
   
   int _size_buf_j_pc = num_devices*nmo*ncore;
@@ -1547,6 +1558,8 @@ void Device::init_eri_h2eff(int nmo, int ncas)
     pm->dev_set_device(id);
 
     my_device_data * dd = &(device_data[id]);
+
+    dd->active = 0;
 
     if (size_eri_h2eff > dd->size_eri_h2eff){
       //      printf("setting size\n");
@@ -1694,14 +1707,16 @@ void Device::pull_jk_ao2mo_v4(py::array_t<double> _j_pc, py::array_t<double> _k_
 
   std::vector<double *> pc_vec(num_devices);
   std::vector<double *> buf_vec(num_devices);
+  std::vector<int> active(num_devices);
   
   for(int i=0; i<num_devices; ++i) {
     my_device_data * dd = &(device_data[i]);
     pc_vec[i] = dd->d_j_pc;
     buf_vec[i] = dd->d_buf1;
+    active[i] = dd->active;
   }
 
-  mgpu_reduce(pc_vec, buf_j_pc, N, true, buf_vec);
+  mgpu_reduce(pc_vec, buf_j_pc, N, true, buf_vec, active);
 
 #pragma omp parallel for
   for(int i=0; i<nmo*ncore; ++i) j_pc[i] = buf_j_pc[i];
@@ -1714,7 +1729,7 @@ void Device::pull_jk_ao2mo_v4(py::array_t<double> _j_pc, py::array_t<double> _k_
     buf_vec[i] = dd->d_buf1;
   }
   
-  mgpu_reduce(pc_vec, buf_k_pc, N, true, buf_vec);
+  mgpu_reduce(pc_vec, buf_k_pc, N, true, buf_vec, active);
 
 #pragma omp parallel for
   for(int i=0; i<nmo*ncore; ++i) k_pc[i] = buf_k_pc[i];
@@ -1749,7 +1764,7 @@ void Device::pull_jk_ao2mo_v4(py::array_t<double> _j_pc, py::array_t<double> _k_
     
     tmp = &(buf_j_pc[i*nmo*ncore]);
     
-    if (dd->d_j_pc) pm->dev_pull_async(dd->d_j_pc, tmp, size*sizeof(double));
+    if (dd->d_j_pc && dd->active) pm->dev_pull_async(dd->d_j_pc, tmp, size*sizeof(double));
   }
   
   // Adding j_pc from all devices
@@ -1761,7 +1776,7 @@ void Device::pull_jk_ao2mo_v4(py::array_t<double> _j_pc, py::array_t<double> _k_
     
     pm->dev_stream_wait();
 
-    if(i > 0 && dd->d_j_pc) {
+    if(i > 0 && dd->d_j_pc && dd->active) {
       
       tmp = &(buf_j_pc[i * nmo* ncore]);
 //#pragma omp parallel for
@@ -1789,7 +1804,7 @@ void Device::pull_jk_ao2mo_v4(py::array_t<double> _j_pc, py::array_t<double> _k_
 
     tmp = &(buf_k_pc[i*nmo*ncore]);
     
-    if (dd->d_k_pc) pm->dev_pull_async(dd->d_k_pc, tmp, size*sizeof(double));
+    if (dd->d_k_pc && dd->active) pm->dev_pull_async(dd->d_k_pc, tmp, size*sizeof(double));
   }
   
   // Adding k_pc from all devices
@@ -1801,7 +1816,7 @@ void Device::pull_jk_ao2mo_v4(py::array_t<double> _j_pc, py::array_t<double> _k_
     
     pm->dev_stream_wait();
 
-    if(i > 0 && dd->d_k_pc) {
+    if(i > 0 && dd->d_k_pc && dd->active) {
       
       tmp = &(buf_k_pc[i * nmo* ncore]);
 //#pragma omp parallel for
@@ -1853,7 +1868,7 @@ void Device::pull_ppaa_ao2mo(py::array_t<double> _ppaa, int nmo, int ncas)
     if (i==0) tmp = ppaa;
     else tmp = &(buf_ppaa[i*_size_ppaa]);
     
-    if (dd->d_ppaa) pm->dev_pull_async(dd->d_ppaa, tmp, _size_ppaa*sizeof(double));
+    if (dd->d_ppaa && dd->active) pm->dev_pull_async(dd->d_ppaa, tmp, _size_ppaa*sizeof(double));
   }
   
   // Adding ppaa from all devices
@@ -1865,7 +1880,7 @@ void Device::pull_ppaa_ao2mo(py::array_t<double> _ppaa, int nmo, int ncas)
     
     pm->dev_stream_wait();
 
-    if(i > 0 && dd->d_ppaa) {
+    if(i > 0 && dd->d_ppaa && dd->active) {
       
       tmp = &(buf_ppaa[i * _size_ppaa]);
 //#pragma omp parallel for
@@ -1898,14 +1913,16 @@ void Device::pull_ppaa_papa_ao2mo_v4(py::array_t<double> _ppaa, py::array_t<doub
 
   std::vector<double *> p_vec(num_devices);
   std::vector<double *> buf_vec(num_devices);
+  std::vector<int> active(num_devices);
   
   for(int i=0; i<num_devices; ++i) {
     my_device_data * dd = &(device_data[i]);
     p_vec[i] = dd->d_ppaa; // pointing at d_buf3
     buf_vec[i] = dd->d_buf2;
+    active[i] = dd->active;
   }
 
-  mgpu_reduce(p_vec, buf_ppaa, N, true, buf_vec);
+  mgpu_reduce(p_vec, buf_ppaa, N, true, buf_vec, active);
 
 #pragma omp parallel for
   for(int i=0; i<N; ++i) ppaa[i] = buf_ppaa[i];
@@ -1917,7 +1934,7 @@ void Device::pull_ppaa_papa_ao2mo_v4(py::array_t<double> _ppaa, py::array_t<doub
     p_vec[i] = dd->d_papa; // pointing at d_buf3
   }
 
-  mgpu_reduce(p_vec, buf_papa, N, true, buf_vec);
+  mgpu_reduce(p_vec, buf_papa, N, true, buf_vec, active);
 
 #pragma omp parallel for
   for(int i=0; i<N; ++i) papa[i] = buf_papa[i];
@@ -1948,7 +1965,7 @@ void Device::pull_ppaa_papa_ao2mo_v4(py::array_t<double> _ppaa, py::array_t<doub
 
     tmp = &(buf_ppaa[i*_size_ppaa]);
     
-    if (dd->d_ppaa) pm->dev_pull_async(dd->d_ppaa, tmp, _size_ppaa*sizeof(double));
+    if (dd->d_ppaa && dd->active) pm->dev_pull_async(dd->d_ppaa, tmp, _size_ppaa*sizeof(double));
   }
   
   // Adding ppaa from all devices
@@ -1960,7 +1977,7 @@ void Device::pull_ppaa_papa_ao2mo_v4(py::array_t<double> _ppaa, py::array_t<doub
     
     pm->dev_stream_wait();
 
-    if(i > 0 && dd->d_ppaa) {
+    if(i > 0 && dd->d_ppaa && dd->active) {
       
       tmp = &(buf_ppaa[i * _size_ppaa]);
 //#pragma omp parallel for
@@ -1990,7 +2007,7 @@ void Device::pull_ppaa_papa_ao2mo_v4(py::array_t<double> _ppaa, py::array_t<doub
     
     pm->dev_stream_wait();
 
-    if(i > 0 && dd->d_papa) {
+    if(i > 0 && dd->d_papa && dd->active) {
       
       tmp = &(buf_papa[i * _size_papa]);
 //#pragma omp parallel for
@@ -2021,6 +2038,7 @@ void Device::df_ao2mo_v3 (int blksize, int nmo, int nao, int ncore, int ncas, in
 
   my_device_data * dd = &(device_data[device_id]);
 
+  dd->active = 1;
 
   //  py::buffer_info info_eri1 = _eri1.request(); // 2D array (naux, nao_pair) nao_pair= nao*(nao+1)/2
   const int nao_pair = nao*(nao+1)/2;
@@ -2190,8 +2208,6 @@ void Device::df_ao2mo_v3 (int blksize, int nmo, int nao, int ncore, int ncas, in
   //printf("%f\t",h_fxpp[(k*nao+l)*naux+i]);}printf("\n");}}
 #endif
 
-
-
   const int ncas2 = ncas*ncas;
 
   // calculate ppaa
@@ -2246,6 +2262,8 @@ void Device::df_ao2mo_v4 (int blksize, int nmo, int nao, int ncore, int ncas, in
   pm->dev_set_device(device_id);
 
   my_device_data * dd = &(device_data[device_id]);
+
+  dd->active = 1;
 
   //  py::buffer_info info_eri1 = _eri1.request(); // 2D array (naux, nao_pair) nao_pair= nao*(nao+1)/2
   const int nao_pair = nao*(nao+1)/2;
@@ -2656,7 +2674,9 @@ void Device::get_h2eff_df(py::array_t<double> _cderi,
   pm->dev_set_device(device_id);
   
   my_device_data * dd = &(device_data[device_id]);
-  
+ 
+  dd->active = 1;
+
   const int nao_pair = nao * (nao+1)/2;
   const int ncas_pair = ncas * (ncas+1)/2;
   const int _size_eri = nmo*ncas*ncas_pair;
@@ -2805,7 +2825,9 @@ void Device::get_h2eff_df_v1(py::array_t<double> _cderi,
   pm->dev_set_device(device_id);
   
   my_device_data * dd = &(device_data[device_id]);
-  
+ 
+  dd->active = 1;
+
   const int nao_pair = nao * (nao+1)/2;
   const int ncas_pair = ncas * (ncas+1)/2;
   const int _size_eri = nmo*ncas*ncas_pair;
@@ -2956,7 +2978,9 @@ void Device::get_h2eff_df_v2(py::array_t<double> _cderi,
   pm->dev_set_device(device_id);
   
   my_device_data * dd = &(device_data[device_id]);
-  
+
+  dd->active = 1;
+
   const int nao_pair = nao * (nao+1)/2;
   const int ncas_pair = ncas * (ncas+1)/2;
   const int _size_eri_h2eff = nmo*ncas*ncas_pair;
@@ -3130,14 +3154,16 @@ void Device::pull_eri_h2eff(py::array_t<double> _eri, int nmo, int ncas)
 
   std::vector<double *> e_vec(num_devices);
   std::vector<double *> buf_vec(num_devices);
+  std::vector<int> active(num_devices);
   
   for(int i=0; i<num_devices; ++i) {
     my_device_data * dd = &(device_data[i]);
     e_vec[i] = dd->d_eri_h2eff;
     buf_vec[i] = dd->d_buf3;
+    active[i] = dd->active;
   }
 
-  mgpu_reduce(e_vec, buf_eri_h2eff, N, true, buf_vec);
+  mgpu_reduce(e_vec, buf_eri_h2eff, N, true, buf_vec, active);
 
 #pragma omp parallel for
   for(int i=0; i<N; ++i) eri[i] = buf_eri_h2eff[i];
@@ -3169,7 +3195,7 @@ void Device::pull_eri_h2eff(py::array_t<double> _eri, int nmo, int ncas)
 
     tmp = &(buf_eri_h2eff[i*size_eri_h2eff]);
     
-    if (dd->d_eri_h2eff) pm->dev_pull_async(dd->d_eri_h2eff, tmp, size_eri_h2eff*sizeof(double));
+    if (dd->d_eri_h2eff && dd->active) pm->dev_pull_async(dd->d_eri_h2eff, tmp, size_eri_h2eff*sizeof(double));
   }
   
   // Adding eri from all devices
@@ -3181,7 +3207,7 @@ void Device::pull_eri_h2eff(py::array_t<double> _eri, int nmo, int ncas)
 
     pm->dev_stream_wait();
 
-    if(i > 0 && dd->d_eri_h2eff) {
+    if(i > 0 && dd->d_eri_h2eff && dd->active) {
 
       tmp = &(buf_eri_h2eff[i * size_eri_h2eff]);
 //#pragma omp parallel for
@@ -3259,6 +3285,8 @@ void Device::compute_eri_impham(int nao_s, int nao_f, int blksize, int naux, int
   pm->dev_set_device(device_id);
   
   my_device_data * dd = &(device_data[device_id]);
+
+  dd->active = 1;
 
   // using fetch_eri, assume it's already there
 
@@ -3363,6 +3391,9 @@ void Device::compute_eri_impham_v2(int nao_s, int nao_f, int blksize, int naux, 
   const int device_id = count % num_devices;
   pm->dev_set_device(device_id);
   my_device_data * dd = &(device_data[device_id]);
+  
+  dd->active = 1;
+
   double * d_cderi = nullptr;
   // using fetch_eri, assume it's already there
   int nao_s_pair = nao_s * (nao_s + 1)/2;
@@ -3447,14 +3478,16 @@ void Device::pull_eri_impham(py::array_t<double> _eri, int naoaux, int nao_f, in
 
     std::vector<double *> e_vec(num_devices);
     std::vector<double *> buf_vec(num_devices);
+    std::vector<int> active(num_devices);
   
     for(int i=0; i<num_devices; ++i) {
       my_device_data * dd = &(device_data[i]);
       e_vec[i] = dd->d_buf3; // this has the result
       buf_vec[i] = dd->d_buf2; // this is a temp buffer
+      active[i] = dd->active;
     }
 
-    mgpu_reduce(e_vec, pin_eri_impham, N, true, buf_vec);
+    mgpu_reduce(e_vec, pin_eri_impham, N, true, buf_vec, active);
 
 #pragma omp parallel for
     for(int i=0; i<N; ++i) eri[i] += pin_eri_impham[i];
@@ -3512,7 +3545,7 @@ void Device::pull_eri_impham(py::array_t<double> _eri, int naoaux, int nao_f, in
       pm->dev_set_device(i); 
       my_device_data * dd = &(device_data[i]);
       double * eri_impham =&pin_eri_impham[i * nao_f_pair*nao_f_pair];
-      if (dd->d_buf3) pm->dev_pull_async(dd->d_buf3, eri_impham, nao_f_pair*nao_f_pair*sizeof(double));
+      if (dd->d_buf3 && dd->active) pm->dev_pull_async(dd->d_buf3, eri_impham, nao_f_pair*nao_f_pair*sizeof(double));
     }
 
 #ifdef _DEBUG_DEVICE
@@ -3535,7 +3568,7 @@ void Device::pull_eri_impham(py::array_t<double> _eri, int naoaux, int nao_f, in
       my_device_data * dd = &(device_data[i]);
       pm->dev_stream_wait();
       
-      if (dd->d_buf3){
+      if (dd->d_buf3 && dd->active) {
 	double * tmp = &(pin_eri_impham[i * nao_f_pair*nao_f_pair]);
 #pragma omp parallel for
 	for(int j=0; j<nao_f_pair*nao_f_pair; ++j) eri[j] += tmp[j];
@@ -3585,6 +3618,8 @@ void Device::init_mo_grid(int ngrid, int nmo)
       if (dd->d_mo_grid) pm->dev_free_async(dd->d_mo_grid);
       dd->d_mo_grid = (double *) pm->dev_malloc_async(size_mo_grid*sizeof(double));
     }
+
+    dd->active = 0;
   }
   double t1 = omp_get_wtime();
   
@@ -3626,6 +3661,9 @@ void Device::compute_mo_grid(int ngrid, int nao, int nmo)
   const int device_id =0;// count % num_devices;
   pm->dev_set_device(device_id);
   my_device_data * dd = &(device_data[device_id]);
+  
+  dd->active = 1;
+
   const double alpha = 1.0;
   const double beta = 0.0;
   #if 0
@@ -3660,7 +3698,7 @@ for(int id=0; id<1; ++id) {
   my_device_data * dd = &(device_data[id]);
   int size_mo_grid = ngrid*nmo;
   
-  if(dd->d_mo_grid) {pm->dev_pull_async(dd->d_mo_grid, mo, size_mo_grid*sizeof(double));
+  if(dd->d_mo_grid && dd->active) {pm->dev_pull_async(dd->d_mo_grid, mo, size_mo_grid*sizeof(double));
   pm->dev_stream_wait();}
   pm->dev_barrier(); 
   
@@ -3864,11 +3902,12 @@ void Device::compute_Pi (int ngrid, int ncas, int nao)
   #endif
              
 }
+
 /* ---------------------------------------------------------------------- */
+
 void Device::pull_Pi (py::array_t<double> _Pi, int ngrid){} 
+
 /* ---------------------------------------------------------------------- */
-
-
 
 // Is both _ocm2 in/out as it get over-written and resized?
 
@@ -4256,8 +4295,7 @@ void Device::mgpu_bcast(std::vector<double *> d_ptr, double * h_ptr, size_t size
 
 /* ---------------------------------------------------------------------- */
 
-
-void Device::mgpu_reduce(std::vector<double *> d_ptr, double * h_ptr, int N, bool blocking, std::vector<double *> buf_ptr)
+void Device::mgpu_reduce(std::vector<double *> d_ptr, double * h_ptr, int N, bool blocking, std::vector<double *> buf_ptr, std::vector<int> active)
 {
 #if defined(_DEBUG_P2P)
   printf("LIBGPU :: -- GPU-GPU Reduction  Starting!\n");
@@ -4289,13 +4327,13 @@ void Device::mgpu_reduce(std::vector<double *> d_ptr, double * h_ptr, int N, boo
       int dest = nactive - 2;
       int src = nactive - 1;
       
+      if(d_ptr[src] && active[src]) {
 #if defined(_DEBUG_P2P)
       printf("LIBGPU :: -- GPU-GPU Reduction  -- src %i(%p) --> dest %i(%p, %p)\n",
        	     src, d_ptr[src], dest, buf_ptr[dest], d_ptr[dest]);
 #endif
-      
-      if(d_ptr[src]) {
-	if(blocking) {
+
+      if(blocking) {
 	  // need to ensure dest is done using buf
 	
 	  pm->dev_set_device(dest);
@@ -4334,12 +4372,12 @@ void Device::mgpu_reduce(std::vector<double *> d_ptr, double * h_ptr, int N, boo
 	int dest = i;
 	int src = nrecv + i;
 
+	if(d_ptr[src] && active[src]) {
 #if defined(_DEBUG_P2P)	
 	printf("LIBGPU :: -- GPU-GPU Reduction  -- src %i(%p) --> dest %i(%p, %p)\n",
 	       src, d_ptr[src], dest, buf_ptr[dest], d_ptr[dest]);
 #endif
 
-	if(d_ptr[src]) {
 	  if(blocking) {
 	    // need to ensure dest is done using buf
 	    
@@ -4375,12 +4413,11 @@ void Device::mgpu_reduce(std::vector<double *> d_ptr, double * h_ptr, int N, boo
 	int dest = nrecv - 2;
 	int src = nrecv - 1;
 
+	if(d_ptr[src] && active[src]) {
 #if defined(_DEBUG_P2P)	
 	printf("LIBGPU :: -- GPU-GPU Reduction  -- src %i(%p) --> dest %i(%p, %p)\n",
 	       src, d_ptr[src], dest, buf_ptr[dest], d_ptr[dest]);
 #endif
-
-	if(d_ptr[src]) {
 	  if(blocking) {
 	    // need to ensure dest is done using buf
 	    pm->dev_set_device(dest);
