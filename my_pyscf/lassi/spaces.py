@@ -129,11 +129,11 @@ class SingleLASRootspace (object):
         elif i_b_pos and a_b_pos:
             sp = self.get_single (i, a, 1, dsi, dsa)
         elif i_a_pos and a_b_pos and max_up:
-            p = np.where (ofrags & (self.spins<self.smults))[0][0]
+            p = np.where (ofrags & (self.spins<(self.smults-1)))[0][0]
             dsp = 1 if self.nholeu[p]>0 else -1
             sp = self.get_single (i, p, 0, dsi, dsp).get_single (p, a, 1, -dsp, dsa)
         elif i_b_pos and a_a_pos and max_dn:
-            p = np.where (ofrags & (self.spins>-self.smults))[0][0]
+            p = np.where (ofrags & (self.spins>(1-self.smults)))[0][0]
             dsp = 1 if self.nholeu[p]>0 else -1
             sp = self.get_single (i, p, 1, dsi, dsp).get_single (p, a, 0, -dsp, dsa)
         else:
