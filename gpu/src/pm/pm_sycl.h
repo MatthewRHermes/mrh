@@ -119,12 +119,13 @@ namespace PM_NS {
     void dev_profile_stop();
     void dev_profile_next(const char *);
     
+    void print_mem_summary();
+    
   private:
     
     void uuid_print(std::array<unsigned char, 16>);
 
     void profile_memory(size_t, std::string, int mode);
-    void print_mem_summary();
     
     std::vector<sycl::queue> my_queues;
     sycl::queue * current_queue;

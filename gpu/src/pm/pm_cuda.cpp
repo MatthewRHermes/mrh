@@ -219,7 +219,7 @@ int PM::dev_get_device()
 
 /* ---------------------------------------------------------------------- */
 
-void * PM::dev_malloc(size_t N, std::string name)
+void * PM::dev_malloc(size_t N, std::string name, const char * file, int line)
 {
 #ifdef _DEBUG_PM
   printf("Inside PM::dev_malloc()\n");
@@ -229,7 +229,14 @@ void * PM::dev_malloc(size_t N, std::string name)
   
   void * ptr;
   cudaMalloc((void**) &ptr, N);
-  _CUDA_CHECK_ERRORS();
+
+  cudaError err = cudaGetLastError();
+  if(err != cudaSuccess) {
+    printf("LIBGPU :: Error : PM::dev_malloc() failed to allocate %lu bytes for name= %s from file= %s line= %i\n",
+	   N,name.c_str(),file,line);
+    print_mem_summary();
+    exit(1);
+  }
   
 #ifdef _DEBUG_PM
   printf(" -- Leaving PM::dev_malloc()\n");
@@ -240,7 +247,7 @@ void * PM::dev_malloc(size_t N, std::string name)
 
 /* ---------------------------------------------------------------------- */
 
-void * PM::dev_malloc_async(size_t N, std::string name)
+void * PM::dev_malloc_async(size_t N, std::string name, const char * file, int line)
 {
 #ifdef _DEBUG_PM
   printf("Inside PM::dev_malloc_async()\n");
@@ -254,7 +261,14 @@ void * PM::dev_malloc_async(size_t N, std::string name)
 #else
   cudaMallocAsync((void**) &ptr, N, *current_queue);
 #endif
-  _CUDA_CHECK_ERRORS();
+
+  cudaError err = cudaGetLastError();
+  if(err != cudaSuccess) {
+    printf("LIBGPU :: Error : PM::dev_malloc_async() failed to allocate %lu bytes for name= %s from file= %s line= %i\n",
+	   N,name.c_str(),file,line);
+    print_mem_summary();
+    exit(1);
+  }
   
 #ifdef _DEBUG_PM
   printf(" -- Leaving PM::dev_malloc_async()\n");
@@ -265,7 +279,7 @@ void * PM::dev_malloc_async(size_t N, std::string name)
 
 /* ---------------------------------------------------------------------- */
 
-void * PM::dev_malloc_async(size_t N, cudaStream_t &s, std::string name)
+void * PM::dev_malloc_async(size_t N, cudaStream_t &s, std::string name, const char * file, int line)
 {
 #ifdef _DEBUG_PM
   printf("Inside PM::dev_malloc_async()\n");
@@ -279,7 +293,14 @@ void * PM::dev_malloc_async(size_t N, cudaStream_t &s, std::string name)
 #else
   cudaMallocAsync((void**) &ptr, N, s);
 #endif
-  _CUDA_CHECK_ERRORS();
+
+  cudaError err = cudaGetLastError();
+  if(err != cudaSuccess) {
+    printf("LIBGPU :: Error : PM::dev_malloc_async() failed to allocate %lu bytes for name= %s from file= %s line= %i\n",
+	   N,name.c_str(),file,line);
+    print_mem_summary();
+    exit(1);
+  }
   
 #ifdef _DEBUG_PM
   printf(" -- Leaving PM::dev_malloc_async()\n");
@@ -796,6 +817,25 @@ void PM::profile_memory(size_t N, std::string name_, int mode)
 }
 #else
 void PM::profile_memory(size_t N, std::string name_, int mode) {}
+#endif
+
+/* ---------------------------------------------------------------------- */
+
+#if defined(_PROFILE_PM_MEM)
+void PM::print_mem_summary()
+{
+  printf("\nLIBGPU :: PROFILE_PM_MEM\n");
+  for(int i=0; i<profile_mem_name.size(); ++i) {
+    double max_size_mb = profile_mem_max_size[i] / 1024.0 / 1024.0;
+    double size_mb = profile_mem_size[i] / 1024.0 / 1024.0;
+    // printf("LIBGPU :: PROFILE_PM_MEM :: [%3i] name= %20s  max_size= %6.1f MBs  current_size= %6.1f MBs  num_alloc= %lu  num_free= %lu\n",
+    // 	   i, profile_mem_name[i].c_str(), max_size_mb, size_mb, profile_mem_count_alloc[i], profile_mem_count_free[i]);
+    printf("LIBGPU :: PROFILE_PM_MEM :: [%3i] name= %20s  max_size= %6.1f MBs  current_size= %lu bytes  num_alloc= %lu  num_free= %lu\n",
+	   i, profile_mem_name[i].c_str(), max_size_mb, profile_mem_size[i], profile_mem_count_alloc[i], profile_mem_count_free[i]);
+  }
+}
+#else
+void PM::print_mem_summary() {};
 #endif
 
 /* ---------------------------------------------------------------------- */

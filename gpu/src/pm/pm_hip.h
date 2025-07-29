@@ -56,9 +56,9 @@ namespace PM_NS {
     void dev_set_device(int);
     int dev_get_device();
 
-    void* dev_malloc(size_t, std::string = "DEFAULT");
-    void* dev_malloc_async(size_t, std::string = "DEFAULT");
-    void* dev_malloc_async(size_t, hipStream_t &s, std::string = "DEFAULT");
+    void* dev_malloc(size_t, std::string, const char *, int);
+    void* dev_malloc_async(size_t, std::string, const char *, int);
+    void* dev_malloc_async(size_t, hipStream_t &s, std::string, const char *, int);
     void* dev_malloc_host(size_t);
 
     void dev_free(void*, std::string = "DEFAULT");
@@ -93,6 +93,8 @@ namespace PM_NS {
     void dev_profile_start(const char *);
     void dev_profile_stop();
     void dev_profile_next(const char *);
+
+    void print_mem_summary();
     
   private:
     

@@ -27,9 +27,9 @@ namespace PM_NS {
 	<< ". Exiting...\n";		   \
       exit(1);				   \
     }					   \
-  }
+  }  
   
-#define _CUDA_CHECK_ERRORS2()               \
+#define _CUDA_CHECK_ERRORS2()              \
   {					   \
     cudaError err = cudaGetLastError();	   \
     if(err != cudaSuccess) {		   \
@@ -57,9 +57,9 @@ namespace PM_NS {
     void dev_set_device(int);
     int dev_get_device();
 
-    void* dev_malloc(size_t, std::string = "DEFAULT");
-    void* dev_malloc_async(size_t, std::string = "DEFAULT");
-    void* dev_malloc_async(size_t, cudaStream_t &s, std::string = "DEFAULT");
+    void* dev_malloc(size_t, std::string, const char *, int);
+    void* dev_malloc_async(size_t, std::string, const char *, int);
+    void* dev_malloc_async(size_t, cudaStream_t &s, std::string, const char *, int);
     void* dev_malloc_host(size_t);
 
     void dev_free(void*, std::string = "DEFAULT");
@@ -98,6 +98,8 @@ namespace PM_NS {
     void dev_profile_start(const char *);
     void dev_profile_stop();
     void dev_profile_next(const char *);
+    
+    void print_mem_summary();
     
   private:
     

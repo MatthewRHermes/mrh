@@ -321,7 +321,11 @@ Device::~Device()
     dd->d_pumap.clear();
   }
 
-  if(verbose_level) printf("LIBGPU :: Finished\n");
+  if(verbose_level) {
+    pm->print_mem_summary();
+    
+    printf("LIBGPU :: Finished\n");
+  }
 #endif
 
   delete [] device_data;
