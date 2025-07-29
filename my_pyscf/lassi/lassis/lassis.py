@@ -443,9 +443,12 @@ def spin_flip_products (las, spaces, spin_flips, nroots_ref=1):
     log = logger.new_logger (las, las.verbose)
     nspaces = len (spaces)
     spaces = _spin_flip_products (spaces, spin_flips, nroots_ref=nroots_ref)
+    t1 = log.timer ("LASSIS spin-flip bare injection", *t0)
     nfrags = spaces[0].nfrag
     spaces = _spin_shuffle (spaces)
+    t1 = log.timer ("LASSIS spin shuffle tabulation", *t1)
     spaces = _spin_shuffle_ci_(spaces, spin_flips, nroots_ref, nspaces)
+    t1 = log.timer ("LASSIS spin shuffle CI population", *t1)
     log.debug ("LASSIS spin-excitation spaces: %d-%d", nspaces, len (spaces)-1)
     for i, space in enumerate (spaces[nspaces:]):
         if np.any (space.nelec != spaces[0].nelec):
@@ -463,6 +466,8 @@ def charge_excitation_products (lsi, spaces, spaces_ch, nroots_ref=0, space0=Non
     nfrags = lsi.nfrags
     if space0 is None: space0 = spaces[0]
     i0, j0 = i, j = nroots_ref, len (spaces)
+    n0 = 0
+    t1 = t0
     for product_order in range (2, (nfrags//2)+1):
         seen = set ()
         for p in spaces[i:j]:
@@ -471,6 +476,7 @@ def charge_excitation_products (lsi, spaces, spaces_ch, nroots_ref=0, space0=Non
                 for q in spaces_ch[i][a]:
                     assert (orthogonal_excitations (p, q, space0, ignore_m=True))
                     r = combine_orthogonal_excitations (p, q, space0, flexible_m=True)
+                    n0 += 1
                     if r not in seen:
                         seen.add (r)
                         spaces.append (r)
@@ -478,6 +484,8 @@ def charge_excitation_products (lsi, spaces, spaces_ch, nroots_ref=0, space0=Non
                         spaces[-1].table_printlog (tverbose=logger.DEBUG)
         i = j
         j = len (spaces)
+        t1 = log.timer ("LASSIS charge-hop product_order {} ({} {})".format (
+            product_order, n0, j-i), *t1)
     assert (len (spaces) == len (set (spaces)))
     log.timer ("LASSIS charge-hop product generation", *t0)
     return spaces
