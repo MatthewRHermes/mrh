@@ -70,9 +70,9 @@ namespace PM_NS {
     void dev_set_device(int);
     int dev_get_device();
 
-    void* dev_malloc(size_t, std::string = "DEFAULT");
-    void* dev_malloc_async(size_t, std::string = "DEFAULT");
-    void* dev_malloc_async(size_t, sycl::queue &q, std::string = "DEFAULT");
+    void* dev_malloc(size_t, std::string, const char *, int);
+    void* dev_malloc_async(size_t, std::string, const char *, int);
+    void* dev_malloc_async(size_t, sycl::queue &q, std::string, const char *, int);
     void* dev_malloc_host(size_t);
 
     void dev_free(void*, std::string = "DEFAULT");
@@ -124,6 +124,7 @@ namespace PM_NS {
     void uuid_print(std::array<unsigned char, 16>);
 
     void profile_memory(size_t, std::string, int mode);
+    void print_mem_summary();
     
     std::vector<sycl::queue> my_queues;
     sycl::queue * current_queue;

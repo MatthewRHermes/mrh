@@ -11,6 +11,8 @@
 #define PROFILE_MEM_MALLOC 0
 #define PROFILE_MEM_FREE 1
 
+#define FLERR __FILE__,__LINE__
+
 #include <omp.h>
 
 #if defined(_USE_GPU)
