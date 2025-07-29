@@ -1247,11 +1247,9 @@ double * Device::dd_fetch_eri(my_device_data * dd, double * eri1, int naux, int 
     
     eri_extra.push_back(naux);
     eri_extra.push_back(nao_pair);
-    
-    int id_ = d_eri_cache.size();
-    
-    d_eri_cache.push_back( (double *) pm->dev_malloc_async(naux * nao_pair * sizeof(double), "eri_cache", FLERR));
-    d_eri = d_eri_cache[ id_ ];
+
+    d_eri = (double *) pm->dev_malloc_async(naux * nao_pair * sizeof(double), "eri_cache", FLERR);
+    d_eri_cache.push_back(d_eri);
     
     int err = pm->dev_push_async(d_eri, eri1, naux * nao_pair * sizeof(double));
     if(err) {
@@ -1259,10 +1257,10 @@ double * Device::dd_fetch_eri(my_device_data * dd, double * eri1, int naux, int 
       exit(1);
     }
 
-#if defined(_GPU_SYCL)
-    pm->dev_barrier(); // needed for villotc workload.
-                       // related to https://github.com/argonne-lcf/AuroraBugTracking/issues/22?
-#endif
+// #if defined(_GPU_SYCL)
+//         pm->dev_barrier(); // needed for villotc workload.
+//                            // related to https://github.com/argonne-lcf/AuroraBugTracking/issues/22?
+// #endif
     
 #ifdef _DEBUG_DEVICE
     printf("LIBGPU:: dd_fetch_eri :: addr= %p  count= %i  naux= %i  nao_pair= %i\n",addr_dfobj+count, count, naux, nao_pair);
@@ -1366,8 +1364,8 @@ double * Device::dd_fetch_eri_debug(my_device_data * dd, double * eri1, int naux
     printf("LIBGPU :: -- allocating new eri block: %i\n",id);
 #endif
     
-    d_eri_cache.push_back( (double *) pm->dev_malloc_async(naux * nao_pair * sizeof(double), "eri_cache", FLERR));
-    d_eri = d_eri_cache[ id_ ];
+    d_eri = (double *) pm->dev_malloc_async(naux * nao_pair * sizeof(double), "eri_cache", FLERR);
+    d_eri_cache.push_back(d_eri);
     
 #ifdef _DEBUG_DEVICE
     printf("LIBGPU :: -- initializing eri block\n");
@@ -1378,10 +1376,10 @@ double * Device::dd_fetch_eri_debug(my_device_data * dd, double * eri1, int naux
       exit(1);
     }
 
-#if defined(_GPU_SYCL)
-    pm->dev_barrier(); // needed for villotc workload.
-                       // related to https://github.com/argonne-lcf/AuroraBugTracking/issues/22?
-#endif
+// #if defined(_GPU_SYCL)
+//     pm->dev_barrier(); // needed for villotc workload.
+//                        // related to https://github.com/argonne-lcf/AuroraBugTracking/issues/22?
+// #endif
     
 #ifdef _DEBUG_ERI_CACHE
     d_eri_host.push_back( (double *) pm->dev_malloc_host(naux*nao_pair * sizeof(double)) );
