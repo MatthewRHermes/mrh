@@ -6,6 +6,11 @@
 #define MIN(X, Y)       ((X) < (Y) ? (X) : (Y))
 #define MAX(X, Y)       ((X) > (Y) ? (X) : (Y))
 
+#define _PROFILE_PM_MEM
+
+#define PROFILE_MEM_MALLOC 0
+#define PROFILE_MEM_FREE 1
+
 #include <omp.h>
 
 #if defined(_USE_GPU)

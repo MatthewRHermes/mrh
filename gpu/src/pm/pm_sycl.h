@@ -59,7 +59,7 @@ namespace PM_NS {
   public:
     
     PM();
-    ~PM() {};
+    ~PM();
     
     int dev_num_devices();
     void dev_properties(int);
@@ -70,14 +70,14 @@ namespace PM_NS {
     void dev_set_device(int);
     int dev_get_device();
 
-    void* dev_malloc(size_t);
-    void* dev_malloc_async(size_t);
-    void* dev_malloc_async(size_t, sycl::queue &q);
+    void* dev_malloc(size_t, std::string = "DEFAULT");
+    void* dev_malloc_async(size_t, std::string = "DEFAULT");
+    void* dev_malloc_async(size_t, sycl::queue &q, std::string = "DEFAULT");
     void* dev_malloc_host(size_t);
 
-    void dev_free(void*);
-    void dev_free_async(void*);
-    void dev_free_async(void*, sycl::queue &q);
+    void dev_free(void*, std::string = "DEFAULT");
+    void dev_free_async(void*, std::string = "DEFAULT");
+    void dev_free_async(void*, sycl::queue &q, std::string = "DEFAULT");
     void dev_free_host(void*);
 
     void dev_push(void*, void*, size_t);
@@ -122,12 +122,22 @@ namespace PM_NS {
   private:
     
     void uuid_print(std::array<unsigned char, 16>);
+
+    void profile_memory(size_t, std::string, int mode);
     
     std::vector<sycl::queue> my_queues;
     sycl::queue * current_queue;
     int current_queue_id;
 
     int num_devices;
+
+#if defined (_PROFILE_PM_MEM)
+    std::vector<std::string> profile_mem_name;
+    std::vector<size_t> profile_mem_size;
+    std::vector<size_t> profile_mem_max_size;
+    std::vector<size_t> profile_mem_count_alloc;
+    std::vector<size_t> profile_mem_count_free;
+#endif
   };
 
 }
