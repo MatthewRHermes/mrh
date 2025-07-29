@@ -631,11 +631,6 @@ void Device::init_get_jk(py::array_t<double> _eri1, py::array_t<double> _dmtril,
   t_array[0] += t1 - t0;
  //counts in pull_get_jk
 
-#if defined(_GPU_SYCL)
-   //pm->dev_barrier(); // FIXME :: needed for villotc single-point energy workload on Aurora
-                      // related to https://github.com/argonne-lcf/AuroraBugTracking/issues/22 ?
-#endif
-
 #ifdef _DEBUG_DEVICE
   printf("LIBGPU :: -- Leaving Device::init_get_jk()\n");
 #endif
@@ -756,11 +751,6 @@ void Device::get_jk(int naux, int nao, int nset,
   
 #ifdef _DEBUG_DEVICE
   printf("LIBGPU :: Starting with_j calculation\n");
-#endif
-
-#if defined(_GPU_SYCL)
-  pm->dev_barrier(); // FIXME :: needed for villotc single-point energy workload on Aurora
-                     // related to https://github.com/argonne-lcf/AuroraBugTracking/issues/22 ?
 #endif
 
   if (with_j){
@@ -1268,11 +1258,6 @@ double * Device::dd_fetch_eri(my_device_data * dd, double * eri1, int naux, int 
       printf("LIBGPU:: dev_push_async(d_eri) initializing new eri block\n");
       exit(1);
     }
-
-#if defined(_GPU_SYCL)
-    //pm->dev_barrier(); // FIXME :: needed for villotc single-point energy workload on Aurora
-    		       // related to https://github.com/argonne-lcf/AuroraBugTracking/issues/22 ?
-#endif
 
 #ifdef _DEBUG_DEVICE
     printf("LIBGPU:: dd_fetch_eri :: addr= %p  count= %i  naux= %i  nao_pair= %i\n",addr_dfobj+count, count, naux, nao_pair);
