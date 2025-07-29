@@ -156,19 +156,19 @@ def las_symm_tuple (las, spaces=None, break_spin=False, break_symmetry=False, ve
         all_qns = [neleca, nelecb, neleca+nelecb, wfnsym]
         full_statesym.append (tuple (all_qns))
         statesym.append (tuple (qn for qn, incl in zip (all_qns, qn_filter) if incl))
-    log.info ('Symmetry analysis of %d LAS rootspaces:', las.nroots)
+    log.debug ('Symmetry analysis of %d LAS rootspaces:', las.nroots)
     qn_lbls = ['Neleca', 'Nelecb', 'Nelec', 'Wfnsym']
     qn_fmts = ['{:6d}', '{:6d}', '{:6d}', '{:>6s}']
     lbls = ['ix', 'Energy', '<S**2>'] + qn_lbls
     fmt_str = ' {:2s}  {:>16s}  {:6s}  ' + '  '.join (['{:6s}',]*len(qn_lbls))
-    log.info (fmt_str.format (*lbls))
+    log.debug (fmt_str.format (*lbls))
     try:
         for ix, (e, sy, s2) in enumerate (zip (las.e_states, full_statesym, s2_states)):
             data = [ix, e, s2] + list (sy)
             data[-1] = symm.irrep_id2name (las.mol.groupname, data[-1])
             fmts = ['{:2d}','{:16.10f}','{:6.3f}'] + qn_fmts
             fmt_str = ' ' + '  '.join (fmts)
-            log.info (fmt_str.format (*data))
+            log.debug (fmt_str.format (*data))
     except TypeError as err:
         print (las.e_states, full_statesym, s2_states)
         raise (err)
