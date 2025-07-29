@@ -1096,7 +1096,8 @@ def make_stdm12s (las, ci, nelec_frs, **kwargs):
         tdm2s : ndarray of shape (nroots,2,ncas,ncas,2,ncas,ncas,nroots)
             Contains 2-body LAS state transition density matrices
     '''
-    log = lib.logger.new_logger (las, las.verbose)
+    verbose = kwargs.get ('verbose', las.verbose)
+    log = lib.logger.new_logger (las, verbose)
     nlas = las.ncas_sub
     ncas = las.ncas
     nfrags, nroots = nelec_frs.shape[:2]

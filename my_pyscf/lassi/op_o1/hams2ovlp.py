@@ -455,7 +455,8 @@ def ham (las, h1, h2, ci, nelec_frs, soc=0, nlas=None, _HamS2Ovlp_class=HamS2Ovl
             Produce the overlap matrix between model states in a set of rootspaces,
             identified by ndarray or list "rootidx"
     '''     
-    log = lib.logger.new_logger (las, las.verbose) 
+    verbose = kwargs.get ('verbose', las.verbose)
+    log = lib.logger.new_logger (las, verbose) 
     if nlas is None: nlas = las.ncas_sub
     max_memory = getattr (las, 'max_memory', las.mol.max_memory)
     dtype = h1.dtype

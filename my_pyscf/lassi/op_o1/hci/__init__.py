@@ -40,7 +40,8 @@ def ContractHamCI (las, ints, nlas, lroots, h0, h1, h2, si_bra=None, si_ket=None
 
 def contract_ham_ci (las, h1, h2, ci_fr, nelec_frs, si_bra=None, si_ket=None, ci_fr_bra=None,
                      nelec_frs_bra=None, h0=0, soc=0, sum_bra=False, orbsym=None, wfnsym=None,
-                     pt_order=None, do_pt_order=None, accum=None, add_transpose=False):
+                     pt_order=None, do_pt_order=None, accum=None, add_transpose=False,
+                     verbose=None):
     '''Evaluate the action of the state interaction Hamiltonian on a set of ket CI vectors,
     projected onto a basis of bra CI vectors, leaving one fragment of the bra uncontracted.
 
@@ -89,7 +90,8 @@ def contract_ham_ci (las, h1, h2, ci_fr, nelec_frs, si_bra=None, si_ket=None, ci
             Otherwise, element i,j is an ndarray of shape (ndim_bra//ci_fr_bra[i][j].shape[0],
             ndeta_bra[i,j],ndetb_bra[i,j],ndim_ket).
     '''
-    log = lib.logger.new_logger (las, las.verbose)
+    if verbose is None: verbose = las.verbose
+    log = lib.logger.new_logger (las, verbose)
     nlas = las.ncas_sub
     ci_fr_ket = ci_fr
     nelec_frs_ket = nelec_frs

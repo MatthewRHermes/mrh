@@ -593,7 +593,8 @@ def get_fdm1_maker (las, ci, nelec_frs, si, **kwargs):
                 fdm : ndarray of shape (si.shape[1], lroots[j,i], lroots[j,i])
                     1-fragment reduced density matrix
     ''' 
-    log = logger.new_logger (las, las.verbose)
+    verbose = kwargs.get ('verbose', las.verbose)
+    log = logger.new_logger (las, verbose)
     nlas = las.ncas_sub
     ncas = las.ncas 
     nroots_si = si.shape[-1]
@@ -639,7 +640,8 @@ def roots_trans_rdm12s (las, ci, nelec_frs, si_bra, si_ket, **kwargs):
         rdm2s : ndarray of shape (nroots_si,2,ncas,ncas,2,ncas,ncas)
             Spin-separated 2-body reduced density matrices of LASSI states
     '''
-    log = lib.logger.new_logger (las, las.verbose)
+    verbose = kwargs.get ('verbose', las.verbose)
+    log = lib.logger.new_logger (las, verbose)
     nlas = las.ncas_sub
     ncas = las.ncas
     pt_order = kwargs.get ('pt_order', None)
