@@ -624,7 +624,7 @@ void Device::init_get_jk(py::array_t<double> _eri1, py::array_t<double> _dmtril,
   
   if(count == 0) 
     for(int i=0; i<num_devices; ++i) device_data[i].active = 0;
-
+  
   pm->dev_profile_stop();
     
   double t1 = omp_get_wtime();
@@ -746,7 +746,7 @@ void Device::get_jk(int naux, int nao, int nset,
   
   if(use_eri_cache)
     d_eri = dd_fetch_eri(dd, eri1, naux, nao_pair, addr_dfobj, count);
-   
+
   pm->dev_profile_stop();
   
 #ifdef _DEBUG_DEVICE
@@ -1259,10 +1259,14 @@ double * Device::dd_fetch_eri(my_device_data * dd, double * eri1, int naux, int 
       exit(1);
     }
 
-#ifdef _DEBUG_DEVICE
-    printf("LIBGPU:: dd_fetch_eri :: addr= %p  count= %i  naux= %i  nao_pair= %i\n",addr_dfobj+count, count, naux, nao_pair);
+#if defined(_GPU_SYCL)
+    pm->dev_barrier(); // needed for villotc workload.
+                       // related to https://github.com/argonne-lcf/AuroraBugTracking/issues/22?
 #endif
     
+#ifdef _DEBUG_DEVICE
+    printf("LIBGPU:: dd_fetch_eri :: addr= %p  count= %i  naux= %i  nao_pair= %i\n",addr_dfobj+count, count, naux, nao_pair);
+#endif    
   }
 
   return d_eri;
