@@ -1377,6 +1377,11 @@ double * Device::dd_fetch_eri_debug(my_device_data * dd, double * eri1, int naux
       printf("LIBGPU:: dev_push_async(d_eri) initializing new eri block\n");
       exit(1);
     }
+
+#if defined(_GPU_SYCL)
+    pm->dev_barrier(); // needed for villotc workload.
+                       // related to https://github.com/argonne-lcf/AuroraBugTracking/issues/22?
+#endif
     
 #ifdef _DEBUG_ERI_CACHE
     d_eri_host.push_back( (double *) pm->dev_malloc_host(naux*nao_pair * sizeof(double)) );
