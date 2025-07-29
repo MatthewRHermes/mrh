@@ -469,8 +469,8 @@ def charge_excitation_products (lsi, spaces, spaces_ch, nroots_ref=0, space0=Non
             ia = np.where (~p.excited_fragments (space0, ignore_m=True))[0]
             for i,a in itertools.permutations (ia, r=2):
                 for q in spaces_ch[i][a]:
-                    if not orthogonal_excitations (p, q, space0): continue
-                    r = combine_orthogonal_excitations (p, q, space0)
+                    assert (orthogonal_excitations (p, q, space0, ignore_m=True))
+                    r = combine_orthogonal_excitations (p, q, space0, flexible_m=True)
                     if r not in seen:
                         seen.add (r)
                         spaces.append (r)

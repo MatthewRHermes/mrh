@@ -462,27 +462,41 @@ class SingleLASRootspace (object):
         s2[np.diag_indices_from (s2)] = s*(s+1)
         return s2.sum ()
 
-def orthogonal_excitations (exc1, exc2, ref):
+def orthogonal_excitations (exc1, exc2, ref, ignore_m=False):
     if exc1.nfrag != ref.nfrag: return False
     if exc2.nfrag != ref.nfrag: return False
-    idx1 = exc1.excited_fragments (ref)
+    idx1 = exc1.excited_fragments (ref, ignore_m=ignore_m)
     if not np.count_nonzero (idx1): return False
-    idx2 = exc2.excited_fragments (ref)
+    idx2 = exc2.excited_fragments (ref, ignore_m=ignore_m)
     if not np.count_nonzero (idx2): return False
     if np.count_nonzero (idx1 & idx2): return False
     return True
 
-def combine_orthogonal_excitations (exc1, exc2, ref):
+def combine_orthogonal_excitations (exc1, exc2, ref, flexible_m=False):
     nfrag = ref.nfrag
     spins = exc1.spins.copy ()
     smults = exc1.smults.copy ()
     charges = exc1.charges.copy ()
-    idx2 = exc2.excited_fragments (ref)
+    idx2 = exc2.excited_fragments (ref, ignore_m=flexible_m)
     spins[idx2] = exc2.spins[idx2]
     smults[idx2] = exc2.smults[idx2]
     charges[idx2] = exc2.charges[idx2]
     ci = None
-    if exc1.has_ci () and exc2.has_ci ():
+    if flexible_m:
+        delta_m = np.sum (spins) - np.sum (ref.spins)
+        if delta_m != 0:
+            sgn = -1 if delta_m > 0 else 1
+            delta_m = abs (delta_m)
+            dspins = (smults-1) - sgn*spins
+            assert (np.all (dspins>=0))
+            i = np.where (np.cumsum (dspins) >= delta_m)[0][0]
+            dspins[i:] = 0
+            dspins[i] = delta_m - np.sum (dspins)
+            spins += sgn * dspins
+        assert (spins.sum () == ref.spins.sum ())
+        assert (np.all (spins < smults))
+        assert (np.all (-spins < smults))
+    elif (exc1.has_ci () and exc2.has_ci ()):
         ci = [exc2.ci[ifrag] if idx2[ifrag] else exc1.ci[ifrag] for ifrag in range (nfrag)]
     product = SingleLASRootspace (
         ref.las, spins, smults, charges, 0, ci=ci,
@@ -491,10 +505,11 @@ def combine_orthogonal_excitations (exc1, exc2, ref):
     product.entmap = tuple (set (exc1.entmap + exc2.entmap))
     #assert (np.amax (product.entmap) < 2)
     assert (len (product.entmap) == len (set (product.entmap)))
-    for ifrag in range (nfrag):
-        assert ((product.ci[ifrag] is exc1.ci[ifrag]) or
-                (product.ci[ifrag] is exc2.ci[ifrag]) or
-                (product.ci[ifrag] is ref.ci[ifrag]))
+    if not flexible_m:
+        for ifrag in range (nfrag):
+            assert ((product.ci[ifrag] is exc1.ci[ifrag]) or
+                    (product.ci[ifrag] is exc2.ci[ifrag]) or
+                    (product.ci[ifrag] is ref.ci[ifrag]))
     return product
 
 def all_single_excitations (las, verbose=None, filter_shuffles=False):
