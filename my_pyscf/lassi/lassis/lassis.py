@@ -101,7 +101,7 @@ def prepare_fbf (lsi, ci_ref, ci_sf, ci_ch, ncharge=1, nspin=0, sa_heff=True,
     las1.e_states = las1.energy_nuc () + np.array (las1.states_energy_elec ())
     # 3. Charge excitations
     if ncharge:
-        las2 = all_single_excitations (las1)
+        las2 = all_single_excitations (las1, filter_shuffles=True)
         conv_ch, ci_ch, max_disc_sval = single_excitations_ci (
             lsi, las2, las1, ci_ch, ncharge=ncharge, sa_heff=sa_heff,
             deactivate_vrv=deactivate_vrv, spin_flips=spin_flips, crash_locmin=crash_locmin,
@@ -109,78 +109,6 @@ def prepare_fbf (lsi, ci_ref, ci_sf, ci_ch, ncharge=1, nspin=0, sa_heff=True,
         )
     log.timer ("LASSIS fragment basis functions preparation", *t0)
     return conv_sf and conv_ch, ci_sf, ci_ch, max_disc_sval
-
-def filter_single_excitation_spin_shuffles (lsi, spaces, nroots_ref=1):
-    spaces_ref = spaces[:nroots_ref]
-    spaces = spaces[nroots_ref:]
-    space0 = spaces_ref[0]
-
-    manifolds = []
-    for space in spaces:
-        isnew = True
-        for manifold in manifolds:
-            if space.is_spin_shuffle_of (manifold[0]):
-                manifold.append (space)
-                isnew = False
-                break
-        if isnew:
-            manifold = [space,]
-            manifolds.append (manifold)
-
-    spaces = [select_single_excitation_from_spin_manifold (lsi, space0, manifold)
-              for manifold in manifolds]
-    return spaces_ref + spaces
-
-def select_single_excitation_from_spin_manifold (lsi, space0, manifold):
-    log = lib.logger.new_logger (lsi)
-    nelec0 = space0.nelec
-    smults0 = space0.smults
-    spins0 = space0.spins
-    nelec1 = manifold[0].nelec
-    smults1 = manifold[0].smults
-    ifrag = np.where ((nelec1-nelec0)==-1)[0][0]
-    afrag = np.where ((nelec1-nelec0)==1)[0][0]
-    spins1 = np.abs (spins0.copy ())
-    target_sign = np.sign (spins0)
-    if (spins0[ifrag] == 0) and (spins0[afrag] == 0):
-        # arbitrarily preference alpha-electron hopping
-        target_sign[ifrag] = -1
-        target_sign[afrag] = 1
-    elif spins0[ifrag] == 0:
-        # set preference by receiving fragment
-        target_sign[ifrag] = -target_sign[afrag]
-    elif spins0[afrag] == 0:
-        # set preference by donating fragment
-        target_sign[afrag] = -target_sign[ifrag]
-    spins1[ifrag] += smults1[ifrag]-smults0[ifrag]
-    spins1[afrag] += smults1[afrag]-smults0[afrag]
-    spins1 = target_sign * spins1
-    assert (np.all (np.abs (spins1) < smults1))
-    spins = np.stack ([space.spins for space in manifold], axis=0)
-    dspins = np.abs (spins - spins1[None,:])
-    # Sort by smults; first for environment, then for active frags
-    sorter = smults1.copy ()
-    offset = np.amax (sorter)
-    sorter[ifrag] += offset
-    sorter[afrag] += offset
-    if sorter[ifrag] == sorter[afrag]:
-        sorter[afrag] += 1
-    idx = np.argsort (sorter, kind='stable')
-    dspins = dspins[:,idx]
-    dimsize = dspins.shape[0] * np.amax (dspins, axis=0)
-    dimsize = np.cumprod (dimsize[::-1]+1)[::-1]
-    scores = np.dot (dimsize, dspins.T)
-    # debrief
-    logstr = 'excitation {}->{}\nnelec_ref: {}\nsmults_ref: {}\nsmults_exc: {}\n'.format (
-        ifrag, afrag, nelec0, smults0, smults1)
-    logstr += 'ref spins: {}\ntarget spins: {}\n'.format (spins0, spins1)
-    for i, space in enumerate (manifold):
-        logstr += 'candidate spins: {}, score: {}\n'.format (space.spins, scores[i])
-    log.debug (logstr)
-    idx = (scores == np.amin (scores))
-    manifold = [space for i, space in enumerate (manifold) if idx[i]]
-    if len (manifold) > 1: raise RuntimeError (logstr)
-    return manifold[0]
 
 def single_excitations_ci (lsi, las2, las1, ci_ch, ncharge=1, sa_heff=True, deactivate_vrv=False,
                            spin_flips=None, crash_locmin=False, ham_2q=None):
@@ -206,7 +134,6 @@ def single_excitations_ci (lsi, las2, las1, ci_ch, ncharge=1, sa_heff=True, deac
         h0, h1, h2 = ham_2q
     t0 = (logger.process_clock (), logger.perf_counter ())
     converged = True
-    spaces = filter_single_excitation_spin_shuffles (lsi, spaces, nroots_ref=las1.nroots)
     keys = set ()
     max_max_disc = 0
     for i in range (las1.nroots, len (spaces)):
