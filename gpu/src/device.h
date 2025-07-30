@@ -210,10 +210,7 @@ private:
   double * rho;
   //double * vj;
   double * _vktmp;
-  
-  double * buf_tmp;
-  double * buf3;
-  double * buf4;
+ 
   double * buf_fdrv;
 
   double * buf_vj;
@@ -289,7 +286,7 @@ private:
     int size_rho;
     int size_vj;
     int size_vk;
-    int size_buf;
+    //    int size_buf;
     int size_buf1;
     int size_buf2;
     int size_buf3;
@@ -391,6 +388,16 @@ private:
       max_size = current_size;
       if(ptr) pm->dev_free_async(ptr, name);
       ptr = (T *) pm->dev_malloc_async(current_size * sizeof(T), name, FLERR);
+    }
+  }
+  
+  template<class T>
+  void grow_array_host(T * &ptr, int current_size, int & max_size, std::string name)
+  {
+    if(current_size > max_size) {
+      max_size = current_size;
+      if(ptr) pm->dev_free_host(ptr);
+      ptr = (T *) pm->dev_malloc_host(current_size * sizeof(T));
     }
   }
   
