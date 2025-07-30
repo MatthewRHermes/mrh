@@ -78,6 +78,7 @@ Device::Device()
     pm->dev_set_device(i);
     
     device_data[i].device_id = i;
+    device_data[i].active = 0;
     
     device_data[i].size_rho = 0;
     device_data[i].size_vj = 0;
@@ -137,8 +138,6 @@ Device::Device()
     device_data[i].d_Pi=nullptr;
     device_data[i].d_buf_pdft1=nullptr;
     device_data[i].d_buf_pdft2=nullptr;
-
-
 
 #if defined (_USE_GPU)
     device_data[i].handle = nullptr;
@@ -262,7 +261,7 @@ Device::~Device()
     if(verbose_level) {
       printf("\nLIBGPU :: eri cache statistics :: count= %zu\n",eri_list.size());
       for(int i=0; i<eri_list.size(); ++i)
-	printf("LIBGPU :: %i : eri= %p  Mbytes= %f  count= %i  update= %i device= %i\n", i, eri_list[i],
+	printf("LIBGPU :: %i : eri= %p  Mbytes= %f  count= %i  update= %i device= %i\n", i, (void*) eri_list[i],
 	       eri_size[i]*sizeof(double)/1024./1024., eri_count[i], eri_update[i], eri_device[i]);
     }
     
@@ -553,6 +552,9 @@ void Device::init_get_jk(py::array_t<double> _eri1, py::array_t<double> _dmtril,
   }
 
   int _size_buf = blksize * nao * nao;
+  if(_size_vj > _size_buf) _size_buf = _size_vj;
+  if(_size_vk > _size_buf) _size_buf = _size_vk;
+  
   if(_size_buf > dd->size_buf) {
     dd->size_buf = _size_buf;
     if(buf_tmp) pm->dev_free_host(buf_tmp);
@@ -626,7 +628,7 @@ void Device::init_get_jk(py::array_t<double> _eri1, py::array_t<double> _dmtril,
     for(int i=0; i<num_devices; ++i) device_data[i].active = 0;
   
   pm->dev_profile_stop();
-    
+  
   double t1 = omp_get_wtime();
   t_array[0] += t1 - t0;
  //counts in pull_get_jk
@@ -715,14 +717,14 @@ void Device::get_jk(int naux, int nao, int nset,
     }
   }
 #endif
-  
+    
   int _size_rho = nset * naux;
   if(_size_rho > dd->size_rho) {
     dd->size_rho = _size_rho;
     if(dd->d_rho) pm->dev_free_async(dd->d_rho, "rho");
     dd->d_rho = (double *) pm->dev_malloc_async(_size_rho * sizeof(double), "rho", FLERR);
   }
-  
+    
 #if 0
   py::buffer_info info_vj = _vj.request(); // 2D array (nset, nao_pair)
   py::buffer_info info_vk = _vk.request(); // 3D array (nset, nao, nao)
@@ -793,7 +795,7 @@ void Device::get_jk(int naux, int nao, int nset,
   printf("LIBGPU ::  -- finished\n");
   printf("LIBGPU :: Starting with_k calculation\n");
 #endif
-  
+    
   for(int indxK=0; indxK<nset; ++indxK) {
 
     double t4 = omp_get_wtime();
@@ -813,7 +815,7 @@ void Device::get_jk(int naux, int nao, int nset,
       int err = pm->dev_push_async(d_dms, dms, nao*nao*sizeof(double));
       if(err) {
 	printf("LIBGPU:: dev_push_async(d_dms) on indxK= %i\n",indxK);
-	printf("LIBGPU:: d_dms= %#012x  dms= %#012x  nao= %i  device= %i\n",d_dms,dms,nao,device_id);
+	printf("LIBGPU:: d_dms= %p  dms= %p  nao= %i  device= %i\n",(void*) d_dms, (void*) dms,nao,device_id);
 	exit(1);
       }
     }
@@ -861,9 +863,9 @@ void Device::get_jk(int naux, int nao, int nset,
       ml->set_handle();
       ml->gemm((char *) "N", (char *) "N", &m, &n, &k, &alpha, dd->d_buf2, &ldb, dd->d_buf3, &lda, &beta, (dd->d_vkk)+vk_offset, &ldc);
     }
-    
-  } // for(nset)
   
+  } // for(nset)
+    
   pm->dev_profile_stop();
     
   double t1 = omp_get_wtime();
@@ -909,7 +911,7 @@ void Device::pull_get_jk(py::array_t<double> _vj, py::array_t<double> _vk, int n
   }
   
   if(v_vec[0]) {
-    mgpu_reduce(v_vec, buf_vj, N, true, buf_vec, active); 
+    mgpu_reduce(v_vec, buf_vj, N, true, buf_vec, active);
     
 #pragma omp parallel for
     for(int j=0; j<N; ++j) vj[j] += buf_vj[j];
@@ -1256,14 +1258,9 @@ double * Device::dd_fetch_eri(my_device_data * dd, double * eri1, int naux, int 
       printf("LIBGPU:: dev_push_async(d_eri) initializing new eri block\n");
       exit(1);
     }
-
-// #if defined(_GPU_SYCL)
-//         pm->dev_barrier(); // needed for villotc workload.
-//                            // related to https://github.com/argonne-lcf/AuroraBugTracking/issues/22?
-// #endif
     
 #ifdef _DEBUG_DEVICE
-    printf("LIBGPU:: dd_fetch_eri :: addr= %p  count= %i  naux= %i  nao_pair= %i\n",addr_dfobj+count, count, naux, nao_pair);
+    printf("LIBGPU:: dd_fetch_eri :: addr= %p  count= %i  naux= %i  nao_pair= %i\n",(void*)(addr_dfobj+count), count, naux, nao_pair);
 #endif    
   }
 
@@ -1275,7 +1272,7 @@ double * Device::dd_fetch_eri(my_device_data * dd, double * eri1, int naux, int 
 double * Device::dd_fetch_eri_debug(my_device_data * dd, double * eri1, int naux, int nao_pair, size_t addr_dfobj, int count)
 {   
 #ifdef _DEBUG_DEVICE
-  printf("LIBGPU :: Starting eri_cache lookup for ERI %p\n",addr_dfobj+count);
+  printf("LIBGPU :: Starting eri_cache lookup for ERI %p\n",(void*)(addr_dfobj+count));
 #endif
 
   double * d_eri;
@@ -1317,7 +1314,7 @@ double * Device::dd_fetch_eri_debug(my_device_data * dd, double * eri1, int naux
       
       // update_dfobj fails to correctly update device ; this is an error
       if(!update_dfobj) {
-	printf("LIBGPU :: Warning: ERI %p updated on device w/ diff_eri= %.10e, but update_dfobj= %i\n",addr_dfobj+count,diff_eri,update_dfobj);
+	printf("LIBGPU :: Warning: ERI %p updated on device w/ diff_eri= %.10e, but update_dfobj= %i\n",(void*)(addr_dfobj+count),diff_eri,update_dfobj);
 	//count = -1;
 	//return;
 	exit(1);
@@ -1326,7 +1323,7 @@ double * Device::dd_fetch_eri_debug(my_device_data * dd, double * eri1, int naux
       
       // update_dfobj falsely updates device ; this is loss of performance
       if(update_dfobj) {
-	printf("LIBGPU :: Warning: ERI %p not updated on device w/ diff_eri= %.10e, but update_dfobj= %i\n",addr_dfobj+count,diff_eri,update_dfobj);
+	printf("LIBGPU :: Warning: ERI %p not updated on device w/ diff_eri= %.10e, but update_dfobj= %i\n",(void*)(addr_dfobj+count)//,diff_eri,update_dfobj);
 	//count = -1;
 	//return;
 	//exit(1);
@@ -1375,11 +1372,6 @@ double * Device::dd_fetch_eri_debug(my_device_data * dd, double * eri1, int naux
       printf("LIBGPU:: dev_push_async(d_eri) initializing new eri block\n");
       exit(1);
     }
-
-// #if defined(_GPU_SYCL)
-//     pm->dev_barrier(); // needed for villotc workload.
-//                        // related to https://github.com/argonne-lcf/AuroraBugTracking/issues/22?
-// #endif
     
 #ifdef _DEBUG_ERI_CACHE
     d_eri_host.push_back( (double *) pm->dev_malloc_host(naux*nao_pair * sizeof(double)) );
@@ -1388,7 +1380,7 @@ double * Device::dd_fetch_eri_debug(my_device_data * dd, double * eri1, int naux
 #endif
     
 #ifdef _DEBUG_DEVICE
-    printf("LIBGPU:: dd_fetch_eri_debug :: addr= %p  count= %i  naux= %i  nao_pair= %i\n",addr_dfobj+count, count, naux, nao_pair);
+    printf("LIBGPU:: dd_fetch_eri_debug :: addr= %p  count= %i  naux= %i  nao_pair= %i\n",(void*)(addr_dfobj+count), count, naux, nao_pair);
 #endif
   }
 
@@ -2678,7 +2670,8 @@ void Device::get_h2eff_df(py::array_t<double> _cderi,
 
 #ifdef _DEBUG_DEVICE
   printf("LIBGPU :: Inside Device :: Starting h2eff_df_contract1 function");
-  printf("LIBGPU:: dfobj= %#012x count= %i combined= %#012x %p update_dfobj= %i\n",addr_dfobj,count,addr_dfobj+count,addr_dfobj+count,update_dfobj);
+  printf("LIBGPU:: dfobj= %p count= %i combined= %lu %p update_dfobj= %i\n",(void*)(addr_dfobj), count, addr_dfobj+count,
+	 (void*)(addr_dfobj+count),update_dfobj);
 #endif 
   
   pm->dev_profile_start("h2eff df setup");
@@ -2831,7 +2824,7 @@ void Device::get_h2eff_df_v1(py::array_t<double> _cderi,
 
 #ifdef _DEBUG_DEVICE
   printf("LIBGPU :: Inside Device :: Starting h2eff_df_contract1 function");
-  printf("LIBGPU:: dfobj= %#012x count= %i combined= %#012x %p update_dfobj= %i\n",addr_dfobj,count,addr_dfobj+count,addr_dfobj+count,update_dfobj);
+  printf("LIBGPU:: dfobj= %p count= %i combined= %lu %p update_dfobj= %i\n",(void*)(addr_dfobj), count, addr_dfobj+count, (void*)(addr_dfobj+count),update_dfobj);
 #endif 
   
   pm->dev_profile_start("h2eff df setup");
@@ -2984,7 +2977,7 @@ void Device::get_h2eff_df_v2(py::array_t<double> _cderi,
 
 #ifdef _DEBUG_DEVICE
   printf("LIBGPU :: Inside Device::get_h2eff_df_v2()\n");
-  printf("LIBGPU:: dfobj= %#012x count= %i combined= %#012x %p update_dfobj= %i\n",addr_dfobj,count,addr_dfobj+count,addr_dfobj+count,update_dfobj);
+  printf("LIBGPU:: dfobj= %p count= %i combined= %lu %p update_dfobj= %i\n",(void*)(addr_dfobj), count, addr_dfobj+count, (void*)(addr_dfobj+count),update_dfobj);
 #endif 
   
   pm->dev_profile_start("h2eff df setup");
@@ -4321,10 +4314,13 @@ void Device::mgpu_reduce(std::vector<double *> d_ptr, double * h_ptr, int N, boo
 #endif
   
   size_t size = N * sizeof(double);
-  
-  int nrecv = num_devices / 2;
 
-  int nactive = num_devices;
+  int num_active = 0;
+  for(int i=0; i<num_devices; ++i) num_active += active[i];
+  
+  int nrecv = num_active / 2;
+
+  int nactive = num_active;
 
   // accumulate result to device 0 using binary tree reduction
   
@@ -4338,7 +4334,7 @@ void Device::mgpu_reduce(std::vector<double *> d_ptr, double * h_ptr, int N, boo
     // odd number of recievers and not last level (clean-up pre-reduction)
       
     if((nactive > 1) && (nactive % 2)) {
-
+      
 #if defined(_DEBUG_P2P)
       printf("LIBGPU :: -- GPU-GPU Reduction  pre clean-up odd reciever  nactive= %i  nrecv= %i\n",nactive,nrecv);
 #endif
@@ -4348,13 +4344,13 @@ void Device::mgpu_reduce(std::vector<double *> d_ptr, double * h_ptr, int N, boo
       
       if(d_ptr[src] && active[src]) {
 #if defined(_DEBUG_P2P)
-      printf("LIBGPU :: -- GPU-GPU Reduction  -- src %i(%p) --> dest %i(%p, %p)\n",
-       	     src, d_ptr[src], dest, buf_ptr[dest], d_ptr[dest]);
+	printf("LIBGPU :: -- GPU-GPU Reduction  -- src %i(%p) --> dest %i(%p, %p)\n",
+	       src, d_ptr[src], dest, buf_ptr[dest], d_ptr[dest]);
 #endif
-
-      if(blocking) {
-	  // need to ensure dest is done using buf
 	
+	if(blocking) {
+	  // need to ensure dest is done using buf
+	  
 	  pm->dev_set_device(dest);
 	  
 	  pm->dev_stream_wait();
