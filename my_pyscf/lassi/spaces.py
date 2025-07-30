@@ -33,22 +33,32 @@ class SingleLASRootspace (object):
         self.ci = ci
         self.fragsym = fragsym
 
-        self.nelec = self.nelelas - self.charges
-        self.neleca = (self.nelec + self.spins) // 2
-        self.nelecb = (self.nelec - self.spins) // 2
-        self.nhole = 2*self.nlas - self.nelec 
-        self.nholea = self.nlas - self.neleca
-        self.nholeb = self.nlas - self.nelecb
-
-        # "u", "d": like "a", "b", but presuming spins+1==smults everywhere
-        self.nelecu = (self.nelec + (self.smults-1)) // 2
-        self.nelecd = (self.nelec - (self.smults-1)) // 2
-        self.nholeu = self.nlas - self.nelecu
-        self.nholed = self.nlas - self.nelecd
-
         self.energy_tot = energy_tot
 
         self.entmap = tuple ()
+
+    @property
+    def nelec (self): return self.nelelas - self.charges
+    @property
+    def neleca (self): return (self.nelec + self.spins) // 2
+    @property
+    def nelecb (self): return (self.nelec - self.spins) // 2
+    @property
+    def nhole (self): return 2*self.nlas - self.nelec 
+    @property
+    def nholea (self): return self.nlas - self.neleca
+    @property
+    def nholeb (self): return self.nlas - self.nelecb
+
+    # "u", "d": like "a", "b", but presuming spins+1==smults everywhere
+    @property
+    def nelecu (self): return (self.nelec + (self.smults-1)) // 2
+    @property
+    def nelecd (self): return (self.nelec - (self.smults-1)) // 2
+    @property
+    def nholeu (self): return self.nlas - self.nelecu
+    @property
+    def nholed (self): return self.nlas - self.nelecd
 
     def __eq__(self, other):
         if self.nfrag != other.nfrag: return False
@@ -57,8 +67,8 @@ class SingleLASRootspace (object):
                 np.all (self.charges==other.charges))
 
     def __hash__(self):
-        return hash (tuple ([self.nfrag,] + list (self.spins) + list (self.smults)
-                            + list (self.charges) + list (self.entmap)))
+        return hash ((self.nfrag,) + tuple (self.spins) + tuple (self.smults)
+                     + tuple (self.charges) + self.entmap)
 
     def possible_excitation (self, i, a, s):
         i, a, s = np.atleast_1d (i, a, s)
@@ -196,7 +206,7 @@ class SingleLASRootspace (object):
                     log.debug ('Caught ImpossibleSpinError: {}'.format (e.__dict__))
         return singles
 
-    def gen_spin_shuffles (self):
+    def make_spin_shuffle_table (self):
         assert ((np.sum (self.smults - 1) - np.sum (self.spins)) % 2 == 0)
         nflips = (np.sum (self.smults - 1) - np.sum (self.spins)) // 2
         spins_table = (self.smults-1).copy ()[None,:]
@@ -208,9 +218,14 @@ class SingleLASRootspace (object):
             # minimum valid value in column i is 1-self.smults[i]
             idx_valid = np.all (spins_table>-self.smults[None,:], axis=1)
             spins_table = spins_table[idx_valid,:]
+        return spins_table
+
+    def gen_spin_shuffles (self, spins_table=None):
+        if spins_table is None: spins_table = self.make_spin_shuffle_table ()
         for spins in spins_table:
             sp = SingleLASRootspace (self.las, spins, self.smults, self.charges, 0, nlas=self.nlas,
-                                     nelelas=self.nelelas, stdout=self.stdout, verbose=self.verbose)
+                                     nelelas=self.nelelas, fragsym=self.fragsym,
+                                     stdout=self.stdout, verbose=self.verbose)
             sp.entmap = self.entmap
             yield sp
 
