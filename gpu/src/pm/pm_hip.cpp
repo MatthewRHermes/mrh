@@ -296,7 +296,7 @@ void PM::dev_free(void * ptr, std::string name)
   printf("Inside PM::dev_free()\n");
 #endif
   
-  profile_memory(N, name, PROFILE_MEM_FREE);
+  profile_memory(0, name, PROFILE_MEM_FREE);
   
   if(ptr) hipFree(ptr);
   _HIP_CHECK_ERRORS();
@@ -314,7 +314,7 @@ void PM::dev_free_async(void * ptr, std::string name)
   printf("Inside PM::dev_free_async()\n");
 #endif
   
-  profile_memory(N, name, PROFILE_MEM_FREE);
+  profile_memory(0, name, PROFILE_MEM_FREE);
   
   if(ptr) hipFreeAsync(ptr, *current_queue);
   _HIP_CHECK_ERRORS();
@@ -332,7 +332,7 @@ void PM::dev_free_async(void * ptr, hipStream_t &s, std::string name)
   printf("Inside PM::dev_free_async()\n");
 #endif
   
-  profile_memory(N, name, PROFILE_MEM_FREE);
+  profile_memory(0, name, PROFILE_MEM_FREE);
   
   if(ptr) hipFreeAsync(ptr, s);
   _HIP_CHECK_ERRORS();

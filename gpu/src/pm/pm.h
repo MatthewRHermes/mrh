@@ -13,6 +13,10 @@
 
 #define FLERR __FILE__,__LINE__
 
+#if defined(_PROFILE_PM_MEM)
+#include <algorithm>
+#endif
+
 #include <omp.h>
 
 #if defined(_USE_GPU)

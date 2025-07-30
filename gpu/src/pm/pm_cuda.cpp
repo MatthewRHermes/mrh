@@ -336,7 +336,7 @@ void PM::dev_free(void * ptr, std::string name)
   printf("Inside PM::dev_free()\n");
 #endif
   
-  profile_memory(N, name, PROFILE_MEM_FREE);
+  profile_memory(0, name, PROFILE_MEM_FREE);
   
   if(ptr) cudaFree(ptr);
   _CUDA_CHECK_ERRORS();
@@ -354,7 +354,7 @@ void PM::dev_free_async(void * ptr, std::string name)
   printf("Inside PM::dev_free_async()\n");
 #endif
  
-  profile_memory(N, name, PROFILE_MEM_FREE);
+  profile_memory(0, name, PROFILE_MEM_FREE);
   
 #ifdef _NO_CUDA_ASYNC
   if(ptr) cudaFree(ptr);
@@ -376,7 +376,7 @@ void PM::dev_free_async(void * ptr, cudaStream_t &s, std::string name)
   printf("Inside PM::dev_free_async()\n");
 #endif
  
-  profile_memory(N, name, PROFILE_MEM_FREE);
+  profile_memory(0, name, PROFILE_MEM_FREE);
   
 #ifdef _NO_CUDA_ASYNC
   if(ptr) cudaFree(ptr);
