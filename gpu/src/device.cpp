@@ -670,11 +670,7 @@ void Device::get_jk(int naux, int nao, int nset,
 #endif
     
   int _size_rho = nset * naux;
-  if(_size_rho > dd->size_rho) {
-    dd->size_rho = _size_rho;
-    if(dd->d_rho) pm->dev_free_async(dd->d_rho, "rho");
-    dd->d_rho = (double *) pm->dev_malloc_async(_size_rho * sizeof(double), "rho", FLERR);
-  }
+  grow_array(dd->d_rho, _size_rho, dd->size_rho, "rho");
     
 #if 0
   py::buffer_info info_vj = _vj.request(); // 2D array (nset, nao_pair)
@@ -1358,11 +1354,7 @@ void Device::push_mo_coeff(py::array_t<double> _mo_coeff, int _size_mo_coeff)
     
     my_device_data * dd = &(device_data[id]);
 
-    if (_size_mo_coeff > dd->size_mo_coeff){
-      dd->size_mo_coeff = _size_mo_coeff;
-      if (dd->d_mo_coeff) pm->dev_free_async(dd->d_mo_coeff, "mo_coeff");
-      dd->d_mo_coeff = (double *) pm->dev_malloc_async(_size_mo_coeff*sizeof(double), "mo_coeff", FLERR);
-    }
+    grow_array(dd->d_mo_coeff, _size_mo_coeff, dd->size_mo_coeff, "mo_coeff");
     
     mo_vec[id] = dd->d_mo_coeff;
   }
@@ -1375,12 +1367,8 @@ void Device::push_mo_coeff(py::array_t<double> _mo_coeff, int _size_mo_coeff)
     pm->dev_set_device(id);
   
     my_device_data * dd = &(device_data[id]);
-  
-    if (_size_mo_coeff > dd->size_mo_coeff){
-      dd->size_mo_coeff = _size_mo_coeff;
-      if (dd->d_mo_coeff) pm->dev_free_async(dd->d_mo_coeff, "mo_coeff");
-      dd->d_mo_coeff = (double *) pm->dev_malloc_async(_size_mo_coeff*sizeof(double), "mo_coeff", FLERR);
-    }
+    
+    grow_array(dd->d_mo_coeff, _size_mo_coeff, dd->size_mo_coeff, "mo_coeff");
     
     pm->dev_push_async(dd->d_mo_coeff, mo_coeff, _size_mo_coeff*sizeof(double));
   }
@@ -1406,18 +1394,9 @@ void Device::init_jk_ao2mo(int ncore, int nmo)
     
     int size_j_pc = ncore*nmo;
     int size_k_pc = ncore*nmo;
-    
-    if (size_j_pc > dd->size_j_pc){
-      dd->size_j_pc = size_j_pc;
-      if (dd->d_j_pc) pm->dev_free_async(dd->d_j_pc, "j_pc");
-      dd->d_j_pc = (double *) pm->dev_malloc_async(size_j_pc*sizeof(double), "j_pc", FLERR);
-    }
 
-    if (size_k_pc > dd->size_k_pc){
-      dd->size_k_pc = size_k_pc;
-      if (dd->d_k_pc) pm->dev_free_async(dd->d_k_pc, "k_pc");
-      dd->d_k_pc = (double *) pm->dev_malloc_async(size_k_pc*sizeof(double), "k_pc", FLERR);
-    }
+    grow_array(dd->d_j_pc, size_j_pc, dd->size_j_pc, "j_pc");
+    grow_array(dd->d_k_pc, size_k_pc, dd->size_k_pc, "k_pc");
 
     dd->active = 0;
   }
@@ -1485,18 +1464,13 @@ void Device::init_ppaa_papa_ao2mo( int nmo, int ncas)
   double t0 = omp_get_wtime();
 
   // initializing only cpu side, gpu ppaa will be a buffer array (dd->d_buf3) 
+
   int _size_buf_ppaa = num_devices*nmo*nmo*ncas*ncas;
-  if(_size_buf_ppaa > size_buf_ppaa) {
-    size_buf_ppaa = _size_buf_ppaa;
-    if(buf_ppaa) pm->dev_free_host(buf_ppaa);
-    buf_ppaa = (double *) pm->dev_malloc_host(_size_buf_ppaa*sizeof(double));
-  }
+  grow_array_host(buf_ppaa, _size_buf_ppaa, size_buf_ppaa, "h:buf_ppaa");
+
   int _size_buf_papa = num_devices*nmo*ncas*nmo*ncas;
-  if(_size_buf_papa > size_buf_papa) {
-    size_buf_papa = _size_buf_papa;
-    if(buf_papa) pm->dev_free_host(buf_papa);
-    buf_papa = (double *) pm->dev_malloc_host(_size_buf_papa*sizeof(double));
-  }
+  grow_array_host(buf_papa, _size_buf_papa, size_buf_papa, "h:buf_papa");
+
   double t1 = omp_get_wtime();
   t_array[8] += t1 - t0;
   // counts in pull ppaa_papa
@@ -1520,22 +1494,12 @@ void Device::init_eri_h2eff(int nmo, int ncas)
 
     dd->active = 0;
 
-    if (size_eri_h2eff > dd->size_eri_h2eff){
-      //      printf("setting size\n");
-      dd->size_eri_h2eff = size_eri_h2eff;
-      if (dd->d_eri_h2eff) pm->dev_free_async(dd->d_eri_h2eff, "eri_h2eff");
-      dd->d_eri_h2eff = (double *) pm->dev_malloc_async(dd->size_eri_h2eff*sizeof(double), "eri_h2eff", FLERR);
-    }
-
+    grow_array(dd->d_eri_h2eff, size_eri_h2eff, dd->size_eri_h2eff, "eri_h2eff");
   }
   
   int _size_buf_eri_h2eff = num_devices * size_eri_h2eff;
 
-  if(_size_buf_eri_h2eff > size_buf_eri_h2eff) {
-    size_buf_eri_h2eff = _size_buf_eri_h2eff;
-    if(buf_eri_h2eff) pm->dev_free_host(buf_eri_h2eff);
-    buf_eri_h2eff = (double *) pm->dev_malloc_host(size_buf_eri_h2eff*sizeof(double));
-    }
+  grow_array_host(buf_eri_h2eff, _size_buf_eri_h2eff, size_buf_eri_h2eff, "h:buf_eri_h2eff");
   
   double t1 = omp_get_wtime();
   t_array[8] += t1 - t0;
@@ -1551,12 +1515,11 @@ void Device::extract_mo_cas(int ncas, int ncore, int nao)
   const int _size_mo_cas = ncas*nao; 
   for(int id=0; id<num_devices; ++id) {
     pm->dev_set_device(id);
+    
     my_device_data * dd = &(device_data[id]);
-    if (_size_mo_cas > dd->size_mo_cas){
-      dd->size_mo_cas = _size_mo_cas;
-      if (dd->d_mo_cas) pm->dev_free_async(dd->d_mo_cas, "mo_cas");
-      dd->d_mo_cas = (double *) pm->dev_malloc_async(_size_mo_cas*sizeof(double), "mo_cas", FLERR);
-    }
+
+    grow_array(dd->d_mo_cas, _size_mo_cas, dd->size_mo_cas, "mo_cas");
+
 #if 0 
     dim3 block_size(1,1,1);
     dim3 grid_size(_TILE(ncas, block_size.x), _TILE(nao, block_size.y));
@@ -2036,11 +1999,7 @@ void Device::df_ao2mo_v3 (int blksize, int nmo, int nao, int ncore, int ncas, in
     //    d_eri = dd_fetch_eri(dd, eri, naux, nao_pair, addr_dfobj, count);
     d_eri = dd_fetch_eri(dd, nullptr, naux, nao_pair, addr_dfobj, count);
   } else {
-    if(_size_eri > dd->size_eri1) {
-      dd->size_eri1 = _size_eri;
-      if(dd->d_eri1) pm->dev_free_async(dd->d_eri1, "eri1");
-      dd->d_eri1 = (double *) pm->dev_malloc_async(_size_eri * sizeof(double), "eri1", FLERR);
-    }
+    grow_array(dd->d_eri1, _size_eri, dd->size_eri1, "eri1");
     d_eri = dd->d_eri1;
     
     //    printf("d_cderi= %p  cderi= %p  _size_eri= %i  naux= %i  nao_pair= %i\n",d_eri, eri, _size_eri, naux, nao_pair); // naux is negative because eri_extra not correctly initialized; and eri is nullptr in this call; use_eri_cache must be used
@@ -2071,12 +2030,7 @@ void Device::df_ao2mo_v3 (int blksize, int nmo, int nao, int ncore, int ncas, in
 		 &alpha, dd->d_mo_coeff, &nao, &zero, d_buf, &nao, &nao2, &beta, d_bufpp, &nao, &nao2, &naux);
 
   int _size_bufpa = naux*nmo*ncas;
-  if(_size_bufpa > dd->size_bufpa) {
-    dd->size_bufpa = _size_bufpa;
-    
-    if(dd->d_bufpa) pm->dev_free_async(dd->d_bufpa, "bufpa");
-    dd->d_bufpa = (double *) pm->dev_malloc_async(dd->size_bufpa * sizeof(double), "bufpa", FLERR);
-  }
+  grow_array(dd->d_bufpa, _size_bufpa, dd->size_bufpa, "bufpa");
   
   double * d_bufpa = dd->d_bufpa;
 
@@ -2092,7 +2046,7 @@ void Device::df_ao2mo_v3 (int blksize, int nmo, int nao, int ncore, int ncas, in
 
   transpose_120(d_bufpp, d_fxpp, naux, nmo, nmo);
 
-// calculate j_pc
+  // calculate j_pc
   
   // k_cp += numpy.einsum('kij,kij->ij', bufpp[:,:ncore], bufpp[:,:ncore])
 
@@ -2114,18 +2068,13 @@ void Device::df_ao2mo_v3 (int blksize, int nmo, int nao, int ncore, int ncas, in
   //bufd work
 
   int _size_bufd = naux*nmo;
-  if(_size_bufd > dd->size_bufd) {
-    dd->size_bufd = _size_bufd;
-    
-    if(dd->d_bufd) pm->dev_free_async(dd->d_bufd, "bufd");
-    dd->d_bufd = (double *) pm->dev_malloc_async(dd->size_bufd * sizeof(double), "bufd", FLERR);
-  }
+  grow_array(dd->d_bufd, _size_bufd, dd->size_bufd, "bufd");
   
   double * d_bufd = dd->d_bufd;
 
   get_bufd(d_bufpp, d_bufd, naux, nmo);
   
-// calculate j_pc
+  // calculate j_pc
   
   // self.j_pc += numpy.einsum('ki,kj->ij', bufd, bufd[:,:ncore])
 
@@ -2133,13 +2082,10 @@ void Device::df_ao2mo_v3 (int blksize, int nmo, int nao, int ncore, int ncas, in
 	   &alpha, d_bufd, &nmo, d_bufd, &nmo, &beta_, dd->d_j_pc, &ncore);
 
   // new work
+  
   int _size_bufaa = naux*ncas*ncas;
-  if(_size_bufaa > dd->size_bufaa) {
-    dd->size_bufaa = _size_bufaa;
-    
-    if(dd->d_bufaa) pm->dev_free_async(dd->d_bufaa, "bufaa");
-    dd->d_bufaa = (double *) pm->dev_malloc_async(dd->size_bufaa * sizeof(double), "bufaa", FLERR);
-  }
+  grow_array(dd->d_bufaa, _size_bufaa, dd->size_bufaa, "bufaa");
+
   double * d_bufaa = dd->d_bufaa;
 
   get_bufaa(d_bufpp, d_bufaa, naux, nmo, ncore, ncas);
@@ -2252,11 +2198,7 @@ void Device::df_ao2mo_v4 (int blksize, int nmo, int nao, int ncore, int ncas, in
     //    d_eri = dd_fetch_eri(dd, eri, naux, nao_pair, addr_dfobj, count);
     d_eri = dd_fetch_eri(dd, nullptr, naux, nao_pair, addr_dfobj, count);
   } else {
-    if(_size_eri > dd->size_eri1) {
-      dd->size_eri1 = _size_eri;
-      if(dd->d_eri1) pm->dev_free_async(dd->d_eri1, "eri1");
-      dd->d_eri1 = (double *) pm->dev_malloc_async(_size_eri * sizeof(double), "eri1", FLERR);
-    }
+    grow_array(dd->d_eri1, _size_eri, dd->size_eri1, "eri1");
     d_eri = dd->d_eri1;
   }
   
@@ -2284,12 +2226,7 @@ void Device::df_ao2mo_v4 (int blksize, int nmo, int nao, int ncore, int ncas, in
 		 &alpha, dd->d_mo_coeff, &nao, &zero, d_buf, &nao, &nao2, &beta, d_bufpp, &nao, &nao2, &naux);
 
   int _size_bufpa = naux*nmo*ncas;
-  if(_size_bufpa > dd->size_bufpa) {
-    dd->size_bufpa = _size_bufpa;
-    
-    if(dd->d_bufpa) pm->dev_free_async(dd->d_bufpa, "bufpa");
-    dd->d_bufpa = (double *) pm->dev_malloc_async(dd->size_bufpa * sizeof(double), "bufpa", FLERR);
-  }
+  grow_array(dd->d_bufpa, _size_bufpa, dd->size_bufpa, "bufpa");
   
   double * d_bufpa = dd->d_bufpa;
 
