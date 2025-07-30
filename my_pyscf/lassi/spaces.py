@@ -386,14 +386,14 @@ class SingleLASRootspace (object):
         smults1[ifrag] = new_smult
         spins1[ifrag] = new_spin
         ci1 = None
-        if ci is not None:
+        if (ci is not None) and self.has_ci ():
             ci1 = [c for c in self.ci]
             ci1[ifrag] = ci
         sp = SingleLASRootspace (self.las, spins1, smults1, self.charges, 0, nlas=self.nlas,
                                  nelelas=self.nelelas, stdout=self.stdout, verbose=self.verbose,
                                  ci=ci1)
         sp.entmap = self.entmap
-        assert (ci is sp.ci[ifrag])
+        if sp.has_ci (): assert (ci is sp.ci[ifrag])
         return sp
 
     def is_orthogonal_by_smult (self, other):
