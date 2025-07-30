@@ -537,19 +537,12 @@ void Device::init_get_jk(py::array_t<double> _eri1, py::array_t<double> _dmtril,
   int nao_pair = nao * (nao+1) / 2;
   
   int _size_vj = nset * nao_pair;
-  if(_size_vj > dd->size_vj) {
-    dd->size_vj = _size_vj;
-    if(dd->d_vj) pm->dev_free_async(dd->d_vj, "vj");
-    dd->d_vj = (double *) pm->dev_malloc_async (_size_vj * sizeof(double), "vj", FLERR);
-  }
+
+  grow_array(dd->d_vj, _size_vj, dd->size_vj, "vj");
   
   int _size_vk = nset * nao * nao;
-  if(_size_vk > dd->size_vk) {
-    dd->size_vk = _size_vk;
-    
-    if(dd->d_vkk) pm->dev_free_async(dd->d_vkk, "vkk");
-    dd->d_vkk = (double *) pm->dev_malloc_async(_size_vk * sizeof(double), "vkk", FLERR);
-  }
+
+  grow_array(dd->d_vkk, _size_vk, dd->size_vk, "vkk");
 
   int _size_buf = blksize * nao * nao;
   if(_size_vj > _size_buf) _size_buf = _size_vj;
@@ -565,14 +558,18 @@ void Device::init_get_jk(py::array_t<double> _eri1, py::array_t<double> _dmtril,
     buf3 = (double *) pm->dev_malloc_host(_size_buf*sizeof(double)); // (nao, blksize*nao)
     buf4 = (double *) pm->dev_malloc_host(_size_buf*sizeof(double)); // (blksize*nao, nao)
 
-    if(dd->d_buf1) pm->dev_free_async(dd->d_buf1, "buf1");
-    if(dd->d_buf2) pm->dev_free_async(dd->d_buf2, "buf2");
-    if(dd->d_buf3) pm->dev_free_async(dd->d_buf3, "buf3");
+    // if(dd->d_buf1) pm->dev_free_async(dd->d_buf1, "buf1");
+    // if(dd->d_buf2) pm->dev_free_async(dd->d_buf2, "buf2");
+    // if(dd->d_buf3) pm->dev_free_async(dd->d_buf3, "buf3");
     
-    dd->d_buf1 = (double *) pm->dev_malloc_async(_size_buf * sizeof(double), "buf1", FLERR);
-    dd->d_buf2 = (double *) pm->dev_malloc_async(_size_buf * sizeof(double), "buf2", FLERR);
-    dd->d_buf3 = (double *) pm->dev_malloc_async(_size_buf * sizeof(double), "buf3", FLERR);
+    // dd->d_buf1 = (double *) pm->dev_malloc_async(_size_buf * sizeof(double), "buf1", FLERR);
+    // dd->d_buf2 = (double *) pm->dev_malloc_async(_size_buf * sizeof(double), "buf2", FLERR);
+    // dd->d_buf3 = (double *) pm->dev_malloc_async(_size_buf * sizeof(double), "buf3", FLERR);
   }
+
+  grow_array(dd->d_buf1, _size_buf, dd->size_buf1, "buf1");
+  grow_array(dd->d_buf2, _size_buf, dd->size_buf2, "buf2");
+  grow_array(dd->d_buf3, _size_buf, dd->size_buf3, "buf3");
   
   int _size_dms = nset * nao * nao;
   if(_size_dms > dd->size_dms) {
@@ -2068,17 +2065,22 @@ void Device::df_ao2mo_v3 (int blksize, int nmo, int nao, int ncore, int ncas, in
 #endif
 #endif
 
-  if(_size_eri_unpacked > dd->size_buf) {
-    dd->size_buf = _size_eri_unpacked;
+  // if(_size_eri_unpacked > dd->size_buf) {
+  //   dd->size_buf = _size_eri_unpacked;
     
-    if(dd->d_buf1) pm->dev_free_async(dd->d_buf1, "buf1");
-    if(dd->d_buf2) pm->dev_free_async(dd->d_buf2, "buf2");
-    if(dd->d_buf3) pm->dev_free_async(dd->d_buf3, "buf3");
+  //   if(dd->d_buf1) pm->dev_free_async(dd->d_buf1, "buf1");
+  //   if(dd->d_buf2) pm->dev_free_async(dd->d_buf2, "buf2");
+  //   if(dd->d_buf3) pm->dev_free_async(dd->d_buf3, "buf3");
     
-    dd->d_buf1 = (double *) pm->dev_malloc_async(dd->size_buf * sizeof(double), "buf1", FLERR); // use for (eri@mo)
-    dd->d_buf2 = (double *) pm->dev_malloc_async(dd->size_buf * sizeof(double), "buf2", FLERR); //use for eri_unpacked, then for bufpp_t
-    dd->d_buf3 = (double *) pm->dev_malloc_async(dd->size_buf * sizeof(double), "buf3", FLERR); //for ppaa
-  }
+  //   dd->d_buf1 = (double *) pm->dev_malloc_async(dd->size_buf * sizeof(double), "buf1", FLERR); // use for (eri@mo)
+  //   dd->d_buf2 = (double *) pm->dev_malloc_async(dd->size_buf * sizeof(double), "buf2", FLERR); //use for eri_unpacked, then for bufpp_t
+  //   dd->d_buf3 = (double *) pm->dev_malloc_async(dd->size_buf * sizeof(double), "buf3", FLERR); 
+  // }
+
+  grow_array(dd->d_buf1, _size_eri_unpacked, dd->size_buf1, "buf1");  // use for (eri@mo)
+  grow_array(dd->d_buf2, _size_eri_unpacked, dd->size_buf2, "buf2");  //use for eri_unpacked, then for bufpp_t
+  grow_array(dd->d_buf3, _size_eri_unpacked, dd->size_buf3, "buf3");  //for ppaa
+  
   // my guess is blksize*nao_s*nao_s > nmo_f * nmo_f * ncas_f * ncas_f (dd->size_eri_unpacked is for the entire system. Therefore nao_s > nao_f. Since blksize = 240, ncas_f must be less than 15)
   
   double * d_buf = dd->d_buf1; //for eri*mo_coeff (don't pull or push) 
@@ -2293,17 +2295,21 @@ void Device::df_ao2mo_v4 (int blksize, int nmo, int nao, int ncore, int ncas, in
   int max_size_buf = 2 * _size_ppaa;
   if(_size_eri_unpacked > max_size_buf) max_size_buf = _size_eri_unpacked;
   
-  if(max_size_buf > dd->size_buf) {
-    dd->size_buf = max_size_buf;
+  // if(max_size_buf > dd->size_buf) {
+  //   dd->size_buf = max_size_buf;
     
-    if(dd->d_buf1) pm->dev_free_async(dd->d_buf1, "buf1");
-    if(dd->d_buf2) pm->dev_free_async(dd->d_buf2, "buf2");
-    if(dd->d_buf3) pm->dev_free_async(dd->d_buf3, "buf3");
+  //   if(dd->d_buf1) pm->dev_free_async(dd->d_buf1, "buf1");
+  //   if(dd->d_buf2) pm->dev_free_async(dd->d_buf2, "buf2");
+  //   if(dd->d_buf3) pm->dev_free_async(dd->d_buf3, "buf3");
     
-    dd->d_buf1 = (double *) pm->dev_malloc_async(dd->size_buf * sizeof(double), "buf1", FLERR);
-    dd->d_buf2 = (double *) pm->dev_malloc_async(dd->size_buf * sizeof(double), "buf2", FLERR);
-    dd->d_buf3 = (double *) pm->dev_malloc_async(dd->size_buf * sizeof(double), "buf3", FLERR);
-  }
+  //   dd->d_buf1 = (double *) pm->dev_malloc_async(dd->size_buf * sizeof(double), "buf1", FLERR);
+  //   dd->d_buf2 = (double *) pm->dev_malloc_async(dd->size_buf * sizeof(double), "buf2", FLERR);
+  //   dd->d_buf3 = (double *) pm->dev_malloc_async(dd->size_buf * sizeof(double), "buf3", FLERR);
+  // }
+  
+  grow_array(dd->d_buf1, max_size_buf, dd->size_buf1, "buf1");
+  grow_array(dd->d_buf2, max_size_buf, dd->size_buf2, "buf2");
+  grow_array(dd->d_buf3, max_size_buf, dd->size_buf3, "buf3");
   
   // I want to fit both ppaa and papa inside buf3 to remove it from cpu side
   // my guess is blksize*nao_s*nao_s > 2 * nmo_f * nmo_f * ncas_f * ncas_f (dd->size_eri_unpacked is for the entire system. Usually nao_s > sqrt(2)*nao_f, blksize = 240, ncas_f must be less than 15)
@@ -2479,18 +2485,22 @@ void Device::update_h2eff_sub(int ncore, int ncas, int nocc, int nmo,
   int _size_h2eff_unpacked = nmo*ncas*ncas*ncas;
   int _size_h2eff_packed = nmo*ncas*ncas_pair;
 
-  if(_size_h2eff_unpacked > dd->size_buf) {
-    dd->size_buf = _size_h2eff_unpacked;
+  // if(_size_h2eff_unpacked > dd->size_buf) {
+  //   dd->size_buf = _size_h2eff_unpacked;
 
-    if(dd->d_buf1) pm->dev_free_async(dd->d_buf1, "buf1");
-    if(dd->d_buf2) pm->dev_free_async(dd->d_buf2, "buf2");
-    if(dd->d_buf3) pm->dev_free_async(dd->d_buf3, "buf3");
+  //   if(dd->d_buf1) pm->dev_free_async(dd->d_buf1, "buf1");
+  //   if(dd->d_buf2) pm->dev_free_async(dd->d_buf2, "buf2");
+  //   if(dd->d_buf3) pm->dev_free_async(dd->d_buf3, "buf3");
 
-    dd->d_buf1 = (double *) pm->dev_malloc_async(dd->size_buf * sizeof(double), "buf1", FLERR);
-    dd->d_buf2 = (double *) pm->dev_malloc_async(dd->size_buf * sizeof(double), "buf2", FLERR);
-    dd->d_buf3 = (double *) pm->dev_malloc_async(dd->size_buf * sizeof(double), "buf3", FLERR);
-  }
+  //   dd->d_buf1 = (double *) pm->dev_malloc_async(dd->size_buf * sizeof(double), "buf1", FLERR);
+  //   dd->d_buf2 = (double *) pm->dev_malloc_async(dd->size_buf * sizeof(double), "buf2", FLERR);
+  //   dd->d_buf3 = (double *) pm->dev_malloc_async(dd->size_buf * sizeof(double), "buf3", FLERR);
+  // }
 
+  grow_array(dd->d_buf1, _size_h2eff_unpacked, dd->size_buf1, "buf1");
+  grow_array(dd->d_buf2, _size_h2eff_unpacked, dd->size_buf2, "buf2");
+  grow_array(dd->d_buf3, _size_h2eff_unpacked, dd->size_buf3, "buf3");
+  
   double * d_h2eff_unpacked = dd->d_buf1;
 
   if(ncas*ncas > dd->size_ucas) {
@@ -2859,16 +2869,20 @@ void Device::get_h2eff_df_v1(py::array_t<double> _cderi,
   //printf("Size ERI in h2eff v2: %i", dd->size_eri_unpacked);
     
     dd->size_eri_unpacked = _size_cderi_unpacked;
-    dd->size_buf = _size_cderi_unpacked;
+    // dd->size_buf = _size_cderi_unpacked;
   
-    if (dd->d_buf1) pm->dev_free_async(dd->d_buf1, "buf1");
-    if (dd->d_buf2) pm->dev_free_async(dd->d_buf2, "buf2");
-    if (dd->d_buf3) pm->dev_free_async(dd->d_buf3, "buf3");
+    // if (dd->d_buf1) pm->dev_free_async(dd->d_buf1, "buf1");
+    // if (dd->d_buf2) pm->dev_free_async(dd->d_buf2, "buf2");
+    // if (dd->d_buf3) pm->dev_free_async(dd->d_buf3, "buf3");
     
-    dd->d_buf1 = (double *) pm->dev_malloc_async ( dd->size_buf * sizeof(double), "buf1", FLERR);
-    dd->d_buf2 = (double *) pm->dev_malloc_async ( dd->size_buf * sizeof(double), "buf2", FLERR);
-    dd->d_buf3 = (double *) pm->dev_malloc_async ( dd->size_buf * sizeof(double), "buf3", FLERR);
+    // dd->d_buf1 = (double *) pm->dev_malloc_async ( dd->size_buf * sizeof(double), "buf1", FLERR);
+    // dd->d_buf2 = (double *) pm->dev_malloc_async ( dd->size_buf * sizeof(double), "buf2", FLERR);
+    // dd->d_buf3 = (double *) pm->dev_malloc_async ( dd->size_buf * sizeof(double), "buf3", FLERR);
   }
+  
+  grow_array(dd->d_buf1, _size_cderi_unpacked, dd->size_buf1, "buf1");
+  grow_array(dd->d_buf2, _size_cderi_unpacked, dd->size_buf2, "buf2");
+  grow_array(dd->d_buf3, _size_cderi_unpacked, dd->size_buf3, "buf3");
   
   double * eri = static_cast<double*>(info_eri.ptr);
   double * d_mo_coeff = dd->d_mo_coeff;
@@ -3017,17 +3031,21 @@ void Device::get_h2eff_df_v2(py::array_t<double> _cderi,
   if(size_bumP_buvP > max_size_buf) max_size_buf = size_bumP_buvP;
   if(size_vuwM > max_size_buf) max_size_buf = size_vuwM;
   
-  if (max_size_buf > dd->size_buf){
-    dd->size_buf = max_size_buf;
+  // if (max_size_buf > dd->size_buf){
+  //   dd->size_buf = max_size_buf;
 
-    if(dd->d_buf1) pm->dev_free_async(dd->d_buf1, "buf1");
-    if(dd->d_buf2) pm->dev_free_async(dd->d_buf2, "buf2");
-    if(dd->d_buf3) pm->dev_free_async(dd->d_buf3, "buf3");
+  //   if(dd->d_buf1) pm->dev_free_async(dd->d_buf1, "buf1");
+  //   if(dd->d_buf2) pm->dev_free_async(dd->d_buf2, "buf2");
+  //   if(dd->d_buf3) pm->dev_free_async(dd->d_buf3, "buf3");
 
-    dd->d_buf1 = (double *) pm->dev_malloc_async(dd->size_buf * sizeof(double), "buf1", FLERR);
-    dd->d_buf2 = (double *) pm->dev_malloc_async(dd->size_buf * sizeof(double), "buf2", FLERR);
-    dd->d_buf3 = (double *) pm->dev_malloc_async(dd->size_buf * sizeof(double), "buf3", FLERR);
-  }
+  //   dd->d_buf1 = (double *) pm->dev_malloc_async(dd->size_buf * sizeof(double), "buf1", FLERR);
+  //   dd->d_buf2 = (double *) pm->dev_malloc_async(dd->size_buf * sizeof(double), "buf2", FLERR);
+  //   dd->d_buf3 = (double *) pm->dev_malloc_async(dd->size_buf * sizeof(double), "buf3", FLERR);
+  // }
+  
+  grow_array(dd->d_buf1, max_size_buf, dd->size_buf1, "buf1");
+  grow_array(dd->d_buf2, max_size_buf, dd->size_buf2, "buf2");
+  grow_array(dd->d_buf3, max_size_buf, dd->size_buf3, "buf3");
   
   double * eri = static_cast<double*>(info_eri.ptr);
   double * d_mo_coeff = dd->d_mo_coeff;
