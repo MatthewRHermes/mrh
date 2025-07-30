@@ -38,18 +38,6 @@ PM::~PM()
 {
   int n = my_queues.size();
   for (int i=0; i<n; ++i) hipStreamDestroy(my_queues[i]);
-  
-#if defined(_PROFILE_PM_MEM)
-  printf("\nLIBGPU :: PROFILE_PM_MEM\n");
-  for(int i=0; i<profile_mem_name.size(); ++i) {
-    double max_size_mb = profile_mem_max_size[i] / 1024.0 / 1024.0;
-    double size_mb = profile_mem_size[i] / 1024.0 / 1024.0;
-    // printf("LIBGPU :: PROFILE_PM_MEM :: [%3i] name= %20s  max_size= %6.1f MBs  current_size= %6.1f MBs  num_alloc= %lu  num_free= %lu\n",
-    // 	   i, profile_mem_name[i].c_str(), max_size_mb, size_mb, profile_mem_count_alloc[i], profile_mem_count_free[i]);
-    printf("LIBGPU :: PROFILE_PM_MEM :: [%3i] name= %20s  max_size= %6.1f MBs  current_size= %lu bytes  num_alloc= %lu  num_free= %lu\n",
-	   i, profile_mem_name[i].c_str(), max_size_mb, profile_mem_size[i], profile_mem_count_alloc[i], profile_mem_count_free[i]);
-  }
-#endif  
 }
 
 /* ---------------------------------------------------------------------- */
