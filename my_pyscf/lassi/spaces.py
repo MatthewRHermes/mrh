@@ -449,7 +449,7 @@ class SingleLASRootspace (object):
         if app:
             fcisolver.check_transformer_cache ()
         else:
-            fcisolver = get_fcisolver (ifrag)
+            fcisolver = self.get_fcisolver (ifrag)
         return fcisolver
 
     def get_product_state_solver (self, lroots=None, lweights='gs'):
