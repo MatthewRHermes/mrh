@@ -403,7 +403,7 @@ class FragTDMInt (object):
 
         self.log.timer_debug1 ('_init_crunch_ indexing', *t0)
         t1 = self._make_dms_()
-        self.log.timer ('_init_crunch_ _make_dms_', *t1)
+        self.log.timer_debug1 ('_init_crunch_ _make_dms_', *t1)
         return t0
 
     def update_ci_(self, iroot, ci):
