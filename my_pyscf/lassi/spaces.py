@@ -435,6 +435,23 @@ class SingleLASRootspace (object):
         solver.check_transformer_cache ()
         return solver
 
+    def check_fcisolver (self, ifrag, fcisolver):
+        app = True
+        nelec = (self.neleca[ifrag], self.nelecb[ifrag])
+        if not hasattr (fcisolver, 'nelec'):
+            app = False
+        elif _unpack_nelec (fcisolver.nelec) != nelec:
+            app = False
+        if getattr (fcisolver, 'norb', None) != self.nlas[ifrag]:
+            app = False
+        if getattr (fcisolver, 'spin', None) != self.spins[ifrag]:
+            app = False
+        if app:
+            fcisolver.check_transformer_cache ()
+        else:
+            fcisolver = get_fcisolver (ifrag)
+        return fcisolver
+
     def get_product_state_solver (self, lroots=None, lweights='gs'):
         fcisolvers = self.get_fcisolvers ()
         if lroots is None: lroots = self.get_lroots ()

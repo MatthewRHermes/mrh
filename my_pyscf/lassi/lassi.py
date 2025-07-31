@@ -212,10 +212,13 @@ def iterate_subspace_blocks (las, ci, spacesym, subset=None, spaces=None):
         nelec_blk = np.zeros ((las.nfrags,len(idx),2), dtype=int)
         for i0, i in enumerate (idx):
             idx_prod[prod_off[i]:prod_off[i]+nprods_r[i]] = True
-            my_fcisolvers_i = spaces[i].get_fcisolvers ()
             nelec_blk[:,i0,:] = np.stack ([spaces[i].neleca, spaces[i].nelecb], axis=1)
             for j in range (las.nfrags):
-                my_fcisolvers[j].append (my_fcisolvers_i[j])
+                if len (las.fciboxes[j].fcisolvers) > i:
+                    my_fcisolver = spaces[i].check_fcisolver (j, las.fciboxes[j].fcisolvers[i])
+                else:
+                    my_fcisolver = spaces[i].get_fcisolver (j)
+                my_fcisolvers[j].append (my_fcisolver)
             my_e_states.append (spaces[i].energy_tot)
         with _LASSI_subspace_env (las, my_fcisolvers, my_e_states):
             yield las, sym, (idx_space, idx_prod), (ci_blk, nelec_blk)

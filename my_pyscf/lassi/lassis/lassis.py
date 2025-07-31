@@ -75,7 +75,13 @@ def prepare_model_states (lsi, ci_ref, ci_sf, ci_ch):
     for ifrag in range (lsi.nfrags):
         for iroot in range (las.nroots):
             t = spaces[iroot].fcisolvers[ifrag].transformer
+            nelec = (spaces[iroot].neleca[ifrag], spaces[iroot].nelecb[ifrag])
+            norb = spaces[iroot].nlas[ifrag]
+            spin = spaces[iroot].spins[ifrag]
             las.fciboxes[ifrag].fcisolvers[iroot].transformer = t
+            las.fciboxes[ifrag].fcisolvers[iroot].nelec = nelec
+            las.fciboxes[ifrag].fcisolvers[iroot].norb = norb
+            las.fciboxes[ifrag].fcisolvers[iroot].spin = spin
     log.timer ("LASSIS model space preparation", *t0)
     return las, entmaps
 
