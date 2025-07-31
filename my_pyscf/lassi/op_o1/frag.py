@@ -335,6 +335,7 @@ class FragTDMInt (object):
             t0 : tuple of length 2
                 timestamp of entry into this function, for profiling by caller
         '''
+        t0 = (lib.logger.process_clock (), lib.logger.perf_counter ())
         ci = self.ci
         ndeta, ndetb = self.ndeta_r, self.ndetb_r
         self.mask_ints = np.logical_or (
@@ -346,7 +347,9 @@ class FragTDMInt (object):
             self.mask_ints = np.logical_and (
                 self.mask_ints, pt_mask
             )
-                
+
+        # This is the worst-scaling (with respect to # of fragments) part of all _init_crunch_,
+        # and the annoying thing is that this information was already available earlier.
         self.root_unique, self.unique_root, self.umat_root = get_unique_roots (
             ci, self.nelec_r, screen_linequiv=screen_linequiv, screen_thresh=SCREEN_THRESH,
             discriminator=self.discriminator
@@ -390,7 +393,10 @@ class FragTDMInt (object):
                     self.mask_ints[:,i], self.mask_ints[:,j]
                 )
 
-        return self._make_dms_()
+        self.log.timer_debug1 ('_init_crunch_ indexing', *t0)
+        t1 = self._make_dms_()
+        self.log.timer ('_init_crunch_ _make_dms_', *t1)
+        return t0
 
     def update_ci_(self, iroot, ci):
         update_mask = np.zeros ((self.nroots, self.nroots), dtype=bool)
