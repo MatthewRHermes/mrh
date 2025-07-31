@@ -1974,7 +1974,7 @@ void Device::df_ao2mo_v3 (int blksize, int nmo, int nao, int ncore, int ncas, in
 
   grow_array(dd->d_buf1, _size_eri_unpacked, dd->size_buf1, "buf1");  // use for (eri@mo)
   grow_array(dd->d_buf2, _size_eri_unpacked, dd->size_buf2, "buf2");  //use for eri_unpacked, then for bufpp_t
-  grow_array(dd->d_buf3, _size_eri_unpacked, dd->size_buf3, "buf3");  //for ppaa
+  grow_array(dd->d_buf3, _size_eri_unpacked, dd->size_buf3, "buf3");  //for ppaa & papa
   
   // my guess is blksize*nao_s*nao_s > nmo_f * nmo_f * ncas_f * ncas_f (dd->size_eri_unpacked is for the entire system. Therefore nao_s > nao_f. Since blksize = 240, ncas_f must be less than 15)
   
@@ -2334,8 +2334,8 @@ void Device::update_h2eff_sub(int ncore, int ncas, int nocc, int nmo,
   int _size_h2eff_packed = nmo*ncas*ncas_pair;
 
   grow_array(dd->d_buf1, _size_h2eff_unpacked, dd->size_buf1, "buf1");
-  grow_array(dd->d_buf2, _size_h2eff_unpacked, dd->size_buf2, "buf2");
-  grow_array(dd->d_buf3, _size_h2eff_unpacked, dd->size_buf3, "buf3");
+  //  grow_array(dd->d_buf2, _size_h2eff_unpacked, dd->size_buf2, "buf2");
+  //  grow_array(dd->d_buf3, _size_h2eff_unpacked, dd->size_buf3, "buf3");
   
   double * d_h2eff_unpacked = dd->d_buf1;
 
@@ -2689,7 +2689,7 @@ void Device::get_h2eff_df_v1(py::array_t<double> _cderi,
   
   grow_array(dd->d_buf1, _size_cderi_unpacked, dd->size_buf1, "buf1");
   grow_array(dd->d_buf2, _size_cderi_unpacked, dd->size_buf2, "buf2");
-  grow_array(dd->d_buf3, _size_cderi_unpacked, dd->size_buf3, "buf3");
+  //  grow_array(dd->d_buf3, _size_cderi_unpacked, dd->size_buf3, "buf3");
   
   double * eri = static_cast<double*>(info_eri.ptr);
   double * d_mo_coeff = dd->d_mo_coeff;
@@ -3123,6 +3123,7 @@ void Device::compute_eri_impham(int nao_s, int nao_f, int blksize, int naux, int
   int nao_sf = nao_s * nao_f;
   int nao_f2 = nao_f * nao_f;
   int nao_f_pair = nao_f * (nao_f+1)/2;
+  
   double * d_bPeu = dd->d_buf2;
 
   // b^P_ue = b^P_uu * M_ue
@@ -3139,7 +3140,8 @@ void Device::compute_eri_impham(int nao_s, int nao_f, int blksize, int naux, int
 
   // b^P_ee = b^P_ue * M_ue
   
-  double * d_bPee = dd->d_buf1; 
+  double * d_bPee = dd->d_buf1;
+  
   ml->gemm_batch((char *) "N", (char *) "N", 
                &nao_f, &nao_f, &nao_s,
                &alpha, 
@@ -3214,6 +3216,7 @@ void Device::compute_eri_impham_v2(int nao_s, int nao_f, int blksize, int naux, 
   // using fetch_eri, assume it's already there
   int nao_s_pair = nao_s * (nao_s + 1)/2;
   d_cderi = dd_fetch_eri(dd, nullptr, naux, nao_s_pair, addr_dfobj_in, count);
+  
   double * d_cderi_unpacked = dd->d_buf1;
 
   int * d_my_unpack_map_ptr = dd_fetch_pumap(dd, nao_s, _PUMAP_2D_UNPACK);
@@ -3227,8 +3230,11 @@ void Device::compute_eri_impham_v2(int nao_s, int nao_f, int blksize, int naux, 
   int nao_sf = nao_s * nao_f;
   int nao_f2 = nao_f * nao_f;
   int nao_f_pair = nao_f * (nao_f+1)/2;
+  
   double * d_bPeu = dd->d_buf2;
+  
   // b^P_ue = b^P_uu * M_ue
+  
   ml->set_handle();
   ml->gemm_batch((char *) "N", (char *) "T", 
                &nao_s, &nao_f, &nao_s,
@@ -3238,8 +3244,11 @@ void Device::compute_eri_impham_v2(int nao_s, int nao_f, int blksize, int naux, 
                &beta, 
                d_bPeu, &nao_s, &nao_sf, 
                &naux);
+  
   // b^P_ee = b^P_ue * M_ue
-  double * d_bPee = dd->d_buf1; 
+  
+  double * d_bPee = dd->d_buf1;
+  
   ml->gemm_batch((char *) "N", (char *) "N", 
                &nao_f, &nao_f, &nao_s,
                &alpha, 
