@@ -391,13 +391,12 @@ class LSTDM (object):
         exc_01 = exc[:,0:2]
         t1 = self.log.timer ('mask_exc_table_ part 3c (indexing)', *t1)
         for uniq_idx in idx:
-            row_uniq = excp[uniq_idx]
             # ...numpy.where (0==0) triggers a DeprecationWarning, so I have to atleast_1d it
             uniq_idxs = np.where (np.atleast_1d (eqmap==uniq_idx))[0]
             braket_images = exc_01[uniq_idxs]
             iT = fprint[uniq_idxs]!=fprint[uniq_idx]
             braket_images[iT,:] = braket_images[iT,::-1]
-            self.nonuniq_exc[tuple(row_uniq)] = braket_images
+            self.nonuniq_exc[tuple(excp[uniq_idx])] = braket_images
         t1 = self.log.timer ('mask_exc_table_ part 3d (big for loop 2)', *t1)
         exc = exc[idx]
         nuniq = len (exc)
