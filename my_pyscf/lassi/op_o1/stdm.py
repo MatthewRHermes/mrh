@@ -149,7 +149,7 @@ class LSTDM (object):
         brastr = self.urootstr[frags,bra]
         ketstr = self.urootstr[frags,ket]
         if ltri: brastr, ketstr = sorted ([list(brastr),list(ketstr)])
-        fprint = np.stack ([frags, brastr, ketstr], axis=0)
+        fprint = hash (tuple (np.stack ([frags, brastr, ketstr], axis=0).ravel ()))
         return fprint
 
     def init_profiling (self):
@@ -372,29 +372,30 @@ class LSTDM (object):
         if lbl=='null': return exc
         ulblu = '_' + lbl + '_'
         excp = exc[:,:-1] if ulblu in self.interaction_has_spin else exc
-        fprintLT = []
-        fprint = []
-        for row in excp:
+        fprintLT = np.empty (len (excp), dtype=int)
+        fprint = np.empty (len (excp), dtype=int)
+        # MRH 08/01/2025: this loop is a significant bottleneck in many-fragment LASSIS and is
+        # trivial to multithread in C as long as you can find a good integer-list hash function
+        for i, row in enumerate (excp):
             bra, ket = row[:2]
             frags = row[2:]
-            fpLT = self.interaction_fprint (bra, ket, frags, ltri=self.ltri)
-            fprintLT.append (fpLT.ravel ())
-            fp = self.interaction_fprint (bra, ket, frags, ltri=False)
-            fprint.append (fp.ravel ())
-        fprintLT = np.asarray (fprintLT)
-        fprint = np.asarray (fprint)
+            fprintLT[i] = self.interaction_fprint (bra, ket, frags, ltri=self.ltri)
+            fprint[i] = self.interaction_fprint (bra, ket, frags, ltri=False)
         nexc = len (exc)
-        fprintLT, idx, inv = np.unique (fprintLT, axis=0, return_index=True, return_inverse=True)
+        ufp, idx, cnts = np.unique (fprintLT, axis=0, return_index=True, return_counts=True)
         # for some reason this squeeze is necessary for some versions of numpy; however...
-        eqmap = np.squeeze (idx[inv])
-        for fpLT, uniq_idx in zip (fprintLT, idx):
-            row_uniq = excp[uniq_idx]
+        all_idxs = np.argsort (fprintLT)
+        ix_sort = np.argsort (ufp)
+        idx = idx[ix_sort]
+        cnts = cnts[ix_sort]
+        image_sets = np.split (all_idxs, np.cumsum (cnts))
+        exc_01 = exc[:,0:2]
+        for image_idxs, uniq_idx in zip (image_sets, idx):
             # ...numpy.where (0==0) triggers a DeprecationWarning, so I have to atleast_1d it
-            uniq_idxs = np.where (np.atleast_1d (eqmap==uniq_idx))[0]
-            braket_images = exc[np.ix_(uniq_idxs,[0,1])]
-            iT = np.any (fprint[uniq_idx][None,:]!=fprint[uniq_idxs], axis=1)
+            braket_images = exc_01[image_idxs]
+            iT = fprint[image_idxs]!=fprint[uniq_idx]
             braket_images[iT,:] = braket_images[iT,::-1]
-            self.nonuniq_exc[tuple(row_uniq)] = braket_images
+            self.nonuniq_exc[tuple(excp[uniq_idx])] = braket_images
         exc = exc[idx]
         nuniq = len (exc)
         self.log.debug ('%d/%d unique interactions of %s type',
