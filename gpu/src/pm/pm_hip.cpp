@@ -188,8 +188,8 @@ void * PM::dev_malloc(size_t N, std::string name, const char * file, int line)
   
   hipError err = hipGetLastError();
   if(err != hipSuccess) {
-    printf("LIBGPU :: Error : PM::dev_malloc() failed to allocate %lu bytes for name= %s from file= %s line= %i\n",
-	   N,name.c_str(),file,line);
+    printf("LIBGPU :: Error : PM::dev_malloc() failed to allocate %lu bytes for name= %s on device %i from file= %s line= %i\n",
+	   N,name.c_str(),current_queue_id,file,line);
     print_mem_summary();
     exit(1);
   }
@@ -216,8 +216,8 @@ void * PM::dev_malloc_async(size_t N, std::string name, const char * file, int l
   
   hipError err = hipGetLastError();
   if(err != hipSuccess) {
-    printf("LIBGPU :: Error : PM::dev_malloc() failed to allocate %lu bytes for name= %s from file= %s line= %i\n",
-	   N,name.c_str(),file,line);
+    printf("LIBGPU :: Error : PM::dev_malloc() failed to allocate %lu bytes for name= %s on device %i from file= %s line= %i\n",
+	   N,name.c_str(),current_queue_id,file,line);
     print_mem_summary();
     exit(1);
   }
@@ -244,8 +244,8 @@ void * PM::dev_malloc_async(size_t N, hipStream_t &, std::string names, const ch
   
   hipError err = hipGetLastError();
   if(err != hipSuccess) {
-    printf("LIBGPU :: Error : PM::dev_malloc() failed to allocate %lu bytes for name= %s from file= %s line= %i\n",
-	   N,name.c_str(),file,line);
+    printf("LIBGPU :: Error : PM::dev_malloc() failed to allocate %lu bytes for name= %s on device%i from file= %s line= %i\n",
+	   N,name.c_str(),current_queue_id,file,line);
     print_mem_summary();
     exit(1);
   }

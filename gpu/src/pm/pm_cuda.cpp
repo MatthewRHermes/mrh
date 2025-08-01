@@ -220,8 +220,8 @@ void * PM::dev_malloc(size_t N, std::string name, const char * file, int line)
 
   cudaError err = cudaGetLastError();
   if(err != cudaSuccess) {
-    printf("LIBGPU :: Error : PM::dev_malloc() failed to allocate %lu bytes for name= %s from file= %s line= %i\n",
-	   N,name.c_str(),file,line);
+    printf("LIBGPU :: Error : PM::dev_malloc() failed to allocate %lu bytes for name= %s on device %i from file= %s line= %i\n",
+	   N,name.c_str(),current_queue_id,file,line);
     print_mem_summary();
     exit(1);
   }
@@ -252,8 +252,8 @@ void * PM::dev_malloc_async(size_t N, std::string name, const char * file, int l
 
   cudaError err = cudaGetLastError();
   if(err != cudaSuccess) {
-    printf("LIBGPU :: Error : PM::dev_malloc_async() failed to allocate %lu bytes for name= %s from file= %s line= %i\n",
-	   N,name.c_str(),file,line);
+    printf("LIBGPU :: Error : PM::dev_malloc_async() failed to allocate %lu bytes for name= %s on device %i from file= %s line= %i\n",
+	   N,name.c_str(),current_queue_id,file,line);
     print_mem_summary();
     exit(1);
   }
@@ -284,8 +284,8 @@ void * PM::dev_malloc_async(size_t N, cudaStream_t &s, std::string name, const c
 
   cudaError err = cudaGetLastError();
   if(err != cudaSuccess) {
-    printf("LIBGPU :: Error : PM::dev_malloc_async() failed to allocate %lu bytes for name= %s from file= %s line= %i\n",
-	   N,name.c_str(),file,line);
+    printf("LIBGPU :: Error : PM::dev_malloc_async() failed to allocate %lu bytes for name= %s on device %i from file= %s line= %i\n",
+	   N,name.c_str(),current_queue_id,file,line);
     print_mem_summary();
     exit(1);
   }
