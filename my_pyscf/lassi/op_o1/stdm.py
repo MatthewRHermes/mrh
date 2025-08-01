@@ -353,12 +353,10 @@ class LSTDM (object):
     interaction_has_spin = ('_1c_', '_1c1d_', '_1s1c_', '_2c_')
 
     def mask_exc_table_(self, exc, lbl, mask_bra_space=None, mask_ket_space=None):
-        t0 = (lib.logger.process_clock (), lib.logger.perf_counter ())
         # Part 1: restrict to the caller-specified rectangle
         idx  = mask_exc_table (exc, col=0, mask_space=mask_bra_space)
         idx &= mask_exc_table (exc, col=1, mask_space=mask_ket_space)
         exc = exc[idx]
-        t1 = self.log.timer ('mask_exc_table_ part 1', *t0)
         # Part 2: perturbation theory order
         if self.do_pt_order is not None:
             nexc = len (exc)
@@ -367,7 +365,6 @@ class LSTDM (object):
             exc = exc[idx]
             self.log.debug ('%d/%d interactions of PT order in %s',
                             len (exc), nexc, str(self.do_pt_order))
-        t1 = self.log.timer ('mask_exc_table_ part 2', *t1)
         # Part 3: identify interactions which are equivalent except for the overlap
         # factor of spectator fragments. Reduce the exc table only to the unique
         # interactions and populate self.nonuniq_exc with the corresponding
@@ -377,35 +374,30 @@ class LSTDM (object):
         excp = exc[:,:-1] if ulblu in self.interaction_has_spin else exc
         fprintLT = np.empty (len (excp), dtype=int)
         fprint = np.empty (len (excp), dtype=int)
+        # MRH 08/01/2025: this loop is a significant bottleneck in many-fragment LASSIS and is
+        # trivial to multithread in C as long as you can find a good integer-list hash function
         for i, row in enumerate (excp):
             bra, ket = row[:2]
             frags = row[2:]
             fprintLT[i] = self.interaction_fprint (bra, ket, frags, ltri=self.ltri)
             fprint[i] = self.interaction_fprint (bra, ket, frags, ltri=False)
-        t1 = self.log.timer ('mask_exc_table_ part 3a (big for loop 1)', *t1)
         nexc = len (exc)
         ufp, idx, cnts = np.unique (fprintLT, axis=0, return_index=True, return_counts=True)
-        t1 = self.log.timer ('mask_exc_table_ part 3b (np.unique)', *t1)
         # for some reason this squeeze is necessary for some versions of numpy; however...
         all_idxs = np.argsort (fprintLT)
         ix_sort = np.argsort (ufp)
         idx = idx[ix_sort]
         cnts = cnts[ix_sort]
-        t1 = self.log.timer ('mask_exc_table_ part 3c (np.argsort)', *t1)
         image_sets = np.split (all_idxs, np.cumsum (cnts))
         exc_01 = exc[:,0:2]
-        t1 = self.log.timer ('mask_exc_table_ part 3d (indexing)', *t1)
         for image_idxs, uniq_idx in zip (image_sets, idx):
             # ...numpy.where (0==0) triggers a DeprecationWarning, so I have to atleast_1d it
             braket_images = exc_01[image_idxs]
             iT = fprint[image_idxs]!=fprint[uniq_idx]
             braket_images[iT,:] = braket_images[iT,::-1]
             self.nonuniq_exc[tuple(excp[uniq_idx])] = braket_images
-        t1 = self.log.timer ('mask_exc_table_ part 3e (big for loop 2)', *t1)
         exc = exc[idx]
         nuniq = len (exc)
-        t1 = self.log.timer ('mask_exc_table_ part 3f (indexing)', *t1)
-        self.log.timer ('mask_exc_table_ {}'.format (lbl), *t0)
         self.log.debug ('%d/%d unique interactions of %s type',
                         nuniq, nexc, lbl)
         return exc
