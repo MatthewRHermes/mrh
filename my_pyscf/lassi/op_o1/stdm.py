@@ -384,23 +384,27 @@ class LSTDM (object):
             fprint[i] = self.interaction_fprint (bra, ket, frags, ltri=False)
         t1 = self.log.timer ('mask_exc_table_ part 3a (big for loop 1)', *t1)
         nexc = len (exc)
-        idx, inv = np.unique (fprintLT, axis=0, return_index=True, return_inverse=True)[1:]
+        ufp, idx, cnts = np.unique (fprintLT, axis=0, return_index=True, return_counts=True)
         t1 = self.log.timer ('mask_exc_table_ part 3b (np.unique)', *t1)
         # for some reason this squeeze is necessary for some versions of numpy; however...
-        eqmap = np.squeeze (idx[inv])
+        all_idxs = np.argsort (fprintLT)
+        ix_sort = np.argsort (ufp)
+        idx = idx[ix_sort]
+        cnts = cnts[ix_sort]
+        t1 = self.log.timer ('mask_exc_table_ part 3c (np.argsort)', *t1)
+        image_sets = np.split (all_idxs, np.cumsum (cnts))
         exc_01 = exc[:,0:2]
-        t1 = self.log.timer ('mask_exc_table_ part 3c (indexing)', *t1)
-        for uniq_idx in idx:
+        t1 = self.log.timer ('mask_exc_table_ part 3d (indexing)', *t1)
+        for image_idxs, uniq_idx in zip (image_sets, idx):
             # ...numpy.where (0==0) triggers a DeprecationWarning, so I have to atleast_1d it
-            uniq_idxs = np.where (np.atleast_1d (eqmap==uniq_idx))[0]
-            braket_images = exc_01[uniq_idxs]
-            iT = fprint[uniq_idxs]!=fprint[uniq_idx]
+            braket_images = exc_01[image_idxs]
+            iT = fprint[image_idxs]!=fprint[uniq_idx]
             braket_images[iT,:] = braket_images[iT,::-1]
             self.nonuniq_exc[tuple(excp[uniq_idx])] = braket_images
-        t1 = self.log.timer ('mask_exc_table_ part 3d (big for loop 2)', *t1)
+        t1 = self.log.timer ('mask_exc_table_ part 3e (big for loop 2)', *t1)
         exc = exc[idx]
         nuniq = len (exc)
-        t1 = self.log.timer ('mask_exc_table_ part 3e (indexing)', *t1)
+        t1 = self.log.timer ('mask_exc_table_ part 3f (indexing)', *t1)
         self.log.timer ('mask_exc_table_ {}'.format (lbl), *t0)
         self.log.debug ('%d/%d unique interactions of %s type',
                         nuniq, nexc, lbl)
