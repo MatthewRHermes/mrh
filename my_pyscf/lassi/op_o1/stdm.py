@@ -149,7 +149,7 @@ class LSTDM (object):
         brastr = self.urootstr[frags,bra]
         ketstr = self.urootstr[frags,ket]
         if ltri: brastr, ketstr = sorted ([list(brastr),list(ketstr)])
-        fprint = np.stack ([frags, brastr, ketstr], axis=0)
+        fprint = hash (tuple (np.stack ([frags, brastr, ketstr], axis=0).ravel ()))
         return fprint
 
     def init_profiling (self):
@@ -353,10 +353,12 @@ class LSTDM (object):
     interaction_has_spin = ('_1c_', '_1c1d_', '_1s1c_', '_2c_')
 
     def mask_exc_table_(self, exc, lbl, mask_bra_space=None, mask_ket_space=None):
+        t0 = (lib.logger.process_clock (), lib.logger.perf_counter ())
         # Part 1: restrict to the caller-specified rectangle
         idx  = mask_exc_table (exc, col=0, mask_space=mask_bra_space)
         idx &= mask_exc_table (exc, col=1, mask_space=mask_ket_space)
         exc = exc[idx]
+        t1 = self.log.timer ('mask_exc_table_ part 1', *t0)
         # Part 2: perturbation theory order
         if self.do_pt_order is not None:
             nexc = len (exc)
@@ -365,6 +367,7 @@ class LSTDM (object):
             exc = exc[idx]
             self.log.debug ('%d/%d interactions of PT order in %s',
                             len (exc), nexc, str(self.do_pt_order))
+        t1 = self.log.timer ('mask_exc_table_ part 2', *t1)
         # Part 3: identify interactions which are equivalent except for the overlap
         # factor of spectator fragments. Reduce the exc table only to the unique
         # interactions and populate self.nonuniq_exc with the corresponding
@@ -372,31 +375,34 @@ class LSTDM (object):
         if lbl=='null': return exc
         ulblu = '_' + lbl + '_'
         excp = exc[:,:-1] if ulblu in self.interaction_has_spin else exc
-        fprintLT = []
-        fprint = []
-        for row in excp:
+        fprintLT = np.empty (len (excp), dtype=int)
+        fprint = np.empty (len (excp), dtype=int)
+        for i, row in enumerate (excp):
             bra, ket = row[:2]
             frags = row[2:]
-            fpLT = self.interaction_fprint (bra, ket, frags, ltri=self.ltri)
-            fprintLT.append (fpLT.ravel ())
-            fp = self.interaction_fprint (bra, ket, frags, ltri=False)
-            fprint.append (fp.ravel ())
-        fprintLT = np.asarray (fprintLT)
-        fprint = np.asarray (fprint)
+            fprintLT[i] = self.interaction_fprint (bra, ket, frags, ltri=self.ltri)
+            fprint[i] = self.interaction_fprint (bra, ket, frags, ltri=False)
+        t1 = self.log.timer ('mask_exc_table_ part 3a (big for loop 1)', *t1)
         nexc = len (exc)
-        fprintLT, idx, inv = np.unique (fprintLT, axis=0, return_index=True, return_inverse=True)
+        idx, inv = np.unique (fprintLT, axis=0, return_index=True, return_inverse=True)[1:]
+        t1 = self.log.timer ('mask_exc_table_ part 3b (np.unique)', *t1)
         # for some reason this squeeze is necessary for some versions of numpy; however...
         eqmap = np.squeeze (idx[inv])
-        for fpLT, uniq_idx in zip (fprintLT, idx):
+        exc_01 = exc[:,0:2]
+        t1 = self.log.timer ('mask_exc_table_ part 3c (indexing)', *t1)
+        for uniq_idx in idx:
             row_uniq = excp[uniq_idx]
             # ...numpy.where (0==0) triggers a DeprecationWarning, so I have to atleast_1d it
             uniq_idxs = np.where (np.atleast_1d (eqmap==uniq_idx))[0]
-            braket_images = exc[np.ix_(uniq_idxs,[0,1])]
-            iT = np.any (fprint[uniq_idx][None,:]!=fprint[uniq_idxs], axis=1)
+            braket_images = exc_01[uniq_idxs]
+            iT = fprint[uniq_idxs]!=fprint[uniq_idx]
             braket_images[iT,:] = braket_images[iT,::-1]
             self.nonuniq_exc[tuple(row_uniq)] = braket_images
+        t1 = self.log.timer ('mask_exc_table_ part 3d (big for loop 2)', *t1)
         exc = exc[idx]
         nuniq = len (exc)
+        t1 = self.log.timer ('mask_exc_table_ part 3e (indexing)', *t1)
+        self.log.timer ('mask_exc_table_ {}'.format (lbl), *t0)
         self.log.debug ('%d/%d unique interactions of %s type',
                         nuniq, nexc, lbl)
         return exc
