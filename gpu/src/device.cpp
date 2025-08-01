@@ -532,29 +532,29 @@ void Device::init_get_jk(py::array_t<double> _eri1, py::array_t<double> _dmtril,
   
   int _size_vj = nset * nao_pair;
 
-  grow_array(dd->d_vj, _size_vj, dd->size_vj, "vj");
+  grow_array(dd->d_vj, _size_vj, dd->size_vj, "vj", FLERR);
   
   int _size_vk = nset * nao * nao;
 
-  grow_array(dd->d_vkk, _size_vk, dd->size_vk, "vkk");
+  grow_array(dd->d_vkk, _size_vk, dd->size_vk, "vkk", FLERR);
 
   int _size_buf = blksize * nao * nao;
   if(_size_vj > _size_buf) _size_buf = _size_vj;
   if(_size_vk > _size_buf) _size_buf = _size_vk;
   
-  grow_array(dd->d_buf1, _size_buf, dd->size_buf1, "buf1");
-  grow_array(dd->d_buf2, _size_buf, dd->size_buf2, "buf2");
-  grow_array(dd->d_buf3, _size_buf, dd->size_buf3, "buf3");
+  grow_array(dd->d_buf1, _size_buf, dd->size_buf1, "buf1", FLERR);
+  grow_array(dd->d_buf2, _size_buf, dd->size_buf2, "buf2", FLERR);
+  grow_array(dd->d_buf3, _size_buf, dd->size_buf3, "buf3", FLERR);
   
   int _size_dms = nset * nao * nao;
-  grow_array(dd->d_dms, _size_dms, dd->size_dms, "dms");
+  grow_array(dd->d_dms, _size_dms, dd->size_dms, "dms", FLERR);
 
   int _size_dmtril = nset * nao_pair;
-  grow_array(dd->d_dmtril, _size_dmtril, dd->size_dmtril, "dmtril");
+  grow_array(dd->d_dmtril, _size_dmtril, dd->size_dmtril, "dmtril", FLERR);
 
   if(!use_eri_cache) {
     int _size_eri1 = naux * nao_pair;
-    grow_array(dd->d_eri1, _size_eri1, dd->size_eri1, "eri1");
+    grow_array(dd->d_eri1, _size_eri1, dd->size_eri1, "eri1", FLERR);
   }
   
   int _size_buf_vj = num_devices * nset * nao_pair;
@@ -672,7 +672,7 @@ void Device::get_jk(int naux, int nao, int nset,
 #endif
     
   int _size_rho = nset * naux;
-  grow_array(dd->d_rho, _size_rho, dd->size_rho, "rho");
+  grow_array(dd->d_rho, _size_rho, dd->size_rho, "rho", FLERR);
     
 #if 0
   py::buffer_info info_vj = _vj.request(); // 2D array (nset, nao_pair)
@@ -1356,7 +1356,7 @@ void Device::push_mo_coeff(py::array_t<double> _mo_coeff, int _size_mo_coeff)
     
     my_device_data * dd = &(device_data[id]);
 
-    grow_array(dd->d_mo_coeff, _size_mo_coeff, dd->size_mo_coeff, "mo_coeff");
+    grow_array(dd->d_mo_coeff, _size_mo_coeff, dd->size_mo_coeff, "mo_coeff", FLERR);
     
     mo_vec[id] = dd->d_mo_coeff;
   }
@@ -1370,7 +1370,7 @@ void Device::push_mo_coeff(py::array_t<double> _mo_coeff, int _size_mo_coeff)
   
     my_device_data * dd = &(device_data[id]);
     
-    grow_array(dd->d_mo_coeff, _size_mo_coeff, dd->size_mo_coeff, "mo_coeff");
+    grow_array(dd->d_mo_coeff, _size_mo_coeff, dd->size_mo_coeff, "mo_coeff", FLERR);
     
     pm->dev_push_async(dd->d_mo_coeff, mo_coeff, _size_mo_coeff*sizeof(double));
   }
@@ -1397,8 +1397,8 @@ void Device::init_jk_ao2mo(int ncore, int nmo)
     int size_j_pc = ncore*nmo;
     int size_k_pc = ncore*nmo;
 
-    grow_array(dd->d_j_pc, size_j_pc, dd->size_j_pc, "j_pc");
-    grow_array(dd->d_k_pc, size_k_pc, dd->size_k_pc, "k_pc");
+    grow_array(dd->d_j_pc, size_j_pc, dd->size_j_pc, "j_pc", FLERR);
+    grow_array(dd->d_k_pc, size_k_pc, dd->size_k_pc, "k_pc", FLERR);
 
     dd->active = 0;
   }
@@ -1484,7 +1484,7 @@ void Device::init_eri_h2eff(int nmo, int ncas)
 
     dd->active = 0;
 
-    grow_array(dd->d_eri_h2eff, size_eri_h2eff, dd->size_eri_h2eff, "eri_h2eff");
+    grow_array(dd->d_eri_h2eff, size_eri_h2eff, dd->size_eri_h2eff, "eri_h2eff", FLERR);
   }
   
   int _size_buf_eri_h2eff = num_devices * size_eri_h2eff;
@@ -1508,7 +1508,7 @@ void Device::extract_mo_cas(int ncas, int ncore, int nao)
     
     my_device_data * dd = &(device_data[id]);
 
-    grow_array(dd->d_mo_cas, _size_mo_cas, dd->size_mo_cas, "mo_cas");
+    grow_array(dd->d_mo_cas, _size_mo_cas, dd->size_mo_cas, "mo_cas", FLERR);
 
 #if 0 
     dim3 block_size(1,1,1);
@@ -1972,9 +1972,9 @@ void Device::df_ao2mo_v3 (int blksize, int nmo, int nao, int ncore, int ncas, in
 #endif
 #endif
 
-  grow_array(dd->d_buf1, _size_eri_unpacked, dd->size_buf1, "buf1");  // use for (eri@mo)
-  grow_array(dd->d_buf2, _size_eri_unpacked, dd->size_buf2, "buf2");  //use for eri_unpacked, then for bufpp_t
-  grow_array(dd->d_buf3, _size_eri_unpacked, dd->size_buf3, "buf3");  //for ppaa & papa
+  grow_array(dd->d_buf1, _size_eri_unpacked, dd->size_buf1, "buf1", FLERR);  // use for (eri@mo)
+  grow_array(dd->d_buf2, _size_eri_unpacked, dd->size_buf2, "buf2", FLERR);  //use for eri_unpacked, then for bufpp_t
+  grow_array(dd->d_buf3, _size_eri_unpacked, dd->size_buf3, "buf3", FLERR);  //for ppaa & papa
   
   // my guess is blksize*nao_s*nao_s > nmo_f * nmo_f * ncas_f * ncas_f (dd->size_eri_unpacked is for the entire system. Therefore nao_s > nao_f. Since blksize = 240, ncas_f must be less than 15)
   
@@ -1989,7 +1989,7 @@ void Device::df_ao2mo_v3 (int blksize, int nmo, int nao, int ncore, int ncas, in
     //    d_eri = dd_fetch_eri(dd, eri, naux, nao_pair, addr_dfobj, count);
     d_eri = dd_fetch_eri(dd, nullptr, naux, nao_pair, addr_dfobj, count);
   } else {
-    grow_array(dd->d_eri1, _size_eri, dd->size_eri1, "eri1");
+    grow_array(dd->d_eri1, _size_eri, dd->size_eri1, "eri1", FLERR);
     d_eri = dd->d_eri1;
     
     //    printf("d_cderi= %p  cderi= %p  _size_eri= %i  naux= %i  nao_pair= %i\n",d_eri, eri, _size_eri, naux, nao_pair); // naux is negative because eri_extra not correctly initialized; and eri is nullptr in this call; use_eri_cache must be used
@@ -2020,7 +2020,7 @@ void Device::df_ao2mo_v3 (int blksize, int nmo, int nao, int ncore, int ncas, in
 		 &alpha, dd->d_mo_coeff, &nao, &zero, d_buf, &nao, &nao2, &beta, d_bufpp, &nao, &nao2, &naux);
 
   int _size_bufpa = naux*nmo*ncas;
-  grow_array(dd->d_bufpa, _size_bufpa, dd->size_bufpa, "bufpa");
+  grow_array(dd->d_bufpa, _size_bufpa, dd->size_bufpa, "bufpa", FLERR);
   
   double * d_bufpa = dd->d_bufpa;
 
@@ -2058,7 +2058,7 @@ void Device::df_ao2mo_v3 (int blksize, int nmo, int nao, int ncore, int ncas, in
   //bufd work
 
   int _size_bufd = naux*nmo;
-  grow_array(dd->d_bufd, _size_bufd, dd->size_bufd, "bufd");
+  grow_array(dd->d_bufd, _size_bufd, dd->size_bufd, "bufd", FLERR);
   
   double * d_bufd = dd->d_bufd;
 
@@ -2074,7 +2074,7 @@ void Device::df_ao2mo_v3 (int blksize, int nmo, int nao, int ncore, int ncas, in
   // new work
   
   int _size_bufaa = naux*ncas*ncas;
-  grow_array(dd->d_bufaa, _size_bufaa, dd->size_bufaa, "bufaa");
+  grow_array(dd->d_bufaa, _size_bufaa, dd->size_bufaa, "bufaa", FLERR);
 
   double * d_bufaa = dd->d_bufaa;
 
@@ -2173,9 +2173,9 @@ void Device::df_ao2mo_v4 (int blksize, int nmo, int nao, int ncore, int ncas, in
   int max_size_buf = 2 * _size_ppaa;
   if(_size_eri_unpacked > max_size_buf) max_size_buf = _size_eri_unpacked;
   
-  grow_array(dd->d_buf1, max_size_buf, dd->size_buf1, "buf1");
-  grow_array(dd->d_buf2, max_size_buf, dd->size_buf2, "buf2");
-  grow_array(dd->d_buf3, max_size_buf, dd->size_buf3, "buf3");
+  grow_array(dd->d_buf1, max_size_buf, dd->size_buf1, "buf1", FLERR);
+  grow_array(dd->d_buf2, max_size_buf, dd->size_buf2, "buf2", FLERR);
+  grow_array(dd->d_buf3, max_size_buf, dd->size_buf3, "buf3", FLERR);
   
   // I want to fit both ppaa and papa inside buf3 to remove it from cpu side
   // my guess is blksize*nao_s*nao_s > 2 * nmo_f * nmo_f * ncas_f * ncas_f (dd->size_eri_unpacked is for the entire system. Usually nao_s > sqrt(2)*nao_f, blksize = 240, ncas_f must be less than 15)
@@ -2188,7 +2188,7 @@ void Device::df_ao2mo_v4 (int blksize, int nmo, int nao, int ncore, int ncas, in
     //    d_eri = dd_fetch_eri(dd, eri, naux, nao_pair, addr_dfobj, count);
     d_eri = dd_fetch_eri(dd, nullptr, naux, nao_pair, addr_dfobj, count);
   } else {
-    grow_array(dd->d_eri1, _size_eri, dd->size_eri1, "eri1");
+    grow_array(dd->d_eri1, _size_eri, dd->size_eri1, "eri1", FLERR);
     d_eri = dd->d_eri1;
   }
   
@@ -2216,7 +2216,7 @@ void Device::df_ao2mo_v4 (int blksize, int nmo, int nao, int ncore, int ncas, in
 		 &alpha, dd->d_mo_coeff, &nao, &zero, d_buf, &nao, &nao2, &beta, d_bufpp, &nao, &nao2, &naux);
 
   int _size_bufpa = naux*nmo*ncas;
-  grow_array(dd->d_bufpa, _size_bufpa, dd->size_bufpa, "bufpa");
+  grow_array(dd->d_bufpa, _size_bufpa, dd->size_bufpa, "bufpa", FLERR);
   
   double * d_bufpa = dd->d_bufpa;
 
@@ -2246,7 +2246,7 @@ void Device::df_ao2mo_v4 (int blksize, int nmo, int nao, int ncore, int ncas, in
   //bufd work
 
   int _size_bufd = naux*nmo;
-  grow_array(dd->d_bufd, _size_bufd, dd->size_bufd, "bufd");
+  grow_array(dd->d_bufd, _size_bufd, dd->size_bufd, "bufd", FLERR);
   
   double * d_bufd = dd->d_bufd;
 
@@ -2260,7 +2260,7 @@ void Device::df_ao2mo_v4 (int blksize, int nmo, int nao, int ncore, int ncas, in
 	   &alpha, d_bufd, &nmo, d_bufd, &nmo, &beta_, dd->d_j_pc, &ncore);
 
   int _size_bufaa = naux*ncas*ncas;
-  grow_array(dd->d_bufaa, _size_bufaa, dd->size_bufaa, "bufaa");
+  grow_array(dd->d_bufaa, _size_bufaa, dd->size_bufaa, "bufaa", FLERR);
 
   double * d_bufaa = dd->d_bufaa;
 
@@ -2333,15 +2333,15 @@ void Device::update_h2eff_sub(int ncore, int ncas, int nocc, int nmo,
   int _size_h2eff_unpacked = nmo*ncas*ncas*ncas;
   int _size_h2eff_packed = nmo*ncas*ncas_pair;
 
-  grow_array(dd->d_buf1, _size_h2eff_unpacked, dd->size_buf1, "buf1");
-  //  grow_array(dd->d_buf2, _size_h2eff_unpacked, dd->size_buf2, "buf2");
-  //  grow_array(dd->d_buf3, _size_h2eff_unpacked, dd->size_buf3, "buf3");
+  grow_array(dd->d_buf1, _size_h2eff_unpacked, dd->size_buf1, "buf1", FLERR);
+  //  grow_array(dd->d_buf2, _size_h2eff_unpacked, dd->size_buf2, "buf2", FLERR);
+  //  grow_array(dd->d_buf3, _size_h2eff_unpacked, dd->size_buf3, "buf3", FLERR);
   
   double * d_h2eff_unpacked = dd->d_buf1;
 
-  grow_array(dd->d_ucas, ncas*ncas, dd->size_ucas, "ucas");
+  grow_array(dd->d_ucas, ncas*ncas, dd->size_ucas, "ucas", FLERR);
 
-  grow_array(dd->d_umat, nmo*nmo, dd->size_umat, "umat");
+  grow_array(dd->d_umat, nmo*nmo, dd->size_umat, "umat", FLERR);
   
   pm->dev_push_async(dd->d_umat, umat, nmo*nmo*sizeof(double));
 
@@ -2359,7 +2359,7 @@ void Device::update_h2eff_sub(int ncore, int ncas, int nocc, int nmo,
   //h2eff_sub = lib.numpy_helper.unpack_tril (h2eff_sub)
   //h2eff_sub = h2eff_sub.reshape (nmo, ncas, ncas, ncas)
 
-  grow_array(dd->d_h2eff, _size_h2eff_packed, dd->size_h2eff, "h2eff");
+  grow_array(dd->d_h2eff, _size_h2eff_packed, dd->size_h2eff, "h2eff", FLERR);
   
   double * d_h2eff_sub = dd->d_h2eff;
   
@@ -2544,7 +2544,7 @@ void Device::get_h2eff_df(py::array_t<double> _cderi,
   if(use_eri_cache) {
     d_cderi = dd_fetch_eri(dd, cderi, naux, nao_pair, addr_dfobj, count);
   } else {
-    grow_array(dd->d_eri1, _size_cderi, dd->size_eri1, "eri1");
+    grow_array(dd->d_eri1, _size_cderi, dd->size_eri1, "eri1", FLERR);
     d_cderi = dd->d_eri1;
 
     pm->dev_push_async(d_cderi, cderi, _size_cderi * sizeof(double));
@@ -2687,9 +2687,9 @@ void Device::get_h2eff_df_v1(py::array_t<double> _cderi,
   
   if(_size_cderi_unpacked > dd->size_eri_unpacked) dd->size_eri_unpacked = _size_cderi_unpacked;
   
-  grow_array(dd->d_buf1, _size_cderi_unpacked, dd->size_buf1, "buf1");
-  grow_array(dd->d_buf2, _size_cderi_unpacked, dd->size_buf2, "buf2");
-  //  grow_array(dd->d_buf3, _size_cderi_unpacked, dd->size_buf3, "buf3");
+  grow_array(dd->d_buf1, _size_cderi_unpacked, dd->size_buf1, "buf1", FLERR);
+  grow_array(dd->d_buf2, _size_cderi_unpacked, dd->size_buf2, "buf2", FLERR);
+  //  grow_array(dd->d_buf3, _size_cderi_unpacked, dd->size_buf3, "buf3", FLERR);
   
   double * eri = static_cast<double*>(info_eri.ptr);
   double * d_mo_coeff = dd->d_mo_coeff;
@@ -2703,7 +2703,7 @@ void Device::get_h2eff_df_v1(py::array_t<double> _cderi,
   if(use_eri_cache) {
     d_cderi = dd_fetch_eri(dd, cderi, naux, nao_pair, addr_dfobj, count);
   } else {
-    grow_array(dd->d_eri1, _size_cderi, dd->size_eri1, "eri1");
+    grow_array(dd->d_eri1, _size_cderi, dd->size_eri1, "eri1", FLERR);
     d_cderi = dd->d_eri1;
 
     pm->dev_push_async(d_cderi, cderi, _size_cderi * sizeof(double));
@@ -2825,18 +2825,38 @@ void Device::get_h2eff_df_v2(py::array_t<double> _cderi,
   // buf1 will hold 1) cderi_unpacked 2) both bumP & buvP 3) vuwM
 
   const int size_cderi_unpacked = naux * nao * nao_pair;
-  const int size_bumP_buvP = (naux*ncas*nao) + (naux*ncas*ncas);
+  
+  const int _size_bPmu = naux*ncas*nao;
+  const int _size_bPvu = naux*ncas*ncas;
+  
+  const int size_bumP_buvP = _size_bPmu + _size_bPvu;
   const int size_vuwM = nmo * ncas * ncas_pair;
   
-  int max_size_buf = (_size_eri_unpacked > _size_eri_h2eff) ? _size_eri_unpacked : _size_eri_h2eff;
-  if(size_vuwm > max_size_buf) max_size_buf = size_vuwm;
-  if(size_cderi_unpacked > max_size_buf) max_size_buf = size_cderi_unpacked;
+  // int max_size_buf = (_size_eri_unpacked > _size_eri_h2eff) ? _size_eri_unpacked : _size_eri_h2eff;
+  // if(size_vuwm > max_size_buf) max_size_buf = size_vuwm;
+  // if(size_cderi_unpacked > max_size_buf) max_size_buf = size_cderi_unpacked;
+  // if(size_bumP_buvP > max_size_buf) max_size_buf = size_bumP_buvP;
+  // if(size_vuwM > max_size_buf) max_size_buf = size_vuwM;
+
+  // if(device_id == 0)
+  // printf("get_h2eff_df_v2 :: _size_eri_unpacked= %i  _size_eri_h2eff= %i  size_vuwm= %i  size_cderi_unpacked= %i  size_bumP_buvP= %i  size_vuwM= %i\n",_size_eri_unpacked, _size_eri_h2eff, size_vuwm, size_cderi_unpacked, size_bumP_buvP, size_vuwM);
+
+  int max_size_buf = size_cderi_unpacked;
   if(size_bumP_buvP > max_size_buf) max_size_buf = size_bumP_buvP;
+  if(size_vuwM > max_size_buf) max_size_buf = size_vuwM; 
+  if(size_vuwm > max_size_buf) max_size_buf = size_vuwm; 
+  
+  grow_array(dd->d_buf1, max_size_buf, dd->size_buf1, "buf1", FLERR); // holds cderi_unpacked and bumP+buvP and vuwM
+
+  max_size_buf = size_bumP_buvP;
+  if(size_vuwm > max_size_buf) max_size_buf = size_vuwm;
+  
+  grow_array(dd->d_buf2, max_size_buf, dd->size_buf2, "buf2", FLERR); // holds bPmu+bPvu and vuwm
+
+  max_size_buf = _size_eri_h2eff;
   if(size_vuwM > max_size_buf) max_size_buf = size_vuwM;
   
-  grow_array(dd->d_buf1, max_size_buf, dd->size_buf1, "buf1");
-  grow_array(dd->d_buf2, max_size_buf, dd->size_buf2, "buf2");
-  grow_array(dd->d_buf3, max_size_buf, dd->size_buf3, "buf3");
+  grow_array(dd->d_buf3, max_size_buf, dd->size_buf3, "buf3", FLERR); // holds eri_h2eff
   
   double * eri = static_cast<double*>(info_eri.ptr);
   double * d_mo_coeff = dd->d_mo_coeff;
@@ -2850,7 +2870,7 @@ void Device::get_h2eff_df_v2(py::array_t<double> _cderi,
   if(use_eri_cache) {
     d_cderi = dd_fetch_eri(dd, cderi, naux, nao_pair, addr_dfobj, count);
   } else {
-    grow_array(dd->d_eri1, _size_eri, dd->size_eri1, "eri1");
+    grow_array(dd->d_eri1, _size_eri, dd->size_eri1, "eri1", FLERR);
     d_cderi = dd->d_eri1;
 
     pm->dev_push_async(d_cderi, cderi, _size_eri * sizeof(double));
@@ -2860,6 +2880,8 @@ void Device::get_h2eff_df_v2(py::array_t<double> _cderi,
 
   int * d_my_unpack_map_ptr = dd_fetch_pumap(dd, nao, _PUMAP_2D_UNPACK);
 
+  // CHRIS :: Start chunking w/r naux
+  
   getjk_unpack_buf2(d_cderi_unpacked, d_cderi, d_my_unpack_map_ptr, naux, nao, nao_pair);
   
   //bPmu = np.einsum('Pmn,nu->Pmu',cderi,mo_cas)
@@ -2870,14 +2892,12 @@ void Device::get_h2eff_df_v2(py::array_t<double> _cderi,
   int nao2 = nao * nao;
   int ncas_nao = ncas * nao;
   int ncas2 = ncas * ncas;
-  const int _size_bPmu = naux*ncas*nao;
 
   double * d_bPmu = dd->d_buf2;
   
   ml->set_handle();
   ml->gemm_batch((char *) "N", (char *) "N", &nao, &ncas, &nao,
 		 &alpha, d_cderi_unpacked, &nao, &nao2, d_mo_cas, &nao, &zero, &beta, d_bPmu, &nao, &ncas_nao, &naux);
-  const int _size_bPvu = naux*ncas*ncas;
   
   //bPvu = np.einsum('mv,Pmu->Pvu',mo_cas.conjugate(),bPmu)
 
@@ -2911,6 +2931,8 @@ void Device::get_h2eff_df_v2(py::array_t<double> _cderi,
   ml->set_handle();
   ml->gemm((char *) "T", (char *) "N", &ncas_nao, &ncas2, &naux,
 	   &alpha, d_bumP, &naux, d_buvP, &naux, &beta, d_vuwm, &ncas_nao);
+
+  // CHRIS :: Stop chunking w/r naux
   
   double * d_vuwM = dd->d_buf1;
 
@@ -3442,7 +3464,7 @@ void Device::init_mo_grid(int ngrid, int nmo)
 
     int size_mo_grid = ngrid*nmo;
 
-    grow_array(dd->d_mo_grid, size_mo_grid, dd->size_mo_grid, "mo_grid");
+    grow_array(dd->d_mo_grid, size_mo_grid, dd->size_mo_grid, "mo_grid", FLERR);
 
     dd->active = 0;
   }
@@ -3469,7 +3491,7 @@ void Device::push_ao_grid(py::array_t<double> _ao, int ngrid, int nao)
 
     int size_ao_grid = ngrid*nao;
 
-    grow_array(dd->d_ao_grid, size_ao_grid, dd->size_ao_grid, "ao_grid");
+    grow_array(dd->d_ao_grid, size_ao_grid, dd->size_ao_grid, "ao_grid", FLERR);
     
     pm->dev_push_async(dd->d_ao_grid, ao, size_ao_grid*sizeof(double));
   }
@@ -3550,7 +3572,7 @@ void Device::init_Pi(int ngrid)
 
     int size_Pi = ngrid;
 
-    grow_array(dd->d_Pi, size_Pi, dd->size_Pi, "Pi");
+    grow_array(dd->d_Pi, size_Pi, dd->size_Pi, "Pi", FLERR);
   }
   
   double t1 = omp_get_wtime();
@@ -3574,7 +3596,7 @@ void Device::push_cascm2 (py::array_t<double> _cascm2, int ncas)
     
     int size_cascm2 = ncas*ncas*ncas*ncas;
 
-    grow_array(dd->d_cascm2, size_cascm2, dd->size_cascm2, "cascm2");
+    grow_array(dd->d_cascm2, size_cascm2, dd->size_cascm2, "cascm2", FLERR);
 
     pm->dev_push_async(dd->d_cascm2, cascm2, size_cascm2*sizeof(double));
   }
@@ -3602,8 +3624,8 @@ void Device::compute_Pi (int ngrid, int ncas, int nao)
 
   int _size_orig = dd->size_buf_pdft; // because grow_array() updates dd->size_buf_pdft on first call
 
-  grow_array(dd->d_buf_pdft1, _size_buf_pdft, dd->size_buf_pdft, "buf_pdft1");
-  grow_array(dd->d_buf_pdft2, _size_buf_pdft, _size_orig,        "buf_pdft2");
+  grow_array(dd->d_buf_pdft1, _size_buf_pdft, dd->size_buf_pdft, "buf_pdft1", FLERR);
+  grow_array(dd->d_buf_pdft2, _size_buf_pdft, _size_orig,        "buf_pdft2", FLERR);
 
   int ncas2 = ncas*ncas;
   //make mo_grid to ngrid*ncas*ncas (ai,aj->aij)

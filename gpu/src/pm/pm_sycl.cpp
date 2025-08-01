@@ -400,7 +400,7 @@ void * PM::dev_malloc(size_t N, std::string name, const char * file, int line)
   current_queue->wait();
 
   if(ptr == nullptr) {
-    printf("LIBGPU :: Error : PM::dev_malloc() failed to allocate %lu bytes for name= %s from file= %s line= %i\n",
+        printf("LIBGPU :: Error : PM::dev_malloc_async() failed to allocate %lu bytes for name= %s from file= %s line= %i\n",
 	   N,name.c_str(),file,line);
     print_mem_summary();
     exit(1);
@@ -420,7 +420,7 @@ void * PM::dev_malloc_async(size_t N, std::string name, const char * file, int l
 #ifdef _DEBUG_PM
   printf("Inside PM::dev_malloc_async()\n");
 #endif
-
+  
   profile_memory(N, name, PROFILE_MEM_MALLOC);
   
   void * ptr = sycl::malloc_device<char>(N, *current_queue);
@@ -452,7 +452,7 @@ void * PM::dev_malloc_async(size_t N, sycl::queue &q, std::string name, const ch
   void * ptr = sycl::malloc_device<char>(N, q);
   
   if(ptr == nullptr) {
-    printf("LIBGPU :: Error : PM::dev_malloc_async() failed to allocate %lu bytes for name= %s from file= %s line= %i\n",
+        printf("LIBGPU :: Error : PM::dev_malloc_async() failed to allocate %lu bytes for name= %s from file= %s line= %i\n",
 	   N,name.c_str(),file,line);
     print_mem_summary();
     exit(1);
@@ -958,7 +958,7 @@ void PM::profile_memory(size_t N, std::string name_, int mode)
 {
   std::string name = name_ + "-" + std::to_string(current_queue_id);
   //  printf("PM::dev_malloc()  name= %s\n",name.c_str());
-
+  
   auto it_ = std::find(profile_mem_name.begin(), profile_mem_name.end(), name);
 
   int indx = it_ - profile_mem_name.begin();

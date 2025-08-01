@@ -860,6 +860,12 @@ void Device::transpose_210(double * in, double * out, int naux, int nao, int nca
 
   sycl::queue * s = pm->dev_get_queue();
 
+#ifdef _DEBUG_DEVICE
+  printf("LIBGPU ::  -- get_h2eff_df::transpose_210 :: naux= %i  ncas= %i  _UNPACK_BLOCK_SIZE= %i  grid_size= %zu %zu %zu  block_size= %zu %zu %zu\n",
+	 naux, ncas, _UNPACK_BLOCK_SIZE, grid_size[0],grid_size[1],grid_size[2],block_size[0],block_size[1],block_size[2]);
+  pm->dev_check_errors();
+#endif
+  
   /*
   DPCT1049:4: The work-group size passed to the SYCL kernel may exceed the
   limit. To get the device limit, query info::device::max_work_group_size.
@@ -873,10 +879,10 @@ void Device::transpose_210(double * in, double * out, int naux, int nao, int nca
                       _transpose_210(in, out, naux, nao, ncas, item_ct1);
                     });
   }
-
+  
 #ifdef _DEBUG_DEVICE
-  printf("LIBGPU ::  -- h2eff_df_contract1::transpose_210 :: naux= %i  ncas= %i  _UNPACK_BLOCK_SIZE= %i  grid_size= %zu %zu %zu  block_size= %zu %zu %zu\n",
-	 naux, ncas, _UNPACK_BLOCK_SIZE, grid_size[0],grid_size[1],grid_size[2],block_size[0],block_size[1],block_size[2]);
+  pm->dev_stream_wait();
+  printf("LIBGPU ::  -- h2eff_df_contract1::transpose_210 :: finished\n");
   pm->dev_check_errors();
 #endif
 }
@@ -1077,6 +1083,12 @@ void Device::pack_d_vuwM(const double * in, double * out, int * map, int nmo, in
 
   sycl::queue * s = pm->dev_get_queue();
 
+#ifdef _DEBUG_DEVICE
+  printf("LIBGPU ::  -- get_h2eff_df::pack_d_vumM :: nmo*ncas= %i  ncas*ncas= %i  grid_size= %zu %zu %zu  block_size= %zu %zu %zu\n",
+	 nmo*ncas, ncas*ncas, grid_size[0],grid_size[1],grid_size[2],block_size[0],block_size[1],block_size[2]);
+  pm->dev_check_errors();
+#endif
+  
   /*
   DPCT1049:10: The work-group size passed to the SYCL kernel may exceed the
   limit. To get the device limit, query info::device::max_work_group_size.
@@ -1093,8 +1105,8 @@ void Device::pack_d_vuwM(const double * in, double * out, int * map, int nmo, in
   }
 
 #ifdef _DEBUG_DEVICE
-  printf("LIBGPU ::  -- get_h2eff_df::pack_d_vumM :: nmo*ncas= %i  ncas*ncas= %i  grid_size= %zu %zu %zu  block_size= %zu %zu %zu\n",
-	 nmo*ncas, ncas*ncas, grid_size[0],grid_size[1],grid_size[2],block_size[0],block_size[1],block_size[2]);
+  pm->dev_stream_wait();
+  printf("LIBGPU ::  -- get_h2eff_df::pack_d_vuwM :: finished\n");
   pm->dev_check_errors();
 #endif
 }

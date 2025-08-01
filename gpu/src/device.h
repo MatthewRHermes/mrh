@@ -382,12 +382,12 @@ private:
   double * dd_fetch_eri_debug(my_device_data *, double *, int, int, size_t, int); // we'll trash this after some time
 
   template<class T>
-  void grow_array(T * &ptr, int current_size, int & max_size, std::string name)
+  void grow_array(T * &ptr, int current_size, int & max_size, std::string name, const char * file, int line)
   {
     if(current_size > max_size) {
       max_size = current_size;
       if(ptr) pm->dev_free_async(ptr, name);
-      ptr = (T *) pm->dev_malloc_async(current_size * sizeof(T), name, FLERR);
+      ptr = (T *) pm->dev_malloc_async(current_size * sizeof(T), name, file, line);
     }
   }
   
