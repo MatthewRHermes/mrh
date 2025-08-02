@@ -19,6 +19,7 @@ from scipy import linalg
 from pyscf import lib, gto, scf, mcscf, fci, ao2mo
 from mrh.my_pyscf.mcscf.lasscf_o0 import LASSCF
 from mrh.my_pyscf.lassi import LASSI, LASSIrq, LASSIrqCT
+from mrh.my_pyscf.lassi.lassis import LASSIS
 from mrh.my_pyscf.lassi.lassi import root_make_rdm12s, roots_trans_rdm12s, make_stdm12s
 from mrh.my_pyscf.lassi.spaces import all_single_excitations
 from mrh.my_pyscf.mcscf.lasci import get_space_info
@@ -169,7 +170,22 @@ class KnownValues(unittest.TestCase):
     #    h0, h1, h2 = lsi.ham_2q ()
     #    case_contract_hlas_ci (self, las, h0, h1, h2, las.ci, lsi.get_nelec_frs ())
 
-    #def test_lassis (self):
+    def test_lassis(self):
+        """Test SOC with LASSIS"""
+        print("DONE")
+
+        lassis = LASSIS(las, soc=1)
+
+        _, h1_soc, __ = lassis.ham_2q(soc=1)
+        _, h1_nosoc, __ = lassis.ham_2q(soc=0)
+
+        np.testing.assert_almost_equal(lassis.h1_no_SOC(h1_soc), h1_nosoc, 8)
+
+        # Get hamultonians with and without SOC
+
+        # Complete test remaining once implemented
+
+    # def test_lassis (self):
     #    for opt in (0,1):
     #        with self.subTest (opt=opt):
     #            lsis = lassis.LASSIS (las).run (opt=opt)
@@ -193,4 +209,3 @@ class KnownValues(unittest.TestCase):
 if __name__ == "__main__":
     print("Full Tests for LASSI of random 2,2 system")
     unittest.main()
-

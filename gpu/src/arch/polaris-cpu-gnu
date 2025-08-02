@@ -7,7 +7,9 @@ FCFLAGS = -g -O3 -fopenmp
 
 CXX = CC
 CXXFLAGS = -g -O3 -fopenmp
+#CXXFLAGS += -ffast-math -mavx2 -ftree-vectorizer-verbose=3
 CXXFLAGS += $(PYTHON_INC)
+CXXFLAGS += -I/grand/LASSCF_gpudev/knight/soft/openblas/include
 
 CXXFLAGS += -D_USE_CPU
 

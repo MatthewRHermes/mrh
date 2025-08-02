@@ -13,7 +13,12 @@ from mrh.my_pyscf.fci.rdm import trans_rdm1ha_des, trans_rdm1hb_des
 from mrh.my_pyscf.fci.rdm import trans_rdm13ha_des, trans_rdm13hb_des
 from mrh.my_pyscf.fci.rdm import trans_sfddm1, trans_hhdm
 from mrh.my_pyscf.fci.direct_halfelectron import contract_1he, absorb_h1he, contract_3he
+from mrh.my_pyscf.fci.direct_nosym_uhf import contract_1e as contract_1e_nosym_uhf
+from mrh.my_pyscf.fci.direct_nosym_ghf import contract_1e as contract_1e_nosym_ghf
+from mrh.my_pyscf.fci.pair_op import contract_pair_op
 from pyscf import __config__
+import functools
+import copy
 
 SCREEN_THRESH = getattr (__config__, 'lassi_frag_screen_thresh', 1e-10)
 DO_SCREEN_LINEQUIV = getattr (__config__, 'lassi_frag_do_screen_linequiv', True)
@@ -53,23 +58,10 @@ class FragTDMInt (object):
         single model state indices.
 
         Args:
+            las : instance of :class:`LASCINoSymm`
+                Only las.stdout and las.verbose (sometimes) are used to direct the logger output
             ci : list of ndarray of length nroots
                 Contains CI vectors for the current fragment
-            hopping_index: ndarray of ints of shape (2, nroots, nroots)
-                element [i,j,k] reports the change of number of electrons of
-                spin i in the current fragment between LAS rootspaces j and k
-            zerop_index : ndarray of bools of shape (nroots, nroots)
-                element [i,j] is true where the ith and jth LAS spaces are
-                connected by a null excitation; i.e., no electron, pair,
-                or spin hopping or pair splitting/coalescence. This implies
-                nonzero 1- and 2-body transition density matrices within
-                all fragments.
-            onep_index : ndarray of bools of shape (nroots, nroots)
-                element [i,j] is true where the ith and jth LAS spaces
-                are connected by exactly one electron hop from i to j or vice
-                versa, implying nonzero 1-body transition density matrices
-                within spectator fragments and phh/pph modes within
-                source/dest fragments.
             norb : integer
                 number of active orbitals in the current fragment
             nroots : integer
@@ -86,35 +78,40 @@ class FragTDMInt (object):
         Kwargs:
             dtype : instance of np.dtype
                 Currently not used
+            discriminator : sequence of length nroots
+                Additional information to discriminate between otherwise-equivalent rootspaces
             screen_linequiv : logical
                 Whether to compress data by aggressively identifying linearly equivalent
                 rootspaces and storing the relevant unitary matrices.
+            verbose : integer
+                Logger verbosity level
     '''
 
-    def __init__(self, ci, hopping_index, zerop_index, onep_index, norb, nroots, nelec_rs,
-                 rootaddr, fragaddr, idx_frag, mask_ints, dtype=np.float64,
-                 screen_linequiv=DO_SCREEN_LINEQUIV):
+    def __init__(self, las, ci, norb, nroots, nelec_rs,
+                 rootaddr, fragaddr, idx_frag, mask_ints, dtype=np.float64, discriminator=None,
+                 pt_order=None, do_pt_order=None, screen_linequiv=DO_SCREEN_LINEQUIV,
+                 verbose=None):
         # TODO: if it actually helps, cache the "linkstr" arrays
+        if verbose is None: verbose = las.verbose
+        self.verbose = verbose
+        self.log = lib.logger.new_logger (las, self.verbose)
         self.ci = ci
-        self.hopping_index = hopping_index
-        self.zerop_index = zerop_index
-        self.onep_index = onep_index
         self.norb = norb
         self.nroots = nroots
         self.dtype = dtype
         self.nelec_r = [tuple (n) for n in nelec_rs]
-        self.ovlp = [[None for i in range (nroots)] for j in range (nroots)]
-        self._h = [[[None for i in range (nroots)] for j in range (nroots)] for s in (0,1)]
-        self._hh = [[[None for i in range (nroots)] for j in range (nroots)] for s in (-1,0,1)] 
-        self._phh = [[[None for i in range (nroots)] for j in range (nroots)] for s in (0,1)]
-        self._sm = [[None for i in range (nroots)] for j in range (nroots)]
-        self.dm1 = [[None for i in range (nroots)] for j in range (nroots)]
-        self.dm2 = [[None for i in range (nroots)] for j in range (nroots)]
+        self.linkstr_cache = {}
         self.linkstrl_cache = {}
         self.rootaddr = rootaddr
+        self.rootinvaddr = np.unique (rootaddr, return_index=True)[1]
         self.fragaddr = fragaddr
         self.idx_frag = idx_frag
         self.mask_ints = mask_ints
+        self.discriminator = discriminator
+
+        if pt_order is None: pt_order = np.zeros (nroots, dtype=int)
+        self.pt_order = pt_order
+        self.do_pt_order = do_pt_order
 
         # Consistent array shape
         self.ndeta_r = np.array ([cistring.num_strings (norb, nelec[0]) for nelec in self.nelec_r])
@@ -122,6 +119,16 @@ class FragTDMInt (object):
         self.ci = [c.reshape (-1,na,nb) for c, na, nb in zip (self.ci, self.ndeta_r, self.ndetb_r)]
 
         self.time_crunch = self._init_crunch_(screen_linequiv)
+
+    def _check_linkstr_cache (self, no, na, nb):
+        if (no, na, nb) not in self.linkstr_cache.keys ():
+            la = cistring.gen_linkstr_index(range(no), na)
+            lb = cistring.gen_linkstr_index(range(no), nb)
+            linkstr = (la,lb)
+            self.linkstr_cache[(no,na,nb)] = (la,lb)
+            return linkstr
+        else:
+            return self.linkstr_cache[(no,na,nb)]
 
     def _check_linkstrl_cache (self, no, na, nb):
         if (no, na, nb) not in self.linkstrl_cache.keys ():
@@ -148,7 +155,7 @@ class FragTDMInt (object):
         else: raise RuntimeError (str (len (args)))
 
     def try_get_dm (self, tab, i, j):
-        ir, jr = self.unique_root[i], self.unique_root[j]
+        ir, jr = self.uroot_idx[i], self.uroot_idx[j]
         try:
             assert (tab[ir][jr] is not None)
             return tab[ir][jr]
@@ -158,7 +165,7 @@ class FragTDMInt (object):
             raise RuntimeError (errstr)
 
     def try_get_tdm (self, tab, s, i, j):
-        ir, jr = self.unique_root[i], self.unique_root[j]
+        ir, jr = self.uroot_idx[i], self.uroot_idx[j]
         try:
             assert (tab[s][ir][jr] is not None)
             return tab[s][ir][jr]
@@ -193,6 +200,7 @@ class FragTDMInt (object):
         return self.try_get (self._h, s, i, j)
 
     def set_h (self, i, j, s, x):
+        i, j = self.uroot_idx[i], self.uroot_idx[j]
         x = self.setmanip (x)
         self._h[s][i][j] = x
         return x
@@ -213,6 +221,7 @@ class FragTDMInt (object):
         #return self._hh[s][i][j]
 
     def set_hh (self, i, j, s, x):
+        i, j = self.uroot_idx[i], self.uroot_idx[j]
         x = self.setmanip (x)
         self._hh[s][i][j] = x
         return x
@@ -233,6 +242,7 @@ class FragTDMInt (object):
         return self.try_get (self._phh, s, i, j)
 
     def set_phh (self, i, j, s, x):
+        i, j = self.uroot_idx[i], self.uroot_idx[j]
         x = self.setmanip (x)
         self._phh[s][i][j] = x
         return x
@@ -252,6 +262,7 @@ class FragTDMInt (object):
         return self.try_get (self._sm, i, j)
 
     def set_sm (self, i, j, x):
+        i, j = self.uroot_idx[i], self.uroot_idx[j]
         x = self.setmanip (x)
         self._sm[i][j] = x
         return x
@@ -284,6 +295,7 @@ class FragTDMInt (object):
 
     def set_dm1 (self, i, j, x):
         assert (j <= i)
+        i, j = self.uroot_idx[i], self.uroot_idx[j]
         x = self.setmanip (x)
         self.dm1[i][j] = x
 
@@ -306,11 +318,15 @@ class FragTDMInt (object):
 
     def set_dm2 (self, i, j, x):
         assert (j <= i)
+        i, j = self.uroot_idx[i], self.uroot_idx[j]
         x = self.setmanip (x)
         self.dm2[i][j] = x
 
     def get_lroots (self, i):
-        return self.get_ovlp (i,i).shape[1]
+        return self.ci[i].shape[0]
+
+    def get_lroots_uroot (self, i):
+        return self.get_lroots (self.uroot_addr[i])
 
     def _init_crunch_(self, screen_linequiv):
         ''' Compute the transition density matrix factors.
@@ -321,33 +337,52 @@ class FragTDMInt (object):
         '''
         ci = self.ci
         ndeta, ndetb = self.ndeta_r, self.ndetb_r
-        hopping_index = self.hopping_index
-        zerop_index = self.zerop_index
-        onep_index = self.onep_index
         self.mask_ints = np.logical_or (
             self.mask_ints, self.mask_ints.T
         )
-        #self.mask_ints[:,:] = True
-
-        nroots, norb = self.nroots, self.norb
-        t0 = (lib.logger.process_clock (), lib.logger.perf_counter ())
-
-        lroots = [c.shape[0] for c in ci]
-
-        # index down to only the unique rootspaces
+        if self.do_pt_order is not None:
+            pt_mask = np.add.outer (self.pt_order, self.pt_order)
+            pt_mask = np.isin (pt_mask, self.do_pt_order)
+            self.mask_ints = np.logical_and (
+                self.mask_ints, pt_mask
+            )
+                
         self.root_unique, self.unique_root, self.umat_root = get_unique_roots (
-            ci, self.nelec_r, screen_linequiv=screen_linequiv, screen_thresh=SCREEN_THRESH
+            ci, self.nelec_r, screen_linequiv=screen_linequiv, screen_thresh=SCREEN_THRESH,
+            discriminator=self.discriminator
         )
-        idx_uniq = self.root_unique
+        self.nuroots = nuroots = np.count_nonzero (self.root_unique)
+        self.uroot_inv = -1 * np.ones (self.nroots, dtype=int)
+        self.uroot_inv[self.root_unique] = np.arange (nuroots, dtype=int)
+        self.uroot_idx = self.uroot_inv[self.unique_root]
+        self.uroot_addr = np.where (self.root_unique)[0]
+        assert (np.all (self.uroot_idx >= 0))
 
-        # Update connectivity arrays and mask_ints
-        for i in np.where (idx_uniq)[0]:
+        self.ovlp = [[None for i in range (nuroots)] for j in range (nuroots)]
+        self._h = [[[None for i in range (nuroots)] for j in range (nuroots)] for s in (0,1)]
+        self._hh = [[[None for i in range (nuroots)] for j in range (nuroots)] for s in (-1,0,1)] 
+        self._phh = [[[None for i in range (nuroots)] for j in range (nuroots)] for s in (0,1)]
+        self._sm = [[None for i in range (nuroots)] for j in range (nuroots)]
+        self.dm1 = [[None for i in range (nuroots)] for j in range (nuroots)]
+        self.dm2 = [[None for i in range (nuroots)] for j in range (nuroots)]
+
+        # Characterize the matrix elements involving these fragment states
+        nelec_frs = np.asarray ([list(self.nelec_r[i]) for i in self.uroot_addr])[None,:,:]
+        self.hopping_index = hopping_index = lst_hopping_index (nelec_frs)[0]
+        self.hopidx_null = np.where (np.all (hopping_index==0, axis=0))
+        self.hopidx_1c = [[np.where (hopping_index[s]==d) for s in (0,1)] for d in (-1,1)]
+        s0 = np.array ([-1,1])[:,None,None]
+        s1 = np.array ([1,-1])[:,None,None]
+        self.hopidx_1s = [np.where (hopping_index==s0), np.where (hopping_index==s1)]
+        s0 = np.array ([2,0])[:,None,None]
+        s1 = np.array ([1,1])[:,None,None]
+        s2 = np.array ([0,2])[:,None,None]
+        self.hopidx_2c = [[np.where (hopping_index==c*s) for s in (s0,s1,s2)] for c in (-1,1)]
+
+        # Update mask_ints
+        for i in np.where (self.root_unique)[0]:
             images = np.where (self.unique_root==i)[0]
             for j in images:
-                self.onep_index[i] |= self.onep_index[j]
-                self.onep_index[:,i] |= self.onep_index[:,j]
-                self.zerop_index[i] |= self.zerop_index[j]
-                self.zerop_index[:,i] |= self.zerop_index[:,j]
                 self.mask_ints[i,:] = np.logical_or (
                     self.mask_ints[i,:], self.mask_ints[j,:]
                 )
@@ -355,36 +390,50 @@ class FragTDMInt (object):
                     self.mask_ints[:,i], self.mask_ints[:,j]
                 )
 
+        return self._make_dms_()
+
+    def update_ci_(self, iroot, ci):
+        update_mask = np.zeros ((self.nroots, self.nroots), dtype=bool)
+        for i, civec in zip (iroot, ci):
+            assert (self.root_unique[i]), 'Cannot update non-unique CI vectors'
+            update_mask[i,:] = True
+            update_mask[:,i] = True
+            self.ci[i] = civec.reshape (-1, self.ndeta_r[i], self.ndetb_r[i])
+        mask_ints = self.mask_ints & update_mask
+        t0 = self._make_dms_(mask_ints=mask_ints)
+        self.log.timer ('Update density matrices of fragment intermediate', *t0)
+
+    def _make_dms_(self, mask_ints=None):
+        if mask_ints is None: mask_ints=self.mask_ints
+        t0 = (lib.logger.process_clock (), lib.logger.perf_counter ())
+        ci = self.ci
+        ndeta, ndetb = self.ndeta_r, self.ndetb_r
+        hopping_index = self.hopping_index
+        idx_uniq = self.root_unique
+        lroots = [c.shape[0] for c in ci]
+        nroots, norb, nuroots = self.nroots, self.norb, self.nuroots
+
         # Overlap matrix
         offs = np.cumsum (lroots)
         for i, j in combinations (np.where (idx_uniq)[0], 2):
             if self.nelec_r[i] != self.nelec_r[j]: continue
-            if not self.mask_ints[i,j]: continue
+            if not mask_ints[i,j]: continue
             ci_i = ci[i].reshape (lroots[i], -1)
             ci_j = ci[j].reshape (lroots[j], -1)
-            self.ovlp[i][j] = np.dot (ci_i.conj (), ci_j.T)
-            self.ovlp[j][i] = self.ovlp[i][j].conj ().T
+            k, l = self.uroot_idx[i], self.uroot_idx[j]
+            self.ovlp[k][l] = np.dot (ci_i.conj (), ci_j.T)
+            self.ovlp[l][k] = self.ovlp[k][l].conj ().T
         for i in np.where (idx_uniq)[0]:
-            if not self.mask_ints[i,i]: continue
+            if not mask_ints[i,i]: continue
             ci_i = ci[i].reshape (lroots[i], -1)
-            self.ovlp[i][i] = np.dot (ci_i.conj (), ci_i.T)
+            j = self.uroot_idx[i]
+            self.ovlp[j][j] = np.dot (ci_i.conj (), ci_i.T)
             #errmat = self.ovlp[i][i] - np.eye (lroots[i])
             #if np.amax (np.abs (errmat)) > 1e-3:
             #    w, v = np.linalg.eigh (self.ovlp[i][i])
             #    errmsg = ('States w/in single Hilbert space must be orthonormal; '
             #              'eigvals (ovlp) = {}')
             #    raise RuntimeError (errmsg.format (w))
-
-        linkstr_cache = {}
-        def _check_linkstr_cache (no, na, nb):
-            if (no, na, nb) not in linkstr_cache.keys ():
-                la = cistring.gen_linkstr_index(range(no), na)
-                lb = cistring.gen_linkstr_index(range(no), nb)
-                linkstr = (la,lb)
-                linkstr_cache[(no,na,nb)] = (la,lb)
-                return linkstr
-            else:
-                return linkstr_cache[(no,na,nb)]
 
         # Loop over lroots functions
         def des_loop (des_fn, c, nelec, p):
@@ -403,7 +452,7 @@ class FragTDMInt (object):
             ket = ket.reshape (-1, na, nb)
             tdm1s = np.zeros ((bra.shape[0],ket.shape[0],2,norb,norb), dtype=self.dtype)
             tdm2s = np.zeros ((bra.shape[0],ket.shape[0],4,norb,norb,norb,norb), dtype=self.dtype)
-            linkstr = _check_linkstr_cache (norb, nelec[0], nelec[1])
+            linkstr = self._check_linkstr_cache (norb, nelec[0], nelec[1])
             if do2:
                 for i, j in product (range (bra.shape[0]), range (ket.shape[0])):
                     d1s, d2s = trans_rdm12s (bra[i], ket[j], norb, nelec,
@@ -429,7 +478,7 @@ class FragTDMInt (object):
             tdm1h = np.zeros ((bravecs.shape[0],ketvecs.shape[0],norb), dtype=self.dtype)
             tdm3h = np.zeros ((bravecs.shape[0],ketvecs.shape[0],2,norb,norb,norb),
                               dtype=self.dtype)
-            linkstr = _check_linkstr_cache (norb+1, nelec_ket[0], nelec_ket[1])
+            linkstr = self._check_linkstr_cache (norb+1, nelec_ket[0], nelec_ket[1])
             if do3h:
                 for i, j in product (range (bravecs.shape[0]), range (ketvecs.shape[0])):
                     d1s, d2s = trans_rdm13h (bravecs[i], ketvecs[j], norb, nelec_ket,
@@ -450,7 +499,7 @@ class FragTDMInt (object):
             ketvecs = ci[ket_r].reshape (-1, ndeta[ket_r], ndetb[ket_r])
             nelec_ket = self.nelec_r[ket_r]
             sfddm = np.zeros ((bravecs.shape[0],ketvecs.shape[0],norb,norb), dtype=self.dtype)
-            linkstr = _check_linkstr_cache (norb+1, nelec_ket[0], nelec_ket[1]+1)
+            linkstr = self._check_linkstr_cache (norb+1, nelec_ket[0], nelec_ket[1]+1)
             for i, j in product (range (bravecs.shape[0]), range (ketvecs.shape[0])):
                 d1 = trans_sfddm1 (bravecs[i], ketvecs[j], norb, nelec_ket,
                                    link_index=linkstr)
@@ -462,7 +511,7 @@ class FragTDMInt (object):
             nelec_ket = self.nelec_r[ket_r]
             hhdm = np.zeros ((bravecs.shape[0],ketvecs.shape[0],norb,norb), dtype=self.dtype)
             ndum = 2 - (spin%2)
-            linkstr = _check_linkstr_cache (norb+ndum, nelec_ket[0], nelec_ket[1])
+            linkstr = self._check_linkstr_cache (norb+ndum, nelec_ket[0], nelec_ket[1])
             for i, j in product (range (bravecs.shape[0]), range (ketvecs.shape[0])):
                 d1 = trans_hhdm (bravecs[i], ketvecs[j], norb, nelec_ket,
                                  spin=spin, link_index=linkstr)
@@ -471,69 +520,171 @@ class FragTDMInt (object):
 
         # Spectator fragment contribution
         spectator_index = np.all (hopping_index == 0, axis=0)
-        spectator_index[~idx_uniq,:] = False
-        spectator_index[:,~idx_uniq] = False
-        spectator_index[np.triu_indices (nroots, k=1)] = False
+        spectator_index[np.triu_indices (nuroots, k=1)] = False
         spectator_index = np.stack (np.where (spectator_index), axis=1)
         for i, j in spectator_index:
-            dm1s, dm2s = trans_rdm12s_loop (j, ci[i], ci[j], do2=zerop_index[i,j])
-            self.set_dm1 (i, j, dm1s)
-            if zerop_index[i,j]: self.set_dm2 (i, j, dm2s)
+            k, l = self.uroot_addr[i], self.uroot_addr[j]
+            if not mask_ints[k,l]: continue
+            dm1s, dm2s = trans_rdm12s_loop (l, ci[k], ci[l], do2=True)
+            self.set_dm1 (k, l, dm1s)
+            self.set_dm2 (k, l, dm2s)
  
-        hidx_ket_a = np.where (np.any (hopping_index[0] < 0, axis=0) & idx_uniq)[0]
-        hidx_ket_b = np.where (np.any (hopping_index[1] < 0, axis=0) & idx_uniq)[0]
+        hidx_ket_a = np.where (np.any (hopping_index[0] < 0, axis=0))[0]
+        hidx_ket_b = np.where (np.any (hopping_index[1] < 0, axis=0))[0]
 
         # a_p|i>; shape = (norb, lroots[ket], ndeta[*], ndetb[ket])
-        for ket in hidx_ket_a:
-            for bra in np.where ((hopping_index[0,:,ket] < 0) & idx_uniq)[0]:
-                if not self.mask_ints[bra,ket]: continue
+        for k in hidx_ket_a:
+            for b in np.where (hopping_index[0,:,k] < 0)[0]:
+                bra, ket = self.uroot_addr[b], self.uroot_addr[k]
+                if not mask_ints[bra,ket]: continue
                 # <j|a_p|i>
-                if np.all (hopping_index[:,bra,ket] == [-1,0]):
+                if np.all (hopping_index[:,b,k] == [-1,0]):
                     h, phh = trans_rdm13h_loop (bra, ket, spin=0)
                     self.set_h (bra, ket, 0, h)
                     # <j|a'_q a_r a_p|i>, <j|b'_q b_r a_p|i> - how to tell if consistent sign rule?
-                    if onep_index[bra,ket]:
-                        err = np.abs (phh[:,:,0] + phh[:,:,0].transpose (0,1,2,4,3))
-                        assert (np.amax (err) < 1e-8), '{}'.format (np.amax (err)) 
-                        # ^ Passing this assert proves that I have the correct index
-                        # and argument ordering for the call and return of trans_rdm12s
-                        self.set_phh (bra, ket, 0, phh)
+                    err = np.abs (phh[:,:,0] + phh[:,:,0].transpose (0,1,2,4,3))
+                    assert (np.amax (err) < 1e-8), '{}'.format (np.amax (err)) 
+                    # ^ Passing this assert proves that I have the correct index
+                    # and argument ordering for the call and return of trans_rdm12s
+                    self.set_phh (bra, ket, 0, phh)
                 # <j|b'_q a_p|i> = <j|s-|i>
-                elif np.all (hopping_index[:,bra,ket] == [-1,1]):
+                elif np.all (hopping_index[:,b,k] == [-1,1]):
                     self.set_sm (bra, ket, trans_sfddm_loop (bra, ket))
                 # <j|b_q a_p|i>
-                elif np.all (hopping_index[:,bra,ket] == [-1,-1]):
+                elif np.all (hopping_index[:,b,k] == [-1,-1]):
                     self.set_hh (bra, ket, 1, trans_hhdm_loop (bra, ket, spin=1))
                 # <j|a_q a_p|i>
-                elif np.all (hopping_index[:,bra,ket] == [-2,0]):
+                elif np.all (hopping_index[:,b,k] == [-2,0]):
                     self.set_hh (bra, ket, 0, trans_hhdm_loop (bra, ket, spin=0))
                 
         # b_p|i>
-        for ket in hidx_ket_b:
-            for bra in np.where ((hopping_index[1,:,ket] < 0) & idx_uniq)[0]:
-                if not self.mask_ints[bra,ket]: continue
+        for k in hidx_ket_b:
+            for b in np.where (hopping_index[1,:,k] < 0)[0]:
+                bra, ket = self.uroot_addr[b], self.uroot_addr[k]
+                if not mask_ints[bra,ket]: continue
                 # <j|b_p|i>
-                if np.all (hopping_index[:,bra,ket] == [0,-1]):
+                if np.all (hopping_index[:,b,k] == [0,-1]):
                     h, phh = trans_rdm13h_loop (bra, ket, spin=1)
                     self.set_h (bra, ket, 1, h)
                     # <j|a'_q a_r b_p|i>, <j|b'_q b_r b_p|i> - how to tell if consistent sign rule?
-                    if onep_index[bra,ket]:
-                        err = np.abs (phh[:,:,1] + phh[:,:,1].transpose (0,1,2,4,3))
-                        assert (np.amax (err) < 1e-8), '{}'.format (np.amax (err))
-                        # ^ Passing this assert proves that I have the correct index
-                        # and argument ordering for the call and return of trans_rdm12s
-                        self.set_phh (bra, ket, 1, phh)
+                    err = np.abs (phh[:,:,1] + phh[:,:,1].transpose (0,1,2,4,3))
+                    assert (np.amax (err) < 1e-8), '{}'.format (np.amax (err))
+                    # ^ Passing this assert proves that I have the correct index
+                    # and argument ordering for the call and return of trans_rdm12s
+                    self.set_phh (bra, ket, 1, phh)
                 # <j|b_q b_p|i>
-                elif np.all (hopping_index[:,bra,ket] == [0,-2]):
+                elif np.all (hopping_index[:,b,k] == [0,-2]):
                     self.set_hh (bra, ket, 2, trans_hhdm_loop (bra, ket, spin=2))
         
         return t0
 
-    def contract_h00 (self, h_00, h_11, h_22, ket):
+    def symmetrize_pt1_(self, ptmap):
+        ''' Symmetrize transition density matrices of first order in perturbation theory '''
+        pt_mask = np.add.outer (self.pt_order, self.pt_order)
+        pt_mask = pt_mask==1
+        pt_mask[:,self.pt_order==1] = False
+        mask_ints = np.logical_and (
+           self.mask_ints, pt_mask
+        )
+        ptmap = np.append (ptmap, ptmap[:,::-1], axis=0)
+        ptmap = {i:j for i,j in ptmap}
+        idx_uniq = self.root_unique
+        for i, j in combinations (np.where (idx_uniq)[0], 2):
+            if not mask_ints[i,j]: continue
+            if self.nelec_r[i] != self.nelec_r[j]: continue
+            k, l = ptmap[i], ptmap[j]
+            o = (self.get_ovlp (i,j) + self.get_ovlp (k,l)) / 2
+            i, j = self.uroot_idx[i], self.uroot_idx[j]
+            k, l = self.uroot_idx[k], self.uroot_idx[l]
+            self.ovlp[i][j] = self.ovlp[k][l] = o
+
+        # Spectator fragment contribution
+        hopping_index = self.hopping_index
+        idx_uniq = self.root_unique
+        nroots = self.nroots
+        spectator_index = np.all (hopping_index == 0, axis=0)
+        spectator_index = np.stack (np.where (spectator_index), axis=1)
+        for i, j in spectator_index:
+            i, j = self.uroot_addr[i], self.uroot_addr[j]
+            if not mask_ints[i,j]: continue
+            k, l = ptmap[i], ptmap[j]
+            dm1s = (self.get_dm1 (i, j) + self.get_dm1 (k, l)) / 2
+            self.set_dm1 (i, j, dm1s)
+            if k >= l:
+                self.set_dm1 (k, l, dm1s)
+            else:
+                self.set_dm1 (l, k, dm1s.conj ().transpose (1,0,2,4,3))
+            dm2s = (self.get_dm2 (i, j) + self.get_dm2 (k, l)) / 2
+            self.set_dm2 (i, j, dm2s)
+            if k < l: k, l, dm2s = l, k, dm2s.conj ().transpose (1,0,2,4,3,6,5)
+            self.set_dm2 (k, l, dm2s)
+
+        hidx_ket_a = np.where (np.any (hopping_index[0] < 0, axis=0))[0]
+        hidx_ket_b = np.where (np.any (hopping_index[1] < 0, axis=0))[0]
+
+        # a_p|i>; shape = (norb, lroots[ket], ndeta[*], ndetb[ket])
+        for k in hidx_ket_a:
+            for b in np.where ((hopping_index[0,:,k] < 0))[0]:
+                ket, bra = self.uroot_addr[k], self.uroot_addr[b]
+                if not mask_ints[bra,ket]: continue
+                bet = ptmap[bra]
+                kra = ptmap[ket]
+                # <j|a_p|i>
+                if np.all (hopping_index[:,b,k] == [-1,0]):
+                    h = (self.get_h (bra, ket, 0) + self.get_h (bet, kra, 0)) / 2
+                    self.set_h (bra, ket, 0, h)
+                    self.set_h (bet, kra, 0, h)
+                    # <j|a'_q a_r a_p|i>, <j|b'_q b_r a_p|i> - how to tell if consistent sign rule?
+                    phh = (self.get_phh (bra, ket, 0) + self.get_phh (bet, kra, 0)) / 2
+                    self.set_phh (bra, ket, 0, phh)
+                    self.set_phh (bet, kra, 0, phh)
+                # <j|b'_q a_p|i> = <j|s-|i>
+                elif np.all (hopping_index[:,b,k] == [-1,1]):
+                    sm = (self.get_sm (bra, ket) + self.get_sm (bet, kra)) / 2
+                    self.set_sm (bra, ket, sm)
+                    self.set_sm (bet, kra, sm)
+                # <j|b_q a_p|i>
+                elif np.all (hopping_index[:,b,k] == [-1,-1]):
+                    hh = (self.get_hh (bra, ket, 1) + self.get_hh (bet, kra, 1)) / 2
+                    self.set_hh (bra, ket, 1, hh)
+                    self.set_hh (bet, kra, 1, hh)
+                # <j|a_q a_p|i>
+                elif np.all (hopping_index[:,b,k] == [-2,0]):
+                    hh = (self.get_hh (bra, ket, 0) + self.get_hh (bet, kra, 0)) / 2
+                    self.set_hh (bra, ket, 0, hh)
+                    self.set_hh (bet, kra, 0, hh)
+                
+        # b_p|i>
+        for k in hidx_ket_b:
+            for b in np.where (hopping_index[1,:,k] < 0)[0]:
+                ket, bra = self.uroot_addr[k], self.uroot_addr[b]
+                if not mask_ints[bra,ket]: continue
+                bet = ptmap[bra]
+                kra = ptmap[ket]
+                # <j|b_p|i>
+                if np.all (hopping_index[:,b,k] == [0,-1]):
+                    h = (self.get_h (bra, ket, 1) + self.get_h (bet, kra, 1)) / 2
+                    self.set_h (bra, ket, 1, h)
+                    self.set_h (bet, kra, 1, h)
+                    # <j|a'_q a_r b_p|i>, <j|b'_q b_r b_p|i> - how to tell if consistent sign rule?
+                    phh = (self.get_phh (bra, ket, 1) + self.get_phh (bet, kra, 1)) / 2
+                    self.set_phh (bra, ket, 1, phh)
+                    self.set_phh (bet, kra, 1, phh)
+                # <j|b_q b_p|i>
+                elif np.all (hopping_index[:,b,k] == [0,-2]):
+                    hh = (self.get_hh (bra, ket, 2) + self.get_hh (bet, kra, 2)) / 2
+                    self.set_hh (bra, ket, 2, hh)
+                    self.set_hh (bet, kra, 2, hh)
+        
+        return
+
+
+
+    def contract_h00 (self, h_00, h_11, h_22, ket, dn=0):
         r = self.rootaddr[ket]
         n = self.fragaddr[ket]
         norb, nelec = self.norb, self.nelec_r[r]
-        ci = self.ci[r][n]
+        ci = self.ci[r][n+dn]
         h_uhf = (h_11[0] - h_11[1]) / 2
         h_uhf = [h_uhf, -h_uhf]
         h_11 = h_11.sum (0) / 2
@@ -549,16 +700,16 @@ class FragTDMInt (object):
                                 link_index=linkstrl)
         return hci
 
-    def contract_h10 (self, spin, h_10, h_21, ket):
+    def contract_h10 (self, spin, h_10, h_21, ket, dn=0):
         r = self.rootaddr[ket]
         n = self.fragaddr[ket]
         norb, nelec = self.norb, self.nelec_r[r]
         nelec_bra = [nelec[0], nelec[1]]
         nelec_bra[spin] += 1
         linkstrl = self._check_linkstrl_cache (norb+1, nelec_bra[0], nelec_bra[1])
-        ci = self.ci[r][n]
+        ci = self.ci[r][n+dn]
         hci = 0
-        if h_21 is None:
+        if h_21 is None or ((not isinstance (h_21, np.ndarray)) and h_21==0):
             hci = contract_1he (h_10, True, spin, ci, norb, nelec,
                                 link_index=linkstrl)
         else:
@@ -567,14 +718,14 @@ class FragTDMInt (object):
                                 link_index=linkstrl)
         return hci
 
-    def contract_h01 (self, spin, h_01, h_12, ket):
+    def contract_h01 (self, spin, h_01, h_12, ket, dn=0):
         rket = self.rootaddr[ket]
         n = self.fragaddr[ket]
         norb, nelec = self.norb, self.nelec_r[rket]
         linkstrl = self._check_linkstrl_cache (norb+1, nelec[0], nelec[1])
-        ci = self.ci[rket][n]
+        ci = self.ci[rket][n+dn]
         hci = 0
-        if h_12 is None:
+        if h_12 is None or ((not isinstance (h_12, np.ndarray)) and h_12==0):
             hci = contract_1he (h_01, False, spin, ci, norb, nelec,
                                 link_index=linkstrl)
         else:
@@ -583,66 +734,245 @@ class FragTDMInt (object):
                                 link_index=linkstrl)
         return hci
 
-    def contract_h20 (self, spin, h_20, ket):
+    def contract_h20 (self, spin, h_20, ket, dn=0):
         r = self.rootaddr[ket]
         n = self.fragaddr[ket]
         norb, nelec = self.norb, self.nelec_r[r]
-        ci = self.ci[r][n]
+        ci = self.ci[r][n+dn]
         # 0, 1, 2 = aa, ab, bb
         s11 = int (spin>1)
         s12 = int (spin>0)
-        cre_op1 = (cre_a, cre_b)[s11]
-        cre_op2 = (cre_a, cre_b)[s12]
-        hci = 0
-        nelecq = list (nelec)
-        nelecq[s12] = nelecq[s12] + 1
-        for q in range (self.norb):
-            qci = cre_op2 (ci, norb, nelec, q)
-            for p in range (self.norb):
-                hci += h_20[p,q] * cre_op1 (qci, norb, nelecq, p)
+        norbd = norb + 2 - int (spin==1)
+        nelecd = [n for n in nelec]
+        nelecd[s11] += 1
+        nelecd[s12] += 1
+        linkstrl = self._check_linkstrl_cache (norbd, nelecd[0], nelecd[1])
+        hci = contract_pair_op (h_20, True, spin, ci, norb, nelec, link_index=linkstrl)
         return hci
 
-    def contract_h02 (self, spin, h_02, ket):
+    def contract_h02 (self, spin, h_02, ket, dn=0):
         r = self.rootaddr[ket]
         n = self.fragaddr[ket]
         norb, nelec = self.norb, self.nelec_r[r]
-        ci = self.ci[r][n]
+        ci = self.ci[r][n+dn]
         # 0, 1, 2 = aa, ab, bb
         s11 = int (spin>1)
         s12 = int (spin>0)
-        des_op1 = (des_a, des_b)[s11]
-        des_op2 = (des_a, des_b)[s12]
-        hci = 0
-        nelecq = list (nelec)
-        nelecq[s11] = nelecq[s11] - 1
-        for q in range (self.norb):
-            qci = des_op1 (ci, norb, nelec, q)
-            for p in range (self.norb):
-                hci += h_02[p,q] * des_op2 (qci, norb, nelecq, p)
+        norbd = norb + 2 - int (spin==1)
+        linkstrl = self._check_linkstrl_cache (norbd, nelec[0], nelec[1])
+        hci = contract_pair_op (h_02, False, spin, ci, norb, nelec, link_index=linkstrl)
         return hci
 
-    def contract_h11 (self, spin, h_11, ket):
+    def contract_h11 (self, spin, h_11, ket, dn=0):
         r = self.rootaddr[ket]
         n = self.fragaddr[ket]
         norb, nelec = self.norb, self.nelec_r[r]
-        ci = self.ci[r][n]
+        ci = self.ci[r][n+dn]
         # 0, 1, 2, 3 = aa, ab, ba, bb
         s11 = spin // 2
         s12 = spin % 2
-        cre_op = (cre_a, cre_b)[s11]
-        des_op = (des_a, des_b)[s12]
-        hci = 0
-        if nelec[s12] == 0: return hci
-        nelecq = list (nelec)
-        nelecq[s12] = nelecq[s12] - 1
-        for q in range (self.norb):
-            qci = des_op (ci, norb, nelec, q)
-            for p in range (self.norb):
-                hci += h_11[p,q] * cre_op (qci, norb, nelecq, p)
+        if s11==s12:
+            linkstr = self._check_linkstr_cache (norb, nelec[0], nelec[1])
+            h1e = [np.zeros_like (h_11), np.zeros_like (h_11)]
+            h1e[s11] = h_11
+            hci = contract_1e_nosym_uhf (h1e, ci, norb, nelec, link_index=linkstr)
+        else:
+            linkstr = self._check_linkstr_cache (2*norb, nelec[0]+nelec[1], 0)
+            spin = spin - 1
+            h1e = np.zeros ((2*norb, 2*norb), dtype=h_11.dtype)
+            h1e[spin*norb:(spin+1)*norb,(1-spin)*norb:(2-spin)*norb] = h_11[:,:]
+            hci = contract_1e_nosym_ghf (h1e, ci, norb, nelec, link_index=linkstr)[2*spin]
         return hci
 
+    def contract_h11_uhf (self, h_11_s, ket, dn=0):
+        # when you have both spins in the operator
+        r = self.rootaddr[ket]
+        n = self.fragaddr[ket]
+        norb, nelec = self.norb, self.nelec_r[r]
+        ci = self.ci[r][n+dn]
+        linkstr = self._check_linkstr_cache (norb, nelec[0], nelec[1])
+        hci = contract_1e_nosym_uhf (h_11_s, ci, norb, nelec, link_index=linkstr)
+        return hci
+
+    def _init_ham_(self, nroots_si):
+        self._ham = {}
+        self.nroots_si = nroots_si
+
+    def _put_ham_(self, bra, ket, h0, h1, h2, spin=None, hermi=0):
+        i = self.unique_root[bra]
+        j = self.unique_root[ket]
+        # TODO: if you ever resurrect HamTerm.opH, you'll have to reconsider this branch
+        if self.pt_order[i]>0: return # no populating the perturbative-space CI vectors
+        hterm0 = self._ham.get ((i, j, hermi), 0)
+        hterm1 = HamTerm (self, ket, i, j, h0, h1, h2, hermi=hermi, spin=spin)
+        self._ham[(i,j,hermi)] = hterm1 + hterm0 
+
+    def _ham_op (self, _init_only=False):
+        hci_r_plab = []
+        for c in self.ci:
+            hci_plab = np.zeros ([self.nroots_si,] + list (c.shape),
+                                 dtype=c.dtype)
+            hci_r_plab.append (hci_plab)
+        if not _init_only:
+            for ((i, j, hermi), hterm) in self._ham.items ():
+                if hterm.is_zero () or hterm.is_civec_zero (): continue
+                hci_r_plab[i] += hterm.op ()
+        return hci_r_plab
+
+class HamTerm:
+    def __init__(self, parent, ket, ir, jr, h0, h1, h2, hermi=0, spin=None):
+        self.parent = parent
+        self.ir = ir
+        self.jr = jr
+        self.ket = parent.rootinvaddr[jr]
+        self.bra = parent.rootinvaddr[ir]
+        dnelec = tuple (np.asarray (parent.nelec_r[ir]) - np.asarray (parent.nelec_r[jr]))
+        self.h0 = self.h1 = self.h2 = None
+        if isinstance (h1, np.ndarray):
+            self.nsi, self.li, self.lj = h1.shape[:3]
+        else:
+            self.nsi, self.li, self.lj = h0.shape[:3]
+        self.spin = spin
+        self.dnelec = dnelec
+        if dnelec == (0,0) and hermi==1:
+            self.h0 = h0
+            self.h1 = h1
+            self.h2 = h2
+            self._op = self._opH = parent.contract_h00
+        elif dnelec == (0,0):
+            spin = spin // 2
+            self.h1 = np.zeros (list (h1.shape[:3]) + [2,] + list (h1.shape[3:]), dtype=h1.dtype)
+            self.h1[:,:,:,spin,:,:] = h1
+            self.spin = None
+            self._op = self._opH = parent.contract_h11_uhf
+        elif sum (dnelec) == 0:
+            self.h1 = h1
+            self._op = self._opH = parent.contract_h11
+        else:
+            dnelec = sum (dnelec)
+            self.h1 = h1
+            if abs (dnelec) == 1: self.h2 = h2
+            idx = dnelec+2
+            if idx>1: idx = idx-1
+            self._op = [parent.contract_h02,
+                        parent.contract_h01,
+                        parent.contract_h10,
+                        parent.contract_h20][idx]
+            self._opH = [parent.contract_h20,
+                         parent.contract_h10,
+                         parent.contract_h01,
+                         parent.contract_h02][idx]
+
+    def _get_hargs (self, p, i, j):
+        hargs = []
+        if self.h0 is not None:
+            if np.asarray (self.h0).ndim < 3:
+                hargs.append (self.h0)
+            else:
+                hargs.append (self.h0[p,i,j])
+        if self.h1 is not None:
+            if np.asarray (self.h1).ndim < 3:
+                hargs.append (self.h1)
+            else:
+                hargs.append (self.h1[p,i,j])
+        if self.h2 is not None:
+            if np.asarray (self.h2).ndim < 3:
+                hargs.append (self.h2)
+            else:
+                hargs.append (self.h2[p,i,j])
+        return hargs
+
+    def op (self):
+        nsi, li, lj = self.nsi, self.li, self.lj
+        ndeta = self.parent.ndeta_r[self.ir]
+        ndetb = self.parent.ndetb_r[self.ir]
+        sargs = []
+        if self.spin is not None: sargs.append (self.spin)
+        hci_plab = np.zeros ((nsi,li,ndeta,ndetb), dtype=self.parent.dtype)
+        if self.is_const ():
+            ci = self.parent.ci[self.jr]
+            if np.asarray (self.h0).ndim < 3:
+                hci_plab = h0 * self.ci
+            else:
+                hci_plab = np.tensordot (self.h0, ci, axes=1)
+        else:
+            for p,i,j in product (range (nsi), range (li), range (lj)):
+                if self.is_zero (idx=(p,i,j)): continue
+                args = sargs + self._get_hargs (p,i,j) + [self.ket,]
+                hci_plab[p,i] += self._op (*args, dn=j)
+        return hci_plab
+
+    def opH (self):
+        with lib.temporary_env (self, ir=self.jr, jr=self.ir, li=self.lj, lj=self.li, ket=self.bra,
+                                h0=self.get_h0H (), h1=self.get_h1H (), h2=self.get_h2H (),
+                                _op=self._opH):
+            return self.op ()
+
+    def get_h0H (self):
+        h0 = self.h0
+        if h0 is None or np.asarray (h0).ndim < 3:
+            return h0
+        else:
+            return h0.transpose (0,2,1).conj ()
+
+    def get_h1H (self):
+        h1 = self.h1
+        if h1 is None or np.asarray (h1).ndim < 3:
+            return h1
+        elif self.dnelec == (0,0):
+            return h1.transpose (0,2,1,3,5,4) 
+        elif sum (self.dnelec)%2 == 0:
+            return h1.transpose (0,2,1,4,3)
+        else:
+            return h1.transpose (0,2,1,3)
+
+    def get_h2H (self):
+        h2 = self.h2
+        if h2 is None or np.asarray (h2).ndim < 3:
+            return h2
+        elif abs (sum (self.dnelec)) == 1:
+            return h2.transpose (0,2,1,5,4,3)
+        else:
+            return h2.transpose (0,2,1,4,3,6,5)
+
+    def __add__(self, other):
+        if other==0: return self
+        mysum = copy.copy (self)
+        if self.h0 is not None:
+            mysum.h0 = self.h0 + other.h0
+        if self.h1 is not None:
+            mysum.h1 = self.h1 + other.h1
+        if self.h2 is not None:
+            mysum.h2 = self.h2 + other.h2
+        return mysum
+
+    def is_const (self):
+        h1_scalar = not isinstance (self.h1, np.ndarray)
+        h2_scalar = not isinstance (self.h2, np.ndarray)
+        return h1_scalar and h2_scalar and (self.h1==0) and (self.h2==0)
+
+    def is_zero (self, idx=None):
+        h0, h1, h2 = self.h0, self.h1, self.h2
+        if idx is not None:
+            if h0 is not None and np.asarray (h0).ndim >= 3: h0 = h0[idx]
+            if h1 is not None and np.asarray (h1).ndim >= 3: h1 = h1[idx]
+            if h2 is not None and np.asarray (h2).ndim >= 3: h2 = h2[idx]
+        h0_zero = (h0 is None) or np.amax (np.abs (h0)) < 1e-15
+        h1_zero = (h1 is None) or np.amax (np.abs (h1)) < 1e-15
+        h2_zero = (h2 is None) or np.amax (np.abs (h2)) < 1e-15
+        return h0_zero and h1_zero and h2_zero
+
+    def is_civec_zero (self, conj=False):
+        if conj:
+            ci = self.parent.ci[self.ir]
+        else:
+            ci = self.parent.ci[self.jr]
+        return np.amax (np.abs (ci)) < 1e-15
+
+
 def make_ints (las, ci, nelec_frs, screen_linequiv=DO_SCREEN_LINEQUIV, nlas=None,
-               _FragTDMInt_class=FragTDMInt, mask_ints=None):
+               _FragTDMInt_class=FragTDMInt, mask_ints=None, discriminator=None,
+               pt_order=None, do_pt_order=None, verbose=None):
     ''' Build fragment-local intermediates (`FragTDMInt`) for LASSI o1
 
     Args:
@@ -659,32 +989,41 @@ def make_ints (las, ci, nelec_frs, screen_linequiv=DO_SCREEN_LINEQUIV, nlas=None
             rootspaces and storing the relevant unitary matrices.
         mask_ints : ndarray of shape (nroots,nroots)
             Mask index down to only the included interactions
+        discriminator : sequence of length (nroots)
+            Additional information to descriminate between otherwise-equivalent rootspaces
+        verbose : integer
+            Verbosity level of intermediate logger
 
     Returns:
-        hopping_index : ndarray of ints of shape (nfrags, 2, nroots, nroots)
-            element [i,j,k,l] reports the change of number of electrons of
-            spin j in fragment i between LAS rootspaces k and l
         ints : list of length nfrags of instances of :class:`FragTDMInt`
         lroots: ndarray of ints of shape (nfrags, nroots)
             Number of states within each fragment and rootspace
     '''
     nfrags, nroots = nelec_frs.shape[:2]
+    log = lib.logger.new_logger (las, las.verbose)
+    max_memory = getattr (las, 'max_memory', las.mol.max_memory)
     if nlas is None: nlas = las.ncas_sub
     if mask_ints is None: mask_ints = np.ones ((nroots,nroots), dtype=bool)
     lroots = get_lroots (ci)
-    hopping_index, zerop_index, onep_index = lst_hopping_index (nelec_frs)
     rootaddr, fragaddr = get_rootaddr_fragaddr (lroots)
     ints = []
     for ifrag in range (nfrags):
-        tdmint = _FragTDMInt_class (ci[ifrag], hopping_index[ifrag], zerop_index, onep_index,
-                                   nlas[ifrag], nroots, nelec_frs[ifrag], rootaddr,
-                                   fragaddr[ifrag], ifrag, mask_ints,
-                                   screen_linequiv=screen_linequiv)
-        lib.logger.timer (las, 'LAS-state TDM12s fragment {} intermediate crunching'.format (
+        m0 = lib.current_memory ()[0]
+        tdmint = _FragTDMInt_class (las, ci[ifrag],
+                                    nlas[ifrag], nroots, nelec_frs[ifrag], rootaddr,
+                                    fragaddr[ifrag], ifrag, mask_ints,
+                                    discriminator=discriminator,
+                                    screen_linequiv=screen_linequiv,
+                                    pt_order=pt_order, do_pt_order=do_pt_order,
+                                    verbose=verbose)
+        m1 = lib.current_memory ()[0]
+        log.info ('LAS-state TDM12s fragment %d uses %f MB of %f MB total used',
+                         ifrag, m1-m0, m1)
+        log.timer ('LAS-state TDM12s fragment {} intermediate crunching'.format (
             ifrag), *tdmint.time_crunch)
-        lib.logger.debug (las, 'UNIQUE ROOTSPACES OF FRAG %d: %d/%d', ifrag,
+        log.debug ('UNIQUE ROOTSPACES OF FRAG %d: %d/%d', ifrag,
                           np.count_nonzero (tdmint.root_unique), nroots)
         ints.append (tdmint)
-    return hopping_index, ints, lroots
+    return ints, lroots
 
 

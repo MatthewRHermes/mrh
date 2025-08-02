@@ -1,2 +1,24 @@
 [build-system]
-requires = ["setuptools", "wheel", "pyscf", "numpy"]
+# PySCF is a build requirement and a dependency
+requires = ["setuptools", "setuptools-scm", "pyscf"]
+build-backend = "setuptools.build_meta"
+
+[project]
+dynamic = ["version"]
+name = "mrh"
+authors = []
+description = ""
+dependencies = [
+    "pyscf",
+    "pyscf-forge",
+    "numpy",
+    "scipy"
+]
+
+# Handles the non-standard flat project layout
+# This may not build into a wheel
+[tool.setuptools.package-dir]
+"mrh" = "../mrh"
+
+# Enalbes versioning throught git commits/tags 
+[tool.setuptools_scm]

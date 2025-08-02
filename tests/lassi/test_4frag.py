@@ -30,6 +30,7 @@ from mrh.my_pyscf.lassi.lassi import make_stdm12s, ham_2q, las_symm_tuple
 from mrh.my_pyscf.lassi import op_o0
 from mrh.my_pyscf.lassi import op_o1
 from mrh.my_pyscf.lassi import LASSIS
+from mrh.my_pyscf.lassi.op_o1.utilities import lst_hopping_index, get_scallowed_interactions
 from mrh.my_pyscf.lassi.op_o1 import get_fdm1_maker
 from mrh.my_pyscf.lassi.sitools import make_sdm1
 from mrh.tests.lassi.addons import case_contract_hlas_ci, case_lassis_fbf_2_model_state
@@ -177,12 +178,11 @@ class KnownValues(unittest.TestCase):
                     lsi.prepare_states_()
                     h0, h1, h2 = ham_2q (las1, las1.mo_coeff)
                     case_contract_op_si (self, las1, h1, h2, lsi.ci, lsi.get_nelec_frs ())
-                else:
-                    lsi.kernel ()
-                    self.assertTrue (lsi.converged)
-                    self.assertAlmostEqual (lsi.e_roots[0], -1.867291372401379, 6)
-                    case_lassis_fbf_2_model_state (self, lsi)
-                    case_lassis_fbfdm (self, lsi)
+                lsi.kernel ()
+                self.assertTrue (lsi.converged)
+                self.assertAlmostEqual (lsi.e_roots[0], -1.867291372401379, 6)
+                case_lassis_fbf_2_model_state (self, lsi)
+                case_lassis_fbfdm (self, lsi)
 
     def test_lassis_slow (self):
         las0 = las.get_single_state_las (state=0)
@@ -195,12 +195,24 @@ class KnownValues(unittest.TestCase):
                     lsi.prepare_states_()
                     h0, h1, h2 = ham_2q (las0, las0.mo_coeff)
                     case_contract_op_si (self, las, h1, h2, lsi.ci, lsi.get_nelec_frs ())
-                else:
-                    lsi.kernel ()
-                    self.assertTrue (lsi.converged)
-                    self.assertAlmostEqual (lsi.e_roots[0], -304.5372586630968, 3)
-                    case_lassis_fbf_2_model_state (self, lsi)
-                    #case_lassis_fbfdm (self, lsi)
+                lsi.kernel ()
+                self.assertTrue (lsi.converged)
+                self.assertAlmostEqual (lsi.e_roots[0], -304.5372586630968, 3)
+                case_lassis_fbf_2_model_state (self, lsi)
+                #case_lassis_fbfdm (self, lsi)
+
+    def test_scallowed (self):
+        las0 = las.get_single_state_las (state=0)
+        for ifrag in range (len (las0.ci)):
+            las0.ci[ifrag][0] = las0.ci[ifrag][0][0]
+        lsi = LASSIS (las0)
+        lsi.prepare_states_()
+        nelec_frs = lsi.get_nelec_frs ()
+        exc_test = get_scallowed_interactions (nelec_frs)
+        hopping_index = lst_hopping_index (nelec_frs)
+        nop = np.abs (hopping_index).sum ((0,1))
+        exc_ref = np.asarray (np.where (nop<=4)).T
+        self.assertTrue (np.all (exc_test==exc_ref))
 
     def test_fdm1 (self):
         make_fdm1 = get_fdm1_maker (las, las.ci, nelec_frs, si)

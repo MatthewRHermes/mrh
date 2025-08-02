@@ -24,10 +24,12 @@ class HamS2OvlpOperators (HamS2Ovlp):
             Take no arguments and return and ndarray of shape (nstates,) which contains the
             Hamiltonian diagonal
     '''
-    def __init__(self, ints, nlas, hopping_index, lroots, h1, h2, mask_bra_space=None,
-                 mask_ket_space=None, log=None, max_memory=2000, dtype=np.float64):
-        HamS2Ovlp.__init__(self, ints, nlas, hopping_index, lroots, h1, h2,
+    def __init__(self, ints, nlas, lroots, h1, h2, mask_bra_space=None,
+                 mask_ket_space=None, pt_order=None, do_pt_order=None, log=None, max_memory=2000,
+                 dtype=np.float64):
+        HamS2Ovlp.__init__(self, ints, nlas, lroots, h1, h2,
                            mask_bra_space=mask_bra_space, mask_ket_space=mask_ket_space,
+                           pt_order=pt_order, do_pt_order=do_pt_order,
                            log=log, max_memory=max_memory, dtype=dtype)
         self.x = self.si = np.zeros (self.nstates, self.dtype)
         self.ox = np.zeros (self.nstates, self.dtype)
@@ -208,7 +210,7 @@ class HamS2OvlpOperators (HamS2Ovlp):
             if ifrag in inv:
                 # Collect the nonspectator-fragment dimensions on the minor end
                 for ket, vec in vecs.items ():
-                    lket = self.ints[ifrag].get_lroots (ket[ifrag])
+                    lket = self.ints[ifrag].get_lroots_uroot (ket[ifrag])
                     lr = vec.shape[-1]
                     vecs[ket] = vec.reshape (-1,lr*lket)
             else:
@@ -278,7 +280,7 @@ class HamS2OvlpOperators (HamS2Ovlp):
             vec = vecs[tuple(s)]
             lr = vec.shape[-1]
             bra, ket = os[ifrag], s[ifrag]
-            o = self.ints[ifrag].get_ovlp (bra, ket)
+            o = self.ints[ifrag].ovlp[bra][ket]
             lket = o.shape[1]
             vec = vec.reshape (-1,lket,lr)
             ovecs[tuple(os)] += lib.einsum ('pq,lqr->plr', o, vec).reshape (-1,lr)
@@ -424,6 +426,8 @@ def gen_contract_op_si_hdiag (las, h1, h2, ci, nelec_frs, soc=0, nlas=None,
     '''
     log = lib.logger.new_logger (las, las.verbose)
     if nlas is None: nlas = las.ncas_sub
+    pt_order = kwargs.get ('pt_order', None)
+    do_pt_order = kwargs.get ('do_pt_order', None)
     max_memory = getattr (las, 'max_memory', las.mol.max_memory)
     dtype = h1.dtype
     nfrags, nroots = nelec_frs.shape[:2]
@@ -434,16 +438,20 @@ def gen_contract_op_si_hdiag (las, h1, h2, ci, nelec_frs, soc=0, nlas=None,
         h1, h2, ci, nelec_frs, soc, nlas)
 
     # First pass: single-fragment intermediates
-    hopping_index, ints, lroots = frag.make_ints (las, ci, nelec_frs, nlas=nlas)
+    ints, lroots = frag.make_ints (las, ci, nelec_frs, nlas=nlas,
+                                                  pt_order=pt_order,
+                                                  do_pt_order=do_pt_order)
     nstates = np.sum (np.prod (lroots, axis=0))
 
     # Second pass: upper-triangle
     t0 = (lib.logger.process_clock (), lib.logger.perf_counter ())
-    outerprod = _HamS2Ovlp_class (ints, nlas, hopping_index, lroots, h1, h2, dtype=dtype,
-                                     max_memory=max_memory, log=log)
+    outerprod = _HamS2Ovlp_class (ints, nlas, lroots, h1, h2,
+                                  pt_order=pt_order, do_pt_order=do_pt_order,
+                                  dtype=dtype, max_memory=max_memory, log=log)
+
     if soc and not spin_pure:
         outerprod.spin_shuffle = spin_shuffle_fac
-    lib.logger.timer (las, 'LASSI Hamiltonian second intermediate indexing setup', *t0)
+    lib.logger.timer (las, 'LASSI hsi operator build', *t0)
 
     if _return_int: return outerprod
 

@@ -90,16 +90,12 @@ class KnownValues(unittest.TestCase):
         case_lassis_ugg (self, lsi)
 
     def test_grads (self):
-        for lsi.opt in (0,1):
-            with self.subTest (opt=lsi.opt):
-                case_lassis_grads (self, lsi)
-            break
+        lsi.opt = 1
+        case_lassis_grads (self, lsi)
 
     def test_hessian (self):
-        for lsi.opt in (0,1):
-            with self.subTest (opt=lsi.opt):
-                case_lassis_hessian (self, lsi)    
-            break
+        lsi.opt = 1
+        case_lassis_hessian (self, lsi)
 
 if __name__ == "__main__":
     print("Full Tests for LASSIS of c2h4n4 molecule")
