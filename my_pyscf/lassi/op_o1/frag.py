@@ -990,6 +990,7 @@ def make_ints (las, ci, nelec_frs, screen_linequiv=DO_SCREEN_LINEQUIV, nlas=None
         lroots: ndarray of ints of shape (nfrags, nroots)
             Number of states within each fragment and rootspace
     '''
+    t0 = (lib.logger.process_clock (), lib.logger.perf_counter ())
     nfrags, nroots = nelec_frs.shape[:2]
     log = lib.logger.new_logger (las, las.verbose)
     max_memory = getattr (las, 'max_memory', las.mol.max_memory)
@@ -1004,6 +1005,7 @@ def make_ints (las, ci, nelec_frs, screen_linequiv=DO_SCREEN_LINEQUIV, nlas=None
     hopping_index = lst_hopping_index (nelec_frs)
     rootaddr, fragaddr = get_rootaddr_fragaddr (lroots)
     ints = []
+    t0 = log.timer('make ints initialize', *t0)
     for ifrag in range (nfrags):
         m0 = lib.current_memory ()[0]
         tdmint = _FragTDMInt_class (las, ci[ifrag], hopping_index[ifrag],
@@ -1021,6 +1023,7 @@ def make_ints (las, ci, nelec_frs, screen_linequiv=DO_SCREEN_LINEQUIV, nlas=None
         log.debug ('UNIQUE ROOTSPACES OF FRAG %d: %d/%d', ifrag,
                           np.count_nonzero (tdmint.root_unique), nroots)
         ints.append (tdmint)
+        t0 = log.timer('make ints calculate', *t0)
     return hopping_index, ints, lroots
 
 

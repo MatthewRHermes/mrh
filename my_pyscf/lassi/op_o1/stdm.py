@@ -80,6 +80,7 @@ class LSTDM (object):
 
     def __init__(self, ints, nlas, hopping_index, lroots, mask_bra_space=None, mask_ket_space=None,
                  pt_order=None, do_pt_order=None, log=None, max_memory=2000, dtype=np.float64):
+        t0 = (lib.logger.process_clock (), lib.logger.perf_counter ())
         self.ints = ints
         self.log = log
         self.max_memory = max_memory
@@ -104,9 +105,11 @@ class LSTDM (object):
         self.nstates = offs1[-1]
         self.dtype = dtype
         self.tdm1s = self.tdm2s = None
+        t0 = log.timer ('STDM class initialize', *t0)
 
         # overlap tensor
         self.ovlp = [i.ovlp for i in ints]
+        t0 = log.timer ('STDM class overlap timer', *t0)
 
         # spin-shuffle sign vector
         self.nelec_rf = np.asarray ([[list (i.nelec_r[ket]) for i in ints]
@@ -114,20 +117,34 @@ class LSTDM (object):
         self.spin_shuffle = [fermion_spin_shuffle (nelec_sf[0], nelec_sf[1])
                              for nelec_sf in self.nelec_rf]
         self.nelec_rf = self.nelec_rf.sum (1)
+        t0 = log.timer ('STDM class overlap timer', *t0)
 
         self.urootstr = np.asarray ([[i.uroot_idx[r] for i in self.ints]
                                      for r in range (self.nroots)]).T
 
+        t0 = log.timer ('STDM class urootstr?', *t0)
+        t1 = (lib.logger.process_clock (), lib.logger.perf_counter ())
         exc = self.make_exc_tables (hopping_index)
+        t1 = log.timer ('STDM class exc', *t1)
         self.nonuniq_exc = {}
         self.exc_null = self.mask_exc_table_(exc['null'], 'null', mask_bra_space, mask_ket_space)
+        t1 = log.timer ('STDM class exc_null', *t1)
         self.exc_1d = self.mask_exc_table_(exc['1d'], '1d', mask_bra_space, mask_ket_space)
+        t1 = log.timer ('STDM class exc_1d', *t1)
         self.exc_2d = self.mask_exc_table_(exc['2d'], '2d', mask_bra_space, mask_ket_space)
+        t1 = log.timer ('STDM class exc_2d', *t1)
         self.exc_1c = self.mask_exc_table_(exc['1c'], '1c', mask_bra_space, mask_ket_space)
+        t1 = log.timer ('STDM class exc_1c', *t1)
         self.exc_1c1d = self.mask_exc_table_(exc['1c1d'], '1c1d', mask_bra_space, mask_ket_space)
+        t1 = log.timer ('STDM class exc_1c1d', *t1)
         self.exc_1s = self.mask_exc_table_(exc['1s'], '1s', mask_bra_space, mask_ket_space)
+        t1 = log.timer ('STDM class exc_1s', *t1)
         self.exc_1s1c = self.mask_exc_table_(exc['1s1c'], '1s1c', mask_bra_space, mask_ket_space)
+        t1 = log.timer ('STDM class exc_1s1s', *t1)
         self.exc_2c = self.mask_exc_table_(exc['2c'], '2c', mask_bra_space, mask_ket_space)
+        t1 = log.timer ('STDM class exc_2c', *t1)
+
+        t0 = log.timer ('STDM class making exc tables', *t0) 
         self.init_profiling ()
 
         # buffer
@@ -137,13 +154,17 @@ class LSTDM (object):
         self._norb_c = c_int (self.norb)
         self._orbidx = np.ones (self.norb, dtype=bool)
 
+        t0 = log.timer ('STDM class buffers', *t0)
+
         # C fns
         if self.dtype==np.float64:
             self._put_SD1_c_fn = liblassi.LASSIRDMdputSD1
             self._put_SD2_c_fn = liblassi.LASSIRDMdputSD2
+            t0 = log.timer ('STDM class Cfns float64', *t0)
         elif self.dtype==np.complex128:
             self._put_SD1_c_fn = liblassi.LASSIRDMzputSD1
             self._put_SD2_c_fn = liblassi.LASSIRDMzputSD2
+            t0 = log.timer ('STDM class Cfns complex128', *t0)
         else:
             raise NotImplementedError (self.dtype)
 
