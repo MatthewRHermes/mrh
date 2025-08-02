@@ -3,10 +3,17 @@
 #ifndef MATHLIB_H
 #define MATHLIB_H
 
+//#define _DEBUG_ML
+//#define _PROFILE_ML
+
 #ifdef _SINGLE_PRECISION
   typedef float real_t;
 #else
   typedef double real_t;
+#endif
+
+#if defined(_PROFILE_ML)
+#include <algorithm>
 #endif
 
 #if defined(_USE_GPU)

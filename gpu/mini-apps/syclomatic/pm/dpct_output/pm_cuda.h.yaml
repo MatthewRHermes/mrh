@@ -1,0 +1,280 @@
+---
+MainSourceFile:  '/lus/grand/projects/LASSCF_gpudev/knight/soft/mrh/gpu/mini-apps/syclomatic/pm/dpct_output/pm_cuda.h'
+Replacements:
+  - FilePath:        '/lus/grand/projects/LASSCF_gpudev/knight/soft/mrh/gpu/mini-apps/syclomatic/pm/pm_cuda.h'
+    Offset:          61
+    Length:          30
+    ReplacementText: "#include <sycl/sycl.hpp>\n#include <dpct/dpct.hpp>\n#include <dpct/blas_utils.hpp>\n"
+    ConstantFlag:    ''
+    ConstantOffset:  0
+    InitStr:         ''
+    NewHostVarName:  ''
+    BlockLevelFormatFlag: false
+  - FilePath:        '/lus/grand/projects/LASSCF_gpudev/knight/soft/mrh/gpu/mini-apps/syclomatic/pm/pm_cuda.h'
+    Offset:          91
+    Length:          23
+    ReplacementText: ''
+    ConstantFlag:    ''
+    ConstantOffset:  0
+    InitStr:         ''
+    NewHostVarName:  ''
+    BlockLevelFormatFlag: false
+  - FilePath:        '/lus/grand/projects/LASSCF_gpudev/knight/soft/mrh/gpu/mini-apps/syclomatic/pm/pm_cuda.h'
+    Offset:          224
+    Length:          0
+    ReplacementText: "/*\nDPCT1001:2: The statement could not be removed.\n*/\n/*\nDPCT1000:3: Error handling if-stmt was detected but could not be rewritten.\n*/\n/*\nDPCT1010:4: SYCL uses exceptions to report errors and does not use the error codes. The call was replaced with 0. You need to rewrite this code.\n*/\n/*\nDPCT1009:5: SYCL uses exceptions to report errors and does not use the error codes. The call was replaced by a placeholder string. You need to rewrite this code.\n*/\n"
+    ConstantFlag:    ''
+    ConstantOffset:  0
+    InitStr:         ''
+    NewHostVarName:  ''
+    BlockLevelFormatFlag: false
+  - FilePath:        '/lus/grand/projects/LASSCF_gpudev/knight/soft/mrh/gpu/mini-apps/syclomatic/pm/pm_cuda.h'
+    Offset:          286
+    Length:          9
+    ReplacementText: 'dpct::err0'
+    ConstantFlag:    ''
+    ConstantOffset:  0
+    InitStr:         ''
+    NewHostVarName:  ''
+    BlockLevelFormatFlag: false
+  - FilePath:        '/lus/grand/projects/LASSCF_gpudev/knight/soft/mrh/gpu/mini-apps/syclomatic/pm/pm_cuda.h'
+    Offset:          302
+    Length:          18
+    ReplacementText: '0'
+    ConstantFlag:    ''
+    ConstantOffset:  0
+    InitStr:         ''
+    NewHostVarName:  ''
+    BlockLevelFormatFlag: false
+  - FilePath:        '/lus/grand/projects/LASSCF_gpudev/knight/soft/mrh/gpu/mini-apps/syclomatic/pm/pm_cuda.h'
+    Offset:          341
+    Length:          11
+    ReplacementText: '0'
+    ConstantFlag:    ''
+    ConstantOffset:  0
+    InitStr:         ''
+    NewHostVarName:  ''
+    BlockLevelFormatFlag: false
+  - FilePath:        '/lus/grand/projects/LASSCF_gpudev/knight/soft/mrh/gpu/mini-apps/syclomatic/pm/pm_cuda.h'
+    Offset:          423
+    Length:          23
+    ReplacementText: '"<Placeholder string>"'
+    ConstantFlag:    ''
+    ConstantOffset:  0
+    InitStr:         ''
+    NewHostVarName:  ''
+    BlockLevelFormatFlag: false
+  - FilePath:        '/lus/grand/projects/LASSCF_gpudev/knight/soft/mrh/gpu/mini-apps/syclomatic/pm/pm_cuda.h'
+    Offset:          591
+    Length:          0
+    ReplacementText: "/*\nDPCT1001:14: The statement could not be removed.\n*/\n/*\nDPCT1000:15: Error handling if-stmt was detected but could not be rewritten.\n*/\n/*\nDPCT1010:16: SYCL uses exceptions to report errors and does not use the error codes. The call was replaced with 0. You need to rewrite this code.\n*/\n/*\nDPCT1009:17: SYCL uses exceptions to report errors and does not use the error codes. The call was replaced by a placeholder string. You need to rewrite this code.\n*/\n"
+    ConstantFlag:    ''
+    ConstantOffset:  0
+    InitStr:         ''
+    NewHostVarName:  ''
+    BlockLevelFormatFlag: false
+  - FilePath:        '/lus/grand/projects/LASSCF_gpudev/knight/soft/mrh/gpu/mini-apps/syclomatic/pm/pm_cuda.h'
+    Offset:          654
+    Length:          9
+    ReplacementText: 'dpct::err0'
+    ConstantFlag:    ''
+    ConstantOffset:  0
+    InitStr:         ''
+    NewHostVarName:  ''
+    BlockLevelFormatFlag: false
+  - FilePath:        '/lus/grand/projects/LASSCF_gpudev/knight/soft/mrh/gpu/mini-apps/syclomatic/pm/pm_cuda.h'
+    Offset:          670
+    Length:          18
+    ReplacementText: '0'
+    ConstantFlag:    ''
+    ConstantOffset:  0
+    InitStr:         ''
+    NewHostVarName:  ''
+    BlockLevelFormatFlag: false
+  - FilePath:        '/lus/grand/projects/LASSCF_gpudev/knight/soft/mrh/gpu/mini-apps/syclomatic/pm/pm_cuda.h'
+    Offset:          709
+    Length:          11
+    ReplacementText: '0'
+    ConstantFlag:    ''
+    ConstantOffset:  0
+    InitStr:         ''
+    NewHostVarName:  ''
+    BlockLevelFormatFlag: false
+  - FilePath:        '/lus/grand/projects/LASSCF_gpudev/knight/soft/mrh/gpu/mini-apps/syclomatic/pm/pm_cuda.h'
+    Offset:          791
+    Length:          23
+    ReplacementText: '"<Placeholder string>"'
+    ConstantFlag:    ''
+    ConstantOffset:  0
+    InitStr:         ''
+    NewHostVarName:  ''
+    BlockLevelFormatFlag: false
+  - FilePath:        '/lus/grand/projects/LASSCF_gpudev/knight/soft/mrh/gpu/mini-apps/syclomatic/pm/pm_cuda.h'
+    Offset:          1269
+    Length:          12
+    ReplacementText: 'dpct::queue_ptr'
+    ConstantFlag:    ''
+    ConstantOffset:  0
+    InitStr:         ''
+    NewHostVarName:  ''
+    BlockLevelFormatFlag: false
+  - FilePath:        '/lus/grand/projects/LASSCF_gpudev/knight/soft/mrh/gpu/mini-apps/syclomatic/pm/pm_cuda.h'
+    Offset:          1412
+    Length:          12
+    ReplacementText: 'dpct::queue_ptr'
+    ConstantFlag:    ''
+    ConstantOffset:  0
+    InitStr:         ''
+    NewHostVarName:  ''
+    BlockLevelFormatFlag: false
+  - FilePath:        '/lus/grand/projects/LASSCF_gpudev/knight/soft/mrh/gpu/mini-apps/syclomatic/pm/pm_cuda.h'
+    Offset:          1738
+    Length:          12
+    ReplacementText: 'dpct::queue_ptr'
+    ConstantFlag:    ''
+    ConstantOffset:  0
+    InitStr:         ''
+    NewHostVarName:  ''
+    BlockLevelFormatFlag: false
+  - FilePath:        '/lus/grand/projects/LASSCF_gpudev/knight/soft/mrh/gpu/mini-apps/syclomatic/pm/pm_cuda.h'
+    Offset:          1886
+    Length:          12
+    ReplacementText: 'dpct::queue_ptr'
+    ConstantFlag:    ''
+    ConstantOffset:  0
+    InitStr:         ''
+    NewHostVarName:  ''
+    BlockLevelFormatFlag: false
+  - FilePath:        '/lus/grand/projects/LASSCF_gpudev/knight/soft/mrh/gpu/mini-apps/syclomatic/pm/pm_cuda.h'
+    Offset:          2230
+    Length:          12
+    ReplacementText: 'dpct::queue_ptr'
+    ConstantFlag:    ''
+    ConstantOffset:  0
+    InitStr:         ''
+    NewHostVarName:  ''
+    BlockLevelFormatFlag: false
+  - FilePath:        '/lus/grand/projects/LASSCF_gpudev/knight/soft/mrh/gpu/mini-apps/syclomatic/pm/pm_cuda.h'
+    Offset:          2308
+    Length:          12
+    ReplacementText: 'dpct::queue_ptr'
+    ConstantFlag:    ''
+    ConstantOffset:  0
+    InitStr:         ''
+    NewHostVarName:  ''
+    BlockLevelFormatFlag: false
+  - FilePath:        '/lus/grand/projects/LASSCF_gpudev/knight/soft/mrh/gpu/mini-apps/syclomatic/pm/pm_cuda.h'
+    Offset:          2380
+    Length:          12
+    ReplacementText: 'dpct::queue_ptr'
+    ConstantFlag:    ''
+    ConstantOffset:  0
+    InitStr:         ''
+    NewHostVarName:  ''
+    BlockLevelFormatFlag: false
+  - FilePath:        '/lus/grand/projects/LASSCF_gpudev/knight/soft/mrh/gpu/mini-apps/syclomatic/pm/pm_cuda.h'
+    Offset:          2436
+    Length:          12
+    ReplacementText: 'dpct::queue_ptr'
+    ConstantFlag:    ''
+    ConstantOffset:  0
+    InitStr:         ''
+    NewHostVarName:  ''
+    BlockLevelFormatFlag: false
+  - FilePath:        '/lus/grand/projects/LASSCF_gpudev/knight/soft/mrh/gpu/mini-apps/syclomatic/pm/pm_cuda.h'
+    Offset:          2626
+    Length:          10
+    ReplacementText: 'std::array<unsigned char, 16>'
+    ConstantFlag:    ''
+    ConstantOffset:  0
+    InitStr:         ''
+    NewHostVarName:  ''
+    BlockLevelFormatFlag: false
+  - FilePath:        '/lus/grand/projects/LASSCF_gpudev/knight/soft/mrh/gpu/mini-apps/syclomatic/pm/pm_cuda.h'
+    Offset:          2656
+    Length:          12
+    ReplacementText: 'dpct::queue_ptr'
+    ConstantFlag:    ''
+    ConstantOffset:  0
+    InitStr:         ''
+    NewHostVarName:  ''
+    BlockLevelFormatFlag: false
+  - FilePath:        '/lus/grand/projects/LASSCF_gpudev/knight/soft/mrh/gpu/mini-apps/syclomatic/pm/pm_cuda.h'
+    Offset:          2685
+    Length:          12
+    ReplacementText: 'dpct::queue_ptr'
+    ConstantFlag:    ''
+    ConstantOffset:  0
+    InitStr:         ''
+    NewHostVarName:  ''
+    BlockLevelFormatFlag: false
+MainSourceFilesDigest:
+  - MainSourceFile:  '/lus/grand/projects/LASSCF_gpudev/knight/soft/mrh/gpu/mini-apps/syclomatic/pm/pm_cuda.h'
+    Digest:          a0ec5200d44c4847935ba1d3966f1cf1
+DpctVersion:     19.0.0
+MainHelperFileName: ''
+USMLevel:        ''
+FeatureMap:      {}
+CompileTargets:  {}
+OptionMap:
+  AnalysisScopePath:
+    Value:           '/lus/grand/projects/LASSCF_gpudev/knight/soft/mrh/gpu/mini-apps/syclomatic/pm'
+    Specified:       false
+  AsyncHandler:
+    Value:           'false'
+    Specified:       false
+  BuildScript:
+    Value:           '0'
+    Specified:       false
+  CodePinEnabled:
+    Value:           'false'
+    Specified:       false
+  CommentsEnabled:
+    Value:           'false'
+    Specified:       false
+  CompilationsDir:
+    Value:           ''
+    Specified:       false
+  CtadEnabled:
+    Value:           'false'
+    Specified:       false
+  EnablepProfiling:
+    Value:           'false'
+    Specified:       false
+  ExperimentalFlag:
+    Value:           '0'
+    Specified:       false
+  ExplicitNamespace:
+    Value:           '20'
+    Specified:       false
+  ExtensionDDFlag:
+    Value:           '0'
+    Specified:       false
+  ExtensionDEFlag:
+    Value:           '4294967295'
+    Specified:       false
+  HelperFuncPreferenceFlag:
+    Value:           '0'
+    Specified:       false
+  NDRangeDim:
+    Value:           '3'
+    Specified:       false
+  NoDRYPattern:
+    Value:           'false'
+    Specified:       false
+  OptimizeMigration:
+    Value:           'false'
+    Specified:       false
+  ProcessAll:
+    Value:           'false'
+    Specified:       false
+  RuleFile:
+    Value:           ''
+    Specified:       false
+  SyclNamedLambda:
+    Value:           'false'
+    Specified:       false
+  UsmLevel:
+    Value:           '1'
+    Specified:       false
+...

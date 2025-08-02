@@ -24,6 +24,8 @@ using namespace MATHLIB_NS;
 #define _USE_ERI_CACHE
 #define _ERI_CACHE_EXTRA 2
 
+#define _ENABLE_P2P
+
 //#define _DEBUG_DEVICE
 //#define _DEBUG_ERI_CACHE
 //#define _DEBUG_H2EFF
@@ -31,6 +33,7 @@ using namespace MATHLIB_NS;
 //#define _DEBUG_H2EFF_DF
 //#define _DEBUG_AO2MO
 //#define _DEBUG_PACKING
+//#define _DEBUG_P2P
 
 #define _PUMAP_2D_UNPACK 0       // generic unpacking of 1D array to 2D matrix
 #define _PUMAP_H2EFF_UNPACK 1    // unpacking h2eff array (generic?)
@@ -171,6 +174,14 @@ public :
   void pack_d_vuwM_add(const double *, double *, int *, int, int, int);
   
   void push_mo_coeff(py::array_t<double>, int);
+
+  void vecadd(const double *, double *, int); // replace with ml->daxpy()
+
+  // multi-gpu communication (better here or part of PM?)
+
+  void mgpu_bcast(std::vector<double *>, double *, size_t);
+  void mgpu_reduce(std::vector<double *>, double *, int, bool, std::vector<double *>);
+  
 private:
 
   class PM * pm;
@@ -179,10 +190,6 @@ private:
   
   double host_compute(double *);
   void get_cores(char *);
-
-  void profile_start(const char *);
-  void profile_stop();
-  void profile_next(const char *);
 
   int verbose_level;
   

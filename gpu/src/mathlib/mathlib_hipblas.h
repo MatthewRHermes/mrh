@@ -5,6 +5,11 @@
 
 #include "../pm/pm.h"
 
+#if defined(_PROFILE_ML)
+#include <string>
+#include <sstream>
+#endif
+
 #include "hipblas.h"
 
 namespace MATHLIB_NS {
@@ -14,7 +19,7 @@ namespace MATHLIB_NS {
   public:
 
     MATHLIB(class PM_NS::PM * pm);
-    ~MATHLIB() {};
+    ~MATHLIB();
 
     int create_handle();
     void set_handle(int);
@@ -41,6 +46,11 @@ namespace MATHLIB_NS {
     std::vector<hipblasHandle_t> my_handles;
     hipblasHandle_t * current_handle;
     int current_handle_id;
+    
+#if defined(_PROFILE_ML)
+    std::vector<std::string> profile_name;
+    std::vector<int> profile_count;
+#endif
   };
 
 }
