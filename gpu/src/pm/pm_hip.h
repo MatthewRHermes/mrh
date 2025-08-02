@@ -90,6 +90,10 @@ namespace PM_NS {
     void dev_set_queue(int id);
     hipStream_t * dev_get_queue();
     
+    void dev_profile_start(const char *);
+    void dev_profile_stop();
+    void dev_profile_next(const char *);
+    
   private:
     
     void uuid_print(hipUUID_t);

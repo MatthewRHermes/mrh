@@ -10,11 +10,11 @@ from mrh.my_pyscf.lassi.op_o1.hci.chc import ContractHamCI_CHC
 from mrh.my_pyscf.lassi.op_o1.hci.chc import gen_contract_ham_ci_const
 from mrh.my_pyscf.lassi.op_o1.hci.schcs import ContractHamCI_SHS
 
-def ContractHamCI (las, ints, nlas, hopping_index, lroots, h0, h1, h2, si_bra=None, si_ket=None,
+def ContractHamCI (las, ints, nlas, lroots, h0, h1, h2, si_bra=None, si_ket=None,
                    mask_bra_space=None, mask_ket_space=None, pt_order=None, do_pt_order=None,
                    add_transpose=False, accum=None, log=None, max_memory=2000, dtype=np.float64):
     if si_bra is None and si_ket is None:
-        return ContractHamCI_CHC (las, ints, nlas, hopping_index, lroots, h0, h1, h2,
+        return ContractHamCI_CHC (las, ints, nlas, lroots, h0, h1, h2,
                                   mask_bra_space=mask_bra_space,
                                   mask_ket_space=mask_ket_space,
                                   pt_order=pt_order, do_pt_order=do_pt_order,
@@ -25,13 +25,13 @@ def ContractHamCI (las, ints, nlas, hopping_index, lroots, h0, h1, h2, si_bra=No
                 hci, t0 = super ().kernel ()
                 hci = hci_dot_sivecs (hci, si_bra, si_ket, self.lroots)
                 return hci, t0
-        return ContractHamCI (las, ints, nlas, hopping_index, lroots, h0, h1, h2,
+        return ContractHamCI (las, ints, nlas, lroots, h0, h1, h2,
                               mask_bra_space=mask_bra_space,
                               mask_ket_space=mask_ket_space,
                               pt_order=pt_order, do_pt_order=do_pt_order,
                               log=log, max_memory=2000, dtype=np.float64)
     else:
-        return ContractHamCI_SHS (las, ints, nlas, hopping_index, lroots, h0, h1, h2, si_bra,
+        return ContractHamCI_SHS (las, ints, nlas, lroots, h0, h1, h2, si_bra,
                                   si_ket, mask_bra_space=mask_bra_space,
                                   mask_ket_space=mask_ket_space,
                                   pt_order=pt_order, do_pt_order=do_pt_order,
@@ -40,7 +40,8 @@ def ContractHamCI (las, ints, nlas, hopping_index, lroots, h0, h1, h2, si_bra=No
 
 def contract_ham_ci (las, h1, h2, ci_fr, nelec_frs, si_bra=None, si_ket=None, ci_fr_bra=None,
                      nelec_frs_bra=None, h0=0, soc=0, sum_bra=False, orbsym=None, wfnsym=None,
-                     pt_order=None, do_pt_order=None, accum=None, add_transpose=False):
+                     pt_order=None, do_pt_order=None, accum=None, add_transpose=False,
+                     verbose=None):
     '''Evaluate the action of the state interaction Hamiltonian on a set of ket CI vectors,
     projected onto a basis of bra CI vectors, leaving one fragment of the bra uncontracted.
 
@@ -89,7 +90,8 @@ def contract_ham_ci (las, h1, h2, ci_fr, nelec_frs, si_bra=None, si_ket=None, ci
             Otherwise, element i,j is an ndarray of shape (ndim_bra//ci_fr_bra[i][j].shape[0],
             ndeta_bra[i,j],ndetb_bra[i,j],ndim_ket).
     '''
-    log = lib.logger.new_logger (las, las.verbose)
+    if verbose is None: verbose = las.verbose
+    log = lib.logger.new_logger (las, verbose)
     nlas = las.ncas_sub
     ci_fr_ket = ci_fr
     nelec_frs_ket = nelec_frs
@@ -124,7 +126,7 @@ def contract_ham_ci (las, h1, h2, ci_fr, nelec_frs, si_bra=None, si_ket=None, ci
             discriminator[mask_bra_space] += np.arange (nbra, dtype=int)
 
     # First pass: single-fragment intermediates
-    hopping_index, ints, lroots = frag.make_ints (las, ci, nelec_frs, nlas=nlas,
+    ints, lroots = frag.make_ints (las, ci, nelec_frs, nlas=nlas,
                                                   screen_linequiv=False,
                                                   mask_ints=mask_ints,
                                                   discriminator=discriminator,
@@ -134,7 +136,7 @@ def contract_ham_ci (las, h1, h2, ci_fr, nelec_frs, si_bra=None, si_ket=None, ci
     # Second pass: upper-triangle
     t0 = (lib.logger.process_clock (), lib.logger.perf_counter ())
     max_memory = getattr (las, 'max_memory', las.mol.max_memory)
-    contracter = ContractHamCI (las, ints, nlas, hopping_index, lroots, h0, h1, h2, si_bra=si_bra,
+    contracter = ContractHamCI (las, ints, nlas, lroots, h0, h1, h2, si_bra=si_bra,
                                 si_ket=si_ket, mask_bra_space=mask_bra_space,
                                 mask_ket_space=mask_ket_space, pt_order=pt_order,
                                 do_pt_order=do_pt_order, add_transpose=add_transpose, accum=accum,

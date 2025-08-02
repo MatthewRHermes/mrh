@@ -190,6 +190,28 @@ __global__ void _getjk_unpack_buf2(double * buf2, double * eri1, int * map, int 
 #endif
 
 /* ---------------------------------------------------------------------- */
+void _pack_eri1(double * eri1, double * buf2, int * map, int naux, int nao, int nao_pair,
+                const sycl::nd_item<3> &item_ct1)
+{
+ //eri1 is out, buf2 is in, we are packing buf2 of shape naux * nao * nao to eri1 of shape naux * nao_pair
+  const int i = item_ct1.get_group(2) * item_ct1.get_local_range(2) +
+                item_ct1.get_local_id(2);
+  const int j = item_ct1.get_group(1) * item_ct1.get_local_range(1) +
+                item_ct1.get_local_id(1);
+
+  if(i >= naux) return;
+  if(j >= nao) return;
+
+  double * buf = &(buf2[i * nao * nao]);
+  double * tril = &(eri1[i * nao_pair]);
+
+  const int indx = j * nao;
+  //for(int k=0; k<nao; ++k) buf[indx+k] = tril[ map[indx+k] ];  
+  for(int k=0; k<nao; ++k) tril[map[indx+k]] = buf[ indx+k ];  
+}
+
+/* ---------------------------------------------------------------------- */
+
 
 #if 1
 
@@ -306,7 +328,6 @@ void _get_bufaa (const double* bufpp, double* bufaa, int naux, int nmo, int ncor
 }
 
 /* ---------------------------------------------------------------------- */
-
 
 void _transpose_120(double * in, double * out, int naux, int nao, int ncas,
                     const sycl::nd_item<3> &item_ct1) {
@@ -480,6 +501,7 @@ void _pack_d_vuwM(const double * in, double * out, int * map, int nmo, int ncas,
     out[i*ncas_pair + map[j]]=in[j*ncas*nmo + i];
 
 }
+
 /* ---------------------------------------------------------------------- */
 
 void _pack_d_vuwM_add(const double * in, double * out, int * map, int nmo, int ncas, int ncas_pair,
@@ -493,10 +515,20 @@ void _pack_d_vuwM_add(const double * in, double * out, int * map, int nmo, int n
     if(i >= nmo*ncas) return;
     if(j >= ncas*ncas) return;
     //out[k*ncas_pair*nao+l*ncas_pair+ij]=h_vuwM[i*ncas*ncas*nao+j*ncas*nao+k*nao+l];}}}}
-    out[i*ncas_pair + map[j]]+=in[j*ncas*nmo + i];
-
+    out[i*ncas_pair + map[j]]+=in[j*ncas*nmo + i]; // this doesn't work because map spans (ncas x ncas) and has duplicate entries
 }
 
+/* ---------------------------------------------------------------------- */
+
+void _vecadd(const double * in, double * out, int N,
+             const sycl::nd_item<3> &item_ct1)
+{
+    int i = item_ct1.get_group(2) * item_ct1.get_local_range(2) +
+            item_ct1.get_local_id(2);
+
+    if(i >= N) return;
+    out[i] += in[i];
+}
 
 /* ---------------------------------------------------------------------- */
 /* Interface functions calling CUDA kernels
@@ -519,7 +551,7 @@ void Device::getjk_rho(double * rho, double * dmtril, double * eri, int nset, in
 
     s->submit([&](sycl::handler &cgh) {
       /*
-      DPCT1101:13: '_RHO_BLOCK_SIZE' expression was replaced with a value.
+      DPCT1101:14: '_RHO_BLOCK_SIZE' expression was replaced with a value.
       Modify the code to use the original expression, provided in comments, if
       it is correct.
       */
@@ -603,6 +635,38 @@ void Device::getjk_unpack_buf2(double * buf2, double * eri, int * map, int naux,
 }
 
 /* ---------------------------------------------------------------------- */
+void Device::pack_eri(double * eri1, double * buf2, int * map, int naux, int nao, int nao_pair)
+{
+#if 1
+  //dim3 grid_size(naux, _TILE(nao, _UNPACK_BLOCK_SIZE), 1);
+  //dim3 block_size(1, _UNPACK_BLOCK_SIZE, 1);
+  sycl::range<3> grid_size(1, nao, naux);
+  sycl::range<3> block_size(1, 1, 1);
+#else
+  dim3 grid_size(naux, _TILE(nao*nao, _UNPACK_BLOCK_SIZE), 1);
+  dim3 block_size(1, _UNPACK_BLOCK_SIZE, 1);
+#endif
+  dpct::queue_ptr s = *(pm->dev_get_queue());
+
+  {
+    dpct::has_capability_or_fail(s->get_device(), {sycl::aspect::fp64});
+
+    s->parallel_for(sycl::nd_range<3>(grid_size * block_size, block_size),
+                    [=](sycl::nd_item<3> item_ct1) {
+                      _pack_eri1(eri1, buf2, map, naux, nao, nao_pair,
+                                 item_ct1);
+                    });
+  }
+
+#ifdef _DEBUG_DEVICE
+  printf("LIBGPU :: _pack_eri1 :: naux= %i  nao= %i _UNPACK_BLOCK_SIZE= %i  grid_size= %i %i %i  block_size= %i %i %i\n",
+	 naux, nao, _UNPACK_BLOCK_SIZE, grid_size.x,grid_size.y,grid_size.z,block_size.x,block_size.y,block_size.z);
+  _CUDA_CHECK_ERRORS();
+#endif
+}
+
+/* ---------------------------------------------------------------------- */
+
 
 void Device::transpose(double * out, double * in, int nrow, int ncol)
 {
@@ -626,12 +690,12 @@ void Device::transpose(double * out, double * in, int nrow, int ncol)
 
     s->submit([&](sycl::handler &cgh) {
       /*
-      DPCT1101:14: '_TRANSPOSE_BLOCK_SIZE' expression was replaced with a
+      DPCT1101:15: '_TRANSPOSE_BLOCK_SIZE' expression was replaced with a
       value. Modify the code to use the original expression, provided in
       comments, if it is correct.
       */
       /*
-      DPCT1101:15: '_TRANSPOSE_BLOCK_SIZE+1' expression was replaced with a
+      DPCT1101:16: '_TRANSPOSE_BLOCK_SIZE+1' expression was replaced with a
       value. Modify the code to use the original expression, provided in
       comments, if it is correct.
       */
@@ -1033,7 +1097,9 @@ void Device::pack_d_vuwM(const double * in, double * out, int * map, int nmo, in
   _CUDA_CHECK_ERRORS();
 #endif
 }
+
 /* ---------------------------------------------------------------------- */
+
 void Device::pack_d_vuwM_add(const double * in, double * out, int * map, int nmo, int ncas, int ncas_pair)
 {
   sycl::range<3> block_size(1, _UNPACK_BLOCK_SIZE, _UNPACK_BLOCK_SIZE);
@@ -1064,5 +1130,34 @@ void Device::pack_d_vuwM_add(const double * in, double * out, int * map, int nmo
 #endif
 }
 
+/* ---------------------------------------------------------------------- */
+
+void Device::vecadd(const double * in, double * out, int N)
+{
+  sycl::range<3> block_size(1, 1, _DEFAULT_BLOCK_SIZE);
+  sycl::range<3> grid_size(1, 1, _TILE(N, block_size[2]));
+
+  dpct::queue_ptr s = *(pm->dev_get_queue());
+
+  /*
+  DPCT1049:13: The work-group size passed to the SYCL kernel may exceed the
+  limit. To get the device limit, query info::device::max_work_group_size.
+  Adjust the work-group size if needed.
+  */
+  {
+    dpct::has_capability_or_fail(s->get_device(), {sycl::aspect::fp64});
+
+    s->parallel_for(sycl::nd_range<3>(grid_size * block_size, block_size),
+                    [=](sycl::nd_item<3> item_ct1) {
+                      _vecadd(in, out, N, item_ct1);
+                    });
+  }
+
+#ifdef _DEBUG_DEVICE
+  printf("LIBGPU ::  -- general::vecadd :: N= %i  grid_size= %i %i %i  block_size= %i %i %i\n",
+	 N, grid_size.x,grid_size.y,grid_size.z,block_size.x,block_size.y,block_size.z);
+  _CUDA_CHECK_ERRORS();
+#endif
+}
 
 #endif

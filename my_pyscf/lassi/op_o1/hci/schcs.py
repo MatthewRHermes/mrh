@@ -32,10 +32,10 @@ class ContractHamCI_SHS (rdm.LRRDM):
             If true, the term with si_bra and si_ket switching places is added to all
             interactions.
     '''
-    def __init__(self, las, ints, nlas, hopping_index, lroots, h0, h1, h2, si_bra, si_ket,
+    def __init__(self, las, ints, nlas, lroots, h0, h1, h2, si_bra, si_ket,
                  mask_bra_space=None, mask_ket_space=None, pt_order=None, do_pt_order=None,
                  add_transpose=False, accum=None, log=None, max_memory=2000, dtype=np.float64):
-        rdm.LRRDM.__init__(self, ints, nlas, hopping_index, lroots, si_bra, si_ket,
+        rdm.LRRDM.__init__(self, ints, nlas, lroots, si_bra, si_ket,
                            mask_bra_space = mask_bra_space,
                            mask_ket_space = mask_ket_space,
                            pt_order=pt_order, do_pt_order=do_pt_order,
