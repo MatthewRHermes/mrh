@@ -2824,7 +2824,7 @@ void Device::get_h2eff_df_v2(py::array_t<double> _cderi,
 
   // buf1 will hold 1) cderi_unpacked 2) both bumP & buvP 3) vuwM
 
-  const int size_cderi_unpacked = naux * nao * nao_pair;
+  const int size_cderi_unpacked = naux * nao * nao;
   
   const int _size_bPmu = naux*ncas*nao;
   const int _size_bPvu = naux*ncas*ncas;
@@ -2839,7 +2839,7 @@ void Device::get_h2eff_df_v2(py::array_t<double> _cderi,
   // if(size_vuwM > max_size_buf) max_size_buf = size_vuwM;
 
   // if(device_id == 0)
-  // printf("get_h2eff_df_v2 :: _size_eri_unpacked= %i  _size_eri_h2eff= %i  size_vuwm= %i  size_cderi_unpacked= %i  size_bumP_buvP= %i  size_vuwM= %i\n",_size_eri_unpacked, _size_eri_h2eff, size_vuwm, size_cderi_unpacked, size_bumP_buvP, size_vuwM);
+  // printf("get_h2eff_df_v2 :: device_id= %i  naux= %i nmo= %i ncas= %i ncas_pair= %i nao= %i nao_pair= %i  _size_eri_unpacked= %i  _size_eri_h2eff= %i  size_vuwm= %i  size_cderi_unpacked= %i  size_bumP_buvP= %i\n",device_id,naux,nmo,ncas,ncas_pair,nao,nao_pair,_size_eri_unpacked, _size_eri_h2eff, size_vuwm, size_cderi_unpacked, size_bumP_buvP);
 
   int max_size_buf = size_cderi_unpacked;
   if(size_bumP_buvP > max_size_buf) max_size_buf = size_bumP_buvP;
@@ -3136,7 +3136,7 @@ void Device::compute_eri_impham(int nao_s, int nao_f, int blksize, int naux, int
 
   int * d_my_unpack_map_ptr = dd_fetch_pumap(dd, nao_s, _PUMAP_2D_UNPACK);
 
-  getjk_unpack_buf2(d_cderi_unpacked,d_cderi, d_my_unpack_map_ptr, naux, nao_s, nao_s_pair);
+  getjk_unpack_buf2(d_cderi_unpacked, d_cderi, d_my_unpack_map_ptr, naux, nao_s, nao_s_pair);
 
   const double alpha = 1.0;
   const double beta = 0.0;
