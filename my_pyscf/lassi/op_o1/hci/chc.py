@@ -22,10 +22,10 @@ class ContractHamCI_CHC (stdm.LSTDM):
         h2 : ndarray of size ncas**4
             Contains 2-electron Hamiltonian amplitudes in second quantization
     '''
-    def __init__(self, las, ints, nlas, hopping_index, lroots, h0, h1, h2, mask_bra_space=None,
+    def __init__(self, las, ints, nlas, lroots, h0, h1, h2, mask_bra_space=None,
                  mask_ket_space=None, pt_order=None, do_pt_order=None, log=None, max_memory=2000,
                  dtype=np.float64):
-        hams2ovlp.HamS2Ovlp.__init__(self, ints, nlas, hopping_index, lroots, h1, h2,
+        hams2ovlp.HamS2Ovlp.__init__(self, ints, nlas, lroots, h1, h2,
                                      mask_bra_space = mask_bra_space,
                                      mask_ket_space = mask_ket_space,
                                      pt_order=pt_order, do_pt_order=do_pt_order,

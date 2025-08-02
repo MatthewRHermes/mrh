@@ -204,6 +204,7 @@ class SingleLASRootspace (object):
         for i in range (nflips):
             spins_table = spins_table[:,None,:] - subtrahend
             spins_table = spins_table.reshape (-1, self.nfrag)
+            spins_table = np.unique (spins_table, axis=0)
             # minimum valid value in column i is 1-self.smults[i]
             idx_valid = np.all (spins_table>-self.smults[None,:], axis=1)
             spins_table = spins_table[idx_valid,:]
@@ -256,6 +257,20 @@ class SingleLASRootspace (object):
                 else: ci_sz_[sz1] = np.asarray (ci1)
             ci_sz.append (ci_sz_)
         return ci_sz
+
+    def get_fcisolvers_szrot (self, ifrags=None):
+        fcisolvers_sz = []
+        if ifrags is None: ifrags = range (self.nfrag)
+        for ifrag in ifrags:
+            sz = self.spins[ifrag]
+            smult = self.smults[ifrag]
+            fcisolvers_sz_ = {sz: self.get_fcisolver (ifrag)}
+            for i, sz1 in enumerate (range (sz-2, -(1+smult), -2)):
+                fcisolvers_sz_[sz1] = self.get_fcisolver (ifrag, dspin=-2*(i+1))
+            for i, sz1 in enumerate (range (sz+2, (1+smult), 2)):
+                fcisolvers_sz_[sz1] = self.get_fcisolver (ifrag, dspin=2*(i+1))
+            fcisolvers_sz.append (fcisolvers_sz_)
+        return fcisolvers_sz
 
     def get_ndet (self):
         return [(cistring.num_strings (self.nlas[i], self.neleca[i]),
@@ -393,15 +408,17 @@ class SingleLASRootspace (object):
         return (max_self < min_other) or (max_other < min_self)
 
     def get_fcisolvers (self):
-        fcisolvers = []
-        for ifrag in range (self.nfrag):
-            solver = csf_solver (self.las.mol, smult=self.smults[ifrag])
-            solver.nelec = (self.neleca[ifrag],self.nelecb[ifrag])
-            solver.norb = self.nlas[ifrag]
-            solver.spin = self.spins[ifrag]
-            solver.check_transformer_cache ()
-            fcisolvers.append (solver)
-        return fcisolvers
+        return [self.get_fcisolver (ifrag) for ifrag in range (self.nfrag)]
+
+    def get_fcisolver (self, ifrag, dspin=0):
+        assert (dspin % 2 == 0)
+        solver = csf_solver (self.las.mol, smult=self.smults[ifrag])
+        solver.nelec = (self.neleca[ifrag]+(dspin//2),
+                        self.nelecb[ifrag]-(dspin//2))
+        solver.norb = self.nlas[ifrag]
+        solver.spin = self.spins[ifrag] + dspin
+        solver.check_transformer_cache ()
+        return solver
 
     def get_product_state_solver (self, lroots=None, lweights='gs'):
         fcisolvers = self.get_fcisolvers ()
