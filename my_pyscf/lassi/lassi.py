@@ -347,9 +347,9 @@ def _eig_block (las, e0, h1, h2, ci_blk, nelec_blk, soc, opt, max_memory=2000,
     req_memory = 24*nstates*nstates/1e6
     current_memory = lib.current_memory ()[0]
     if current_memory+req_memory > max_memory:
-        # TODO: Efficient LASSI op_o2 h_op sivec 
-        raise MemoryError ("Need %f MB of %f MB avail (N.B.: Davidson implementation is fake)",
-                           req_memory, max_memory-current_memory)
+        if opt==0:
+            raise MemoryError ("Need %f MB of %f MB avail (N.B.: o0 Davidson is fake; use opt=1)",
+                               req_memory, max_memory-current_memory)
         lib.logger.info ("Need %f MB of %f MB avail for incore LASSI diag; Davidson alg forced",
                          req_memory, max_memory-current_memory)
     if davidson_only or current_memory+req_memory > max_memory:
@@ -622,7 +622,7 @@ def guess_rootsym (si, statesym, lroots):
     return rootsym
 
 def roots_trans_rdm12s (las, ci, si_bra, si_ket, orbsym=None, soc=None, break_symmetry=None,
-                        spaces=None, opt=1):
+                        spaces=None, opt=1, **kwargs):
     '''Evaluate 1- and 2-electron reduced transition density matrices of LASSI states
 
         Args:
@@ -701,11 +701,11 @@ def roots_trans_rdm12s (las, ci, si_bra, si_ket, orbsym=None, soc=None, break_sy
         # TODO: implement SOC in op_o1 and then re-enable the debugging block below
         if (las.verbose > lib.logger.INFO) and (o0_memcheck) and (soc==False):
             d1s, d2s = op_o0.roots_trans_rdm12s (las1, ci_blk, nelec_blk, sib_blk, sik_blk,
-                                                 orbsym=orbsym, wfnsym=wfnsym)
+                                                 orbsym=orbsym, wfnsym=wfnsym, **kwargs)
             t0 = lib.logger.timer (las, 'LASSI trans_rdm12s rootsym {} CI algorithm'.format (sym),
                                    *t0)
             d1s_test, d2s_test = op[opt].roots_trans_rdm12s (las1, ci_blk, nelec_blk, sib_blk,
-                                                             sik_blk)
+                                                             sik_blk, **kwargs)
             t0 = lib.logger.timer (las, 'LASSI trans_rdm12s rootsym {} TDM algorithm'.format (sym),
                                    *t0)
             lib.logger.debug (las,
@@ -724,7 +724,8 @@ def roots_trans_rdm12s (las, ci, si_bra, si_ket, orbsym=None, soc=None, break_sy
             if not o0_memcheck: lib.logger.debug (las,
                 'Insufficient memory to test against o0 LASSI algorithm')
             d1s, d2s = op[opt].roots_trans_rdm12s (las1, ci_blk, nelec_blk, sib_blk, sik_blk,
-                                                   orbsym=orbsym, wfnsym=wfnsym)
+                                                   orbsym=orbsym, wfnsym=wfnsym,
+                                                   **kwargs)
             t0 = lib.logger.timer (las, 'LASSI trans_rdm12s rootsym {}'.format (sym), *t0)
         idx_int = np.where (idx_si)[0]
         for (i,a) in enumerate (idx_int):
@@ -735,7 +736,7 @@ def roots_trans_rdm12s (las, ci, si_bra, si_ket, orbsym=None, soc=None, break_sy
     return rdm1s, rdm2s
 
 def roots_make_rdm12s (las, ci, si, orbsym=None, soc=None, break_symmetry=None,
-                       spaces=None, opt=1):
+                       spaces=None, opt=1, **kwargs):
     '''Evaluate 1- and 2-electron reduced density matrices of LASSI states
 
         Args:
@@ -766,10 +767,11 @@ def roots_make_rdm12s (las, ci, si, orbsym=None, soc=None, break_symmetry=None,
             rdm2s: ndarray of shape (nroots,2,ncas,ncas,2,ncas,ncas)
     '''
     return roots_trans_rdm12s (las, ci, si, si, orbsym=orbsym, soc=soc,
-                               break_symmetry=break_symmetry, spaces=spaces, opt=opt)
+                               break_symmetry=break_symmetry, spaces=spaces, opt=opt,
+                               **kwargs)
 
 def root_trans_rdm12s (las, ci, si_bra, si_ket, state=0, orbsym=None, soc=None, break_symmetry=None,
-                       spaces=None, opt=1):
+                       spaces=None, opt=1, **kwargs):
     '''Evaluate 1- and 2-electron reduced transition density matrices of one single pair of LASSI
     states.
 
@@ -813,13 +815,14 @@ def root_trans_rdm12s (las, ci, si_bra, si_ket, state=0, orbsym=None, soc=None, 
     if break_symmetry is None:
         break_symmetry = getattr (si_ket, 'break_symmetry', getattr (las, 'break_symmetry', False))
     rdm1s, rdm2s = roots_trans_rdm12s (las, ci, sib_column, sik_column, orbsym=orbsym, soc=soc,
-                                       break_symmetry=break_symmetry, spaces=spaces, opt=opt)
+                                       break_symmetry=break_symmetry, spaces=spaces, opt=opt,
+                                       **kwargs)
     if len (states) == 1:
         rdm1s, rdm2s = rdm1s[0], rdm2s[0]
     return rdm1s, rdm2s
 
 def root_make_rdm12s (las, ci, si, state=0, orbsym=None, soc=None, break_symmetry=None,
-                      spaces=None, opt=1):
+                      spaces=None, opt=1, **kwargs):
     '''Evaluate 1- and 2-electron reduced density matrices of one single LASSI state
 
         Args:
@@ -853,7 +856,8 @@ def root_make_rdm12s (las, ci, si, state=0, orbsym=None, soc=None, break_symmetr
             rdm2s: ndarray of shape (2,ncas,ncas,2,ncas,ncas)
     '''
     return root_trans_rdm12s (las, ci, si, si, state=state, orbsym=orbsym, soc=soc,
-                              break_symmetry=break_symmetry, spaces=spaces, opt=opt)
+                              break_symmetry=break_symmetry, spaces=spaces, opt=opt,
+                              **kwargs)
 
 def energy_tot (lsi, mo_coeff=None, ci=None, si=None, soc=0, opt=None):
     if mo_coeff is None: mo_coeff = lsi.mo_coeff
@@ -910,22 +914,29 @@ class LASSI(lib.StreamObject):
         self.break_symmetry = break_symmetry
         self.soc = soc
         self.opt = opt
+        self.davidson_only = False
         self.level_shift_si = LEVEL_SHIFT_SI
         self.nroots_si = NROOTS_SI
         self.converged_si = False
         self._keys = set((self.__dict__.keys())).union(keys)
 
     def kernel(self, mo_coeff=None, ci=None, veff_c=None, h2eff_sub=None, orbsym=None, soc=None,\
-               break_symmetry=None, opt=None,  **kwargs):
+               break_symmetry=None, opt=None, davidson_only=None, level_shift_si=None,
+               nroots_si=None, **kwargs):
         if soc is None: soc = self.soc
         if break_symmetry is None: break_symmetry = self.break_symmetry
         if opt is None: opt = self.opt
+        if davidson_only is None: davidson_only=self.davidson_only
+        if level_shift_si is not None:
+            self.level_shift_si = level_shift_si
+        if nroots_si is not None:
+            self.nroots_si = nroots_si
         log = lib.logger.new_logger (self, self.verbose)
         t0 = (lib.logger.process_clock (), lib.logger.perf_counter ())
         if not self.converged:
             log.warn ('LASSI state preparation step not converged!')
         e_roots, si = lassi(self, mo_coeff=mo_coeff, ci=ci, veff_c=veff_c, h2eff_sub=h2eff_sub, orbsym=orbsym, \
-                            soc=soc, break_symmetry=break_symmetry, opt=opt)
+                            soc=soc, break_symmetry=break_symmetry, davidson_only=davidson_only, opt=opt)
         self.e_roots = e_roots
         self.si, self.s2, self.nelec, self.wfnsym, self.rootsym, self.break_symmetry, self.soc  = \
             si, si.s2, si.nelec, si.wfnsym, si.rootsym, si.break_symmetry, si.soc
@@ -1012,17 +1023,19 @@ class LASSI(lib.StreamObject):
         else:
             return root_make_rdm12s (self, ci, si, state=state, spaces=spaces, opt=opt)
 
-    def make_casdm12 (self, ci=None, si=None, state=None, weights=None, spaces=None, opt=None):
+    def make_casdm12 (self, ci=None, si=None, state=None, weights=None, spaces=None, opt=None,
+                      **kwargs):
         dm1s, dm2s = self.make_casdm12s (ci=ci, si=si, state=state, weights=weights, spaces=spaces,
-                                         opt=opt)
+                                         opt=opt, **kwargs)
         return dm1s.sum (0), dm2s.sum ((0,3))
 
-    def make_casdm2 (self, ci=None, si=None, state=None, weights=None, spaces=None, opt=None):
+    def make_casdm2 (self, ci=None, si=None, state=None, weights=None, spaces=None, opt=None,
+                     **kwargs):
         return self.make_casdm12 (ci=ci, si=si, state=state, weights=weights, spaces=spaces,
-                                  opt=opt)[1]
+                                  opt=opt, **kwargs)[1]
 
     def trans_casdm12s (self, ci=None, si_bra=None, si_ket=None, state=None, weights=None,
-                        spaces=None, opt=None):
+                        spaces=None, opt=None, **kwargs):
         if ci is None: ci = self.ci
         if si_bra is None: si_bra = self.si
         if si_ket is None: si_ket = self.si
@@ -1035,26 +1048,27 @@ class LASSI(lib.StreamObject):
             if si_bra.ndim==1: si_bra=si_bra[:,None]
             if si_ket.ndim==1: si_ket=si_ket[:,None]
         if state is None:
-            dm1s, dm2s = roots_trans_rdm12s (self, ci, si_bra, si_ket, spaces=spaces, opt=opt)
+            dm1s, dm2s = roots_trans_rdm12s (self, ci, si_bra, si_ket, spaces=spaces, opt=opt,
+                                             **kwargs)
             if weights is not None:
                 dm1s = lib.einsum ('r,rspq->spq', weights, dm1s)
                 dm2s = lib.einsum ('r,rspqtxy->spqtxy', weights, dm2s)
             return dm1s, dm2s
         else:
             return root_trans_rdm12s (self, ci, si_bra, si_ket, state=state, spaces=spaces,
-                                      opt=opt)
+                                      opt=opt, **kwargs)
 
     def trans_casdm12 (self, ci=None, si_bra=None, si_ket=None, state=None, weights=None,
-                       spaces=None, opt=None):
+                       spaces=None, opt=None, **kwargs):
         dm1s, dm2s = self.trans_casdm12s (ci=ci, si_bra=si_bra, si_ket=si_ket, state=state,
-                                          weights=weights, spaces=spaces, opt=opt)
+                                          weights=weights, spaces=spaces, opt=opt, **kwargs)
         return dm1s.sum (0), dm2s.sum ((0,3))
 
     def make_rdm1s (self, mo_coeff=None, ci=None, si=None, state=None, weights=None, spaces=None,
-                    opt=None):
+                    opt=None, **kwargs):
         if mo_coeff is None: mo_coeff=self.mo_coeff
         casdm1s = self.make_casdm12s (ci=ci, si=si, state=state, weights=weights, spaces=spaces,
-                                      opt=opt)[0]
+                                      opt=opt, **kwargs)[0]
         mo_core = mo_coeff[:,:self.ncore]
         mo_cas = mo_coeff[:,self.ncore:][:,:self.ncas]
         dm_core = mo_core @ mo_core.conj ().T
@@ -1062,9 +1076,9 @@ class LASSI(lib.StreamObject):
         return dm1s
 
     def make_rdm1 (self, mo_coeff=None, ci=None, si=None, state=None, weights=None, spaces=None,
-                   opt=None):
+                   opt=None, **kwargs):
         dm1s = self.make_rdm1s (mo_coeff=mo_coeff, ci=ci, si=si, state=state, weights=weights,
-                                spaces=spaces, opt=opt)
+                                spaces=spaces, opt=opt, **kwargs)
         return dm1s[0] + dm1s[1]
 
     def analyze (self, state=0, **kwargs):

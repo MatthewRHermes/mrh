@@ -29,6 +29,7 @@ from mrh.my_pyscf.lassi.sitools import make_sdm1
 from mrh.tests.lassi.addons import case_contract_hlas_ci, case_lassis_fbf_2_model_state
 from mrh.tests.lassi.addons import case_lassis_fbfdm, case_contract_op_si, debug_contract_op_si
 from mrh.tests.lassi.addons import case_lassis_grads, case_lassis_hessian, case_lassis_ugg
+from mrh.tests.lassi.addons import eri_sector_indexes
 
 def setUpModule ():
     global mol, mf, lsi, las, mc, op, lsis
@@ -161,17 +162,18 @@ class KnownValues(unittest.TestCase):
 
     def test_lassis (self):
         for opt in (0,1):
-            with self.subTest (opt=opt):
-                lsis.run (opt=opt)
-                e_upper = las.e_states[0]
-                e_lower = lsi.e_roots[0]
-                self.assertLessEqual (e_lower, lsis.e_roots[0])
-                self.assertLessEqual (lsis.e_roots[0], e_upper)
-                self.assertEqual (len (lsis.e_roots), 20)
-                # Reference depends on rng seed obviously b/c this is not casci limit
-                self.assertAlmostEqual (lsis.e_roots[0], -4.134472877702426, 8)
-                case_lassis_fbf_2_model_state (self, lsis)
-                case_lassis_fbfdm (self, lsis)
+            for dson in (False,True):
+                with self.subTest (opt=opt, davidson_only=dson):
+                    lsis.run (opt=opt, davidson_only=dson, nroots_si=20)
+                    e_upper = las.e_states[0]
+                    e_lower = lsi.e_roots[0]
+                    self.assertLessEqual (e_lower, lsis.e_roots[0])
+                    self.assertLessEqual (lsis.e_roots[0], e_upper)
+                    self.assertEqual (len (lsis.e_roots), 20)
+                    # Reference depends on rng seed obviously b/c this is not casci limit
+                    self.assertAlmostEqual (lsis.e_roots[0], -4.134472877702426, 8)
+                    case_lassis_fbf_2_model_state (self, lsis)
+                    case_lassis_fbfdm (self, lsis)
 
     def test_lassis_energy_tot (self):
         lsis1 = lassis.LASSIS (las)
@@ -188,10 +190,12 @@ class KnownValues(unittest.TestCase):
         case_lassis_ugg (self, lsis)
 
     def test_lassis_grads (self):
-        case_lassis_grads (self, lsis)
+        for lsis.opt in range (2):
+            case_lassis_grads (self, lsis)
 
     def test_lassis_hessian (self):
-        case_lassis_hessian (self, lsis)
+        for lsis.opt in range (2):
+            case_lassis_hessian (self, lsis)
 
     def test_fdm1 (self):
         make_fdm1 = get_fdm1_maker (lsi, lsi.ci, lsi.get_nelec_frs (), lsi.si)

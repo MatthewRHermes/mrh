@@ -52,9 +52,6 @@ class LSTDM (object):
                 fragment-local intermediates
             nlas : list of length nfrags of integers
                 numbers of active orbitals in each fragment
-            hopping_index: ndarray of ints of shape (nfrags, 2, nroots, nroots)
-                element [i,j,k,l] reports the change of number of electrons of
-                spin j in fragment i between LAS rootspaces k and l
             lroots: ndarray of ints of shape (nfrags, nroots)
                 Number of states within each fragment and rootspace
 
@@ -65,6 +62,10 @@ class LSTDM (object):
             mask_ket_space : sequence of int or mask array of shape (nroots,)
                 If included, only matrix elements involving the corresponding ket rootspaces are
                 computed.
+            pt_order : ndarray of shape (nroots,)
+                Order in perturbation theory of each rootspace. Defaults to all 0.
+            do_pt_order : ndarray
+                Orders of perturbation theory to compute. Defaults to all.
             dtype : instance of np.dtype
                 Currently not used; TODO: generalize to ms-broken fragment-local states?
         '''
@@ -74,21 +75,25 @@ class LSTDM (object):
     # (N.B.: "sp" is just the adjoint of "sm"). 
     # TODO: at some point, if it ever becomes rate-limiting, make this multithread better
 
-    def __init__(self, ints, nlas, hopping_index, lroots, mask_bra_space=None, mask_ket_space=None,
-                 log=None, max_memory=2000, dtype=np.float64):
+    def __init__(self, ints, nlas, lroots, mask_bra_space=None, mask_ket_space=None,
+                 pt_order=None, do_pt_order=None, log=None, max_memory=2000, dtype=np.float64):
         self.ints = ints
         self.log = log
         self.max_memory = max_memory
         self.nlas = nlas
         self.norb = sum (nlas)
         self.lroots = lroots
+        self.nfrags, self.nroots = lroots.shape
+
         self.rootaddr, self.envaddr = get_rootaddr_fragaddr (lroots)
         self.envaddr = np.ascontiguousarray (self.envaddr.T)
         nprods = np.prod (lroots, axis=0)
         offs1 = np.cumsum (nprods)
         offs0 = offs1 - nprods
         self.offs_lroots = np.stack ([offs0, offs1], axis=1)
-        self.nfrags, _, self.nroots, _ = hopping_index.shape
+        self.pt_order = pt_order
+        self.do_pt_order = do_pt_order
+
         self.strides = np.append (np.ones (self.nroots, dtype=int)[None,:],
                                   np.cumprod (lroots[:-1,:], axis=0),
                                   axis=0).T
@@ -101,16 +106,16 @@ class LSTDM (object):
         self.ovlp = [i.ovlp for i in ints]
 
         # spin-shuffle sign vector
-        self.nelec_rf = np.asarray ([[list (i.nelec_r[ket]) for i in ints]
-                                     for ket in range (self.nroots)]).transpose (0,2,1)
+        nelec_frs = np.asarray ([[list (i.nelec_r[ket]) for ket in range (self.nroots)]
+                                 for i in self.ints])
         self.spin_shuffle = [fermion_spin_shuffle (nelec_sf[0], nelec_sf[1])
-                             for nelec_sf in self.nelec_rf]
-        self.nelec_rf = self.nelec_rf.sum (1)
+                             for nelec_sf in nelec_frs.transpose (1,2,0)]
+        self.nelec_rf = nelec_frs.sum (2).T
 
-        self.urootstr = np.asarray ([[i.unique_root[r] for i in self.ints]
+        self.urootstr = np.asarray ([[i.uroot_idx[r] for i in self.ints]
                                      for r in range (self.nroots)]).T
 
-        exc = self.make_exc_tables (hopping_index)
+        exc = self.make_exc_tables (nelec_frs)
         self.nonuniq_exc = {}
         self.exc_null = self.mask_exc_table_(exc['null'], 'null', mask_bra_space, mask_ket_space)
         self.exc_1d = self.mask_exc_table_(exc['1d'], '1d', mask_bra_space, mask_ket_space)
@@ -166,7 +171,7 @@ class LSTDM (object):
     def fermion_frag_shuffle (self, iroot, frags):
         return fermion_frag_shuffle (self.nelec_rf[iroot], frags)
 
-    def make_exc_tables (self, hopping_index):
+    def make_exc_tables (self, nelec_frs):
         ''' Generate excitation tables. The nth column of each array is the (n+1)th argument of the
         corresponding _crunch_*_ member function below. The first two columns are always the bra
         rootspace index and the ket rootspace index, respectively. Further columns identify
@@ -174,9 +179,8 @@ class LSTDM (object):
         and 2c), the last column identifies spin case.
 
         Args:
-            hopping_index: ndarray of ints of shape (nfrags, 2, nroots, nroots)
-                element [i,j,k,l] reports the change of number of electrons of
-                spin j in fragment i between LAS rootspaces k and l
+            nelec_frs: ndarray of ints of shape (nfrags, nroots, 2)
+                Number of electrons in each fragment in each space
 
         Returns:
             exc: dict with str keys and ndarray-of-int values. Each row of each ndarray is the
@@ -193,35 +197,49 @@ class LSTDM (object):
         exc['1s1c'] = np.empty ((0,5), dtype=int)
         exc['1s1c_T'] = np.empty ((0,5), dtype=int)
         exc['2c'] = np.empty ((0,7), dtype=int)
-        nfrags = hopping_index.shape[0]
+        nfrags = self.nfrags
+        scai = get_scallowed_interactions (nelec_frs, max_memory=self.max_memory)
+
+        if self.ltri:
+            tril_index = scai[:,0] >= scai[:,1]
+            scai = scai[tril_index]
+
+        nelec_rfs = nelec_frs.transpose (1,0,2)
+        nexc = scai.shape[0]
+        rem_mem = self.max_memory - lib.current_memory ()[0]
+        reqd_mem = 3 * nexc * nfrags * 2 * nelec_rfs.dtype.itemsize / 1e6
+        if reqd_mem > rem_mem:
+            raise MemoryError (('Inadequate memory to make_exc_tables: for {} interactions, {} MB'
+                                'required of {} MB available ({} MB total)').format (
+                               nexc, reqd_mem, rem_mem, self.max_memory))
+        hopping_index = nelec_rfs[scai[:,0]] - nelec_rfs[scai[:,1]]
 
         # Process connectivity data to quickly distinguish interactions
 
         # Should probably be all == true anyway if I call this by symmetry blocks
-        conserv_index = np.all (hopping_index.sum (0) == 0, axis=0)
 
         # Number of field operators involved in a given interaction
-        nsop = np.abs (hopping_index).sum (0) # 0,0 , 2,0 , 0,2 , 2,2 , 4,0 , 0,4
-        nop = nsop.sum (0) # 0, 2, 4
-        ispin = nsop[1,:,:] // 2
+        nsop = np.abs (hopping_index).sum (1) # 0,0 , 2,0 , 0,2 , 2,2 , 4,0 , 0,4
+        nop = nsop.sum (1) # 0, 2, 4
+        ispin = nsop[:,1] // 2
         # This last ^ is somewhat magical, but notice that it corresponds to the mapping
         #   2,0 ; 4,0 -> 0 -> a or aa
         #   0,2 ; 2,2 -> 1 -> b or ab
         #   0,4       -> 2 -> bb
 
         # For each interaction, the change to each fragment of
-        charge_index = hopping_index.sum (1) # charge
-        spin_index = hopping_index[:,0] - hopping_index[:,1] # spin (*2)
+        charge_index = hopping_index.sum (2) # charge
+        spin_index = hopping_index[:,:,0] - hopping_index[:,:,1] # spin (*2)
 
         # Upon a given interaction, count the number of fragments which:
-        ncharge_index = np.count_nonzero (charge_index, axis=0) # change in charge
-        nspin_index = np.count_nonzero (spin_index, axis=0) # change in spin
+        ncharge_index = np.count_nonzero (charge_index, axis=1) # change in charge
+        nspin_index = np.count_nonzero (spin_index, axis=1) # change in spin
 
-        findf = np.argsort ((3*hopping_index[:,0]) + hopping_index[:,1], axis=0, kind='stable')
-        # This is an array of shape (nfrags, nroots, nroots) such that findf[:,i,j]
+        findf = np.argsort ((3*hopping_index[:,:,0]) + hopping_index[:,:,1], axis=1, kind='stable')
+        # This is an array of shape (nexc, nfrags) such that findf[ij,:]
         # is list of fragment indices sorted first by the number of spin-up electrons
         # gained (>0) or lost (<0), and then by the number of spin-down electrons gained
-        # or lost in the interaction between states "i" and "j". Because at most 2
+        # or lost in the interaction between states "scai[ij][0]" and "scai[ij][1]". Because at most 2
         # des/creation ops are involved, the factor of 3 sets up the order a'b'ba without
         # creating confusion between spin and charge of freedom. The 'stable' sort keeps
         # relative order -> sign convention!
@@ -234,11 +252,9 @@ class LSTDM (object):
         # and store those fragment indices along with the state indices.
 
         # Zero-electron interactions
-        tril_index = np.zeros_like (conserv_index)
-        tril_index[np.tril_indices (self.nroots)] = True
-        idx = conserv_index & tril_index & (nop == 0)
-        exc['null'] = np.vstack (list (np.where (idx))).T
- 
+        idx = (nop==0)
+        exc['null'] = scai[idx]
+
         # One-density interactions
         fragrng = np.arange (nfrags, dtype=int)
         exc['1d'] = np.append (np.repeat (exc['null'], nfrags, axis=0),
@@ -253,9 +269,9 @@ class LSTDM (object):
                                    axis=1)
 
         # One-electron interactions
-        idx = conserv_index & (nop == 2) & tril_index
+        idx = nop == 2
         if nfrags > 1: exc['1c'] = np.vstack (
-            list (np.where (idx)) + [findf[-1][idx], findf[0][idx], ispin[idx]]
+            [scai[idx,0], scai[idx,1], findf[idx][:,-1], findf[idx][:,0], ispin[idx]]
         ).T
 
         # One-electron, one-density interactions
@@ -268,65 +284,63 @@ class LSTDM (object):
                        | (exc['1c1d'][:,3] == exc['1c1d'][:,5]))
             exc['1c1d'] = exc['1c1d'][~invalid,:][:,[0,1,2,3,5,4]]
 
-        # Unsymmetric two-electron interactions: full square
-        idx_2e = conserv_index & (nop == 4)
+        # Unsymmetric two-electron interactions
+        idx_2e = (nop == 4)
 
         # Two-electron interaction: ii -> jk ("split").
-        idx = idx_2e & (ncharge_index == 3) & (np.amin (charge_index, axis=0) == -2)
+        idx = idx_2e & (ncharge_index == 3) & (np.amin (charge_index, axis=1) == -2)
         if nfrags > 2: exc_split = np.vstack (
-            list (np.where (idx)) + [findf[-1][idx], findf[0][idx], findf[-2][idx], findf[0][idx],
+            [scai[idx,0], scai[idx,1], findf[idx][:,-1], findf[idx][:,0], findf[idx][:,-2], findf[idx][:,0],
             ispin[idx]]
         ).T
 
         # Two-electron interaction: ij -> kk ("coalesce")
-        idx = idx_2e & (ncharge_index == 3) & (np.amax (charge_index, axis=0) == 2)
+        idx = idx_2e & (ncharge_index == 3) & (np.amax (charge_index, axis=1) == 2)
         if nfrags > 2: exc_coalesce = np.vstack (
-            list (np.where (idx)) + [findf[-1][idx], findf[0][idx], findf[-1][idx], findf[1][idx],
+            [scai[idx,0], scai[idx,1], findf[idx][:,-1], findf[idx][:,0], findf[idx][:,-1], findf[idx][:,1],
             ispin[idx]]
         ).T
 
-        # Two-electron interaction: k(a)j(b) -> i(a)k(b) ("1s1c")
-        idx = idx_2e & (nspin_index==3) & (ncharge_index==2) & (np.amin(spin_index,axis=0)==-2)
+        if nfrags > 2: exc_split = np.append (exc_split, exc_coalesce, axis=0)
+
+        # Two-electron interaction: k(a)j(b) -> i(a)k(b) ("1s1c") (spin arg = 0)
+        idx = idx_2e & (nspin_index==3) & (ncharge_index==2) & (np.amin(spin_index,axis=1)==-2)
         if nfrags > 2: exc['1s1c'] = np.vstack (
-            list (np.where (idx)) + [findf[-1][idx], findf[1][idx], findf[0][idx]]
+            [scai[idx,0], scai[idx,1], findf[idx][:,-1], findf[idx][:,1], findf[idx][:,0]]
         ).T
 
-        # Two-electron interaction: k(b)j(a) -> i(b)k(a) ("1s1c_T")
-        # This will only be used when we are unable to restrict ourselves to the lower triangle
-        idx = idx_2e & (nspin_index==3) & (ncharge_index==2) & (np.amax(spin_index,axis=0)==2)
+        # Two-electron interaction: k(b)j(a) -> i(b)k(a) ("1s1c_T") (spin arg = 1)
+        idx = idx_2e & (nspin_index==3) & (ncharge_index==2) & (np.amax(spin_index,axis=1)==2)
         if nfrags > 2: exc_1s1cT = np.vstack (
-            list (np.where (idx)) + [findf[-2][idx], findf[0][idx], findf[-1][idx]]
+            [scai[idx,0], scai[idx,1], findf[idx][:,-2], findf[idx][:,0], findf[idx][:,-1]]
         ).T
 
-        # Symmetric two-electron interactions: lower triangle only
-        idx_2e = idx_2e & tril_index
+        # Combine 1s1c and 1s1c_T with spin argument
+        if nfrags > 2:
+            exc['1s1c'] = np.append (
+                np.pad (exc['1s1c'], ((0,0),(0,1)), constant_values=0),
+                np.pad (exc_1s1cT,   ((0,0),(0,1)), constant_values=1),
+                axis=0)
 
         # Two-electron interaction: i(a)j(b) -> j(a)i(b) ("1s") 
         idx = idx_2e & (ncharge_index == 0) & (nspin_index == 2)
         if nfrags > 1: exc['1s'] = np.vstack (
-            list (np.where (idx)) + [findf[-1][idx], findf[0][idx]]
+            [scai[idx,0], scai[idx,1], findf[idx][:,-1], findf[idx][:,0]]
         ).T
 
         # Two-electron interaction: ii -> jj ("pair") 
         idx = idx_2e & (ncharge_index == 2) & (nspin_index < 3)
         if nfrags > 1: exc_pair = np.vstack (
-            list (np.where (idx)) + [findf[-1][idx], findf[0][idx], findf[-1][idx], findf[0][idx],
+            [scai[idx,0], scai[idx,1], findf[idx][:,-1], findf[idx][:,0], findf[idx][:,-1], findf[idx][:,0],
             ispin[idx]]
         ).T
 
         # Two-electron interaction: ij -> kl ("scatter")
         idx = idx_2e & (ncharge_index == 4)
         if nfrags > 3: exc_scatter = np.vstack (
-            list (np.where (idx)) + [findf[-1][idx], findf[0][idx], findf[-2][idx], findf[1][idx], 
+            [scai[idx,0], scai[idx,1], findf[idx][:,-1], findf[idx][:,0], findf[idx][:,-2], findf[idx][:,1], 
             ispin[idx]]
         ).T
-
-        if self.all_interactions_full_square and nfrags > 2:
-            exc['1s1c'] = np.append (
-                np.pad (exc['1s1c'], ((0,0),(0,1)), constant_values=0),
-                np.pad (exc_1s1cT,   ((0,0),(0,1)), constant_values=1),
-                axis=0)
-            exc_split = np.append (exc_split, exc_coalesce, axis=0)
 
         # Combine "split", "pair", and "scatter" into "2c"
         if nfrags > 1: exc['2c'] = exc_pair
@@ -335,16 +349,23 @@ class LSTDM (object):
 
         return exc
 
-    all_interactions_full_square = False
-    interaction_has_spin = ('_1c_', '_1c1d_', '_2c_')
-    ltri_ambiguous = True
+    ltri = True
+    interaction_has_spin = ('_1c_', '_1c1d_', '_1s1c_', '_2c_')
 
     def mask_exc_table_(self, exc, lbl, mask_bra_space=None, mask_ket_space=None):
         # Part 1: restrict to the caller-specified rectangle
         idx  = mask_exc_table (exc, col=0, mask_space=mask_bra_space)
         idx &= mask_exc_table (exc, col=1, mask_space=mask_ket_space)
         exc = exc[idx]
-        # Part 2: identify interactions which are equivalent except for the overlap
+        # Part 2: perturbation theory order
+        if self.do_pt_order is not None:
+            nexc = len (exc)
+            order = self.pt_order[exc[:,:2]].sum (1)
+            idx = np.isin (order, self.do_pt_order)
+            exc = exc[idx]
+            self.log.debug ('%d/%d interactions of PT order in %s',
+                            len (exc), nexc, str(self.do_pt_order))
+        # Part 3: identify interactions which are equivalent except for the overlap
         # factor of spectator fragments. Reduce the exc table only to the unique
         # interactions and populate self.nonuniq_exc with the corresponding
         # nonunique images.
@@ -356,7 +377,7 @@ class LSTDM (object):
         for row in excp:
             bra, ket = row[:2]
             frags = row[2:]
-            fpLT = self.interaction_fprint (bra, ket, frags, ltri=self.ltri_ambiguous)
+            fpLT = self.interaction_fprint (bra, ket, frags, ltri=self.ltri)
             fprintLT.append (fpLT.ravel ())
             fp = self.interaction_fprint (bra, ket, frags, ltri=False)
             fprint.append (fp.ravel ())
@@ -428,7 +449,7 @@ class LSTDM (object):
 
     def crunch_ovlp (self, bra, ket):
         i = self.ints[-1]
-        b, k = i.unique_root[bra], i.unique_root[ket]
+        b, k = i.uroot_idx[bra], i.uroot_idx[ket]
         o = i.ovlp[b][k] / (1 + int (bra==ket))
         for i in self.ints[-2::-1]:
             o = np.multiply.outer (o, i.get_ovlp (bra, ket)).transpose (0,2,1,3)
@@ -816,19 +837,20 @@ class LSTDM (object):
         self.dt_1s, self.dw_1s = self.dt_1s + dt, self.dw_1s + dw
         self._put_D2_(bra, ket, d2, i, j)
 
-    def _crunch_1s1c_(self, bra, ket, i, j, k):
+    def _crunch_1s1c_(self, bra, ket, i, j, k, s1):
         '''Compute the reduced density matrix elements of a spin-charge unit hop; i.e.,
 
-        <bra|i'(a)k'(b)j(b)k(a)|ket>
+        <bra|i'(s1)k'(1-s1)j(1-s1)k(s1)|ket>
 
         i.e.,
 
-        k ---a---> i
-        j ---b---> k
+        k ---s1---> i
+        j -(1-s1)-> k
 
         and conjugate transpose
         '''
         t0, w0 = logger.process_clock (), logger.perf_counter ()
+        s2 = 1 - s1
         d2 = self._get_D2_(bra, ket) # aa, ab, ba, bb -> 0, 1, 2, 3
         p, q = self.get_range (i)
         r, s = self.get_range (j)
@@ -838,11 +860,15 @@ class LSTDM (object):
         fac = -1 # a'bb'a -> a'ab'b sign
         fac *= fermion_des_shuffle (nelec_f_bra, (i, j, k), i)
         fac *= fermion_des_shuffle (nelec_f_ket, (i, j, k), j)
-        sp = np.multiply.outer (self.ints[i].get_1_p (bra, ket, 0), self.ints[j].get_1_h (bra, ket, 1))
-        sm = self.ints[k].get_1_sm (bra, ket)
-        d2_ikkj = fac * np.multiply.outer (sp, sm).transpose (0,3,2,1) # a'bb'a -> a'ab'b transpose
-        d2[1,p:q,t:u,t:u,r:s] = d2_ikkj
-        d2[2,t:u,r:s,p:q,t:u] = d2_ikkj.transpose (2,3,0,1)
+        d_ij = np.multiply.outer (self.ints[i].get_1_p (bra, ket, s1),
+                                  self.ints[j].get_1_h (bra, ket, s2))
+        if s1==0:
+            d_kk = self.ints[k].get_1_sm (bra, ket)
+        else:
+            d_kk = self.ints[k].get_1_sp (bra, ket)
+        d2_ikkj = fac * np.multiply.outer (d_ij, d_kk).transpose (0,3,2,1) # a'bb'a -> a'ab'b
+        d2[1+s1,p:q,t:u,t:u,r:s] = d2_ikkj
+        d2[2-s1,t:u,r:s,p:q,t:u] = d2_ikkj.transpose (2,3,0,1)
         dt, dw = logger.process_clock () - t0, logger.perf_counter () - w0
         self.dt_1s1c, self.dw_1s1c = self.dt_1s1c + dt, self.dw_1s1c + dw
         self._put_D2_(bra, ket, d2, i, j, k)
@@ -1091,7 +1117,7 @@ def make_stdm12s (las, ci, nelec_frs, **kwargs):
         ncas = ncas * 2
 
     # First pass: single-fragment intermediates
-    hopping_index, ints, lroots = frag.make_ints (las, ci, nelec_frs, nlas=nlas)
+    ints, lroots = frag.make_ints (las, ci, nelec_frs, nlas=nlas)
     nstates = np.sum (np.prod (lroots, axis=0))
 
     # Memory check
@@ -1103,7 +1129,7 @@ def make_stdm12s (las, ci, nelec_frs, **kwargs):
 
     # Second pass: upper-triangle
     t0 = (lib.logger.process_clock (), lib.logger.perf_counter ())
-    outerprod = LSTDM (ints, nlas, hopping_index, lroots, dtype=dtype,
+    outerprod = LSTDM (ints, nlas, lroots, dtype=dtype,
                            max_memory=max_memory, log=log)
     if not spin_pure:
         outerprod.spin_shuffle = spin_shuffle_fac
