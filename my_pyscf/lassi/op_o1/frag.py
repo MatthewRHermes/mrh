@@ -328,6 +328,18 @@ class FragTDMInt (object):
     def get_lroots_uroot (self, i):
         return self.get_lroots (self.uroot_addr[i])
 
+    def unmasked_int (self, i, j, screen=None):
+        if self.mask_ints is not None:
+            u = self.mask_ints[i,j]
+        else:
+            u = True
+        if self.do_pt_order is not None:
+            pt_order = self.pt_order[i] + self.pt_order[j]
+            u = u and (pt_order in self.do_pt_order)
+        if screen is not None:
+            u = u and ((i in screen) or (j in screen))
+        return u
+
     def _init_crunch_(self, screen_linequiv):
         ''' Compute the transition density matrix factors.
 
@@ -335,18 +347,16 @@ class FragTDMInt (object):
             t0 : tuple of length 2
                 timestamp of entry into this function, for profiling by caller
         '''
+        t0 = (lib.logger.process_clock (), lib.logger.perf_counter ())
         ci = self.ci
         ndeta, ndetb = self.ndeta_r, self.ndetb_r
-        self.mask_ints = np.logical_or (
-            self.mask_ints, self.mask_ints.T
-        )
-        if self.do_pt_order is not None:
-            pt_mask = np.add.outer (self.pt_order, self.pt_order)
-            pt_mask = np.isin (pt_mask, self.do_pt_order)
-            self.mask_ints = np.logical_and (
-                self.mask_ints, pt_mask
+        if self.mask_ints is not None:
+            self.mask_ints = np.logical_or (
+                self.mask_ints, self.mask_ints.T
             )
-                
+
+        # This is the worst-scaling (with respect to # of fragments) part of all _init_crunch_,
+        # and the annoying thing is that this information was already available earlier.
         self.root_unique, self.unique_root, self.umat_root = get_unique_roots (
             ci, self.nelec_r, screen_linequiv=screen_linequiv, screen_thresh=SCREEN_THRESH,
             discriminator=self.discriminator
@@ -380,31 +390,30 @@ class FragTDMInt (object):
         self.hopidx_2c = [[np.where (hopping_index==c*s) for s in (s0,s1,s2)] for c in (-1,1)]
 
         # Update mask_ints
-        for i in np.where (self.root_unique)[0]:
-            images = np.where (self.unique_root==i)[0]
-            for j in images:
-                self.mask_ints[i,:] = np.logical_or (
-                    self.mask_ints[i,:], self.mask_ints[j,:]
-                )
-                self.mask_ints[:,i] = np.logical_or (
-                    self.mask_ints[:,i], self.mask_ints[:,j]
-                )
+        if self.mask_ints is not None:
+            for i in np.where (self.root_unique)[0]:
+                images = np.where (self.unique_root==i)[0]
+                for j in images:
+                    self.mask_ints[i,:] = np.logical_or (
+                        self.mask_ints[i,:], self.mask_ints[j,:]
+                    )
+                    self.mask_ints[:,i] = np.logical_or (
+                        self.mask_ints[:,i], self.mask_ints[:,j]
+                    )
 
-        return self._make_dms_()
+        self.log.timer_debug1 ('_init_crunch_ indexing', *t0)
+        t1 = self._make_dms_()
+        self.log.timer_debug1 ('_init_crunch_ _make_dms_', *t1)
+        return t0
 
     def update_ci_(self, iroot, ci):
-        update_mask = np.zeros ((self.nroots, self.nroots), dtype=bool)
         for i, civec in zip (iroot, ci):
             assert (self.root_unique[i]), 'Cannot update non-unique CI vectors'
-            update_mask[i,:] = True
-            update_mask[:,i] = True
             self.ci[i] = civec.reshape (-1, self.ndeta_r[i], self.ndetb_r[i])
-        mask_ints = self.mask_ints & update_mask
-        t0 = self._make_dms_(mask_ints=mask_ints)
+        t0 = self._make_dms_(screen=iroot)
         self.log.timer ('Update density matrices of fragment intermediate', *t0)
 
-    def _make_dms_(self, mask_ints=None):
-        if mask_ints is None: mask_ints=self.mask_ints
+    def _make_dms_(self, screen=None):
         t0 = (lib.logger.process_clock (), lib.logger.perf_counter ())
         ci = self.ci
         ndeta, ndetb = self.ndeta_r, self.ndetb_r
@@ -417,14 +426,14 @@ class FragTDMInt (object):
         offs = np.cumsum (lroots)
         for i, j in combinations (np.where (idx_uniq)[0], 2):
             if self.nelec_r[i] != self.nelec_r[j]: continue
-            if not mask_ints[i,j]: continue
+            if not self.unmasked_int (i,j,screen): continue
             ci_i = ci[i].reshape (lroots[i], -1)
             ci_j = ci[j].reshape (lroots[j], -1)
             k, l = self.uroot_idx[i], self.uroot_idx[j]
             self.ovlp[k][l] = np.dot (ci_i.conj (), ci_j.T)
             self.ovlp[l][k] = self.ovlp[k][l].conj ().T
         for i in np.where (idx_uniq)[0]:
-            if not mask_ints[i,i]: continue
+            if not self.unmasked_int (i,i,screen): continue
             ci_i = ci[i].reshape (lroots[i], -1)
             j = self.uroot_idx[i]
             self.ovlp[j][j] = np.dot (ci_i.conj (), ci_i.T)
@@ -524,7 +533,7 @@ class FragTDMInt (object):
         spectator_index = np.stack (np.where (spectator_index), axis=1)
         for i, j in spectator_index:
             k, l = self.uroot_addr[i], self.uroot_addr[j]
-            if not mask_ints[k,l]: continue
+            if not self.unmasked_int (k,l,screen): continue
             dm1s, dm2s = trans_rdm12s_loop (l, ci[k], ci[l], do2=True)
             self.set_dm1 (k, l, dm1s)
             self.set_dm2 (k, l, dm2s)
@@ -536,7 +545,7 @@ class FragTDMInt (object):
         for k in hidx_ket_a:
             for b in np.where (hopping_index[0,:,k] < 0)[0]:
                 bra, ket = self.uroot_addr[b], self.uroot_addr[k]
-                if not mask_ints[bra,ket]: continue
+                if not self.unmasked_int (bra,ket,screen): continue
                 # <j|a_p|i>
                 if np.all (hopping_index[:,b,k] == [-1,0]):
                     h, phh = trans_rdm13h_loop (bra, ket, spin=0)
@@ -561,7 +570,7 @@ class FragTDMInt (object):
         for k in hidx_ket_b:
             for b in np.where (hopping_index[1,:,k] < 0)[0]:
                 bra, ket = self.uroot_addr[b], self.uroot_addr[k]
-                if not mask_ints[bra,ket]: continue
+                if not self.unmasked_int (bra,ket,screen): continue
                 # <j|b_p|i>
                 if np.all (hopping_index[:,b,k] == [0,-1]):
                     h, phh = trans_rdm13h_loop (bra, ket, spin=1)
@@ -580,12 +589,14 @@ class FragTDMInt (object):
 
     def symmetrize_pt1_(self, ptmap):
         ''' Symmetrize transition density matrices of first order in perturbation theory '''
-        pt_mask = np.add.outer (self.pt_order, self.pt_order)
-        pt_mask = pt_mask==1
-        pt_mask[:,self.pt_order==1] = False
-        mask_ints = np.logical_and (
-           self.mask_ints, pt_mask
-        )
+        # TODO: memory-efficient version of this (get rid of outer product)
+        mask_ints = np.add.outer (self.pt_order, self.pt_order)
+        mask_ints = mask_ints==1
+        mask_ints[:,self.pt_order==1] = False
+        if self.mask_ints is not None:
+            mask_ints = np.logical_and (
+               self.mask_ints, mask_ints
+            )
         ptmap = np.append (ptmap, ptmap[:,::-1], axis=0)
         ptmap = {i:j for i,j in ptmap}
         idx_uniq = self.root_unique
@@ -999,14 +1010,15 @@ def make_ints (las, ci, nelec_frs, screen_linequiv=DO_SCREEN_LINEQUIV, nlas=None
         lroots: ndarray of ints of shape (nfrags, nroots)
             Number of states within each fragment and rootspace
     '''
+    t0 = (lib.logger.process_clock (), lib.logger.perf_counter ())
     nfrags, nroots = nelec_frs.shape[:2]
     log = lib.logger.new_logger (las, las.verbose)
     max_memory = getattr (las, 'max_memory', las.mol.max_memory)
     if nlas is None: nlas = las.ncas_sub
-    if mask_ints is None: mask_ints = np.ones ((nroots,nroots), dtype=bool)
     lroots = get_lroots (ci)
     rootaddr, fragaddr = get_rootaddr_fragaddr (lroots)
     ints = []
+    t0 = log.timer('make ints initialize', *t0)
     for ifrag in range (nfrags):
         m0 = lib.current_memory ()[0]
         tdmint = _FragTDMInt_class (las, ci[ifrag],
@@ -1024,6 +1036,7 @@ def make_ints (las, ci, nelec_frs, screen_linequiv=DO_SCREEN_LINEQUIV, nlas=None
         log.debug ('UNIQUE ROOTSPACES OF FRAG %d: %d/%d', ifrag,
                           np.count_nonzero (tdmint.root_unique), nroots)
         ints.append (tdmint)
+        t0 = log.timer('make ints calculate', *t0)
     return ints, lroots
 
 

@@ -30,13 +30,16 @@ class HamS2Ovlp (stdm.LSTDM):
     def __init__(self, ints, nlas, lroots, h1, h2, mask_bra_space=None,
                  mask_ket_space=None, pt_order=None, do_pt_order=None, log=None, max_memory=2000,
                  dtype=np.float64):
+        t0 = (logger.process_clock (), logger.perf_counter ())
         stdm.LSTDM.__init__(self, ints, nlas, lroots,
                             mask_bra_space=mask_bra_space, mask_ket_space=mask_ket_space,
                             pt_order=pt_order, do_pt_order=do_pt_order,
                             log=log, max_memory=max_memory, dtype=dtype)
+        t0 = self.log.timer ('HamS2Ovlp init LSTDM init', *t0)
         if h1.ndim==2: h1 = np.stack ([h1,h1], axis=0)
         self.h1 = np.ascontiguousarray (h1)
         self.h2 = np.ascontiguousarray (h2)
+        t0 = self.log.timer ('HamS2Ovlp init other parts', *t0)
 
     def _add_transpose_(self):
         self.ham += self.ham.conj ().T
@@ -455,7 +458,8 @@ def ham (las, h1, h2, ci, nelec_frs, soc=0, nlas=None, _HamS2Ovlp_class=HamS2Ovl
             Produce the overlap matrix between model states in a set of rootspaces,
             identified by ndarray or list "rootidx"
     '''     
-    log = lib.logger.new_logger (las, las.verbose) 
+    verbose = kwargs.get ('verbose', las.verbose)
+    log = lib.logger.new_logger (las, verbose) 
     if nlas is None: nlas = las.ncas_sub
     max_memory = getattr (las, 'max_memory', las.mol.max_memory)
     dtype = h1.dtype

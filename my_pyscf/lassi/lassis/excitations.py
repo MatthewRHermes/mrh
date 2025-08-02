@@ -313,7 +313,7 @@ class ExcitationPSFCISolver (ProductStateFCISolver):
         with temporary_env (self, ncas_sub=norb_ref, mol=fcisolvers[0].mol):
             ham_pq, _, ovlp_pq = op[self.opt].ham (self, h1, h2, ci_fr, nelec_frs, soc=0,
                                                    orbsym=self.orbsym_ref,
-                                                   wfnsym=self.wfnsym_ref)[:3]
+                                                   wfnsym=self.wfnsym_ref, verbose=0)[:3]
         t1 = self.log.timer ('get_ham_pq', *t0)
         return ham_pq + (h0*ovlp_pq)
 
@@ -461,7 +461,8 @@ class ExcitationPSFCISolver (ProductStateFCISolver):
         h_op = op[self.opt].contract_ham_ci
         with temporary_env (self, ncas_sub=norb_f, mol=self.fcisolvers[0].mol):
             hci_fr_pabq = h_op (self, h1, h2, ci_fr_ket, nelec_frs_ket, ci_fr_bra=ci_fr_bra,
-                                nelec_frs_bra=nelec_frs_bra, soc=0, orbsym=None, wfnsym=None)
+                                nelec_frs_bra=nelec_frs_bra, soc=0, orbsym=None, wfnsym=None,
+                                verbose=0)
         hci_f_pabq = [hc[0] for hc in hci_fr_pabq]
         # ZERO-STATE CLUDGE
         for ifrag in range (nfrags):

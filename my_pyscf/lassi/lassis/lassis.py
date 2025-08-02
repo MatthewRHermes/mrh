@@ -28,8 +28,10 @@ from mrh.my_pyscf.lassi.lassi import LASSI
 
 def prepare_model_states (lsi, ci_ref, ci_sf, ci_ch):
     t0 = (logger.process_clock (), logger.perf_counter ())
+    t1 = (logger.process_clock (), logger.perf_counter ())
     log = logger.new_logger (lsi, lsi.verbose)
     las = lsi.get_las_of_ci_ref (ci_ref)
+    t1=log.timer ("LASSIS model space preparation: get_las_of_ci_ref ", *t1)
     space0 = list_spaces (las)[0]
     # Make spin flip objects
     spin_flips = []
@@ -47,19 +49,26 @@ def prepare_model_states (lsi, ci_ref, ci_sf, ci_ch):
             spins1.append (smult+1)
             ci1.append (ci_sf[i][1])
         spin_flips.append (SpinFlips (las.mol, ci1, space0.nlas[i], space0.nelec[i], spins1, smults1))
+    t1=log.timer ("LASSIS model space preparation: make spin flip objects ", *t1)
     # Make charge-hop objects
     spaces = [space0]
+    spaces_ch = [[[] for a in range (lsi.nfrags)] for i in range (lsi.nfrags)]
     for i, a in itertools.product (range (lsi.nfrags), repeat=2):
         for s in range (4):
             ci_i, ci_a = ci_ch[i][a][s]
             if ci_i is None or ci_a is None: continue
             dsi = -1 + (s//2)*2
             dsa = -1 + (s%2)*2
-            spaces.append (space0.get_single_any_m (i, a, dsi, dsa, ci_i=ci_i, ci_a=ci_a))
+            space_ias = space0.get_single_any_m (i, a, dsi, dsa, ci_i=ci_i, ci_a=ci_a)
+            spaces.append (space_ias)
+            spaces_ch[i][a].append (space_ias)
+    t1=log.timer ("LASSIS model space preparation: make charge-hop objects ", *t1)
     # Excitation products and spin-shuffling
     if lsi.nfrags > 3:
-        spaces = charge_excitation_products (lsi, spaces, nroots_ref=1)
+        spaces = charge_excitation_products (lsi, spaces,spaces_ch, nroots_ref=1)
+    t1=log.timer ("LASSIS model space preparation: make charge excitation products ", *t1)
     spaces = spin_flip_products (las, spaces, spin_flips, nroots_ref=1)
+    t1=log.timer ("LASSIS model space preparation: make spin flip products ", *t1)
     # Throat-clear
     weights = [space.weight for space in spaces]
     charges = [space.charges for space in spaces]
@@ -69,10 +78,18 @@ def prepare_model_states (lsi, ci_ref, ci_sf, ci_ch):
     entmaps = [space.entmap for space in spaces]
     las = las.state_average (weights=weights, charges=charges, spins=spins, smults=smults, assert_no_dupes=False)
     las.ci = ci
+    t1=log.timer ("LASSIS model space preparation: throat clearing ", *t1)
     for ifrag in range (lsi.nfrags):
         for iroot in range (las.nroots):
             t = spaces[iroot].fcisolvers[ifrag].transformer
+            nelec = (spaces[iroot].neleca[ifrag], spaces[iroot].nelecb[ifrag])
+            norb = spaces[iroot].nlas[ifrag]
+            spin = spaces[iroot].spins[ifrag]
             las.fciboxes[ifrag].fcisolvers[iroot].transformer = t
+            las.fciboxes[ifrag].fcisolvers[iroot].nelec = nelec
+            las.fciboxes[ifrag].fcisolvers[iroot].norb = norb
+            las.fciboxes[ifrag].fcisolvers[iroot].spin = spin
+        t1=log.timer ("LASSIS model space preparation: fci for fragments ", *t1)
     log.timer ("LASSIS model space preparation", *t0)
     return las, entmaps
 
@@ -98,7 +115,7 @@ def prepare_fbf (lsi, ci_ref, ci_sf, ci_ch, ncharge=1, nspin=0, sa_heff=True,
     las1.e_states = las1.energy_nuc () + np.array (las1.states_energy_elec ())
     # 3. Charge excitations
     if ncharge:
-        las2 = all_single_excitations (las1)
+        las2 = all_single_excitations (las1, filter_shuffles=True)
         conv_ch, ci_ch, max_disc_sval = single_excitations_ci (
             lsi, las2, las1, ci_ch, ncharge=ncharge, sa_heff=sa_heff,
             deactivate_vrv=deactivate_vrv, spin_flips=spin_flips, crash_locmin=crash_locmin,
@@ -106,78 +123,6 @@ def prepare_fbf (lsi, ci_ref, ci_sf, ci_ch, ncharge=1, nspin=0, sa_heff=True,
         )
     log.timer ("LASSIS fragment basis functions preparation", *t0)
     return conv_sf and conv_ch, ci_sf, ci_ch, max_disc_sval
-
-def filter_single_excitation_spin_shuffles (lsi, spaces, nroots_ref=1):
-    spaces_ref = spaces[:nroots_ref]
-    spaces = spaces[nroots_ref:]
-    space0 = spaces_ref[0]
-
-    manifolds = []
-    for space in spaces:
-        isnew = True
-        for manifold in manifolds:
-            if space.is_spin_shuffle_of (manifold[0]):
-                manifold.append (space)
-                isnew = False
-                break
-        if isnew:
-            manifold = [space,]
-            manifolds.append (manifold)
-
-    spaces = [select_single_excitation_from_spin_manifold (lsi, space0, manifold)
-              for manifold in manifolds]
-    return spaces_ref + spaces
-
-def select_single_excitation_from_spin_manifold (lsi, space0, manifold):
-    log = lib.logger.new_logger (lsi)
-    nelec0 = space0.nelec
-    smults0 = space0.smults
-    spins0 = space0.spins
-    nelec1 = manifold[0].nelec
-    smults1 = manifold[0].smults
-    ifrag = np.where ((nelec1-nelec0)==-1)[0][0]
-    afrag = np.where ((nelec1-nelec0)==1)[0][0]
-    spins1 = np.abs (spins0.copy ())
-    target_sign = np.sign (spins0)
-    if (spins0[ifrag] == 0) and (spins0[afrag] == 0):
-        # arbitrarily preference alpha-electron hopping
-        target_sign[ifrag] = -1
-        target_sign[afrag] = 1
-    elif spins0[ifrag] == 0:
-        # set preference by receiving fragment
-        target_sign[ifrag] = -target_sign[afrag]
-    elif spins0[afrag] == 0:
-        # set preference by donating fragment
-        target_sign[afrag] = -target_sign[ifrag]
-    spins1[ifrag] += smults1[ifrag]-smults0[ifrag]
-    spins1[afrag] += smults1[afrag]-smults0[afrag]
-    spins1 = target_sign * spins1
-    assert (np.all (np.abs (spins1) < smults1))
-    spins = np.stack ([space.spins for space in manifold], axis=0)
-    dspins = np.abs (spins - spins1[None,:])
-    # Sort by smults; first for environment, then for active frags
-    sorter = smults1.copy ()
-    offset = np.amax (sorter)
-    sorter[ifrag] += offset
-    sorter[afrag] += offset
-    if sorter[ifrag] == sorter[afrag]:
-        sorter[afrag] += 1
-    idx = np.argsort (sorter, kind='stable')
-    dspins = dspins[:,idx]
-    dimsize = dspins.shape[0] * np.amax (dspins, axis=0)
-    dimsize = np.cumprod (dimsize[::-1]+1)[::-1]
-    scores = np.dot (dimsize, dspins.T)
-    # debrief
-    logstr = 'excitation {}->{}\nnelec_ref: {}\nsmults_ref: {}\nsmults_exc: {}\n'.format (
-        ifrag, afrag, nelec0, smults0, smults1)
-    logstr += 'ref spins: {}\ntarget spins: {}\n'.format (spins0, spins1)
-    for i, space in enumerate (manifold):
-        logstr += 'candidate spins: {}, score: {}\n'.format (space.spins, scores[i])
-    log.debug (logstr)
-    idx = (scores == np.amin (scores))
-    manifold = [space for i, space in enumerate (manifold) if idx[i]]
-    if len (manifold) > 1: raise RuntimeError (logstr)
-    return manifold[0]
 
 def single_excitations_ci (lsi, las2, las1, ci_ch, ncharge=1, sa_heff=True, deactivate_vrv=False,
                            spin_flips=None, crash_locmin=False, ham_2q=None):
@@ -203,7 +148,6 @@ def single_excitations_ci (lsi, las2, las1, ci_ch, ncharge=1, sa_heff=True, deac
         h0, h1, h2 = ham_2q
     t0 = (logger.process_clock (), logger.perf_counter ())
     converged = True
-    spaces = filter_single_excitation_spin_shuffles (lsi, spaces, nroots_ref=las1.nroots)
     keys = set ()
     max_max_disc = 0
     for i in range (las1.nroots, len (spaces)):
@@ -513,9 +457,12 @@ def spin_flip_products (las, spaces, spin_flips, nroots_ref=1):
     log = logger.new_logger (las, las.verbose)
     nspaces = len (spaces)
     spaces = _spin_flip_products (spaces, spin_flips, nroots_ref=nroots_ref)
+    t1 = log.timer ("LASSIS spin-flip bare injection", *t0)
     nfrags = spaces[0].nfrag
-    spaces = _spin_shuffle (spaces)
+    spaces = _spin_shuffle (spaces, las=las)
+    t1 = log.timer ("LASSIS spin shuffle tabulation", *t1)
     spaces = _spin_shuffle_ci_(spaces, spin_flips, nroots_ref, nspaces)
+    t1 = log.timer ("LASSIS spin shuffle CI population", *t1)
     log.debug ("LASSIS spin-excitation spaces: %d-%d", nspaces, len (spaces)-1)
     for i, space in enumerate (spaces[nspaces:]):
         if np.any (space.nelec != spaces[0].nelec):
@@ -526,25 +473,34 @@ def spin_flip_products (las, spaces, spin_flips, nroots_ref=1):
     log.timer ("LASSIS spin-flip injection", *t0)
     return spaces
 
-def charge_excitation_products (lsi, spaces, nroots_ref=0, space0=None):
+
+def charge_excitation_products (lsi, spaces, spaces_ch, nroots_ref=0, space0=None):
     t0 = (logger.process_clock (), logger.perf_counter ())
     log = logger.new_logger (lsi, lsi.verbose)
     mol = lsi.mol
     nfrags = lsi.nfrags
     if space0 is None: space0 = spaces[0]
     i0, j0 = i, j = nroots_ref, len (spaces)
+    n0 = 0
+    t1 = t0
     for product_order in range (2, (nfrags//2)+1):
         seen = set ()
-        for p, q in itertools.product (spaces[i:j], spaces[i0:j0]):
-            if not orthogonal_excitations (p, q, space0): continue
-            r = combine_orthogonal_excitations (p, q, space0)
-            if r not in seen:
-                seen.add (r)
-                spaces.append (r)
-                log.debug ("Electron hop product space %d", len (spaces) - 1)
-                spaces[-1].table_printlog (tverbose=logger.DEBUG)
+        for p in spaces[i:j]:
+            ia = np.where (~p.excited_fragments (space0, ignore_m=True))[0]
+            for i,a in itertools.permutations (ia, r=2):
+                for q in spaces_ch[i][a]:
+                    assert (orthogonal_excitations (p, q, space0, ignore_m=True))
+                    r = combine_orthogonal_excitations (p, q, space0, flexible_m=True)
+                    n0 += 1
+                    if r not in seen:
+                        seen.add (r)
+                        spaces.append (r)
+                        log.debug ("Electron hop product space %d", len (spaces) - 1)
+                        spaces[-1].table_printlog (tverbose=logger.DEBUG)
         i = j
         j = len (spaces)
+        t1 = log.timer ("LASSIS charge-hop product_order {} ({} {})".format (
+            product_order, n0, j-i), *t1)
     assert (len (spaces) == len (set (spaces)))
     log.timer ("LASSIS charge-hop product generation", *t0)
     return spaces
@@ -667,7 +623,7 @@ class LASSIS (LASSI):
             self.e_roots, self.si = self.eig (**kwargs)
             t1 = log.timer ("LASSIS diagonalization", *t1)
 
-        log.timer ("LASSIS", *t0)
+        log.timer ("LASSIS kernel", *t0)
         return self.e_roots, self.si
 
     def get_ci_ref (self):
@@ -751,6 +707,7 @@ class LASSIS (LASSI):
     eig = LASSI.kernel
     as_scanner = as_scanner
     prepare_fbf = prepare_fbf
+    print("here after fbf", flush=True)
     prepare_model_states = prepare_model_states
 
     def get_ref_fbf_rootspaces (self, ifrag):
