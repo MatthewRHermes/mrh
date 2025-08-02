@@ -65,7 +65,7 @@ def prepare_model_states (lsi, ci_ref, ci_sf, ci_ch):
     t1=log.timer ("LASSIS model space preparation: make charge-hop objects ", *t1)
     # Excitation products and spin-shuffling
     if lsi.nfrags > 3:
-        spaces = charge_excitation_products (lsi, spaces, nroots_ref=1)
+        spaces = charge_excitation_products (lsi, spaces,spaces_ch, nroots_ref=1)
     t1=log.timer ("LASSIS model space preparation: make charge excitation products ", *t1)
     spaces = spin_flip_products (las, spaces, spin_flips, nroots_ref=1)
     t1=log.timer ("LASSIS model space preparation: make spin flip products ", *t1)
@@ -473,27 +473,30 @@ def spin_flip_products (las, spaces, spin_flips, nroots_ref=1):
     log.timer ("LASSIS spin-flip injection", *t0)
     return spaces
 
+
 def charge_excitation_products (lsi, spaces, spaces_ch, nroots_ref=0, space0=None):
     t0 = (logger.process_clock (), logger.perf_counter ())
-    t1 = (logger.process_clock (), logger.perf_counter ())
     log = logger.new_logger (lsi, lsi.verbose)
     mol = lsi.mol
     nfrags = lsi.nfrags
     if space0 is None: space0 = spaces[0]
-    i0, j0 = i, j = nroots_ref, len (spaces) #nroots_ref is 1
-    print('spaces = ',len(spaces), flush=True)
-    t1=log.timer ("LASSIS charge-hop product generation: setup", *t1)
+    i0, j0 = i, j = nroots_ref, len (spaces)
+    n0 = 0
+    t1 = t0
     for product_order in range (2, (nfrags//2)+1):
         seen = set ()
-        for p, q in itertools.product (spaces[i:j], spaces[i0:j0]):
-            if not orthogonal_excitations (p, q, space0): continue
-            r = combine_orthogonal_excitations (p, q, space0)
-            if r not in seen:
-                seen.add (r)
-                spaces.append (r)
-                log.debug ("Electron hop product space %d", len (spaces) - 1)
-                spaces[-1].table_printlog (tverbose=logger.DEBUG)
-        t1=log.timer ("LASSIS charge-hop product generation: charge_excitation round", *t1)
+        for p in spaces[i:j]:
+            ia = np.where (~p.excited_fragments (space0, ignore_m=True))[0]
+            for i,a in itertools.permutations (ia, r=2):
+                for q in spaces_ch[i][a]:
+                    assert (orthogonal_excitations (p, q, space0, ignore_m=True))
+                    r = combine_orthogonal_excitations (p, q, space0, flexible_m=True)
+                    n0 += 1
+                    if r not in seen:
+                        seen.add (r)
+                        spaces.append (r)
+                        log.debug ("Electron hop product space %d", len (spaces) - 1)
+                        spaces[-1].table_printlog (tverbose=logger.DEBUG)
         i = j
         j = len (spaces)
         t1 = log.timer ("LASSIS charge-hop product_order {} ({} {})".format (
