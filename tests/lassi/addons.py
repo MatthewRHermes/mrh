@@ -15,8 +15,9 @@ from mrh.util.la import vector_error
 op = (op_o0, op_o1)
 
 def describe_interactions (nelec_frs):
-    hopping_index, zerop_index, onep_index = lst_hopping_index (nelec_frs)
+    hopping_index = lst_hopping_index (nelec_frs)
     symm_index = np.all (hopping_index.sum (0) == 0, axis=0)
+    onep_index = symm_index & (np.abs (hopping_index).sum ((0,1)) == 2)
     twop_index = symm_index & (np.abs (hopping_index).sum ((0,1)) == 4)
     twoc_index = twop_index & (np.abs (hopping_index.sum (1)).sum (0) == 4)
     ocos_index = twop_index & (np.abs (hopping_index.sum (1)).sum (0) == 2)

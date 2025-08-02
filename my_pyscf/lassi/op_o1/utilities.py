@@ -1,7 +1,14 @@
 import numpy as np
+from pyscf import lib
 from mrh.util import bigdim
 from mrh.my_pyscf.lassi.citools import umat_dot_1frag_
 from mrh.my_pyscf.lassi.op_o0 import civec_spinless_repr
+from mrh.lib.helper import load_library
+import ctypes
+liblassi = load_library ('liblassi')
+def c_arr (arr): return arr.ctypes.data_as(ctypes.c_void_p)
+c_int = ctypes.c_int
+c_long = ctypes.c_long
 
 def fermion_spin_shuffle (na_list, nb_list):
     ''' Compute the sign factor corresponding to the convention
@@ -110,6 +117,26 @@ def lst_hopping_index (nelec_frs):
     hopping_index = np.array ([[np.subtract.outer (spin, spin)
         for spin in frag] for frag in nelec_fsr])
     return hopping_index
+
+def get_scallowed_interactions (nelec_frs, max_memory=None):
+    nelec_rfs = np.ascontiguousarray (nelec_frs.transpose (1,0,2))
+    nelec_rfs = c_arr (nelec_rfs.astype (np.intc))
+    nfrags, nroots = nelec_frs.shape[:2]
+    nfrags, nroots = c_int (nfrags), c_long (nroots)
+    nexc = liblassi.SCcntinter (nelec_rfs, nelec_rfs, nroots, nroots, nfrags)
+    if max_memory is not None:
+        itemsize = np.zeros (1, dtype=np.int_).dtype.itemsize
+        rem_mem = max_memory - lib.current_memory ()[0]
+        reqd_mem = 2*nexc*itemsize/1e6
+        if reqd_mem>rem_mem:
+            raise MemoryError (('Insufficient memory to store interaction list: {} interactions '
+                                'requires {} MB of {} MB remaining ({} MB max)').format (
+                               nexc, reqd_mem, rem_mem, max_memory))
+    exc = -1*np.ones ((nexc,2), dtype=np.int_)
+    liblassi.SClistinter (c_arr (exc), nelec_rfs, nelec_rfs, c_long (nexc), nroots, nroots, nfrags)
+    ix = np.lexsort ((exc[:,1], exc[:,0]))
+    return exc[ix]
+    #return np.sort (exc, axis=0)
 
 def get_contig_blks (mask):
     '''Get contiguous chunks from a mask index into an array'''

@@ -27,11 +27,11 @@ class HamS2Ovlp (stdm.LSTDM):
         h2 : ndarray of size ncas**4
             Contains 2-electron Hamiltonian amplitudes in second quantization
     '''
-    def __init__(self, ints, nlas, hopping_index, lroots, h1, h2, mask_bra_space=None,
+    def __init__(self, ints, nlas, lroots, h1, h2, mask_bra_space=None,
                  mask_ket_space=None, pt_order=None, do_pt_order=None, log=None, max_memory=2000,
                  dtype=np.float64):
         t0 = (logger.process_clock (), logger.perf_counter ())
-        stdm.LSTDM.__init__(self, ints, nlas, hopping_index, lroots,
+        stdm.LSTDM.__init__(self, ints, nlas, lroots,
                             mask_bra_space=mask_bra_space, mask_ket_space=mask_ket_space,
                             pt_order=pt_order, do_pt_order=do_pt_order,
                             log=log, max_memory=max_memory, dtype=dtype)
@@ -458,7 +458,8 @@ def ham (las, h1, h2, ci, nelec_frs, soc=0, nlas=None, _HamS2Ovlp_class=HamS2Ovl
             Produce the overlap matrix between model states in a set of rootspaces,
             identified by ndarray or list "rootidx"
     '''     
-    log = lib.logger.new_logger (las, las.verbose) 
+    verbose = kwargs.get ('verbose', las.verbose)
+    log = lib.logger.new_logger (las, verbose) 
     if nlas is None: nlas = las.ncas_sub
     max_memory = getattr (las, 'max_memory', las.mol.max_memory)
     dtype = h1.dtype
@@ -470,7 +471,7 @@ def ham (las, h1, h2, ci, nelec_frs, soc=0, nlas=None, _HamS2Ovlp_class=HamS2Ovl
         h1, h2, ci, nelec_frs, soc, nlas)
 
     # First pass: single-fragment intermediates
-    hopping_index, ints, lroots = frag.make_ints (las, ci, nelec_frs, nlas=nlas)
+    ints, lroots = frag.make_ints (las, ci, nelec_frs, nlas=nlas)
     nstates = np.sum (np.prod (lroots, axis=0))
         
     # Memory check
@@ -482,7 +483,7 @@ def ham (las, h1, h2, ci, nelec_frs, soc=0, nlas=None, _HamS2Ovlp_class=HamS2Ovl
 
     # Second pass: upper-triangle
     t0 = (lib.logger.process_clock (), lib.logger.perf_counter ())
-    outerprod = _HamS2Ovlp_class (ints, nlas, hopping_index, lroots, h1, h2, dtype=dtype,
+    outerprod = _HamS2Ovlp_class (ints, nlas, lroots, h1, h2, dtype=dtype,
                                      max_memory=max_memory, log=log)
     if soc and not spin_pure:
         outerprod.spin_shuffle = spin_shuffle_fac

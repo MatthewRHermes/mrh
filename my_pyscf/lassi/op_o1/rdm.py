@@ -41,10 +41,10 @@ class LRRDM (stdm.LSTDM):
     # TODO: SO-LASSI o1 implementation: these density matrices can only be defined in the full
     # spinorbital basis
 
-    def __init__(self, ints, nlas, hopping_index, lroots, si_bra, si_ket, mask_bra_space=None,
+    def __init__(self, ints, nlas, lroots, si_bra, si_ket, mask_bra_space=None,
                  mask_ket_space=None, pt_order=None, do_pt_order=None, log=None, max_memory=2000,
                  dtype=np.float64):
-        stdm.LSTDM.__init__(self, ints, nlas, hopping_index, lroots,
+        stdm.LSTDM.__init__(self, ints, nlas, lroots,
                                 mask_bra_space=mask_bra_space,
                                 mask_ket_space=mask_ket_space,
                                 pt_order=pt_order,
@@ -593,7 +593,8 @@ def get_fdm1_maker (las, ci, nelec_frs, si, **kwargs):
                 fdm : ndarray of shape (si.shape[1], lroots[j,i], lroots[j,i])
                     1-fragment reduced density matrix
     ''' 
-    log = logger.new_logger (las, las.verbose)
+    verbose = kwargs.get ('verbose', las.verbose)
+    log = logger.new_logger (las, verbose)
     nlas = las.ncas_sub
     ncas = las.ncas 
     nroots_si = si.shape[-1]
@@ -601,11 +602,11 @@ def get_fdm1_maker (las, ci, nelec_frs, si, **kwargs):
     dtype = ci[0][0].dtype 
         
     # First pass: single-fragment intermediates
-    hopping_index, ints, lroots = frag.make_ints (las, ci, nelec_frs, nlas=nlas)
+    ints, lroots = frag.make_ints (las, ci, nelec_frs, nlas=nlas)
     nstates = np.sum (np.prod (lroots, axis=0))
         
     # Second pass: upper-triangle
-    outerprod = LRRDM (ints, nlas, hopping_index, lroots, si, si, dtype=dtype,
+    outerprod = LRRDM (ints, nlas, lroots, si, si, dtype=dtype,
                           max_memory=max_memory, log=log)
 
     # Spoof nonuniq_exc to avoid summing together things that need to be separate
@@ -639,7 +640,8 @@ def roots_trans_rdm12s (las, ci, nelec_frs, si_bra, si_ket, **kwargs):
         rdm2s : ndarray of shape (nroots_si,2,ncas,ncas,2,ncas,ncas)
             Spin-separated 2-body reduced density matrices of LASSI states
     '''
-    log = lib.logger.new_logger (las, las.verbose)
+    verbose = kwargs.get ('verbose', las.verbose)
+    log = lib.logger.new_logger (las, verbose)
     nlas = las.ncas_sub
     ncas = las.ncas
     pt_order = kwargs.get ('pt_order', None)
@@ -667,7 +669,7 @@ def roots_trans_rdm12s (las, ci, nelec_frs, si_bra, si_ket, **kwargs):
         ncas = ncas * 2
 
     # First pass: single-fragment intermediates
-    hopping_index, ints, lroots = frag.make_ints (las, ci, nelec_frs, nlas=nlas,
+    ints, lroots = frag.make_ints (las, ci, nelec_frs, nlas=nlas,
                                                   _FragTDMInt_class=FragTDMInt,
                                                   pt_order=pt_order,
                                                   do_pt_order=do_pt_order)
@@ -682,7 +684,7 @@ def roots_trans_rdm12s (las, ci, nelec_frs, si_bra, si_ket, **kwargs):
 
     # Second pass: upper-triangle
     t0 = (lib.logger.process_clock (), lib.logger.perf_counter ())
-    outerprod = LRRDM (ints, nlas, hopping_index, lroots, si_bra, si_ket,
+    outerprod = LRRDM (ints, nlas, lroots, si_bra, si_ket,
                        pt_order=pt_order, do_pt_order=do_pt_order,
                        dtype=dtype, max_memory=max_memory, log=log)
 
