@@ -113,8 +113,8 @@ namespace PM_NS {
     
 #if defined (_PROFILE_PM_MEM)
     std::vector<std::string> profile_mem_name;
-    std::vector<size_t> profile_mem_size;
-    std::vector<size_t> profile_mem_max_size;
+    std::vector<int64_t> profile_mem_size;
+    std::vector<int64_t> profile_mem_max_size;
     std::vector<size_t> profile_mem_count_alloc;
     std::vector<size_t> profile_mem_count_free;
 #endif

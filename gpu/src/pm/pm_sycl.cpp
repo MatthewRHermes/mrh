@@ -966,13 +966,13 @@ void PM::profile_memory(size_t N, std::string name_, int mode)
   if(mode == PROFILE_MEM_MALLOC) {
   
     if(indx < profile_mem_name.size()) {
-      profile_mem_size[indx] += N;
+      profile_mem_size[indx] += (int64_t) N;
       profile_mem_count_alloc[indx]++;
-      if(N > profile_mem_max_size[indx]) profile_mem_max_size[indx] = N;
+      if(N > profile_mem_max_size[indx]) profile_mem_max_size[indx] = (int64_t) N;
     } else {
       profile_mem_name.push_back(name);
-      profile_mem_size.push_back(N);
-      profile_mem_max_size.push_back(N);
+      profile_mem_size.push_back((int64_t) N);
+      profile_mem_max_size.push_back((int64_t) N);
       profile_mem_count_alloc.push_back(1);
       profile_mem_count_free.push_back(0);
     }
