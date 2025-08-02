@@ -6,6 +6,7 @@ from scipy import linalg
 from functools import reduce
 from collections import Counter
 from pyscf import gto, scf, lib
+from pyscf.data.elements import ELEMENTS as element_symbols
 import mrh
 import os
 
@@ -13,22 +14,6 @@ import os
 VIR_E_CUTOFF = -1e-3 # In Hartree
 REF_BASIS = 'ano-rcc' # Basis
 VIR_E_SHIFT = 3.0 # In Hartree
-
-# List of atoms. It should be somewhere in pyscf or mrh then it will
-# be straightforward import.
-element_symbols = [
-    "H", "He", "Li", "Be", "B", "C", "N", "O", "F", "Ne",
-    "Na", "Mg", "Al", "Si", "P", "S", "Cl", "Ar", "K", "Ca",
-    "Sc", "Ti", "V", "Cr", "Mn", "Fe", "Co", "Ni", "Cu", "Zn",
-    "Ga", "Ge", "As", "Se", "Br", "Kr", "Rb", "Sr", "Y", "Zr",
-    "Nb", "Mo", "Tc", "Ru", "Rh", "Pd", "Ag", "Cd", "In", "Sn",
-    "Sb", "I", "Te", "Xe", "Cs", "Ba", "La", "Ce", "Pr", "Nd",
-    "Pm", "Sm", "Eu", "Gd", "Tb", "Dy", "Ho", "Er", "Tm", "Yb",
-    "Lu", "Hf", "Ta", "W", "Re", "Os", "Ir", "Pt", "Au", "Hg",
-    "Tl", "Pb", "Bi", "Po", "At", "Rn", "Fr", "Ra", "Ac", "Th",
-    "Pa", "U", "Np", "Pu", "Am", "Cm", "Bk", "Cf", "Es", "Fm",
-    "Md", "No", "Lr", "Rf", "Db", "Sg", "Bh", "Hs", "Mt", "Ds",
-    "Rg", "Cn", "Nh", "Fl", "Mc", "Lv", "Ts", "Og"]
 
 def loadorbitalenergy():
     '''
@@ -112,7 +97,7 @@ def get_model_fock(mol):
         atombasis = mol._basis[symb]
         atomcoord = mol._atom[ia][1]
         # Spin argument doesn't matter but has to give it to use the mol object
-        atomicno = element_symbols.index(symb) + 1
+        atomicno = element_symbols.index(symb) 
         atm1 = gto.M(atom=[[symb, atomcoord]], basis={purssymb:atombasis}, spin=atomicno%2)
         atm2 = gto.M(atom=[[symb, atomcoord]], basis=REF_BASIS, spin=atomicno%2)
 

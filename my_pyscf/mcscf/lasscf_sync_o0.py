@@ -10,8 +10,6 @@ from pyscf.lo import orth
 from pyscf.lib import tag_array, with_doc, logger
 from functools import partial
 
-from mrh.my_pyscf.gpu import libgpu
-
 # An implementation that carries out vLASSCF, but without utilizing Schmidt decompositions
 # or "fragment" subspaces, so that the orbital-optimization part scales no better than
 # CASSCF. Eventually to be modified into a true all-PySCF implementation of vLASSCF
@@ -102,6 +100,7 @@ class LASSCF_HessianOperator (lasci_sync.LASCI_HessianOperator):
     def orbital_response (self, kappa, odm1s, ocm2, tdm1frs, tcm2, veff_prime):
         ''' Parent class does everything except va/ac degrees of freedom
         (c: closed; a: active; v: virtual; p: any) '''
+        from mrh.my_pyscf.gpu import libgpu
         ncore, nocc, nmo = self.ncore, self.nocc, self.nmo
         gorb = lasci_sync.LASCI_HessianOperator.orbital_response (self, kappa, odm1s,
             ocm2, tdm1frs, tcm2, veff_prime)

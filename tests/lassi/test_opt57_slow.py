@@ -31,6 +31,7 @@ from mrh.my_pyscf.lassi.citools import get_lroots, get_rootaddr_fragaddr
 from mrh.my_pyscf.lassi import op_o0
 from mrh.my_pyscf.lassi import op_o1
 from mrh.tests.lassi.addons import case_contract_hlas_ci, case_contract_op_si
+from mrh.tests.lassi.addons import eri_sector_indexes
 
 op = (op_o0, op_o1)
 

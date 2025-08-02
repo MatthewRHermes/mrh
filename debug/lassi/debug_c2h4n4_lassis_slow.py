@@ -51,12 +51,12 @@ def tearDownModule():
 
 class KnownValues(unittest.TestCase):
 
-    def test_energy (self):
-        for dson in (False, True):
-            with self.subTest (opt=1, davidson_only=dson):
-                lsi.run (opt=1, davidson_only=dson)
-                self.assertTrue (lsi.converged)
-                self.assertAlmostEqual (lsi.e_roots[0], -295.52185731568903, 7)
+    #def test_energy (self):
+    #    for dson in (False, True):
+    #        with self.subTest (opt=1, davidson_only=dson):
+    #            lsi.run (opt=1, davidson_only=dson)
+    #            self.assertTrue (lsi.converged)
+    #            self.assertAlmostEqual (lsi.e_roots[0], -295.52185731568903, 7)
 
     #def test_fbf_2_model_state (self):
     #    for lsi.opt in (0,1):
@@ -86,11 +86,11 @@ class KnownValues(unittest.TestCase):
     #            self.assertTrue (lsi2.converged)
     #            self.assertAlmostEqual (lsi_scanner.e_roots[0], lsi2.e_roots[0], 5)
 
-    def test_lassis_ugg (self):
-        case_lassis_ugg (self, lsi)
+    #def test_lassis_ugg (self):
+    #    case_lassis_ugg (self, lsi)
 
-    def test_grads (self):
-        case_lassis_grads (self, lsi)
+    #def test_grads (self):
+    #    case_lassis_grads (self, lsi)
 
     def test_hessian (self):
         case_lassis_hessian (self, lsi)    

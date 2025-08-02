@@ -1,7 +1,14 @@
 import numpy as np
+from pyscf import lib
 from mrh.util import bigdim
 from mrh.my_pyscf.lassi.citools import umat_dot_1frag_
 from mrh.my_pyscf.lassi.op_o0 import civec_spinless_repr
+from mrh.lib.helper import load_library
+import ctypes
+liblassi = load_library ('liblassi')
+def c_arr (arr): return arr.ctypes.data_as(ctypes.c_void_p)
+c_int = ctypes.c_int
+c_long = ctypes.c_long
 
 def fermion_spin_shuffle (na_list, nb_list):
     ''' Compute the sign factor corresponding to the convention
@@ -88,6 +95,11 @@ def fermion_des_shuffle (nelec_f, frag_list, i):
     nperms = sum (nelec_f[:i]) if i else 0
     return (1,-1)[nperms%2]
 
+def lst_hopping_index_memsize (nelec_frs):
+    nfrags, nroots, _ = nelec_frs.shape
+    hopping_index_size = nfrags * nroots * nroots * 2 * 8
+    return hopping_index_size / 1e6
+
 def lst_hopping_index (nelec_frs):
     ''' Build the LAS state transition hopping index
 
@@ -100,26 +112,31 @@ def lst_hopping_index (nelec_frs):
             hopping_index: ndarray of ints of shape (nfrags, 2, nroots, nroots)
                 element [i,j,k,l] reports the change of number of electrons of
                 spin j in fragment i between LAS rootspaces k and l
-            zerop_index: ndarray of bools of shape (nroots, nroots)
-                element [i,j] is true where the ith and jth LAS spaces are
-                connected by a null excitation; i.e., no electron, pair,
-                or spin hopping or pair splitting/coalescence. This implies
-                nonzero 1- and 2-body transition density matrices within
-                all fragments.
-            onep_index: ndarray of bools of shape (nroots, nroots)
-                element [i,j] is true where the ith and jth LAS spaces
-                are connected by exactly one electron hop from i to j or vice
-                versa, implying nonzero 1-body transition density matrices
-                within spectator fragments and phh/pph modes within
-                source/dest fragments.
     '''
     nelec_fsr = nelec_frs.transpose (0,2,1)
     hopping_index = np.array ([[np.subtract.outer (spin, spin)
         for spin in frag] for frag in nelec_fsr])
-    symm_index = np.all (hopping_index.sum (0) == 0, axis=0)
-    zerop_index = symm_index & (np.count_nonzero (hopping_index, axis=(0,1)) == 0)
-    onep_index = symm_index & (np.abs (hopping_index).sum ((0,1)) == 2)
-    return hopping_index, zerop_index, onep_index
+    return hopping_index
+
+def get_scallowed_interactions (nelec_frs, max_memory=None):
+    nelec_rfs = np.ascontiguousarray (nelec_frs.transpose (1,0,2))
+    nelec_rfs = c_arr (nelec_rfs.astype (np.intc))
+    nfrags, nroots = nelec_frs.shape[:2]
+    nfrags, nroots = c_int (nfrags), c_long (nroots)
+    nexc = liblassi.SCcntinter (nelec_rfs, nelec_rfs, nroots, nroots, nfrags)
+    if max_memory is not None:
+        itemsize = np.zeros (1, dtype=np.int_).dtype.itemsize
+        rem_mem = max_memory - lib.current_memory ()[0]
+        reqd_mem = 2*nexc*itemsize/1e6
+        if reqd_mem>rem_mem:
+            raise MemoryError (('Insufficient memory to store interaction list: {} interactions '
+                                'requires {} MB of {} MB remaining ({} MB max)').format (
+                               nexc, reqd_mem, rem_mem, max_memory))
+    exc = -1*np.ones ((nexc,2), dtype=np.int_)
+    liblassi.SClistinter (c_arr (exc), nelec_rfs, nelec_rfs, c_long (nexc), nroots, nroots, nfrags)
+    ix = np.lexsort ((exc[:,1], exc[:,0]))
+    return exc[ix]
+    #return np.sort (exc, axis=0)
 
 def get_contig_blks (mask):
     '''Get contiguous chunks from a mask index into an array'''
