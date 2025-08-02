@@ -131,9 +131,10 @@ class ImpuritySCF (scf.hf.SCF):
                                             "supported)"))
         df_eris_mem_error = MemoryError (("Density-fitted two-electron integrals in asynchronous "
                                           "LASSCF (outcore algorithm is not yet supported"))
-        
-        gpu = False
-        if hasattr (mf, 'use_gpu'): gpu = mf.mol.use_gpu
+        if hasattr(self.mol, 'use_gpu'):
+            gpu = self.mol.use_gpu
+        else:
+            gpu = False
 
         if getattr (mf, 'with_df', None) is not None:
             from mrh.my_pyscf.gpu import libgpu
@@ -203,8 +204,7 @@ class ImpuritySCF (scf.hf.SCF):
                         log.debug("Cholesky vector issue")
                         exit()
 
-                
-            elif gpu:
+            elif gpu and 0:
                 naoaux = mf.with_df.get_naoaux()
                 nao_s, nao_f = imporb_coeff.shape
                 if getattr(self, 'with_df', None) is not None:
