@@ -392,30 +392,7 @@ class LSTDM (object):
         if lbl=='null': return exc
         ulblu = '_' + lbl + '_'
         excp = exc[:,:-1] if ulblu in self.interaction_has_spin else exc
-        fprintLT = np.empty (len (excp), dtype=int)
-        fprint = np.empty (len (excp), dtype=int)
-        # MRH 08/01/2025: this loop is a significant bottleneck in many-fragment LASSIS and is
-        # trivial to multithread in C as long as you can find a good integer-list hash function
-        for i, row in enumerate (excp):
-            bra, ket = row[:2]
-            frags = row[2:]
-            fprintLT[i] = self.interaction_fprint (bra, ket, frags, ltri=self.ltri)
-            fprint[i] = self.interaction_fprint (bra, ket, frags, ltri=False)
-        ################## TEST C IMPLEMENTATION #########################
-        fprint_test, fprintLT_test = self.interaction_fprints (exc, lbl)
-        fpr, idxr, invr = np.unique (fprintLT, return_index=True, return_inverse=True)
-        fpt, idxt, invt = np.unique (fprintLT_test, return_index=True, return_inverse=True)
-        assert (idxr.shape==idxt.shape), '{} {}'.format (idxr.shape, idxt.shape)
-        assert (invr.shape==invt.shape), '{} {}'.format (invr.shape, invt.shape)
-        assert (np.all (fprintLT[idxt][invt]==fprintLT))
-        assert (np.all (fprintLT_test[idxr][invr]==fprintLT_test))
-        idxr, invr = np.unique (fprint, return_index=True, return_inverse=True)[1:]
-        idxt, invt = np.unique (fprint_test, return_index=True, return_inverse=True)[1:]
-        assert (idxr.shape==idxt.shape)
-        assert (invr.shape==invt.shape)
-        assert (np.all (fprint[idxt][invt]==fprint))
-        assert (np.all (fprint_test[idxr][invr]==fprint_test))
-        ########################## END TEST ##############################
+        fprint, fprintLT = self.interaction_fprints (exc, lbl)
         nexc = len (exc)
         ufp, idx, cnts = np.unique (fprintLT, axis=0, return_index=True, return_counts=True)
         # for some reason this squeeze is necessary for some versions of numpy; however...
