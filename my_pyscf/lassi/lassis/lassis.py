@@ -120,6 +120,7 @@ def single_excitations_ci (lsi, las2, las1, ci_ch, ncharge=1, sa_heff=True, deac
                            spin_flips=None, crash_locmin=False, ham_2q=None):
     log = logger.new_logger (lsi, lsi.verbose)
     mol = lsi.mol
+    max_memory = getattr (lsi, 'max_memory', mol.max_memory)
     nfrags = lsi.nfrags
     e_roots = np.append (las1.e_states, np.zeros (las2.nroots-las1.nroots))
     spaces = list_spaces (las2)
@@ -184,7 +185,9 @@ def single_excitations_ci (lsi, las2, las1, ci_ch, ncharge=1, sa_heff=True, deac
         psref = [space.get_product_state_solver () for space in psref]
         psexc = ExcitationPSFCISolver (psref, ciref, las2.ncas_sub, las2.nelecas_sub,
                                        stdout=mol.stdout, verbose=mol.verbose,
-                                       crash_locmin=crash_locmin, opt=lsi.opt)
+                                       crash_locmin=crash_locmin, opt=lsi.opt,
+                                       max_memory=getattr (lsi, 'max_memory',
+                                                           mol.max_memory))
         psexc._deactivate_vrv = deactivate_vrv
         norb = spaces[i].nlas
         neleca = spaces[i].neleca

@@ -62,13 +62,14 @@ class ExcitationPSFCISolver (ProductStateFCISolver):
 
     def __init__(self, solvers_ref, ci_ref, norb_ref, nelec_ref, orbsym_ref=None,
                  wfnsym_ref=None, stdout=None, verbose=0, opt=0, ref_weights=None, 
-                 crash_locmin=False, **kwargs):
+                 crash_locmin=False, max_memory=2000, **kwargs):
         if isinstance (solvers_ref, ProductStateFCISolver):
             solvers_ref = [solvers_ref]
             ci_ref = [[c] for c in ci_ref]
         if ref_weights is None:
             ref_weights = [0.0,]*len (solvers_ref)
             ref_weights[0] = 1.0
+        self.max_memory = max_memory
         self.solvers_ref = solvers_ref
         self.ci_ref = ci_ref
         self.ref_weights = np.asarray (ref_weights)
