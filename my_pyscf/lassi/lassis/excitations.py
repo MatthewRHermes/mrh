@@ -3,7 +3,7 @@ import numpy as np
 import ctypes
 import itertools
 from scipy import linalg
-from pyscf.lib import logger
+from pyscf.lib import logger, param
 from pyscf.fci.direct_spin1 import _unpack_nelec, trans_rdm1s, trans_rdm12s
 from pyscf.scf.addons import canonical_orth_
 from mrh.my_pyscf.mcscf.productstate import ProductStateFCISolver, state_average_fcisolver
@@ -62,7 +62,7 @@ class ExcitationPSFCISolver (ProductStateFCISolver):
 
     def __init__(self, solvers_ref, ci_ref, norb_ref, nelec_ref, orbsym_ref=None,
                  wfnsym_ref=None, stdout=None, verbose=0, opt=0, ref_weights=None, 
-                 crash_locmin=False, max_memory=2000, **kwargs):
+                 crash_locmin=False, max_memory=param.MAX_MEMORY, **kwargs):
         if isinstance (solvers_ref, ProductStateFCISolver):
             solvers_ref = [solvers_ref]
             ci_ref = [[c] for c in ci_ref]

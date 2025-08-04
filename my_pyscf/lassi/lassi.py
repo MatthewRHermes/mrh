@@ -7,6 +7,7 @@ from mrh.my_pyscf.lassi import chkfile
 from mrh.my_pyscf.lassi import citools
 from mrh.my_pyscf.lassi.citools import get_lroots
 from pyscf import lib, symm, ao2mo
+from pyscf.lib import param
 from pyscf.scf.addons import canonical_orth_
 from pyscf.lib.numpy_helper import tag_array
 from pyscf.fci.direct_spin1 import _unpack_nelec
@@ -244,7 +245,7 @@ def lassi (las, mo_coeff=None, ci=None, veff_c=None, h2eff_sub=None, orbsym=None
         if orbsym is not None:
             orbsym = orbsym[las.ncore:las.ncore+las.ncas]
     if davidson_only is None: davidson_only = getattr (las, 'davidson_only', False)
-    max_memory = getattr (las, 'max_memory', 2000)
+    max_memory = getattr (las, 'max_memory', param.MAX_MEMORY)
     o0_memcheck = op_o0.memcheck (las, ci, soc=soc)
     if opt == 0 and o0_memcheck == False:
         raise RuntimeError ('Insufficient memory to use o0 LASSI algorithm')
@@ -344,7 +345,7 @@ def lassi (las, mo_coeff=None, ci=None, veff_c=None, h2eff_sub=None, orbsym=None
             break
     return e_roots, si
 
-def _eig_block (las, e0, h1, h2, ci_blk, nelec_blk, soc, opt, max_memory=2000,
+def _eig_block (las, e0, h1, h2, ci_blk, nelec_blk, soc, opt, max_memory=param.MAX_MEMORY,
                 davidson_only=False):
     nstates = np.prod (get_lroots (ci_blk), axis=0).sum ()
     req_memory = 24*nstates*nstates/1e6

@@ -2,7 +2,7 @@ import time
 import numpy as np
 from scipy import linalg
 from pyscf import lib
-from pyscf.lib import logger
+from pyscf.lib import logger, param
 from mrh.my_pyscf.lassi.op_o1 import frag
 from mrh.my_pyscf.lassi.op_o1 import stdm
 from mrh.my_pyscf.lassi.op_o1.utilities import *
@@ -42,8 +42,8 @@ class LRRDM (stdm.LSTDM):
     # spinorbital basis
 
     def __init__(self, ints, nlas, lroots, si_bra, si_ket, mask_bra_space=None,
-                 mask_ket_space=None, pt_order=None, do_pt_order=None, log=None, max_memory=2000,
-                 dtype=np.float64):
+                 mask_ket_space=None, pt_order=None, do_pt_order=None, log=None,
+                 max_memory=param.MAX_MEMORY, dtype=np.float64):
         stdm.LSTDM.__init__(self, ints, nlas, lroots,
                                 mask_bra_space=mask_bra_space,
                                 mask_ket_space=mask_ket_space,

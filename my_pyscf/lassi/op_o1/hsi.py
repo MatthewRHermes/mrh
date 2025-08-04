@@ -1,7 +1,7 @@
 import numpy as np
 from scipy.sparse import linalg as sparse_linalg
 from pyscf import lib
-from pyscf.lib import logger
+from pyscf.lib import logger, param
 from mrh.my_pyscf.lassi import citools
 from mrh.my_pyscf.lassi.op_o1 import frag
 from mrh.my_pyscf.lassi.op_o1.rdm import LRRDM
@@ -25,8 +25,8 @@ class HamS2OvlpOperators (HamS2Ovlp):
             Hamiltonian diagonal
     '''
     def __init__(self, ints, nlas, lroots, h1, h2, mask_bra_space=None,
-                 mask_ket_space=None, pt_order=None, do_pt_order=None, log=None, max_memory=2000,
-                 dtype=np.float64):
+                 mask_ket_space=None, pt_order=None, do_pt_order=None, log=None,
+                 max_memory=param.MAX_MEMORY, dtype=np.float64):
         HamS2Ovlp.__init__(self, ints, nlas, lroots, h1, h2,
                            mask_bra_space=mask_bra_space, mask_ket_space=mask_ket_space,
                            pt_order=pt_order, do_pt_order=do_pt_order,

@@ -1,6 +1,6 @@
 import numpy as np
 from pyscf import lib
-from pyscf.lib import logger
+from pyscf.lib import logger, param
 from itertools import product, combinations
 from mrh.my_pyscf.lassi.citools import get_rootaddr_fragaddr, umat_dot_1frag_
 from mrh.my_pyscf.lassi.op_o1 import frag
@@ -76,7 +76,8 @@ class LSTDM (object):
     # TODO: at some point, if it ever becomes rate-limiting, make this multithread better
 
     def __init__(self, ints, nlas, lroots, mask_bra_space=None, mask_ket_space=None,
-                 pt_order=None, do_pt_order=None, log=None, max_memory=2000, dtype=np.float64):
+                 pt_order=None, do_pt_order=None, log=None, max_memory=param.MAX_MEMORY,
+                 dtype=np.float64):
         self.ints = ints
         self.log = log
         self.max_memory = max_memory

@@ -1,7 +1,7 @@
 import numpy as np
 from scipy import linalg
 from pyscf import lib
-from pyscf.lib import logger
+from pyscf.lib import logger, param
 from pyscf.fci import cistring 
 from mrh.my_pyscf.lassi.op_o1 import stdm, frag, hams2ovlp, hsi, rdm
 from mrh.my_pyscf.lassi.op_o1.utilities import *
@@ -12,13 +12,14 @@ from mrh.my_pyscf.lassi.op_o1.hci.schcs import ContractHamCI_SHS
 
 def ContractHamCI (las, ints, nlas, lroots, h0, h1, h2, si_bra=None, si_ket=None,
                    mask_bra_space=None, mask_ket_space=None, pt_order=None, do_pt_order=None,
-                   add_transpose=False, accum=None, log=None, max_memory=2000, dtype=np.float64):
+                   add_transpose=False, accum=None, log=None, max_memory=param.MAX_MEMORY,
+                   dtype=np.float64):
     if si_bra is None and si_ket is None:
         return ContractHamCI_CHC (las, ints, nlas, lroots, h0, h1, h2,
                                   mask_bra_space=mask_bra_space,
                                   mask_ket_space=mask_ket_space,
                                   pt_order=pt_order, do_pt_order=do_pt_order,
-                                  log=log, max_memory=2000, dtype=np.float64)
+                                  log=log, max_memory=param.MAX_MEMORY, dtype=np.float64)
     elif (si_bra is None) or (si_ket is None):
         class ContractHamCI (ContractHamCI_CHC):
             def kernel (self):
@@ -29,14 +30,14 @@ def ContractHamCI (las, ints, nlas, lroots, h0, h1, h2, si_bra=None, si_ket=None
                               mask_bra_space=mask_bra_space,
                               mask_ket_space=mask_ket_space,
                               pt_order=pt_order, do_pt_order=do_pt_order,
-                              log=log, max_memory=2000, dtype=np.float64)
+                              log=log, max_memory=param.MAX_MEMORY, dtype=np.float64)
     else:
         return ContractHamCI_SHS (las, ints, nlas, lroots, h0, h1, h2, si_bra,
                                   si_ket, mask_bra_space=mask_bra_space,
                                   mask_ket_space=mask_ket_space,
                                   pt_order=pt_order, do_pt_order=do_pt_order,
                                   add_transpose=add_transpose, accum=accum, log=log,
-                                  max_memory=2000, dtype=np.float64)
+                                  max_memory=param.MAX_MEMORY, dtype=np.float64)
 
 def contract_ham_ci (las, h1, h2, ci_fr, nelec_frs, si_bra=None, si_ket=None, ci_fr_bra=None,
                      nelec_frs_bra=None, h0=0, soc=0, sum_bra=False, orbsym=None, wfnsym=None,
