@@ -152,6 +152,25 @@ class LSTDM (object):
         fprint = hash (tuple (np.stack ([frags, brastr, ketstr], axis=0).ravel ()))
         return fprint
 
+    def interaction_fprints (self, exc, lbl):
+        exc_nrows, exc_ncols = exc.shape
+        if '_'+lbl+'_' in self.interaction_has_spin:
+            nfrags = exc_ncols - 3
+        else:
+            nfrags = exc_ncols - 2
+        assert (exc.flags['C_CONTIGUOUS']), '{} {}'.format (exc.shape, exc.strides)
+        assert (self.urootstr.flags['F_CONTIGUOUS']), '{} {}'.format (self.urootstr.shape,
+                                                                      self.urootstr.strides)
+        fprint = np.empty (exc_nrows, dtype=np.uint64)
+        fprintLT = np.empty (exc_nrows, dtype=np.uint64)
+        liblassi.SCfprint (c_arr (fprint), c_arr (fprintLT), c_arr (exc), c_arr (self.urootstr),
+                           c_int (nfrags), c_int (exc_nrows), c_int (exc_ncols),
+                           c_int (self.nfrags))
+        if not self.ltri:
+            fprintLT = fprint
+        return fprint, fprintLT
+
+
     def init_profiling (self):
         self.dt_1d, self.dw_1d = 0.0, 0.0
         self.dt_2d, self.dw_2d = 0.0, 0.0
@@ -381,6 +400,21 @@ class LSTDM (object):
             frags = row[2:]
             fprintLT[i] = self.interaction_fprint (bra, ket, frags, ltri=self.ltri)
             fprint[i] = self.interaction_fprint (bra, ket, frags, ltri=False)
+        ################## TEST C IMPLEMENTATION #########################
+        fprint_test, fprintLT_test = self.interaction_fprints (exc, lbl)
+        fpr, idxr, invr = np.unique (fprintLT, return_index=True, return_inverse=True)
+        fpt, idxt, invt = np.unique (fprintLT_test, return_index=True, return_inverse=True)
+        assert (idxr.shape==idxt.shape), '{} {}'.format (idxr.shape, idxt.shape)
+        assert (invr.shape==invt.shape), '{} {}'.format (invr.shape, invt.shape)
+        assert (np.all (fprintLT[idxt][invt]==fprintLT))
+        assert (np.all (fprintLT_test[idxr][invr]==fprintLT_test))
+        idxr, invr = np.unique (fprint, return_index=True, return_inverse=True)[1:]
+        idxt, invt = np.unique (fprint_test, return_index=True, return_inverse=True)[1:]
+        assert (idxr.shape==idxt.shape)
+        assert (invr.shape==invt.shape)
+        assert (np.all (fprint[idxt][invt]==fprint))
+        assert (np.all (fprint_test[idxr][invr]==fprint_test))
+        ########################## END TEST ##############################
         nexc = len (exc)
         ufp, idx, cnts = np.unique (fprintLT, axis=0, return_index=True, return_counts=True)
         # for some reason this squeeze is necessary for some versions of numpy; however...

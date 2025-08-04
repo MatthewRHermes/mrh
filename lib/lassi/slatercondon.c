@@ -150,15 +150,16 @@ void bubblesort (long * a, size_t len_a)
     }
 }
 
-void SCfprint (uint64_t * fprint, uint64_t * fprintlT, long * exc, int * urootstr
-               const int nfrags, const int exc_nrows, const int exc_ncols)
+void SCfprint (uint64_t * fprint, uint64_t * fprintLT, long * exc, long * urootstr,
+               const int nfrags, const int exc_nrows, const int exc_ncols,
+               const int urootstr_ncols)
 {
 const long three = 3;
 #pragma omp parallel
 {
     int nt = omp_get_num_threads ();
     int it = omp_get_thread_num ();
-    long * fprint_row = malloc (three*nfrags);
+    long * fprint_row = malloc (three*nfrags*sizeof(long));
     long * brastr = fprint_row + nfrags;
     long * ketstr = brastr + nfrags;
     long bra, ket;
@@ -169,8 +170,8 @@ const long three = 3;
     #pragma omp for schedule(static)
     for (size_t i = 0; i < exc_nrows; i++){
         exc_row = exc + i*exc_ncols;
-        bra = exc_row[i];
-        ket = exc_row[i+1];
+        bra = exc_row[0];
+        ket = exc_row[1];
         for (int j = 0; j < nfrags; j++){
             ifrag = exc_row[j+2];
             fprint_row[j] = ifrag;
@@ -180,9 +181,9 @@ const long three = 3;
         for (int j = 0; j < nfrags; j++){
             ifrag = fprint_row[j];
             // Double-check data orientation of urootstr
-            brastr[j] = urootstr[(bra*nfrags) + ifrag];
-            ketstr[j] = urootstr[(ket*nfrags) + ifrag];
-            if brastr[j] < ketstr[j]: trans = true;
+            brastr[j] = urootstr[(bra*urootstr_ncols) + ifrag];
+            ketstr[j] = urootstr[(ket*urootstr_ncols) + ifrag];
+            if (brastr[j] < ketstr[j]){ trans = true; }
         }
         fprint[i] = fnv_1a (fprint_row, three*nfrags);
         if (trans){
