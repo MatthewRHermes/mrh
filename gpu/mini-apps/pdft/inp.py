@@ -1,4 +1,3 @@
-# you need this to run full calculations because update_impham cannot just be treated with miniapp
 gpu_run=1
 N=0
 if gpu_run:from mrh.my_pyscf.gpu import libgpu
@@ -43,8 +42,10 @@ mf.run()
 #las.kernel(mo_coeff)
 #print(las.e_tot)
 ncas,nelecas,guess_mo_coeff=avas.kernel(mf, ["C 2pz"])
-mc0 = mcpdft.CASCI (mf, 'tPBE', ncas, nelecas, use_gpu=gpu, verbose=4, grids_level=2)
-mc0.fcisolver.make_rdm1s = lambda *arg: [np.random.rand(ncas, ncas),]*2
-mc0.fcisolver.make_rdm2 = lambda *arg: np.random.rand(ncas, ncas, ncas, ncas)
+mc0 = mcpdft.CASCI (mf, 'tPBE', ncas, nelecas, verbose=4, grids_level=2)
+#mc0.fcisolver.make_rdm1s = lambda *arg: [np.random.rand(ncas, ncas),]*2
+#mc0.fcisolver.make_rdm2 = lambda *arg: np.random.rand(ncas, ncas, ncas, ncas)
+mc0.fcisolver.make_rdm1s = lambda *arg: [np.arange(ncas*ncas).reshape(ncas, ncas)/(ncas*ncas),]*2
+mc0.fcisolver.make_rdm2 = lambda *arg: np.arange(ncas**4).reshape(ncas, ncas, ncas, ncas)/(ncas**4)
 mc0.compute_pdft_energy_(dump_chk=False)
 #print(mc0.analyze())
