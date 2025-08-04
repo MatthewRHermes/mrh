@@ -84,7 +84,7 @@ public:
 
       if(mode == DA_DEVICE || mode == DA_BOTH) {
 	if(d_ptr) pm->dev_free(d_ptr);
-	d_ptr = (T *) pm->dev_malloc(size * sizeof(T));
+	d_ptr = (T *) pm->dev_malloc(size * sizeof(T), "DEV_ARRAY", FLERR);
       }
     }
   }
@@ -177,7 +177,7 @@ public:
 
       if(mode == DA_DEVICE || mode == DA_BOTH) {
 	if(d_ptr) pm->dev_free(d_ptr);
-	d_ptr = (T *) pm->dev_malloc(size * sizeof(T));
+	d_ptr = (T *) pm->dev_malloc(size * sizeof(T), "DEV_ARRAY", FLERR);
       }
     }
   }
@@ -274,7 +274,7 @@ public:
 
       if(mode == DA_DEVICE || mode == DA_BOTH) {
 	if(d_ptr) pm->dev_free(d_ptr);
-	d_ptr = (T *) pm->dev_malloc(size * sizeof(T));
+	d_ptr = (T *) pm->dev_malloc(size * sizeof(T), "DEV_ARRAY", FLERR);
       }
     }
   }

@@ -99,21 +99,23 @@ extern "C"
   void libgpu_compute_eri_impham_v2(void * ptr, 
                                 int, int, int, int, int, size_t, size_t);
   void libgpu_init_mo_grid(void * ptr, 
-                             int, int);
+                             int, int); //probably don't need it
   void libgpu_push_ao_grid(void * ptr, 
-                             py::array_t<double>, int, int);
+                             py::array_t<double>, int, int, int);
   void libgpu_compute_mo_grid(void * ptr, 
-                              int, int, int);
+                              int, int, int);//probably don't need it
   void libgpu_pull_mo_grid(void * ptr, 
-                             py::array_t<double>, int, int);
+                             py::array_t<double>, int, int);//probably don't need it
   void libgpu_init_Pi(void * ptr,  
                        int);
   void libgpu_push_cascm2 (void * ptr,
                    py::array_t<double>, int); 
+  void libgpu_compute_rho_to_Pi (void * ptr,
+                   py::array_t<double>, int, int); 
   void libgpu_compute_Pi (void * ptr,
-                   int, int, int); 
+                   int, int, int, int); 
   void libgpu_pull_Pi (void * ptr,
-                   py::array_t<double>, int); 
+                   py::array_t<double>, int, int); 
 }
 
 
@@ -167,8 +169,9 @@ PYBIND11_MODULE(libgpu, m) {
   m.def("pull_mo_grid",&libgpu_pull_mo_grid,"pyscf/mcpdft/otfnal.py::grid_ao2mo part 0.4");
   m.def("init_Pi", &libgpu_init_Pi, "pyscf/mcpdft/otfnal.py::energy_ot part 0.1");
   m.def("push_cascm2", &libgpu_push_cascm2, "pyscf/mcpdft/otfnal.py::energy_ot part 0.2");
-  m.def("compute_Pi", &libgpu_compute_Pi, "pyscf/mcpdft/otfnal.py::energy_ot part 0.3");
-  m.def("pull_Pi", &libgpu_pull_Pi, "pyscf/mcpdft/otfnal.py::energy_ot part 0.4");
+  m.def("compute_Pi", &libgpu_compute_rho_to_Pi, "pyscf/mcpdft/otfnal.py::energy_ot part 0.3");
+  m.def("compute_Pi", &libgpu_compute_Pi, "pyscf/mcpdft/otfnal.py::energy_ot part 0.4");
+  m.def("pull_Pi", &libgpu_pull_Pi, "pyscf/mcpdft/otfnal.py::energy_ot part final");
   m.def("orbital_response", &libgpu_orbital_response, "mrh/lasscf_sync_o0.py::orbital_response");
 }
 

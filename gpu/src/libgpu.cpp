@@ -344,10 +344,10 @@ void libgpu_init_mo_grid(void * ptr,
 
 /* ---------------------------------------------------------------------- */
 void libgpu_push_ao_grid(void * ptr, 
-                           py::array_t<double> ao, int ngrid, int nao)
+                           py::array_t<double> ao, int ngrid, int nao, int count)
 {
   Device * dev = (Device *) ptr;
-  dev->push_ao_grid(ao, ngrid, nao);
+  dev->push_ao_grid(ao, ngrid, nao, count);
 }
 
 /* ---------------------------------------------------------------------- */
@@ -381,19 +381,26 @@ void libgpu_push_cascm2 (void * ptr,
 }
 
 /* ---------------------------------------------------------------------- */
-void libgpu_compute_Pi (void * ptr,
-                 int ngrid, int ncas, int nao)
+void libgpu_compute_rho_to_Pi(void * ptr, 
+                 py::array_t<double> rho, int ngrid, int count)
 {
   Device * dev = (Device *) ptr;
-  dev->compute_Pi(ngrid, ncas, nao);
+  dev->compute_rho_to_Pi(rho, ngrid, count);
+}
+/* ---------------------------------------------------------------------- */
+void libgpu_compute_Pi (void * ptr,
+                 int ngrid, int ncas, int nao, int count)
+{
+  Device * dev = (Device *) ptr;
+  dev->compute_Pi(ngrid, ncas, nao, count);
 }
 
 /* ---------------------------------------------------------------------- */
 void libgpu_pull_Pi (void * ptr,
-                 py::array_t<double> Pi, int ngrid) 
+                 py::array_t<double> Pi, int ngrid, int count) 
 {
   Device * dev = (Device *) ptr;
-  dev->pull_Pi(Pi, ngrid);
+  dev->pull_Pi(Pi, ngrid, count);
 }
 
 /* ---------------------------------------------------------------------- */

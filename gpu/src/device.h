@@ -159,13 +159,14 @@ public :
   
   //PDFT
   void init_mo_grid(int, int);
-  void push_ao_grid(py::array_t<double>, int, int);
+  void push_ao_grid(py::array_t<double>, int, int, int);
   void compute_mo_grid(int, int, int);
   void pull_mo_grid(py::array_t<double>, int, int);
   void init_Pi(int);
   void push_cascm2 (py::array_t<double>, int); 
-  void compute_Pi (int, int, int); 
-  void pull_Pi (py::array_t<double>, int); 
+  void compute_rho_to_Pi (py::array_t<double>, int, int); 
+  void compute_Pi (int, int, int, int); 
+  void pull_Pi (py::array_t<double>, int, int); 
 
   //inner functions
   void extract_mo_cas(int, int, int);//TODO: fix the difference - changed slightly
@@ -176,11 +177,15 @@ public :
   void push_mo_coeff(py::array_t<double>, int);
 
   void vecadd(const double *, double *, int); // replace with ml->daxpy()
-
+  void get_rho_to_Pi(double *, double * ,int); // replace with gemm or element wise multiplication
+  void make_gridkern(double *, double *, int, int); //replace with ml->gemm()
+  void make_buf_pdft(double *, double *, double *, int, int); //replace with ml->gemm()
+  void make_Pi_final(double *, double *,double *, int, int); // replace with ml->gemm()
+  
   // multi-gpu communication (better here or part of PM?)
 
   void mgpu_bcast(std::vector<double *>, double *, size_t);
-  void mgpu_reduce(std::vector<double *>, double *, int, bool, std::vector<double *>);
+  void mgpu_reduce(std::vector<double *>, double *, int, bool, std::vector<double *>, std::vector<int>);
   
 private:
 
@@ -210,10 +215,7 @@ private:
   double * rho;
   //double * vj;
   double * _vktmp;
-  
-  double * buf_tmp;
-  double * buf3;
-  double * buf4;
+ 
   double * buf_fdrv;
 
   double * buf_vj;
@@ -245,8 +247,6 @@ private:
   int size_eri_impham;
   double * pin_eri_impham;
  
- 
-
   // eri caching on device
 
   bool use_eri_cache;
@@ -286,11 +286,15 @@ private:
 
   struct my_device_data {
     int device_id;
-    
+    int active; // was device used in calculation and has result to be accumulated?
+
     int size_rho;
     int size_vj;
     int size_vk;
-    int size_buf;
+    //    int size_buf;
+    int size_buf1;
+    int size_buf2;
+    int size_buf3;
     int size_dms;
     int size_dmtril;
     int size_eri1;
@@ -381,6 +385,26 @@ private:
   int * dd_fetch_pumap(my_device_data *, int, int);
   double * dd_fetch_eri(my_device_data *, double *, int, int, size_t, int);
   double * dd_fetch_eri_debug(my_device_data *, double *, int, int, size_t, int); // we'll trash this after some time
+
+  template<class T>
+  void grow_array(T * &ptr, int current_size, int & max_size, std::string name, const char * file, int line)
+  {
+    if(current_size > max_size) {
+      max_size = current_size;
+      if(ptr) pm->dev_free_async(ptr, name);
+      ptr = (T *) pm->dev_malloc_async(current_size * sizeof(T), name, file, line);
+    }
+  }
+  
+  template<class T>
+  void grow_array_host(T * &ptr, int current_size, int & max_size, std::string name)
+  {
+    if(current_size > max_size) {
+      max_size = current_size;
+      if(ptr) pm->dev_free_host(ptr);
+      ptr = (T *) pm->dev_malloc_host(current_size * sizeof(T));
+    }
+  }
   
   void fdrv(double *, double *, double *,
 	    int, int, int *, int *, int, double *);
