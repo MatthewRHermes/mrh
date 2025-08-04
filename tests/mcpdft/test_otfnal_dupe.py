@@ -2,7 +2,7 @@ import numpy as np
 from scipy import linalg
 from pyscf import gto, scf, lib, mcscf
 from pyscf.dft.libxc import XC_KEYS, XC_ALIAS, hybrid_coeff, rsh_coeff
-from pyscf.dft.libxc import parse_xc, is_nlc, _itrf
+from pyscf.dft.libxc import parse_xc, is_nlc, needs_laplacian
 from pyscf import mcpdft
 from pyscf.mcpdft.otfnal import make_hybrid_fnal
 from pyscf.mcpdft.otpd import get_ontop_pair_density
@@ -41,7 +41,7 @@ def is_meta_gga_or_broken(xc_code):
     if not fn_facs:
         return False
     else:
-        return any(_itrf.LIBXC_is_meta_gga(ctypes.c_int(xid)) for xid, fac in fn_facs)
+        return any(needs_laplacian(xid) for xid, fac in fn_facs)
 
 def _skip_key (key):
     xc = str (key)
