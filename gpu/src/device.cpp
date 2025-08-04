@@ -102,6 +102,8 @@ Device::Device()
     device_data[i].size_buf_pdft=0;
     device_data[i].size_cascm2=0;
     device_data[i].size_Pi=0;
+    device_data[i].size_rho=0;
+    
     
     device_data[i].d_rho = nullptr;
     device_data[i].d_vj = nullptr;
@@ -3457,7 +3459,7 @@ void Device::init_mo_grid(int ngrid, int nmo)
   printf("starting init mo_grid\n");
   double t0 = omp_get_wtime();
   
-  for(int id=0; id<1; ++id) {
+  for(int id=0; id<num_devices; ++id) {
     pm->dev_set_device(id);
 
     my_device_data * dd = &(device_data[id]);
@@ -3477,24 +3479,25 @@ void Device::init_mo_grid(int ngrid, int nmo)
 
 /* ---------------------------------------------------------------------- */
 
-void Device::push_ao_grid(py::array_t<double> _ao, int ngrid, int nao)
+void Device::push_ao_grid(py::array_t<double> _ao, int ngrid, int nao, int count)
 {
   printf("starting push_mo_grid\n");
   double t0 = omp_get_wtime();
   
   py::buffer_info info_ao = _ao.request(); // 2D array (ngrid, nao)
   double * ao = static_cast<double*>(info_ao.ptr);
-  for(int id=0; id<1; ++id) {
-    pm->dev_set_device(id);
+  
+  int id = count%num_devices;
 
-    my_device_data * dd = &(device_data[id]);
+  pm->dev_set_device(id);
 
-    int size_ao_grid = ngrid*nao;
+  my_device_data * dd = &(device_data[id]);
 
-    grow_array(dd->d_ao_grid, size_ao_grid, dd->size_ao_grid, "ao_grid", FLERR);
-    
-    pm->dev_push_async(dd->d_ao_grid, ao, size_ao_grid*sizeof(double));
-  }
+  int size_ao_grid = ngrid*nao;
+
+  grow_array(dd->d_ao_grid, size_ao_grid, dd->size_ao_grid, "ao_grid", FLERR);
+  
+  pm->dev_push_async(dd->d_ao_grid, ao, size_ao_grid*sizeof(double));
   
   double t1 = omp_get_wtime();
   
@@ -3560,6 +3563,32 @@ double t1 = omp_get_wtime();
 }
 
 /* ---------------------------------------------------------------------- */
+void Device::push_cascm2 (py::array_t<double> _cascm2, int ncas) 
+{
+  double t0 = omp_get_wtime();
+   
+  py::buffer_info info_cascm2 = _cascm2.request(); // 4D array (ncas, ncas, ncas, ncas)
+  double * cascm2 = static_cast<double*>(info_cascm2.ptr);
+
+  for(int id=0; id<1; ++id) {
+    pm->dev_set_device(id);
+    my_device_data * dd = &(device_data[id]);
+    
+    int size_cascm2 = ncas*ncas*ncas*ncas;
+
+    grow_array(dd->d_cascm2, size_cascm2, dd->size_cascm2, "cascm2", FLERR);
+
+    pm->dev_push_async(dd->d_cascm2, cascm2, size_cascm2*sizeof(double));
+  }
+  
+  double t1 = omp_get_wtime();
+  
+  //TODO:t_array[] += t1 - t0;
+  // counts in pull Pi
+}
+
+/* ---------------------------------------------------------------------- */
+
 
 void Device::init_Pi(int ngrid)
 {
@@ -3582,37 +3611,25 @@ void Device::init_Pi(int ngrid)
 }
 
 /* ---------------------------------------------------------------------- */
-
-void Device::push_cascm2 (py::array_t<double> _cascm2, int ncas) 
+void Device::compute_rho_to_Pi(py::array_t<double> _rho, int ngrid, int count)
 {
   double t0 = omp_get_wtime();
-   
-  py::buffer_info info_cascm2 = _cascm2.request(); // 2D array (ngrid, nao)
-  double * cascm2 = static_cast<double*>(info_cascm2.ptr);
-
-  for(int id=0; id<1; ++id) {
-    pm->dev_set_device(id);
-    my_device_data * dd = &(device_data[id]);
-    
-    int size_cascm2 = ncas*ncas*ncas*ncas;
-
-    grow_array(dd->d_cascm2, size_cascm2, dd->size_cascm2, "cascm2", FLERR);
-
-    pm->dev_push_async(dd->d_cascm2, cascm2, size_cascm2*sizeof(double));
-  }
+  const int device_id = count % num_devices;
+  pm->dev_set_device(device_id);
+  my_device_data * dd = &(device_data[device_id]);
   
-  double t1 = omp_get_wtime();
-  
-  //TODO:t_array[] += t1 - t0;
-  // counts in pull Pi
+  py::buffer_info info_rho = _rho.request(); // 1D array (ngrid)
+  double * cascm2 = static_cast<double*>(info_rho.ptr);
+  grow_array(dd->d_rho, ngrid, dd->size_rho, "rho", FLERR);
+  pm->dev_push_async(dd->d_rho, rho, ngrid*sizeof(double));
+  get_rho_to_Pi(dd->d_rho, dd->d_Pi, ngrid);
 }
-
 /* ---------------------------------------------------------------------- */
 
-void Device::compute_Pi (int ngrid, int ncas, int nao) 
+void Device::compute_Pi (int ngrid, int ncas, int nao, int count) 
 {
   double t0 = omp_get_wtime();
-  const int device_id = 0;//count % num_devices;
+  const int device_id = count % num_devices;
   pm->dev_set_device(device_id);
   my_device_data * dd = &(device_data[device_id]);
   const double alpha = 1.0;
@@ -3629,15 +3646,15 @@ void Device::compute_Pi (int ngrid, int ncas, int nao)
 
   int ncas2 = ncas*ncas;
   //make mo_grid to ngrid*ncas*ncas (ai,aj->aij)
+  double * d_mo_grid = dd->d_buf_pdft1;  //mo grid is only ngrid*ncas, using buf_pdft1 because efficient to not allot more
   ml->set_handle();
-
   ml->gemm((char *) "N", (char *) "N", 
              &ncas, &ngrid, &nao,
              &alpha, 
              dd->d_mo_coeff, &ncas, 
              dd->d_ao_grid, &nao, 
              &beta, 
-             dd->d_mo_grid, &ncas
+             d_mo_grid, &ncas
              );
 
   #if 0
@@ -3646,7 +3663,7 @@ void Device::compute_Pi (int ngrid, int ncas, int nao)
   pm->dev_stream_wait();
   for (int i =0;i<3;++i){for (int j=0;j<ncas;++j){printf("%f\t",h_mo_grid[i*ncas+j]);}printf("\n");}
   #endif
-  #if 1
+  #if 0
   ml->gemm_batch((char *) "N",(char *) "T",
                    &ncas, &ncas, &one,
                    &alpha,
@@ -3657,6 +3674,9 @@ void Device::compute_Pi (int ngrid, int ncas, int nao)
                    &beta, 
                    dd->d_buf_pdft1, &ncas, &ncas2, 
                    &ngrid);
+  #else
+  double * d_gridkern = dd->d_buf_pdft2; //trying to make it close to pyscf-forge mcpdft
+  make_gridkern (d_mo_grid, dd->d_buf_pdft2, ngrid, ncas);
   #endif
   #if 0
   printf("starting pull\n");
@@ -3692,7 +3712,7 @@ void Device::compute_Pi (int ngrid, int ncas, int nao)
   printf("finished printing\n");
   #endif
   // do buf1 = aij, ijkl->akl, mo, cascm2
-  #if 1
+  #if 0
   ml->gemm ((char *) "N", (char *) "N",
              &ngrid, &ncas2, &ncas2, 
              &alpha,
@@ -3701,6 +3721,8 @@ void Device::compute_Pi (int ngrid, int ncas, int nao)
              &beta, 
              dd->d_buf_pdft2, &ngrid);
              
+  #else
+  make_buf_pdft(d_gridkern, dd->d_buf_pdft1, dd->d_cascm2, ngrid, ncas);
   #endif
   #if 0
   printf("allocating buf2\n");
@@ -3753,13 +3775,29 @@ void Device::compute_Pi (int ngrid, int ncas, int nao)
              &beta, 
              dd->d_Pi, &one, &one, 
              &ngrid);
+  #else
+  make_Pi_final(d_gridkern, dd->d_buf_pdft1, dd->d_Pi, ngrid, ncas);
   #endif
              
 }
 
 /* ---------------------------------------------------------------------- */
 
-void Device::pull_Pi (py::array_t<double> _Pi, int ngrid){} 
+void Device::pull_Pi (py::array_t<double> _Pi, int ngrid, int count)
+{
+  double t0 = omp_get_wtime();
+
+  py::buffer_info info_Pi = _Pi.request(); //1D array (ngrid)
+  double * Pi = static_cast<double*>(info_Pi.ptr);
+
+  int device_id = count%num_devices;
+
+  pm->dev_set_device(device_id);
+  my_device_data * dd = &(device_data[device_id]);
+
+  if (dd->d_Pi) pm->dev_pull_async(dd->d_Pi, Pi, ngrid*sizeof(double));
+  
+} 
 
 /* ---------------------------------------------------------------------- */
 

@@ -159,13 +159,14 @@ public :
   
   //PDFT
   void init_mo_grid(int, int);
-  void push_ao_grid(py::array_t<double>, int, int);
+  void push_ao_grid(py::array_t<double>, int, int, int);
   void compute_mo_grid(int, int, int);
   void pull_mo_grid(py::array_t<double>, int, int);
   void init_Pi(int);
   void push_cascm2 (py::array_t<double>, int); 
-  void compute_Pi (int, int, int); 
-  void pull_Pi (py::array_t<double>, int); 
+  void compute_rho_to_Pi (py::array_t<double>, int, int); 
+  void compute_Pi (int, int, int, int); 
+  void pull_Pi (py::array_t<double>, int, int); 
 
   //inner functions
   void extract_mo_cas(int, int, int);//TODO: fix the difference - changed slightly
@@ -176,7 +177,11 @@ public :
   void push_mo_coeff(py::array_t<double>, int);
 
   void vecadd(const double *, double *, int); // replace with ml->daxpy()
-
+  void get_rho_to_Pi(double *, double * ,int); // replace with gemm or element wise multiplication
+  void make_gridkern(double *, double *, int, int); //replace with ml->gemm()
+  void make_buf_pdft(double *, double *, double *, int, int); //replace with ml->gemm()
+  void make_Pi_final(double *, double *,double *, int, int); // replace with ml->gemm()
+  
   // multi-gpu communication (better here or part of PM?)
 
   void mgpu_bcast(std::vector<double *>, double *, size_t);
