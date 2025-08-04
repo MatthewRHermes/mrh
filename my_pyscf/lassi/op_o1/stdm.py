@@ -372,6 +372,7 @@ class LSTDM (object):
     interaction_has_spin = ('_1c_', '_1c1d_', '_1s1c_', '_2c_')
 
     def mask_exc_table_(self, exc, lbl, mask_bra_space=None, mask_ket_space=None):
+        t0 = (lib.logger.process_clock (), lib.logger.perf_counter ())
         # Part 1: restrict to the caller-specified rectangle
         idx  = mask_exc_table (exc, col=0, mask_space=mask_bra_space)
         idx &= mask_exc_table (exc, col=1, mask_space=mask_ket_space)
@@ -432,6 +433,7 @@ class LSTDM (object):
             self.nonuniq_exc[tuple(excp[uniq_idx])] = braket_images
         exc = exc[idx]
         nuniq = len (exc)
+        self.log.timer ('mask_exc_table_ {}'.format (lbl), *t0)
         self.log.debug ('%d/%d unique interactions of %s type',
                         nuniq, nexc, lbl)
         return exc

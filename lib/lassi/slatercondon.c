@@ -164,6 +164,7 @@ const long three = 3;
     long * ketstr = brastr + nfrags;
     long bra, ket;
     bool trans = false;
+    bool unsorted = true;
     long * exc_row;
     long ifrag;
     int lbra, lket;
@@ -178,12 +179,14 @@ const long three = 3;
         }
         bubblesort (fprint_row, nfrags);
         trans = false;
+        unsorted = true;
         for (int j = 0; j < nfrags; j++){
             ifrag = fprint_row[j];
             // Double-check data orientation of urootstr
             brastr[j] = urootstr[(bra*urootstr_ncols) + ifrag];
             ketstr[j] = urootstr[(ket*urootstr_ncols) + ifrag];
-            if (brastr[j] < ketstr[j]){ trans = true; }
+            if (unsorted && (brastr[j] < ketstr[j])){ trans = true; }
+            if (brastr[j] != ketstr[j]){ unsorted = false; }
         }
         fprint[i] = fnv_1a (fprint_row, three*nfrags);
         if (trans){
