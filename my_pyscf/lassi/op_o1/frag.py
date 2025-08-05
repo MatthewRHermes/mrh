@@ -93,6 +93,7 @@ class FragTDMInt (object):
                  verbose=None):
         # TODO: if it actually helps, cache the "linkstr" arrays
         if verbose is None: verbose = las.verbose
+        t0 = (lib.logger.process_clock (), lib.logger.perf_counter ())
         self.verbose = verbose
         self.log = lib.logger.new_logger (las, self.verbose)
         self.ci = ci
@@ -112,13 +113,16 @@ class FragTDMInt (object):
         if pt_order is None: pt_order = np.zeros (nroots, dtype=int)
         self.pt_order = pt_order
         self.do_pt_order = do_pt_order
+        t0 = self.log.timer('FragTDM init setup', *t0)
 
         # Consistent array shape
         self.ndeta_r = np.array ([cistring.num_strings (norb, nelec[0]) for nelec in self.nelec_r])
         self.ndetb_r = np.array ([cistring.num_strings (norb, nelec[1]) for nelec in self.nelec_r])
         self.ci = [c.reshape (-1,na,nb) for c, na, nb in zip (self.ci, self.ndeta_r, self.ndetb_r)]
+        t0 = self.log.timer('FragTDM init array shape', *t0)
 
         self.time_crunch = self._init_crunch_(screen_linequiv)
+        t0 = self.log.timer('FragTDM init crunch', *t0)
 
     def _check_linkstr_cache (self, no, na, nb):
         if (no, na, nb) not in self.linkstr_cache.keys ():
@@ -401,9 +405,9 @@ class FragTDMInt (object):
                         self.mask_ints[:,i], self.mask_ints[:,j]
                     )
 
-        self.log.timer_debug1 ('_init_crunch_ indexing', *t0)
+        self.log.timer ('_init_crunch_ indexing', *t0)
         t1 = self._make_dms_()
-        self.log.timer_debug1 ('_init_crunch_ _make_dms_', *t1)
+        self.log.timer ('_init_crunch_ _make_dms_', *t1)
         return t0
 
     def update_ci_(self, iroot, ci):
@@ -415,12 +419,14 @@ class FragTDMInt (object):
 
     def _make_dms_(self, screen=None):
         t0 = (lib.logger.process_clock (), lib.logger.perf_counter ())
+        t1 = (lib.logger.process_clock (), lib.logger.perf_counter ())
         ci = self.ci
         ndeta, ndetb = self.ndeta_r, self.ndetb_r
         hopping_index = self.hopping_index
         idx_uniq = self.root_unique
         lroots = [c.shape[0] for c in ci]
         nroots, norb, nuroots = self.nroots, self.norb, self.nuroots
+        t1 = self.log.timer ('_make_dms_ setup', *t1)
 
         # Overlap matrix
         offs = np.cumsum (lroots)
@@ -443,6 +449,8 @@ class FragTDMInt (object):
             #    errmsg = ('States w/in single Hilbert space must be orthonormal; '
             #              'eigvals (ovlp) = {}')
             #    raise RuntimeError (errmsg.format (w))
+        t1 = self.log.timer ('_make_dms_ overloop', *t1)
+
 
         # Loop over lroots functions
         def des_loop (des_fn, c, nelec, p):
