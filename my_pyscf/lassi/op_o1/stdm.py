@@ -1,6 +1,6 @@
 import numpy as np
 from pyscf import lib
-from pyscf.lib import logger
+from pyscf.lib import logger, param
 from itertools import product, combinations
 from mrh.my_pyscf.lassi.citools import get_rootaddr_fragaddr, umat_dot_1frag_
 from mrh.my_pyscf.lassi.op_o1 import frag
@@ -76,7 +76,8 @@ class LSTDM (object):
     # TODO: at some point, if it ever becomes rate-limiting, make this multithread better
 
     def __init__(self, ints, nlas, lroots, mask_bra_space=None, mask_ket_space=None,
-                 pt_order=None, do_pt_order=None, log=None, max_memory=2000, dtype=np.float64):
+                 pt_order=None, do_pt_order=None, log=None, max_memory=param.MAX_MEMORY,
+                 dtype=np.float64):
         t0 = (lib.logger.process_clock (), lib.logger.perf_counter ())
         self.ints = ints
         self.log = log
@@ -172,6 +173,25 @@ class LSTDM (object):
         if ltri: brastr, ketstr = sorted ([list(brastr),list(ketstr)])
         fprint = hash (tuple (np.stack ([frags, brastr, ketstr], axis=0).ravel ()))
         return fprint
+
+    def interaction_fprints (self, exc, lbl):
+        exc_nrows, exc_ncols = exc.shape
+        if '_'+lbl+'_' in self.interaction_has_spin:
+            nfrags = exc_ncols - 3
+        else:
+            nfrags = exc_ncols - 2
+        assert (exc.flags['C_CONTIGUOUS']), '{} {}'.format (exc.shape, exc.strides)
+        assert (self.urootstr.flags['F_CONTIGUOUS']), '{} {}'.format (self.urootstr.shape,
+                                                                      self.urootstr.strides)
+        fprint = np.empty (exc_nrows, dtype=np.uint64)
+        fprintLT = np.empty (exc_nrows, dtype=np.uint64)
+        liblassi.SCfprint (c_arr (fprint), c_arr (fprintLT), c_arr (exc), c_arr (self.urootstr),
+                           c_int (nfrags), c_int (exc_nrows), c_int (exc_ncols),
+                           c_int (self.nfrags))
+        if not self.ltri:
+            fprintLT = fprint
+        return fprint, fprintLT
+
 
     def init_profiling (self):
         self.dt_1d, self.dw_1d = 0.0, 0.0
@@ -426,6 +446,7 @@ class LSTDM (object):
         exc = exc[idx]
         nuniq = len (exc)
         t0 = self.log.timer ('Exc part 3 populating non unique', *t0)
+        self.log.timer ('mask_exc_table_ {}'.format (lbl), *t0)
         self.log.debug ('%d/%d unique interactions of %s type',
                         nuniq, nexc, lbl)
         return exc
