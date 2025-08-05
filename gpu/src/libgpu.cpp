@@ -183,15 +183,6 @@ void libgpu_init_ppaa_papa_ao2mo(void * ptr,
   dev->init_ppaa_papa_ao2mo(nmo, ncas);
 }
 /* ---------------------------------------------------------------------- */
-void libgpu_df_ao2mo_v3(void * ptr,
-				int blksize, int nmo, int nao, int ncore, int ncas, int naux,
-				py::array_t<double> eri1,
-				int count, size_t addr_dfobj)
-{ 
-  Device * dev = (Device *) ptr;
-  dev->df_ao2mo_v3(blksize, nmo, nao, ncore, ncas, naux, eri1, count, addr_dfobj);
-}
-/* ---------------------------------------------------------------------- */
 void libgpu_df_ao2mo_v4(void * ptr,
 				int blksize, int nmo, int nao, int ncore, int ncas, int naux,
 				int count, size_t addr_dfobj)
@@ -267,26 +258,6 @@ void libgpu_init_eri_h2eff(void * ptr,
 {
   Device * dev = (Device *) ptr;
   dev->init_eri_h2eff(nao, ncas);
-}
-/* ---------------------------------------------------------------------- */
-
-void libgpu_get_h2eff_df(void * ptr, 
-                           py::array_t<double> cderi, 
-                           int nao, int nmo, int ncas, int naux, int ncore,
-                           py::array_t<double> eri1, int count, size_t addr_dfobj)
-{
-  Device * dev = (Device *) ptr;
-  dev->get_h2eff_df(cderi, nao, nmo, ncas, naux, ncore, eri1, count, addr_dfobj); 
-}
-/* ---------------------------------------------------------------------- */
-
-void libgpu_get_h2eff_df_v1(void * ptr, 
-                           py::array_t<double> cderi, 
-                           int nao, int nmo, int ncas, int naux, int ncore,
-                           py::array_t<double> eri1, int count, size_t addr_dfobj)
-{
-  Device * dev = (Device *) ptr;
-  dev->get_h2eff_df_v1(cderi, nao, nmo, ncas, naux, ncore, eri1, count, addr_dfobj); 
 }
 /* ---------------------------------------------------------------------- */
 void libgpu_get_h2eff_df_v2(void * ptr, 
