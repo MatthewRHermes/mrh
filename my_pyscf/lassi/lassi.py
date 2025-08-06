@@ -28,7 +28,10 @@ from mrh.my_pyscf.lassi.spaces import list_spaces
 
 LINDEP_THRESH = getattr (__config__, 'lassi_lindep_thresh', 1.0e-5)
 LEVEL_SHIFT_SI = getattr (__config__, 'lassi_level_shift_si', 1.0e-8)
-NROOTS_SI = 1
+NROOTS_SI = getattr (__config__, 'lassi_nroots_si', 1)
+MAX_CYCLE_SI = getattr (__config__, 'lassi_max_cycle_si', 100)
+MAX_SPACE_SI = getattr (__config__, 'lassi_max_space_si', 12)
+TOL_SI = getattr (__config__, 'lassi_tol_si', 1e-8)
 
 op = (op_o0, op_o1)
 
@@ -364,9 +367,13 @@ def _eig_block_Davidson (las, e0, h1, h2, ci_blk, nelec_blk, soc, opt):
     # si0
     # nroots_si
     # level_shift
+    log = lib.logger.new_logger (las, las.verbose)
     si0 = getattr (las, 'si', None)
     level_shift = getattr (las, 'level_shift_si', LEVEL_SHIFT_SI)
     nroots_si = getattr (las, 'nroots_si', NROOTS_SI)
+    max_cycle_si = getattr (las, 'max_cycle_si', MAX_CYCLE_SI)
+    max_space_si = getattr (las, 'max_space_si', MAX_SPACE_SI)
+    tol_si = getattr (las, 'tol_si', TOL_SI)
     get_init_guess = getattr (las, 'get_init_guess_si', get_init_guess_si)
     h_op_raw, s2_op, ovlp_op, hdiag, _get_ovlp = op[opt].gen_contract_op_si_hdiag (
         las, h1, h2, ci_blk, nelec_blk, soc=soc
@@ -381,8 +388,11 @@ def _eig_block_Davidson (las, e0, h1, h2, ci_blk, nelec_blk, soc, opt):
         return raw2orth (h_op_raw (orth2raw (x)))
     x0 = [raw2orth (x) for x in si0]
     conv, e, x1 = lib.davidson1 (lambda xs: [h_op (x) for x in xs],
-                                  x0, precond_op, nroots=nroots_si)
+                                 x0, precond_op, nroots=nroots_si,
+                                 verbose=log, max_cycle=max_cycle_si,
+                                 max_space=max_space_si, tol=tol_si)
     conv = all (conv)
+    if not conv: log.warn ('LASSI Davidson diagonalization not converged')
     si1 = np.stack ([orth2raw (x) for x in x1], axis=-1)
     s2 = np.array ([np.dot (x.conj (), s2_op (x)) for x in si1.T])
     return conv, e, si1, s2
@@ -888,7 +898,7 @@ class LASSI(lib.StreamObject):
     LASSI Method class
     '''
     def __init__(self, las, mo_coeff=None, ci=None, soc=False, break_symmetry=False, opt=1,
-                 **kwargs):
+                 davidson_only=False, nroots_si=NROOTS_SI, **kwargs):
         from mrh.my_pyscf.mcscf.lasci import LASCINoSymm
         if isinstance(las, LASCINoSymm): self._las = las
         else: raise RuntimeError("LASSI requires las instance")
@@ -918,9 +928,9 @@ class LASSI(lib.StreamObject):
         self.break_symmetry = break_symmetry
         self.soc = soc
         self.opt = opt
-        self.davidson_only = False
+        self.davidson_only = davidson_only
         self.level_shift_si = LEVEL_SHIFT_SI
-        self.nroots_si = NROOTS_SI
+        self.nroots_si = nroots_si
         self.converged_si = False
         self._keys = set((self.__dict__.keys())).union(keys)
 
@@ -942,6 +952,7 @@ class LASSI(lib.StreamObject):
         e_roots, si = lassi(self, mo_coeff=mo_coeff, ci=ci, veff_c=veff_c, h2eff_sub=h2eff_sub, orbsym=orbsym, \
                             soc=soc, break_symmetry=break_symmetry, davidson_only=davidson_only, opt=opt)
         self.e_roots = e_roots
+        self.converged = self.converged and self.converged_si
         self.si, self.s2, self.nelec, self.wfnsym, self.rootsym, self.break_symmetry, self.soc  = \
             si, si.s2, si.nelec, si.wfnsym, si.rootsym, si.break_symmetry, si.soc
         log.timer ('LASSI matrix-diagonalization kernel', *t0)

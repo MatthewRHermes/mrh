@@ -54,8 +54,8 @@ class HamS2OvlpOperators (HamS2Ovlp):
             self._crunch_oppart_(exc, fn, has_s=False)
         self.excgroups_s = self._index_ovlppart (self.excgroups_s)
         self.excgroups_h = self._index_ovlppart (self.excgroups_h)
-        self.log.debug1 (self.sprint_cache_profile ())
-        self.log.timer_debug1 ('HamS2OvlpOperators operator cacheing', *t0)
+        self.log.debug (self.sprint_cache_profile ())
+        self.log.timer ('HamS2OvlpOperators operator cacheing', *t0)
 
     def _crunch_oppart_(self, exc, fn, has_s=False):
         for row in exc:
@@ -183,8 +183,8 @@ class HamS2OvlpOperators (HamS2Ovlp):
         self._umat_linequiv_loop_(0) # U.conj () @ x
         for inv, group in self.excgroups_h.items (): self._opuniq_x_group_(inv, group)
         self._umat_linequiv_loop_(1) # U.T @ ox
-        self.log.debug1 (self.sprint_profile ())
-        self.log.timer_debug1 ('HamS2OvlpOperators._ham_op', *t0)
+        self.log.debug (self.sprint_profile ())
+        self.log.timer ('HamS2OvlpOperators._ham_op', *t0)
         return self.ox.copy ()
 
     def _s2_op (self, x):
@@ -195,8 +195,8 @@ class HamS2OvlpOperators (HamS2Ovlp):
         self._umat_linequiv_loop_(0) # U.conj () @ x
         for inv, group in self.excgroups_s.items (): self._opuniq_x_group_(inv, group)
         self._umat_linequiv_loop_(1) # U.T @ ox
-        self.log.debug1 (self.sprint_profile ())
-        self.log.timer_debug1 ('HamS2OvlpOperators._s2_op', *t0)
+        self.log.debug (self.sprint_profile ())
+        self.log.timer ('HamS2OvlpOperators._s2_op', *t0)
         return self.ox.copy ()
 
     def _opuniq_x_group_(self, inv, group):
@@ -302,7 +302,7 @@ class HamS2OvlpOperators (HamS2Ovlp):
             self.ox[i0:i1] += np.dot (ovlp, self.x[j0:j1])
             self.ox[j0:j1] += np.dot (ovlp.conj ().T, self.x[i0:i1])
         self._umat_linequiv_loop_(1) # U.T @ ox
-        self.log.timer_debug1 ('HamS2OvlpOperators._ovlp_op', *t0)
+        self.log.timer ('HamS2OvlpOperators._ovlp_op', *t0)
         return self.ox.copy ()
 
     def get_ham_op (self):
@@ -322,7 +322,7 @@ class HamS2OvlpOperators (HamS2Ovlp):
         self.ox[:] = 0
         for row in self.exc_1d: self._crunch_hdiag_env_(self._crunch_1d_, *row)
         for row in self.exc_2d: self._crunch_hdiag_env_(self._crunch_2d_, *row)
-        self.log.timer_debug1 ('HamS2OvlpOperators.get_hdiag', *t0)
+        self.log.timer ('HamS2OvlpOperators.get_hdiag', *t0)
         return self.ox.copy ()
 
     def _crunch_hdiag_env_(self, _crunch_fn, *row): 
@@ -331,7 +331,6 @@ class HamS2OvlpOperators (HamS2Ovlp):
             inv = row[2:-1]     
         else:
             inv = row[2:]
-        self._prepare_spec_addr_ovlp_(row[0], row[1], *inv)
         ham, s2, sinv = _crunch_fn (*row)
         sinv = self.inv_unique (sinv)[::-1]
         key = tuple ((row[0], row[1])) + inv
@@ -343,8 +342,6 @@ class HamS2OvlpOperators (HamS2Ovlp):
             hdiag = transpose_sivec_with_slow_fragments (hdiag.ravel (), self.lroots[:,bra], *sinv)
             i, j = self.offs_lroots[bra] 
             self.ox[i:j] += hdiag.ravel ()
-        #ham = self.canonical_operator_order (ham, ninv)
-        #self._put_hdiag_(row[0], row[1], ham, *inv)
 
     def get_hdiag_nonspectator (self, ham, bra, *inv):
         for i in inv:
@@ -369,23 +366,6 @@ class HamS2OvlpOperators (HamS2Ovlp):
             o = np.multiply.outer (i.get_ovlp_inpbasis (rbra, rbra).diagonal (), o)
             o = o.ravel ()
         return o
-
-    def _put_hdiag_(self, bra, ket, op, *inv):
-        bra_rng = self._get_addr_range (bra, *inv) # profiled as idx
-        t0, w0 = logger.process_clock (), logger.perf_counter ()
-        op_nbra = np.prod (op.shape[:op.ndim//2])
-        op_nket = np.prod (op.shape[op.ndim//2:])
-        op = op.reshape (op_nbra, op_nket).diagonal ()
-        op = op + op.conj ()
-        for ix, bra1 in enumerate (bra_rng):
-            bra2, ket2, wgt = self._get_spec_addr_ovlp (bra1, bra1, *inv)
-            idx = (bra2==ket2)
-            t1, w1 = logger.process_clock (), logger.perf_counter ()
-            self.ox[bra2[idx]] += wgt[idx] * op[ix]
-            dt, dw = logger.process_clock () - t1, logger.perf_counter () - w1
-            self.dt_s, self.dw_s = self.dt_s + dt, self.dw_s + dw
-        dt, dw = logger.process_clock () - t0, logger.perf_counter () - w0
-        #self.dt_p, self.dw_p = self.dt_p + dt, self.dw_p + dw
 
 #gen_contract_op_si_hdiag = functools.partial (_fake_gen_contract_op_si_hdiag, ham)
 def gen_contract_op_si_hdiag (las, h1, h2, ci, nelec_frs, soc=0, nlas=None,

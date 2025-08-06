@@ -188,14 +188,14 @@ class KnownValues(unittest.TestCase):
         las0 = las.get_single_state_las (state=0)
         for ifrag in range (len (las0.ci)):
             las0.ci[ifrag][0] = las0.ci[ifrag][0][0]
+        lsi = LASSIS (las0).set ()
+        # Starting from converged SIvecs doesn't guarantee instant convergence for some reason
         for dson in (False,True):
             with self.subTest (davidson_only=dson):
-                lsi = LASSIS (las0).set (davidson_only=dson)
+                lsi.kernel (davidson_only=dson)
                 if dson:
-                    lsi.prepare_states_()
                     h0, h1, h2 = ham_2q (las0, las0.mo_coeff)
                     case_contract_op_si (self, las, h1, h2, lsi.ci, lsi.get_nelec_frs ())
-                lsi.kernel ()
                 self.assertTrue (lsi.converged)
                 self.assertAlmostEqual (lsi.e_roots[0], -304.5372586630968, 3)
                 case_lassis_fbf_2_model_state (self, lsi)
