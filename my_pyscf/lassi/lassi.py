@@ -381,6 +381,7 @@ def _eig_block_Davidson (las, e0, h1, h2, ci_blk, nelec_blk, soc, opt):
     raw2orth = citools.get_orth_basis (ci_blk, las.ncas_sub, nelec_blk, _get_ovlp=_get_ovlp)
     precond_op_raw = lib.make_diag_precond (hdiag, level_shift=level_shift)
     si0 = get_init_guess (hdiag, nroots_si, si0)
+    si0 = [ovlp_op (x) for x in si0]
     orth2raw = raw2orth.H
     def precond_op (dx, e, *args):
         return raw2orth (precond_op_raw (orth2raw (dx), e, *args))
@@ -957,6 +958,9 @@ class LASSI(lib.StreamObject):
             si, si.s2, si.nelec, si.wfnsym, si.rootsym, si.break_symmetry, si.soc
         log.timer ('LASSI matrix-diagonalization kernel', *t0)
         return self.e_roots, self.si
+
+    def eig (self, *args, **kwargs):
+        return self.kernel (*args, **kwargs)
 
     def ham_2q (self, mo_coeff=None, veff_c=None, h2eff_sub=None, soc=0):
         if mo_coeff is None: mo_coeff = self.mo_coeff
