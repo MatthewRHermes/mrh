@@ -22,10 +22,10 @@ class ContractHamCI_CHC (stdm.LSTDM):
         h2 : ndarray of size ncas**4
             Contains 2-electron Hamiltonian amplitudes in second quantization
     '''
-    def __init__(self, las, ints, nlas, hopping_index, lroots, h0, h1, h2, mask_bra_space=None,
+    def __init__(self, las, ints, nlas, lroots, h0, h1, h2, mask_bra_space=None,
                  mask_ket_space=None, pt_order=None, do_pt_order=None, log=None, max_memory=2000,
                  dtype=np.float64):
-        hams2ovlp.HamS2Ovlp.__init__(self, ints, nlas, hopping_index, lroots, h1, h2,
+        hams2ovlp.HamS2Ovlp.__init__(self, ints, nlas, lroots, h1, h2,
                                      mask_bra_space = mask_bra_space,
                                      mask_ket_space = mask_ket_space,
                                      pt_order=pt_order, do_pt_order=do_pt_order,
@@ -453,7 +453,7 @@ class ContractHamCI_CHC (stdm.LSTDM):
             for ifrag in range (nfrags):
                 gen_hket = gen_contract_ham_ci_const (ifrag, las, h1, h2, ci, nelec_frs,
                                                       mask_bra_space=mask_bra_space,
-                                                      mask_ket_space=mask_ket_space)
+                                                      mask_ket_space=mask_ket_space, log=self.log)
                 for i, hket_pabq in enumerate (gen_hket):
                     hci[ifrag][i][:] += hci_dot_sivecs_ij (
                         hket_pabq, si_bra, si_ket, lroots_bra, ifrag, i
@@ -494,9 +494,10 @@ class ContractHamCI_CHC (stdm.LSTDM):
         return self.hci_fr_pabq, t0
 
 def gen_contract_ham_ci_const (ifrag, las, h1, h2, ci, nelec_frs, soc=0, h0=0, orbsym=None,
-                               wfnsym=None, mask_bra_space=None, mask_ket_space=None):
+                               wfnsym=None, mask_bra_space=None, mask_ket_space=None, log=None):
     '''Constant-term parts of contract_ham_ci for fragment ifrag'''
-    log = lib.logger.new_logger (las, las.verbose)
+    if log is None:
+        log = lib.logger.new_logger (las, las.verbose)
     nlas = np.asarray (las.ncas_sub)
     nfrags, nroots = nelec_frs.shape[:2]
     dtype = ci[0][0].dtype
