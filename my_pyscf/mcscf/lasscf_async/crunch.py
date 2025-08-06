@@ -204,7 +204,6 @@ class ImpuritySCF (scf.hf.SCF):
                         log.debug("Cholesky vector issue")
                         exit()
 
-             
             elif gpu and 0:
                 naoaux = mf.with_df.get_naoaux()
                 nao_s, nao_f = imporb_coeff.shape

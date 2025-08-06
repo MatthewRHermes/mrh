@@ -32,12 +32,15 @@ PM::PM()
   hipSetDevice(0);
 }
 
+/* ---------------------------------------------------------------------- */
+
 PM::~PM()
 {
   int n = my_queues.size();
   for (int i=0; i<n; ++i) hipStreamDestroy(my_queues[i]);
-  
 }
+
+/* ---------------------------------------------------------------------- */
 
 //https://stackoverflow.com/questions/68823023/set-hip-device-by-uuid
 void PM::uuid_print(hipUUID_t a){
@@ -50,6 +53,8 @@ void PM::uuid_print(hipUUID_t a){
   }
   std::cout << std::endl;
 }
+
+/* ---------------------------------------------------------------------- */
 
 int PM::dev_num_devices()
 {
@@ -67,6 +72,8 @@ int PM::dev_num_devices()
   
   return num_devices;
 }
+
+/* ---------------------------------------------------------------------- */
 
 void PM::dev_properties(int ndev)
 {
@@ -91,6 +98,8 @@ void PM::dev_properties(int ndev)
   printf(" -- Leaving PM::dev_properties()\n");
 #endif
 }
+
+/* ---------------------------------------------------------------------- */
 
 int PM::dev_check_peer(int rank, int ngpus)
 {
@@ -124,6 +133,8 @@ int PM::dev_check_peer(int rank, int ngpus)
   return err;
 }
 
+/* ---------------------------------------------------------------------- */
+
 void PM::dev_set_device(int id)
 {
 #ifdef _DEBUG_PM
@@ -140,6 +151,8 @@ void PM::dev_set_device(int id)
   printf(" -- Leaving PM::dev_set_devices()\n");
 #endif
 }
+
+/* ---------------------------------------------------------------------- */
 
 int PM::dev_get_device()
 {
@@ -160,15 +173,26 @@ int PM::dev_get_device()
   return id;
 }
 
-void * PM::dev_malloc(size_t N)
+/* ---------------------------------------------------------------------- */
+
+void * PM::dev_malloc(size_t N, std::string name, const char * file, int line)
 {
 #ifdef _DEBUG_PM
   printf("Inside PM::dev_malloc()\n");
 #endif
   
+  profile_memory(N, name, PROFILE_MEM_MALLOC);
+  
   void * ptr;
   hipMalloc((void**) &ptr, N);
-  _HIP_CHECK_ERRORS();
+  
+  hipError err = hipGetLastError();
+  if(err != hipSuccess) {
+    printf("LIBGPU :: Error : PM::dev_malloc() failed to allocate %lu bytes for name= %s on device %i from file= %s line= %i\n",
+	   N,name.c_str(),current_queue_id,file,line);
+    print_mem_summary();
+    exit(1);
+  }
   
 #ifdef _DEBUG_PM
   printf(" -- Leaving PM::dev_malloc()\n");
@@ -177,15 +201,26 @@ void * PM::dev_malloc(size_t N)
   return ptr;
 }
 
-void * PM::dev_malloc_async(size_t N)
+/* ---------------------------------------------------------------------- */
+
+void * PM::dev_malloc_async(size_t N, std::string name, const char * file, int line)
 {
 #ifdef _DEBUG_PM
   printf("Inside PM::dev_malloc_async()\n");
 #endif
 
+  profile_memory(N, name, PROFILE_MEM_MALLOC);
+  
   void * ptr;
   hipMallocAsync((void**) &ptr, N, *current_queue);
-  _HIP_CHECK_ERRORS();
+  
+  hipError err = hipGetLastError();
+  if(err != hipSuccess) {
+    printf("LIBGPU :: Error : PM::dev_malloc() failed to allocate %lu bytes for name= %s on device %i from file= %s line= %i\n",
+	   N,name.c_str(),current_queue_id,file,line);
+    print_mem_summary();
+    exit(1);
+  }
   
 #ifdef _DEBUG_PM
   printf(" -- Leaving PM::dev_malloc_async()\n");
@@ -194,15 +229,26 @@ void * PM::dev_malloc_async(size_t N)
   return ptr;
 }
 
-void * PM::dev_malloc_async(size_t N, hipStream_t &s)
+/* ---------------------------------------------------------------------- */
+
+void * PM::dev_malloc_async(size_t N, hipStream_t &, std::string names, const char * file, int line)
 {
 #ifdef _DEBUG_PM
   printf("Inside PM::dev_malloc_async()\n");
 #endif
+  
+  profile_memory(N, name, PROFILE_MEM_MALLOC);
   
   void * ptr;
   hipMallocAsync((void**) &ptr, N, s);
-  _HIP_CHECK_ERRORS();
+  
+  hipError err = hipGetLastError();
+  if(err != hipSuccess) {
+    printf("LIBGPU :: Error : PM::dev_malloc() failed to allocate %lu bytes for name= %s on device%i from file= %s line= %i\n",
+	   N,name.c_str(),current_queue_id,file,line);
+    print_mem_summary();
+    exit(1);
+  }
   
 #ifdef _DEBUG_PM
   printf(" -- Leaving PM::dev_malloc_async()\n");
@@ -210,6 +256,8 @@ void * PM::dev_malloc_async(size_t N, hipStream_t &s)
   
   return ptr;
 }
+
+/* ---------------------------------------------------------------------- */
 
 void * PM::dev_malloc_host(size_t N)
 {
@@ -228,11 +276,15 @@ void * PM::dev_malloc_host(size_t N)
   return ptr;
 }
 
-void PM::dev_free(void * ptr)
+/* ---------------------------------------------------------------------- */
+
+void PM::dev_free(void * ptr, std::string name)
 {
 #ifdef _DEBUG_PM
   printf("Inside PM::dev_free()\n");
 #endif
+  
+  profile_memory(0, name, PROFILE_MEM_FREE);
   
   if(ptr) hipFree(ptr);
   _HIP_CHECK_ERRORS();
@@ -242,11 +294,15 @@ void PM::dev_free(void * ptr)
 #endif
 }
 
-void PM::dev_free_async(void * ptr)
+/* ---------------------------------------------------------------------- */
+
+void PM::dev_free_async(void * ptr, std::string name)
 {
 #ifdef _DEBUG_PM
   printf("Inside PM::dev_free_async()\n");
 #endif
+  
+  profile_memory(0, name, PROFILE_MEM_FREE);
   
   if(ptr) hipFreeAsync(ptr, *current_queue);
   _HIP_CHECK_ERRORS();
@@ -256,11 +312,15 @@ void PM::dev_free_async(void * ptr)
 #endif
 }
 
-void PM::dev_free_async(void * ptr, hipStream_t &s)
+/* ---------------------------------------------------------------------- */
+
+void PM::dev_free_async(void * ptr, hipStream_t &s, std::string name)
 {
 #ifdef _DEBUG_PM
   printf("Inside PM::dev_free_async()\n");
 #endif
+  
+  profile_memory(0, name, PROFILE_MEM_FREE);
   
   if(ptr) hipFreeAsync(ptr, s);
   _HIP_CHECK_ERRORS();
@@ -269,6 +329,8 @@ void PM::dev_free_async(void * ptr, hipStream_t &s)
   printf(" -- Leaving PM::dev_free_async()\n");
 #endif
 }
+
+/* ---------------------------------------------------------------------- */
 
 void PM::dev_free_host(void * ptr)
 {
@@ -284,6 +346,8 @@ void PM::dev_free_host(void * ptr)
 #endif
 }
 
+/* ---------------------------------------------------------------------- */
+
 void PM::dev_push(void * d_ptr, void * h_ptr, size_t N)
 {
 #ifdef _DEBUG_PM
@@ -297,6 +361,8 @@ void PM::dev_push(void * d_ptr, void * h_ptr, size_t N)
   printf(" -- Leaving PM::dev_push()\n");
 #endif
 }
+
+/* ---------------------------------------------------------------------- */
 
 int PM::dev_push_async(void * d_ptr, void * h_ptr, size_t N)
 {
@@ -314,6 +380,8 @@ int PM::dev_push_async(void * d_ptr, void * h_ptr, size_t N)
   return 0;
 }
 
+/* ---------------------------------------------------------------------- */
+
 int PM::dev_push_async(void * d_ptr, void * h_ptr, size_t N, hipStream_t &s)
 {
 #ifdef _DEBUG_PM
@@ -330,6 +398,8 @@ int PM::dev_push_async(void * d_ptr, void * h_ptr, size_t N, hipStream_t &s)
   return 0;
 }
 
+/* ---------------------------------------------------------------------- */
+
 void PM::dev_pull(void * d_ptr, void * h_ptr, size_t N)
 {
 #ifdef _DEBUG_PM
@@ -343,6 +413,8 @@ void PM::dev_pull(void * d_ptr, void * h_ptr, size_t N)
   printf(" -- Leaving PM::dev_pull()\n");
 #endif
 }
+
+/* ---------------------------------------------------------------------- */
 
 void PM::dev_pull_async(void * d_ptr, void * h_ptr, size_t N)
 {
@@ -358,6 +430,8 @@ void PM::dev_pull_async(void * d_ptr, void * h_ptr, size_t N)
 #endif
 }
 
+/* ---------------------------------------------------------------------- */
+
 void PM::dev_pull_async(void * d_ptr, void * h_ptr, size_t N, hipStream_t &s)
 {
 #ifdef _DEBUG_PM
@@ -371,6 +445,8 @@ void PM::dev_pull_async(void * d_ptr, void * h_ptr, size_t N, hipStream_t &s)
   printf(" -- Leaving PM::dev_pull_async()\n");
 #endif
 }
+
+/* ---------------------------------------------------------------------- */
 
 void PM::dev_copy(void * dest, void * src, size_t N)
 { 
@@ -386,6 +462,8 @@ void PM::dev_copy(void * dest, void * src, size_t N)
   printf(" -- Leaving PM::dev_copy()\n");
 #endif
 }
+
+/* ---------------------------------------------------------------------- */
 
 void PM::dev_check_pointer(int rnk, const char * name, void * ptr)
 {
@@ -403,6 +481,8 @@ void PM::dev_check_pointer(int rnk, const char * name, void * ptr)
 #endif
 }
 
+/* ---------------------------------------------------------------------- */
+
 void PM::dev_barrier()
 {
 #ifdef _DEBUG_PM
@@ -416,6 +496,8 @@ void PM::dev_barrier()
   printf(" -- Leaving PM::dev_barrier()\n");
 #endif
 }
+
+/* ---------------------------------------------------------------------- */
 
 int PM::dev_stream_create()
 {
@@ -444,6 +526,8 @@ int PM::dev_stream_create()
   return id;
 }
 
+/* ---------------------------------------------------------------------- */
+
 void PM::dev_stream_create(hipStream_t & s)
 {
 #ifdef _DEBUG_PM
@@ -463,6 +547,8 @@ void PM::dev_stream_create(hipStream_t & s)
   printf(" -- Leaving PM::dev_stream_create()\n");
 #endif
 }
+
+/* ---------------------------------------------------------------------- */
 
 void PM::dev_stream_destroy()
 {
@@ -486,6 +572,8 @@ void PM::dev_stream_destroy()
 #endif
 }
 
+/* ---------------------------------------------------------------------- */
+
 void PM::dev_stream_destroy(hipStream_t & s)
 {
 #ifdef _DEBUG_PM
@@ -504,6 +592,8 @@ void PM::dev_stream_destroy(hipStream_t & s)
 #endif
 }
 
+/* ---------------------------------------------------------------------- */
+
 void PM::dev_stream_wait()
 {
 #ifdef _DEBUG_PM
@@ -517,6 +607,8 @@ void PM::dev_stream_wait()
   printf(" -- Leaving PM::dev_stream_wait()\n");
 #endif
 }
+
+/* ---------------------------------------------------------------------- */
 
 void PM::dev_stream_wait(hipStream_t & s)
 {
@@ -532,6 +624,8 @@ void PM::dev_stream_wait(hipStream_t & s)
 #endif
 }
 
+/* ---------------------------------------------------------------------- */
+
 void PM::dev_set_queue(int id)
 {
 #ifdef _DEBUG_PM
@@ -545,6 +639,8 @@ void PM::dev_set_queue(int id)
   printf(" -- Leaving PM::dev_set_queue()\n");
 #endif
 }
+
+/* ---------------------------------------------------------------------- */
 
 hipStream_t * PM::dev_get_queue()
 {
@@ -588,5 +684,76 @@ void PM::dev_profile_next(const char * label)
   nvtxRangePushA(label);
 #endif
 }
+
+#if defined (_PROFILE_PM_MEM)
+void PM::profile_memory(size_t N, std::string name_, int mode)
+{
+  std::string name = name_ + "-" + std::to_string(current_queue_id);
+  //  printf("PM::dev_malloc()  name= %s\n",name.c_str());
+
+  auto it_ = std::find(profile_mem_name.begin(), profile_mem_name.end(), name);
+
+  int indx = it_ - profile_mem_name.begin();
+
+  if(mode == PROFILE_MEM_MALLOC) {
+  
+    if(indx < profile_mem_name.size()) {
+      profile_mem_size[indx] += (int64_t) N;
+      profile_mem_count_alloc[indx]++;
+      if(N > profile_mem_max_size[indx]) profile_mem_max_size[indx] = (int64_t) N;
+    } else {
+      profile_mem_name.push_back(name);
+      profile_mem_size.push_back((int64_t) N);
+      profile_mem_max_size.push_back((int64_t) N);
+      profile_mem_count_alloc.push_back(1);
+      profile_mem_count_free.push_back(0);
+    }
+
+  } else if(mode == PROFILE_MEM_FREE) {
+
+    if(indx < profile_mem_name.size()) {
+      profile_mem_size[indx] = 0;
+      profile_mem_count_free[indx]++;
+    }
+    
+  } else {
+    printf("LIBGPU :: Error : Unsupported profile_memory mode= %i  name= %s\n",mode,name.c_str());
+    exit(1);
+  }
+    
+}
+#else
+void PM::profile_memory(size_t N, std::string name_, int mode) {}
+#endif
+
+/* ---------------------------------------------------------------------- */
+
+#if defined(_PROFILE_PM_MEM)
+void PM::print_mem_summary()
+{
+  printf("\nLIBGPU :: PROFILE_PM_MEM\n");
+  
+  double sum_mb = 0.0;
+  
+  for(int i=0; i<profile_mem_name.size(); ++i) {
+    double max_size_mb = profile_mem_max_size[i] / 1024.0 / 1024.0;
+    double size_mb = profile_mem_size[i] / 1024.0 / 1024.0;
+    
+    sum_mb += max_size_mb;
+    
+    // printf("LIBGPU :: PROFILE_PM_MEM :: [%3i] name= %20s  max_size= %6.1f MBs  current_size= %6.1f MBs  num_alloc= %lu  num_free= %lu\n",
+    // 	   i, profile_mem_name[i].c_str(), max_size_mb, size_mb, profile_mem_count_alloc[i], profile_mem_count_free[i]);
+    printf("LIBGPU :: PROFILE_PM_MEM :: [%3i] name= %20s  max_size= %6.1f MBs  current_size= %lu bytes  num_alloc= %lu  num_free= %lu\n",
+	   i, profile_mem_name[i].c_str(), max_size_mb, profile_mem_size[i], profile_mem_count_alloc[i], profile_mem_count_free[i]);
+  }
+  
+  int num_devices = dev_num_devices();
+  printf("LIBGPU :: PROFILE_PM_MEM :: [total]  %6.1f MBs  %6.1f MBs / device\n", sum_mb, sum_mb/(double) num_devices);
+}
+#else
+void PM::print_mem_summary() {};
+#endif
+
+/* ---------------------------------------------------------------------- */
 
 #endif
