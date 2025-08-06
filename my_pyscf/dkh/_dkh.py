@@ -16,7 +16,6 @@ from pyscf.data import nist
 from pyscf import __config__
 import scipy
 import ctypes
-import MySlate
 import mrh
 
 libdkh = ctypes.CDLL(mrh.__file__.rstrip('__init__.py')+'lib/libdkh.so')
