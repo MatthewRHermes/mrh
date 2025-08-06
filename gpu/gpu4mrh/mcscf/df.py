@@ -47,7 +47,6 @@ class _ERIS:
             papa = numpy.empty((nmo, ncas, nmo, ncas))
             libgpu.push_mo_coeff(gpu, mo, nao*nmo)
             libgpu.init_jk_ao2mo(gpu, ncore, nmo) 
-            libgpu.init_ints_ao2mo_v3(gpu, naoaux, nmo, ncas) #initializes bufpa on pinned memory
             libgpu.init_ppaa_papa_ao2mo(gpu, nmo, ncas) #initializes ppaa on pinned memory
             t1 = log.timer('init_ao2mo', *t1)
             count = 0

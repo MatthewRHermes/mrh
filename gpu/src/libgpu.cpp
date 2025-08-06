@@ -161,20 +161,7 @@ void libgpu_init_jk_ao2mo(void * ptr,
   Device * dev = (Device *) ptr;
   dev->init_jk_ao2mo(ncore, nmo);
 }
-/* ---------------------------------------------------------------------- */
-void libgpu_init_ints_ao2mo_v3(void * ptr, 
-                          int naoaux, int nmo, int ncas)
-{
-  Device * dev = (Device *) ptr;
-  dev->init_ints_ao2mo_v3(naoaux, nmo, ncas);
-}
-/* ---------------------------------------------------------------------- */
-void libgpu_init_ppaa_ao2mo(void * ptr, 
-                           int nmo, int ncas)
-{
-  Device * dev = (Device *) ptr;
-  dev->init_ppaa_ao2mo(nmo, ncas);
-}
+
 /* ---------------------------------------------------------------------- */
 void libgpu_init_ppaa_papa_ao2mo(void * ptr, 
                            int nmo, int ncas)
@@ -191,34 +178,11 @@ void libgpu_df_ao2mo_v4(void * ptr,
   dev->df_ao2mo_v4(blksize, nmo, nao, ncore, ncas, naux, count, addr_dfobj);
 }
 /* ---------------------------------------------------------------------- */
-void libgpu_pull_jk_ao2mo(void * ptr, 
-                          py::array_t<double> j_pc, py::array_t<double> k_pc, int nmo, int ncore)
-{
-  Device * dev = (Device *) ptr;
-  dev->pull_jk_ao2mo(j_pc, k_pc, nmo, ncore);
-}
-/* ---------------------------------------------------------------------- */
 void libgpu_pull_jk_ao2mo_v4(void * ptr, 
                           py::array_t<double> j_pc, py::array_t<double> k_pc, int nmo, int ncore)
 {
   Device * dev = (Device *) ptr;
   dev->pull_jk_ao2mo_v4(j_pc, k_pc, nmo, ncore);
-}
-/* ---------------------------------------------------------------------- */
-void libgpu_pull_ints_ao2mo_v3(void * ptr, 
-			    py::array_t<double> bufpa, int blksize, int naoaux, int nmo, int ncas)
-{
-  Device * dev = (Device *) ptr;
-  dev->pull_ints_ao2mo_v3(bufpa, blksize, naoaux, nmo, ncas);
-}
-
-
-/* ---------------------------------------------------------------------- */
-void libgpu_pull_ppaa_ao2mo(void * ptr, 
-                            py::array_t<double> ppaa, int nmo, int ncas)
-{
-  Device * dev = (Device *) ptr;
-  dev->pull_ppaa_ao2mo(ppaa, nmo, ncas);
 }
 /* ---------------------------------------------------------------------- */
 void libgpu_pull_ppaa_papa_ao2mo_v4(void * ptr, 

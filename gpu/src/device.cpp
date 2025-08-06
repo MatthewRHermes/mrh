@@ -1420,37 +1420,6 @@ void Device::init_jk_ao2mo(int ncore, int nmo)
 
 /* ---------------------------------------------------------------------- */
 
-void Device::init_ints_ao2mo_v3(int naoaux, int nmo, int ncas)
-{
-  double t0 = omp_get_wtime();
-  
-  int _size_bufpa = naoaux*nmo*ncas;
-
-  grow_array_host(pin_bufpa, _size_bufpa, size_bufpa, "h:pin_bufpa");
-  
-  double t1 = omp_get_wtime();
-  t_array[8] += t1 - t0;
-  // counts in pull ppaa
-}
-
-/* ---------------------------------------------------------------------- */
-
-void Device::init_ppaa_ao2mo( int nmo, int ncas)
-{
-  double t0 = omp_get_wtime();
-
-  // initializing only cpu side, gpu ppaa will be a buffer array (dd->d_buf3) 
-  int _size_buf_ppaa = num_devices*nmo*nmo*ncas*ncas;
-
-  grow_array_host(buf_ppaa, _size_buf_ppaa, size_buf_ppaa, "h:buf_ppaa");
-  
-  double t1 = omp_get_wtime();
-  t_array[8] += t1 - t0;
-  // counts in pull ppaa
-}
-
-/* ---------------------------------------------------------------------- */
-
 void Device::init_ppaa_papa_ao2mo( int nmo, int ncas)
 {
   double t0 = omp_get_wtime();
@@ -1523,85 +1492,6 @@ void Device::extract_mo_cas(int ncas, int ncore, int nao)
   
   double t1 = omp_get_wtime();
   t_array[7] += t1 - t0;
-}
-
-/* ---------------------------------------------------------------------- */
-
-void Device::pull_jk_ao2mo(py::array_t<double> _j_pc, py::array_t<double> _k_pc, int nmo, int ncore)
-{
-  double t0 = omp_get_wtime();
-
-  py::buffer_info info_j_pc = _j_pc.request(); //2D array (nmo*ncore)
-  double * j_pc = static_cast<double*>(info_j_pc.ptr);
-  double * tmp;
-  
-  py::buffer_info info_k_pc = _k_pc.request(); //2D array (nmo*ncore)
-  double * k_pc = static_cast<double*>(info_k_pc.ptr);
-  int size = nmo*ncore;//*sizeof(double);
-
-  // Pulling j_pc from all devices
-  
-  for (int i=0; i<num_devices; ++i){
-    pm->dev_set_device(i);
-
-    my_device_data * dd = &(device_data[i]);
-
-    if (i==0) tmp = j_pc;
-    else tmp = &(buf_j_pc[i*nmo*ncore]);
-    
-    if (dd->d_j_pc) pm->dev_pull_async(dd->d_j_pc, tmp, size*sizeof(double));
-  }
-  
-  // Adding j_pc from all devices
-  
-  for(int i=0; i<num_devices; ++i) {
-    pm->dev_set_device(i);
-
-    my_device_data * dd = &(device_data[i]);
-    
-    pm->dev_stream_wait();
-
-    if(i > 0 && dd->d_j_pc) {
-      
-      tmp = &(buf_j_pc[i * nmo* ncore]);
-//#pragma omp parallel for
-      for(int j=0; j<ncore*nmo; ++j) j_pc[j] += tmp[j];
-    }
-  }
-  
-  // Pulling k_pc from all devices
-  
-  for (int i=0; i<num_devices; ++i){
-    pm->dev_set_device(i);
-    
-    my_device_data * dd = &(device_data[i]);
-
-    if (i==0) tmp = k_pc;
-    else tmp = &(buf_k_pc[i*nmo*ncore]);
-    
-    if (dd->d_k_pc) pm->dev_pull_async(dd->d_k_pc, tmp, size*sizeof(double));
-  }
-  
-  // Adding k_pc from all devices
-  
-  for(int i=0; i<num_devices; ++i) {
-    pm->dev_set_device(i);
-    
-    my_device_data * dd = &(device_data[i]);
-    
-    pm->dev_stream_wait();
-
-    if(i > 0 && dd->d_k_pc) {
-      
-      tmp = &(buf_k_pc[i * nmo* ncore]);
-//#pragma omp parallel for
-      for(int j=0; j<ncore*nmo; ++j) k_pc[j] += tmp[j];
-    }
-  }
-    
-  double t1 = omp_get_wtime();
-  t_array[10] += t1 - t0;
-  // counts in pull ppaa
 }
 
 /* ---------------------------------------------------------------------- */
@@ -1745,67 +1635,6 @@ void Device::pull_jk_ao2mo_v4(py::array_t<double> _j_pc, py::array_t<double> _k_
   // counts in pull ppaa
 }
 #endif
-
-/* ---------------------------------------------------------------------- */
-
-void Device::pull_ints_ao2mo_v3(py::array_t<double> _bufpa, int blksize, int naoaux, int nmo, int ncas)
-{
-  double t0 = omp_get_wtime();
-  
-  py::buffer_info info_bufpa = _bufpa.request(); //3D array (naoaux*nmo*ncas)
-  double * bufpa = static_cast<double*>(info_bufpa.ptr);
-  //printf("size_bufpa %i\n", size_bufpa);
-  std::memcpy(bufpa, pin_bufpa, size_bufpa*sizeof(double));
-  
-  double t1 = omp_get_wtime();
-  t_array[10] += t1 - t0;
-  // counts in pull ppaa
-}
-
-/* ---------------------------------------------------------------------- */
-
-void Device::pull_ppaa_ao2mo(py::array_t<double> _ppaa, int nmo, int ncas) // obsolete?
-{
-  double t0 = omp_get_wtime();
-
-  py::buffer_info info_ppaa = _ppaa.request(); //2D array (nmo*ncore)
-  double * ppaa = static_cast<double*>(info_ppaa.ptr);
-  double * tmp;
-  const int _size_ppaa = nmo*nmo*ncas*ncas;
-  // Pulling ppaa from all devices
-  
-  for (int i=0; i<num_devices; ++i){
-    pm->dev_set_device(i);
-
-    my_device_data * dd = &(device_data[i]);
-
-    if (i==0) tmp = ppaa;
-    else tmp = &(buf_ppaa[i*_size_ppaa]);
-    
-    if (dd->active) pm->dev_pull_async(dd->d_ppaa, tmp, _size_ppaa*sizeof(double));
-  }
-  
-  // Adding ppaa from all devices
-  
-  for(int i=0; i<num_devices; ++i) {
-    pm->dev_set_device(i);
-
-    my_device_data * dd = &(device_data[i]);
-    
-    pm->dev_stream_wait();
-
-    if(i > 0 && dd->active) {
-      
-      tmp = &(buf_ppaa[i * _size_ppaa]);
-//#pragma omp parallel for
-      for(int j=0; j<_size_ppaa; ++j) ppaa[j] += tmp[j];
-    }
-  }
-  
-  double t1 = omp_get_wtime();
-  t_array[10] += t1 - t0;
-  count_array[6] += 1; //doing this in ppaa pull, not in any inits or computes
-}
 
 /* ---------------------------------------------------------------------- */
 

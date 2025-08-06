@@ -95,9 +95,7 @@ public :
   void get_dfobj_status(size_t, py::array_t<int>);
  
   void init_jk_ao2mo (int, int);
-  void init_ints_ao2mo_v3 (int, int, int);
 
-  void init_ppaa_ao2mo (int, int);
   void init_ppaa_papa_ao2mo (int, int);
  
   void df_ao2mo_v4 (int, int, int, int, int, int,
@@ -106,11 +104,7 @@ public :
   void get_bufaa(const double *, double *, int, int, int, int);
   void transpose_120(double *, double *, int, int, int, int order = 0);
   void get_bufd(const double *, double *, int, int);
-  void pull_jk_ao2mo (py::array_t<double>,py::array_t<double>,int, int);
   void pull_jk_ao2mo_v4 (py::array_t<double>,py::array_t<double>,int, int);
-  void pull_ints_ao2mo (py::array_t<double>,py::array_t<double>, int, int, int, int);
-  void pull_ints_ao2mo_v3 (py::array_t<double>, int, int, int, int);
-  void pull_ppaa_ao2mo (py::array_t<double>, int, int);
   void pull_ppaa_papa_ao2mo_v4 (py::array_t<double>,py::array_t<double>, int, int);
   
   
