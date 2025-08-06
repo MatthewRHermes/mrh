@@ -176,6 +176,25 @@ __global__ void _getjk_unpack_buf2(double * buf2, double * eri1, int * map, int 
 #endif
 
 /* ---------------------------------------------------------------------- */
+__global__ void _pack_eri1(double * eri1, double * buf2, int * map, int naux, int nao, int nao_pair)
+{
+ //eri1 is out, buf2 is in, we are packing buf2 of shape naux * nao * nao to eri1 of shape naux * nao_pair 
+  const int i = blockIdx.x * blockDim.x + threadIdx.x;
+  const int j = blockIdx.y * blockDim.y + threadIdx.y;
+
+  if(i >= naux) return;
+  if(j >= nao) return;
+
+  double * buf = &(buf2[i * nao * nao]);
+  double * tril = &(eri1[i * nao_pair]);
+
+  const int indx = j * nao;
+  //for(int k=0; k<nao; ++k) buf[indx+k] = tril[ map[indx+k] ];  
+  for(int k=0; k<nao; ++k) tril[map[indx+k]] = buf[ indx+k ];  
+}
+
+/* ---------------------------------------------------------------------- */
+
 
 #if 1
 
@@ -274,7 +293,6 @@ __global__ void _get_bufaa (const double* bufpp, double* bufaa, int naux, int nm
 }
 
 /* ---------------------------------------------------------------------- */
-
 
 __global__ void _transpose_120(double * in, double * out, int naux, int nao, int ncas) {
     //Pum->muP
@@ -416,6 +434,7 @@ __global__ void _pack_d_vuwM(const double * in, double * out, int * map, int nmo
     out[i*ncas_pair + map[j]]=in[j*ncas*nmo + i];
 
 }
+
 /* ---------------------------------------------------------------------- */
 
 __global__ void _pack_d_vuwM_add(const double * in, double * out, int * map, int nmo, int ncas, int ncas_pair)
@@ -426,10 +445,18 @@ __global__ void _pack_d_vuwM_add(const double * in, double * out, int * map, int
     if(i >= nmo*ncas) return;
     if(j >= ncas*ncas) return;
     //out[k*ncas_pair*nao+l*ncas_pair+ij]=h_vuwM[i*ncas*ncas*nao+j*ncas*nao+k*nao+l];}}}}
-    out[i*ncas_pair + map[j]]+=in[j*ncas*nmo + i];
-
+    out[i*ncas_pair + map[j]]+=in[j*ncas*nmo + i]; // this doesn't work because map spans (ncas x ncas) and has duplicate entries
 }
 
+/* ---------------------------------------------------------------------- */
+
+__global__ void _vecadd(const double * in, double * out, int N)
+{
+    int i = blockIdx.x * blockDim.x + threadIdx.x;
+
+    if(i >= N) return;
+    out[i] += in[i];
+}
 
 /* ---------------------------------------------------------------------- */
 /* Interface functions calling CUDA kernels
@@ -498,6 +525,30 @@ void Device::getjk_unpack_buf2(double * buf2, double * eri, int * map, int naux,
 }
 
 /* ---------------------------------------------------------------------- */
+void Device::pack_eri(double * eri1, double * buf2, int * map, int naux, int nao, int nao_pair)
+{
+#if 1
+  //dim3 grid_size(naux, _TILE(nao, _UNPACK_BLOCK_SIZE), 1);
+  //dim3 block_size(1, _UNPACK_BLOCK_SIZE, 1);
+  dim3 grid_size(naux, nao, 1);
+  dim3 block_size(1,1, 1);
+#else
+  dim3 grid_size(naux, _TILE(nao*nao, _UNPACK_BLOCK_SIZE), 1);
+  dim3 block_size(1, _UNPACK_BLOCK_SIZE, 1);
+#endif
+  cudaStream_t s = *(pm->dev_get_queue());
+  
+  _pack_eri1<<<grid_size, block_size, 0, s>>>(eri1, buf2, map, naux, nao, nao_pair);
+  
+#ifdef _DEBUG_DEVICE
+  printf("LIBGPU :: _pack_eri1 :: naux= %i  nao= %i _UNPACK_BLOCK_SIZE= %i  grid_size= %i %i %i  block_size= %i %i %i\n",
+	 naux, nao, _UNPACK_BLOCK_SIZE, grid_size.x,grid_size.y,grid_size.z,block_size.x,block_size.y,block_size.z);
+  _CUDA_CHECK_ERRORS();
+#endif
+}
+
+/* ---------------------------------------------------------------------- */
+
 
 void Device::transpose(double * out, double * in, int nrow, int ncol)
 {
@@ -738,7 +789,9 @@ void Device::pack_d_vuwM(const double * in, double * out, int * map, int nmo, in
   _CUDA_CHECK_ERRORS();
 #endif
 }
+
 /* ---------------------------------------------------------------------- */
+
 void Device::pack_d_vuwM_add(const double * in, double * out, int * map, int nmo, int ncas, int ncas_pair)
 {
   dim3 block_size(_UNPACK_BLOCK_SIZE, _UNPACK_BLOCK_SIZE, 1);
@@ -755,5 +808,22 @@ void Device::pack_d_vuwM_add(const double * in, double * out, int * map, int nmo
 #endif
 }
 
+/* ---------------------------------------------------------------------- */
+
+void Device::vecadd(const double * in, double * out, int N)
+{
+  dim3 block_size(_DEFAULT_BLOCK_SIZE, 1, 1);
+  dim3 grid_size(_TILE(N,block_size.x));
+  
+  cudaStream_t s = *(pm->dev_get_queue());
+  
+  _vecadd<<<grid_size,block_size, 0, s>>>(in, out, N);
+  
+#ifdef _DEBUG_DEVICE
+  printf("LIBGPU ::  -- general::vecadd :: N= %i  grid_size= %i %i %i  block_size= %i %i %i\n",
+	 N, grid_size.x,grid_size.y,grid_size.z,block_size.x,block_size.y,block_size.z);
+  _CUDA_CHECK_ERRORS();
+#endif
+}
 
 #endif

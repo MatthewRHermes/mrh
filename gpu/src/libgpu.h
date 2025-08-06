@@ -44,26 +44,13 @@ extern "C"
   
   void libgpu_init_jk_ao2mo(void *, 
                             int, int);
-  void libgpu_init_ints_ao2mo_v3(void *, 
-                            int, int, int);
-  void libgpu_init_ppaa_ao2mo(void *, 
-                             int, int);
   void libgpu_init_ppaa_papa_ao2mo(void *, 
                              int, int);
-  void libgpu_df_ao2mo_v3(void * ,
-                             int, int, int, int, int, int,
-                             py::array_t<double>, int, size_t);
   void libgpu_df_ao2mo_v4(void * ,
                              int, int, int, int, int, int,
                              int, size_t);
-  void libgpu_pull_jk_ao2mo(void *, 
-                            py::array_t<double>, py::array_t<double>,int, int);
   void libgpu_pull_jk_ao2mo_v4(void *, 
                             py::array_t<double>, py::array_t<double>,int, int);
-  void libgpu_pull_ints_ao2mo_v3(void *, 
-			      py::array_t<double>, int, int, int, int);
-  void libgpu_pull_ppaa_ao2mo(void *, 
-			      py::array_t<double>, int, int);
   void libgpu_pull_ppaa_papa_ao2mo_v4(void *, 
 			      py::array_t<double>,py::array_t<double>, int, int);
   void libgpu_orbital_response(void *,
@@ -76,14 +63,6 @@ extern "C"
 			       py::array_t<double>, py::array_t<double>);
   void libgpu_init_eri_h2eff(void * , 
                               int, int);
-  void libgpu_get_h2eff_df(void * , 
-                           py::array_t<double> , 
-                           int , int , int , int , int ,
-                           py::array_t<double>, int, size_t);
-  void libgpu_get_h2eff_df_v1(void * , 
-                           py::array_t<double> , 
-                           int , int , int , int , int ,
-                           py::array_t<double>, int, size_t);
   void libgpu_get_h2eff_df_v2(void * , 
                            py::array_t<double> , 
                            int , int , int , int , int ,
@@ -98,6 +77,24 @@ extern "C"
                                 py::array_t<double>, int, int, int);
   void libgpu_compute_eri_impham_v2(void * ptr, 
                                 int, int, int, int, int, size_t, size_t);
+  void libgpu_init_mo_grid(void * ptr, 
+                             int, int); //probably don't need it
+  void libgpu_push_ao_grid(void * ptr, 
+                             py::array_t<double>, int, int, int);
+  void libgpu_compute_mo_grid(void * ptr, 
+                              int, int, int);//probably don't need it
+  void libgpu_pull_mo_grid(void * ptr, 
+                             py::array_t<double>, int, int);//probably don't need it
+  void libgpu_init_Pi(void * ptr,  
+                       int);
+  void libgpu_push_cascm2 (void * ptr,
+                   py::array_t<double>, int); 
+  void libgpu_compute_rho_to_Pi (void * ptr,
+                   py::array_t<double>, int, int); 
+  void libgpu_compute_Pi (void * ptr,
+                   int, int, int, int); 
+  void libgpu_pull_Pi (void * ptr,
+                   py::array_t<double>, int, int); 
 }
 
 
@@ -124,20 +121,12 @@ PYBIND11_MODULE(libgpu, m) {
   m.def("push_mo_coeff", &libgpu_push_mo_coeff, "pyscf/mcscf/df.py::_ERIS.__init__() part 0.1");
   m.def("extract_mo_cas", &libgpu_extract_mo_cas, "pyscf/mcscf/las_ao2mo.py");
   m.def("init_jk_ao2mo", &libgpu_init_jk_ao2mo, "pyscf/mcscf/df.py::_ERIS.__init__() part 0.2");
-  m.def("init_ints_ao2mo_v3", &libgpu_init_ints_ao2mo_v3, "pyscf/mcscf/df.py::_ERIS.__init__() part 0.3_v3");
-  m.def("init_ppaa_ao2mo", &libgpu_init_ppaa_ao2mo, "pyscf/mcscf/df.py::_ERIS.__init__() part 0.4");
   m.def("init_ppaa_papa_ao2mo", &libgpu_init_ppaa_papa_ao2mo, "pyscf/mcscf/df.py::_ERIS.__init__() part 0.5 ");
-  m.def("df_ao2mo_v3", &libgpu_df_ao2mo_v3, "pyscf/mcscf/df.py::_ERIS.__init__() 3.0");
   m.def("df_ao2mo_v4", &libgpu_df_ao2mo_v4, "pyscf/mcscf/df.py::_ERIS.__init__() 4.0");
-  m.def("pull_jk_ao2mo", &libgpu_pull_jk_ao2mo, "pyscf/mcscf/df.py::_ERIS.__init__() part 0.5");
   m.def("pull_jk_ao2mo_v4", &libgpu_pull_jk_ao2mo_v4, "pyscf/mcscf/df.py::_ERIS.__init__() part 0.5 v4");
-  m.def("pull_ints_ao2mo_v3", &libgpu_pull_ints_ao2mo_v3, "pyscf/mcscf/df.py::_ERIS.__init__() part 0.6_v3");
-  m.def("pull_ppaa_ao2mo", &libgpu_pull_ppaa_ao2mo, "pyscf/mcscf/df.py::_ERIS.__init__() part 0.7");
   m.def("pull_ppaa_papa_ao2mo_v4", &libgpu_pull_ppaa_papa_ao2mo_v4, "pyscf/mcscf/df.py::_ERIS.__init__() part 0.7 v4");
   m.def("update_h2eff_sub", &libgpu_update_h2eff_sub, "my_pyscf/mcscf/lasci_sync.py::_update_h2_eff()");
   m.def("init_eri_h2eff", &libgpu_init_eri_h2eff, "my_pyscf/mcscf/las_ao2mo.py::get_h2eff_df part 0.1");
-  m.def("get_h2eff_df", &libgpu_get_h2eff_df, "my_pyscf/mcscf/las_ao2mo.py::get_h2eff_df");
-  m.def("get_h2eff_df_v1", &libgpu_get_h2eff_df_v1, "my_pyscf/mcscf/las_ao2mo.py::get_h2eff_df_v1");
   m.def("get_h2eff_df_v2", &libgpu_get_h2eff_df_v2, "my_pyscf/mcscf/las_ao2mo.py::get_h2eff_df_v2");
   m.def("pull_eri_h2eff", &libgpu_pull_eri_h2eff, "my_pyscf/mcscf/las_ao2mo.py::get_h2eff_df part 0.3");
   m.def("init_eri_impham", &libgpu_init_eri_impham, "my_pyscf/mcscf/lasscf_async/crunch.py::ImpuritySCF._update_impham_1_ part 0.1");
@@ -145,6 +134,15 @@ PYBIND11_MODULE(libgpu, m) {
   m.def("pull_eri_impham", &libgpu_pull_eri_impham, "my_pyscf/mcscf/lasscf_async/crunch.py::ImpuritySCF._update_impham_1_ part 0.3");
   m.def("compute_eri_impham_v2", &libgpu_compute_eri_impham_v2, "my_pyscf/mcscf/lasscf_async/crunch.py::ImpuritySCF._update_impham_1_ part 0.1-0.3");
   
+  m.def("init_mo_grid", &libgpu_init_mo_grid, "pyscf/mcpdft/otfnal.py::grid_ao2mo part 0.1");
+  m.def("push_ao_grid", &libgpu_push_ao_grid, "pyscf/mcpdft/otfnal.py::grid_ao2mo part 0.2");
+  m.def("compute_mo_grid", &libgpu_compute_mo_grid, "pyscf/mcpdft/otfnal.py::grid_ao2mo part 0.3");
+  m.def("pull_mo_grid",&libgpu_pull_mo_grid,"pyscf/mcpdft/otfnal.py::grid_ao2mo part 0.4");
+  m.def("init_Pi", &libgpu_init_Pi, "pyscf/mcpdft/otfnal.py::energy_ot part 0.1");
+  m.def("push_cascm2", &libgpu_push_cascm2, "pyscf/mcpdft/otfnal.py::energy_ot part 0.2");
+  m.def("compute_Pi", &libgpu_compute_rho_to_Pi, "pyscf/mcpdft/otfnal.py::energy_ot part 0.3");
+  m.def("compute_Pi", &libgpu_compute_Pi, "pyscf/mcpdft/otfnal.py::energy_ot part 0.4");
+  m.def("pull_Pi", &libgpu_pull_Pi, "pyscf/mcpdft/otfnal.py::energy_ot part final");
   m.def("orbital_response", &libgpu_orbital_response, "mrh/lasscf_sync_o0.py::orbital_response");
 }
 

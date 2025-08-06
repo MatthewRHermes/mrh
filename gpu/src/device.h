@@ -24,6 +24,8 @@ using namespace MATHLIB_NS;
 #define _USE_ERI_CACHE
 #define _ERI_CACHE_EXTRA 2
 
+#define _ENABLE_P2P
+
 //#define _DEBUG_DEVICE
 //#define _DEBUG_ERI_CACHE
 //#define _DEBUG_H2EFF
@@ -31,6 +33,7 @@ using namespace MATHLIB_NS;
 //#define _DEBUG_H2EFF_DF
 //#define _DEBUG_AO2MO
 //#define _DEBUG_PACKING
+//#define _DEBUG_P2P
 
 #define _PUMAP_2D_UNPACK 0       // generic unpacking of 1D array to 2D matrix
 #define _PUMAP_H2EFF_UNPACK 1    // unpacking h2eff array (generic?)
@@ -93,29 +96,15 @@ public :
  
   void init_jk_ao2mo (int, int);
 
-  void init_ints_ao2mo_v3 (int, int, int);
-  void init_ppaa_ao2mo (int, int);
   void init_ppaa_papa_ao2mo (int, int);
-
  
-  void df_ao2mo_pass1_v2 (int, int, int, int, int, int,
-			    py::array_t<double>,
-			    int, size_t);
-  void df_ao2mo_v3 (int, int, int, int, int, int,
-			    py::array_t<double>,
-			    int, size_t);
-
   void df_ao2mo_v4 (int, int, int, int, int, int,
 			    int, size_t);
   void get_bufpa(const double *, double *, int, int, int, int);
   void get_bufaa(const double *, double *, int, int, int, int);
   void transpose_120(double *, double *, int, int, int, int order = 0);
   void get_bufd(const double *, double *, int, int);
-  void pull_jk_ao2mo (py::array_t<double>,py::array_t<double>,int, int);
   void pull_jk_ao2mo_v4 (py::array_t<double>,py::array_t<double>,int, int);
-  void pull_ints_ao2mo (py::array_t<double>,py::array_t<double>, int, int, int, int);
-  void pull_ints_ao2mo_v3 (py::array_t<double>, int, int, int, int);
-  void pull_ppaa_ao2mo (py::array_t<double>, int, int);
   void pull_ppaa_papa_ao2mo_v4 (py::array_t<double>,py::array_t<double>, int, int);
   
   
@@ -137,12 +126,6 @@ public :
   void transpose_210(double *, double *, int, int, int);
   
   void init_eri_h2eff( int, int);//VA: new function
-  void get_h2eff_df( py::array_t<double> , 
-		     int , int , int , int , int ,
-		     py::array_t<double>, int, size_t );
-  void get_h2eff_df_v1( py::array_t<double> , 
-		     int , int , int , int , int ,
-		     py::array_t<double>, int, size_t );
   void get_h2eff_df_v2 ( py::array_t<double>, 
                          int, int, int, int, int, 
                          py::array_t<double>, int, size_t);//VA: new function
@@ -153,13 +136,37 @@ public :
   void pull_eri_impham( py::array_t<double>, int, int, int);
   void compute_eri_impham_v2(int, int, int, int, int, size_t, size_t);
   void pack_eri(double *, double *, int *, int, int, int); 
+  
+  //PDFT
+  void init_mo_grid(int, int);
+  void push_ao_grid(py::array_t<double>, int, int, int);
+  void compute_mo_grid(int, int, int);
+  void pull_mo_grid(py::array_t<double>, int, int);
+  void init_Pi(int);
+  void push_cascm2 (py::array_t<double>, int); 
+  void compute_rho_to_Pi (py::array_t<double>, int, int); 
+  void compute_Pi (int, int, int, int); 
+  void pull_Pi (py::array_t<double>, int, int); 
 
+  //inner functions
   void extract_mo_cas(int, int, int);//TODO: fix the difference - changed slightly
   void get_mo_cas(const double *, double *, int, int, int);
   void pack_d_vuwM(const double *, double *, int *, int, int, int);
   void pack_d_vuwM_add(const double *, double *, int *, int, int, int);
   
   void push_mo_coeff(py::array_t<double>, int);
+
+  void vecadd(const double *, double *, int); // replace with ml->daxpy()
+  void get_rho_to_Pi(double *, double * ,int); // replace with gemm or element wise multiplication
+  void make_gridkern(double *, double *, int, int); //replace with ml->gemm()
+  void make_buf_pdft(double *, double *, double *, int, int); //replace with ml->gemm()
+  void make_Pi_final(double *, double *,double *, int, int); // replace with ml->gemm()
+  
+  // multi-gpu communication (better here or part of PM?)
+
+  void mgpu_bcast(std::vector<double *>, double *, size_t);
+  void mgpu_reduce(std::vector<double *>, double *, int, bool, std::vector<double *>, std::vector<int>);
+  
 private:
 
   class PM * pm;
@@ -168,10 +175,6 @@ private:
   
   double host_compute(double *);
   void get_cores(char *);
-
-  void profile_start(const char *);
-  void profile_stop();
-  void profile_next(const char *);
 
   int verbose_level;
   
@@ -192,10 +195,7 @@ private:
   double * rho;
   //double * vj;
   double * _vktmp;
-  
-  double * buf_tmp;
-  double * buf3;
-  double * buf4;
+ 
   double * buf_fdrv;
 
   double * buf_vj;
@@ -226,7 +226,7 @@ private:
   // eri_impham
   int size_eri_impham;
   double * pin_eri_impham;
-
+ 
   // eri caching on device
 
   bool use_eri_cache;
@@ -266,11 +266,15 @@ private:
 
   struct my_device_data {
     int device_id;
-    
+    int active; // was device used in calculation and has result to be accumulated?
+
     int size_rho;
     int size_vj;
     int size_vk;
-    int size_buf;
+    //    int size_buf;
+    int size_buf1;
+    int size_buf2;
+    int size_buf3;
     int size_dms;
     int size_dmtril;
     int size_eri1;
@@ -289,6 +293,13 @@ private:
     // eri_h2eff
     int size_eri_unpacked;
     int size_eri_h2eff;
+
+    //pdft
+    int size_mo_grid;
+    int size_ao_grid;
+    int size_cascm2;
+    int size_Pi;
+    int size_buf_pdft;
 
     double * d_rho;
     double * d_vj;
@@ -314,6 +325,13 @@ private:
     double * d_papa;
     // eri_h2eff
     double * d_eri_h2eff;
+    //pdft
+    double * d_ao_grid;
+    double * d_cascm2;
+    double * d_mo_grid;
+    double * d_Pi;
+    double * d_buf_pdft1;
+    double * d_buf_pdft2;
 
     std::vector<int> type_pumap;
     std::vector<int> size_pumap;
@@ -347,6 +365,26 @@ private:
   int * dd_fetch_pumap(my_device_data *, int, int);
   double * dd_fetch_eri(my_device_data *, double *, int, int, size_t, int);
   double * dd_fetch_eri_debug(my_device_data *, double *, int, int, size_t, int); // we'll trash this after some time
+
+  template<class T>
+  void grow_array(T * &ptr, int current_size, int & max_size, std::string name, const char * file, int line)
+  {
+    if(current_size > max_size) {
+      max_size = current_size;
+      if(ptr) pm->dev_free_async(ptr, name);
+      ptr = (T *) pm->dev_malloc_async(current_size * sizeof(T), name, file, line);
+    }
+  }
+  
+  template<class T>
+  void grow_array_host(T * &ptr, int current_size, int & max_size, std::string name)
+  {
+    if(current_size > max_size) {
+      max_size = current_size;
+      if(ptr) pm->dev_free_host(ptr);
+      ptr = (T *) pm->dev_malloc_host(current_size * sizeof(T));
+    }
+  }
   
   void fdrv(double *, double *, double *,
 	    int, int, int *, int *, int, double *);

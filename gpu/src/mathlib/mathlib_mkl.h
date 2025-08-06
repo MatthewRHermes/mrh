@@ -5,6 +5,11 @@
 
 #include "../pm/pm.h"
 
+#if defined(_PROFILE_ML)
+#include <string>
+#include <sstream>
+#endif
+
 #if defined(_GPU_SYCL_CUDA)
 #include "oneapi/mkl.hpp"
 #else
@@ -19,7 +24,7 @@ namespace MATHLIB_NS {
   public:
 
     MATHLIB(class PM_NS::PM * pm);
-    ~MATHLIB() {};
+    ~MATHLIB();
 
     int create_handle() {return 0;};
     void set_handle(int) {};
@@ -42,6 +47,11 @@ namespace MATHLIB_NS {
 
   private:
     class PM_NS::PM * pm_;
+
+#if defined(_PROFILE_ML)
+    std::vector<std::string> profile_name;
+    std::vector<int> profile_count;
+#endif
   };
 
 }

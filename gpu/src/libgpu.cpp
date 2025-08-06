@@ -161,35 +161,13 @@ void libgpu_init_jk_ao2mo(void * ptr,
   Device * dev = (Device *) ptr;
   dev->init_jk_ao2mo(ncore, nmo);
 }
-/* ---------------------------------------------------------------------- */
-void libgpu_init_ints_ao2mo_v3(void * ptr, 
-                          int naoaux, int nmo, int ncas)
-{
-  Device * dev = (Device *) ptr;
-  dev->init_ints_ao2mo_v3(naoaux, nmo, ncas);
-}
-/* ---------------------------------------------------------------------- */
-void libgpu_init_ppaa_ao2mo(void * ptr, 
-                           int nmo, int ncas)
-{
-  Device * dev = (Device *) ptr;
-  dev->init_ppaa_ao2mo(nmo, ncas);
-}
+
 /* ---------------------------------------------------------------------- */
 void libgpu_init_ppaa_papa_ao2mo(void * ptr, 
                            int nmo, int ncas)
 {
   Device * dev = (Device *) ptr;
   dev->init_ppaa_papa_ao2mo(nmo, ncas);
-}
-/* ---------------------------------------------------------------------- */
-void libgpu_df_ao2mo_v3(void * ptr,
-				int blksize, int nmo, int nao, int ncore, int ncas, int naux,
-				py::array_t<double> eri1,
-				int count, size_t addr_dfobj)
-{ 
-  Device * dev = (Device *) ptr;
-  dev->df_ao2mo_v3(blksize, nmo, nao, ncore, ncas, naux, eri1, count, addr_dfobj);
 }
 /* ---------------------------------------------------------------------- */
 void libgpu_df_ao2mo_v4(void * ptr,
@@ -200,34 +178,11 @@ void libgpu_df_ao2mo_v4(void * ptr,
   dev->df_ao2mo_v4(blksize, nmo, nao, ncore, ncas, naux, count, addr_dfobj);
 }
 /* ---------------------------------------------------------------------- */
-void libgpu_pull_jk_ao2mo(void * ptr, 
-                          py::array_t<double> j_pc, py::array_t<double> k_pc, int nmo, int ncore)
-{
-  Device * dev = (Device *) ptr;
-  dev->pull_jk_ao2mo(j_pc, k_pc, nmo, ncore);
-}
-/* ---------------------------------------------------------------------- */
 void libgpu_pull_jk_ao2mo_v4(void * ptr, 
                           py::array_t<double> j_pc, py::array_t<double> k_pc, int nmo, int ncore)
 {
   Device * dev = (Device *) ptr;
   dev->pull_jk_ao2mo_v4(j_pc, k_pc, nmo, ncore);
-}
-/* ---------------------------------------------------------------------- */
-void libgpu_pull_ints_ao2mo_v3(void * ptr, 
-			    py::array_t<double> bufpa, int blksize, int naoaux, int nmo, int ncas)
-{
-  Device * dev = (Device *) ptr;
-  dev->pull_ints_ao2mo_v3(bufpa, blksize, naoaux, nmo, ncas);
-}
-
-
-/* ---------------------------------------------------------------------- */
-void libgpu_pull_ppaa_ao2mo(void * ptr, 
-                            py::array_t<double> ppaa, int nmo, int ncas)
-{
-  Device * dev = (Device *) ptr;
-  dev->pull_ppaa_ao2mo(ppaa, nmo, ncas);
 }
 /* ---------------------------------------------------------------------- */
 void libgpu_pull_ppaa_papa_ao2mo_v4(void * ptr, 
@@ -267,26 +222,6 @@ void libgpu_init_eri_h2eff(void * ptr,
 {
   Device * dev = (Device *) ptr;
   dev->init_eri_h2eff(nao, ncas);
-}
-/* ---------------------------------------------------------------------- */
-
-void libgpu_get_h2eff_df(void * ptr, 
-                           py::array_t<double> cderi, 
-                           int nao, int nmo, int ncas, int naux, int ncore,
-                           py::array_t<double> eri1, int count, size_t addr_dfobj)
-{
-  Device * dev = (Device *) ptr;
-  dev->get_h2eff_df(cderi, nao, nmo, ncas, naux, ncore, eri1, count, addr_dfobj); 
-}
-/* ---------------------------------------------------------------------- */
-
-void libgpu_get_h2eff_df_v1(void * ptr, 
-                           py::array_t<double> cderi, 
-                           int nao, int nmo, int ncas, int naux, int ncore,
-                           py::array_t<double> eri1, int count, size_t addr_dfobj)
-{
-  Device * dev = (Device *) ptr;
-  dev->get_h2eff_df_v1(cderi, nao, nmo, ncas, naux, ncore, eri1, count, addr_dfobj); 
 }
 /* ---------------------------------------------------------------------- */
 void libgpu_get_h2eff_df_v2(void * ptr, 
@@ -332,6 +267,75 @@ void libgpu_compute_eri_impham_v2(void * ptr,
 {
   Device * dev = (Device *) ptr;
   dev->compute_eri_impham_v2(nao_s, nao_f, blksize, naux, count, addr_dfobj_in, addr_dfobj_out);
+}
+
+/* ---------------------------------------------------------------------- */
+void libgpu_init_mo_grid(void * ptr, 
+                             int ngrid, int nmo)
+{
+  Device * dev = (Device *) ptr;
+  dev->init_mo_grid(ngrid, nmo);
+}
+
+/* ---------------------------------------------------------------------- */
+void libgpu_push_ao_grid(void * ptr, 
+                           py::array_t<double> ao, int ngrid, int nao, int count)
+{
+  Device * dev = (Device *) ptr;
+  dev->push_ao_grid(ao, ngrid, nao, count);
+}
+
+/* ---------------------------------------------------------------------- */
+void libgpu_compute_mo_grid(void * ptr, 
+                            int ngrid, int nao, int nmo)
+{
+  Device * dev = (Device *) ptr;
+  dev->compute_mo_grid(ngrid, nao, nmo);
+}
+/* ---------------------------------------------------------------------- */
+void libgpu_pull_mo_grid(void * ptr, 
+                          py::array_t<double> mo_grid, int ngrid, int nao)
+{
+  Device * dev = (Device *) ptr;
+  dev->pull_mo_grid(mo_grid, ngrid, nao);
+}
+/* ---------------------------------------------------------------------- */
+void libgpu_init_Pi(void * ptr,  
+                     int ngrid)
+{
+  Device * dev = (Device *) ptr;
+  dev->init_Pi(ngrid);
+}
+
+/* ---------------------------------------------------------------------- */
+void libgpu_push_cascm2 (void * ptr,
+                 py::array_t<double> cascm2, int ncas) 
+{
+  Device * dev = (Device *) ptr;
+  dev->push_cascm2(cascm2, ncas);
+}
+
+/* ---------------------------------------------------------------------- */
+void libgpu_compute_rho_to_Pi(void * ptr, 
+                 py::array_t<double> rho, int ngrid, int count)
+{
+  Device * dev = (Device *) ptr;
+  dev->compute_rho_to_Pi(rho, ngrid, count);
+}
+/* ---------------------------------------------------------------------- */
+void libgpu_compute_Pi (void * ptr,
+                 int ngrid, int ncas, int nao, int count)
+{
+  Device * dev = (Device *) ptr;
+  dev->compute_Pi(ngrid, ncas, nao, count);
+}
+
+/* ---------------------------------------------------------------------- */
+void libgpu_pull_Pi (void * ptr,
+                 py::array_t<double> Pi, int ngrid, int count) 
+{
+  Device * dev = (Device *) ptr;
+  dev->pull_Pi(Pi, ngrid, count);
 }
 
 /* ---------------------------------------------------------------------- */
