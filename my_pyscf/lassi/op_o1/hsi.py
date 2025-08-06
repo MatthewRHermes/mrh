@@ -10,6 +10,9 @@ from mrh.my_pyscf.lassi.citools import _fake_gen_contract_op_si_hdiag
 from mrh.my_pyscf.lassi.op_o1.utilities import *
 import functools
 from itertools import product
+from pyscf import __config__
+
+PROFVERBOSE = getattr (__config__, 'lassi_hsi_profverbose', None)
 
 class HamS2OvlpOperators (HamS2Ovlp):
     __doc__ = HamS2Ovlp.__doc__ + '''
@@ -31,6 +34,7 @@ class HamS2OvlpOperators (HamS2Ovlp):
                            mask_bra_space=mask_bra_space, mask_ket_space=mask_ket_space,
                            pt_order=pt_order, do_pt_order=do_pt_order,
                            log=log, max_memory=max_memory, dtype=dtype)
+        self.log = logger.new_logger (self.log, verbose=PROFVERBOSE)
         self.x = self.si = np.zeros (self.nstates, self.dtype)
         self.ox = np.zeros (self.nstates, self.dtype)
         self.ox1 = np.zeros (self.nstates, self.dtype)
@@ -94,8 +98,7 @@ class HamS2OvlpOperators (HamS2Ovlp):
             tab = np.zeros ((0,2), dtype=int)
             for op, bra, ket, myinv in group:
                 key = tuple ((bra, ket)) + tuple (myinv)
-                tab = np.append (tab, self.get_nonuniq_exc_square (key)[0], axis=0)
-            tab = np.unique (tab, axis=0)
+                tab = np.append (tab, self.get_nonuniq_exc_square (key, also_bras=False), axis=0)
             ovlplinkstr = [[ket,] + list (self.ox_ovlp_urootstr (bra, ket, inv)) for bra, ket in tab]
             ovlplinkstr = np.unique (ovlplinkstr, axis=0)
             groups[inv] = (group, np.asarray (ovlplinkstr))
@@ -104,11 +107,12 @@ class HamS2OvlpOperators (HamS2Ovlp):
         self.dw_i += (w1-w0)
         return groups
 
-    def get_nonuniq_exc_square (self, key):
+    def get_nonuniq_exc_square (self, key, also_bras=True):
         tab_bk = self.nonuniq_exc[key]
         idx_equal = tab_bk[:,0]==tab_bk[:,1]
         tab_kb = tab_bk[~idx_equal,::-1]
         brakets = np.append (tab_bk, tab_kb, axis=0)
+        if not also_bras: return brakets
         bras = set (tab_bk[:,0])
         braHs = set (tab_kb[:,0]) - bras
         return brakets, list (bras), list (braHs)
