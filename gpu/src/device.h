@@ -96,29 +96,15 @@ public :
  
   void init_jk_ao2mo (int, int);
 
-  void init_ints_ao2mo_v3 (int, int, int);
-  void init_ppaa_ao2mo (int, int);
   void init_ppaa_papa_ao2mo (int, int);
-
  
-  void df_ao2mo_pass1_v2 (int, int, int, int, int, int,
-			    py::array_t<double>,
-			    int, size_t);
-  void df_ao2mo_v3 (int, int, int, int, int, int,
-			    py::array_t<double>,
-			    int, size_t);
-
   void df_ao2mo_v4 (int, int, int, int, int, int,
 			    int, size_t);
   void get_bufpa(const double *, double *, int, int, int, int);
   void get_bufaa(const double *, double *, int, int, int, int);
   void transpose_120(double *, double *, int, int, int, int order = 0);
   void get_bufd(const double *, double *, int, int);
-  void pull_jk_ao2mo (py::array_t<double>,py::array_t<double>,int, int);
   void pull_jk_ao2mo_v4 (py::array_t<double>,py::array_t<double>,int, int);
-  void pull_ints_ao2mo (py::array_t<double>,py::array_t<double>, int, int, int, int);
-  void pull_ints_ao2mo_v3 (py::array_t<double>, int, int, int, int);
-  void pull_ppaa_ao2mo (py::array_t<double>, int, int);
   void pull_ppaa_papa_ao2mo_v4 (py::array_t<double>,py::array_t<double>, int, int);
   
   
@@ -140,12 +126,6 @@ public :
   void transpose_210(double *, double *, int, int, int);
   
   void init_eri_h2eff( int, int);//VA: new function
-  void get_h2eff_df( py::array_t<double> , 
-		     int , int , int , int , int ,
-		     py::array_t<double>, int, size_t );
-  void get_h2eff_df_v1( py::array_t<double> , 
-		     int , int , int , int , int ,
-		     py::array_t<double>, int, size_t );
   void get_h2eff_df_v2 ( py::array_t<double>, 
                          int, int, int, int, int, 
                          py::array_t<double>, int, size_t);//VA: new function
