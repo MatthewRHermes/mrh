@@ -1,0 +1,333 @@
+
+    -----------------------------------------------------------------------
+          Psi4: An Open-Source Ab Initio Electronic Structure Package
+                               Psi4 1.9.1 release
+
+                         Git: Rev {} zzzzzzz 
+
+
+    D. G. A. Smith, L. A. Burns, A. C. Simmonett, R. M. Parrish,
+    M. C. Schieber, R. Galvelis, P. Kraus, H. Kruse, R. Di Remigio,
+    A. Alenaizan, A. M. James, S. Lehtola, J. P. Misiewicz, M. Scheurer,
+    R. A. Shaw, J. B. Schriber, Y. Xie, Z. L. Glick, D. A. Sirianni,
+    J. S. O'Brien, J. M. Waldrop, A. Kumar, E. G. Hohenstein,
+    B. P. Pritchard, B. R. Brooks, H. F. Schaefer III, A. Yu. Sokolov,
+    K. Patkowski, A. E. DePrince III, U. Bozkaya, R. A. King,
+    F. A. Evangelista, J. M. Turney, T. D. Crawford, C. D. Sherrill,
+    J. Chem. Phys. 152(18) 184108 (2020). https://doi.org/10.1063/5.0006002
+
+                            Additional Code Authors
+    E. T. Seidl, C. L. Janssen, E. F. Valeev, M. L. Leininger,
+    J. F. Gonthier, R. M. Richard, H. R. McAlexander, M. Saitow, X. Wang,
+    P. Verma, M. H. Lechner, A. Jiang, S. Behnle, A. G. Heide,
+    M. F. Herbst, and D. L. Poole
+
+             Previous Authors, Complete List of Code Contributors,
+                       and Citations for Specific Modules
+    https://github.com/psi4/psi4/blob/master/codemeta.json
+    https://github.com/psi4/psi4/graphs/contributors
+    http://psicode.org/psi4manual/master/introduction.html#citing-psifour
+
+    -----------------------------------------------------------------------
+
+
+    Psi4 started on: Sunday, 07 July 2024 09:52AM
+
+    Process ID: 265075
+    Host:       Saumil-lambda-quad
+    PSIDATADIR: /user/bhavnesh/anaconda3/envs/p4dev/share/psi4
+    Memory:     500.0 MiB
+    Threads:    1
+    
+  ==> Input File <==
+
+--------------------------------------------------------------------------
+memory 120 gb
+set parallel true
+psi4.set_num_threads(12)
+
+
+molecule {
+0 1
+Zn 0 0 0
+}
+
+set basis ano-rcc-vtzp
+set relativistic dkh
+set e_convergence 1e-14
+set ints_tolerance 1e-14
+set scf_type pk
+
+energy('scf')
+
+--------------------------------------------------------------------------
+
+  Memory set to 111.759 GiB by Python driver.
+  Threads set to 12 by Python driver.
+
+Scratch directory: /tmp/
+
+Relativistic analytic gradients are not implemented yet, re-routing to finite differences.
+   => Libint2 <=
+
+    Primary   basis highest AM E, G, H:  6, 6, 3
+    Auxiliary basis highest AM E, G, H:  7, 7, 4
+    Onebody   basis highest AM E, G, H:  -, -, -
+    Solid Harmonics ordering:            Gaussian
+
+*** tstart() called on Saumil-lambda-quad
+*** at Sun Jul  7 09:52:25 2024
+
+   => Loading Basis Set <=
+
+    Name: ANO-RCC-VTZP
+    Role: ORBITAL
+    Keyword: BASIS
+    atoms 1 entry ZN         line     5 file /user/bhavnesh/anaconda3/envs/p4dev/share/psi4/basis/ano-rcc-vtzp.gbs 
+
+
+         ---------------------------------------------------------
+                                   SCF
+               by Justin Turney, Rob Parrish, Andy Simmonett
+                          and Daniel G. A. Smith
+                              RHF Reference
+                       12 Threads, 114440 MiB Core
+         ---------------------------------------------------------
+
+  ==> Geometry <==
+
+    Molecular point group: d2h
+    Geometry (in Angstrom), charge = 0, multiplicity = 1:
+
+       Center              X                  Y                   Z               Mass       
+    ------------   -----------------  -----------------  -----------------  -----------------
+         ZN           0.000000000000     0.000000000000     0.000000000000    63.929142010000
+
+  Running in d2h symmetry.
+
+  Rotational constants: A = ************  B = ************  C = ************ [cm^-1]
+  Rotational constants: A = ************  B = ************  C = ************ [MHz]
+  Nuclear repulsion =    0.000000000000000
+
+  Charge       = 0
+  Multiplicity = 1
+  Electrons    = 30
+  Nalpha       = 15
+  Nbeta        = 15
+
+  ==> Algorithm <==
+
+  SCF Algorithm Type is PK.
+  DIIS enabled.
+  MOM disabled.
+  Fractional occupation disabled.
+  Guess Type is CORE.
+  Energy threshold   = 1.00e-14
+  Density threshold  = 1.00e-06
+  Integral threshold = 1.00e-14
+
+  ==> Primary Basis <==
+
+  Basis Set: ANO-RCC-VTZP
+    Blend: ANO-RCC-VTZP
+    Number of shells: 17
+    Number of basis functions: 59
+    Number of Cartesian functions: 74
+    Spherical Harmonics?: true
+    Max angular momentum: 4
+
+   => Loading Basis Set <=
+
+    Name: (ANO-RCC-VTZP AUX)
+    Role: DECON
+    Keyword: BASIS_RELATIVISTIC
+    atoms 1 entry ZN         line     5 file /user/bhavnesh/anaconda3/envs/p4dev/share/psi4/basis/ano-rcc-vtzp.gbs func decontract
+
+  ==> Integral Setup <==
+
+  Using in-core PK algorithm.
+   Calculation information:
+      Number of atoms:                   1
+      Number of AO shells:              17
+      Number of primitives:            247
+      Number of atomic orbitals:        74
+      Number of basis functions:        59
+
+      Integral cutoff                 1.00e-14
+      Number of threads:                12
+
+  Performing in-core PK
+  Using 3134670 doubles for integral storage.
+  We computed 33961 shell quartets total.
+  Whereas there are 11781 unique shell quartets.
+   188.27 percent of shell quartets recomputed by reordering.
+
+  ==> DiskJK: Disk-Based J/K Matrices <==
+
+    J tasked:                  Yes
+    K tasked:                  Yes
+    wK tasked:                  No
+    Memory [MiB]:            85830
+    Schwarz Cutoff:          1E-14
+
+    OpenMP threads:             12
+
+    Computing 2-order Douglas-Kroll-Hess integrals.
+    Adding Douglas-Kroll-Hess corrections to the potential integrals.
+  Minimum eigenvalue in the overlap matrix is 9.9999997973E-01.
+  Reciprocal condition number of the overlap matrix is 9.9999996128E-01.
+    Using symmetric orthogonalization.
+
+  ==> Pre-Iterations <==
+
+  SCF Guess: Core (One-Electron) Hamiltonian.
+
+   -------------------------------------------------------
+    Irrep   Nso     Nmo     Nalpha   Nbeta   Ndocc  Nsocc
+   -------------------------------------------------------
+     Ag        15      15       5       5       5       0
+     B1g        5       5       1       1       1       0
+     B2g        5       5       1       1       1       0
+     B3g        5       5       1       1       1       0
+     Au         2       2       0       0       0       0
+     B1u        9       9       3       3       3       0
+     B2u        9       9       2       2       2       0
+     B3u        9       9       2       2       2       0
+   -------------------------------------------------------
+    Total      59      59      15      15      15       0
+   -------------------------------------------------------
+
+  ==> Iterations <==
+
+                        Total Energy        Delta E     RMS |[F,P]|
+
+    Occupation by irrep:
+             Ag   B1g   B2g   B3g    Au   B1u   B2u   B3u 
+    DOCC [     6,    0,    0,    0,    0,    3,    3,    3 ]
+    NA   [     6,    0,    0,    0,    0,    3,    3,    3 ]
+    NB   [     6,    0,    0,    0,    0,    3,    3,    3 ]
+
+   @RHF iter   1: -1720.31949793177773   -1.72032e+03   5.93481e-01 ADIIS
+    Occupation by irrep:
+             Ag   B1g   B2g   B3g    Au   B1u   B2u   B3u 
+    DOCC [     6,    1,    1,    1,    0,    2,    2,    2 ]
+    NA   [     6,    1,    1,    1,    0,    2,    2,    2 ]
+    NB   [     6,    1,    1,    1,    0,    2,    2,    2 ]
+
+   @RHF iter   2: -1696.27091852122135    2.40486e+01   7.12987e-01 ADIIS
+   @RHF iter   3: -1793.01323583178055   -9.67423e+01   9.52769e-02 DIIS/ADIIS
+   @RHF iter   4: -1792.88843371337180    1.24802e-01   1.38052e-01 ADIIS
+   @RHF iter   5: -1794.20929192976200   -1.32086e+00   1.55773e-02 DIIS/ADIIS
+   @RHF iter   6: -1794.23035171417064   -2.10598e-02   1.10850e-03 DIIS/ADIIS
+   @RHF iter   7: -1794.23093995141767   -5.88237e-04   1.97138e-04 DIIS/ADIIS
+   @RHF iter   8: -1794.23095750797074   -1.75566e-05   6.71198e-05 DIIS
+   @RHF iter   9: -1794.23095781598408   -3.08013e-07   2.81126e-06 DIIS
+   @RHF iter  10: -1794.23095781707138   -1.08730e-09   1.05737e-06 DIIS
+   @RHF iter  11: -1794.23095781717370   -1.02318e-10   7.57143e-08 DIIS
+   @RHF iter  12: -1794.23095781717416   -4.54747e-13   6.11433e-10 DIIS
+   @RHF iter  13: -1794.23095781717484   -6.82121e-13   6.94505e-11 DIIS
+   @RHF iter  14: -1794.23095781717507   -2.27374e-13   1.53175e-11 DIIS
+   @RHF iter  15: -1794.23095781717439    6.82121e-13   1.10881e-12 DIIS
+   @RHF iter  16: -1794.23095781717393    4.54747e-13   1.10341e-13 DIIS
+   @RHF iter  17: -1794.23095781717416   -2.27374e-13   2.18352e-14 DIIS
+   @RHF iter  18: -1794.23095781717507   -9.09495e-13   1.64321e-14 DIIS
+   @RHF iter  19: -1794.23095781717325    1.81899e-12   1.79301e-14 DIIS
+   @RHF iter  20: -1794.23095781717393   -6.82121e-13   1.62822e-14 DIIS
+   @RHF iter  21: -1794.23095781717370    2.27374e-13   2.16058e-14 DIIS
+   @RHF iter  22: -1794.23095781717416   -4.54747e-13   1.68317e-14 DIIS
+   @RHF iter  23: -1794.23095781717393    2.27374e-13   1.80180e-14 DIIS
+   @RHF iter  24: -1794.23095781717325    6.82121e-13   1.68167e-14 DIIS
+   @RHF iter  25: -1794.23095781717416   -9.09495e-13   1.64073e-14 DIIS
+   @RHF iter  26: -1794.23095781717461   -4.54747e-13   1.67227e-14 DIIS
+   @RHF iter  27: -1794.23095781717325    1.36424e-12   1.77793e-14 DIIS
+   @RHF iter  28: -1794.23095781717302    2.27374e-13   2.26225e-14 DIIS
+   @RHF iter  29: -1794.23095781717325   -2.27374e-13   1.90056e-14 DIIS
+   @RHF iter  30: -1794.23095781717370   -4.54747e-13   1.58323e-14 DIIS
+   @RHF iter  31: -1794.23095781717302    6.82121e-13   2.25258e-14 DIIS
+   @RHF iter  32: -1794.23095781717484   -1.81899e-12   1.69261e-14 DIIS
+   @RHF iter  33: -1794.23095781717484    0.00000e+00   1.71118e-14 DIIS
+  Energy and wave function converged.
+
+
+  ==> Post-Iterations <==
+
+    Orbital Energies [Eh]
+    ---------------------
+
+    Doubly Occupied:                                                      
+
+       1Ag  -357.525403     2Ag   -45.323597     1B3u  -39.133168  
+       1B1u  -39.133168     1B2u  -39.133168     3Ag    -5.795608  
+       2B3u   -3.874439     2B2u   -3.874439     2B1u   -3.874439  
+       1B1g   -0.759902     1B3g   -0.759902     4Ag    -0.759902  
+       1B2g   -0.759902     5Ag    -0.759902     6Ag    -0.297682  
+
+    Virtual:                                                              
+
+       3B2u    0.063748     3B3u    0.063748     3B1u    0.063748  
+       7Ag     0.255029     4B1u    0.418056     4B2u    0.418056  
+       4B3u    0.418056     2B1g    1.006776     2B3g    1.006776  
+       8Ag     1.006776     2B2g    1.006776     9Ag     1.006776  
+      10Ag     2.740241     5B3u    2.848397     5B2u    2.848397  
+       5B1u    2.848397     6B2u    2.849555     6B1u    2.849555  
+       6B3u    2.849555     7B1u    2.849555     7B2u    2.849555  
+       7B3u    2.849555     1Au     2.849555     3B3g    5.369312  
+       3B1g    5.369312    11Ag     5.369312     3B2g    5.369312  
+      12Ag     5.369312     4B1g    8.981801     4B2g    8.981801  
+       4B3g    8.981801    13Ag     8.981801     5B3g    8.981801  
+       5B2g    8.981801     5B1g    8.981801    14Ag     8.981801  
+      15Ag     8.981801     8B2u   10.905170     8B1u   10.905170  
+       9B1u   10.905170     8B3u   10.905170     2Au    10.905170  
+       9B3u   10.905170     9B2u   10.905170  
+
+    Final Occupation by Irrep:
+             Ag   B1g   B2g   B3g    Au   B1u   B2u   B3u 
+    DOCC [     6,    1,    1,    1,    0,    2,    2,    2 ]
+    NA   [     6,    1,    1,    1,    0,    2,    2,    2 ]
+    NB   [     6,    1,    1,    1,    0,    2,    2,    2 ]
+
+  @RHF Final Energy: -1794.23095781717484
+
+   => Energetics <=
+
+    Nuclear Repulsion Energy =              0.0000000000000000
+    One-Electron Energy =               -2504.9326755648417020
+    Two-Electron Energy =                 710.7017177476669758
+    Total Energy =                      -1794.2309578171748399
+
+Computation Completed
+
+
+Properties will be evaluated at   0.000000,   0.000000,   0.000000 [a0]
+
+Properties computed using the SCF density matrix
+
+
+ Multipole Moments:
+
+ ------------------------------------------------------------------------------------
+     Multipole            Electronic (a.u.)      Nuclear  (a.u.)        Total (a.u.)
+ ------------------------------------------------------------------------------------
+
+ L = 1.  Multiply by 2.5417464519 to convert [e a0] to [Debye]
+ Dipole X            :          0.0000000            0.0000000            0.0000000
+ Dipole Y            :          0.0000000            0.0000000            0.0000000
+ Dipole Z            :          0.0000000            0.0000000            0.0000000
+ Magnitude           :                                                    0.0000000
+
+ ------------------------------------------------------------------------------------
+
+*** tstop() called on Saumil-lambda-quad at Sun Jul  7 09:55:00 2024
+Module time:
+	user time   =     645.45 seconds =      10.76 minutes
+	system time =       2.51 seconds =       0.04 minutes
+	total time  =        155 seconds =       2.58 minutes
+Total time:
+	user time   =     645.45 seconds =      10.76 minutes
+	system time =       2.51 seconds =       0.04 minutes
+	total time  =        155 seconds =       2.58 minutes
+
+    Psi4 stopped on: Sunday, 07 July 2024 09:55AM
+    Psi4 wall time for execution: 0:02:35.19
+
+*** Psi4 exiting successfully. Buy a developer a beer!
