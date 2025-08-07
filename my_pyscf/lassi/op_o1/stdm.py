@@ -78,6 +78,7 @@ class LSTDM (object):
     def __init__(self, ints, nlas, lroots, mask_bra_space=None, mask_ket_space=None,
                  pt_order=None, do_pt_order=None, log=None, max_memory=param.MAX_MEMORY,
                  dtype=np.float64):
+        m0 = lib.current_memory ()[0]
         self.ints = ints
         self.log = log
         self.max_memory = max_memory
@@ -144,6 +145,14 @@ class LSTDM (object):
             self._put_SD2_c_fn = liblassi.LASSIRDMzputSD2
         else:
             raise NotImplementedError (self.dtype)
+
+        m1 = lib.current_memory ()[0]
+        dm = m1 - m0
+        self.log.debug ('LSTDM init consumes {} MB of {} MB total used ({} MB max)'.format (
+            dm, m1, max_memory))
+        if m1 > max_memory:
+            raise MemoryError (("LSTDM using {} MB > {} MB max! Crashing now to save you from "
+                                "sigkill!").format (m1, max_memory))
 
     def interaction_fprint (self, bra, ket, frags, ltri=False):
         frags = np.sort (frags)
@@ -371,6 +380,7 @@ class LSTDM (object):
 
     ltri = True
     interaction_has_spin = ('_1c_', '_1c1d_', '_1s1c_', '_2c_')
+    interaction_contributes_to_s2 = ('_1d_', '_2d_', '_1s_')
 
     def mask_exc_table_(self, exc, lbl, mask_bra_space=None, mask_ket_space=None):
         t0 = (lib.logger.process_clock (), lib.logger.perf_counter ())
@@ -961,6 +971,9 @@ class LSTDM (object):
 
     def _fn_row_has_spin (self, _crunch_fn):
         return any ((i in _crunch_fn.__name__ for i in self.interaction_has_spin))
+
+    def _fn_contributes_to_s2 (self, _crunch_fn):
+        return any ((i in _crunch_fn.__name__ for i in self.interaction_contributes_to_s2))
 
     def _crunch_env_(self, _crunch_fn, *row):
         if self._fn_row_has_spin (_crunch_fn):

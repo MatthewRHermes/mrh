@@ -38,26 +38,60 @@ class HamS2OvlpOperators (HamS2Ovlp):
         self.x = self.si = np.zeros (self.nstates, self.dtype)
         self.ox = np.zeros (self.nstates, self.dtype)
         self.ox1 = np.zeros (self.nstates, self.dtype)
+        self.checkmem_oppart ()
         self._cache_operatorpart_()
+
+    def checkmem_oppart (self):
+        rm = 0
+        for exc, fn in zip ((self.exc_1d, self.exc_2d, self.exc_1s, self.exc_1c, self.exc_1c1d,
+                             self.exc_1s1c, self.exc_2c),
+                            (self._crunch_1d_, self._crunch_2d_, self._crunch_1s_,
+                             self._crunch_1c_, self._crunch_1c1d_, self._crunch_1s1c_,
+                             self._crunch_2c_)):
+            rm += self.checkmem_1oppart (exc, fn)
+        m0 = lib.current_memory ()[0]
+        memstr = "hsi operator cache req's >= {} MB ({} MB current; {} MB available)".format (
+            rm, m0, self.max_memory)
+        self.log.debug (memstr)
+        if (m0 + rm) > self.max_memory:
+            raise MemoryError (memstr)
+
+    def checkmem_1oppart (self, exc, fn):
+        rm = 0
+        has_s = self._fn_contributes_to_s2 (fn)
+        for row in exc:
+            if self._fn_row_has_spin (fn):
+                inv = row[2:-1]
+            else:
+                inv = row[2:]
+            bra, ket = row[:2]
+            row = inv.copy ()
+            inv = list (set (inv))
+            opbralen = np.prod (self.lroots[inv,bra])
+            opketlen = np.prod (self.lroots[inv,ket])
+            rm += opbralen * opketlen
+        rm *= self.dtype.itemsize * (1 + int (has_s)) / 1e6
+        self.log.debug ("{} op cache req's {} MB".format (fn.__name__, rm))
+        return rm
 
     def _cache_operatorpart_(self):
         t0 = (logger.process_clock (), logger.perf_counter ())
         self.init_cache_profiling ()
         self.excgroups_s = {}
         self.excgroups_h = {}
-        for exc, fn in zip ((self.exc_1d, self.exc_2d, self.exc_1s),
-                            (self._crunch_1d_, self._crunch_2d_, self._crunch_1s_)):
-            self._crunch_oppart_(exc, fn, has_s=True)
-        for exc, fn in zip ((self.exc_1c, self.exc_1c1d, self.exc_1s1c, self.exc_2c),
-                            (self._crunch_1c_, self._crunch_1c1d_, self._crunch_1s1c_, 
+        for exc, fn in zip ((self.exc_1d, self.exc_2d, self.exc_1s, self.exc_1c, self.exc_1c1d,
+                             self.exc_1s1c, self.exc_2c),
+                            (self._crunch_1d_, self._crunch_2d_, self._crunch_1s_,
+                             self._crunch_1c_, self._crunch_1c1d_, self._crunch_1s1c_,
                              self._crunch_2c_)):
-            self._crunch_oppart_(exc, fn, has_s=False)
+            self._crunch_oppart_(exc, fn)
         self.excgroups_s = self._index_ovlppart (self.excgroups_s)
         self.excgroups_h = self._index_ovlppart (self.excgroups_h)
         self.log.debug (self.sprint_cache_profile ())
         self.log.timer ('HamS2OvlpOperators operator cacheing', *t0)
 
-    def _crunch_oppart_(self, exc, fn, has_s=False):
+    def _crunch_oppart_(self, exc, fn):
+        has_s = self._fn_contributes_to_s2 (fn)
         for row in exc:
             if self._fn_row_has_spin (fn):
                 inv = row[2:-1]
@@ -93,6 +127,7 @@ class HamS2OvlpOperators (HamS2Ovlp):
 
     def _index_ovlppart (self, groups):
         # TODO: redesign this in a scalable graph-theoretic way
+        # TODO: memcheck for this. It's hard b/c IDK how to guess the final size of ovlplinkstr
         t0, w0 = logger.process_clock (), logger.perf_counter ()
         for inv, group in groups.items ():
             tab = np.zeros ((0,2), dtype=int)
