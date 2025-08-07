@@ -44,13 +44,18 @@ class HamS2OvlpOperators (HamS2Ovlp):
         self.init_cache_profiling ()
         self.excgroups_s = {}
         self.excgroups_h = {}
+        print("cache setup", flush=True)
         for exc, fn in zip ((self.exc_1d, self.exc_2d, self.exc_1s),
                             (self._crunch_1d_, self._crunch_2d_, self._crunch_1s_)):
+            print(f"starting cache {exc}", flush=True)
             self._crunch_oppart_(exc, fn, has_s=True)
+            print(f"cache completed {exc}", flush=True)
         for exc, fn in zip ((self.exc_1c, self.exc_1c1d, self.exc_1s1c, self.exc_2c),
                             (self._crunch_1c_, self._crunch_1c1d_, self._crunch_1s1c_, 
                              self._crunch_2c_)):
+            print(f"starting cache {exc}", flush=True)
             self._crunch_oppart_(exc, fn, has_s=False)
+            print(f"cache completed {exc}", flush=True)
         self.excgroups_s = self._index_ovlppart (self.excgroups_s)
         self.excgroups_h = self._index_ovlppart (self.excgroups_h)
         self.log.info(self.sprint_cache_profile ())
@@ -58,6 +63,7 @@ class HamS2OvlpOperators (HamS2Ovlp):
 
     def _crunch_oppart_(self, exc, fn, has_s=False):
         for row in exc:
+            print(f"started {row}",flush=True)
             if self._fn_row_has_spin (fn):
                 inv = row[2:-1]
             else:
@@ -72,6 +78,7 @@ class HamS2OvlpOperators (HamS2Ovlp):
             opbralen = np.prod (self.lroots[inv,bra])
             opketlen = np.prod (self.lroots[inv,ket])
             op = op.reshape ((opbralen, opketlen), order='C')
+            print(f"reshaped op",flush=True)
             t1, w1 = logger.process_clock (), logger.perf_counter ()
             self.dt_oT += (t1-t0)
             self.dw_oT += (w1-w0)
@@ -79,6 +86,7 @@ class HamS2OvlpOperators (HamS2Ovlp):
             val = self.excgroups_h.get (key, [])
             val.append ([op, bra, ket, row])
             self.excgroups_h[key] = val
+            print(f"excgroups_s",flush=True)
             if has_s:
                 t0, w0 = logger.process_clock (), logger.perf_counter ()
                 op = self.canonical_operator_order (data[1], sinv)
@@ -89,6 +97,9 @@ class HamS2OvlpOperators (HamS2Ovlp):
                 val = self.excgroups_s.get (key, [])
                 val.append ([op, bra, ket, row])
                 self.excgroups_s[key] = val
+                print(f"excgroups_h",flush=True)
+            print(f"finished {row}",flush=True)
+            
 
     def _index_ovlppart (self, groups):
         # TODO: redesign this in a scalable graph-theoretic way

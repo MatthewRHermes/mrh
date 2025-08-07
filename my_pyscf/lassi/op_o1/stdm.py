@@ -399,7 +399,7 @@ class LSTDM (object):
         idx  = mask_exc_table (exc, col=0, mask_space=mask_bra_space)
         idx &= mask_exc_table (exc, col=1, mask_space=mask_ket_space)
         exc = exc[idx]
-        t0 = self.log.timer ('Exc caller specific rectangle', *t0)
+        #t0 = self.log.timer ('Exc caller specific rectangle', *t0)
         # Part 2: perturbation theory order
         if self.do_pt_order is not None:
             nexc = len (exc)
@@ -408,7 +408,7 @@ class LSTDM (object):
             exc = exc[idx]
             self.log.debug ('%d/%d interactions of PT order in %s',
                             len (exc), nexc, str(self.do_pt_order))
-        t0 = self.log.timer ('Exc perturbation theory order', *t0)
+        #t0 = self.log.timer ('Exc perturbation theory order', *t0)
         # Part 3: identify interactions which are equivalent except for the overlap
         # factor of spectator fragments. Reduce the exc table only to the unique
         # interactions and populate self.nonuniq_exc with the corresponding
@@ -418,7 +418,7 @@ class LSTDM (object):
         excp = exc[:,:-1] if ulblu in self.interaction_has_spin else exc
         fprintLT = np.empty (len (excp), dtype=int)
         fprint = np.empty (len (excp), dtype=int)
-        t0 = self.log.timer ('Exc part 3 setup ', *t0)
+        #t0 = self.log.timer ('Exc part 3 setup ', *t0)
         # MRH 08/01/2025: this loop is a significant bottleneck in many-fragment LASSIS and is
         # trivial to multithread in C as long as you can find a good integer-list hash function
         for i, row in enumerate (excp):
@@ -426,7 +426,7 @@ class LSTDM (object):
             frags = row[2:]
             fprintLT[i] = self.interaction_fprint (bra, ket, frags, ltri=self.ltri)
             fprint[i] = self.interaction_fprint (bra, ket, frags, ltri=False)
-        t0 = self.log.timer ('Exc part 3 bottleneck loop', *t0)
+        #t0 = self.log.timer ('Exc part 3 bottleneck loop', *t0)
         nexc = len (exc)
         ufp, idx, cnts = np.unique (fprintLT, axis=0, return_index=True, return_counts=True)
         # for some reason this squeeze is necessary for some versions of numpy; however...
@@ -445,7 +445,7 @@ class LSTDM (object):
             self.nonuniq_exc[tuple(excp[uniq_idx])] = braket_images
         exc = exc[idx]
         nuniq = len (exc)
-        t0 = self.log.timer ('Exc part 3 populating non unique', *t0)
+        #t0 = self.log.timer ('Exc part 3 populating non unique', *t0)
         self.log.timer ('mask_exc_table_ {}'.format (lbl), *t0)
         self.log.debug ('%d/%d unique interactions of %s type',
                         nuniq, nexc, lbl)
