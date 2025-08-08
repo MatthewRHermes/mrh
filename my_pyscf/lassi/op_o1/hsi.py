@@ -129,13 +129,37 @@ class HamS2OvlpOperators (HamS2Ovlp):
         # TODO: redesign this in a scalable graph-theoretic way
         # TODO: memcheck for this. It's hard b/c IDK how to guess the final size of ovlplinkstr
         t0, w0 = logger.process_clock (), logger.perf_counter ()
+        x0 = (logger.process_clock (), logger.perf_counter ())
         for inv, group in groups.items ():
-            tab = np.zeros ((0,2), dtype=int)
+            len_tab = 0
             for op, bra, ket, myinv in group:
                 key = tuple ((bra, ket)) + tuple (myinv)
-                tab = np.append (tab, self.get_nonuniq_exc_square (key, also_bras=False), axis=0)
-            ovlplinkstr = [[ket,] + list (self.ox_ovlp_urootstr (bra, ket, inv)) for bra, ket in tab]
-            ovlplinkstr = np.unique (ovlplinkstr, axis=0)
+                tab = self.nonuniq_exc[key]
+                len_tab += tab.shape[0]
+                len_tab += np.count_nonzero (tab[:,0] != tab[:,1])
+            x0 = self.log.timer ('tab_len', *x0)
+            ovlplinkstr = np.empty ((len_tab, self.nfrags+1), dtype=int)
+            seen = set ()
+            i = 0
+            for op, bra, ket, myinv in group:
+                key = tuple ((bra, ket)) + tuple (myinv)
+                tab = self.nonuniq_exc[key]
+                for bra, ket in tab:
+                    ovlplinkstr[i,0] = ket
+                    ovlplinkstr[i,1:] = self.ox_ovlp_urootstr (bra, ket, inv)
+                    fp = hash (tuple (ovlplinkstr[i,:]))
+                    if fp not in seen:
+                        seen.add (fp)
+                        i += 1
+                    if bra != ket:
+                        ovlplinkstr[i,0] = bra
+                        ovlplinkstr[i,1:] = self.ox_ovlp_urootstr (ket, bra, inv)
+                        fp = hash (tuple (ovlplinkstr[i,:]))
+                        if fp not in seen:
+                            seen.add (fp)
+                            i += 1
+            ovlplinkstr = ovlplinkstr[:i]
+            x0 = self.log.timer ('ovlplinkstr', *x0)
             groups[inv] = (group, np.asarray (ovlplinkstr))
         t1, w1 = logger.process_clock (), logger.perf_counter ()
         self.dt_i += (t1-t0)

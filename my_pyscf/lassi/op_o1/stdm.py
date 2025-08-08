@@ -128,9 +128,12 @@ class LSTDM (object):
         self.exc_1s1c = self.mask_exc_table_(exc['1s1c'], '1s1c', mask_bra_space, mask_ket_space)
         self.exc_2c = self.mask_exc_table_(exc['2c'], '2c', mask_bra_space, mask_ket_space)
         self.init_profiling ()
+        self._init_buffers_()
+        self.memcheck ('LSTDM init', m0)
 
+    def _init_buffers_(self):
         # buffer
-        bigorb = np.sort (nlas)[::-1]
+        bigorb = np.sort (self.nlas)[::-1]
         self.d1 = np.zeros (2*(sum(bigorb[:2])**2), dtype=self.dtype)
         self.d2 = np.zeros (4*(sum(bigorb[:4])**4), dtype=self.dtype)
         self._norb_c = c_int (self.norb)
@@ -146,13 +149,18 @@ class LSTDM (object):
         else:
             raise NotImplementedError (self.dtype)
 
+    def memcheck (self, lbl, m0=None):
         m1 = lib.current_memory ()[0]
-        dm = m1 - m0
-        self.log.debug ('LSTDM init consumes {} MB of {} MB total used ({} MB max)'.format (
-            dm, m1, max_memory))
-        if m1 > max_memory:
-            raise MemoryError (("LSTDM using {} MB > {} MB max! Crashing now to save you from "
-                                "sigkill!").format (m1, max_memory))
+        if m0 is not None:
+            dm = m1 - m0
+            self.log.debug ('{} consumes {} MB of {} MB total used ({} MB max)'.format (
+                lbl, dm, m1, self.max_memory))
+        else:
+            self.log.debug ('Using {} MB of {} MB available in {}'.format (
+                m1, self.max_memory, lbl))
+        if m1 > self.max_memory:
+            raise MemoryError (("{} using {} MB > {} MB max! Crashing now to save you from "
+                                "sigkill!").format (lbl, m1, self.max_memory))
 
     def interaction_fprint (self, bra, ket, frags, ltri=False):
         frags = np.sort (frags)
