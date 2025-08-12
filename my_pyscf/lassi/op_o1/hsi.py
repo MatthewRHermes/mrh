@@ -92,7 +92,7 @@ class HamS2OvlpOperators (HamS2Ovlp):
         self.log.debug1 (self.sprint_cache_profile ())
         self.log.timer_debug1 ('HamS2OvlpOperators operator cacheing', *t0)
 
-    def opterm_std_shape (self, op, inv, sinv):
+    def opterm_std_shape (self, bra, ket, op, inv, sinv):
         t0, w0 = logger.process_clock (), logger.perf_counter ()
         if isinstance (op, np.ndarray):
             op = self.canonical_operator_order (op, sinv)
@@ -116,13 +116,13 @@ class HamS2OvlpOperators (HamS2Ovlp):
             row = inv.copy ()
             sinv = data[2]
             inv = list (set (inv))
-            op = self.opterm_std_shape (data[0], inv, sinv)
+            op = self.opterm_std_shape (bra, ket, data[0], inv, sinv)
             key = tuple (inv)
             val = self.excgroups_h.get (key, [])
             val.append ([op, bra, ket, row])
             self.excgroups_h[key] = val
             if has_s:
-                op = self.opterm_std_shape (data[1], inv, sinv)
+                op = self.opterm_std_shape (bra, ket, data[1], inv, sinv)
                 val = self.excgroups_s.get (key, [])
                 val.append ([op, bra, ket, row])
                 self.excgroups_s[key] = val
