@@ -11,6 +11,27 @@ from mrh.my_pyscf.lassi.op_o1.utilities import *
 import functools
 from itertools import product
 
+class OpTermBase: pass
+
+class OpTermContracted (np.ndarray, OpTermBase):
+    ''' Just farm the dot method to pyscf.lib.dot '''
+    def dot (self, other):
+        return lib.dot (self, other)
+
+class OpTermNFragments (OpTermBase):
+    def __init__(self, h, idx, *d):
+        assert (len (idx) == len (d))
+        self.h = h
+        self.idx = idx
+        self.d = d
+
+    def reshape (self, new_shape, **kwargs):
+        pass
+
+class OpTerm4Fragments (OpTermNFragments):
+    def dot (self, other):
+        raise NotImplementedError
+
 class HamS2OvlpOperators (HamS2Ovlp):
     __doc__ = HamS2Ovlp.__doc__ + '''
 
@@ -34,9 +55,9 @@ class HamS2OvlpOperators (HamS2Ovlp):
         self.x = self.si = np.zeros (self.nstates, self.dtype)
         self.ox = np.zeros (self.nstates, self.dtype)
         self.ox1 = np.zeros (self.nstates, self.dtype)
-        self._cache_operatorpart_()
+        self._cache_()
 
-    def _cache_operatorpart_(self):
+    def _cache_(self):
         t0 = (logger.process_clock (), logger.perf_counter ())
         self.init_cache_profiling ()
         self.excgroups_s = {}
@@ -53,6 +74,20 @@ class HamS2OvlpOperators (HamS2Ovlp):
         self.log.debug1 (self.sprint_cache_profile ())
         self.log.timer_debug1 ('HamS2OvlpOperators operator cacheing', *t0)
 
+    def opterm_std_shape (self, op, inv, sinv):
+        t0, w0 = logger.process_clock (), logger.perf_counter ()
+        if isinstance (op, np.ndarray):
+            op = self.canonical_operator_order (op, sinv)
+        opbralen = np.prod (self.lroots[inv,bra])
+        opketlen = np.prod (self.lroots[inv,ket])
+        op = op.reshape ((opbralen, opketlen), order='C')
+        if isinstance (op, np.ndarray):
+            op = lib.set_class (op, OpTermContracted)
+        t1, w1 = logger.process_clock (), logger.perf_counter ()
+        self.dt_oT += (t1-t0)
+        self.dw_oT += (w1-w0)
+        return op
+
     def _crunch_oppart_(self, exc, fn, has_s=False):
         for row in exc:
             if self._fn_row_has_spin (fn):
@@ -64,25 +99,13 @@ class HamS2OvlpOperators (HamS2Ovlp):
             row = inv.copy ()
             sinv = data[2]
             inv = list (set (inv))
-            t0, w0 = logger.process_clock (), logger.perf_counter ()
-            op = self.canonical_operator_order (data[0], sinv)
-            opbralen = np.prod (self.lroots[inv,bra])
-            opketlen = np.prod (self.lroots[inv,ket])
-            op = op.reshape ((opbralen, opketlen), order='C')
-            t1, w1 = logger.process_clock (), logger.perf_counter ()
-            self.dt_oT += (t1-t0)
-            self.dw_oT += (w1-w0)
+            op = self.opterm_std_shape (data[0], inv, sinv)
             key = tuple (inv)
             val = self.excgroups_h.get (key, [])
             val.append ([op, bra, ket, row])
             self.excgroups_h[key] = val
             if has_s:
-                t0, w0 = logger.process_clock (), logger.perf_counter ()
-                op = self.canonical_operator_order (data[1], sinv)
-                op = op.reshape ((opbralen, opketlen), order='C')
-                t1, w1 = logger.process_clock (), logger.perf_counter ()
-                self.dt_oT += (t1-t0)
-                self.dw_oT += (w1-w0)
+                op = self.opterm_std_shape (data[1], inv, sinv)
                 val = self.excgroups_s.get (key, [])
                 val.append ([op, bra, ket, row])
                 self.excgroups_s[key] = val
@@ -243,12 +266,12 @@ class HamS2OvlpOperators (HamS2Ovlp):
         brakets, bras, braHs = self.get_nonuniq_exc_square (key)
         for bra in bras:
             vec = ovecs[self.ox_ovlp_urootstr (bra, oket, inv)]
-            self.put_ox1_(lib.dot (op, vec.T).ravel (), bra, *inv)
+            self.put_ox1_(op.dot (vec.T).ravel (), bra, *inv)
         if len (braHs):
             op = op.conj ().T
             for bra in braHs:
                 vec = ovecs[self.ox_ovlp_urootstr (bra, obra, inv)]
-                self.put_ox1_(lib.dot (op, vec.T).ravel (), bra, *inv)
+                self.put_ox1_(op.dot (vec.T).ravel (), bra, *inv)
         return
 
     def ox_ovlp_urootstr (self, bra, ket, inv):
