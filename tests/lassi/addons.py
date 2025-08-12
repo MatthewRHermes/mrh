@@ -471,6 +471,9 @@ def eri_sector_indexes (nlas):
     nfrag = nfrag.reshape ([norb,]*4)
     return nfrag, idx
 
+def fuzz_sivecs (si, amp=0.00001):
+    return si + amp*np.random.rand(*si.shape)
+
 
 
 
