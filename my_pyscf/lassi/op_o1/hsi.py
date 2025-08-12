@@ -19,18 +19,36 @@ class OpTermContracted (np.ndarray, OpTermBase):
         return lib.dot (self, other)
 
 class OpTermNFragments (OpTermBase):
-    def __init__(self, h, idx, *d):
+    def __init__(self, op, idx, *d):
         assert (len (idx) == len (d))
-        self.h = h
-        self.idx = idx
-        self.d = d
+        isort = np.argsort (idx)
+        self.op = op.transpose (isort)
+        self.idx = [idx[i] for i in isort]
+        self.d = [d[i] for i in isort]
+        self.lroots_bra = [d.shape[0] for d in self.d]
+        self.lroots_ket = [d.shape[1] for d in self.d]
+        self.norb = [d.shape[2] for d in self.d]
+        self._crunch_()
 
     def reshape (self, new_shape, **kwargs):
         pass
 
-class OpTerm4Fragments (OpTermNFragments):
-    def dot (self, other):
+    def _crunch_(self):
         raise NotImplementedError
+
+class OpTerm4Fragments (OpTermNFragments):
+    def _crunch_():
+        self.op01 = lib.einsum ('aip,bjq,pqrs->rsbaji', self.d[0], self.d[1], self.op)
+
+    def dot (self, other):
+        ncol = other.shape[1]
+        shape = [ncol,] + self.lroots_ket[::-1]
+        other = other.T.reshape (*shape)
+        ox = lib.einsum ('rsbaji,zlkji->rsbazlk', self.op01, other)
+        ox = lib.einsum ('ckr,rsbazlk->scbazl', self.d[2], ox)
+        ox = lib.einsum ('dls,scbazl->dcbaz', self.d[3], ox)
+        ox = ox.reshape (np.prod (self.lroots_bra), ncol)
+        return ox
 
 class HamS2OvlpOperators (HamS2Ovlp):
     __doc__ = HamS2Ovlp.__doc__ + '''
@@ -78,10 +96,9 @@ class HamS2OvlpOperators (HamS2Ovlp):
         t0, w0 = logger.process_clock (), logger.perf_counter ()
         if isinstance (op, np.ndarray):
             op = self.canonical_operator_order (op, sinv)
-        opbralen = np.prod (self.lroots[inv,bra])
-        opketlen = np.prod (self.lroots[inv,ket])
-        op = op.reshape ((opbralen, opketlen), order='C')
-        if isinstance (op, np.ndarray):
+            opbralen = np.prod (self.lroots[inv,bra])
+            opketlen = np.prod (self.lroots[inv,ket])
+            op = op.reshape ((opbralen, opketlen), order='C')
             op = lib.set_class (op, OpTermContracted)
         t1, w1 = logger.process_clock (), logger.perf_counter ()
         self.dt_oT += (t1-t0)
@@ -405,6 +422,63 @@ class HamS2OvlpOperators (HamS2Ovlp):
             self.dt_s, self.dw_s = self.dt_s + dt, self.dw_s + dw
         dt, dw = logger.process_clock () - t0, logger.perf_counter () - w0
         #self.dt_p, self.dw_p = self.dt_p + dt, self.dw_p + dw
+
+    def _crunch_2c_(self, bra, ket, i, j, k, l, s2lt):
+        '''Compute the reduced density matrix elements of a two-electron hop; i.e.,
+
+        <bra|i'(s1)k'(s2)l(s2)j(s1)|ket>
+
+        i.e.,
+
+        j ---s1---> i
+        l ---s2---> k
+
+        with
+
+        s2lt = 0, 1, 2
+        s1   = a, a, b
+        s2   = a, b, b
+
+        and conjugate transpose
+
+        Note that this includes i=k and/or j=l cases, but no other coincident fragment indices. Any
+        other coincident fragment index (that is, any coincident index between the bra and the ket)
+        turns this into one of the other interactions implemented in the above _crunch_ functions:
+        s1 = s2  AND SORT (ik) = SORT (jl)                 : _crunch_1d_ and _crunch_2d_
+        s1 = s2  AND (i = j XOR i = l XOR j = k XOR k = l) : _crunch_1c_ and _crunch_1c1d_
+        s1 != s2 AND (i = l AND j = k)                     : _crunch_1s_
+        s1 != s2 AND (i = l XOR j = k)                     : _crunch_1s1c_
+        '''
+        if (i==k) or (j==l): return super()._crunch_2c_(bra, ket, i, j, k, l, s2lt)
+        t0, w0 = logger.process_clock (), logger.perf_counter ()
+        # s2lt: 0, 1, 2 -> aa, ab, bb
+        # s2: 0, 1, 2, 3 -> aa, ab, ba, bb
+        s2  = (0, 1, 3)[s2lt] # aa, ab, bb
+        s2T = (0, 2, 3)[s2lt] # aa, ba, bb -> when you populate the e1 <-> e2 permutation
+        s11 = s2 // 2
+        s12 = s2 % 2
+        nelec_f_bra = self.nelec_rf[bra]
+        nelec_f_ket = self.nelec_rf[ket]
+        fac = (1,.5)[int ((i,j,s11)==(k,l,s12))] # 1/2 factor of h2 canceled by ijkl <-> klij
+        fac *= (1,-1)[int (i>k)]
+        fac *= fermion_des_shuffle (nelec_f_bra, (i, j, k, l), i)
+        fac *= fermion_des_shuffle (nelec_f_bra, (i, j, k, l), k)
+        fac *= (1,-1)[int (j>l)]
+        fac *= fermion_des_shuffle (nelec_f_ket, (i, j, k, l), j)
+        fac *= fermion_des_shuffle (nelec_f_ket, (i, j, k, l), l)
+        ham = self.get_ham_2q (l,k,j,i).transpose (0,2,3,1) # BEWARE CONJ
+        if s11==s12: # exchange
+            ham -= self.get_ham_2q (l,i,j,k).transpose (0,2,1,3) # BEWARE CONJ
+        ham *= fac
+        d_k = self.ints[k].get_p (bra, ket, s12)
+        d_i = self.ints[i].get_p (bra, ket, s11)
+        d_j = self.ints[j].get_h (bra, ket, s11)
+        d_l = self.ints[l].get_h (bra, ket, s12)
+        ham = OpTerm4Fragments (ham, (l,j,i,k), d_l, d_j, d_i, d_k)
+        s2 = None
+        dt, dw = logger.process_clock () - t0, logger.perf_counter () - w0
+        self.dt_2c, self.dw_2c = self.dt_2c + dt, self.dw_2c + dw
+        return ham, s2, (l, j, i, k)
 
 #gen_contract_op_si_hdiag = functools.partial (_fake_gen_contract_op_si_hdiag, ham)
 def gen_contract_op_si_hdiag (las, h1, h2, ci, nelec_frs, soc=0, nlas=None,
