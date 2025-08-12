@@ -99,7 +99,7 @@ class HamS2OvlpOperators (HamS2Ovlp):
             opbralen = np.prod (self.lroots[inv,bra])
             opketlen = np.prod (self.lroots[inv,ket])
             op = op.reshape ((opbralen, opketlen), order='C')
-            op = lib.set_class (op, OpTermContracted)
+            op = lib.set_class (op, (OpTermContracted, op.__class__))
         t1, w1 = logger.process_clock (), logger.perf_counter ()
         self.dt_oT += (t1-t0)
         self.dw_oT += (w1-w0)
