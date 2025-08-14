@@ -12,6 +12,14 @@ import functools
 from itertools import product
 from pyscf import __config__
 
+# C interface
+import ctypes
+from mrh.lib.helper import load_library
+liblassi = load_library ('liblassi')
+def c_arr (arr): return arr.ctypes.data_as(ctypes.c_void_p)
+c_int = ctypes.c_int
+c_size_t = ctypes.c_size_t
+
 PROFVERBOSE = getattr (__config__, 'lassi_hsi_profverbose', None)
 
 class OpTermBase: pass
@@ -67,20 +75,37 @@ class OpTermNFragments (OpTermBase):
 
 class OpTerm4Fragments (OpTermNFragments):
     def _crunch_(self):
-        self.op = lib.einsum ('aip,bjq,pqrs->rsbaji', self.d[0], self.d[1], self.op)
+        self.op = lib.einsum ('aip,bjq,pqrs->basrji', self.d[0], self.d[1], self.op)
         self.op = np.ascontiguousarray (self.op)
 
-    def dot (self, other):
-        ncol = other.shape[1]
+    def dot (self, vec):
+        ncol = vec.shape[1]
         shape = [ncol,] + self.lroots_ket[::-1]
-        other = other.T.reshape (*shape)
-        ox = lib.einsum ('rsbaji,zlkji->rsbazlk', self.op, other)
-        ox = lib.einsum ('ckr,rsbazlk->scbazl', self.d[2], ox)
-        ox = lib.einsum ('dls,scbazl->dcbaz', self.d[3], ox)
-        ox = ox.reshape (np.prod (self.lroots_bra), ncol)
-        return ox
+        vec = vec.T.reshape (*shape)
+        #vec = lib.einsum ('basrji,zlkji->bazlskr', self.op, vec)
+        return self._bazlskr (vec)
+        vec = lib.einsum ('ckr,bazlskr->cbazls', self.d[2], vec)
+        vec = lib.einsum ('dls,cbazls->dcbaz', self.d[3], vec)
+        vec = vec.reshape (np.prod (self.lroots_bra), ncol)
+        return vec
 
-    op_transpose_axes = (0,1,4,5,2,3)
+    op_transpose_axes = (4,5,2,3,0,1)
+
+    def _bazlskr (self, vec):
+        assert (self.op.flags.c_contiguous)
+        assert (vec.flags.c_contiguous)
+        # TODO: complex variant
+        assert (not numpy.iscomplexobj (self.op))
+        assert (not numpy.iscomplexobj (vec))
+        b,a,s,r,j,i = self.op.shape
+        z,l,k,j,i = vec.shape
+        ovec = np.empty ((b,a,z,l,s,k,r), dtype=self.op.dtype)
+        cX, cY, cZ = c_size_t (b*a), c_size_t (z*l), c_size_t (s)
+        cM, cN, cK = c_size_t (k), c_size_t (r), c_size_t (ji)
+        liblassi.HSIxyzmn_d (c_arr (ovec), c_arr (vec), c_arr (self.op),
+                             cX, cY, cZ, cM, cN, cK)
+        return ovec
+
 
 class HamS2OvlpOperators (HamS2Ovlp):
     __doc__ = HamS2Ovlp.__doc__ + '''
