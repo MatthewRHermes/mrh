@@ -51,6 +51,13 @@ class OpTermNFragments (OpTermBase):
     @property
     def T (self): return self.transpose ()
 
+    def get_size (self):
+        # d should not be copies, but op is
+        return self.op.size
+
+    @property
+    def size (self): return self.get_size ()
+
 class OpTerm4Fragments (OpTermNFragments):
     def _crunch_(self):
         self.op01 = lib.einsum ('aip,bjq,pqrs->rsbaji', self.d[0], self.d[1], self.op)
@@ -74,6 +81,13 @@ class OpTerm4Fragments (OpTermNFragments):
         transpose = super().transpose (do_crunch=False)
         transpose.op01 = self.op01.transpose (0,1,4,5,2,3)
         return transpose
+
+    def get_size (self):
+        mysize = super ().get_size ()
+        mysize += (self.lroots_bra[0] * self.lroots_bra[1]
+                   * self.lroots_ket[0] * self.lroots_ket[1]
+                   * self.op.shape[2] * self.op.shape[3])
+        return mysize
 
 class HamS2OvlpOperators (HamS2Ovlp):
     __doc__ = HamS2Ovlp.__doc__ + '''
@@ -99,6 +113,7 @@ class HamS2OvlpOperators (HamS2Ovlp):
         self.x = self.si = np.zeros (self.nstates, self.dtype)
         self.ox = np.zeros (self.nstates, self.dtype)
         self.ox1 = np.zeros (self.nstates, self.dtype)
+        self.init_cache_profiling ()
         self.checkmem_oppart ()
         self._cache_()
 
@@ -126,18 +141,22 @@ class HamS2OvlpOperators (HamS2Ovlp):
             else:
                 inv = row[2:]
             bra, ket = row[:2]
-            row = inv.copy ()
             inv = list (set (inv))
-            opbralen = np.prod (self.lroots[inv,bra])
-            opketlen = np.prod (self.lroots[inv,ket])
-            rm += opbralen * opketlen
-        rm *= self.dtype.itemsize * (1 + int (has_s)) / 1e6
+            if len (inv) == 4:
+                data = fn (*row, dry_run=True)
+                rm += data[0].size
+                if data[1] is not None:
+                    rm += data[1].size
+            else:
+                opbralen = np.prod (self.lroots[inv,bra])
+                opketlen = np.prod (self.lroots[inv,ket])
+                rm += (1 + int (has_s)) * opbralen * opketlen
+        rm *= self.dtype.itemsize / 1e6
         self.log.debug ("{} op cache req's {} MB".format (fn.__name__, rm))
         return rm
 
     def _cache_(self):
         t0 = (logger.process_clock (), logger.perf_counter ())
-        self.init_cache_profiling ()
         self.excgroups_s = {}
         self.excgroups_h = {}
         for exc, fn in zip ((self.exc_1d, self.exc_2d, self.exc_1s, self.exc_1c, self.exc_1c1d,
@@ -191,7 +210,7 @@ class HamS2OvlpOperators (HamS2Ovlp):
         # TODO: redesign this in a scalable graph-theoretic way
         # TODO: memcheck for this. It's hard b/c IDK how to guess the final size of ovlplinkstr
         t0, w0 = logger.process_clock (), logger.perf_counter ()
-        x0 = (logger.process_clock (), logger.perf_counter ())
+        #x0 = (logger.process_clock (), logger.perf_counter ())
         for inv, group in groups.items ():
             len_tab = 0
             for op, bra, ket, myinv in group:
@@ -199,7 +218,7 @@ class HamS2OvlpOperators (HamS2Ovlp):
                 tab = self.nonuniq_exc[key]
                 len_tab += tab.shape[0]
                 len_tab += np.count_nonzero (tab[:,0] != tab[:,1])
-            x0 = self.log.timer ('tab_len', *x0)
+            #x0 = self.log.timer ('tab_len', *x0)
             ovlplinkstr = np.empty ((len_tab, self.nfrags+1), dtype=int)
             seen = set ()
             i = 0
@@ -221,7 +240,7 @@ class HamS2OvlpOperators (HamS2Ovlp):
                             seen.add (fp)
                             i += 1
             ovlplinkstr = ovlplinkstr[:i]
-            x0 = self.log.timer ('ovlplinkstr', *x0)
+            #x0 = self.log.timer ('ovlplinkstr', *x0)
             groups[inv] = (group, np.asarray (ovlplinkstr))
         t1, w1 = logger.process_clock (), logger.perf_counter ()
         self.dt_i += (t1-t0)
@@ -488,7 +507,7 @@ class HamS2OvlpOperators (HamS2Ovlp):
             o = o.ravel ()
         return o
 
-    def _crunch_2c_(self, bra, ket, i, j, k, l, s2lt):
+    def _crunch_2c_(self, bra, ket, i, j, k, l, s2lt, dry_run=False):
         '''Compute the reduced density matrix elements of a two-electron hop; i.e.,
 
         <bra|i'(s1)k'(s2)l(s2)j(s1)|ket>
@@ -539,7 +558,7 @@ class HamS2OvlpOperators (HamS2Ovlp):
         d_i = self.ints[i].get_p (bra, ket, s11)
         d_j = self.ints[j].get_h (bra, ket, s11)
         d_l = self.ints[l].get_h (bra, ket, s12)
-        ham = OpTerm4Fragments (ham, (l,j,i,k), (d_l, d_j, d_i, d_k))
+        ham = OpTerm4Fragments (ham, (l,j,i,k), (d_l, d_j, d_i, d_k), do_crunch=(not dry_run))
         s2 = None
         dt, dw = logger.process_clock () - t0, logger.perf_counter () - w0
         self.dt_2c, self.dw_2c = self.dt_2c + dt, self.dw_2c + dw
