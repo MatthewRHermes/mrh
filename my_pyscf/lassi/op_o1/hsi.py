@@ -22,7 +22,7 @@ class OpTermContracted (np.ndarray, OpTermBase):
         return lib.dot (self, other)
 
 class OpTermNFragments (OpTermBase):
-    def __init__(self, op, idx, *d):
+    def __init__(self, op, idx, d, do_crunch=True):
         assert (len (idx) == len (d))
         isort = np.argsort (idx)
         self.op = op.transpose (isort)
@@ -31,7 +31,7 @@ class OpTermNFragments (OpTermBase):
         self.lroots_bra = [d.shape[0] for d in self.d]
         self.lroots_ket = [d.shape[1] for d in self.d]
         self.norb = [d.shape[2] for d in self.d]
-        self._crunch_()
+        if do_crunch: self._crunch_()
 
     def reshape (self, new_shape, **kwargs):
         pass
@@ -39,8 +39,20 @@ class OpTermNFragments (OpTermBase):
     def _crunch_(self):
         raise NotImplementedError
 
+    def conj (self, do_crunch=True):
+        d = [d.conj () for d in self.d]
+        op = self.op.conj ()
+        return self.__class__(op, self.idx, d, do_crunch=do_crunch)
+
+    def transpose (self, do_crunch=True):
+        d = [d.transpose (1,0,2) for d in self.d]
+        return self.__class__(self.op, self.idx, d, do_crunch=do_crunch)
+
+    @property
+    def T (self): return self.transpose ()
+
 class OpTerm4Fragments (OpTermNFragments):
-    def _crunch_():
+    def _crunch_(self):
         self.op01 = lib.einsum ('aip,bjq,pqrs->rsbaji', self.d[0], self.d[1], self.op)
 
     def dot (self, other):
@@ -52,6 +64,16 @@ class OpTerm4Fragments (OpTermNFragments):
         ox = lib.einsum ('dls,scbazl->dcbaz', self.d[3], ox)
         ox = ox.reshape (np.prod (self.lroots_bra), ncol)
         return ox
+
+    def conj (self):
+        conj = super ().conj (do_crunch=False)
+        conj.op01 = self.op01.conj ()
+        return conj
+
+    def transpose (self):
+        transpose = super().transpose (do_crunch=False)
+        transpose.op01 = self.op01.transpose (0,1,4,5,2,3)
+        return transpose
 
 class HamS2OvlpOperators (HamS2Ovlp):
     __doc__ = HamS2Ovlp.__doc__ + '''
@@ -517,7 +539,7 @@ class HamS2OvlpOperators (HamS2Ovlp):
         d_i = self.ints[i].get_p (bra, ket, s11)
         d_j = self.ints[j].get_h (bra, ket, s11)
         d_l = self.ints[l].get_h (bra, ket, s12)
-        ham = OpTerm4Fragments (ham, (l,j,i,k), d_l, d_j, d_i, d_k)
+        ham = OpTerm4Fragments (ham, (l,j,i,k), (d_l, d_j, d_i, d_k))
         s2 = None
         dt, dw = logger.process_clock () - t0, logger.perf_counter () - w0
         self.dt_2c, self.dw_2c = self.dt_2c + dt, self.dw_2c + dw
