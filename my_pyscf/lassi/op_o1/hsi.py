@@ -25,7 +25,10 @@ class OpTermNFragments (OpTermBase):
     def __init__(self, op, idx, d, do_crunch=True):
         assert (len (idx) == len (d))
         isort = np.argsort (idx)
-        self.op = op.transpose (isort)
+        if do_crunch and (op.ndim == len (isort)):
+            self.op = op.transpose (isort)
+        else:
+            self.op = op
         self.idx = [idx[i] for i in isort]
         self.d = [d[i] for i in isort]
         self.lroots_bra = [d.shape[0] for d in self.d]
@@ -39,14 +42,15 @@ class OpTermNFragments (OpTermBase):
     def _crunch_(self):
         raise NotImplementedError
 
-    def conj (self, do_crunch=True):
+    def conj (self, do_crunch=False):
         d = [d.conj () for d in self.d]
         op = self.op.conj ()
         return self.__class__(op, self.idx, d, do_crunch=do_crunch)
 
-    def transpose (self, do_crunch=True):
+    def transpose (self, do_crunch=False):
         d = [d.transpose (1,0,2) for d in self.d]
-        return self.__class__(self.op, self.idx, d, do_crunch=do_crunch)
+        op = self.op.transpose (*self.op_transpose_axes)
+        return self.__class__(op, self.idx, d, do_crunch=do_crunch)
 
     @property
     def T (self): return self.transpose ()
@@ -58,36 +62,24 @@ class OpTermNFragments (OpTermBase):
     @property
     def size (self): return self.get_size ()
 
+    @property
+    def op_transpose_axes (self): return list (range (self.op.ndim))
+
 class OpTerm4Fragments (OpTermNFragments):
     def _crunch_(self):
-        self.op01 = lib.einsum ('aip,bjq,pqrs->rsbaji', self.d[0], self.d[1], self.op)
+        self.op = lib.einsum ('aip,bjq,pqrs->rsbaji', self.d[0], self.d[1], self.op)
 
     def dot (self, other):
         ncol = other.shape[1]
         shape = [ncol,] + self.lroots_ket[::-1]
         other = other.T.reshape (*shape)
-        ox = lib.einsum ('rsbaji,zlkji->rsbazlk', self.op01, other)
+        ox = lib.einsum ('rsbaji,zlkji->rsbazlk', self.op, other)
         ox = lib.einsum ('ckr,rsbazlk->scbazl', self.d[2], ox)
         ox = lib.einsum ('dls,scbazl->dcbaz', self.d[3], ox)
         ox = ox.reshape (np.prod (self.lroots_bra), ncol)
         return ox
 
-    def conj (self):
-        conj = super ().conj (do_crunch=False)
-        conj.op01 = self.op01.conj ()
-        return conj
-
-    def transpose (self):
-        transpose = super().transpose (do_crunch=False)
-        transpose.op01 = self.op01.transpose (0,1,4,5,2,3)
-        return transpose
-
-    def get_size (self):
-        mysize = super ().get_size ()
-        mysize += (self.lroots_bra[0] * self.lroots_bra[1]
-                   * self.lroots_ket[0] * self.lroots_ket[1]
-                   * self.op.shape[2] * self.op.shape[3])
-        return mysize
+    op_transpose_axes = (0,1,4,5,2,3)
 
 class HamS2OvlpOperators (HamS2Ovlp):
     __doc__ = HamS2Ovlp.__doc__ + '''
