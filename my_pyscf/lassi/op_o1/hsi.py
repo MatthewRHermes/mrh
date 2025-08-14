@@ -68,6 +68,7 @@ class OpTermNFragments (OpTermBase):
 class OpTerm4Fragments (OpTermNFragments):
     def _crunch_(self):
         self.op = lib.einsum ('aip,bjq,pqrs->rsbaji', self.d[0], self.d[1], self.op)
+        self.op = np.ascontiguousarray (self.op)
 
     def dot (self, other):
         ncol = other.shape[1]
