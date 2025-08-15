@@ -424,7 +424,8 @@ def gen_contract_op_si_hdiag (las, h1, h2, ci, nelec_frs, soc=0, nlas=None,
             Produce the overlap matrix between model states in a set of rootspaces,
             identified by ndarray or list "rootidx"
     '''
-    log = lib.logger.new_logger (las, las.verbose)
+    verbose = kwargs.get ('verbose', las.verbose)
+    log = lib.logger.new_logger (las, verbose)
     if nlas is None: nlas = las.ncas_sub
     pt_order = kwargs.get ('pt_order', None)
     do_pt_order = kwargs.get ('do_pt_order', None)
