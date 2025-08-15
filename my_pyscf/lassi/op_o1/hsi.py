@@ -42,6 +42,7 @@ class OpTermNFragments (OpTermBase):
         self.lroots_bra = [d.shape[0] for d in self.d]
         self.lroots_ket = [d.shape[1] for d in self.d]
         self.norb = [d.shape[2] for d in self.d]
+        self._istransposed = False
         if do_crunch: self._crunch_()
 
     def reshape (self, new_shape, **kwargs):
@@ -58,7 +59,9 @@ class OpTermNFragments (OpTermBase):
     def transpose (self, do_crunch=False):
         d = [d.transpose (1,0,2) for d in self.d]
         op = self.op.transpose (*self.op_transpose_axes)
-        return self.__class__(op, self.idx, d, do_crunch=do_crunch)
+        T = self.__class__(op, self.idx, d, do_crunch=do_crunch)
+        T._istransposed = not T._istransposed
+        return T
 
     @property
     def T (self): return self.transpose ()
@@ -99,24 +102,24 @@ class OpTerm4Fragments (OpTermNFragments):
     op_transpose_axes = (4,5,2,3,0,1)
 
     def _bazlskr (self, vec):
-        #assert (self.op.flags.c_contiguous)
-        op = np.ascontiguousarray (self.op)
-        # TODO: transposed C function so I don't have to do this data transpose
+        if self._istransposed:
+            assert (self.op.transpose (*self.op_transpose_axes).flags.c_contiguous)
+        else:
+            assert (self.op.flags.c_contiguous)
         assert (vec.flags.c_contiguous)
         # TODO: complex variant
-        assert (not np.iscomplexobj (op))
+        assert (not np.iscomplexobj (self.op))
         assert (not np.iscomplexobj (vec))
-        b,a,s,r,j,i = op.shape
+        b,a,s,r,j,i = self.op.shape
         z,l,k,j1,i1 = vec.shape
         assert (i==i1)
         assert (j==j1)
         ovec = np.empty ((b,a,z,l,s,k,r), dtype=self.op.dtype)
         cX, cY, cZ = c_size_t (b*a), c_size_t (z*l), c_size_t (s)
         cM, cN, cK = c_size_t (k), c_size_t (r), c_size_t (j*i)
-        liblassi.HSIxyzmn_d (c_arr (ovec), c_arr (vec), c_arr (op),
-                             cX, cY, cZ, cM, cN, cK)
+        fn = (liblassi.HSIxyzmn_d, liblassi.HSIxyzmnT_d)[int (self._istransposed)]
+        fn (c_arr (ovec), c_arr (vec), c_arr (self.op), cX, cY, cZ, cM, cN, cK)
         return ovec
-
 
 class HamS2OvlpOperators (HamS2Ovlp):
     __doc__ = HamS2Ovlp.__doc__ + '''
