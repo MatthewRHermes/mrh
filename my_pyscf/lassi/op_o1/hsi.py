@@ -82,8 +82,15 @@ class OpTerm4Fragments (OpTermNFragments):
         ncol = vec.shape[1]
         shape = [ncol,] + self.lroots_ket[::-1]
         vec = vec.T.reshape (*shape)
-        #vec = lib.einsum ('basrji,zlkji->bazlskr', self.op, vec)
-        return self._bazlskr (vec)
+        vec_test = self._bazlskr (vec)
+        vec = lib.einsum ('basrji,zlkji->bazlskr', self.op, vec)
+        vec_err = np.amax (np.abs (vec_test-vec))
+        try:
+            assert (vec_err < 1e-8), '{} {}'.format (vec.shape, vec_test.shape)
+        except AssertionError as e:
+            for idx in product (*[range (s) for s in vec.shape]):
+                print (idx, vec[idx], vec_test[idx], vec[idx]-vec_test[idx], (vec[idx]-vec_test[idx])/vec_test[idx])
+            raise (e)
         vec = lib.einsum ('ckr,bazlskr->cbazls', self.d[2], vec)
         vec = lib.einsum ('dls,cbazls->dcbaz', self.d[3], vec)
         vec = vec.reshape (np.prod (self.lroots_bra), ncol)
@@ -92,17 +99,21 @@ class OpTerm4Fragments (OpTermNFragments):
     op_transpose_axes = (4,5,2,3,0,1)
 
     def _bazlskr (self, vec):
-        assert (self.op.flags.c_contiguous)
+        #assert (self.op.flags.c_contiguous)
+        op = np.ascontiguousarray (self.op)
+        # TODO: transposed C function so I don't have to do this data transpose
         assert (vec.flags.c_contiguous)
         # TODO: complex variant
-        assert (not numpy.iscomplexobj (self.op))
-        assert (not numpy.iscomplexobj (vec))
-        b,a,s,r,j,i = self.op.shape
-        z,l,k,j,i = vec.shape
+        assert (not np.iscomplexobj (op))
+        assert (not np.iscomplexobj (vec))
+        b,a,s,r,j,i = op.shape
+        z,l,k,j1,i1 = vec.shape
+        assert (i==i1)
+        assert (j==j1)
         ovec = np.empty ((b,a,z,l,s,k,r), dtype=self.op.dtype)
         cX, cY, cZ = c_size_t (b*a), c_size_t (z*l), c_size_t (s)
-        cM, cN, cK = c_size_t (k), c_size_t (r), c_size_t (ji)
-        liblassi.HSIxyzmn_d (c_arr (ovec), c_arr (vec), c_arr (self.op),
+        cM, cN, cK = c_size_t (k), c_size_t (r), c_size_t (j*i)
+        liblassi.HSIxyzmn_d (c_arr (ovec), c_arr (vec), c_arr (op),
                              cX, cY, cZ, cM, cN, cK)
         return ovec
 
