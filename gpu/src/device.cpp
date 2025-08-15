@@ -56,7 +56,7 @@ Device::Device()
 
   size_eri_impham = 0;
   pin_eri_impham = nullptr;
-
+  
 #if defined(_USE_GPU)
   use_eri_cache = true;
 #endif
@@ -103,6 +103,13 @@ Device::Device()
     device_data[i].size_cascm2=0;
     device_data[i].size_Pi=0;
     device_data[i].size_rho=0;
+    //fci
+    device_data[i].size_clinka=0;
+    device_data[i].size_clinkb=0;
+    device_data[i].size_cibra=0;
+    device_data[i].size_ciket=0;
+    device_data[i].size_rdm1=0;
+    device_data[i].size_rdm2=0;
     
     
     device_data[i].d_rho = nullptr;
@@ -137,6 +144,13 @@ Device::Device()
     device_data[i].d_Pi=nullptr;
     device_data[i].d_buf_pdft1=nullptr;
     device_data[i].d_buf_pdft2=nullptr;
+    //fci
+    device_data[i].d_clinka=nullptr;
+    device_data[i].d_clinkb=nullptr;
+    device_data[i].d_cibra=nullptr;
+    device_data[i].d_ciket=nullptr;
+    device_data[i].d_rdm1=nullptr;
+    device_data[i].d_rdm2=nullptr;
 
 #if defined (_USE_GPU)
     device_data[i].handle = nullptr;
@@ -3470,7 +3484,7 @@ void Device::mgpu_reduce(std::vector<double *> d_ptr, double * h_ptr, int N, boo
 	
 	pm->dev_set_device(src);
 	
-	pm->dev_memcpy_peer(buf_ptr[dest], dest, d_ptr[src], src, size);
+	pm->dev_memcpy_peer(buf_ptr[dest],dest, d_ptr[src], src, size);
 	
 	// dest launches kernel
 	
@@ -3588,4 +3602,140 @@ void Device::mgpu_reduce(std::vector<double *> d_ptr, double * h_ptr, int N, boo
 #endif
 }
 
+/* ---------------------------------------------------------------------- */
+void Device::init_rdm1(int norb)
+{
+  double t0 = omp_get_wtime();
+  int size_rdm1 = norb*norb; 
+  //for (int id=0; id<1; ++id){
+  int id=0;
+  pm->dev_set_device(id);
+  my_device_data * dd = &(device_data[id]);
+  grow_array(dd->d_rdm1, size_rdm1, dd->size_rdm1, "RDM1", FLERR);
+  //}
+  //for (int i=0;i<size_rdm; ++i){dd->d_rdm[i]=0.0;}
+  double t1 = omp_get_wtime();
+  set_to_zero(dd->d_rdm1, norb*norb); 
+  //TODO:t_array[] += t1 - t0;
+} 
+/* ---------------------------------------------------------------------- */
+void Device::init_rdm2(int norb)
+{
+  double t0 = omp_get_wtime();
+  int size_rdm2 = norb*norb*norb*norb; 
+  //for (int id=0; id<1; ++id){
+  int id=0;
+  pm->dev_set_device(id);
+  my_device_data * dd = &(device_data[id]);
+  grow_array(dd->d_rdm2, size_rdm2, dd->size_rdm2, "RDM2", FLERR);
+  //}
+  //for (int i=0;i<size_rdm; ++i){dd->d_rdm[i]=0.0;}
+  double t1 = omp_get_wtime();
+  set_to_zero(dd->d_rdm2, norb*norb*norb*norb); 
+  //TODO:t_array[] += t1 - t0;
+} 
+/* ---------------------------------------------------------------------- */
+void Device::push_ci(py::array_t<double> _cibra, py::array_t<double> _ciket, int na, int nb)
+{
+  double t0 = omp_get_wtime();
+  py::buffer_info info_cibra = _cibra.request(); //2D array (na, nb)
+  double * cibra = static_cast<double*>(info_cibra.ptr);
+  py::buffer_info info_ciket = _ciket.request(); //2D array (na, nb)
+  double * ciket = static_cast<double*>(info_ciket.ptr);
+  int id = 0;
+  pm->dev_set_device(id); 
+  my_device_data * dd = &(device_data[id]);
+  int size_cibra = na*nb;
+  int size_ciket = na*nb;
+  grow_array(dd->d_cibra, size_cibra, dd->size_cibra, "cibra", FLERR);
+  grow_array(dd->d_ciket, size_ciket, dd->size_ciket, "ciket", FLERR);
+
+  pm->dev_push_async(dd->d_cibra, cibra, size_cibra*sizeof(double));
+  pm->dev_push_async(dd->d_ciket, ciket, size_ciket*sizeof(double));
+  pm->dev_barrier();
+  double t1 = omp_get_wtime();
+  
+} 
+/* ---------------------------------------------------------------------- */
+void Device::push_link_indexa(int na, int nlinka, py::array_t<int> _link_indexa)
+{
+  double t0 = omp_get_wtime();
+  py::buffer_info info_link_indexa = _link_indexa.request(); //3D array (na, nlinka, 4)
+  int * link_indexa = static_cast<int*>(info_link_indexa.ptr);
+  int id = 0;
+  pm->dev_set_device(id); 
+  my_device_data * dd = &(device_data[id]);
+  int size_clinka = na*nlinka*4; //a,i,str,sign
+  grow_array(dd->d_clinka, size_clinka, dd->size_clinka, "clink", FLERR);
+
+  pm->dev_push_async(dd->d_clinka, link_indexa, size_clinka*sizeof(int));
+
+  double t1 = omp_get_wtime();
+}
+/* ---------------------------------------------------------------------- */
+void Device::push_link_indexb(int nb, int nlinkb, py::array_t<int> _link_indexb)
+{
+  double t0 = omp_get_wtime();
+  py::buffer_info info_link_indexb = _link_indexb.request(); //3D array (na, nlinka, 4)
+  int * link_indexb = static_cast<int*>(info_link_indexb.ptr);
+  int id = 0;
+  pm->dev_set_device(id); 
+  my_device_data * dd = &(device_data[id]);
+  int size_clinkb = nb*nlinkb*4; //a,i,str,sign
+  grow_array(dd->d_clinkb, size_clinkb, dd->size_clinkb, "clinkb", FLERR);
+
+  pm->dev_push_async(dd->d_clinkb, link_indexb, size_clinkb*sizeof(int));
+
+  double t1 = omp_get_wtime();
+}
+/* ---------------------------------------------------------------------- */
+void Device::compute_trans_rdm1a(int na, int nb, int nlinka, int nlinkb, int norb)
+{
+  double t0 = omp_get_wtime();
+  int id = 0;
+  pm->dev_set_device(id); 
+  my_device_data * dd = &(device_data[id]);
+  get_rdm1a_from_ci(dd->d_cibra, dd->d_ciket, dd->d_rdm1, norb, na, nb, nlinka, dd->d_clinka);
+  double t1 = omp_get_wtime();
+}
+/* ---------------------------------------------------------------------- */
+void Device::compute_trans_rdm1b(int na, int nb, int nlinka, int nlinkb, int norb)
+{
+  double t0 = omp_get_wtime();
+  int id = 0;
+  pm->dev_set_device(id); 
+  my_device_data * dd = &(device_data[id]);
+  get_rdm1b_from_ci(dd->d_cibra, dd->d_ciket, dd->d_rdm1, norb, na, nb, nlinkb, dd->d_clinkb);
+  double t1 = omp_get_wtime();
+}
+/* ---------------------------------------------------------------------- */
+void Device::compute_tdm12kern_a(int na, int nb, int nlinka, int nlinkb, int norb){}
+/* ---------------------------------------------------------------------- */
+void Device::compute_tdm12kern_b(int na, int nb, int nlinka, int nlinkb, int norb){}
+/* ---------------------------------------------------------------------- */
+void Device::compute_tdm12kern_ab(int na, int nb, int nlinka, int nlinkb, int norb){}
+/* ---------------------------------------------------------------------- */
+void Device::pull_rdm1(py::array_t<double> _rdm1, int norb)
+{
+  double t0 = omp_get_wtime();
+  py::buffer_info info_rdm1 = _rdm1.request(); //2D array (norb, norb)
+  double * rdm1 = static_cast<double*>(info_rdm1.ptr);
+  int id = 0;
+  pm->dev_set_device(id); 
+  my_device_data * dd = &(device_data[id]);
+  pm->dev_pull_async(dd->d_rdm1, rdm1, norb*norb*sizeof(double));
+  double t1 = omp_get_wtime();
+}
+/* ---------------------------------------------------------------------- */
+void Device::pull_rdm2(py::array_t<double> _rdm2, int norb)
+{
+  double t0 = omp_get_wtime();
+  py::buffer_info info_rdm2 = _rdm2.request(); //4D array (norb, norb, norb, norb)
+  double * rdm2 = static_cast<double*>(info_rdm2.ptr);
+  int id = 0;
+  pm->dev_set_device(id); 
+  my_device_data * dd = &(device_data[id]);
+  pm->dev_pull_async(dd->d_rdm2, rdm2, norb*norb*norb*norb*sizeof(double));
+  double t1 = omp_get_wtime();
+}
 /* ---------------------------------------------------------------------- */
