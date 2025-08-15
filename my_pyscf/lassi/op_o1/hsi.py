@@ -85,15 +85,7 @@ class OpTerm4Fragments (OpTermNFragments):
         ncol = vec.shape[1]
         shape = [ncol,] + self.lroots_ket[::-1]
         vec = vec.T.reshape (*shape)
-        vec_test = self._bazlskr (vec)
-        vec = lib.einsum ('basrji,zlkji->bazlskr', self.op, vec)
-        vec_err = np.amax (np.abs (vec_test-vec))
-        try:
-            assert (vec_err < 1e-8), '{} {}'.format (vec.shape, vec_test.shape)
-        except AssertionError as e:
-            for idx in product (*[range (s) for s in vec.shape]):
-                print (idx, vec[idx], vec_test[idx], vec[idx]-vec_test[idx], (vec[idx]-vec_test[idx])/vec_test[idx])
-            raise (e)
+        vec = self._bazlskr (vec)
         vec = lib.einsum ('ckr,bazlskr->cbazls', self.d[2], vec)
         vec = lib.einsum ('dls,cbazls->dcbaz', self.d[3], vec)
         vec = vec.reshape (np.prod (self.lroots_bra), ncol)
