@@ -55,7 +55,7 @@ from pyscf import __config__
 
 libfci = cistring.libfci
 
-def _trans_rdm1s(cibra, ciket, norb, nelec, link_index=None, use_gpu = False):
+def _trans_rdm1s(cibra, ciket, norb, nelec, link_index=None, use_gpu = False, gpu=None):
     r'''Spin separated transition 1-particle density matrices.
     The return values include two density matrices: (alpha,alpha), (beta,beta).
     See also function :func:`make_rdm1s`
@@ -63,12 +63,12 @@ def _trans_rdm1s(cibra, ciket, norb, nelec, link_index=None, use_gpu = False):
     1pdm[p,q] = :math:`\langle q^\dagger p \rangle`
     '''
     rdm1a = rdm.make_rdm1_spin1('FCItrans_rdm1a', cibra, ciket,
-                                norb, nelec, link_index, use_gpu=use_gpu)
+                                norb, nelec, link_index, use_gpu = use_gpu, gpu = gpu)
     rdm1b = rdm.make_rdm1_spin1('FCItrans_rdm1b', cibra, ciket,
-                                norb, nelec, link_index, use_gpu = use_gpu)
+                                norb, nelec, link_index, use_gpu = use_gpu, gpu = gpu)
     return rdm1a, rdm1b
 
-def _trans_rdm12s(cibra, ciket, norb, nelec, link_index=None, reorder=True):
+def _trans_rdm12s(cibra, ciket, norb, nelec, link_index=None, reorder=True, use_gpu = False, gpu=None):
     r'''Spin separated 1- and 2-particle transition density matrices.
     The return values include two lists, a list of 1-particle transition
     density matrices and a list of 2-particle transition density matrices.
@@ -82,13 +82,13 @@ def _trans_rdm12s(cibra, ciket, norb, nelec, link_index=None, reorder=True):
     2pdm[p,q,r,s] = :math:`\langle p^\dagger r^\dagger s q\rangle`.
     '''
     dm1a, dm2aa = rdm.make_rdm12_spin1('FCItdm12kern_a', cibra, ciket,
-                                       norb, nelec, link_index, 2)
+                                       norb, nelec, link_index, 2, use_gpu = use_gpu, gpu = gpu)
     dm1b, dm2bb = rdm.make_rdm12_spin1('FCItdm12kern_b', cibra, ciket,
-                                       norb, nelec, link_index, 2)
+                                       norb, nelec, link_index, 2, use_gpu = use_gpu, gpu = gpu)
     _, dm2ab = rdm.make_rdm12_spin1('FCItdm12kern_ab', cibra, ciket,
-                                    norb, nelec, link_index, 0)
+                                       norb, nelec, link_index, 0, use_gpu = use_gpu, gpu = gpu)
     _, dm2ba = rdm.make_rdm12_spin1('FCItdm12kern_ab', ciket, cibra,
-                                    norb, nelec, link_index, 0)
+                                       norb, nelec, link_index, 0, use_gpu = use_gpu, gpu = gpu)
     dm2ba = dm2ba.transpose(3,2,1,0)
     if reorder:
         dm1a, dm2aa = rdm.reorder_rdm(dm1a, dm2aa, inplace=True)
