@@ -1,0 +1,81 @@
+#INFO: **** input file is /home/bhavnesh/pdftsoc/my_pyscf/x2c/Benchmarks/PySCF_/DKH4/Zn.py ****
+if __name__ == '__main__':
+    import numpy as np
+    from pyscf import gto, scf
+    from pdftsoc.my_pyscf.x2c import dkh
+    mol = gto.M(atom='''Cd 0 0 0''',basis='ano@7s6p4d2f1g',verbose=4,output='./Cd.out')
+
+    mfdkh = scf.RHF(mol) 
+    mfdkh.get_hcore = lambda *args: dkh(mol, dkhord=4,c=137.0359895) # Orca's Speed of Light
+    mfdkh.kernel()
+
+#INFO: ******************** input file end ********************
+
+
+System: uname_result(system='Linux', node='GL', release='5.15.133.1-microsoft-standard-WSL2', version='#1 SMP Thu Oct 5 21:02:42 UTC 2023', machine='x86_64')  Threads 12
+Python 3.11.6 | packaged by conda-forge | (main, Oct  3 2023, 10:40:35) [GCC 12.3.0]
+numpy 1.26.0  scipy 1.11.4  h5py 3.10.0
+Date: Thu Jul 18 14:50:37 2024
+PySCF version 2.6.2
+PySCF path  /home/bhavnesh/pyscf
+GIT ORIG_HEAD fd8ee3e264affb668874c543562a46239c66871e
+GIT HEAD (branch master) ebf4e676fb4ba5aa63dad73d6cf1bb434488fb4c
+
+[ENV] PYSCF_EXT_PATH /home/bhavnesh/pyscf-forge:/home/bhavnesh:/home/bhavnesh/pyscf
+[CONFIG] conf_file None
+[INPUT] verbose = 4
+[INPUT] num. atoms = 1
+[INPUT] num. electrons = 48
+[INPUT] charge = 0
+[INPUT] spin (= nelec alpha-beta = 2S) = 0
+[INPUT] symmetry False subgroup None
+[INPUT] Mole.unit = angstrom
+[INPUT] Symbol           X                Y                Z      unit          X                Y                Z       unit  Magmom
+[INPUT]  1 Cd     0.000000000000   0.000000000000   0.000000000000 AA    0.000000000000   0.000000000000   0.000000000000 Bohr   0.0
+
+nuclear repulsion = 0
+number of shells = 5
+number of NR pGTOs = 221
+number of NR cGTOs = 68
+basis = ano@7s6p4d2f1g
+ecp = {}
+CPU time:         0.18
+
+
+******** <class 'pyscf.scf.hf.RHF'> ********
+method = RHF
+initial guess = minao
+damping factor = 0
+level_shift factor = 0
+DIIS = <class 'pyscf.scf.diis.CDIIS'>
+diis_start_cycle = 1
+diis_space = 8
+diis_damp = 0
+SCF conv_tol = 1e-09
+SCF conv_tol_grad = None
+SCF max_cycles = 50
+direct_scf = True
+direct_scf_tol = 1e-13
+chkfile to save SCF result = /tmp/tmpzd0c3wc9
+max_memory 4000 MB (current use 110 MB)
+Overwritten attributes  get_hcore  of <class 'pyscf.scf.hf.RHF'>
+Set gradient conv threshold to 3.16228e-05
+Initial guess from minao.
+Scalar Relativisitc Corrections are added using DKH-4 Hamiltonian
+Speed of light 137.0359895
+init E= -5591.33137397587
+  HOMO = -0.274310056470401  LUMO = 0.059543065166435
+cycle= 1 E= -5591.3326657339  delta_E= -0.00129  |g|= 0.0536  |ddm|= 0.0973
+  HOMO = -0.281600127843393  LUMO = 0.0549662168517131
+cycle= 2 E= -5591.33283112893  delta_E= -0.000165  |g|= 0.0408  |ddm|= 0.03
+  HOMO = -0.280391560003142  LUMO = 0.0551404755033164
+cycle= 3 E= -5591.33296696097  delta_E= -0.000136  |g|= 0.00168  |ddm|= 0.0127
+  HOMO = -0.280697905381323  LUMO = 0.0546649768674792
+cycle= 4 E= -5591.33296966034  delta_E= -2.7e-06  |g|= 0.000412  |ddm|= 0.00433
+  HOMO = -0.280783328046915  LUMO = 0.0545283505557337
+cycle= 5 E= -5591.33296981241  delta_E= -1.52e-07  |g|= 4.61e-05  |ddm|= 0.00128
+  HOMO = -0.280775334878671  LUMO = 0.0545346154419687
+cycle= 6 E= -5591.33296981271  delta_E= -2.92e-10  |g|= 3.09e-06  |ddm|= 2.99e-05
+  HOMO = -0.280774656758051  LUMO = 0.0545352772688146
+Extra cycle  E= -5591.33296981271  delta_E= -8.19e-12  |g|= 1.19e-06  |ddm|= 3.82e-06
+converged SCF energy = -5591.33296981271

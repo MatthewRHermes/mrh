@@ -41,6 +41,8 @@ class HamS2Ovlp (stdm.LSTDM):
         self.h2 = np.ascontiguousarray (h2)
         t0 = self.log.timer ('HamS2Ovlp init other parts', *t0)
 
+    def _init_buffers_(self): pass
+
     def _add_transpose_(self):
         self.ham += self.ham.conj ().T
         self.s2 += self.s2.T
