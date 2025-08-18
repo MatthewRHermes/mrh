@@ -28,6 +28,7 @@ using namespace MATHLIB_NS;
 
 //#define _DEBUG_DEVICE
 //#define _DEBUG_P2P
+#define _DEBUG_FCI
 
 #define EXTRACT_A(I)    (I.a)
 #define EXTRACT_I(I)    (I.i)
@@ -162,8 +163,8 @@ public :
   //  uint8_t i;
   //  int8_t sign;
   //  };
-  void init_rdm1(int);
-  void init_rdm2(int);
+  void init_tdm1(int);
+  void init_tdm2(int);
   void push_ci(py::array_t<double>,  py::array_t<double>, 
                       int , int);
   void push_link_indexa(int, int , py::array_t<int> ); //TODO: figure out the shape? or maybe move the compressed version 
@@ -173,8 +174,8 @@ public :
   void compute_tdm12kern_a(int , int , int , int , int );
   void compute_tdm12kern_b(int , int , int , int , int );
   void compute_tdm12kern_ab(int , int , int , int , int );
-  void pull_rdm1(py::array_t<double> , int );
-  void pull_rdm2(py::array_t<double> , int );
+  void pull_tdm1(py::array_t<double> , int );
+  void pull_tdm2(py::array_t<double> , int );
    
 
   //inner functions
@@ -193,8 +194,14 @@ public :
   //FCI
   //void FCIcompress_link (my_LinkT *, int, int, int, int); 
   void set_to_zero(double *, int);
-  void get_rdm1a_from_ci (double *, double *, double *, int, int, int,int, int *);
-  void get_rdm1b_from_ci (double *, double *, double *, int, int, int,int, int *);
+  void transpose_jikl(double *, double *, int);
+  void veccopy(const double *, double *, int);
+  void gemv_fix(const double *, const double *, double *, const int, const int, const double, const double);
+  void gemm_fix(const double *, const double *, double *, const int, const int);
+  void get_rdm1a_from_ci (double *, double *, double *, int, int, int, int, int *);
+  void get_rdm1b_from_ci (double *, double *, double *, int, int, int, int, int *);
+  void compute_FCIrdm2_a_t1ci (double *, double *, int, int, int, int, int*); 
+  void compute_FCIrdm2_b_t1ci (double *, double *, int, int, int, int, int*); 
   // multi-gpu communication (better here or part of PM?)
 
   void mgpu_bcast(std::vector<double *>, double *, size_t);
@@ -337,8 +344,10 @@ private:
     int size_clinkb;
     int size_cibra;
     int size_ciket;
-    int size_rdm1;
-    int size_rdm2;
+    int size_tdm1;
+    int size_tdm2;
+    int size_pdm1;
+    int size_pdm2;
 
 
     double * d_rho;
@@ -378,8 +387,10 @@ private:
     int * d_clinkb;
     double * d_cibra;
     double * d_ciket;
-    double * d_rdm1;
-    double * d_rdm2;
+    double * d_tdm2;
+    double * d_tdm1;
+    double * d_pdm2; 
+    double * d_pdm1;
 
     std::vector<int> type_pumap;
     std::vector<int> size_pumap;

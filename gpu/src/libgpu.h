@@ -105,9 +105,9 @@ extern "C"
   void libgpu_pull_Pi (void *,
                    py::array_t<double>, int, int); 
   //FCI
-  void libgpu_init_rdm1(void *,
+  void libgpu_init_tdm1(void *,
                        int);
-  void libgpu_init_rdm2(void *,
+  void libgpu_init_tdm2(void *,
                        int);
   void libgpu_push_ci(void *, 
                       py::array_t<double>,  py::array_t<double>, 
@@ -128,9 +128,9 @@ extern "C"
                             int , int , int , int , int );
   void libgpu_compute_tdm12kern_ab(void *, 
                             int , int , int , int , int );
-  void libgpu_pull_rdm1(void *, 
+  void libgpu_pull_tdm1(void *, 
                       py::array_t<double> , int );
-  void libgpu_pull_rdm2(void *, 
+  void libgpu_pull_tdm2(void *, 
                       py::array_t<double> , int );
 }
 
@@ -182,8 +182,8 @@ PYBIND11_MODULE(libgpu, m) {
   m.def("pull_Pi", &libgpu_pull_Pi, "pyscf/mcpdft/otfnal.py::energy_ot part final");
   m.def("orbital_response", &libgpu_orbital_response, "mrh/lasscf_sync_o0.py::orbital_response");
   // RDM can be used from previously made JKs
-  m.def("init_rdm1",&libgpu_init_rdm1, "pyscf/fci/rdm.py::allocate rdm1 space");
-  m.def("init_rdm2",&libgpu_init_rdm2, "pyscf/fci/rdm.py::allocate rdm2 space");
+  m.def("init_tdm1",&libgpu_init_tdm1, "pyscf/fci/rdm.py::allocate rdm1 space");
+  m.def("init_tdm2",&libgpu_init_tdm2, "pyscf/fci/rdm.py::allocate rdm2 space");
   // Valay: 8/12/2025: This is done as a test to get FCI running. 
   // specifically with several fragment CI problems, I have thoughts on how to optimize this, over several GPUs 
   // Frag 1 cibra is always on gpu 1, Frag 2 cibra on gpu 2 and so on.
@@ -199,8 +199,8 @@ PYBIND11_MODULE(libgpu, m) {
   m.def("compute_tdm12kern_a",&libgpu_compute_tdm12kern_a,"pyscf/fci/rdm.py::make_rdm1_spin1 compute FCItdm12kern_a");
   m.def("compute_tdm12kern_b",&libgpu_compute_tdm12kern_b,"pyscf/fci/rdm.py::make_rdm1_spin1 compute FCItdm12kern_b");
   m.def("compute_tdm12kern_ab",&libgpu_compute_tdm12kern_ab,"pyscf/fci/rdm.py::make_rdm1_spin1 compute FCItdm12kern_ab");
-  m.def("pull_rdm1",&libgpu_pull_rdm1,"pyscf/fci/rdm.py::make_rdm1_spin1 pull_rdm1");        
-  m.def("pull_rdm2",&libgpu_pull_rdm2,"pyscf/fci/rdm.py::make_rdm1_spin1 pull_rdm2");        
+  m.def("pull_tdm1",&libgpu_pull_tdm1,"pyscf/fci/rdm.py::make_rdm12_spin1 pull_tdm1");        
+  m.def("pull_tdm2",&libgpu_pull_tdm2,"pyscf/fci/rdm.py::make_rdm12_spin1 pull_tdm2");        
   
 }
 

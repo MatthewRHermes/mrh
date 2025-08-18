@@ -339,18 +339,18 @@ void libgpu_pull_Pi (void * ptr,
 }
 
 /* ---------------------------------------------------------------------- */
-void libgpu_init_rdm1(void * ptr, 
+void libgpu_init_tdm1(void * ptr, 
                       int norb)
 {
   Device * dev = (Device *) ptr;
-  dev->init_rdm1(norb);
+  dev->init_tdm1(norb);
 }
 /* ---------------------------------------------------------------------- */
-void libgpu_init_rdm2(void * ptr, 
+void libgpu_init_tdm2(void * ptr, 
                       int norb)
 {
   Device * dev = (Device *) ptr;
-  dev->init_rdm2(norb);
+  dev->init_tdm2(norb);
 }
 /* ---------------------------------------------------------------------- */
 void libgpu_push_ci(void * ptr, 
@@ -420,17 +420,17 @@ void libgpu_compute_tdm12kern_ab(void * ptr,
 }
 
 /* ---------------------------------------------------------------------- */
-void libgpu_pull_rdm1(void * ptr, 
-                      py::array_t<double> rdm, int norb)
+void libgpu_pull_tdm1(void * ptr, 
+                      py::array_t<double> tdm1, int norb)
 {
   Device * dev = (Device *) ptr;
-  dev->pull_rdm1(rdm, norb);
+  dev->pull_tdm1(tdm1, norb);
 }
 /* ---------------------------------------------------------------------- */
-void libgpu_pull_rdm2(void * ptr, 
-                      py::array_t<double> rdm, int norb)
+void libgpu_pull_tdm2(void * ptr, 
+                      py::array_t<double> tdm2, int norb)
 {
   Device * dev = (Device *) ptr;
-  dev->pull_rdm2(rdm, norb);
+  dev->pull_tdm2(tdm2, norb);
 }
 /* ---------------------------------------------------------------------- */
