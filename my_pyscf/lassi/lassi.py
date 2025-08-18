@@ -7,6 +7,7 @@ from mrh.my_pyscf.lassi import chkfile
 from mrh.my_pyscf.lassi import citools
 from mrh.my_pyscf.lassi.citools import get_lroots
 from pyscf import lib, symm, ao2mo
+from pyscf.lib import param
 from pyscf.scf.addons import canonical_orth_
 from pyscf.lib.numpy_helper import tag_array
 from pyscf.fci.direct_spin1 import _unpack_nelec
@@ -27,7 +28,10 @@ from mrh.my_pyscf.lassi.spaces import list_spaces
 
 LINDEP_THRESH = getattr (__config__, 'lassi_lindep_thresh', 1.0e-5)
 LEVEL_SHIFT_SI = getattr (__config__, 'lassi_level_shift_si', 1.0e-8)
-NROOTS_SI = 1
+NROOTS_SI = getattr (__config__, 'lassi_nroots_si', 1)
+MAX_CYCLE_SI = getattr (__config__, 'lassi_max_cycle_si', 100)
+MAX_SPACE_SI = getattr (__config__, 'lassi_max_space_si', 12)
+TOL_SI = getattr (__config__, 'lassi_tol_si', 1e-8)
 
 op = (op_o0, op_o1)
 
@@ -156,19 +160,19 @@ def las_symm_tuple (las, spaces=None, break_spin=False, break_symmetry=False, ve
         all_qns = [neleca, nelecb, neleca+nelecb, wfnsym]
         full_statesym.append (tuple (all_qns))
         statesym.append (tuple (qn for qn, incl in zip (all_qns, qn_filter) if incl))
-    log.info ('Symmetry analysis of %d LAS rootspaces:', las.nroots)
+    log.debug ('Symmetry analysis of %d LAS rootspaces:', las.nroots)
     qn_lbls = ['Neleca', 'Nelecb', 'Nelec', 'Wfnsym']
     qn_fmts = ['{:6d}', '{:6d}', '{:6d}', '{:>6s}']
     lbls = ['ix', 'Energy', '<S**2>'] + qn_lbls
     fmt_str = ' {:2s}  {:>16s}  {:6s}  ' + '  '.join (['{:6s}',]*len(qn_lbls))
-    log.info (fmt_str.format (*lbls))
+    log.debug (fmt_str.format (*lbls))
     try:
         for ix, (e, sy, s2) in enumerate (zip (las.e_states, full_statesym, s2_states)):
             data = [ix, e, s2] + list (sy)
             data[-1] = symm.irrep_id2name (las.mol.groupname, data[-1])
             fmts = ['{:2d}','{:16.10f}','{:6.3f}'] + qn_fmts
             fmt_str = ' ' + '  '.join (fmts)
-            log.info (fmt_str.format (*data))
+            log.debug (fmt_str.format (*data))
     except TypeError as err:
         print (las.e_states, full_statesym, s2_states)
         raise (err)
@@ -212,10 +216,13 @@ def iterate_subspace_blocks (las, ci, spacesym, subset=None, spaces=None):
         nelec_blk = np.zeros ((las.nfrags,len(idx),2), dtype=int)
         for i0, i in enumerate (idx):
             idx_prod[prod_off[i]:prod_off[i]+nprods_r[i]] = True
-            my_fcisolvers_i = spaces[i].get_fcisolvers ()
             nelec_blk[:,i0,:] = np.stack ([spaces[i].neleca, spaces[i].nelecb], axis=1)
             for j in range (las.nfrags):
-                my_fcisolvers[j].append (my_fcisolvers_i[j])
+                if len (las.fciboxes[j].fcisolvers) > i:
+                    my_fcisolver = spaces[i].check_fcisolver (j, las.fciboxes[j].fcisolvers[i])
+                else:
+                    my_fcisolver = spaces[i].get_fcisolver (j)
+                my_fcisolvers[j].append (my_fcisolver)
             my_e_states.append (spaces[i].energy_tot)
         with _LASSI_subspace_env (las, my_fcisolvers, my_e_states):
             yield las, sym, (idx_space, idx_prod), (ci_blk, nelec_blk)
@@ -241,7 +248,7 @@ def lassi (las, mo_coeff=None, ci=None, veff_c=None, h2eff_sub=None, orbsym=None
         if orbsym is not None:
             orbsym = orbsym[las.ncore:las.ncore+las.ncas]
     if davidson_only is None: davidson_only = getattr (las, 'davidson_only', False)
-    max_memory = getattr (las, 'max_memory', 2000)
+    max_memory = getattr (las, 'max_memory', param.MAX_MEMORY)
     o0_memcheck = op_o0.memcheck (las, ci, soc=soc)
     if opt == 0 and o0_memcheck == False:
         raise RuntimeError ('Insufficient memory to use o0 LASSI algorithm')
@@ -341,16 +348,16 @@ def lassi (las, mo_coeff=None, ci=None, veff_c=None, h2eff_sub=None, orbsym=None
             break
     return e_roots, si
 
-def _eig_block (las, e0, h1, h2, ci_blk, nelec_blk, soc, opt, max_memory=2000,
+def _eig_block (las, e0, h1, h2, ci_blk, nelec_blk, soc, opt, max_memory=param.MAX_MEMORY,
                 davidson_only=False):
     nstates = np.prod (get_lroots (ci_blk), axis=0).sum ()
     req_memory = 24*nstates*nstates/1e6
     current_memory = lib.current_memory ()[0]
     if current_memory+req_memory > max_memory:
         if opt==0:
-            raise MemoryError ("Need %f MB of %f MB avail (N.B.: o0 Davidson is fake; use opt=1)",
+            raise MemoryError ("Need %f MB of %f MB av (N.B.: o0 Davidson is fake; use opt=1)",
                                req_memory, max_memory-current_memory)
-        lib.logger.info ("Need %f MB of %f MB avail for incore LASSI diag; Davidson alg forced",
+        lib.logger.info (las, "Need %f MB of %f MB av for incore LASSI diag; Davidson alg forced",
                          req_memory, max_memory-current_memory)
     if davidson_only or current_memory+req_memory > max_memory:
         return _eig_block_Davidson (las, e0, h1, h2, ci_blk, nelec_blk, soc, opt)
@@ -360,9 +367,13 @@ def _eig_block_Davidson (las, e0, h1, h2, ci_blk, nelec_blk, soc, opt):
     # si0
     # nroots_si
     # level_shift
+    log = lib.logger.new_logger (las, las.verbose)
     si0 = getattr (las, 'si', None)
     level_shift = getattr (las, 'level_shift_si', LEVEL_SHIFT_SI)
     nroots_si = getattr (las, 'nroots_si', NROOTS_SI)
+    max_cycle_si = getattr (las, 'max_cycle_si', MAX_CYCLE_SI)
+    max_space_si = getattr (las, 'max_space_si', MAX_SPACE_SI)
+    tol_si = getattr (las, 'tol_si', TOL_SI)
     get_init_guess = getattr (las, 'get_init_guess_si', get_init_guess_si)
     h_op_raw, s2_op, ovlp_op, hdiag, _get_ovlp = op[opt].gen_contract_op_si_hdiag (
         las, h1, h2, ci_blk, nelec_blk, soc=soc
@@ -370,6 +381,7 @@ def _eig_block_Davidson (las, e0, h1, h2, ci_blk, nelec_blk, soc, opt):
     raw2orth = citools.get_orth_basis (ci_blk, las.ncas_sub, nelec_blk, _get_ovlp=_get_ovlp)
     precond_op_raw = lib.make_diag_precond (hdiag, level_shift=level_shift)
     si0 = get_init_guess (hdiag, nroots_si, si0)
+    si0 = [ovlp_op (x) for x in si0]
     orth2raw = raw2orth.H
     def precond_op (dx, e, *args):
         return raw2orth (precond_op_raw (orth2raw (dx), e, *args))
@@ -377,8 +389,11 @@ def _eig_block_Davidson (las, e0, h1, h2, ci_blk, nelec_blk, soc, opt):
         return raw2orth (h_op_raw (orth2raw (x)))
     x0 = [raw2orth (x) for x in si0]
     conv, e, x1 = lib.davidson1 (lambda xs: [h_op (x) for x in xs],
-                                  x0, precond_op, nroots=nroots_si)
+                                 x0, precond_op, nroots=nroots_si,
+                                 verbose=log, max_cycle=max_cycle_si,
+                                 max_space=max_space_si, tol=tol_si)
     conv = all (conv)
+    if not conv: log.warn ('LASSI Davidson diagonalization not converged')
     si1 = np.stack ([orth2raw (x) for x in x1], axis=-1)
     s2 = np.array ([np.dot (x.conj (), s2_op (x)) for x in si1.T])
     return conv, e, si1, s2
@@ -884,7 +899,7 @@ class LASSI(lib.StreamObject):
     LASSI Method class
     '''
     def __init__(self, las, mo_coeff=None, ci=None, soc=False, break_symmetry=False, opt=1,
-                 **kwargs):
+                 davidson_only=False, nroots_si=NROOTS_SI, **kwargs):
         from mrh.my_pyscf.mcscf.lasci import LASCINoSymm
         if isinstance(las, LASCINoSymm): self._las = las
         else: raise RuntimeError("LASSI requires las instance")
@@ -914,9 +929,9 @@ class LASSI(lib.StreamObject):
         self.break_symmetry = break_symmetry
         self.soc = soc
         self.opt = opt
-        self.davidson_only = False
+        self.davidson_only = davidson_only
         self.level_shift_si = LEVEL_SHIFT_SI
-        self.nroots_si = NROOTS_SI
+        self.nroots_si = nroots_si
         self.converged_si = False
         self._keys = set((self.__dict__.keys())).union(keys)
 
@@ -938,10 +953,14 @@ class LASSI(lib.StreamObject):
         e_roots, si = lassi(self, mo_coeff=mo_coeff, ci=ci, veff_c=veff_c, h2eff_sub=h2eff_sub, orbsym=orbsym, \
                             soc=soc, break_symmetry=break_symmetry, davidson_only=davidson_only, opt=opt)
         self.e_roots = e_roots
+        self.converged = self.converged and self.converged_si
         self.si, self.s2, self.nelec, self.wfnsym, self.rootsym, self.break_symmetry, self.soc  = \
             si, si.s2, si.nelec, si.wfnsym, si.rootsym, si.break_symmetry, si.soc
         log.timer ('LASSI matrix-diagonalization kernel', *t0)
         return self.e_roots, self.si
+
+    def eig (self, *args, **kwargs):
+        return self.kernel (*args, **kwargs)
 
     def ham_2q (self, mo_coeff=None, veff_c=None, h2eff_sub=None, soc=0):
         if mo_coeff is None: mo_coeff = self.mo_coeff

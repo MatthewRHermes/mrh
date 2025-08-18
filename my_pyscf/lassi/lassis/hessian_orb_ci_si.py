@@ -77,7 +77,7 @@ class HessianOperator (sparse_linalg.LinearOperator):
                                          pt_order=self.pt_order,
                                          do_pt_order=(0,1))
         self._ptmaps = []
-        for i, myint in enumerate (self._fragints[1]):
+        for i, myint in enumerate (self._fragints[0]):
             ptmap = np.arange (self.nroots, dtype=int)
             ptmap = np.stack ([ptmap, ptmap], axis=-1)
             ptmap[:,1] += self.nroots*(i+1)
@@ -105,7 +105,7 @@ class HessianOperator (sparse_linalg.LinearOperator):
         for i in range (self.nfrags):
             ci1[i][n*(i+1):n*(i+2)] = xci[i]
             if self.opt > 0:
-                myint = self._fragints[1][i]
+                myint = self._fragints[0][i]
                 myrng = range (n*(i+1),n*(i+2))
                 iroots = [j for j in myrng if myint.root_unique[j]]
                 x = [ci1[i][j] for j in myrng if myint.root_unique[j]]
