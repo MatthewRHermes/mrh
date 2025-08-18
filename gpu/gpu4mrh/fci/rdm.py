@@ -4,7 +4,7 @@ import numpy
 from pyscf import lib
 from pyscf.fci import cistring
 from pyscf.fci.addons import _unpack_nelec
-DEBUG=True
+DEBUG=False
 librdm = cistring.libfci
 def _make_rdm1_spin1(fname, cibra, ciket, norb, nelec, link_index=None, use_gpu=False, gpu=None):
     assert (cibra is not None and ciket is not None)
@@ -46,9 +46,9 @@ def _make_rdm1_spin1(fname, cibra, ciket, norb, nelec, link_index=None, use_gpu=
         libgpu.compute_trans_rdm1b(gpu, na, nb, nlinka, nlinkb, norb) #TODO: update name
       libgpu.pull_tdm1(gpu, rdm_gpu, norb)
       if (numpy.allclose(rdm_cpu, rdm_gpu)):
-        print("RDM's calculate correctly")
+        print("TDM1s calculate correctly")
       else: 
-        print("error in make_rdm1_spin1")
+        print("Problem in TDM1")
         print("rdm_cpu")
         print(rdm_cpu)
         print("rdm_gpu")
@@ -171,11 +171,11 @@ def _make_rdm12_spin1(fname, cibra, ciket, norb, nelec, link_index=None, symm=0,
       libgpu.push_ci(gpu, cibra, ciket, na, nb)
       libgpu.push_link_index_ab(gpu, na, nb, nlinka, nlinkb, link_indexa, link_indexb) #TODO: move this to direct_spin1 because it's used with both a and b
       if fname == 'FCItdm12kern_a': 
-        libgpu.compute_tdm12kern_a(gpu, norb, na, nb, nlinka, nlinkb)
+        libgpu.compute_tdm12kern_a(gpu, na, nb, nlinka, nlinkb, norb)
       if fname == 'FCItdm12kern_b': 
-        libgpu.compute_tdm12kern_b(gpu, norb, na, nb, nlinka, nlinkb)
+        libgpu.compute_tdm12kern_b(gpu, na, nb, nlinka, nlinkb, norb)
       if fname == 'FCItdm12kern_ab': 
-        libgpu.compute_tdm12kern_ab(gpu, norb, na, nb, nlinka, nlinkb)
+        libgpu.compute_tdm12kern_ab(gpu, na, nb, nlinka, nlinkb, norb)
       libgpu.pull_tdm1(gpu, rdm1_gpu, norb)
       libgpu.pull_tdm2(gpu, rdm2_gpu, norb)
       return rdm1_gpu.T, rdm2_gpu
