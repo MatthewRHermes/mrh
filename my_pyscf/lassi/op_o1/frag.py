@@ -9,9 +9,9 @@ from pyscf.fci import cistring
 from itertools import product, combinations
 from mrh.my_pyscf.lassi.citools import get_lroots, get_rootaddr_fragaddr, get_unique_roots
 from mrh.my_pyscf.lassi.op_o1.utilities import *
-from mrh.my_pyscf.fci.rdm import trans_rdm1ha_des, trans_rdm1hb_des
-from mrh.my_pyscf.fci.rdm import trans_rdm13ha_des, trans_rdm13hb_des
-from mrh.my_pyscf.fci.rdm import trans_sfddm1, trans_hhdm
+from mrh.my_pyscf.fci.rdm import trans_rdm1ha_des, trans_rdm1hb_des #make_rdm1_spin1
+from mrh.my_pyscf.fci.rdm import trans_rdm13ha_des, trans_rdm13hb_des #is make_rdm12_spin1
+from mrh.my_pyscf.fci.rdm import trans_sfddm1, trans_hhdm ##trans_sfddm1 is make_rdm12_spin1, trans_hhdm is make_rdm12_spin1
 from mrh.my_pyscf.fci.direct_halfelectron import contract_1he, absorb_h1he, contract_3he
 from mrh.my_pyscf.fci.direct_nosym_uhf import contract_1e as contract_1e_nosym_uhf
 from mrh.my_pyscf.fci.direct_nosym_ghf import contract_1e as contract_1e_nosym_ghf
@@ -58,7 +58,7 @@ class FragTDMInt (object):
         single model state indices.
 
         Args:
-            las : instance of :class:`LASCINoSymm`
+            las : instance of :class:`LASCINoSymm` //VA: 8/18/25: seems las object is a excitationPFSCI solver?
                 Only las.stdout and las.verbose (sometimes) are used to direct the logger output
             ci : list of ndarray of length nroots
                 Contains CI vectors for the current fragment
@@ -109,6 +109,13 @@ class FragTDMInt (object):
         self.idx_frag = idx_frag
         self.mask_ints = mask_ints
         self.discriminator = discriminator
+
+        try: 
+            if getattr(las.mol, 'use_gpu') is not None:
+               print("using gpu")
+               self.use_gpu = las.mol.use_gpu
+        except: 
+            pass
 
         if pt_order is None: pt_order = np.zeros (nroots, dtype=int)
         self.pt_order = pt_order
@@ -427,7 +434,6 @@ class FragTDMInt (object):
         lroots = [c.shape[0] for c in ci]
         nroots, norb, nuroots = self.nroots, self.norb, self.nuroots
         t1 = self.log.timer ('_make_dms_ setup', *t1)
-
         # Overlap matrix
         offs = np.cumsum (lroots)
         for i, j in combinations (np.where (idx_uniq)[0], 2):
@@ -453,6 +459,7 @@ class FragTDMInt (object):
 
 
         # Loop over lroots functions
+        #TODO: REFACTOR TO FARM OUT ALL TYPES OF DMS TO DIFFERENT GPUs/NODES?
         def des_loop (des_fn, c, nelec, p):
             #na = cistring.num_strings (norb, nelec[0])
             #nb = cistring.num_strings (norb, nelec[1])
@@ -462,7 +469,7 @@ class FragTDMInt (object):
             return np.asarray (des_c)
         def des_a_loop (c, nelec, p): return des_loop (des_a, c, nelec, p)
         def des_b_loop (c, nelec, p): return des_loop (des_b, c, nelec, p)
-        def trans_rdm12s_loop (iroot, bra, ket, do2=True):
+        def trans_rdm12s_loop (iroot, bra, ket, do2=True, use_gpu=None, gpu=None):
             nelec = self.nelec_r[iroot]
             na, nb = ndeta[iroot], ndetb[iroot]
             bra = bra.reshape (-1, na, nb)
@@ -472,14 +479,22 @@ class FragTDMInt (object):
             linkstr = self._check_linkstr_cache (norb, nelec[0], nelec[1])
             if do2:
                 for i, j in product (range (bra.shape[0]), range (ket.shape[0])):
-                    d1s, d2s = trans_rdm12s (bra[i], ket[j], norb, nelec,
+                    if use_gpu:
+                        d1s, d2s = trans_rdm12s (bra[i], ket[j], norb, nelec,
+                                             link_index=linkstr, use_gpu=use_gpu, gpu=gpu)
+                    else:
+                        d1s, d2s = trans_rdm12s (bra[i], ket[j], norb, nelec,
                                              link_index=linkstr)
                     # Transpose based on docstring of direct_spin1.trans_rdm12s
                     tdm1s[i,j] = np.stack (d1s, axis=0).transpose (0, 2, 1)
                     tdm2s[i,j] = np.stack (d2s, axis=0)
             else:
                 for i, j in product (range (bra.shape[0]), range (ket.shape[0])):
-                    d1s = trans_rdm1s (bra[i], ket[j], norb, nelec,
+                    if use_gpu:
+                        d1s = trans_rdm1s (bra[i], ket[j], norb, nelec,
+                                       link_index=linkstr,use_gpu=use_gpu, gpu=gpu)
+                    else: 
+                        d1s = trans_rdm1s (bra[i], ket[j], norb, nelec,
                                        link_index=linkstr)
                     # Transpose based on docstring of direct_spin1.trans_rdm12s
                     tdm1s[i,j] = np.stack (d1s, axis=0).transpose (0, 2, 1)
@@ -542,7 +557,11 @@ class FragTDMInt (object):
         for i, j in spectator_index:
             k, l = self.uroot_addr[i], self.uroot_addr[j]
             if not self.unmasked_int (k,l,screen): continue
-            dm1s, dm2s = trans_rdm12s_loop (l, ci[k], ci[l], do2=True)
+            #fragment is not interacting
+            if self.use_gpu:
+                dm1s, dm2s = trans_rdm12s_loop (l, ci[k], ci[l], do2=True, use_gpu=True, gpu=self.use_gpu)
+            else:
+                dm1s, dm2s = trans_rdm12s_loop (l, ci[k], ci[l], do2=True)
             self.set_dm1 (k, l, dm1s)
             self.set_dm2 (k, l, dm2s)
  
@@ -1027,6 +1046,7 @@ def make_ints (las, ci, nelec_frs, screen_linequiv=DO_SCREEN_LINEQUIV, nlas=None
     rootaddr, fragaddr = get_rootaddr_fragaddr (lroots)
     ints = []
     t0 = log.timer('make ints initialize', *t0)
+
     for ifrag in range (nfrags):
         m0 = lib.current_memory ()[0]
         tdmint = _FragTDMInt_class (las, ci[ifrag],
