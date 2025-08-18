@@ -27,13 +27,17 @@ using namespace MATHLIB_NS;
 #define _ENABLE_P2P
 
 //#define _DEBUG_DEVICE
-//#define _DEBUG_ERI_CACHE
-//#define _DEBUG_H2EFF
-//#define _DEBUG_H2EFF2
-//#define _DEBUG_H2EFF_DF
-//#define _DEBUG_AO2MO
-//#define _DEBUG_PACKING
 //#define _DEBUG_P2P
+#define _DEBUG_FCI
+
+#define EXTRACT_A(I)    (I.a)
+#define EXTRACT_I(I)    (I.i)
+#define EXTRACT_SIGN(I) (I.sign)
+#define EXTRACT_ADDR(I) (I.addr)
+#define EXTRACT_IA(I)   (I.ia)
+
+#define EXTRACT_CRE(I)  EXTRACT_A(I)
+#define EXTRACT_DES(I)  EXTRACT_I(I) 
 
 #define _PUMAP_2D_UNPACK 0       // generic unpacking of 1D array to 2D matrix
 #define _PUMAP_H2EFF_UNPACK 1    // unpacking h2eff array (generic?)
@@ -73,12 +77,14 @@ public :
   Device();
   ~Device();
   
+  //SETUP
   int get_num_devices();
   void get_dev_properties(int);
   void set_device(int);
   void disable_eri_cache_();
   void set_verbose_(int);
 
+  //JK
   void init_get_jk(py::array_t<double>, py::array_t<double>, int, int, int, int, int);
   void get_jk(int, int, int,
 	      py::array_t<double>, py::array_t<double>, py::list &,
@@ -94,6 +100,7 @@ public :
   void set_update_dfobj_(int);
   void get_dfobj_status(size_t, py::array_t<int>);
  
+  //AO2MO
   void init_jk_ao2mo (int, int);
 
   void init_ppaa_papa_ao2mo (int, int);
@@ -107,16 +114,15 @@ public :
   void pull_jk_ao2mo_v4 (py::array_t<double>,py::array_t<double>,int, int);
   void pull_ppaa_papa_ao2mo_v4 (py::array_t<double>,py::array_t<double>, int, int);
   
-  
-
+  //ORBITAL RESPONSE
   void orbital_response(py::array_t<double>,
 			py::array_t<double>, py::array_t<double>, py::array_t<double>,
 			py::array_t<double>, py::array_t<double>, py::array_t<double>,
 			int, int, int);
 
+  //UPDATE H2EFF
   void update_h2eff_sub(int, int, int, int,
                         py::array_t<double>,py::array_t<double>);
-  
   void extract_submatrix(const double *, double *, int, int, int);
   void unpack_h2eff_2d(double *, double *, int *, int, int, int);
   void transpose_2310(double *, double *, int, int);
@@ -125,12 +131,14 @@ public :
   
   void transpose_210(double *, double *, int, int, int);
   
+  //LAS_AO2MO
   void init_eri_h2eff( int, int);//VA: new function
   void get_h2eff_df_v2 ( py::array_t<double>, 
                          int, int, int, int, int, 
                          py::array_t<double>, int, size_t);//VA: new function
   void pull_eri_h2eff(py::array_t<double>, int, int);// VA: new function
   
+  //ERI for IMPURINTY HAMILTONIAN
   void init_eri_impham(int, int, int);
   void compute_eri_impham(int, int, int, int, int, size_t, int);
   void pull_eri_impham( py::array_t<double>, int, int, int);
@@ -148,12 +156,34 @@ public :
   void compute_Pi (int, int, int, int); 
   void pull_Pi (py::array_t<double>, int, int); 
 
+  //FCI
+  //struct my_LinkT {
+  //  unsigned int addr;
+  //  uint8_t a;
+  //  uint8_t i;
+  //  int8_t sign;
+  //  };
+  void init_tdm1(int);
+  void init_tdm2(int);
+  void push_ci(py::array_t<double>,  py::array_t<double>, 
+                      int , int);
+  void push_link_indexa(int, int , py::array_t<int> ); //TODO: figure out the shape? or maybe move the compressed version 
+  void push_link_indexb(int, int , py::array_t<int> ); //TODO: figure out the shape? or maybe move the compressed version 
+  void compute_trans_rdm1a(int , int , int , int , int );
+  void compute_trans_rdm1b(int , int , int , int , int );
+  void compute_tdm12kern_a(int , int , int , int , int );
+  void compute_tdm12kern_b(int , int , int , int , int );
+  void compute_tdm12kern_ab(int , int , int , int , int );
+  void pull_tdm1(py::array_t<double> , int );
+  void pull_tdm2(py::array_t<double> , int );
+   
+
   //inner functions
   void extract_mo_cas(int, int, int);//TODO: fix the difference - changed slightly
   void get_mo_cas(const double *, double *, int, int, int);
   void pack_d_vuwM(const double *, double *, int *, int, int, int);
   void pack_d_vuwM_add(const double *, double *, int *, int, int, int);
-  
+
   void push_mo_coeff(py::array_t<double>, int);
 
   void vecadd(const double *, double *, int); // replace with ml->daxpy()
@@ -161,12 +191,22 @@ public :
   void make_gridkern(double *, double *, int, int); //replace with ml->gemm()
   void make_buf_pdft(double *, double *, double *, int, int); //replace with ml->gemm()
   void make_Pi_final(double *, double *,double *, int, int); // replace with ml->gemm()
-  
+  //FCI
+  //void FCIcompress_link (my_LinkT *, int, int, int, int); 
+  void set_to_zero(double *, int);
+  void transpose_jikl(double *, double *, int);
+  void veccopy(const double *, double *, int);
+  void gemv_fix(const double *, const double *, double *, const int, const int, const double, const double);
+  void gemm_fix(const double *, const double *, double *, const int, const int);
+  void get_rdm1a_from_ci (double *, double *, double *, int, int, int, int, int *);
+  void get_rdm1b_from_ci (double *, double *, double *, int, int, int, int, int *);
+  void compute_FCIrdm2_a_t1ci (double *, double *, int, int, int, int, int*); 
+  void compute_FCIrdm2_b_t1ci (double *, double *, int, int, int, int, int*); 
   // multi-gpu communication (better here or part of PM?)
 
   void mgpu_bcast(std::vector<double *>, double *, size_t);
   void mgpu_reduce(std::vector<double *>, double *, int, bool, std::vector<double *>, std::vector<int>);
-  
+
 private:
 
   class PM * pm;
@@ -226,9 +266,8 @@ private:
   // eri_impham
   int size_eri_impham;
   double * pin_eri_impham;
- 
+  
   // eri caching on device
-
   bool use_eri_cache;
   
   std::vector<size_t> eri_list; // addr of dfobj+eri1 for key-value pair
@@ -263,8 +302,7 @@ private:
     //        CINTOpt *cintopt;
     //        CVHFOpt *vhfopt;
   };
-
-  struct my_device_data {
+    struct my_device_data {
     int device_id;
     int active; // was device used in calculation and has result to be accumulated?
 
@@ -301,6 +339,17 @@ private:
     int size_Pi;
     int size_buf_pdft;
 
+    //fci
+    int size_clinka;
+    int size_clinkb;
+    int size_cibra;
+    int size_ciket;
+    int size_tdm1;
+    int size_tdm2;
+    int size_pdm1;
+    int size_pdm2;
+
+
     double * d_rho;
     double * d_vj;
     double * d_buf1;
@@ -332,6 +381,16 @@ private:
     double * d_Pi;
     double * d_buf_pdft1;
     double * d_buf_pdft2;
+    //fci 
+    
+    int * d_clinka;
+    int * d_clinkb;
+    double * d_cibra;
+    double * d_ciket;
+    double * d_tdm2;
+    double * d_tdm1;
+    double * d_pdm2; 
+    double * d_pdm1;
 
     std::vector<int> type_pumap;
     std::vector<int> size_pumap;

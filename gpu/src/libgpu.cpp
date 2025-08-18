@@ -339,3 +339,98 @@ void libgpu_pull_Pi (void * ptr,
 }
 
 /* ---------------------------------------------------------------------- */
+void libgpu_init_tdm1(void * ptr, 
+                      int norb)
+{
+  Device * dev = (Device *) ptr;
+  dev->init_tdm1(norb);
+}
+/* ---------------------------------------------------------------------- */
+void libgpu_init_tdm2(void * ptr, 
+                      int norb)
+{
+  Device * dev = (Device *) ptr;
+  dev->init_tdm2(norb);
+}
+/* ---------------------------------------------------------------------- */
+void libgpu_push_ci(void * ptr, 
+                      py::array_t<double> cibra, py::array_t<double> ciket,
+                      int na, int nb)
+{
+  Device * dev = (Device *) ptr;
+  dev->push_ci(cibra, ciket, na, nb);
+}
+/* ---------------------------------------------------------------------- */
+void libgpu_push_link_indexa(void * ptr, 
+                              int na, int nlinka, py::array_t<int> link_indexa) //TODO: figure out the shape? or maybe move the compressed version 
+{
+  Device * dev = (Device *) ptr;
+  dev->push_link_indexa(na, nlinka, link_indexa);
+}
+/* ---------------------------------------------------------------------- */
+void libgpu_push_link_indexb(void * ptr, 
+                              int nb, int nlinkb, py::array_t<int> link_indexb) //TODO: figure out the shape? or maybe move the compressed version 
+{
+  Device * dev = (Device *) ptr;
+  dev->push_link_indexb(nb, nlinkb, link_indexb);
+}
+/* ---------------------------------------------------------------------- */
+void libgpu_push_link_index_ab(void * ptr, 
+                              int na, int nb, int nlinka, int nlinkb, py::array_t<int> link_indexa, py::array_t<int> link_indexb) //TODO: figure out the shape? or maybe move the compressed version 
+{
+  Device * dev = (Device *) ptr;
+  dev->push_link_indexa(na, nlinka, link_indexa);
+  dev->push_link_indexb(nb, nlinkb, link_indexb);
+}
+
+/* ---------------------------------------------------------------------- */
+void libgpu_compute_trans_rdm1a(void * ptr, 
+                            int na, int nb, int nlinka, int nlinkb, int norb)
+{
+  Device * dev = (Device *) ptr;
+  dev->compute_trans_rdm1a(na, nb, nlinka, nlinkb, norb);
+}
+/* ---------------------------------------------------------------------- */
+void libgpu_compute_trans_rdm1b(void * ptr, 
+                            int na, int nb, int nlinka, int nlinkb, int norb)
+{
+  Device * dev = (Device *) ptr;
+  dev->compute_trans_rdm1b(na, nb, nlinka, nlinkb, norb);
+}
+/* ---------------------------------------------------------------------- */
+void libgpu_compute_tdm12kern_a(void * ptr, 
+                            int na, int nb, int nlinka, int nlinkb, int norb)
+{
+  Device * dev = (Device *) ptr;
+  dev->compute_tdm12kern_a(na, nb, nlinka, nlinkb, norb);
+}
+/* ---------------------------------------------------------------------- */
+void libgpu_compute_tdm12kern_b(void * ptr, 
+                            int na, int nb, int nlinka, int nlinkb, int norb)
+{
+  Device * dev = (Device *) ptr;
+  dev->compute_tdm12kern_b(na, nb, nlinka, nlinkb, norb);
+}
+/* ---------------------------------------------------------------------- */
+void libgpu_compute_tdm12kern_ab(void * ptr, 
+                            int na, int nb, int nlinka, int nlinkb, int norb)
+{
+  Device * dev = (Device *) ptr;
+  dev->compute_tdm12kern_ab(na, nb, nlinka, nlinkb, norb);
+}
+
+/* ---------------------------------------------------------------------- */
+void libgpu_pull_tdm1(void * ptr, 
+                      py::array_t<double> tdm1, int norb)
+{
+  Device * dev = (Device *) ptr;
+  dev->pull_tdm1(tdm1, norb);
+}
+/* ---------------------------------------------------------------------- */
+void libgpu_pull_tdm2(void * ptr, 
+                      py::array_t<double> tdm2, int norb)
+{
+  Device * dev = (Device *) ptr;
+  dev->pull_tdm2(tdm2, norb);
+}
+/* ---------------------------------------------------------------------- */

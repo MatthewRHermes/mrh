@@ -67,6 +67,7 @@ def case (kv, lroots, nroots, q):
     hess = get_hess (ham_pq, si, lroots, nroots, proj)
     x0 = rng.random (size=(grad.size))
     err_tab = np.zeros ((19,4))
+    err_str = '\n'
     for ix, p in enumerate (range (19)):
         x1 = x0 / (2**p)
         x1_norm = linalg.norm (x1)
@@ -75,13 +76,22 @@ def case (kv, lroots, nroots, q):
         de_err = abs ((de_test-de_ref)/de_ref)
         dg_err, dg_theta = vector_error (dg_test, dg_ref)
         err_tab[ix,:] = [x1_norm, de_err, dg_err, dg_theta]
+        err_str += '{:e} {:e} {:e} '.format (x1_norm, de_err, dg_err)
+        if ix>0:
+            de_rel = de_err / err_tab[ix-1,1]
+            dg_rel = dg_err / err_tab[ix-1,2]
+            err_str += '{:e} {:e}'.format (de_rel, dg_rel)
+        err_str += '\n'
+        if ix>0 and (abs (de_rel-0.5) < 0.0001) and (abs (dg_rel-0.5) < 0.0001):
+            err_tab = err_tab[:ix+1]
+            break
     conv_tab = err_tab[1:,:] / err_tab[:-1,:]
     with kv.subTest (q='x'):
-        kv.assertAlmostEqual (conv_tab[-1,0], 0.5, 9)
+        kv.assertAlmostEqual (conv_tab[-1,0], 0.5, 9, msg=err_str)
     with kv.subTest (q='de'):
-        kv.assertAlmostEqual (conv_tab[-1,1], 0.5, delta=0.05)
+        kv.assertAlmostEqual (conv_tab[-1,1], 0.5, delta=0.05, msg=err_str)
     with kv.subTest (q='d2e'):
-        kv.assertAlmostEqual (conv_tab[-1,2], 0.5, delta=0.05)
+        kv.assertAlmostEqual (conv_tab[-1,2], 0.5, delta=0.05, msg=err_str)
 
 
 

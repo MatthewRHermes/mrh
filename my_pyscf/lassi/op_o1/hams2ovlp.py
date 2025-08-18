@@ -1,7 +1,7 @@
 import numpy as np
 from scipy import linalg
 from pyscf import lib
-from pyscf.lib import logger
+from pyscf.lib import logger, param
 from itertools import product
 from mrh.my_pyscf.fci.csf import unpack_h1e_ab
 from mrh.my_pyscf.lassi import citools
@@ -28,8 +28,8 @@ class HamS2Ovlp (stdm.LSTDM):
             Contains 2-electron Hamiltonian amplitudes in second quantization
     '''
     def __init__(self, ints, nlas, lroots, h1, h2, mask_bra_space=None,
-                 mask_ket_space=None, pt_order=None, do_pt_order=None, log=None, max_memory=2000,
-                 dtype=np.float64):
+                 mask_ket_space=None, pt_order=None, do_pt_order=None, log=None,
+                 max_memory=param.MAX_MEMORY, dtype=np.float64):
         t0 = (logger.process_clock (), logger.perf_counter ())
         stdm.LSTDM.__init__(self, ints, nlas, lroots,
                             mask_bra_space=mask_bra_space, mask_ket_space=mask_ket_space,

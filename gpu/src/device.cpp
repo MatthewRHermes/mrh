@@ -56,7 +56,7 @@ Device::Device()
 
   size_eri_impham = 0;
   pin_eri_impham = nullptr;
-
+  
 #if defined(_USE_GPU)
   use_eri_cache = true;
 #endif
@@ -103,6 +103,15 @@ Device::Device()
     device_data[i].size_cascm2=0;
     device_data[i].size_Pi=0;
     device_data[i].size_rho=0;
+    //fci
+    device_data[i].size_clinka=0;
+    device_data[i].size_clinkb=0;
+    device_data[i].size_cibra=0;
+    device_data[i].size_ciket=0;
+    device_data[i].size_tdm1=0;
+    device_data[i].size_tdm2=0;
+    device_data[i].size_tdm1=0;
+    device_data[i].size_tdm2=0;
     
     
     device_data[i].d_rho = nullptr;
@@ -137,6 +146,15 @@ Device::Device()
     device_data[i].d_Pi=nullptr;
     device_data[i].d_buf_pdft1=nullptr;
     device_data[i].d_buf_pdft2=nullptr;
+    //fci
+    device_data[i].d_clinka=nullptr;
+    device_data[i].d_clinkb=nullptr;
+    device_data[i].d_cibra=nullptr;
+    device_data[i].d_ciket=nullptr;
+    device_data[i].d_tdm1=nullptr;
+    device_data[i].d_tdm2=nullptr;
+    device_data[i].d_pdm1=nullptr;
+    device_data[i].d_pdm2=nullptr;
 
 #if defined (_USE_GPU)
     device_data[i].handle = nullptr;
@@ -3470,7 +3488,7 @@ void Device::mgpu_reduce(std::vector<double *> d_ptr, double * h_ptr, int N, boo
 	
 	pm->dev_set_device(src);
 	
-	pm->dev_memcpy_peer(buf_ptr[dest], dest, d_ptr[src], src, size);
+	pm->dev_memcpy_peer(buf_ptr[dest],dest, d_ptr[src], src, size);
 	
 	// dest launches kernel
 	
@@ -3588,4 +3606,398 @@ void Device::mgpu_reduce(std::vector<double *> d_ptr, double * h_ptr, int N, boo
 #endif
 }
 
+/* ---------------------------------------------------------------------- */
+void Device::init_tdm1(int norb)
+{
+  double t0 = omp_get_wtime();
+  int size_tdm1 = norb*norb; 
+  //for (int id=0; id<1; ++id){
+  int id=0;
+  pm->dev_set_device(id);
+  my_device_data * dd = &(device_data[id]);
+  grow_array(dd->d_tdm1, size_tdm1, dd->size_tdm1, "TDM1", FLERR);
+  //}
+  //for (int i=0;i<size_rdm; ++i){dd->d_rdm[i]=0.0;}
+  double t1 = omp_get_wtime();
+  set_to_zero(dd->d_tdm1, norb*norb); 
+  //TODO:t_array[] += t1 - t0;
+} 
+/* ---------------------------------------------------------------------- */
+void Device::init_tdm2(int norb)
+{
+  double t0 = omp_get_wtime();
+  int size_tdm2 = norb*norb*norb*norb; 
+  //for (int id=0; id<1; ++id){
+  int id=0;
+  pm->dev_set_device(id);
+  my_device_data * dd = &(device_data[id]);
+  grow_array(dd->d_tdm2, size_tdm2, dd->size_tdm2, "TDM2", FLERR);
+  //}
+  //for (int i=0;i<size_rdm; ++i){dd->d_rdm[i]=0.0;}
+  double t1 = omp_get_wtime();
+  set_to_zero(dd->d_tdm2, norb*norb*norb*norb); 
+  //TODO:t_array[] += t1 - t0;
+} 
+/* ---------------------------------------------------------------------- */
+void Device::push_ci(py::array_t<double> _cibra, py::array_t<double> _ciket, int na, int nb)
+{
+  double t0 = omp_get_wtime();
+  py::buffer_info info_cibra = _cibra.request(); //2D array (na, nb)
+  double * cibra = static_cast<double*>(info_cibra.ptr);
+  py::buffer_info info_ciket = _ciket.request(); //2D array (na, nb)
+  double * ciket = static_cast<double*>(info_ciket.ptr);
+  int id = 0;
+  pm->dev_set_device(id); 
+  my_device_data * dd = &(device_data[id]);
+  int size_cibra = na*nb;
+  int size_ciket = na*nb;
+  grow_array(dd->d_cibra, size_cibra, dd->size_cibra, "cibra", FLERR);
+  grow_array(dd->d_ciket, size_ciket, dd->size_ciket, "ciket", FLERR);
+
+  pm->dev_push_async(dd->d_cibra, cibra, size_cibra*sizeof(double));
+  pm->dev_push_async(dd->d_ciket, ciket, size_ciket*sizeof(double));
+  pm->dev_barrier();
+  double t1 = omp_get_wtime();
+  
+} 
+/* ---------------------------------------------------------------------- */
+void Device::push_link_indexa(int na, int nlinka, py::array_t<int> _link_indexa)
+{
+  double t0 = omp_get_wtime();
+  //printf("Started push link indexa\n");
+  py::buffer_info info_link_indexa = _link_indexa.request(); //3D array (na, nlinka, 4)
+  int * link_indexa = static_cast<int*>(info_link_indexa.ptr);
+  int id = 0;
+  pm->dev_set_device(id); 
+  my_device_data * dd = &(device_data[id]);
+  int size_clinka = na*nlinka*4; //a,i,str,sign
+  grow_array(dd->d_clinka, size_clinka, dd->size_clinka, "clink", FLERR);
+
+  pm->dev_push_async(dd->d_clinka, link_indexa, size_clinka*sizeof(int));
+
+  //printf("Pushed link indexa\n");
+  double t1 = omp_get_wtime();
+}
+/* ---------------------------------------------------------------------- */
+void Device::push_link_indexb(int nb, int nlinkb, py::array_t<int> _link_indexb)
+{
+  double t0 = omp_get_wtime();
+  //printf("Started push link indexb\n");
+  py::buffer_info info_link_indexb = _link_indexb.request(); //3D array (na, nlinka, 4)
+  int * link_indexb = static_cast<int*>(info_link_indexb.ptr);
+  int id = 0;
+  pm->dev_set_device(id); 
+  my_device_data * dd = &(device_data[id]);
+  int size_clinkb = nb*nlinkb*4; //a,i,str,sign
+  grow_array(dd->d_clinkb, size_clinkb, dd->size_clinkb, "clinkb", FLERR);
+
+  pm->dev_push_async(dd->d_clinkb, link_indexb, size_clinkb*sizeof(int));
+
+  //printf("Pushed link indexb\n");
+  double t1 = omp_get_wtime();
+}
+/* ---------------------------------------------------------------------- */
+void Device::compute_trans_rdm1a(int na, int nb, int nlinka, int nlinkb, int norb)
+{
+  double t0 = omp_get_wtime();
+  int id = 0;
+  pm->dev_set_device(id); 
+  my_device_data * dd = &(device_data[id]);
+  get_rdm1a_from_ci(dd->d_cibra, dd->d_ciket, dd->d_tdm1, norb, na, nb, nlinka, dd->d_clinka);
+  double t1 = omp_get_wtime();
+}
+/* ---------------------------------------------------------------------- */
+void Device::compute_trans_rdm1b(int na, int nb, int nlinka, int nlinkb, int norb)
+{
+  double t0 = omp_get_wtime();
+  int id = 0;
+  pm->dev_set_device(id); 
+  my_device_data * dd = &(device_data[id]);
+  get_rdm1b_from_ci(dd->d_cibra, dd->d_ciket, dd->d_tdm1, norb, na, nb, nlinkb, dd->d_clinkb);
+  double t1 = omp_get_wtime();
+}
+/* ---------------------------------------------------------------------- */
+void Device::compute_tdm12kern_a(int na, int nb, int nlinka, int nlinkb, int norb )
+{
+  double t0 = omp_get_wtime();
+  int id=0;
+  pm->dev_set_device(id);
+  my_device_data * dd = &(device_data[id]);
+ 
+  int norb2 = norb*norb;
+  int size_buf = norb2*nb;
+  int size_rdm2 = norb2*norb2;
+  int size_tdm1 = norb2;
+  int size_tdm2 = norb2*norb2;
+  int size_pdm1 = norb2;
+  int size_pdm2 = norb2*norb2;
+  grow_array(dd->d_tdm1,size_tdm1, dd->size_tdm1, "tdm1", FLERR); //actual returned
+  grow_array(dd->d_tdm2,size_tdm2, dd->size_tdm2, "tdm2", FLERR); //actual returned
+  grow_array(dd->d_pdm1,size_pdm1, dd->size_pdm1, "pdm1", FLERR); //storing results from gemv
+  grow_array(dd->d_pdm2,size_pdm2, dd->size_pdm2, "pdm2", FLERR); //storing results from gemm
+  grow_array(dd->d_buf1,size_buf, dd->size_buf1, "buf1", FLERR); 
+  grow_array(dd->d_buf2,size_buf, dd->size_buf2, "buf2", FLERR); 
+  //set buf array to zero
+  //must also set tdm1/2, pdm1/2 to zero because it may have residual from previous calls
+  #ifdef _DEBUG_FCI2
+  double * h_buf1 = (double *)pm->dev_malloc_host(size_buf*sizeof (double));
+  double * h_buf2 = (double *)pm->dev_malloc_host(size_buf*sizeof (double));
+  double * h_tdm2 = (double *)pm->dev_malloc_host(size_tdm2*sizeof (double));
+  double * h_pdm2 = (double *)pm->dev_malloc_host(size_pdm2*sizeof (double));
+  double buf_check = 0.0;
+  #endif 
+  set_to_zero(dd->d_buf1, size_buf); 
+  set_to_zero(dd->d_buf2, size_buf); 
+  set_to_zero(dd->d_pdm1, size_pdm1); 
+  set_to_zero(dd->d_pdm2, size_pdm2); 
+  set_to_zero(dd->d_tdm1, size_tdm1); 
+  set_to_zero(dd->d_tdm2, size_tdm2); 
+
+  for (int stra_id = 0; stra_id<na; ++stra_id) { 
+    //csum = FCIrdm2_a_t1ci(bra, buf1, bcount, stra_id, strb_id,norb, nb, nlinka, clink_indexa); //Decided to not do bcounts, sent full nb, reduces variables and usually have small ci space
+    compute_FCIrdm2_a_t1ci( dd->d_cibra, dd->d_buf2, stra_id, nb, norb, nlinka, dd->d_clinka); 
+    compute_FCIrdm2_a_t1ci( dd->d_ciket, dd->d_buf1, stra_id, nb, norb, nlinka, dd->d_clinka); 
+    const double alpha = 1.0;
+    const double beta = 1.0;
+    const int one = 1;
+    pm->dev_barrier();
+    #ifdef _DEBUG_FCI2
+      //confirmed FCIrdm2_a_t1ci is working
+      pm->dev_pull_async(dd->d_buf1, h_buf1, size_buf*sizeof(double));
+      pm->dev_barrier();
+      printf("pulled buf1\n");
+      //for (int i=0; i<norb2; ++i) { for (int j=0;j<nb;++j) {printf("%f \t",h_buf1[i*nb+j]);}printf("\n");} 
+      for (int i=0; i<norb2*nb; ++i) {printf("%f \t",h_buf1[i]);}printf("\n"); 
+    #endif
+    double * bravec = &(dd->d_cibra[stra_id*nb]);
+    #if 0
+    //can't get gemv to work right .... 
+    ml->gemv((char *) 'N', &norb2, &nb, 
+                &alpha, 
+                dd->d_buf1, &norb2, 
+                bravec, &one, 
+                &beta, 
+                dd->d_pdm1, &one); //convert to gemv_batched, edit na loop to batches, may need to increase buf
+    #else 
+    gemv_fix(dd->d_buf1, bravec, dd->d_pdm1, norb2, nb, alpha, beta);
+    #endif
+    #if 0
+    ml->gemm((char *) 'T',(char *) 'N', &norb2, &norb2, &nb, 
+                &alpha,
+                dd->d_buf1, &norb2,
+                dd->d_buf2, &norb2,
+                &beta,
+                dd->d_pdm2, &norb2); //convert to gemm_batched, edit na loops to batches
+    printf("Completed gemm %i\n", stra_id);
+    #else
+    gemm_fix(dd->d_buf1, dd->d_buf2, dd->d_pdm2, norb2, nb);
+    #endif
+    #ifdef _DEBUG_FCI2
+      pm->dev_pull_async(dd->d_buf1, h_buf1, size_buf*sizeof(double));
+      pm->dev_pull_async(dd->d_buf2, h_buf2, size_buf*sizeof(double));
+      pm->dev_pull_async(dd->d_pdm2, h_pdm2, size_pdm2*sizeof(double));
+      pm->dev_barrier();
+      double tmp = 0.0;
+      for (int i=0;i<norb2; ++i){ 
+        for (int k=0;k<norb2; ++k){
+          tmp = 0.0;
+          for (int j=0;j<nb; ++j){
+            tmp+=h_buf1[j*norb2+i]*h_buf2[j*norb2+k]; 
+          }
+          h_pdm2[k*norb2+i]+=tmp;
+        }
+      }
+      for(int i=0;i<norb2*norb2;++i){h_tdm2[i]+=h_pdm2[i];}
+      //printf("PDM from iteration\n");
+    #endif
+    vecadd(dd->d_pdm2, dd->d_tdm2, norb2*norb2);
+    vecadd(dd->d_pdm1, dd->d_tdm1, norb2);
+    set_to_zero(dd->d_pdm1, size_pdm1); 
+    set_to_zero(dd->d_pdm2, size_pdm2); 
+    set_to_zero(dd->d_buf1, size_buf); 
+    set_to_zero(dd->d_buf2, size_buf); 
+    //printf("Completed vecadd %i\n", stra_id);
+  }     
+  #ifdef _DEBUG_FCI2
+  for (int i=0;i<norb2*norb2;++i){h_pdm2[i]=h_tdm2[i];}
+  for (int i=0;i<norb;++i){for (int j=0;j<norb;++j){for(int k=0;k<norb2; ++k){h_tdm2[(j*norb+i)*norb2+k]=h_pdm2[(i*norb+j)*norb2+k];}}}
+  for (int i=0;i<norb2; ++i){for (int j=0; j<norb2; ++j){printf("%f \t", h_tdm2[i*norb2+j]);}printf("\n");}
+  #endif
+  transpose_jikl(dd->d_tdm2, dd->d_pdm2, norb);
+}
+
+/* ---------------------------------------------------------------------- */
+void Device::compute_tdm12kern_b(int na, int nb, int nlinka, int nlinkb, int norb)
+{
+  double t0 = omp_get_wtime();
+  int id=0;
+  pm->dev_set_device(id);
+  my_device_data * dd = &(device_data[id]);
+ 
+  int norb2 = norb*norb;
+  int size_buf = norb2*nb;
+  int size_rdm2 = norb2*norb2;
+  int size_tdm1 = norb2;
+  int size_tdm2 = norb2*norb2;
+  int size_pdm1 = norb2;
+  int size_pdm2 = norb2*norb2;
+  grow_array(dd->d_tdm1,size_tdm1, dd->size_tdm1, "tdm1", FLERR); //actual returned
+  grow_array(dd->d_tdm2,size_tdm2, dd->size_tdm2, "tdm2", FLERR); //actual returned
+  grow_array(dd->d_pdm1,size_pdm1, dd->size_pdm1, "pdm1", FLERR); //storing results from gemv
+  grow_array(dd->d_pdm2,size_pdm2, dd->size_pdm2, "pdm2", FLERR); //storing results from gemm
+  grow_array(dd->d_buf1,size_buf, dd->size_buf1, "buf1", FLERR); 
+  grow_array(dd->d_buf2,size_buf, dd->size_buf2, "buf2", FLERR); 
+  //set buf array to zero
+  //must also set tdm1/2, pdm1/2 to zero because it may have residual from previous calls
+  set_to_zero(dd->d_buf1, size_buf); 
+  set_to_zero(dd->d_buf2, size_buf); 
+  set_to_zero(dd->d_tdm1, size_tdm1); 
+  set_to_zero(dd->d_tdm2, size_tdm2); 
+  set_to_zero(dd->d_pdm1, size_pdm1); 
+  set_to_zero(dd->d_pdm2, size_pdm2); 
+  #ifdef _DEBUG_FCI2
+  double * h_buf1 = (double *)pm->dev_malloc_host(size_buf*sizeof (double));
+  double * h_buf2 = (double *)pm->dev_malloc_host(size_buf*sizeof (double));
+  double * h_tdm2 = (double *)pm->dev_malloc_host(size_tdm2*sizeof (double));
+  double * h_pdm2 = (double *)pm->dev_malloc_host(size_pdm2*sizeof (double));
+  double buf_check = 0.0;
+  #endif 
+
+  for (int stra_id = 0; stra_id<na; ++stra_id) { 
+    //csum = FCIrdm2_a_t1ci(bra, buf1, bcount, stra_id, strb_id,norb, nb, nlinka, clink_indexa); //Decided to not do bcounts, sent full nb, reduces variables and usually have small ci space
+    compute_FCIrdm2_b_t1ci( dd->d_cibra, dd->d_buf2, stra_id, nb, norb, nlinkb, dd->d_clinkb); 
+    compute_FCIrdm2_b_t1ci( dd->d_ciket, dd->d_buf1, stra_id, nb, norb, nlinkb, dd->d_clinkb); 
+    const double alpha = 1.0;
+    const double beta = 1.0;
+    const int one = 1;
+    double * bravec = &(dd->d_cibra[stra_id*nb]);//bra+stra_id*nb+strb_id;
+    #if 0
+    ml->gemv((char *) 'N', &norb2, &nb, 
+                &alpha, 
+                dd->d_buf1, &norb2, 
+                bravec, &one, 
+                &beta, 
+                dd->d_pdm1, &one); //convert to gemv_batched, edit na loop to batches, may need to increase buf
+    #else
+    gemv_fix(dd->d_buf1, bravec, dd->d_pdm1, norb2, nb, alpha, beta);
+    #endif
+    #if 0
+    ml->gemm((char *) 'N',(char *) 'T', &norb2, &norb2, &nb, 
+                &alpha,
+                dd->d_buf1, &norb2,
+                dd->d_buf2, &norb2, 
+                &beta,
+                dd->d_pdm2, &norb2); //convert to gemm_batched, edit na loops to batches
+    #else
+    gemm_fix(dd->d_buf1, dd->d_buf2, dd->d_pdm2, norb2, nb); 
+    #endif
+    #ifdef _DEBUG_FCI2
+      pm->dev_pull_async(dd->d_buf1, h_buf1, size_buf*sizeof(double));
+      pm->dev_pull_async(dd->d_buf2, h_buf2, size_buf*sizeof(double));
+      pm->dev_pull_async(dd->d_pdm2, h_pdm2, size_pdm2*sizeof(double));
+      pm->dev_barrier();
+      printf("buf1\n");
+      for (int i=0;i<nb;++i){for (int j=0;j<norb2; ++j){printf("%f\t",h_buf1[i*norb2+j]);}printf("\n");}
+      printf("buf2\n");
+      for (int i=0;i<nb;++i){for (int j=0;j<norb2; ++j){printf("%f\t",h_buf2[i*norb2+j]);}printf("\n");}
+      double tmp = 0.0;
+      for (int i=0;i<norb2; ++i){ 
+        for (int k=0;k<norb2; ++k){
+          tmp = 0.0;
+          for (int j=0;j<nb; ++j){
+            tmp+=h_buf1[j*norb2+i]*h_buf2[j*norb2+k]; 
+          }
+          h_pdm2[k*norb2+i]+=tmp;
+        }
+      }
+      for(int i=0;i<norb2*norb2;++i){h_tdm2[i]+=h_pdm2[i];}
+      printf("pdm2\n");
+      for (int i=0;i<norb2; ++i){for (int j=0; j<norb2; ++j){printf("%f \t", h_pdm2[i*norb2+j]);}printf("\n");}
+    #endif
+
+    vecadd(dd->d_pdm2, dd->d_tdm2, norb2*norb2);
+    vecadd(dd->d_pdm1, dd->d_tdm1, norb2);
+    set_to_zero(dd->d_pdm1, size_pdm1);
+    set_to_zero(dd->d_pdm2, size_pdm2);
+    set_to_zero(dd->d_buf1, size_buf);
+    set_to_zero(dd->d_buf2, size_buf);
+      }     
+  #ifdef _DEBUG_FCI2
+  for (int i=0;i<norb2*norb2;++i){h_pdm2[i]=h_tdm2[i];}
+  for (int i=0;i<norb;++i){for (int j=0;j<norb;++j){for(int k=0;k<norb2; ++k){h_tdm2[(j*norb+i)*norb2+k]=h_pdm2[(i*norb+j)*norb2+k];}}}
+  for (int i=0;i<norb2; ++i){for (int j=0; j<norb2; ++j){printf("%f \t", h_tdm2[i*norb2+j]);}printf("\n");}
+  #endif
+    transpose_jikl(dd->d_tdm2, dd->d_pdm2, norb);
+
+}
+/* ---------------------------------------------------------------------- */
+void Device::compute_tdm12kern_ab(int na, int nb, int nlinka, int nlinkb, int norb)
+{
+  double t0 = omp_get_wtime();
+  int id=0;
+  pm->dev_set_device(id);
+  my_device_data * dd = &(device_data[id]);
+ 
+  int norb2 = norb*norb;
+  int size_buf = norb2*nb;
+  int size_rdm2 = norb2*norb2;
+  int size_tdm2 = norb2*norb2;
+  int size_pdm2 = norb2*norb2;
+  //no rdm1, tdm1, pdm1
+  grow_array(dd->d_tdm2,size_tdm2, dd->size_tdm2, "tdm2", FLERR); //actual returned
+  grow_array(dd->d_pdm2,size_pdm2, dd->size_pdm2, "pdm2", FLERR); //storing results from gemm
+  grow_array(dd->d_buf1,size_buf, dd->size_buf1, "buf1", FLERR);  
+  grow_array(dd->d_buf2,size_buf, dd->size_buf2, "buf2", FLERR); 
+  //set buf array to zero
+  set_to_zero(dd->d_buf2, size_buf); 
+  set_to_zero(dd->d_buf1, size_buf); 
+  set_to_zero(dd->d_tdm2, size_tdm2);
+  set_to_zero(dd->d_pdm2, size_pdm2);
+  for (int stra_id = 0; stra_id<na; ++stra_id) { 
+    compute_FCIrdm2_a_t1ci( dd->d_cibra, dd->d_buf2, stra_id, nb, norb, nlinka, dd->d_clinka); 
+    compute_FCIrdm2_b_t1ci( dd->d_ciket, dd->d_buf1, stra_id, nb, norb, nlinkb, dd->d_clinkb); 
+    const double alpha = 1.0;
+    const double beta = 1.0;
+    const int one = 1;
+    #if 0
+    ml->gemm((char *) 'N',(char *) 'T', &norb2, &norb2, &nb, 
+                &alpha,
+                dd->d_buf1, &norb2,
+                dd->d_buf2, &norb2, 
+                &beta,
+                dd->d_pdm2, &norb2); //convert to gemm_batched, edit na loops to batches
+    #else
+    gemm_fix(dd->d_buf1, dd->d_buf2, dd->d_pdm2, norb2, nb);
+    #endif
+    vecadd(dd->d_pdm2, dd->d_tdm2, norb2*norb2);
+    set_to_zero(dd->d_pdm2, size_pdm2);
+    set_to_zero(dd->d_buf2, size_buf);
+    set_to_zero(dd->d_buf1, size_buf);
+      }     
+    transpose_jikl(dd->d_tdm2, dd->d_pdm2, norb);
+}
+/* ---------------------------------------------------------------------- */
+void Device::pull_tdm1(py::array_t<double> _tdm1, int norb)
+{
+  double t0 = omp_get_wtime();
+  py::buffer_info info_tdm1 = _tdm1.request(); //2D array (norb, norb)
+  double * tdm1 = static_cast<double*>(info_tdm1.ptr);
+  int id = 0;
+  pm->dev_set_device(id); 
+  my_device_data * dd = &(device_data[id]);
+  pm->dev_pull_async(dd->d_tdm1, tdm1, norb*norb*sizeof(double));
+  double t1 = omp_get_wtime();
+}
+/* ---------------------------------------------------------------------- */
+void Device::pull_tdm2(py::array_t<double> _tdm2, int norb)
+{
+  double t0 = omp_get_wtime();
+  py::buffer_info info_tdm2 = _tdm2.request(); //4D array (norb, norb, norb, norb)
+  double * tdm2 = static_cast<double*>(info_tdm2.ptr);
+  int id = 0;
+  pm->dev_set_device(id); 
+  my_device_data * dd = &(device_data[id]);
+  pm->dev_pull_async(dd->d_tdm2, tdm2, norb*norb*norb*norb*sizeof(double));
+  double t1 = omp_get_wtime();
+}
 /* ---------------------------------------------------------------------- */
