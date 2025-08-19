@@ -214,9 +214,11 @@ def iterate_subspace_blocks (las, ci, spacesym, subset=None, spaces=None):
         my_fcisolvers = [[] for i in range (las.nfrags)]
         my_e_states = []
         nelec_blk = np.zeros ((las.nfrags,len(idx),2), dtype=int)
+        smult_blk = np.zeros ((las.nfrags,len(idx)), dtype=int)
         for i0, i in enumerate (idx):
             idx_prod[prod_off[i]:prod_off[i]+nprods_r[i]] = True
             nelec_blk[:,i0,:] = np.stack ([spaces[i].neleca, spaces[i].nelecb], axis=1)
+            smult_blk[:,i0] = spaces[i].smults
             for j in range (las.nfrags):
                 if len (las.fciboxes[j].fcisolvers) > i:
                     my_fcisolver = spaces[i].check_fcisolver (j, las.fciboxes[j].fcisolvers[i])
@@ -225,7 +227,7 @@ def iterate_subspace_blocks (las, ci, spacesym, subset=None, spaces=None):
                 my_fcisolvers[j].append (my_fcisolver)
             my_e_states.append (spaces[i].energy_tot)
         with _LASSI_subspace_env (las, my_fcisolvers, my_e_states):
-            yield las, sym, (idx_space, idx_prod), (ci_blk, nelec_blk)
+            yield las, sym, (idx_space, idx_prod), (ci_blk, nelec_blk, smult_blk)
 
 class LASSIOop01DisagreementError (RuntimeError):
     def __init__(self, message, errvec):
@@ -275,7 +277,7 @@ def lassi (las, mo_coeff=None, ci=None, veff_c=None, h2eff_sub=None, orbsym=None
     if not break_symmetry: qn_lbls.append ('irrep')
     for it, (las1,sym,indices,indexed) in enumerate (iterate_subspace_blocks(las,ci,statesym)):
         idx_space, idx_prod = indices
-        ci_blk, nelec_blk = indexed
+        ci_blk, nelec_blk, smult_blk = indexed
         idx_allprods.extend (list(np.where(idx_prod)[0]))
         lib.logger.info (las, 'Build + diag H matrix LASSI symmetry block %d\n'
                          + '{} = {}\n'.format (qn_lbls, sym)
@@ -290,8 +292,8 @@ def lassi (las, mo_coeff=None, ci=None, veff_c=None, h2eff_sub=None, orbsym=None
             rootsym.extend ([sym,])
             continue
         wfnsym = None if break_symmetry else sym[-1]
-        las.converged_si, e, c, s2_blk = _eig_block (las1, e0, h1, h2, ci_blk, nelec_blk, soc, opt,
-                                                     davidson_only=davidson_only,
+        las.converged_si, e, c, s2_blk = _eig_block (las1, e0, h1, h2, ci_blk, nelec_blk, smult_blk,
+                                                     soc, opt, davidson_only=davidson_only,
                                                      max_memory=max_memory)
         si.append (c)
         e_roots.extend (list(e))
@@ -348,8 +350,8 @@ def lassi (las, mo_coeff=None, ci=None, veff_c=None, h2eff_sub=None, orbsym=None
             break
     return e_roots, si
 
-def _eig_block (las, e0, h1, h2, ci_blk, nelec_blk, soc, opt, max_memory=param.MAX_MEMORY,
-                davidson_only=False):
+def _eig_block (las, e0, h1, h2, ci_blk, nelec_blk, smult_blk, soc, opt,
+                max_memory=param.MAX_MEMORY, davidson_only=False):
     nstates = np.prod (get_lroots (ci_blk), axis=0).sum ()
     req_memory = 24*nstates*nstates/1e6
     current_memory = lib.current_memory ()[0]
@@ -360,10 +362,10 @@ def _eig_block (las, e0, h1, h2, ci_blk, nelec_blk, soc, opt, max_memory=param.M
         lib.logger.info (las, "Need %f MB of %f MB av for incore LASSI diag; Davidson alg forced",
                          req_memory, max_memory-current_memory)
     if davidson_only or current_memory+req_memory > max_memory:
-        return _eig_block_Davidson (las, e0, h1, h2, ci_blk, nelec_blk, soc, opt)
+        return _eig_block_Davidson (las, e0, h1, h2, ci_blk, nelec_blk, smult_blk, soc, opt)
     return _eig_block_incore (las, e0, h1, h2, ci_blk, nelec_blk, soc, opt)
 
-def _eig_block_Davidson (las, e0, h1, h2, ci_blk, nelec_blk, soc, opt):
+def _eig_block_Davidson (las, e0, h1, h2, ci_blk, nelec_blk, smult_blk, soc, opt):
     # si0
     # nroots_si
     # level_shift
@@ -380,7 +382,8 @@ def _eig_block_Davidson (las, e0, h1, h2, ci_blk, nelec_blk, soc, opt):
     )
     t0 = (lib.logger.process_clock (), lib.logger.perf_counter ())
     m0 = lib.current_memory ()[0]
-    raw2orth = citools.get_orth_basis (ci_blk, las.ncas_sub, nelec_blk, _get_ovlp=_get_ovlp)
+    raw2orth = citools.get_orth_basis (ci_blk, las.ncas_sub, nelec_blk, _get_ovlp=_get_ovlp,
+                                       smult_fr=smult_blk)
     m1 = lib.current_memory ()[0]
     t0 = log.timer ('LASSI get orthogonal basis ({:.2f} MB)'.format (m1-m0), *t0)
     precond_op_raw = lib.make_diag_precond (hdiag, level_shift=level_shift)
@@ -577,7 +580,7 @@ def make_stdm12s (las, ci=None, orbsym=None, soc=False, break_symmetry=False, sp
     nprods = 0
     for las1, sym, indices, indexed in iterate_subspace_blocks (las, ci, statesym, spaces=spaces):
         idx_sp, idx_prod = indices
-        ci_blk, nelec_blk = indexed
+        ci_blk, nelec_blk, smult_blk = indexed
         t0 = (lib.logger.process_clock (), lib.logger.perf_counter ())
         wfnsym = None if break_symmetry else sym[-1]
         # TODO: implement SOC in op_o1 and then re-enable the debugging block below
@@ -711,7 +714,7 @@ def roots_trans_rdm12s (las, ci, si_bra, si_ket, orbsym=None, soc=None, break_sy
     assert (all ([b==k for b, k in zip (rootsym, rootsym_ket)]))
     for las1, sym, indcs, indxd in iterate_subspace_blocks(las,ci,statesym,subset=set(rootsym),spaces=spaces):
         idx_ci, idx_prod = indcs
-        ci_blk, nelec_blk = indxd
+        ci_blk, nelec_blk, smult_blk = indxd
         idx_si = np.all (np.array (rootsym) == sym, axis=1)
         wfnsym = None if break_symmetry else sym[-1]
         sib_blk = si_bra[np.ix_(idx_prod,idx_si)]

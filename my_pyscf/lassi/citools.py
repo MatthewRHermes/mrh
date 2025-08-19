@@ -124,7 +124,7 @@ def _umat_dot_1frag (target, umat, lroots, ifrag):
     old_shape2[0] = old_shape2[0] * ncol2 // ncol1
     return target.reshape (*old_shape2)
 
-def get_orth_basis (ci_fr, norb_f, nelec_frs, _get_ovlp=None):
+def get_orth_basis (ci_fr, norb_f, nelec_frs, _get_ovlp=None, smult_fr=None):
     '''Unitary matrix for an orthonormal product-state basis from a set of CI vectors.
 
     Args:
@@ -148,7 +148,10 @@ def get_orth_basis (ci_fr, norb_f, nelec_frs, _get_ovlp=None):
         from mrh.my_pyscf.lassi.op_o0 import get_ovlp
         _get_ovlp = functools.partial (get_ovlp, ci_fr, norb_f, nelec_frs)
     nfrags, nroots = nelec_frs.shape[:2]
-    unique, uniq_idx, inverse, cnts = np.unique (nelec_frs, axis=1, return_index=True,
+    tabulator = nelec_frs
+    if smult_fr is not None:
+        tabulator = np.append (tabulator, smult_fr[:,:,None], axis=2)
+    unique, uniq_idx, inverse, cnts = np.unique (tabulator, axis=1, return_index=True,
                                                  return_inverse=True, return_counts=True)
     lroots_fr = np.array ([[1 if c.ndim<3 else c.shape[0]
                             for c in ci_r]
