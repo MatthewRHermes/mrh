@@ -63,9 +63,9 @@ def _trans_rdm1s(cibra, ciket, norb, nelec, link_index=None, use_gpu = False, gp
     1pdm[p,q] = :math:`\langle q^\dagger p \rangle`
     '''
     rdm1a = rdm.make_rdm1_spin1('FCItrans_rdm1a', cibra, ciket,
-                                norb, nelec, link_index, use_gpu = use_gpu, gpu = gpu)
+                                norb, nelec, link_index)#, _use_gpu = use_gpu, _gpu = gpu)
     rdm1b = rdm.make_rdm1_spin1('FCItrans_rdm1b', cibra, ciket,
-                                norb, nelec, link_index, use_gpu = use_gpu, gpu = gpu)
+                                norb, nelec, link_index)#, _use_gpu = use_gpu, _gpu = gpu)
     return rdm1a, rdm1b
 
 def _trans_rdm12s(cibra, ciket, norb, nelec, link_index=None, reorder=True, use_gpu = False, gpu=None):
@@ -82,13 +82,13 @@ def _trans_rdm12s(cibra, ciket, norb, nelec, link_index=None, reorder=True, use_
     2pdm[p,q,r,s] = :math:`\langle p^\dagger r^\dagger s q\rangle`.
     '''
     dm1a, dm2aa = rdm.make_rdm12_spin1('FCItdm12kern_a', cibra, ciket,
-                                       norb, nelec, link_index, 2, use_gpu = use_gpu, gpu = gpu)
+                                       norb, nelec, link_index, 2)#, _use_gpu = use_gpu, _gpu = gpu)
     dm1b, dm2bb = rdm.make_rdm12_spin1('FCItdm12kern_b', cibra, ciket,
-                                       norb, nelec, link_index, 2, use_gpu = use_gpu, gpu = gpu)
+                                       norb, nelec, link_index, 2)#, _use_gpu = use_gpu, _gpu = gpu)
     _, dm2ab = rdm.make_rdm12_spin1('FCItdm12kern_ab', cibra, ciket,
-                                       norb, nelec, link_index, 0, use_gpu = use_gpu, gpu = gpu)
+                                       norb, nelec, link_index, 0)#, _use_gpu = use_gpu, _gpu = gpu)
     _, dm2ba = rdm.make_rdm12_spin1('FCItdm12kern_ab', ciket, cibra,
-                                       norb, nelec, link_index, 0, use_gpu = use_gpu, gpu = gpu)
+                                       norb, nelec, link_index, 0)#, _use_gpu = use_gpu, _gpu = gpu)
     dm2ba = dm2ba.transpose(3,2,1,0)
     if reorder:
         dm1a, dm2aa = rdm.reorder_rdm(dm1a, dm2aa, inplace=True)

@@ -7,7 +7,11 @@ from pyscf import gto, scf, tools, mcscf, lib
 from pyscf.fci import rdm, cistring
 from pyscf.fci.addons import _unpack_nelec
 from mrh.my_pyscf.mcscf.lasscf_async import LASSCF
-if gpu_run:gpu = libgpu.init()
+
+if gpu_run:
+  gpu = libgpu.init()
+  from pyscf.lib import param
+  param.use_gpu = gpu
 lib.logger.TIMER_LEVEL=lib.logger.INFO
 
 geom = ''' K 0 0 0;
@@ -34,9 +38,9 @@ if neleca != nelecb: link_indexb = cistring.gen_linkstr_index(range(norb), nelec
 
 na = link_indexa.shape[0]
 nb = link_indexb.shape[0]
-cibra = np.arange(na*nb).reshape(na,nb)+100.0#+[np.random.random((na,nb))>0.5]
-ciket = np.arange(na*nb).reshape(na,nb)+1.0#+[np.random.random((na,nb))>0.5]
+cibra = np.random.random((na,nb))
+ciket = np.random.random((na,nb))
 link_index = (link_indexa, link_indexb)
-rdm.make_rdm12_spin1('FCItdm12kern_a', cibra, ciket, norb, nelec, link_index, use_gpu = True, gpu=gpu)
-rdm.make_rdm12_spin1('FCItdm12kern_b', cibra, ciket, norb, nelec, link_index, use_gpu = True, gpu=gpu)
-rdm.make_rdm12_spin1('FCItdm12kern_ab', cibra, ciket, norb, nelec, link_index, use_gpu = True, gpu=gpu)
+rdm.make_rdm12_spin1('FCItdm12kern_a', cibra, ciket, norb, nelec, link_index)#, use_gpu = True, gpu=gpu)
+rdm.make_rdm12_spin1('FCItdm12kern_b', cibra, ciket, norb, nelec, link_index)#, use_gpu = True, gpu=gpu)
+rdm.make_rdm12_spin1('FCItdm12kern_ab', cibra, ciket, norb, nelec, link_index)#, use_gpu = True, gpu=gpu)

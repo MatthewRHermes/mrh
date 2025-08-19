@@ -3703,7 +3703,14 @@ void Device::compute_trans_rdm1a(int na, int nb, int nlinka, int nlinkb, int nor
   int id = 0;
   pm->dev_set_device(id); 
   my_device_data * dd = &(device_data[id]);
-  get_rdm1a_from_ci(dd->d_cibra, dd->d_ciket, dd->d_tdm1, norb, na, nb, nlinka, dd->d_clinka);
+
+  int norb2 = norb*norb;
+  int size_tdm1 = norb2;
+  grow_array(dd->d_tdm1,size_tdm1, dd->size_tdm1, "tdm1", FLERR); //actual returned
+  set_to_zero(dd->d_tdm1, size_tdm1);
+
+  compute_FCItrans_rdm1a(dd->d_cibra, dd->d_ciket, dd->d_tdm1, norb, na, nb, nlinka, dd->d_clinka);
+
   double t1 = omp_get_wtime();
 }
 /* ---------------------------------------------------------------------- */
@@ -3713,9 +3720,47 @@ void Device::compute_trans_rdm1b(int na, int nb, int nlinka, int nlinkb, int nor
   int id = 0;
   pm->dev_set_device(id); 
   my_device_data * dd = &(device_data[id]);
-  get_rdm1b_from_ci(dd->d_cibra, dd->d_ciket, dd->d_tdm1, norb, na, nb, nlinkb, dd->d_clinkb);
+
+  int norb2 = norb*norb;
+  int size_tdm1 = norb2;
+  grow_array(dd->d_tdm1,size_tdm1, dd->size_tdm1, "tdm1", FLERR); //actual returned
+  set_to_zero(dd->d_tdm1, size_tdm1);
+
+  compute_FCItrans_rdm1b(dd->d_cibra, dd->d_ciket, dd->d_tdm1, norb, na, nb, nlinkb, dd->d_clinkb);
   double t1 = omp_get_wtime();
 }
+/* ---------------------------------------------------------------------- */
+void Device::compute_make_rdm1a(int na, int nb, int nlinka, int nlinkb, int norb)
+{
+  double t0 = omp_get_wtime();
+  int id = 0;
+  pm->dev_set_device(id); 
+  my_device_data * dd = &(device_data[id]);
+  int norb2 = norb*norb;
+  int size_tdm1 = norb2;
+  grow_array(dd->d_tdm1,size_tdm1, dd->size_tdm1, "tdm1", FLERR); //actual returned
+  set_to_zero(dd->d_tdm1, size_tdm1);
+  
+  compute_FCImake_rdm1a(dd->d_cibra, dd->d_ciket, dd->d_tdm1, norb, na, nb, nlinka, dd->d_clinka);
+  double t1 = omp_get_wtime();
+}
+/* ---------------------------------------------------------------------- */
+void Device::compute_make_rdm1b(int na, int nb, int nlinka, int nlinkb, int norb)
+{
+  double t0 = omp_get_wtime();
+  int id = 0;
+  pm->dev_set_device(id); 
+  my_device_data * dd = &(device_data[id]);
+
+  int norb2 = norb*norb;
+  int size_tdm1 = norb2;
+  grow_array(dd->d_tdm1,size_tdm1, dd->size_tdm1, "tdm1", FLERR); //actual returned
+  set_to_zero(dd->d_tdm1, size_tdm1);
+
+  compute_FCImake_rdm1b(dd->d_cibra, dd->d_ciket, dd->d_tdm1, norb, na, nb, nlinkb, dd->d_clinkb);
+  double t1 = omp_get_wtime();
+}
+
 /* ---------------------------------------------------------------------- */
 void Device::compute_tdm12kern_a(int na, int nb, int nlinka, int nlinkb, int norb )
 {
