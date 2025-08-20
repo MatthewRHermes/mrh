@@ -531,7 +531,6 @@ __global__ void _compute_FCItrans_rdm1a(double * cibra, double * ciket, double *
     int sign  = link_index[4*str0*nlinka + 4*j + 3];
     double * pket = &(ciket[str0*nb]);
     double * pbra = &(cibra[str1*nb]);
-    double result = 0.0;
     for (int k=0; k<nb; ++k){
        atomicAdd(&(rdm[a*norb+i]), sign*pbra[k]*pket[k]);
     }
