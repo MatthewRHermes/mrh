@@ -31,6 +31,7 @@ def prepare_model_states (lsi, ci_ref, ci_sf, ci_ch):
     log = logger.new_logger (lsi, lsi.verbose)
     las = lsi.get_las_of_ci_ref (ci_ref)
     space0 = list_spaces (las)[0]
+    good_spin = space0.civecs_have_good_spin ()
     # Make spin flip objects
     spin_flips = []
     for i in range (las.nfrags):
@@ -46,7 +47,9 @@ def prepare_model_states (lsi, ci_ref, ci_sf, ci_ch):
             smults1.append (smult+2)
             spins1.append (smult+1)
             ci1.append (ci_sf[i][1])
-        spin_flips.append (SpinFlips (las.mol, ci1, space0.nlas[i], space0.nelec[i], spins1, smults1))
+        spin_flip_i = SpinFlips (las.mol, ci1, space0.nlas[i], space0.nelec[i], spins1, smults1)
+        good_spin = good_spin and spin_flip_i.civecs_have_good_spin ()
+        spin_flips.append (spin_flip_i)
     # Make charge-hop objects
     spaces = [space0]
     spaces_ch = [[[] for a in range (lsi.nfrags)] for i in range (lsi.nfrags)]
@@ -57,6 +60,7 @@ def prepare_model_states (lsi, ci_ref, ci_sf, ci_ch):
             dsi = -1 + (s//2)*2
             dsa = -1 + (s%2)*2
             space_ias = space0.get_single_any_m (i, a, dsi, dsa, ci_i=ci_i, ci_a=ci_a)
+            good_spin = good_spin and space_ias.civecs_have_good_spin (ifrag=(i,a))
             spaces.append (space_ias)
             spaces_ch[i][a].append (space_ias)
     # Excitation products and spin-shuffling
@@ -83,7 +87,7 @@ def prepare_model_states (lsi, ci_ref, ci_sf, ci_ch):
             las.fciboxes[ifrag].fcisolvers[iroot].norb = norb
             las.fciboxes[ifrag].fcisolvers[iroot].spin = spin
     log.timer ("LASSIS model space preparation", *t0)
-    return las, entmaps
+    return las, entmaps, good_spin
 
 def prepare_fbf (lsi, ci_ref, ci_sf, ci_ch, ncharge=1, nspin=0, sa_heff=True,
                  deactivate_vrv=False, crash_locmin=False):
@@ -263,6 +267,13 @@ class SpinFlips (object):
             solver.check_transformer_cache ()
             self.fcisolvers.append (solver)
         assert (len (self.ci) == len (self.fcisolvers))
+
+    def civecs_have_good_spin (self):
+        good_spin = True
+        for ci, solver in zip (self.ci, self.fcisolvers):
+            norm = solver.transformer.vec_det2csf (ci, return_norm=True)[1]
+            good_spin = good_spin and np.allclose (norm, 1.0)
+        return good_spin
 
 def all_spin_flips (lsi, las, ci_sf, nspin=1, ham_2q=None):
     # NOTE: this actually only uses the -first- rootspace in las, so it can be done before
@@ -656,7 +667,7 @@ class LASSIS (LASSI):
         self.ci_spin_flips = ci_sf
         self.ci_charge_hops = ci_ch
 
-        las, self.entmaps = self.prepare_model_states (ci_ref, ci_sf, ci_ch)
+        las, self.entmaps, self.good_spin = self.prepare_model_states (ci_ref, ci_sf, ci_ch)
         #self.__dict__.update(las.__dict__) # Unsafe
         self.fciboxes = las.fciboxes
         self.ci = las.ci

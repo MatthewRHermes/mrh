@@ -2,7 +2,7 @@ import numpy as np
 from scipy import linalg
 from pyscf.fci.direct_spin1 import _unpack_nelec
 from pyscf.fci import cistring
-from pyscf.lib import logger
+from pyscf.lib import logger, issequence
 from pyscf.lo.orth import vec_lowdin
 from pyscf import symm, __config__
 from mrh.my_pyscf.lib.logger import select_log_printer
@@ -452,6 +452,22 @@ class SingleLASRootspace (object):
         else:
             fcisolver = self.get_fcisolver (ifrag)
         return fcisolver
+
+    def civecs_have_good_spin (self, ifrag=None, ci=None):
+        if ci is None:
+            assert (self.has_ci ())
+            ci = self.ci
+        if ifrag is None:
+            ifrag = list (range (self.nfrag))
+        if issequence (ifrag):
+            result = True
+            for iifrag in ifrag:
+                result = result and self.civecs_have_good_spin (ifrag=iifrag, ci=ci)
+            return result
+        ci = ci[ifrag]
+        t = self.get_fcisolver (ifrag).transformer
+        norm = t.vec_det2csf (ci, return_norm=True)[1]
+        return np.allclose (norm, 1.0)
 
     def get_product_state_solver (self, lroots=None, lweights='gs'):
         fcisolvers = self.get_fcisolvers ()

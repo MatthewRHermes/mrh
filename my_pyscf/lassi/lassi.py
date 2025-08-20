@@ -239,7 +239,7 @@ class LASSIOop01DisagreementError (RuntimeError):
         return self.message
 
 def lassi (las, mo_coeff=None, ci=None, veff_c=None, h2eff_sub=None, orbsym=None, soc=False,
-           break_symmetry=False, opt=1, davidson_only=None):
+           break_symmetry=False, opt=1, good_spin=False, davidson_only=None):
     ''' Diagonalize the state-interaction matrix of LASSCF '''
     if mo_coeff is None: mo_coeff = las.mo_coeff
     if ci is None: ci = las.ci
@@ -292,6 +292,7 @@ def lassi (las, mo_coeff=None, ci=None, veff_c=None, h2eff_sub=None, orbsym=None
             rootsym.extend ([sym,])
             continue
         wfnsym = None if break_symmetry else sym[-1]
+        if not good_spin: smult_blk = None
         las.converged_si, e, c, s2_blk = _eig_block (las1, e0, h1, h2, ci_blk, nelec_blk, smult_blk,
                                                      soc, opt, davidson_only=davidson_only,
                                                      max_memory=max_memory)
@@ -941,6 +942,7 @@ class LASSI(lib.StreamObject):
         self.level_shift_si = LEVEL_SHIFT_SI
         self.nroots_si = nroots_si
         self.converged_si = False
+        self.good_spin = False
         self._keys = set((self.__dict__.keys())).union(keys)
 
     def kernel(self, mo_coeff=None, ci=None, veff_c=None, h2eff_sub=None, orbsym=None, soc=None,\
@@ -958,8 +960,9 @@ class LASSI(lib.StreamObject):
         t0 = (lib.logger.process_clock (), lib.logger.perf_counter ())
         if not self.converged:
             log.warn ('LASSI state preparation step not converged!')
-        e_roots, si = lassi(self, mo_coeff=mo_coeff, ci=ci, veff_c=veff_c, h2eff_sub=h2eff_sub, orbsym=orbsym, \
-                            soc=soc, break_symmetry=break_symmetry, davidson_only=davidson_only, opt=opt)
+        e_roots, si = lassi(self, mo_coeff=mo_coeff, ci=ci, veff_c=veff_c, h2eff_sub=h2eff_sub,
+                            orbsym=orbsym, soc=soc, break_symmetry=break_symmetry,
+                            davidson_only=davidson_only, good_spin=self.good_spin, opt=opt)
         self.e_roots = e_roots
         self.converged = self.converged and self.converged_si
         self.si, self.s2, self.nelec, self.wfnsym, self.rootsym, self.break_symmetry, self.soc  = \
