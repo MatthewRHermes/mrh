@@ -363,7 +363,7 @@ def _eig_block (las, e0, h1, h2, ci_blk, nelec_blk, smult_blk, soc, opt,
                          req_memory, max_memory-current_memory)
     if davidson_only or current_memory+req_memory > max_memory:
         return _eig_block_Davidson (las, e0, h1, h2, ci_blk, nelec_blk, smult_blk, soc, opt)
-    return _eig_block_incore (las, e0, h1, h2, ci_blk, nelec_blk, soc, opt)
+    return _eig_block_incore (las, e0, h1, h2, ci_blk, nelec_blk, smult_blk, soc, opt)
 
 def _eig_block_Davidson (las, e0, h1, h2, ci_blk, nelec_blk, smult_blk, soc, opt):
     # si0
@@ -425,7 +425,7 @@ def get_init_guess_si (hdiag, nroots, si1):
             si0[i] = si1[:,i]
     return si0
 
-def _eig_block_incore (las, e0, h1, h2, ci_blk, nelec_blk, soc, opt):
+def _eig_block_incore (las, e0, h1, h2, ci_blk, nelec_blk, smult_blk, soc, opt):
     # TODO: simplify
     t0 = (lib.logger.process_clock (), lib.logger.perf_counter ())
     o0_memcheck = op_o0.memcheck (las, ci_blk, soc=soc)
@@ -495,7 +495,8 @@ def _eig_block_incore (las, e0, h1, h2, ci_blk, nelec_blk, soc, opt):
             lib.logger.warn (las, 'LAS states in basis may not be converged (%s = %e)',
                              'max(|Hdiag-e_states|)', maxerr)
     # Error catch: linear dependencies in basis
-    raw2orth = citools.get_orth_basis (ci_blk, las.ncas_sub, nelec_blk, _get_ovlp=_get_ovlp)
+    raw2orth = citools.get_orth_basis (ci_blk, las.ncas_sub, nelec_blk, _get_ovlp=_get_ovlp,
+                                       smult_fr=smult_blk)
     xhx = raw2orth (ham_blk.T).T
     lib.logger.info (las, '%d/%d linearly independent model states',
                      xhx.shape[1], xhx.shape[0])

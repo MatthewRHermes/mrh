@@ -38,7 +38,7 @@ from mrh.tests.lassi.addons import case_lassis_fbfdm, case_contract_op_si, debug
 from mrh.tests.lassi.addons import fuzz_sivecs
 
 def setUpModule ():
-    global mol, mf, las, nroots, nelec_frs, si
+    global mol, mf, las, nroots, nelec_frs, si, ci0
     # State list contains a couple of different 4-frag interactions
     states  = {'charges': [[0,0,0,0],[1,1,-1,-1],[2,-1,-1,0],[1,0,0,-1],[1,1,-1,-1],[2,-1,-1,0],[1,0,0,-1]],
                'spins':   [[0,0,0,0],[1,1,-1,-1],[0,1,-1,0], [1,0,0,-1],[-1,-1,1,1],[0,-1,1,0], [-1,0,0,1]],
@@ -74,7 +74,8 @@ def setUpModule ():
     a = list (range (18))
     frags = [a[:5], a[5:9], a[9:13], a[13:18]]
     las.mo_coeff = las.localize_init_guess (frags, mf.mo_coeff)
-    las.ci = las.get_init_guess_ci (las.mo_coeff, las.get_h2eff (las.mo_coeff))
+    ci0 = las.get_init_guess_ci (las.mo_coeff, las.get_h2eff (las.mo_coeff))
+    las.ci = copy.deepcopy (ci0)
     lroots = np.minimum (2, las.get_ugg ().ncsf_sub)
     nelec_frs = np.array (
         [[_unpack_nelec (fcibox._get_nelec (solver, nelecas)) for solver in fcibox.fcisolvers]
@@ -109,9 +110,9 @@ def setUpModule ():
     si = lib.tag_array (si, rootsym=las_symm_tuple (las)[0])
 
 def tearDownModule():
-    global mol, mf, las, nroots, nelec_frs, si
+    global mol, mf, las, nroots, nelec_frs, si, ci0
     mol.stdout.close ()
-    del mol, mf, las, nroots, nelec_frs, si
+    del mol, mf, las, nroots, nelec_frs, si, ci0
 
 class KnownValues(unittest.TestCase):
     def test_stdm12s (self):
@@ -154,8 +155,8 @@ class KnownValues(unittest.TestCase):
 
     def test_lassis (self):
         las0 = las.get_single_state_las (state=0)
-        for ifrag in range (len (las0.ci)):
-            las0.ci[ifrag][0] = las0.ci[ifrag][0][0]
+        for ifrag in range (len (ci0)):
+            las0.ci[ifrag][0] = ci0[ifrag][0]
         lsi = LASSIS (las0)
         lsi.prepare_states_()
         self.assertTrue (lsi.converged)
@@ -187,8 +188,8 @@ class KnownValues(unittest.TestCase):
 
     def test_lassis_slow (self):
         las0 = las.get_single_state_las (state=0)
-        for ifrag in range (len (las0.ci)):
-            las0.ci[ifrag][0] = las0.ci[ifrag][0][0]
+        for ifrag in range (len (ci0)):
+            las0.ci[ifrag][0] = ci0[ifrag][0]
         lsi = LASSIS (las0)
         lsi.prepare_states_()
         # Starting from converged SIvecs doesn't guarantee instant convergence for some reason
@@ -200,15 +201,15 @@ class KnownValues(unittest.TestCase):
                     case_contract_op_si (self, las, h1, h2, lsi.ci, lsi.get_nelec_frs ())
                 self.assertTrue (lsi.converged)
                 self.assertTrue (lsi.converged_si)
-                self.assertAlmostEqual (lsi.e_roots[0], -304.5372586630968, 3)
+                self.assertAlmostEqual (lsi.e_roots[0], -304.90204094778954, 3)
                 case_lassis_fbf_2_model_state (self, lsi)
                 #case_lassis_fbfdm (self, lsi)
                 lsi.si = fuzz_sivecs (lsi.si)
 
     def test_scallowed (self):
         las0 = las.get_single_state_las (state=0)
-        for ifrag in range (len (las0.ci)):
-            las0.ci[ifrag][0] = las0.ci[ifrag][0][0]
+        for ifrag in range (len (ci0)):
+            las0.ci[ifrag][0] = ci0[ifrag][0]
         lsi = LASSIS (las0)
         lsi.prepare_states_()
         nelec_frs = lsi.get_nelec_frs ()
