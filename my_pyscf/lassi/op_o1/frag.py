@@ -558,10 +558,7 @@ class FragTDMInt (object):
             k, l = self.uroot_addr[i], self.uroot_addr[j]
             if not self.unmasked_int (k,l,screen): continue
             #fragment is not interacting
-            if self.use_gpu:
-                dm1s, dm2s = trans_rdm12s_loop (l, ci[k], ci[l], do2=True, use_gpu=True, gpu=self.use_gpu)
-            else:
-                dm1s, dm2s = trans_rdm12s_loop (l, ci[k], ci[l], do2=True)
+            dm1s, dm2s = trans_rdm12s_loop (l, ci[k], ci[l], do2=True)
             self.set_dm1 (k, l, dm1s)
             self.set_dm2 (k, l, dm2s)
  

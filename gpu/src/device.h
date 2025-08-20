@@ -171,9 +171,12 @@ public :
   void push_link_indexb(int, int , py::array_t<int> ); //TODO: figure out the shape? or maybe move the compressed version 
   void compute_trans_rdm1a(int , int , int , int , int );
   void compute_trans_rdm1b(int , int , int , int , int );
+  void compute_make_rdm1a(int , int , int , int , int );
+  void compute_make_rdm1b(int , int , int , int , int );
   void compute_tdm12kern_a(int , int , int , int , int );
   void compute_tdm12kern_b(int , int , int , int , int );
   void compute_tdm12kern_ab(int , int , int , int , int );
+  void compute_rdm12kern_sf(int , int , int , int , int );
   void pull_tdm1(py::array_t<double> , int );
   void pull_tdm2(py::array_t<double> , int );
    
@@ -198,8 +201,10 @@ public :
   void veccopy(const double *, double *, int);
   void gemv_fix(const double *, const double *, double *, const int, const int, const double, const double);
   void gemm_fix(const double *, const double *, double *, const int, const int);
-  void get_rdm1a_from_ci (double *, double *, double *, int, int, int, int, int *);
-  void get_rdm1b_from_ci (double *, double *, double *, int, int, int, int, int *);
+  void compute_FCItrans_rdm1a (double *, double *, double *, int, int, int, int, int *);
+  void compute_FCItrans_rdm1b (double *, double *, double *, int, int, int, int, int *);
+  void compute_FCImake_rdm1a (double *, double *, double *, int, int, int, int, int *);
+  void compute_FCImake_rdm1b (double *, double *, double *, int, int, int, int, int *);
   void compute_FCIrdm2_a_t1ci (double *, double *, int, int, int, int, int*); 
   void compute_FCIrdm2_b_t1ci (double *, double *, int, int, int, int, int*); 
   // multi-gpu communication (better here or part of PM?)

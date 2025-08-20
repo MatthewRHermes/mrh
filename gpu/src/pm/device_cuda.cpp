@@ -518,7 +518,7 @@ __global__ void _set_to_zero(double * array, int size)
     array[i] = 0.0;
 }
 /* ---------------------------------------------------------------------- */
-__global__ void _get_rdm1a_from_ci(double * cibra, double * ciket, double * rdm, int norb, int na, int nb, int nlinka, int * link_index)
+__global__ void _compute_FCItrans_rdm1a(double * cibra, double * ciket, double * rdm, int norb, int na, int nb, int nlinka, int * link_index)
 {
     int str0 = blockIdx.x * blockDim.x + threadIdx.x;
     int j = blockIdx.y * blockDim.y + threadIdx.y;
@@ -533,15 +533,11 @@ __global__ void _get_rdm1a_from_ci(double * cibra, double * ciket, double * rdm,
     double * pbra = &(cibra[str1*nb]);
     double result = 0.0;
     for (int k=0; k<nb; ++k){
-       //printf("str0: %i str1: %i a: %i i: %i j: %i sign: %i %f * %f = %f, prev: %f, addr: %p\n",str0, str1, a,i,j,sign, pbra[k], pket[k], sign*pbra[k]*pket[k], result, &(rdm[a*norb+i]));
-       result += pbra[k]*pket[k];}
-    result = result*sign;
-    //rdm[a*norb+i] +=result; //doesn't work when race conditions are present with multiple x,y threads are trying to write to the same combination of a,i in rdm memory block
-    double * loc = &(rdm[a*norb+i]);
-    atomicAdd(loc, result);
+       atomicAdd(&(rdm[a*norb+i]), sign*pbra[k]*pket[k]);
+    }
 }
 /* ---------------------------------------------------------------------- */
-__global__ void _get_rdm1b_from_ci(double * cibra, double * ciket, double * rdm, int norb, int na, int nb, int nlinkb, int * link_index)
+__global__ void _compute_FCItrans_rdm1b(double * cibra, double * ciket, double * rdm, int norb, int na, int nb, int nlinkb, int * link_index)
 {
     int str0 = blockIdx.x * blockDim.x + threadIdx.x;
     int k = blockIdx.y * blockDim.y + threadIdx.y;
@@ -558,9 +554,58 @@ __global__ void _get_rdm1b_from_ci(double * cibra, double * ciket, double * rdm,
     int str1  = link_index[4*nlinkb*k+4*j+2];
     int sign  = link_index[4*nlinkb*k+4*j+3];
 
-    //printf("str0: %i str1: %i a: %i i: %i j: %i sign: %i %f * %f = %f, prev: %f addr: %p\n",str0, str1, a,i,j,sign, pbra[str1], tmp, sign*pbra[str1]*tmp, rdm[a*norb+i], &(rdm[a*norb+i]));
     //rdm[a*norb + i] += sign*pbra[str1]*tmp; //doesn't work when race conditions are present with multiple x,y threads are trying to write to the same combination of a,i in rdm memory block
     atomicAdd(&(rdm[a*norb + i]), sign*pbra[str1]*tmp);
+}
+/* ---------------------------------------------------------------------- */
+__global__ void _compute_FCImake_rdm1a(double * cibra, double * ciket, double * rdm, int norb, int na, int nb, int nlinka, int * link_index)
+{
+    int str0 = blockIdx.x * blockDim.x + threadIdx.x;
+    int j = blockIdx.y * blockDim.y + threadIdx.y;
+    if (str0>=na) return ;
+    if (j>=nlinka) return ;
+    double * pci0 = &(ciket[str0*nb]);
+    
+    int a = link_index[4*nlinka*str0 + 4*j]; 
+    int i = link_index[4*nlinka*str0 + 4*j + 1]; 
+    int str1 = link_index[4*nlinka*str0 + 4*j + 2]; 
+    int sign = link_index[4*nlinka*str0 + 4*j + 3];
+  
+    double * pci1 = &(ciket[str1*nb]);
+    if (a>=i && sign!=0){
+      for (int k=0;k<nb; ++k){
+        atomicAdd(&(rdm[a*norb+i]), sign*pci0[k]*pci1[k]);
+        }
+      }
+}
+/* ---------------------------------------------------------------------- */
+__global__ void _compute_FCImake_rdm1b(double * cibra, double * ciket, double * rdm, int norb, int na, int nb, int nlinkb, int * link_index)
+{
+    int str0 = blockIdx.x * blockDim.x + threadIdx.x;
+    int k = blockIdx.y * blockDim.y + threadIdx.y;
+    int j = blockIdx.z * blockDim.z + threadIdx.z;
+    if (str0>=na) return ;
+    if (k>=nb) return ;
+    if (j>=nlinkb) return ;
+    double * pci0 = &(ciket[str0*nb]);
+    
+    int a = link_index[4*nlinkb*k + 4*j]; 
+    int i = link_index[4*nlinkb*k + 4*j + 1]; 
+    int str1 = link_index[4*nlinkb*k + 4*j + 2]; 
+    int sign = link_index[4*nlinkb*k + 4*j + 3];
+    if (a>=i && sign!=0) { 
+
+    atomicAdd(&(rdm[a*norb+i]), sign*pci0[str1]*pci0[k]);
+      }
+}
+/* ---------------------------------------------------------------------- */
+__global__ void _symmetrize_rdm(int norb, double * rdm)
+{
+  for (int i=0; i<norb; ++i){
+    for (int j=0; j<i; ++j){
+        rdm[j*norb+i] = rdm[i*norb+j];
+      }
+    }
 }
 /* ---------------------------------------------------------------------- */
 __global__ void _compute_FCIrdm2_a_t1ci(double * ci, double * buf, int stra_id, int nb, int norb, int nlinka, int * link_index)
@@ -1090,14 +1135,14 @@ void Device::make_Pi_final(double * gridkern, double * buf, double * Pi, int ngr
 #endif
 }
 /* ---------------------------------------------------------------------- */
-void Device::get_rdm1a_from_ci(double * cibra, double * ciket, double * rdm, int norb, int na, int nb, int nlinka, int * link_index)
+void Device::compute_FCItrans_rdm1a(double * cibra, double * ciket, double * rdm, int norb, int na, int nb, int nlinka, int * link_index)
 {
   dim3 block_size(_DEFAULT_BLOCK_SIZE, _DEFAULT_BLOCK_SIZE, 1);
   dim3 grid_size(_TILE(na, block_size.x),_TILE(nlinka,block_size.y),1);
 
   cudaStream_t s = *(pm->dev_get_queue());
 
-  _get_rdm1a_from_ci<<<grid_size, block_size,0,s>>>(cibra, ciket, rdm, norb, na, nb, nlinka, link_index);
+  _compute_FCItrans_rdm1a<<<grid_size, block_size,0,s>>>(cibra, ciket, rdm, norb, na, nb, nlinka, link_index);
 #ifdef _DEBUG_DEVICE
   printf("LIBGPU ::  -- general::get_rdm_from_ci; :: Na= %i Nb =%i  grid_size= %i %i %i  block_size= %i %i %i\n",
 	 na, nb, grid_size.x,grid_size.y,grid_size.z,block_size.x,block_size.y,block_size.z);
@@ -1105,7 +1150,7 @@ void Device::get_rdm1a_from_ci(double * cibra, double * ciket, double * rdm, int
 #endif
 }
 /* ---------------------------------------------------------------------- */
-void Device::get_rdm1b_from_ci(double * cibra, double * ciket, double * rdm, int norb, int na, int nb, int nlinkb, int * link_index)
+void Device::compute_FCItrans_rdm1b(double * cibra, double * ciket, double * rdm, int norb, int na, int nb, int nlinkb, int * link_index)
 {
   //dim3 block_size(_DEFAULT_BLOCK_SIZE, _DEFAULT_BLOCK_SIZE, _DEFAULT_BLOCK_SIZE);
   dim3 block_size(1,1,1);
@@ -1114,12 +1159,48 @@ void Device::get_rdm1b_from_ci(double * cibra, double * ciket, double * rdm, int
   cudaStream_t s = *(pm->dev_get_queue());
 
 
-  _get_rdm1b_from_ci<<<grid_size, block_size,0,s>>>(cibra, ciket, rdm, norb, na, nb, nlinkb, link_index);
+  _compute_FCItrans_rdm1b<<<grid_size, block_size,0,s>>>(cibra, ciket, rdm, norb, na, nb, nlinkb, link_index);
 #ifdef _DEBUG_DEVICE
   printf("LIBGPU ::  -- general::get_rdm_from_ci; :: Na= %i Nb =%i  grid_size= %i %i %i  block_size= %i %i %i\n",
 	 na, nb, grid_size.x,grid_size.y,grid_size.z,block_size.x,block_size.y,block_size.z);
   _CUDA_CHECK_ERRORS();
 #endif
+}
+/* ---------------------------------------------------------------------- */
+void Device::compute_FCImake_rdm1a(double * cibra, double * ciket, double * rdm, int norb, int na, int nb, int nlinka, int * link_index)
+{
+  cudaStream_t s = *(pm->dev_get_queue());
+  {dim3 block_size(_DEFAULT_BLOCK_SIZE,_DEFAULT_BLOCK_SIZE,1);
+  dim3 grid_size(_TILE(na, block_size.x),_TILE(nlinka, block_size.y),1);
+  _compute_FCImake_rdm1a<<<grid_size, block_size,0,s>>>(cibra, ciket, rdm, norb, na, nb, nlinka, link_index);
+  #ifdef _DEBUG_DEVICE
+  printf("LIBGPU ::  -- general::get_rdm_from_ci; :: Na= %i Nb =%i  grid_size= %i %i %i  block_size= %i %i %i\n",
+	 na, nb, grid_size.x,grid_size.y,grid_size.z,block_size.x,block_size.y,block_size.z);
+  _CUDA_CHECK_ERRORS();
+  #endif
+  }
+  {dim3 block_size (1,1,1);
+   dim3 grid_size(1,1,1);
+   _symmetrize_rdm<<<grid_size, block_size, 0, s>>> (norb, rdm);}
+}
+/* ---------------------------------------------------------------------- */
+void Device::compute_FCImake_rdm1b(double * cibra, double * ciket, double * rdm, int norb, int na, int nb, int nlinkb, int * link_index)
+{
+  cudaStream_t s = *(pm->dev_get_queue());
+  {
+  //dim3 block_size(_DEFAULT_BLOCK_SIZE,_DEFAULT_BLOCK_SIZE,_DEFAULT_BLOCK_SIZE); //TODO: fix this?
+  dim3 block_size(1,1,1);
+  dim3 grid_size(_TILE(na, block_size.x),_TILE(nb, block_size.y),_TILE(nlinkb, block_size.z));
+  #ifdef _DEBUG_DEVICE
+  printf("LIBGPU ::  -- general::make_rdm1b; :: Na= %i Nb =%i  grid_size= %i %i %i  block_size= %i %i %i\n",
+	 na, nb, grid_size.x,grid_size.y,grid_size.z,block_size.x,block_size.y,block_size.z);
+  #endif
+  _compute_FCImake_rdm1b<<<grid_size, block_size,0,s>>>(cibra, ciket, rdm, norb, na, nb, nlinkb, link_index);
+  _CUDA_CHECK_ERRORS();
+  }
+  {dim3 block_size(1,1,1);
+   dim3 grid_size(1,1,1); 
+   _symmetrize_rdm<<<grid_size, block_size, 0, s>>> (norb, rdm); }
 }
 
 /* ---------------------------------------------------------------------- */
@@ -1143,7 +1224,7 @@ void Device::compute_FCIrdm2_b_t1ci(double * ci, double * buf, int stra_id, int 
   cudaStream_t s = *(pm->dev_get_queue());
   _compute_FCIrdm2_b_t1ci<<<grid_size, block_size, 0,s>>>(ci, buf, stra_id, nb, norb, nlinkb, link_index);
 #ifdef _DEBUG_DEVICE 
-  printf("LIBGPU ::  -- general::compute_FCIrdm2_a_t1ci; :: Nb= %i Norb =%i Nlinkb =%i grid_size= %i %i %i  block_size= %i %i %i\n",
+  printf("LIBGPU ::  -- general::compute_FCIrdm2_b_t1ci; :: Nb= %i Norb =%i Nlinkb =%i grid_size= %i %i %i  block_size= %i %i %i\n",
 	 nb, norb, nlinkb, grid_size.x,grid_size.y,grid_size.z,block_size.x,block_size.y,block_size.z);
   _CUDA_CHECK_ERRORS();
 #endif

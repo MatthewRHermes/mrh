@@ -7,7 +7,10 @@ from pyscf import gto, scf, tools, mcscf, lib
 from pyscf.fci import rdm, cistring
 from pyscf.fci.addons import _unpack_nelec
 from mrh.my_pyscf.mcscf.lasscf_async import LASSCF
-if gpu_run:gpu = libgpu.init()
+if gpu_run:
+  gpu = libgpu.init()
+  from pyscf.lib import param
+  param.use_gpu = gpu
 lib.logger.TIMER_LEVEL=lib.logger.INFO
 
 geom = ''' K 0 0 0;
@@ -25,8 +28,8 @@ mf.with_df.auxbasis = pyscf.df.make_auxbasis(mol)
 mf.max_cycle=1
 mf.kernel()
 
-norb = 6
-nelec = 6
+norb = 10
+nelec = 5
 
 neleca, nelecb = _unpack_nelec(nelec)
 link_indexa = link_indexb = cistring.gen_linkstr_index(range(norb), neleca)
@@ -37,5 +40,7 @@ nb = link_indexb.shape[0]
 cibra = np.random.random((na,nb))
 ciket = np.random.random((na,nb))
 link_index = (link_indexa, link_indexb)
-rdm.make_rdm1_spin1('FCItrans_rdm1a', cibra, ciket, norb, nelec, link_index, use_gpu = True, gpu=gpu)
-rdm.make_rdm1_spin1('FCItrans_rdm1b', cibra, ciket, norb, nelec, link_index, use_gpu = True, gpu=gpu)
+rdm.make_rdm1_spin1('FCItrans_rdm1a', cibra, ciket, norb, nelec, link_index)#, use_gpu = True, gpu=gpu)
+rdm.make_rdm1_spin1('FCItrans_rdm1b', cibra, ciket, norb, nelec, link_index)#, use_gpu = True, gpu=gpu)
+rdm.make_rdm1_spin1('FCImake_rdm1a', cibra, ciket, norb, nelec, link_index)#, use_gpu = True, gpu=gpu)
+rdm.make_rdm1_spin1('FCImake_rdm1b', cibra, ciket, norb, nelec, link_index)#, use_gpu = True, gpu=gpu)

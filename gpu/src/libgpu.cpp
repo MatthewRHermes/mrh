@@ -398,6 +398,21 @@ void libgpu_compute_trans_rdm1b(void * ptr,
   dev->compute_trans_rdm1b(na, nb, nlinka, nlinkb, norb);
 }
 /* ---------------------------------------------------------------------- */
+void libgpu_compute_make_rdm1a(void * ptr, 
+                            int na, int nb, int nlinka, int nlinkb, int norb)
+{
+  Device * dev = (Device *) ptr;
+  dev->compute_make_rdm1a(na, nb, nlinka, nlinkb, norb);
+}
+/* ---------------------------------------------------------------------- */
+void libgpu_compute_make_rdm1b(void * ptr, 
+                            int na, int nb, int nlinka, int nlinkb, int norb)
+{
+  Device * dev = (Device *) ptr;
+  dev->compute_make_rdm1b(na, nb, nlinka, nlinkb, norb);
+}
+
+/* ---------------------------------------------------------------------- */
 void libgpu_compute_tdm12kern_a(void * ptr, 
                             int na, int nb, int nlinka, int nlinkb, int norb)
 {
@@ -417,6 +432,13 @@ void libgpu_compute_tdm12kern_ab(void * ptr,
 {
   Device * dev = (Device *) ptr;
   dev->compute_tdm12kern_ab(na, nb, nlinka, nlinkb, norb);
+}
+/* ---------------------------------------------------------------------- */
+void libgpu_compute_rdm12kern_sf(void * ptr, 
+                            int na, int nb, int nlinka, int nlinkb, int norb)
+{
+  Device * dev = (Device *) ptr;
+  dev->compute_rdm12kern_sf(na, nb, nlinka, nlinkb, norb);
 }
 
 /* ---------------------------------------------------------------------- */
