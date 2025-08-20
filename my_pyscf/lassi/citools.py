@@ -178,17 +178,19 @@ def get_orth_basis (ci_fr, norb_f, nelec_frs, _get_ovlp=None, smult_fr=None):
         manifold_prod_idx = []
         for i in manifold: manifold_prod_idx.extend (list(range(offs0[i],offs1[i])))
         ovlp = _get_ovlp (rootidx=manifold)
-        eye = np.eye (ovlp.shape[0])
-        err_from_diag = np.amax (np.abs (ovlp - eye))
+        ovlp[np.diag_indices_from (ovlp)] -= 1.0
+        err_from_diag = np.amax (np.abs (ovlp))
         if err_from_diag > 1e-8:
+            ovlp[np.diag_indices_from (ovlp)] += 1.0
             manifolds_prod_idx.append (manifold_prod_idx)
             xmat = canonical_orth_(ovlp, thr=LINDEP_THRESH)
             north += xmat.shape[1]
             manifolds_xmat.append (xmat)
         else:
-            north += eye.shape[0]
-            nuniq_prod += eye.shape[0]
+            north += ovlp.shape[0]
+            nuniq_prod += ovlp.shape[0]
             uniq_prod_idx.extend (manifold_prod_idx)
+        ovlp = None
 
     _get_ovlp = None
 
