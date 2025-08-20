@@ -176,6 +176,7 @@ public :
   void compute_tdm12kern_a(int , int , int , int , int );
   void compute_tdm12kern_b(int , int , int , int , int );
   void compute_tdm12kern_ab(int , int , int , int , int );
+  void compute_rdm12kern_sf(int , int , int , int , int );
   void pull_tdm1(py::array_t<double> , int );
   void pull_tdm2(py::array_t<double> , int );
    

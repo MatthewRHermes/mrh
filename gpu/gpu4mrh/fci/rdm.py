@@ -119,7 +119,7 @@ def _make_rdm12_spin1(fname, cibra, ciket, norb, nelec, link_index=None, symm=0)
     #add traceback
     #    traceback.print_stack(file=sys.stdout)
     from pyscf.lib import param
-    if (fname in ['FCItdm12kern_a', 'FCItdm12kern_b', 'FCItdm12kern_ab']) and param.use_gpu is not None:
+    if (fname in ['FCItdm12kern_a', 'FCItdm12kern_b', 'FCItdm12kern_ab', 'FCIrdm12kern_sf']) and param.use_gpu is not None:
        use_gpu = param.use_gpu
        gpu=param.use_gpu
     else: 
@@ -167,6 +167,8 @@ def _make_rdm12_spin1(fname, cibra, ciket, norb, nelec, link_index=None, symm=0)
         libgpu.compute_tdm12kern_b(gpu, na, nb, nlinka, nlinkb, norb)
       if fname == 'FCItdm12kern_ab': 
         libgpu.compute_tdm12kern_ab(gpu, na, nb, nlinka, nlinkb, norb)
+      if fname == 'FCIrdm12kern_sf': 
+        libgpu.compute_rdm12kern_sf(gpu, na, nb, nlinka, nlinkb, norb)
       libgpu.pull_tdm1(gpu, rdm1_gpu, norb)
       libgpu.pull_tdm2(gpu, rdm2_gpu, norb)
       rdm1_correct = numpy.allclose(rdm1_cpu, rdm1_gpu)
@@ -187,9 +189,9 @@ def _make_rdm12_spin1(fname, cibra, ciket, norb, nelec, link_index=None, symm=0)
         else: 
           print("Incorrect TDM2")
           print("CPU TDM2")
-          print(rdm2_cpu)
+          #print(rdm2_cpu)
           print("GPU TDM2")
-          print(rdm2_gpu)
+          #print(rdm2_gpu)
         exit()
       return rdm1_cpu.T, rdm2_cpu
     elif use_gpu: 
@@ -206,6 +208,8 @@ def _make_rdm12_spin1(fname, cibra, ciket, norb, nelec, link_index=None, symm=0)
         libgpu.compute_tdm12kern_b(gpu, na, nb, nlinka, nlinkb, norb)
       if fname == 'FCItdm12kern_ab': 
         libgpu.compute_tdm12kern_ab(gpu, na, nb, nlinka, nlinkb, norb)
+      if fname == 'FCIrdm12kern_sf': 
+        libgpu.compute_rdm12kern_sf(gpu, na, nb, nlinka, nlinkb, norb)
       libgpu.pull_tdm1(gpu, rdm1_gpu, norb)
       libgpu.pull_tdm2(gpu, rdm2_gpu, norb)
       return rdm1_gpu.T, rdm2_gpu

@@ -29,8 +29,8 @@ mf.with_df.auxbasis = pyscf.df.make_auxbasis(mol)
 mf.max_cycle=1
 mf.kernel()
 
-norb = 14
-nelec = 13
+norb = 9
+nelec = 7
 
 neleca, nelecb = _unpack_nelec(nelec)
 link_indexa = link_indexb = cistring.gen_linkstr_index(range(norb), neleca)
@@ -44,3 +44,4 @@ link_index = (link_indexa, link_indexb)
 rdm.make_rdm12_spin1('FCItdm12kern_a', cibra, ciket, norb, nelec, link_index)#, use_gpu = True, gpu=gpu)
 rdm.make_rdm12_spin1('FCItdm12kern_b', cibra, ciket, norb, nelec, link_index)#, use_gpu = True, gpu=gpu)
 rdm.make_rdm12_spin1('FCItdm12kern_ab', cibra, ciket, norb, nelec, link_index)#, use_gpu = True, gpu=gpu)
+rdm.make_rdm12_spin1('FCIrdm12kern_sf', cibra, ciket, norb, nelec, link_index)#, use_gpu = True, gpu=gpu)

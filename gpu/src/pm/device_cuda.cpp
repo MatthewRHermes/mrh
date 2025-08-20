@@ -1224,7 +1224,7 @@ void Device::compute_FCIrdm2_b_t1ci(double * ci, double * buf, int stra_id, int 
   cudaStream_t s = *(pm->dev_get_queue());
   _compute_FCIrdm2_b_t1ci<<<grid_size, block_size, 0,s>>>(ci, buf, stra_id, nb, norb, nlinkb, link_index);
 #ifdef _DEBUG_DEVICE 
-  printf("LIBGPU ::  -- general::compute_FCIrdm2_a_t1ci; :: Nb= %i Norb =%i Nlinkb =%i grid_size= %i %i %i  block_size= %i %i %i\n",
+  printf("LIBGPU ::  -- general::compute_FCIrdm2_b_t1ci; :: Nb= %i Norb =%i Nlinkb =%i grid_size= %i %i %i  block_size= %i %i %i\n",
 	 nb, norb, nlinkb, grid_size.x,grid_size.y,grid_size.z,block_size.x,block_size.y,block_size.z);
   _CUDA_CHECK_ERRORS();
 #endif

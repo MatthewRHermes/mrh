@@ -4022,6 +4022,71 @@ void Device::compute_tdm12kern_ab(int na, int nb, int nlinka, int nlinkb, int no
     transpose_jikl(dd->d_tdm2, dd->d_pdm2, norb);
 }
 /* ---------------------------------------------------------------------- */
+void Device::compute_rdm12kern_sf(int na, int nb, int nlinka, int nlinkb, int norb)
+{
+  double t0 = omp_get_wtime();
+  int id=0;
+  pm->dev_set_device(id);
+  my_device_data * dd = &(device_data[id]);
+ 
+  int norb2 = norb*norb;
+  int size_buf = norb2*nb;
+  int size_tdm2 = norb2*norb2;
+  int size_tdm1 = norb2;
+  int size_pdm2 = norb2*norb2;
+  int size_pdm1 = norb2;
+  //no rdm1, tdm1, pdm1
+  grow_array(dd->d_tdm1,size_tdm1, dd->size_tdm1, "tdm1", FLERR); //actual returned
+  grow_array(dd->d_tdm2,size_tdm2, dd->size_tdm2, "tdm2", FLERR); //actual returned
+  grow_array(dd->d_pdm1,size_pdm1, dd->size_pdm1, "pdm1", FLERR); //storing results from gemv
+  grow_array(dd->d_pdm2,size_pdm2, dd->size_pdm2, "pdm2", FLERR); //storing results from gemm
+  grow_array(dd->d_buf1,size_buf, dd->size_buf1, "buf1", FLERR);  
+  //set buf array to zero
+  set_to_zero(dd->d_buf1, size_buf); 
+  set_to_zero(dd->d_tdm2, size_tdm2);
+  set_to_zero(dd->d_tdm1, size_tdm1); 
+  set_to_zero(dd->d_pdm2, size_pdm2);
+  set_to_zero(dd->d_pdm1, size_pdm1); 
+  for (int stra_id = 0; stra_id<na; ++stra_id) { 
+    //these two functions constitute FCI_rdm_t1ci_sf
+    compute_FCIrdm2_b_t1ci(dd->d_ciket, dd->d_buf1, stra_id, nb, norb, nlinkb, dd->d_clinkb); //rdm2_0b_t1ci is identical except where zeroing happens. since we do zeroing before at the start and at the end of each stra_id iteration , a special function is not needed. 
+    compute_FCIrdm2_a_t1ci(dd->d_ciket, dd->d_buf1, stra_id, nb, norb, nlinka, dd->d_clinka); 
+    const double alpha = 1.0;
+    const double beta = 1.0;
+    const int one = 1;
+    double * ketvec = &(dd->d_ciket[stra_id*nb]);//ket+stra_id*nb+strb_id;
+    #if 0
+    ml->gemv((char *) 'N', &norb2, &nb, 
+                &alpha, 
+                dd->d_buf1, &norb2, 
+                bravec, &one, 
+                &beta, 
+                dd->d_pdm1, &one); //convert to gemv_batched, edit na loop to batches, may need to increase buf
+    #else
+    gemv_fix(dd->d_buf1, ketvec, dd->d_pdm1, norb2, nb, alpha, beta);
+    #endif
+
+    #if 0
+    ml->gemm((char *) 'N',(char *) 'T', &norb2, &norb2, &nb, 
+                &alpha,
+                dd->d_buf1, &norb2,
+                dd->d_buf2, &norb2, 
+                &beta,
+                dd->d_pdm2, &norb2); //convert to gemm_batched, edit na loops to batches
+    #else
+    gemm_fix(dd->d_buf1, dd->d_buf1, dd->d_pdm2, norb2, nb);
+    #endif
+    vecadd(dd->d_pdm1, dd->d_tdm1, norb2);
+    vecadd(dd->d_pdm2, dd->d_tdm2, norb2*norb2);
+    //TODO: could do gemm directly on tdm2, maybe something to optimize later 
+    set_to_zero(dd->d_pdm1, size_pdm1);
+    set_to_zero(dd->d_pdm2, size_pdm2);
+    set_to_zero(dd->d_buf1, size_buf);
+      }     
+    transpose_jikl(dd->d_tdm2, dd->d_pdm2, norb);
+}
+
+/* ---------------------------------------------------------------------- */
 void Device::pull_tdm1(py::array_t<double> _tdm1, int norb)
 {
   double t0 = omp_get_wtime();

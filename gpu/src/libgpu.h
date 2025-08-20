@@ -132,6 +132,8 @@ extern "C"
                             int , int , int , int , int );
   void libgpu_compute_tdm12kern_ab(void *, 
                             int , int , int , int , int );
+  void libgpu_compute_rdm12kern_sf(void *, 
+                            int , int , int , int , int );
   void libgpu_pull_tdm1(void *, 
                       py::array_t<double> , int );
   void libgpu_pull_tdm2(void *, 
@@ -206,6 +208,7 @@ PYBIND11_MODULE(libgpu, m) {
   m.def("compute_tdm12kern_a",&libgpu_compute_tdm12kern_a,"pyscf/fci/rdm.py::make_rdm1_spin1 compute FCItdm12kern_a");
   m.def("compute_tdm12kern_b",&libgpu_compute_tdm12kern_b,"pyscf/fci/rdm.py::make_rdm1_spin1 compute FCItdm12kern_b");
   m.def("compute_tdm12kern_ab",&libgpu_compute_tdm12kern_ab,"pyscf/fci/rdm.py::make_rdm1_spin1 compute FCItdm12kern_ab");
+  m.def("compute_rdm12kern_sf",&libgpu_compute_rdm12kern_sf,"pyscf/fci/rdm.py::make_rdm1_spin1 compute FCIrdm12kern_sf");
   m.def("pull_tdm1",&libgpu_pull_tdm1,"pyscf/fci/rdm.py::make_rdm12_spin1 pull_tdm1");        
   m.def("pull_tdm2",&libgpu_pull_tdm2,"pyscf/fci/rdm.py::make_rdm12_spin1 pull_tdm2");        
   
