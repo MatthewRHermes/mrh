@@ -394,6 +394,7 @@ class SingleLASRootspace (object):
             row = [ifrag, nelec_norb, sm, irname]
             if lroots is not None: row += [lroots[ifrag]]
             printer (fmt_str.format (*row))
+        printer ('entmap: {}'.format (self.entmap))
 
     def single_fragment_spin_change (self, ifrag, new_smult, new_spin, ci=None):
         smults1 = self.smults.copy ()
@@ -534,7 +535,7 @@ def combine_orthogonal_excitations (exc1, exc2, ref, flexible_m=False):
         ref.las, spins, smults, charges, 0, ci=ci,
         nlas=ref.nlas, nelelas=ref.nelelas, stdout=ref.stdout, verbose=ref.verbose
     )
-    product.entmap = tuple (set (exc1.entmap + exc2.entmap))
+    product.entmap = tuple (sorted (list (exc1.entmap + exc2.entmap)))
     #assert (np.amax (product.entmap) < 2)
     assert (len (product.entmap) == len (set (product.entmap)))
     if not flexible_m:
