@@ -1,3 +1,4 @@
+import sys
 import numpy as np
 import functools
 from scipy.sparse import linalg as sparse_linalg
@@ -165,14 +166,12 @@ def get_orth_basis (ci_fr, norb_f, nelec_frs, _get_ovlp=None, smult_fr=None):
 
     if not np.count_nonzero (cnts>1): 
         _get_ovlp = None
-        return sparse_linalg.LinearOperator (shape=(nraw,nraw), dtype=dtype,
-                                             matvec=lambda x: x,
-                                             rmatvec=lambda x: x)
+        return NullOrthBasis (nraw, dtype)
     uniq_prod_idx = []
     for i in uniq_idx[cnts==1]: uniq_prod_idx.extend (list(range(offs0[i],offs1[i])))
     manifolds_prod_idx = []
     manifolds_xmat = []
-    nuniq_prod = north = len (uniq_prod_idx)
+    north = len (uniq_prod_idx)
     for manifold_idx in np.where (cnts>1)[0]:
         manifold = np.where (inverse==manifold_idx)[0]
         manifold_prod_idx = []
@@ -188,44 +187,69 @@ def get_orth_basis (ci_fr, norb_f, nelec_frs, _get_ovlp=None, smult_fr=None):
             manifolds_xmat.append (xmat)
         else:
             north += ovlp.shape[0]
-            nuniq_prod += ovlp.shape[0]
             uniq_prod_idx.extend (manifold_prod_idx)
         ovlp = None
+    nuniq_prod = len (uniq_prod_idx)
+    nraw = offs1[-1]
 
     _get_ovlp = None
 
-    nraw = offs1[-1]
-    def raw2orth (rawarr):
-        is_out_complex = is_complex or np.iscomplexobj (rawarr)
+    return OrthBasis ((north,nraw), dtype, uniq_prod_idx, manifolds_prod_idx, manifolds_xmat)
+
+class OrthBasis (sparse_linalg.LinearOperator):
+    def __init__(self, shape, dtype, uniq_prod_idx, manifolds_prod_idx, manifolds_xmat):
+        self.shape = shape
+        self.dtype = dtype
+        self.uniq_prod_idx = np.asarray (uniq_prod_idx, dtype=int)
+        self.manifolds_prod_idx = [np.asarray (x, dtype=int) for x in manifolds_prod_idx]
+        self.manifolds_xmat = manifolds_xmat
+
+    def _matvec (self, rawarr):
+        nuniq_prod = len (self.uniq_prod_idx)
+        is_out_complex = (self.dtype==np.complex128) or np.iscomplexobj (rawarr)
         my_dtype = np.complex128 if is_out_complex else np.float64
         col_shape = rawarr.shape[1:]
-        orth_shape = [north,] + list (col_shape)
+        orth_shape = [self.shape[0],] + list (col_shape)
         ortharr = np.zeros (orth_shape, dtype=my_dtype)
-        ortharr[:nuniq_prod] = rawarr[uniq_prod_idx]
+        ortharr[:nuniq_prod] = rawarr[self.uniq_prod_idx]
         i = nuniq_prod
-        for prod_idx, xmat in zip (manifolds_prod_idx, manifolds_xmat):
+        for prod_idx, xmat in zip (self.manifolds_prod_idx, self.manifolds_xmat):
             j = i + xmat.shape[1]
             ortharr[i:j] = np.tensordot (xmat.T, rawarr[prod_idx], axes=1)
             i = j
         return ortharr
 
-    def orth2raw (ortharr):
-        is_out_complex = is_complex or np.iscomplexobj (ortharr)
+    def _rmatvec (self, ortharr):
+        nuniq_prod = len (self.uniq_prod_idx)
+        is_out_complex = (self.dtype==np.complex128) or np.iscomplexobj (ortharr)
         my_dtype = np.complex128 if is_out_complex else np.float64
         col_shape = ortharr.shape[1:]
-        raw_shape = [nraw,] + list (col_shape)
+        raw_shape = [self.shape[1],] + list (col_shape)
         rawarr = np.zeros (raw_shape, dtype=my_dtype)
-        rawarr[uniq_prod_idx] = ortharr[:nuniq_prod]
+        rawarr[self.uniq_prod_idx] = ortharr[:nuniq_prod]
         i = nuniq_prod
-        for prod_idx, xmat in zip (manifolds_prod_idx, manifolds_xmat):
+        for prod_idx, xmat in zip (self.manifolds_prod_idx, self.manifolds_xmat):
             j = i + xmat.shape[1]
             rawarr[prod_idx] = np.tensordot (xmat.conj (), ortharr[i:j], axes=1)
             i = j
         return rawarr
 
-    return sparse_linalg.LinearOperator (shape=(north,nraw), dtype=dtype,
-                                         matvec=raw2orth,
-                                         rmatvec=orth2raw)
+    def get_nbytes (self):
+        nbytes = self.uniq_prod_idx.nbytes
+        for x in self.manifolds_xmat + self.manifolds_prod_idx:
+            nbytes += x.nbytes
+        return nbytes
+
+class NullOrthBasis (sparse_linalg.LinearOperator):
+    def __init__(self, nraw, dtype):
+        self.shape = (nraw,nraw)
+        self.dtype = dtype
+
+    def _matvec (self, x): return x
+
+    def _rmatvec (self, x): return x
+
+    def get_nbytes (self): return 0
 
 def get_unique_roots (ci, nelec_r, screen_linequiv=True, screen_thresh=SCREEN_THRESH,
                       discriminator=None):

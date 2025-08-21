@@ -394,11 +394,10 @@ def _eig_block_Davidson (las, e0, h1, h2, ci_blk, nelec_blk, smult_blk, soc, opt
         las, h1, h2, ci_blk, nelec_blk, soc=soc
     )
     t0 = (lib.logger.process_clock (), lib.logger.perf_counter ())
-    m0 = lib.current_memory ()[0]
     raw2orth = citools.get_orth_basis (ci_blk, las.ncas_sub, nelec_blk, _get_ovlp=_get_ovlp,
                                        smult_fr=smult_blk)
-    m1 = lib.current_memory ()[0]
-    t0 = log.timer ('LASSI get orthogonal basis ({:.2f} MB)'.format (m1-m0), *t0)
+    mem_orth = raw2orth.get_nbytes () / 1e6
+    t0 = log.timer ('LASSI get orthogonal basis ({:.2f} MB)'.format (mem_orth), *t0)
     precond_op_raw = lib.make_diag_precond (hdiag, level_shift=level_shift)
     si0 = get_init_guess (hdiag, nroots_si, si0)
     si0 = [ovlp_op (x) for x in si0]
