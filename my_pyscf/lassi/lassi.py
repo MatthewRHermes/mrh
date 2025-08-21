@@ -209,6 +209,7 @@ def iterate_subspace_blocks (las, ci, spacesym, subset=None, spaces=None):
     for sym in subset:
         idx_space = np.all (np.array (spacesym) == sym, axis=1)
         idx = np.where (idx_space)[0]
+        my_spaces = [spaces[i] for i in idx]
         ci_blk = [[c[i] for i in idx] for c in ci]
         idx_prod = np.zeros (nprods, dtype=bool)
         my_fcisolvers = [[] for i in range (las.nfrags)]
@@ -226,6 +227,18 @@ def iterate_subspace_blocks (las, ci, spacesym, subset=None, spaces=None):
                     my_fcisolver = spaces[i].get_fcisolver (j)
                 my_fcisolvers[j].append (my_fcisolver)
             my_e_states.append (spaces[i].energy_tot)
+        # Only return smult_blk if every single state is well spin-adapted
+        for i in range (las.nfrags):
+            nelec_r = [tuple (row) for row in nelec_blk[i]]
+            isuniq = citools.get_unique_roots (ci_blk[i], nelec_r, screen_linequiv=False)[0]
+            for j in np.where (isuniq)[0]:
+                t = my_fcisolvers[i][j].transformer
+                norm = t.vec_det2csf (ci_blk[i][j], return_norm=True)[1]
+                if not np.allclose (norm, 1.0):
+                    smult_blk = None
+                    break
+            if smult_blk is None:
+                break
         with _LASSI_subspace_env (las, my_fcisolvers, my_e_states):
             yield las, sym, (idx_space, idx_prod), (ci_blk, nelec_blk, smult_blk)
 
@@ -239,7 +252,7 @@ class LASSIOop01DisagreementError (RuntimeError):
         return self.message
 
 def lassi (las, mo_coeff=None, ci=None, veff_c=None, h2eff_sub=None, orbsym=None, soc=False,
-           break_symmetry=False, opt=1, good_spin=False, davidson_only=None):
+           break_symmetry=False, opt=1, davidson_only=None):
     ''' Diagonalize the state-interaction matrix of LASSCF '''
     if mo_coeff is None: mo_coeff = las.mo_coeff
     if ci is None: ci = las.ci
@@ -292,7 +305,6 @@ def lassi (las, mo_coeff=None, ci=None, veff_c=None, h2eff_sub=None, orbsym=None
             rootsym.extend ([sym,])
             continue
         wfnsym = None if break_symmetry else sym[-1]
-        if not good_spin: smult_blk = None
         las.converged_si, e, c, s2_blk = _eig_block (las1, e0, h1, h2, ci_blk, nelec_blk, smult_blk,
                                                      soc, opt, davidson_only=davidson_only,
                                                      max_memory=max_memory)
@@ -942,7 +954,6 @@ class LASSI(lib.StreamObject):
         self.level_shift_si = LEVEL_SHIFT_SI
         self.nroots_si = nroots_si
         self.converged_si = False
-        self.good_spin = False
         self._keys = set((self.__dict__.keys())).union(keys)
 
     def kernel(self, mo_coeff=None, ci=None, veff_c=None, h2eff_sub=None, orbsym=None, soc=None,\
@@ -962,7 +973,7 @@ class LASSI(lib.StreamObject):
             log.warn ('LASSI state preparation step not converged!')
         e_roots, si = lassi(self, mo_coeff=mo_coeff, ci=ci, veff_c=veff_c, h2eff_sub=h2eff_sub,
                             orbsym=orbsym, soc=soc, break_symmetry=break_symmetry,
-                            davidson_only=davidson_only, good_spin=self.good_spin, opt=opt)
+                            davidson_only=davidson_only, opt=opt)
         self.e_roots = e_roots
         self.converged = self.converged and self.converged_si
         self.si, self.s2, self.nelec, self.wfnsym, self.rootsym, self.break_symmetry, self.soc  = \

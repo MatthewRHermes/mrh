@@ -584,6 +584,7 @@ class LASSIS (LASSI):
         LASSI.__init__(self, las, opt=opt, **kwargs)
         self.max_cycle_macro = 50
         self.conv_tol_self = 1e-8
+        self.good_spin = False
         self.ci_spin_flips = [[None for s in range (2)] for i in range (self.nfrags)]
         self.ci_charge_hops = [[[[None,None] for s in range (4)]
                                 for a in range (self.nfrags)]
@@ -619,9 +620,12 @@ class LASSIS (LASSI):
         t1 = log.timer ("LASSIS integral transformation", *t0)
 
         with lib.temporary_env (self, _cached_ham_2q=(h0, self.h1_no_SOC(h1), h2)):
-            self.converged = self.prepare_states_(ncharge=ncharge, nspin=nspin,
-                                                  sa_heff=sa_heff, deactivate_vrv=deactivate_vrv,
-                                                  crash_locmin=crash_locmin)
+            self.converged, self.good_spin = self.prepare_states_(
+                ncharge=ncharge, nspin=nspin, sa_heff=sa_heff,
+                deactivate_vrv=deactivate_vrv, crash_locmin=crash_locmin
+            )
+
+        if not self.good_spin: log.warn ("Spin-broken CI vectors in LASSIS calculation!")
 
         with lib.temporary_env (self, _cached_ham_2q=(h0, h1, h2)):
             t1 = log.timer ("LASSIS state preparation", *t1)
@@ -678,7 +682,7 @@ class LASSIS (LASSI):
         log.info ('LASSIS model state summary: %d rootspaces; %d model states; converged? %s',
                   self.nroots, self.get_lroots ().prod (0).sum (), str (self.converged))
         log.info ('LASSIS overall max disc sval: %e', self.max_disc_sval)
-        return self.converged
+        return self.converged, self.good_spin
 
     def energy_tot (self, mo_coeff=None, ci_ref=None, ci_sf=None, ci_ch=None, si=None, soc=None):
         if ci_ref is None: ci_ref = self.get_ci_ref ()
