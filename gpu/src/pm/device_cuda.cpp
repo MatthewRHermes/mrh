@@ -678,11 +678,16 @@ __global__ void _gemv_fix(const double * mat, const double * vec, double * out, 
     //convert to gemv, shouldn't need this    
     //for (int j=0;j<norb2;++j){for (int i=0;i<nb;++i){ h_tdm1[j] += h_buf1[i*norb2+j]*h_vec[i] ;}}
     //beta is one
-    int i = blockIdx.x * blockDim.x + threadIdx.x;
-    int j = blockIdx.y * blockDim.y + threadIdx.y;
-    if (i>=nb) return;
+    //int i = blockIdx.x * blockDim.x + threadIdx.x;
+    //int j = blockIdx.y * blockDim.y + threadIdx.y;
+    int j = blockIdx.x * blockDim.x + threadIdx.x;
+    //if (i>=nb) return;
     if (j>=norb2) return;
-    atomicAdd(&(out[j]),mat[i*norb2+j]*vec[i]);
+    //atomicAdd(&(out[j]),mat[i*norb2+j]*vec[i]);
+    double buf = 0.0;
+    for (int i=0; i<nb; ++i){buf += mat[i*norb2+j]*vec[i];}
+    //out[j] += mat[i*norb2+j]*vec[i];
+    out[j] += buf;
 }
 /* ---------------------------------------------------------------------- */
 __global__ void _gemm_fix(const double * buf1, const double * buf2, double * out, const int norb2, const int nb)
@@ -1231,8 +1236,10 @@ void Device::compute_FCIrdm2_b_t1ci(double * ci, double * buf, int stra_id, int 
 /* ---------------------------------------------------------------------- */
 void Device::gemv_fix(const double * buf, const double * bravec, double * pdm1, const int norb2, const int nb, const double alpha, const double beta)
 {
-  dim3 block_size(_DEFAULT_BLOCK_SIZE,_DEFAULT_BLOCK_SIZE,1);
-  dim3 grid_size(_TILE(nb, block_size.x), _TILE(norb2,block_size.y), 1);
+  //dim3 block_size(_DEFAULT_BLOCK_SIZE,_DEFAULT_BLOCK_SIZE,1);
+  //dim3 grid_size(_TILE(nb, block_size.x), _TILE(norb2,block_size.y), 1);
+  dim3 block_size(_DEFAULT_BLOCK_SIZE,1,1);
+  dim3 grid_size(_TILE(norb2, block_size.x),1, 1);
   cudaStream_t s = *(pm->dev_get_queue());
   _gemv_fix<<<grid_size, block_size, 0, s>>>(buf, bravec, pdm1, norb2, nb, alpha, beta);
   _CUDA_CHECK_ERRORS();
