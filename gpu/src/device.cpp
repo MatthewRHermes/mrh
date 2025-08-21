@@ -198,7 +198,6 @@ Device::~Device()
   pm->dev_free_host(buf_papa);
   pm->dev_free_host(pin_fxpp);//remove 
   pm->dev_free_host(pin_bufpa);//remove when ao2mo_v3 is running
-
   if(verbose_level) get_dev_properties(num_devices);
 
   if(verbose_level) { // this needs to be cleaned up and generalized...
@@ -343,9 +342,24 @@ Device::~Device()
     pm->dev_free(dd->d_j_pc, "j_pc");
     pm->dev_free(dd->d_k_pc, "k_pc");
 
+    pm->dev_free(dd->d_ao_grid, "ao_grid");
+    pm->dev_free(dd->d_mo_grid, "ao_grid");
+    pm->dev_free(dd->d_cascm2, "cascm2");
+    pm->dev_free(dd->d_Pi, "Pi");
+    pm->dev_free(dd->d_buf_pdft1, "buf_pdft1");
+    pm->dev_free(dd->d_buf_pdft2, "buf_pdft2");
+
     pm->dev_free(dd->d_bufpa, "bufpa");
     pm->dev_free(dd->d_bufd, "bufd");
     pm->dev_free(dd->d_bufaa, "bufaa");
+    pm->dev_free(dd->d_clinka, "clinka");
+    pm->dev_free(dd->d_clinkb, "clinkb");
+    pm->dev_free(dd->d_cibra, "cibra");
+    pm->dev_free(dd->d_ciket, "ciket");
+    pm->dev_free(dd->d_tdm1, "tdm1");
+    pm->dev_free(dd->d_tdm2, "tdm2");
+    pm->dev_free(dd->d_pdm1, "pdm1");
+    pm->dev_free(dd->d_pdm2, "pdm2");
 
     for(int i=0; i<dd->size_pumap.size(); ++i) {
       pm->dev_free_host(dd->pumap[i]);
@@ -3910,6 +3924,12 @@ void Device::compute_tdm12kern_b(int na, int nb, int nlinka, int nlinkb, int nor
   int size_tdm2 = norb2*norb2;
   int size_pdm1 = norb2;
   int size_pdm2 = norb2*norb2;
+  int bits_buf = sizeof(double)*size_buf;
+  int bits_tdm1 = sizeof(double)*size_tdm1;
+  int bits_tdm2 = sizeof(double)*size_tdm2;
+  int bits_pdm1 = sizeof(double)*size_pdm1;
+  int bits_pdm2 = sizeof(double)*size_pdm2;
+  int zero = 0;
   grow_array(dd->d_tdm1,size_tdm1, dd->size_tdm1, "tdm1", FLERR); //actual returned
   grow_array(dd->d_tdm2,size_tdm2, dd->size_tdm2, "tdm2", FLERR); //actual returned
   grow_array(dd->d_pdm1,size_pdm1, dd->size_pdm1, "pdm1", FLERR); //storing results from gemv
@@ -3918,13 +3938,25 @@ void Device::compute_tdm12kern_b(int na, int nb, int nlinka, int nlinkb, int nor
   grow_array(dd->d_buf2,size_buf, dd->size_buf2, "buf2", FLERR); 
   //set buf array to zero
   //must also set tdm1/2, pdm1/2 to zero because it may have residual from previous calls
+  #ifdef _DEBUG_FCI2
   set_to_zero(dd->d_buf1, size_buf); 
   set_to_zero(dd->d_buf2, size_buf); 
   set_to_zero(dd->d_tdm1, size_tdm1); 
   set_to_zero(dd->d_tdm2, size_tdm2); 
   set_to_zero(dd->d_pdm1, size_pdm1); 
   set_to_zero(dd->d_pdm2, size_pdm2); 
-
+  #else
+  ml->memset(dd->d_buf1, &zero, &bits_buf); 
+  ml->memset(dd->d_buf2, &zero, &bits_buf); 
+  ml->memset(dd->d_tdm1, &zero, &bits_tdm1);
+  ml->memset(dd->d_tdm2, &zero, &bits_tdm2);
+  ml->memset(dd->d_pdm1, &zero, &bits_pdm1);
+  ml->memset(dd->d_pdm2, &zero, &bits_pdm2);
+  #endif
+  #ifdef _DEBUG_FCI
+  double * h_tdm1 = (double *)pm->dev_malloc_host(size_tdm1*sizeof(double));
+  double * h_pdm1 = (double *)pm->dev_malloc_host(size_pdm1*sizeof(double));
+  #endif
   for (int stra_id = 0; stra_id<na; ++stra_id) { 
     //csum = FCIrdm2_a_t1ci(bra, buf1, bcount, stra_id, strb_id,norb, nb, nlinka, clink_indexa); //Decided to not do bcounts, sent full nb, reduces variables and usually have small ci space
     compute_FCIrdm2_b_t1ci( dd->d_cibra, dd->d_buf2, stra_id, nb, norb, nlinkb, dd->d_clinkb); 
@@ -3953,13 +3985,35 @@ void Device::compute_tdm12kern_b(int na, int nb, int nlinka, int nlinkb, int nor
     #else
     gemm_fix(dd->d_buf1, dd->d_buf2, dd->d_pdm2, norb2, nb); 
     #endif
-
+    #ifdef _DEBUG_FCI
     vecadd(dd->d_pdm2, dd->d_tdm2, norb2*norb2);
     vecadd(dd->d_pdm1, dd->d_tdm1, norb2);
+    #else
+    ml->axpy(&size_tdm2, &alpha, dd->d_pdm2, &one, dd->d_tdm2, &one);
+    ml->axpy(&size_tdm1, &alpha, dd->d_pdm1, &one, dd->d_tdm1, &one);
+    #endif
+    #ifdef _DEBUG_FCI
+    pm->dev_pull_async(dd->d_pdm1, h_pdm1, size_pdm1*sizeof(double));
+    pm->dev_pull_async(dd->d_tdm1, h_tdm1, size_tdm1*sizeof(double));
+    pm->dev_barrier();
+    printf("PDM1\n");
+    //for (int i=0;i<norb2;++i){for (int j=0;j<norb2; ++j){printf("%f\t",h_pdm1[i*norb2+j]);}printf("\n");}
+    for (int j=0;j<norb2; ++j){printf("%f\t",h_pdm1[j]);}printf("\n");
+    printf("TDM1\n");
+    for (int j=0;j<norb2; ++j){printf("%f\t",h_tdm1[j]);}printf("\n");
+    //for (int i=0;i<norb2;++i){for (int j=0;j<norb2; ++j){printf("%f\t",h_tdm1[i*norb2+j]);}printf("\n");}
+    #endif
+    #ifdef _DEBUG_FCI2
     set_to_zero(dd->d_pdm1, size_pdm1);
     set_to_zero(dd->d_pdm2, size_pdm2);
     set_to_zero(dd->d_buf1, size_buf);
     set_to_zero(dd->d_buf2, size_buf);
+    #else
+    ml->memset(dd->d_buf1, &zero, &bits_buf); 
+    ml->memset(dd->d_buf2, &zero, &bits_buf); 
+    ml->memset(dd->d_pdm1, &zero, &bits_pdm1);
+    ml->memset(dd->d_pdm2, &zero, &bits_pdm2);
+    #endif
     }     
   transpose_jikl(dd->d_tdm2, dd->d_pdm2, norb);
   pm->dev_profile_stop();

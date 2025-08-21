@@ -1276,11 +1276,15 @@ void Device::transpose_jikl(double * tdm, double * buf, int norb)
 /* ---------------------------------------------------------------------- */
 void Device::set_to_zero(double * array, int size)
 {
+  cudaStream_t s = *(pm->dev_get_queue());
+  #if 1
   dim3 block_size(_DEFAULT_BLOCK_SIZE, 1, 1);
   dim3 grid_size(_TILE(size, block_size.x),1,1);
-  cudaStream_t s = *(pm->dev_get_queue());
   _set_to_zero<<<grid_size, block_size, 0,s>>>(array, size);
   _CUDA_CHECK_ERRORS();
+ #else
+ cudaMemSet(array,0, size*sizeof(double), s); //Is this better?
+ #endif
 }
 
 
