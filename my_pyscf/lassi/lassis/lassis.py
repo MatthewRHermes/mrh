@@ -31,7 +31,8 @@ def prepare_model_states (lsi, ci_ref, ci_sf, ci_ch):
     log = logger.new_logger (lsi, lsi.verbose)
     las = lsi.get_las_of_ci_ref (ci_ref)
     space0 = list_spaces (las)[0]
-    good_spin = space0.civecs_have_good_spin ()
+    if not space0.civecs_have_good_spin ():
+        log.warn ("spin-impure reference wfn in LASSIS")
     # Make spin flip objects
     spin_flips = []
     for i in range (las.nfrags):
@@ -48,7 +49,6 @@ def prepare_model_states (lsi, ci_ref, ci_sf, ci_ch):
             spins1.append (smult+1)
             ci1.append (ci_sf[i][1])
         spin_flip_i = SpinFlips (las.mol, ci1, space0.nlas[i], space0.nelec[i], spins1, smults1)
-        good_spin = good_spin and spin_flip_i.civecs_have_good_spin ()
         spin_flips.append (spin_flip_i)
     # Make charge-hop objects
     spaces = [space0]
@@ -60,7 +60,6 @@ def prepare_model_states (lsi, ci_ref, ci_sf, ci_ch):
             dsi = -1 + (s//2)*2
             dsa = -1 + (s%2)*2
             space_ias = space0.get_single_any_m (i, a, dsi, dsa, ci_i=ci_i, ci_a=ci_a)
-            good_spin = good_spin and space_ias.civecs_have_good_spin (ifrag=(i,a))
             spaces.append (space_ias)
             spaces_ch[i][a].append (space_ias)
     # Excitation products and spin-shuffling
@@ -87,7 +86,7 @@ def prepare_model_states (lsi, ci_ref, ci_sf, ci_ch):
             las.fciboxes[ifrag].fcisolvers[iroot].norb = norb
             las.fciboxes[ifrag].fcisolvers[iroot].spin = spin
     log.timer ("LASSIS model space preparation", *t0)
-    return las, entmaps, good_spin
+    return las, entmaps
 
 def prepare_fbf (lsi, ci_ref, ci_sf, ci_ch, ncharge=1, nspin=0, sa_heff=True,
                  deactivate_vrv=False, crash_locmin=False):
@@ -267,13 +266,6 @@ class SpinFlips (object):
             solver.check_transformer_cache ()
             self.fcisolvers.append (solver)
         assert (len (self.ci) == len (self.fcisolvers))
-
-    def civecs_have_good_spin (self):
-        good_spin = True
-        for ci, solver in zip (self.ci, self.fcisolvers):
-            norm = solver.transformer.vec_det2csf (ci, return_norm=True)[1]
-            good_spin = good_spin and np.allclose (norm, 1.0)
-        return good_spin
 
 def all_spin_flips (lsi, las, ci_sf, nspin=1, ham_2q=None):
     # NOTE: this actually only uses the -first- rootspace in las, so it can be done before
@@ -584,7 +576,6 @@ class LASSIS (LASSI):
         LASSI.__init__(self, las, opt=opt, **kwargs)
         self.max_cycle_macro = 50
         self.conv_tol_self = 1e-8
-        self.good_spin = False
         self.ci_spin_flips = [[None for s in range (2)] for i in range (self.nfrags)]
         self.ci_charge_hops = [[[[None,None] for s in range (4)]
                                 for a in range (self.nfrags)]
@@ -620,12 +611,10 @@ class LASSIS (LASSI):
         t1 = log.timer ("LASSIS integral transformation", *t0)
 
         with lib.temporary_env (self, _cached_ham_2q=(h0, self.h1_no_SOC(h1), h2)):
-            self.converged, self.good_spin = self.prepare_states_(
+            self.converged = self.prepare_states_(
                 ncharge=ncharge, nspin=nspin, sa_heff=sa_heff,
                 deactivate_vrv=deactivate_vrv, crash_locmin=crash_locmin
             )
-
-        if not self.good_spin: log.warn ("Spin-broken CI vectors in LASSIS calculation!")
 
         with lib.temporary_env (self, _cached_ham_2q=(h0, h1, h2)):
             t1 = log.timer ("LASSIS state preparation", *t1)
@@ -671,7 +660,7 @@ class LASSIS (LASSI):
         self.ci_spin_flips = ci_sf
         self.ci_charge_hops = ci_ch
 
-        las, self.entmaps, self.good_spin = self.prepare_model_states (ci_ref, ci_sf, ci_ch)
+        las, self.entmaps = self.prepare_model_states (ci_ref, ci_sf, ci_ch)
         #self.__dict__.update(las.__dict__) # Unsafe
         self.fciboxes = las.fciboxes
         self.ci = las.ci
@@ -682,7 +671,7 @@ class LASSIS (LASSI):
         log.info ('LASSIS model state summary: %d rootspaces; %d model states; converged? %s',
                   self.nroots, self.get_lroots ().prod (0).sum (), str (self.converged))
         log.info ('LASSIS overall max disc sval: %e', self.max_disc_sval)
-        return self.converged, self.good_spin
+        return self.converged
 
     def energy_tot (self, mo_coeff=None, ci_ref=None, ci_sf=None, ci_ch=None, si=None, soc=None):
         if ci_ref is None: ci_ref = self.get_ci_ref ()
