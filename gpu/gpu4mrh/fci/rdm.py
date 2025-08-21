@@ -5,7 +5,6 @@ from pyscf import lib
 from pyscf.fci import cistring
 from pyscf.fci.addons import _unpack_nelec
 import traceback, sys
-DEBUG=False
 librdm = cistring.libfci
 def _make_rdm1_spin1(fname, cibra, ciket, norb, nelec, link_index=None):
     assert (cibra is not None and ciket is not None)
@@ -28,7 +27,7 @@ def _make_rdm1_spin1(fname, cibra, ciket, norb, nelec, link_index=None):
     ciket = numpy.ascontiguousarray(ciket)
     assert (cibra.size == na*nb), '{} {} {}'.format (cibra.size, na, nb)
     assert (ciket.size == na*nb), '{} {} {}'.format (ciket.size, na, nb)
-    if use_gpu and DEBUG:
+    if use_gpu and param.gpu_debug:
       from mrh.my_pyscf.gpu import libgpu
       rdm_cpu = numpy.empty((norb,norb))
       fn = getattr(librdm, fname)
@@ -138,7 +137,8 @@ def _make_rdm12_spin1(fname, cibra, ciket, norb, nelec, link_index=None, symm=0)
     nb,nlinkb = link_indexb.shape[:2]
     assert (cibra.size == na*nb)
     assert (ciket.size == na*nb)
-    if use_gpu is not None and DEBUG: 
+    if use_gpu is not None and param.gpu_debug: 
+      print("Using debug path")
       from mrh.my_pyscf.gpu import libgpu
       rdm1_cpu = numpy.empty((norb,norb))
       rdm2_cpu = numpy.empty((norb,norb,norb,norb))
@@ -196,6 +196,7 @@ def _make_rdm12_spin1(fname, cibra, ciket, norb, nelec, link_index=None, symm=0)
       from mrh.my_pyscf.gpu import libgpu
       rdm1_gpu = numpy.empty((norb,norb))
       rdm2_gpu = numpy.empty((norb,norb,norb,norb))
+      print("using GPU only path")
       libgpu.init_tdm1(gpu, norb)
       libgpu.init_tdm2(gpu, norb)
       libgpu.push_ci(gpu, cibra, ciket, na, nb)
