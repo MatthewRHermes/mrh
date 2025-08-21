@@ -3914,6 +3914,7 @@ void Device::compute_tdm12kern_b(int na, int nb, int nlinka, int nlinkb, int nor
   double t0 = omp_get_wtime();
   int id=0;
   pm->dev_set_device(id);
+  ml->set_handle(id);
   my_device_data * dd = &(device_data[id]);
   pm->dev_profile_start("tdms :: compute_tdm12kern_b");
  
@@ -3922,38 +3923,26 @@ void Device::compute_tdm12kern_b(int na, int nb, int nlinka, int nlinkb, int nor
   int size_rdm2 = norb2*norb2;
   int size_tdm1 = norb2;
   int size_tdm2 = norb2*norb2;
-  int size_pdm1 = norb2;
   int size_pdm2 = norb2*norb2;
   int bits_buf = sizeof(double)*size_buf;
   int bits_tdm1 = sizeof(double)*size_tdm1;
   int bits_tdm2 = sizeof(double)*size_tdm2;
-  int bits_pdm1 = sizeof(double)*size_pdm1;
   int bits_pdm2 = sizeof(double)*size_pdm2;
   int zero = 0;
   grow_array(dd->d_tdm1,size_tdm1, dd->size_tdm1, "tdm1", FLERR); //actual returned
   grow_array(dd->d_tdm2,size_tdm2, dd->size_tdm2, "tdm2", FLERR); //actual returned
-  grow_array(dd->d_pdm1,size_pdm1, dd->size_pdm1, "pdm1", FLERR); //storing results from gemv
   grow_array(dd->d_pdm2,size_pdm2, dd->size_pdm2, "pdm2", FLERR); //storing results from gemm
   grow_array(dd->d_buf1,size_buf, dd->size_buf1, "buf1", FLERR); 
   grow_array(dd->d_buf2,size_buf, dd->size_buf2, "buf2", FLERR); 
   //set buf array to zero
   //must also set tdm1/2, pdm1/2 to zero because it may have residual from previous calls
-  #ifdef _DEBUG_FCI2
-  set_to_zero(dd->d_buf1, size_buf); 
-  set_to_zero(dd->d_buf2, size_buf); 
-  set_to_zero(dd->d_tdm1, size_tdm1); 
-  set_to_zero(dd->d_tdm2, size_tdm2); 
-  set_to_zero(dd->d_pdm1, size_pdm1); 
-  set_to_zero(dd->d_pdm2, size_pdm2); 
-  #else
+  //think if you need to zero everything 
   ml->memset(dd->d_buf1, &zero, &bits_buf); 
   ml->memset(dd->d_buf2, &zero, &bits_buf); 
   ml->memset(dd->d_tdm1, &zero, &bits_tdm1);
   ml->memset(dd->d_tdm2, &zero, &bits_tdm2);
-  ml->memset(dd->d_pdm1, &zero, &bits_pdm1);
   ml->memset(dd->d_pdm2, &zero, &bits_pdm2);
-  #endif
-  #ifdef _DEBUG_FCI
+  #ifdef _DEBUG_FCI2
   double * h_tdm1 = (double *)pm->dev_malloc_host(size_tdm1*sizeof(double));
   double * h_pdm1 = (double *)pm->dev_malloc_host(size_pdm1*sizeof(double));
   #endif
@@ -3973,7 +3962,7 @@ void Device::compute_tdm12kern_b(int na, int nb, int nlinka, int nlinkb, int nor
                 &beta, 
                 dd->d_pdm1, &one); //convert to gemv_batched, edit na loop to batches, may need to increase buf
     #else
-    gemv_fix(dd->d_buf1, bravec, dd->d_pdm1, norb2, nb, alpha, beta);
+    gemv_fix(dd->d_buf1, bravec, dd->d_tdm1, norb2, nb, alpha, beta);
     #endif
     #if 0
     ml->gemm((char *) 'N',(char *) 'T', &norb2, &norb2, &nb, 
@@ -3985,33 +3974,21 @@ void Device::compute_tdm12kern_b(int na, int nb, int nlinka, int nlinkb, int nor
     #else
     gemm_fix(dd->d_buf1, dd->d_buf2, dd->d_pdm2, norb2, nb); 
     #endif
-    #ifdef _DEBUG_FCI
-    vecadd(dd->d_pdm2, dd->d_tdm2, norb2*norb2);
-    vecadd(dd->d_pdm1, dd->d_tdm1, norb2);
-    #else
     ml->axpy(&size_tdm2, &alpha, dd->d_pdm2, &one, dd->d_tdm2, &one);
-    ml->axpy(&size_tdm1, &alpha, dd->d_pdm1, &one, dd->d_tdm1, &one);
-    #endif
-    #ifdef _DEBUG_FCI
-    pm->dev_pull_async(dd->d_pdm1, h_pdm1, size_pdm1*sizeof(double));
+    #ifdef _DEBUG_FCI2
     pm->dev_pull_async(dd->d_tdm1, h_tdm1, size_tdm1*sizeof(double));
     pm->dev_barrier();
-    printf("PDM1\n");
-    //for (int i=0;i<norb2;++i){for (int j=0;j<norb2; ++j){printf("%f\t",h_pdm1[i*norb2+j]);}printf("\n");}
-    for (int j=0;j<norb2; ++j){printf("%f\t",h_pdm1[j]);}printf("\n");
     printf("TDM1\n");
     for (int j=0;j<norb2; ++j){printf("%f\t",h_tdm1[j]);}printf("\n");
     //for (int i=0;i<norb2;++i){for (int j=0;j<norb2; ++j){printf("%f\t",h_tdm1[i*norb2+j]);}printf("\n");}
     #endif
     #ifdef _DEBUG_FCI2
-    set_to_zero(dd->d_pdm1, size_pdm1);
     set_to_zero(dd->d_pdm2, size_pdm2);
     set_to_zero(dd->d_buf1, size_buf);
     set_to_zero(dd->d_buf2, size_buf);
     #else
     ml->memset(dd->d_buf1, &zero, &bits_buf); 
     ml->memset(dd->d_buf2, &zero, &bits_buf); 
-    ml->memset(dd->d_pdm1, &zero, &bits_pdm1);
     ml->memset(dd->d_pdm2, &zero, &bits_pdm2);
     #endif
     }     
