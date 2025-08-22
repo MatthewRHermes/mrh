@@ -233,6 +233,7 @@ def _get_spin_split_manifolds (ci_fr, norb_f, nelec_frs, smult_fr, lroots_fr, id
         ci_mrf.append (ci_rf)
     groups = list (range (nmanifolds))
     for i,j in combinations (range (nmanifolds), 2):
+        if groups[i] == groups[j]: continue
         lmanifold = manifolds[i].shape[1]
         if lmanifold != manifolds[j].shape[1]: continue
         my_lroots = lroots_fr[:,manifolds[i][0]]
@@ -242,7 +243,7 @@ def _get_spin_split_manifolds (ci_fr, norb_f, nelec_frs, smult_fr, lroots_fr, id
             for f in range (nfrags):
                 ci_i = ci_mrf[i][r][f]
                 ci_j = ci_mrf[j][r][f]
-                ovlp = np.diagonal (ci_i.conj () @ ci_j.T)
+                ovlp = [xi.conj ().dot (xj) for xi, xj in zip (ci_i, ci_j)]
                 equiv = equiv and np.allclose (ovlp, 1)
                 if not equiv: break
             if not equiv: break
