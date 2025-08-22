@@ -6,6 +6,7 @@ from scipy import linalg
 from pyscf.scf.addons import canonical_orth_
 from pyscf import __config__
 from itertools import combinations
+from mrh.my_pyscf.fci import spin_op
 
 LINDEP_THRESH = getattr (__config__, 'lassi_lindep_thresh', 1.0e-5)
 SCREEN_THRESH = getattr (__config__, 'lassi_frag_screen_thresh', 1e-10)
@@ -173,7 +174,8 @@ def get_orth_basis (ci_fr, norb_f, nelec_frs, _get_ovlp=None, smult_fr=None):
     manifolds_xmat = []
     north = len (uniq_prod_idx)
     for manifold_idx in np.where (cnts>1)[0]:
-        manifolds = _get_spin_split_manifolds (ci_fr, norb_f, nelec_frs, inverse==manifold_idx)
+        manifolds = _get_spin_split_manifolds (ci_fr, norb_f, nelec_frs, smult_fr, lroots_fr,
+                                               inverse==manifold_idx)
         for manifold in manifolds:
             manifold_prod_idx = []
             for spin_mirror in manifold:
@@ -203,13 +205,53 @@ def get_orth_basis (ci_fr, norb_f, nelec_frs, _get_ovlp=None, smult_fr=None):
 
     return OrthBasis ((north,nraw), dtype, uniq_prod_idx, manifolds_prod_idx, manifolds_xmat)
 
-def _get_spin_split_manifolds (ci_fr, norb_f, nelec_frs, idx):
-    nelec_frs = nelec_frs[:,idx,:]
+def _get_spin_split_manifolds (ci_fr, norb_f, nelec_frs, smult_fr, lroots_fr, idx):
+    nfrags = len (norb_f)
     spins_fr = nelec_frs[:,:,0] - nelec_frs[:,:,1]
+    tabulator = spins_fr.T[idx]
     idx = np.where (idx)[0]
-    uniq, inverse = np.unique (spins_fr.T, axis=0, return_inverse=True)
-    manifolds = [idx[inverse==i][None,:] for i in range (len (uniq))]
+    uniq, inverse = np.unique (tabulator, axis=0, return_inverse=True)
+    nmanifolds = len (uniq)
+    manifolds = [idx[inverse==i][None,:] for i in range (nmanifolds)]
+    if smult_fr is None: return manifolds
     # TODO: join mainfolds which are distinct only by Sz rotations
+    ci_mrf = []
+    for manifold in manifolds:
+        ci_rf = []
+        for iroot in manifold[0]:
+            nelec = nelec_frs[:,iroot,:]
+            ci_f = []
+            for ifrag in range (nfrags):
+                c = ci_fr[ifrag][iroot]
+                norb = norb_f[ifrag]
+                nelec = nelec_frs[ifrag,iroot]
+                smult = smult_fr[ifrag,iroot]
+                c = spin_op.mup (c, norb, nelec, smult)
+                lroots = lroots_fr[ifrag,iroot]
+                ci_f.append (c.reshape (lroots,-1))
+            ci_rf.append (ci_f)
+        ci_mrf.append (ci_rf)
+    groups = list (range (nmanifolds))
+    for i,j in combinations (range (nmanifolds), 2):
+        lmanifold = manifolds[i].shape[1]
+        if lmanifold != manifolds[j].shape[1]: continue
+        my_lroots = lroots_fr[:,manifolds[i][0]]
+        if np.any (my_lroots!=lroots_fr[:,manifolds[j][0]]): continue
+        equiv = True
+        for r in range (lmanifold):
+            for f in range (nfrags):
+                ci_i = ci_mrf[i][r][f]
+                ci_j = ci_mrf[j][r][f]
+                ovlp = np.diagonal (ci_i.conj () @ ci_j.T)
+                equiv = equiv and np.allclose (ovlp, 1)
+                if not equiv: break
+            if not equiv: break
+        if equiv:
+            groups[j] = groups[i]
+    uniq, inverse = np.unique (groups, return_inverse=True)
+    manifolds = [np.stack ([manifolds[i][0] for i in np.where (inverse==j)[0]],
+                           axis=0)
+                 for j in range (len (uniq))]
     return manifolds
 
 class OrthBasis (sparse_linalg.LinearOperator):

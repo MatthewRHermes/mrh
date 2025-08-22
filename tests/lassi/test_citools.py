@@ -87,13 +87,23 @@ class KnownValues(unittest.TestCase):
         ci[1][2:4] = [mdown (x, 4, (1, 3), 3) for x in ci_trip[1]]
         ci[1][4:6] = [mdown (x, 4, (2, 2), 3) for x in ci_trip[1]]
         ci[1][6:8] = ci_trip[1]
-        ovlp = op_o0.get_ovlp (ci, norb_f, nelec_frs)
-        raw2orth_spin = citools.get_orth_basis (ci, norb_f, nelec_frs, smult_fr=smult_fr)
+        ovlp0 = op_o0.get_ovlp (ci, norb_f, nelec_frs)
+        raw2orth_fullspin = citools.get_orth_basis (ci, norb_f, nelec_frs, smult_fr=smult_fr)
         raw2orth_nospin = citools.get_orth_basis (ci, norb_f, nelec_frs)
+        for i in range (2):
+            for j in range (2+4*i,4+4*i):
+                ci[i][j] = t3.vec_csf2det (random_orthrows (2, t3.ncsf))
+                ci[i][j] = ci[i][j].reshape (-1, t3.ndeta, t3.ndetb)
+        ovlp1 = op_o0.get_ovlp (ci, norb_f, nelec_frs)
+        raw2orth_semispin = citools.get_orth_basis (ci, norb_f, nelec_frs, smult_fr=smult_fr)
         with self.subTest ('size'):
             # Exact number may change if there are sometimes lindeps
-            self.assertLess (raw2orth_spin.get_nbytes (), raw2orth_nospin.get_nbytes ())
-        for raw2orth, lbl in ((raw2orth_spin, 'using smult'), (raw2orth_spin, 'not using smult')):
+            self.assertLess (raw2orth_fullspin.get_nbytes (), raw2orth_semispin.get_nbytes ())
+            self.assertLess (raw2orth_semispin.get_nbytes (), raw2orth_nospin.get_nbytes ())
+        raw2orths = (raw2orth_nospin, raw2orth_semispin, raw2orth_fullspin)
+        ovlps = (ovlp0, ovlp1, ovlp0)
+        lbls = ('no spin', 'semi-spin', 'full spin')
+        for raw2orth, ovlp, lbl in zip (raw2orths, ovlps, lbls):
             with self.subTest (lbl + ' orth'):
                 xox = raw2orth (raw2orth (ovlp.T).T)
                 xox -= np.eye (raw2orth.shape[0])
