@@ -118,8 +118,6 @@ void MATHLIB::axpy(const int * n,
 
   cublasHandle_t * h = current_handle;
   
-  cublasOperation_t ta;
-
 #ifdef _SINGLE_PRECISION
   cublasSaxpy (*h , *n, alpha, x, *incx, y, *incy);   
 #else
@@ -173,7 +171,6 @@ void MATHLIB::gemv(const char * transa,
   else if(strcmp(transa, "T") == 0) ta = CUBLAS_OP_T;
   else ta = CUBLAS_OP_C;
 
-  
 #ifdef _SINGLE_PRECISION
   cublasSgemv(*h, ta, *m, *n, alpha, a, *lda, b, *ldb, beta, c, *ldc);
 #else
