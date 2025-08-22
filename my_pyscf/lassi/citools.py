@@ -149,9 +149,9 @@ def get_orth_basis (ci_fr, norb_f, nelec_frs, _get_ovlp=None, smult_fr=None):
         from mrh.my_pyscf.lassi.op_o0 import get_ovlp
         _get_ovlp = functools.partial (get_ovlp, ci_fr, norb_f, nelec_frs)
     nfrags, nroots = nelec_frs.shape[:2]
-    tabulator = nelec_frs
+    tabulator = nelec_frs.sum (2)
     if smult_fr is not None:
-        tabulator = np.append (tabulator, smult_fr[:,:,None], axis=2)
+        tabulator = np.append (tabulator, smult_fr, axis=0)
     unique, uniq_idx, inverse, cnts = np.unique (tabulator, axis=1, return_index=True,
                                                  return_inverse=True, return_counts=True)
     lroots_fr = np.array ([[1 if c.ndim<3 else c.shape[0]
@@ -173,28 +173,44 @@ def get_orth_basis (ci_fr, norb_f, nelec_frs, _get_ovlp=None, smult_fr=None):
     manifolds_xmat = []
     north = len (uniq_prod_idx)
     for manifold_idx in np.where (cnts>1)[0]:
-        manifold = np.where (inverse==manifold_idx)[0]
-        manifold_prod_idx = []
-        for i in manifold: manifold_prod_idx.extend (list(range(offs0[i],offs1[i])))
-        ovlp = _get_ovlp (rootidx=manifold)
-        ovlp[np.diag_indices_from (ovlp)] -= 1.0
-        err_from_diag = np.amax (np.abs (ovlp))
-        if err_from_diag > 1e-8:
-            ovlp[np.diag_indices_from (ovlp)] += 1.0
-            manifolds_prod_idx.append (manifold_prod_idx)
-            xmat = canonical_orth_(ovlp, thr=LINDEP_THRESH)
-            north += xmat.shape[1]
-            manifolds_xmat.append (xmat)
-        else:
-            north += ovlp.shape[0]
-            uniq_prod_idx.extend (manifold_prod_idx)
-        ovlp = None
+        manifolds = _get_spin_split_manifolds (ci_fr, norb_f, nelec_frs, inverse==manifold_idx)
+        for manifold in manifolds:
+            manifold_prod_idx = []
+            for spin_mirror in manifold:
+                prod_idx = []
+                for i in spin_mirror:
+                    prod_idx.extend (list(range(offs0[i],offs1[i])))
+                manifold_prod_idx.append (prod_idx)
+            manifold_prod_idx = np.asarray (manifold_prod_idx, dtype=int)
+            nmirror, nprod = manifold_prod_idx.shape
+            ovlp = _get_ovlp (rootidx=manifold[0])
+            ovlp[np.diag_indices_from (ovlp)] -= 1.0
+            err_from_diag = np.amax (np.abs (ovlp))
+            if err_from_diag > 1e-8:
+                ovlp[np.diag_indices_from (ovlp)] += 1.0
+                manifolds_prod_idx.append (manifold_prod_idx)
+                xmat = canonical_orth_(ovlp, thr=LINDEP_THRESH)
+                north += xmat.shape[1] * nmirror
+                manifolds_xmat.append (xmat)
+            else:
+                north += ovlp.shape[0] * nmirror
+                uniq_prod_idx.extend (list (manifold_prod_idx.ravel ()))
+            ovlp = None
     nuniq_prod = len (uniq_prod_idx)
     nraw = offs1[-1]
 
     _get_ovlp = None
 
     return OrthBasis ((north,nraw), dtype, uniq_prod_idx, manifolds_prod_idx, manifolds_xmat)
+
+def _get_spin_split_manifolds (ci_fr, norb_f, nelec_frs, idx):
+    nelec_frs = nelec_frs[:,idx,:]
+    spins_fr = nelec_frs[:,:,0] - nelec_frs[:,:,1]
+    idx = np.where (idx)[0]
+    uniq, inverse = np.unique (spins_fr.T, axis=0, return_inverse=True)
+    manifolds = [idx[inverse==i][None,:] for i in range (len (uniq))]
+    # TODO: join mainfolds which are distinct only by Sz rotations
+    return manifolds
 
 class OrthBasis (sparse_linalg.LinearOperator):
     def __init__(self, shape, dtype, uniq_prod_idx, manifolds_prod_idx, manifolds_xmat):
@@ -214,9 +230,10 @@ class OrthBasis (sparse_linalg.LinearOperator):
         ortharr[:nuniq_prod] = rawarr[self.uniq_prod_idx]
         i = nuniq_prod
         for prod_idx, xmat in zip (self.manifolds_prod_idx, self.manifolds_xmat):
-            j = i + xmat.shape[1]
-            ortharr[i:j] = np.tensordot (xmat.T, rawarr[prod_idx], axes=1)
-            i = j
+            for mirror in prod_idx:
+                j = i + xmat.shape[1]
+                ortharr[i:j] = np.tensordot (xmat.T, rawarr[mirror], axes=1)
+                i = j
         return ortharr
 
     def _rmatvec (self, ortharr):
@@ -229,9 +246,10 @@ class OrthBasis (sparse_linalg.LinearOperator):
         rawarr[self.uniq_prod_idx] = ortharr[:nuniq_prod]
         i = nuniq_prod
         for prod_idx, xmat in zip (self.manifolds_prod_idx, self.manifolds_xmat):
-            j = i + xmat.shape[1]
-            rawarr[prod_idx] = np.tensordot (xmat.conj (), ortharr[i:j], axes=1)
-            i = j
+            for mirror in prod_idx:
+                j = i + xmat.shape[1]
+                rawarr[mirror] = np.tensordot (xmat.conj (), ortharr[i:j], axes=1)
+                i = j
         return rawarr
 
     def get_nbytes (self):
