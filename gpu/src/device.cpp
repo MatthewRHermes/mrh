@@ -110,8 +110,7 @@ Device::Device()
     device_data[i].size_ciket=0;
     device_data[i].size_tdm1=0;
     device_data[i].size_tdm2=0;
-    device_data[i].size_tdm1=0;
-    device_data[i].size_tdm2=0;
+    device_data[i].size_tdm2_p=0;
     
     
     device_data[i].d_rho = nullptr;
@@ -153,6 +152,10 @@ Device::Device()
     device_data[i].d_ciket=nullptr;
     device_data[i].d_tdm1=nullptr;
     device_data[i].d_tdm2=nullptr;
+    device_data[i].d_tdm2_p=nullptr;
+    device_data[i].d_tdm1h=nullptr;
+    device_data[i].d_tdm3ha=nullptr;
+    device_data[i].d_tdm3hb=nullptr;
     device_data[i].d_pdm1=nullptr;
     device_data[i].d_pdm2=nullptr;
 
@@ -358,6 +361,10 @@ Device::~Device()
     pm->dev_free(dd->d_ciket, "ciket");
     pm->dev_free(dd->d_tdm1, "tdm1");
     pm->dev_free(dd->d_tdm2, "tdm2");
+    pm->dev_free(dd->d_tdm2_p, "tdm2_p");
+    pm->dev_free(dd->d_tdm1h, "tdm1h");
+    pm->dev_free(dd->d_tdm3ha, "tdm3ha");
+    pm->dev_free(dd->d_tdm3hb, "tdm3hb");
     pm->dev_free(dd->d_pdm1, "pdm1");
     pm->dev_free(dd->d_pdm2, "pdm2");
 
@@ -3682,6 +3689,23 @@ void Device::init_tdm2(int norb)
   t_array[15] += t1 - t0;
 } 
 /* ---------------------------------------------------------------------- */
+void Device::init_tdm3hab(int norb)
+{
+  double t0 = omp_get_wtime();
+  int size_tdm2 = norb*norb*norb*norb; 
+  int id=0;
+  pm->dev_set_device(id);
+  my_device_data * dd = &(device_data[id]);
+  pm->dev_profile_start("tdms :: init tdm2");
+  grow_array(dd->d_tdm2, size_tdm2, dd->size_tdm2, "TDM2", FLERR);
+  grow_array(dd->d_tdm2_p, size_tdm2, dd->size_tdm2_p, "TDM2_p", FLERR);
+  //pointed to tdm3ha/b in the function itself
+  pm->dev_profile_stop();
+  double t1 = omp_get_wtime();
+  //t_array[15] += t1 - t0;//TODO: Fix timing array position
+} 
+
+/* ---------------------------------------------------------------------- */
 void Device::push_ci(py::array_t<double> _cibra, py::array_t<double> _ciket, int na, int nb)
 {
   double t0 = omp_get_wtime();
@@ -3930,7 +3954,6 @@ void Device::compute_tdm12kern_b(int na, int nb, int nlinka, int nlinkb, int nor
  
   int norb2 = norb*norb;
   int size_buf = norb2*nb;
-  int size_rdm2 = norb2*norb2;
   int size_tdm1 = norb2;
   int size_tdm2 = norb2*norb2;
   int bits_buf = sizeof(double)*size_buf;
@@ -4045,6 +4068,7 @@ void Device::compute_rdm12kern_sf(int na, int nb, int nlinka, int nlinkb, int no
   double t0 = omp_get_wtime();
   int id=0;
   pm->dev_set_device(id);
+  ml->set_handle(id);
   my_device_data * dd = &(device_data[id]);
   pm->dev_profile_start("tdms :: compute_rdm12kern_sf");
  
@@ -4101,7 +4125,130 @@ void Device::compute_rdm12kern_sf(int na, int nb, int nlinka, int nlinkb, int no
     t_array[25] += t1-t0;
     count_array[15]++;
 }
+/* ---------------------------------------------------------------------- */
+void Device::compute_tdm13h_spin(int na, int nb, int nlinka, int nlinkb, int norb, int spin)
+{
+  double t0 = omp_get_wtime();
+  int id = 0;
+  pm->dev_set_device(id);
+  ml->set_handle(id);
+  my_device_data * dd = &(device_data[id]);
+  int norb2 = norb*norb;
+  int size_buf = norb2*nb;
+  int size_tdm3h = norb2*norb2;
+  int size_tdm1h = norb2;
+  int zero = 0;
+  int one = 1;
+  const double alpha = 1.0;
+  const double beta = 1.0;
+  int bits_buf = sizeof(double)*size_buf;
+  int bits_tdm1h = sizeof(double)*size_tdm1h;
+  int bits_tdm3h = sizeof(double)*size_tdm3h;
+  grow_array(dd->d_tdm1, size_tdm1h, dd->size_tdm1, "tdm1", FLERR);
+  grow_array(dd->d_tdm2, size_tdm3h, dd->size_tdm2, "tdm2", FLERR); 
+  grow_array(dd->d_tdm2_p, size_tdm3h, dd->size_tdm2_p, "tdm2_p", FLERR); 
+  grow_array(dd->d_buf1,size_buf, dd->size_buf1, "buf1", FLERR); 
+  grow_array(dd->d_buf2,size_buf, dd->size_buf2, "buf2", FLERR); 
+  dd->d_tdm1h = dd->d_tdm1;
+  ml->memset(dd->d_buf1, &zero, &bits_buf); 
+  ml->memset(dd->d_buf2, &zero, &bits_buf); 
+  ml->memset(dd->d_tdm1, &zero, &bits_tdm1h);
+  ml->memset(dd->d_tdm2, &zero, &bits_tdm3h);
+  ml->memset(dd->d_tdm2_p, &zero, &bits_tdm3h);
+  dd->d_tdm3ha = dd->d_tdm2;
+  dd->d_tdm3hb = dd->d_tdm2_p;
+  
+  /*
+  tdm12kern_a
+    a_t1ci: cibra, clinka -> buf2
+    a_t1ci: ciket, clinka -> buf1
+    tdm1 = gemv buf1, bravec
+    tdm2 = gemm buf1, buf2
+  tdm12kern_b 
+    b_t1ci: cibra, clinkb -> buf2
+    b_t1ci: ciket, clinkb -> buf1
+    tdm1 = gemv buf1, bravec
+    tdm2 = gemm buf1, buf2
+  tdm12kern_ab
+    a_t1ci: cibra, clinka -> buf2
+    b_t1ci: ciket, clinkb -> buf1
+    tdm2 = gemm buf1, buf2
 
+  if spin ==0  
+    tdm1, tdm3ha = tdm12kern_a, cibra, ciket, get 1 and 2
+      a_t1ci: cibra, clinka -> buf2
+      a_t1ci: ciket, clinka -> buf1
+      tdm1h = gemv buf1, bravec
+      tdm3ha = gemm buf1, buf2
+    tdm3hb = tdm12kern_ab, cibra, ciket, get 2
+      a_t1ci: cibra, clinka -> buf2  //same
+      b_t1ci: ciket, clinkb -> buf1  
+      tdm3hb = gemm buf1, buf2
+      
+  if spin ==1
+    tdm1, tdm3hb = tdm12kern_b, cibra, ciket, get 1 and 2
+      b_t1ci: cibra, clinkb -> buf2
+      b_t1ci: ciket, clinkb -> buf1
+      tdm1h = gemv buf1, bravec
+      tdm3hb = gemm buf1, buf2
+    tdm3ha = tdm12kern_ab, ciket, cibra, get 2
+      // !caution ciket and cibra switched
+      a_t1ci: ciket, clinka -> buf2
+      b_t1ci: cibra, clinkb -> buf1 
+      tdm3ha = gemm buf1, buf2
+      //therefore
+      b_t1ci: cibra, clinkb -> buf2 //doesn't matter where you store in 
+      a_t1ci: ciket, clinka -> buf1
+      tdm3ha = gemm buf2, buf1
+  */
+  if (spin==0){
+    for (int stra_id = 0; stra_id<na; ++stra_id){
+      compute_FCIrdm2_a_t1ci(dd->d_cibra, dd->d_buf2, stra_id, nb, norb, nlinka, dd->d_clinka);
+      compute_FCIrdm2_a_t1ci(dd->d_ciket, dd->d_buf1, stra_id, nb, norb, nlinka, dd->d_clinka);
+      double * bravec = &(dd->d_cibra[stra_id*nb]);
+      ml->gemv((char *) "N", &norb2, &nb, &alpha, 
+                dd->d_buf1, &norb2, bravec, &one, 
+                &beta, dd->d_tdm1h, &one);
+      ml->gemm((char *) "N", (char *) "T", &norb2, &norb2, &nb, &alpha, 
+                dd->d_buf1, &norb2, dd->d_buf2, &norb2, 
+                &beta, dd->d_tdm3ha, &norb2);
+  
+      ml->memset(dd->d_buf1, &zero, &bits_buf);
+      compute_FCIrdm2_b_t1ci(dd->d_ciket, dd->d_buf1, stra_id, nb, norb, nlinkb, dd->d_clinkb);
+      ml->gemm((char *) "N", (char *) "T", &norb2, &norb2, &nb, &alpha, 
+               dd->d_buf1, &norb2, dd->d_buf2, &norb2, 
+               &beta, dd->d_tdm3hb, &norb2);
+
+      ml->memset(dd->d_buf2, &zero, &bits_buf);
+      ml->memset(dd->d_buf1, &zero, &bits_buf);
+    }
+  }
+  else {
+    for (int stra_id = 0; stra_id<na; ++stra_id){
+      compute_FCIrdm2_b_t1ci(dd->d_cibra, dd->d_buf2, stra_id, nb, norb, nlinkb, dd->d_clinkb);
+      compute_FCIrdm2_b_t1ci(dd->d_ciket, dd->d_buf1, stra_id, nb, norb, nlinkb, dd->d_clinkb);
+      double * bravec = &(dd->d_cibra[stra_id*nb]);
+      ml->gemv((char *) "N", &norb2, &nb, &alpha, 
+                dd->d_buf1, &norb2, bravec, &one, 
+                &beta, dd->d_tdm1h, &one);
+      ml->gemm((char *) "N", (char *) "T", &norb2, &norb2, &nb, &alpha, 
+                dd->d_buf1, &norb2, dd->d_buf2, &norb2, 
+                &beta, dd->d_tdm3hb, &norb2);
+      ml->memset(dd->d_buf1, &zero, &bits_buf);
+      compute_FCIrdm2_a_t1ci(dd->d_ciket, dd->d_buf1, stra_id, nb, norb, nlinka, dd->d_clinka);
+      ml->gemm((char *) "N", (char *) "T", &norb2, &norb2, &nb, &alpha, 
+               dd->d_buf2, &norb2, dd->d_buf1, &norb2, //remember the switch?
+               &beta, dd->d_tdm3ha, &norb2);
+      ml->memset(dd->d_buf2, &zero, &bits_buf);
+      ml->memset(dd->d_buf1, &zero, &bits_buf);
+    }
+  }
+  transpose_jikl(dd->d_tdm3ha, dd->d_buf1, norb);
+  transpose_jikl(dd->d_tdm3hb, dd->d_buf2, norb);
+  double t1 = omp_get_wtime();
+  //t_array[23] += t1-t0;//TODO: fix this
+  //count_array[13]++;//TODO: fix this
+} 
 /* ---------------------------------------------------------------------- */
 void Device::pull_tdm1(py::array_t<double> _tdm1, int norb)
 {
@@ -4133,4 +4280,23 @@ void Device::pull_tdm2(py::array_t<double> _tdm2, int norb)
   double t1 = omp_get_wtime();
   t_array[27] += t1-t0;
 }
+/* ---------------------------------------------------------------------- */
+void Device::pull_tdm3hab(py::array_t<double> _tdm3ha, py::array_t<double> _tdm3hb, int norb)
+{
+  double t0 = omp_get_wtime();
+  int id = 0;
+  pm->dev_set_device(id); 
+  my_device_data * dd = &(device_data[id]);
+  pm->dev_profile_start("tdms :: pull tdm2");
+  py::buffer_info info_tdm3ha = _tdm3ha.request(); //4D array (norb, norb, norb, norb)
+  double * tdm3ha = static_cast<double*>(info_tdm3ha.ptr);
+  pm->dev_pull_async(dd->d_tdm3ha, tdm3ha, norb*norb*norb*norb*sizeof(double));
+  py::buffer_info info_tdm3hb = _tdm3hb.request(); //4D array (norb, norb, norb, norb)
+  double * tdm3hb = static_cast<double*>(info_tdm3hb.ptr);
+  pm->dev_pull_async(dd->d_tdm3hb, tdm3hb, norb*norb*norb*norb*sizeof(double));
+  pm->dev_profile_stop();
+  double t1 = omp_get_wtime();
+  //t_array[27] += t1-t0;
+}
+
 /* ---------------------------------------------------------------------- */

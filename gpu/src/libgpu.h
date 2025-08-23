@@ -104,10 +104,13 @@ extern "C"
                    int, int, int, int); 
   void libgpu_pull_Pi (void *,
                    py::array_t<double>, int, int); 
+
   //FCI
   void libgpu_init_tdm1(void *,
                        int);
   void libgpu_init_tdm2(void *,
+                       int);
+  void libgpu_init_tdm3hab(void *,
                        int);
   void libgpu_push_ci(void *, 
                       py::array_t<double>,  py::array_t<double>, 
@@ -117,7 +120,7 @@ extern "C"
   void libgpu_push_link_indexb(void *, 
                               int, int , py::array_t<int> ); //TODO: figure out the shape? or maybe move the compressed version 
   void libgpu_push_link_index_ab(void *, 
-                              int, int ,int, int, py::array_t<int>, py::array_t<int> ); //TODO: figure out the shape? or maybe move the compressed version 
+                              int, int ,int, int, py::array_t<int>, py::array_t<int> ); //TODO: figure out the shape? or maybe move the compressed version
   void libgpu_compute_trans_rdm1a(void *, 
                             int , int , int , int , int );
   void libgpu_compute_trans_rdm1b(void *, 
@@ -134,10 +137,14 @@ extern "C"
                             int , int , int , int , int );
   void libgpu_compute_rdm12kern_sf(void *, 
                             int , int , int , int , int );
+  void libgpu_compute_tdm13h_spin(void *, 
+                            int , int , int , int , int , int);
   void libgpu_pull_tdm1(void *, 
                       py::array_t<double> , int );
   void libgpu_pull_tdm2(void *, 
                       py::array_t<double> , int );
+  void libgpu_pull_tdm3hab(void *, 
+                      py::array_t<double>, py::array_t<double> , int);
 }
 
 
@@ -190,6 +197,7 @@ PYBIND11_MODULE(libgpu, m) {
   // RDM can be used from previously made JKs
   m.def("init_tdm1",&libgpu_init_tdm1, "pyscf/fci/rdm.py::allocate rdm1 space");
   m.def("init_tdm2",&libgpu_init_tdm2, "pyscf/fci/rdm.py::allocate rdm2 space");
+  m.def("init_tdm3hab",&libgpu_init_tdm3hab, "mrh/my_pyscf/fci/rdm.py::allocate rdm3hab space");
   // Valay: 8/12/2025: This is done as a test to get FCI running. 
   // specifically with several fragment CI problems, I have thoughts on how to optimize this, over several GPUs 
   // Frag 1 cibra is always on gpu 1, Frag 2 cibra on gpu 2 and so on.
@@ -209,8 +217,10 @@ PYBIND11_MODULE(libgpu, m) {
   m.def("compute_tdm12kern_b",&libgpu_compute_tdm12kern_b,"pyscf/fci/rdm.py::make_rdm1_spin1 compute FCItdm12kern_b");
   m.def("compute_tdm12kern_ab",&libgpu_compute_tdm12kern_ab,"pyscf/fci/rdm.py::make_rdm1_spin1 compute FCItdm12kern_ab");
   m.def("compute_rdm12kern_sf",&libgpu_compute_rdm12kern_sf,"pyscf/fci/rdm.py::make_rdm1_spin1 compute FCIrdm12kern_sf");
+  m.def("compute_tdm13h_spin",&libgpu_compute_tdm13h_spin,"mrh/my_pyscf/fci/rdm.py::trans_rdm13hs compute");
   m.def("pull_tdm1",&libgpu_pull_tdm1,"pyscf/fci/rdm.py::make_rdm12_spin1 pull_tdm1");        
   m.def("pull_tdm2",&libgpu_pull_tdm2,"pyscf/fci/rdm.py::make_rdm12_spin1 pull_tdm2");        
+  m.def("pull_tdm3hab",&libgpu_pull_tdm3hab,"mrh/my_pyscf/fci/rdm.py::trans_rdm13hs spin1 pull_tdm13hab");        
   
 }
 

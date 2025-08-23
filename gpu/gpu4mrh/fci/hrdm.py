@@ -71,19 +71,15 @@ def _trans_rdm13hs (cre, cibra, ciket, norb, nelec, spin=0, link_index=None, reo
       na, nlinka = link_indexa.shape[:2] 
       nb, nlinkb = link_indexb.shape[:2] 
       libgpu.push_link_indexab(gpu, na, nb, nlinka, nlinkb, link_indexa, link_indexb)
-      libgpu.init_tdm3ha(gpu, norb+1)
-      libgpu.init_tdm3hb(gpu, norb+1)
+      libgpu.init_tdm3hab(gpu, norb+1)
       libgpu.push_ci(gpu, cibra, ciket, na, nb)
+      libgpu.compute_tdm13h_spin(gpu, na, nb, nlinka, nlinkb, norb+1, spin) #TODO: write a better name
+      libgpu.pull_tdm1(gpu, tdm1h, norb+1)
+      libgpu.pull_tdm3hab(gpu, tdm3ha_c, tdm3hb_c, norb+1)
       if spin: 
-        libgpu.compute_tdm13h_spin(gpu, na, nb, nlinka, nlinkb, norb+1) #TODO: write a better name
-        libgpu.pull_tdm1(gpu, tdm1h, norb+1)
-        libgpu.pull_tdm3hab(gpu, tdm3ha_c, tdm3hb_c, norb+1)
-        tdm1h_c, tdm3hb_c = rdm.reorder_rdm(tdm1h_c, tdm3hb_c, inplace=True)
+        if reorder: tdm1h_c, tdm3hb_c = rdm.reorder_rdm(tdm1h_c, tdm3hb_c, inplace=True)
         tdm3ha_c = tdm3ha_c.transpose(3,2,1,0)
       else:
-        libgpu.compute_tdm13h_nonspin(gpu, na, nb, nlinka, nlinkb, norb+1) #TODO: write a better name
-        libgpu.pull_tdm1(gpu, tdm1h_c, norb+1)
-        libgpu.pull_tdm3hab(gpu, tdm3ha_c, tdm3hb_c, norb+1)
         if reorder: tdm1h_c, tdm3ha_c = rdm.reoder_rdm (tdm1h_c, tdm3ha_c, inplace=True)
       tdm1_correct = numpy.allclose(tdm1h, tdm1h_c)
       tdm3ha_correct = numpy.allclose(tdm3ha, tdm3ha_c)

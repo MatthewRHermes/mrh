@@ -116,13 +116,87 @@ def _trans_rdm13hs (cre, cibra, ciket, norb, nelec, spin=0, link_index=None, reo
     cibra = dummy.add_orbital (cibra, norb, nelec_bra, occ_a=0, occ_b=0)
     fn_par = ('FCItdm12kern_a', 'FCItdm12kern_b')[spin]
     fn_ab = 'FCItdm12kern_ab'
-    tdm1h, tdm3h_par = rdm.make_rdm12_spin1 (fn_par, cibra, ciket, norb+1, nelec_bra, link_index, 2)
-    if reorder: tdm1h, tdm3h_par = rdm.reorder_rdm (tdm1h, tdm3h_par, inplace=True)
-    if spin:
+    from pyscf.lib import param
+    #debug mode
+    try: 
+      use_gpu = param.use_gpu
+      gpu = use_gpu
+      try: custom_fci = param.custom_fci
+      except: custom_fci = False
+      try: gpu_debug = param.gpu_debug
+      except: gpu_debug = False
+    except: 
+      use_gpu = None
+    #print(gpu, use_gpu, custom_fci, gpu_debug, param.gpu_debug)
+    if custom_fci and gpu_debug and use_gpu:
+      ### Old kernel
+      from mrh.my_pyscf.gpu import libgpu
+      tdm1h, tdm3h_par = rdm.make_rdm12_spin1 (fn_par, cibra, ciket, norb+1, nelec_bra, link_index, 2)
+      if reorder: tdm1h, tdm3h_par = rdm.reorder_rdm (tdm1h, tdm3h_par, inplace=True)
+      if spin:
         tdm3ha = rdm.make_rdm12_spin1 (fn_ab, ciket, cibra, norb+1, nelec_bra, link_index, 0)[1]
         tdm3ha = tdm3ha.transpose (3,2,1,0)
         tdm3hb = tdm3h_par
+      else:
+        tdm3ha = tdm3h_par
+        tdm3hb = rdm.make_rdm12_spin1 (fn_ab, cibra, ciket, norb+1, nelec_bra, link_index, 0)[1]
+      ### New kernel
+      tdm1h_c = np.empty((norb+1, norb+1))
+      tdm3ha_c = np.empty((norb+1, norb+1, norb+1, norb+1))
+      tdm3hb_c = np.empty((norb+1, norb+1, norb+1, norb+1))
+      libgpu.init_tdm1(gpu, norb+1)
+      na, nlinka = link_index[0].shape[:2] 
+      nb, nlinkb = link_index[1].shape[:2] 
+      libgpu.push_link_index_ab(gpu, na, nb, nlinka, nlinkb, link_index[0], link_index[1])
+      libgpu.init_tdm3hab(gpu, norb+1)
+      libgpu.push_ci(gpu, cibra, ciket, na, nb)
+      libgpu.compute_tdm13h_spin(gpu, na, nb, nlinka, nlinkb, norb+1, spin) #TODO: write a better name
+      libgpu.pull_tdm1(gpu, tdm1h_c, norb+1)
+      libgpu.pull_tdm3hab(gpu, tdm3ha_c, tdm3hb_c, norb+1)
+      tdm1h_c = tdm1h_c.T
+      if spin: 
+        if reorder: tdm1h_c, tdm3hb_c = rdm.reorder_rdm(tdm1h_c, tdm3hb_c, inplace=True)
+        tdm3ha_c = tdm3ha_c.transpose(3,2,1,0)
+      else:
+        if reorder: tdm1h_c, tdm3ha_c = rdm.reorder_rdm (tdm1h_c, tdm3ha_c, inplace=True)
+      tdm1_correct = np.allclose(tdm1h, tdm1h_c)
+      tdm3ha_correct = np.allclose(tdm3ha, tdm3ha_c)
+      tdm3hb_correct = np.allclose(tdm3hb, tdm3hb_c)
+      if tdm1_correct and tdm3ha_correct and tdm3hb_correct: 
+        print('Trans RDM13hs calculated correctly')
+      else:
+        print('TDM RDM13hs calculated incorrectly')
+        print('TDM1h correct?', tdm1_correct)
+        print('TDM3ha correct?', tdm3ha_correct)
+        print('TDM3hb correct?', tdm3hb_correct)
+    elif custom_fci and use_gpu: 
+      from mrh.my_pyscf.gpu import libgpu
+      tdm1h = np.empty((norb+1, norb+1))
+      tdm3ha = np.empty((norb+1, norb+1, norb+1, norb+1))
+      tdm3hb = np.empty((norb+1, norb+1, norb+1, norb+1))
+      libgpu.init_tdm1(gpu, norb+1)
+      na, nlinka = link_index[0].shape[:2] 
+      nb, nlinkb = link_index[1].shape[:2] 
+      libgpu.push_link_index_ab(gpu, na, nb, nlinka, nlinkb, link_index[0], link_index[1])
+      libgpu.init_tdm3hab(gpu, norb+1)
+      libgpu.push_ci(gpu, cibra, ciket, na, nb)
+      libgpu.compute_tdm13h_spin(gpu, na, nb, nlinka, nlinkb, norb+1, spin) #TODO: write a better name
+      libgpu.pull_tdm1(gpu, tdm1h, norb+1)
+      libgpu.pull_tdm3hab(gpu, tdm3ha, tdm3hb, norb+1)
+      tdm1h = tdm1h.T
+      if spin: 
+        if reorder: tdm1h, tdm3hb = rdm.reorder_rdm(tdm1h, tdm3hb, inplace=True)
+        tdm3ha = tdm3ha.transpose(3,2,1,0)
+      else:
+        if reorder: tdm1h, tdm3ha = rdm.reorder_rdm (tdm1h, tdm3ha, inplace=True)
     else:
+      tdm1h, tdm3h_par = rdm.make_rdm12_spin1 (fn_par, cibra, ciket, norb+1, nelec_bra, link_index, 2)
+      if reorder: tdm1h, tdm3h_par = rdm.reorder_rdm (tdm1h, tdm3h_par, inplace=True)
+      if spin:
+        tdm3ha = rdm.make_rdm12_spin1 (fn_ab, ciket, cibra, norb+1, nelec_bra, link_index, 0)[1]
+        tdm3ha = tdm3ha.transpose (3,2,1,0)
+        tdm3hb = tdm3h_par
+      else:
         tdm3ha = tdm3h_par
         tdm3hb = rdm.make_rdm12_spin1 (fn_ab, cibra, ciket, norb+1, nelec_bra, link_index, 0)[1]
     tdm1h = tdm1h[-1,:-1]

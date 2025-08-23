@@ -350,7 +350,7 @@ void libgpu_init_tdm1h(void * ptr,
                       int norb)
 {
   Device * dev = (Device *) ptr;
-  dev->init_tdm1h(norb);
+  dev->init_tdm1(norb);
 }
 /* ---------------------------------------------------------------------- */
 void libgpu_init_tdm3hab(void * ptr, 
@@ -455,19 +455,11 @@ void libgpu_compute_rdm12kern_sf(void * ptr,
 }
 /* ---------------------------------------------------------------------- */
 void libgpu_compute_tdm13h_spin(void * ptr, 
-                            int na, int nb, int nlinka, int nlinkb, int norb)
+                            int na, int nb, int nlinka, int nlinkb, int norb, int spin)
 {
   Device * dev = (Device *) ptr;
-  dev->compute_tdm13h_spin(na, nb, nlinka, nlinkb, norb);
+  dev->compute_tdm13h_spin(na, nb, nlinka, nlinkb, norb, spin);
 }
-/* ---------------------------------------------------------------------- */
-void libgpu_compute_tdm13h_nonspin(void * ptr, 
-                            int na, int nb, int nlinka, int nlinkb, int norb)
-{
-  Device * dev = (Device *) ptr;
-  dev->compute_tdm13h_nonspin(na, nb, nlinka, nlinkb, norb);
-}
-
 /* ---------------------------------------------------------------------- */
 void libgpu_pull_tdm1(void * ptr, 
                       py::array_t<double> tdm1, int norb)
@@ -487,7 +479,6 @@ void libgpu_pull_tdm3hab(void * ptr,
                       py::array_t<double> tdm3ha, py::array_t<double> tdm3hb, int norb)
 {
   Device * dev = (Device *) ptr;
-  dev->pull_tdm2(tdm3ha, norb);
-  dev->pull_tdm2(tdm3hb, norb);
+  dev->pull_tdm3hab(tdm3ha, tdm3hb, norb);
 }
 /* ---------------------------------------------------------------------- */
