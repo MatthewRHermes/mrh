@@ -716,6 +716,39 @@ __global__ void _compute_FCIrdm2_b_t1ci(double * ci, double * buf, int stra_id, 
     // Refer to comment in _compute_FCIrdm2_a_t1ci 
 }
 /* ---------------------------------------------------------------------- */
+__global__ void _compute_FCIrdm3h_a_t1ci(double * ci, double * buf, int stra_id, int nb, int norb, int nlinka, int ia, int ja, int ib, int jb, int * link_index)
+{
+    int j = blockIdx.x * blockDim.x + threadIdx.x;
+    int k = blockIdx.y * blockDim.y + threadIdx.y;
+    if (j >= nlinka) return;
+    if (k >= nb) return;//perhaps k can be looped over, and completely avoided if str1 is not in between ia-ja and ib-jb
+    int norb2 = norb*norb;
+    int * tab = &(link_index[4*nlinka*stra_id + 4*j]); 
+    int sign = tab[3];
+    if (sign == 0) return;
+    int a = tab[0];
+    int i = tab[1];
+    int str1 = tab[2];
+    atomicAdd(&(buf[k*norb2 + i*norb + a]), sign*ci[str1*nb + k]);
+}
+/* ---------------------------------------------------------------------- */
+__global__ void _compute_FCIrdm3h_b_t1ci(double * ci, double * buf, int stra_id, int nb, int norb, int nlinkb, int ia, int ja, int ib, int jb, int * link_index)
+{
+    int str0 = blockIdx.x * blockDim.x + threadIdx.x;
+    int j = blockIdx.y * blockDim.y + threadIdx.y;
+    if (str0 >= nb) return;
+    if (j >= nlinkb) return;
+    int norb2 = norb*norb;
+    int * tab = &(link_index[4*str0*nlinkb+4*j]);
+    int sign = tab[3];
+    if (sign==0) return;
+    int str1 = tab[2];
+    int a = tab[0];
+    int i = tab[1];
+    atomicAdd(&(buf[str0*norb2 + i*norb + a]), sign*ci[stra_id*nb + str1]);
+}
+
+/* ---------------------------------------------------------------------- */
 __global__ void _transpose_jikl(const double * in, double *out, int norb)
 {
     int norb2 = norb*norb;
@@ -1292,6 +1325,32 @@ void Device::compute_FCIrdm2_b_t1ci(double * ci, double * buf, int stra_id, int 
   dim3 grid_size(_TILE(nb, block_size.x), _TILE(nlinkb, block_size.y), 1);
   cudaStream_t s = *(pm->dev_get_queue());
   _compute_FCIrdm2_b_t1ci<<<grid_size, block_size, 0,s>>>(ci, buf, stra_id, nb, norb, nlinkb, link_index);
+#ifdef _DEBUG_DEVICE 
+  printf("LIBGPU ::  -- general::compute_FCIrdm2_b_t1ci; :: Nb= %i Norb =%i Nlinkb =%i grid_size= %i %i %i  block_size= %i %i %i\n",
+	 nb, norb, nlinkb, grid_size.x,grid_size.y,grid_size.z,block_size.x,block_size.y,block_size.z);
+  _CUDA_CHECK_ERRORS();
+#endif
+} 
+/* ---------------------------------------------------------------------- */
+void Device::compute_FCIrdm3h_a_t1ci(double * ci, double * buf, int stra_id, int nb, int norb, int nlinka, int ia, int ja, int ib, int jb, int * link_index)
+{
+  dim3 block_size(1,1,1);
+  dim3 grid_size(_TILE(nlinka, block_size.x), _TILE(nb, block_size.y), 1);
+  cudaStream_t s = *(pm->dev_get_queue());
+  _compute_FCIrdm3h_a_t1ci<<<grid_size, block_size, 0,s>>>(ci, buf, stra_id, nb, norb, nlinka, ia, ja, ib, jb, link_index);
+#ifdef _DEBUG_DEVICE 
+  printf("LIBGPU ::  -- general::compute_FCIrdm2_a_t1ci; :: Nb= %i Norb =%i Nlinka =%i grid_size= %i %i %i  block_size= %i %i %i\n",
+	 nb, norb, nlinka, grid_size.x,grid_size.y,grid_size.z,block_size.x,block_size.y,block_size.z);
+  _CUDA_CHECK_ERRORS();
+#endif
+}  
+/* ---------------------------------------------------------------------- */
+void Device::compute_FCIrdm3h_b_t1ci(double * ci, double * buf, int stra_id, int nb, int norb, int nlinkb, int ia, int ja, int ib, int jb, int * link_index)
+{
+  dim3 block_size(1,1,1);
+  dim3 grid_size(_TILE(nb, block_size.x), _TILE(nlinkb, block_size.y), 1);
+  cudaStream_t s = *(pm->dev_get_queue());
+  _compute_FCIrdm3h_b_t1ci<<<grid_size, block_size, 0,s>>>(ci, buf, stra_id, nb, norb, nlinkb, ia, ja, ib, jb, link_index);
 #ifdef _DEBUG_DEVICE 
   printf("LIBGPU ::  -- general::compute_FCIrdm2_b_t1ci; :: Nb= %i Norb =%i Nlinkb =%i grid_size= %i %i %i  block_size= %i %i %i\n",
 	 nb, norb, nlinkb, grid_size.x,grid_size.y,grid_size.z,block_size.x,block_size.y,block_size.z);

@@ -179,6 +179,9 @@ public :
   void compute_tdm12kern_ab(int , int , int , int , int );
   void compute_rdm12kern_sf(int , int , int , int , int );
   void compute_tdm13h_spin( int , int , int , int , int , int);
+  void compute_tdm13h_spin_v2( int , int , int , int , int , int,
+                               int , int , int , int , int ,
+                               int , int , int , int , int );
   void pull_tdm1(py::array_t<double> , int );
   void pull_tdm2(py::array_t<double> , int );
   void pull_tdm3hab(py::array_t<double> ,py::array_t<double> , int );
@@ -209,6 +212,10 @@ public :
   void compute_FCImake_rdm1b (double *, double *, double *, int, int, int, int, int *);
   void compute_FCIrdm2_a_t1ci (double *, double *, int, int, int, int, int*); 
   void compute_FCIrdm2_b_t1ci (double *, double *, int, int, int, int, int*); 
+  void compute_FCIrdm3h_a_t1ci (double *, double *, int, int, int, int,
+                                int, int, int, int, int*);
+  void compute_FCIrdm3h_b_t1ci (double *, double *, int, int, int, int,
+                                int, int, int, int, int*);
   // multi-gpu communication (better here or part of PM?)
 
   void mgpu_bcast(std::vector<double *>, double *, size_t);
