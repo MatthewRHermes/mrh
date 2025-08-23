@@ -206,15 +206,26 @@ def get_orth_basis (ci_fr, norb_f, nelec_frs, _get_ovlp=None, smult_fr=None):
     return OrthBasis ((north,nraw), dtype, uniq_prod_idx, manifolds_prod_idx, manifolds_xmat)
 
 def _get_spin_split_manifolds (ci_fr, norb_f, nelec_frs, smult_fr, lroots_fr, idx):
+    nelec_frs = nelec_frs[:,idx,:]
+    smult_fr = smult_fr[:,idx]
+    lroots_fr = lroots_fr[:,idx]
+    idx = np.where (idx)[0]
+    ci1_fr = [[ci_r[i] for i in idx] for ci_r in ci_fr]
+    manifolds = _get_spin_split_manifolds_idx (ci1_fr, norb_f, nelec_frs, smult_fr, lroots_fr)
+    for i in range (len (manifolds)):
+        manifolds[i] = [idx[j] for j in manifolds[i]]
+    return manifolds
+
+def _get_spin_split_manifolds_idx (ci_fr, norb_f, nelec_frs, smult_fr, lroots_fr):
+    # after indexing down to the current spinless manifold
     nfrags = len (norb_f)
     spins_fr = nelec_frs[:,:,0] - nelec_frs[:,:,1]
-    tabulator = spins_fr.T[idx]
-    idx = np.where (idx)[0]
+    tabulator = spins_fr.T
     uniq, inverse = np.unique (tabulator, axis=0, return_inverse=True)
     nmanifolds = len (uniq)
-    manifolds = [idx[inverse==i][None,:] for i in range (nmanifolds)]
+    manifolds = [np.where (inverse==i)[0][None,:] for i in range (nmanifolds)]
     if smult_fr is None: return manifolds
-    # TODO: join mainfolds which are distinct only by Sz rotations
+    ### TODO: refactor to compose equivalences of states from equivalences of statelets ###
     ci_mrf = []
     for manifold in manifolds:
         ci_rf = []
