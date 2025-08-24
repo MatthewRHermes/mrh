@@ -225,42 +225,10 @@ def _get_spin_split_manifolds_idx (ci_fr, norb_f, nelec_frs, smult_fr, lroots_fr
     nmanifolds = len (uniq)
     manifolds = [np.where (inverse==i)[0][None,:] for i in range (nmanifolds)]
     if smult_fr is None: return manifolds
-    ### TODO: refactor to compose equivalences of states from equivalences of statelets ###
-    ci_mrf = []
-    for manifold in manifolds:
-        ci_rf = []
-        for iroot in manifold[0]:
-            nelec = nelec_frs[:,iroot,:]
-            ci_f = []
-            for ifrag in range (nfrags):
-                c = ci_fr[ifrag][iroot]
-                norb = norb_f[ifrag]
-                nelec = nelec_frs[ifrag,iroot]
-                smult = smult_fr[ifrag,iroot]
-                c = spin_op.mup (c, norb, nelec, smult)
-                lroots = lroots_fr[ifrag,iroot]
-                ci_f.append (c.reshape (lroots,-1))
-            ci_rf.append (ci_f)
-        ci_mrf.append (ci_rf)
-    groups = list (range (nmanifolds))
-    for i,j in combinations (range (nmanifolds), 2):
-        if groups[i] == groups[j]: continue
-        lmanifold = manifolds[i].shape[1]
-        if lmanifold != manifolds[j].shape[1]: continue
-        my_lroots = lroots_fr[:,manifolds[i][0]]
-        if np.any (my_lroots!=lroots_fr[:,manifolds[j][0]]): continue
-        equiv = True
-        for r in range (lmanifold):
-            for f in range (nfrags):
-                ci_i = ci_mrf[i][r][f]
-                ci_j = ci_mrf[j][r][f]
-                ovlp = [xi.conj ().dot (xj) for xi, xj in zip (ci_i, ci_j)]
-                equiv = equiv and np.allclose (ovlp, 1)
-                if not equiv: break
-            if not equiv: break
-        if equiv:
-            groups[j] = groups[i]
-    uniq, inverse = np.unique (groups, return_inverse=True)
+    fprint = np.stack ([get_unique_roots_with_spin (
+        ci_fr[ifrag], norb_f[ifrag], [tuple (n) for n in nelec_frs[ifrag]], smult_fr[ifrag]
+    ) for ifrag in range (nfrags)], axis=1)
+    uniq, inverse = np.unique (fprint, axis=0, return_inverse=True)
     manifolds = [np.stack ([manifolds[i][0] for i in np.where (inverse==j)[0]],
                            axis=0)
                  for j in range (len (uniq))]
@@ -439,4 +407,42 @@ def hci_dot_sivecs_ij (hci_pabq, si_bra, si_ket, lroots, i, j):
                 if is1d: hci_pabq = hci_pabq[0]
     return hci_pabq
 
+def get_unique_roots_with_spin (ci_r, norb, nelec_r, smult_r):
+    root_unique, unique_root1 = get_unique_roots (ci_r, nelec_r, screen_linequiv=False,
+                                                  discriminator=smult_r)[:2]
+    idx = np.where (root_unique)[0]
+    ci1_r = [ci_r[i] for i in idx]
+    nelec_r = [nelec_r[i] for i in idx]
+    smult_r = [smult_r[i] for i in idx]
+    unique_root2 = _get_unique_roots_with_spin (ci_r, norb, nelec_r, smult_r)
+    unique_root3 = -np.ones (len (root_unique), dtype=int)
+    unique_root3[root_unique] = unique_root2
+    unique_root = unique_root3[unique_root1]
+    assert (np.all (unique_root>=0))
+    return unique_root
 
+def _get_unique_roots_with_spin (ci_r, norb, nelec_r, smult_r):
+    # After indexing down to only unique roots, so each root can be only 1 manifold
+    nroots = len (ci_r)
+    lroots_r = get_lroots (ci_r)
+    # TODO (maybe): refactor for fewer sup operations. The logic would be complicated.
+    for iroot in range (nroots):
+        ci = []
+        for lroot in range (lroots_r[iroot]):
+            ci.append (mup (ci_r[iroot][lroot], norb, nelec_r[iroot], smult_r[iroot]))
+        ci_r[iroot] = np.stack (ci, axis=0).reshape (lroots_r[iroot],-1)
+    nelec_r = [sum (n) for n in nelec_r]
+    root_unique = np.ones (nroots, dtype=bool)
+    unique_root = np.arange (nroots, dtype=int)
+    umat_root = {}
+    for i, j in combinations (range (nroots), 2):
+        if not root_unique[i]: continue
+        if not root_unique[j]: continue
+        if nelec_r[i] != nelec_r[j]: continue
+        if lroots_r[i] != lroots_r[j]: continue
+        ovlp = [np.dot (ci_r[i][l], ci_r[j][l]) for l in lroots[i]]
+        if np.allclose (ovlp, 1.0):
+            root_unique[j] = False
+            unique_root[j] = i
+    # TODO (maybe): make sure that the "unique root" doesn't have m = 0? Is this important?
+    return unique_root
