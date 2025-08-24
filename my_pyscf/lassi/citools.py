@@ -413,7 +413,7 @@ def get_unique_roots_with_spin (ci_r, norb, nelec_r, smult_r):
     root_unique, unique_root1 = get_unique_roots (ci_r, nelec_r, screen_linequiv=False,
                                                   discriminator=smult_r)[:2]
     idx = np.where (root_unique)[0]
-    ci1_r = [ci_r[i] for i in idx]
+    ci_r = [ci_r[i] for i in idx]
     nelec_r = [nelec_r[i] for i in idx]
     smult_r = [smult_r[i] for i in idx]
     unique_root2 = _get_unique_roots_with_spin (ci_r, norb, nelec_r, smult_r)
@@ -429,10 +429,12 @@ def _get_unique_roots_with_spin (ci_r, norb, nelec_r, smult_r):
     lroots_r = get_lroots (ci_r)
     # TODO (maybe): refactor for fewer sup operations. The logic would be complicated.
     for iroot in range (nroots):
-        ci = []
+        ci0 = ci_r[iroot]
+        ci1 = []
+        if ci0.ndim == 2: ci0 = ci0[None,:,:]
         for lroot in range (lroots_r[iroot]):
-            ci.append (spin_op.mup (ci_r[iroot][lroot], norb, nelec_r[iroot], smult_r[iroot]))
-        ci_r[iroot] = np.stack (ci, axis=0).reshape (lroots_r[iroot],-1)
+            ci1.append (spin_op.mup (ci0[lroot], norb, nelec_r[iroot], smult_r[iroot]))
+        ci_r[iroot] = np.stack (ci1, axis=0).reshape (lroots_r[iroot],-1)
     nelec_r = [sum (n) for n in nelec_r]
     root_unique = np.ones (nroots, dtype=bool)
     unique_root = np.arange (nroots, dtype=int)
