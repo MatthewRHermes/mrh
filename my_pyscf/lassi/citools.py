@@ -207,7 +207,7 @@ def get_orth_basis (ci_fr, norb_f, nelec_frs, _get_ovlp=None, smult_fr=None):
 
 def _get_spin_split_manifolds (ci_fr, norb_f, nelec_frs, smult_fr, lroots_fr, idx):
     nelec_frs = nelec_frs[:,idx,:]
-    smult_fr = smult_fr[:,idx]
+    if smult_fr is not None: smult_fr = smult_fr[:,idx]
     lroots_fr = lroots_fr[:,idx]
     idx = np.where (idx)[0]
     ci1_fr = [[ci_r[i] for i in idx] for ci_r in ci_fr]
@@ -223,13 +223,15 @@ def _get_spin_split_manifolds_idx (ci_fr, norb_f, nelec_frs, smult_fr, lroots_fr
     tabulator = spins_fr.T
     uniq, inverse = np.unique (tabulator, axis=0, return_inverse=True)
     nmanifolds = len (uniq)
-    manifolds = [np.where (inverse==i)[0][None,:] for i in range (nmanifolds)]
-    if smult_fr is None: return manifolds
+    manifolds = [np.where (inverse==i)[0] for i in range (nmanifolds)]
+    if smult_fr is None or nmanifolds<2:
+        return [manifold[None,:] for manifold in manifolds]
     fprint = np.stack ([get_unique_roots_with_spin (
         ci_fr[ifrag], norb_f[ifrag], [tuple (n) for n in nelec_frs[ifrag]], smult_fr[ifrag]
     ) for ifrag in range (nfrags)], axis=1)
+    fprint = [fprint[manifold] for manifold in manifolds]
     uniq, inverse = np.unique (fprint, axis=0, return_inverse=True)
-    manifolds = [np.stack ([manifolds[i][0] for i in np.where (inverse==j)[0]],
+    manifolds = [np.stack ([manifolds[i] for i in np.where (inverse==j)[0]],
                            axis=0)
                  for j in range (len (uniq))]
     return manifolds
@@ -429,7 +431,7 @@ def _get_unique_roots_with_spin (ci_r, norb, nelec_r, smult_r):
     for iroot in range (nroots):
         ci = []
         for lroot in range (lroots_r[iroot]):
-            ci.append (mup (ci_r[iroot][lroot], norb, nelec_r[iroot], smult_r[iroot]))
+            ci.append (spin_op.mup (ci_r[iroot][lroot], norb, nelec_r[iroot], smult_r[iroot]))
         ci_r[iroot] = np.stack (ci, axis=0).reshape (lroots_r[iroot],-1)
     nelec_r = [sum (n) for n in nelec_r]
     root_unique = np.ones (nroots, dtype=bool)
@@ -440,7 +442,7 @@ def _get_unique_roots_with_spin (ci_r, norb, nelec_r, smult_r):
         if not root_unique[j]: continue
         if nelec_r[i] != nelec_r[j]: continue
         if lroots_r[i] != lroots_r[j]: continue
-        ovlp = [np.dot (ci_r[i][l], ci_r[j][l]) for l in lroots[i]]
+        ovlp = [np.dot (ci_r[i][l], ci_r[j][l]) for l in range (lroots_r[i])]
         if np.allclose (ovlp, 1.0):
             root_unique[j] = False
             unique_root[j] = i
