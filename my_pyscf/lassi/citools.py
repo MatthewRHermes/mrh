@@ -206,6 +206,9 @@ def get_orth_basis (ci_fr, norb_f, nelec_frs, _get_ovlp=None, smult_fr=None):
     return OrthBasis ((north,nraw), dtype, uniq_prod_idx, manifolds_prod_idx, manifolds_xmat)
 
 def _get_spin_split_manifolds (ci_fr, norb_f, nelec_frs, smult_fr, lroots_fr, idx):
+    '''The same as _get_spin_split_manifolds_idx, except that all of the arguments need to be
+    indexed down from the full model space into the input manifold via "idx" first. The returned
+    submanifold list is likewise indexed back into the full model space.'''
     nelec_frs = nelec_frs[:,idx,:]
     if smult_fr is not None: smult_fr = smult_fr[:,idx]
     lroots_fr = lroots_fr[:,idx]
@@ -217,6 +220,9 @@ def _get_spin_split_manifolds (ci_fr, norb_f, nelec_frs, smult_fr, lroots_fr, id
     return manifolds
 
 def _get_spin_split_manifolds_idx (ci_fr, norb_f, nelec_frs, smult_fr, lroots_fr):
+    '''Split a manifold of model state rootspaces which have same numbers of electrons and spin
+    multiplicities in each fragment into submanifolds according to their spin-projection quantum
+    numbers Na-Nb.'''
     # after indexing down to the current spinless manifold
     nfrags = len (norb_f)
     spins_fr = nelec_frs[:,:,0] - nelec_frs[:,:,1]
@@ -410,6 +416,23 @@ def hci_dot_sivecs_ij (hci_pabq, si_bra, si_ket, lroots, i, j):
     return hci_pabq
 
 def get_unique_roots_with_spin (ci_r, norb, nelec_r, smult_r):
+    '''Identify which groups of CI vectors are equal or equivalent from a list, including
+    equivalencies under rotation of the spin Z-axis.
+
+    Args:
+        ci_r: list of length nroots of ndarray
+            CI vectors
+        norb : integer
+            Number of orbitals
+        nelec_r: list of length nroots of tuple of length 2 of int
+            Numbers of electrons in each group of CI vectors
+        smult_r: list of length nroots
+            Spin multiplicity (2S+1 <= (Na-Nb)+1) for each group of CI vectors
+
+    Returns:
+        unique_root: ndarray of ints length nroots
+            The index of the unique image of each set of CI vectors in the list
+    '''
     root_unique, unique_root1 = get_unique_roots (ci_r, nelec_r, screen_linequiv=False,
                                                   discriminator=smult_r)[:2]
     idx = np.where (root_unique)[0]
@@ -424,6 +447,9 @@ def get_unique_roots_with_spin (ci_r, norb, nelec_r, smult_r):
     return unique_root
 
 def _get_unique_roots_with_spin (ci_r, norb, nelec_r, smult_r):
+    '''The same as get_unique_roots_with_spin, except that it is assumed that all CI vectors are
+    already unique except for equivalencies under rotation of the spin Z-axis that have not yet
+    been considered.'''
     # After indexing down to only unique roots, so each root can be only 1 manifold
     nroots = len (ci_r)
     lroots_r = get_lroots (ci_r)
