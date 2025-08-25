@@ -185,6 +185,10 @@ public :
   void compute_tdm13h_spin_v3( int , int , int , int , int , int,
                                int , int , int , int , int ,
                                int , int , int , int , int );
+  void compute_tdmhh_spin( int , int , int , int , int , int,
+                               int , int , int , int , int ,
+                               int , int , int , int , int );
+
   void pull_tdm1(py::array_t<double> , int );
   void pull_tdm2(py::array_t<double> , int );
   void pull_tdm3hab(py::array_t<double> ,py::array_t<double> , int );

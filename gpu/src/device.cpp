@@ -4552,6 +4552,61 @@ void Device::compute_tdm13h_spin_v3(int na, int nb, int nlinka, int nlinkb, int 
 } 
 
 /* ---------------------------------------------------------------------- */
+void Device::compute_tdm13h_spin_v3(int na, int nb, int nlinka, int nlinkb, int norb, int spin,
+                                 int ia_bra, int ja_bra, int ib_bra, int jb_bra, int sgn_bra, 
+                                 int ia_ket, int ja_ket, int ib_ket, int jb_ket, int sgn_ket )
+{
+  double t0 = omp_get_wtime();
+  int id = 0;
+  pm->dev_set_device(id);
+  ml->set_handle(id);
+  my_device_data * dd = &(device_data[id]);
+  int norb2 = norb*norb;
+  int size_buf = norb2*nb;
+  int size_tdm2 = norb2*norb2;
+  int size_tdm1 = norb2;
+  int zero = 0;
+  int one = 1;
+  const double alpha = 1.0;
+  const double beta = 1.0;
+  int bits_buf = sizeof(double)*size_buf;
+  int bits_tdm1 = sizeof(double)*size_tdm1;
+  int bits_tdm2 = sizeof(double)*size_tdm2;
+  grow_array(dd->d_tdm1, size_tdm1, dd->size_tdm1, "tdm1", FLERR);
+  grow_array(dd->d_tdm2, size_tdm2, dd->size_tdm2, "tdm2", FLERR); 
+  grow_array(dd->d_buf1,size_buf, dd->size_buf1, "buf1", FLERR); 
+  grow_array(dd->d_buf2,size_buf, dd->size_buf2, "buf2", FLERR); 
+  ml->memset(dd->d_buf1, &zero, &bits_buf); 
+  ml->memset(dd->d_buf2, &zero, &bits_buf); 
+  ml->memset(dd->d_tdm1, &zero, &bits_tdm1);
+  ml->memset(dd->d_tdm2, &zero, &bits_tdm2);
+  
+  /*
+ tdm12kern_a
+    a_t1ci: cibra, clinka -> buf2
+    a_t1ci: ciket, clinka -> buf1
+    tdm1 = gemv buf1, bravec
+    tdm2 = gemm buf1, buf2
+  tdm12kern_b 
+    b_t1ci: cibra, clinkb -> buf2
+    b_t1ci: ciket, clinkb -> buf1
+    tdm1 = gemv buf1, bravec
+    tdm2 = gemm buf1, buf2
+  tdm12kern_ab
+    a_t1ci: cibra, clinka -> buf2
+    b_t1ci: ciket, clinkb -> buf1
+    tdm2 = gemm buf1, buf2
+   
+  if spin == 0
+    tdm1, tdm2 = tdm12kern_a, cibra, ciket, get 1 and 2
+  if spin == 1
+    tdm1, tdm2 = tdm12kern_b, cibra, ciket, get 1 and 2
+  if spin == 2
+    tdm1, tdm2 = tdm12kern_ab, cibra, ciket, get 1 and 2
+  */
+  //write code 
+}
+/* ---------------------------------------------------------------------- */
 void Device::pull_tdm1(py::array_t<double> _tdm1, int norb)
 {
   double t0 = omp_get_wtime();
