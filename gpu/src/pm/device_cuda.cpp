@@ -719,17 +719,22 @@ __global__ void _compute_FCIrdm2_b_t1ci(double * ci, double * buf, int stra_id, 
 __global__ void _compute_FCIrdm3h_a_t1ci(double * ci, double * buf, int stra_id, int nb, int norb, int nlinka, int ia, int ja, int ib, int jb, int * link_index)
 {
     int j = blockIdx.x * blockDim.x + threadIdx.x;
-    int k = blockIdx.y * blockDim.y + threadIdx.y;
+    //int k = blockIdx.y * blockDim.y + threadIdx.y;
     if (j >= nlinka) return;
-    if (k >= nb) return;//perhaps k can be looped over, and completely avoided if str1 is not in between ia-ja and ib-jb
+    //if (k >= nb) return;//perhaps k can be looped over, and completely avoided if str1 is not in between ia-ja and ib-jb
     int norb2 = norb*norb;
     int * tab = &(link_index[4*nlinka*stra_id + 4*j]); 
-    int sign = tab[3];
-    if (sign == 0) return;
-    int a = tab[0];
-    int i = tab[1];
-    int str1 = tab[2];
-    atomicAdd(&(buf[k*norb2 + i*norb + a]), sign*ci[str1*nb + k]);
+    for (int k= ib; k<jb; ++k){//k is the beta loop
+      int sign = tab[3];
+      if (sign != 0) {
+        int str1 = tab[2];
+        if ((str1>=ia) && (str1<ja)){//str1 is alpha loop
+          int a = tab[0];
+          int i = tab[1];
+          atomicAdd(&(buf[k*norb2 + i*norb + a]), sign*ci[str1*nb + k]);
+          }
+        }
+      }
 }
 /* ---------------------------------------------------------------------- */
 __global__ void _compute_FCIrdm3h_b_t1ci(double * ci, double * buf, int stra_id, int nb, int norb, int nlinkb, int ia, int ja, int ib, int jb, int * link_index)
@@ -741,11 +746,14 @@ __global__ void _compute_FCIrdm3h_b_t1ci(double * ci, double * buf, int stra_id,
     int norb2 = norb*norb;
     int * tab = &(link_index[4*str0*nlinkb+4*j]);
     int sign = tab[3];
-    if (sign==0) return;
-    int str1 = tab[2];
-    int a = tab[0];
-    int i = tab[1];
-    atomicAdd(&(buf[str0*norb2 + i*norb + a]), sign*ci[stra_id*nb + str1]);
+    if (sign!=0){ //return;
+      int str1 = tab[2];
+      if ((str1>=ib) && (str1<jb)){
+        int a = tab[0];
+        int i = tab[1];
+        atomicAdd(&(buf[str0*norb2 + i*norb + a]), sign*ci[stra_id*nb + str1]);//stra_id is already taken care of in the call itself, maybe work that in the earlier call.
+        }
+      }
 }
 
 /* ---------------------------------------------------------------------- */
@@ -1335,7 +1343,8 @@ void Device::compute_FCIrdm2_b_t1ci(double * ci, double * buf, int stra_id, int 
 void Device::compute_FCIrdm3h_a_t1ci(double * ci, double * buf, int stra_id, int nb, int norb, int nlinka, int ia, int ja, int ib, int jb, int * link_index)
 {
   dim3 block_size(1,1,1);
-  dim3 grid_size(_TILE(nlinka, block_size.x), _TILE(nb, block_size.y), 1);
+  //dim3 grid_size(_TILE(nlinka, block_size.x), _TILE(nb, block_size.y), 1);
+  dim3 grid_size(_TILE(nlinka, block_size.x), 1, 1);
   cudaStream_t s = *(pm->dev_get_queue());
   _compute_FCIrdm3h_a_t1ci<<<grid_size, block_size, 0,s>>>(ci, buf, stra_id, nb, norb, nlinka, ia, ja, ib, jb, link_index);
 #ifdef _DEBUG_DEVICE 
