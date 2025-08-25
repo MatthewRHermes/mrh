@@ -147,7 +147,7 @@ extern "C"
                             int , int , int , int , int , int,
                             int , int , int , int , int ,
                             int , int , int , int , int );
-  void libgpu_compute_tdmhh_spin(void *, 
+  void libgpu_compute_tdmpp_spin(void *, 
                             int , int , int , int , int , int,
                             int , int , int , int , int ,
                             int , int , int , int , int );

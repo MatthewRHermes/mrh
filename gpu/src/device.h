@@ -185,7 +185,7 @@ public :
   void compute_tdm13h_spin_v3( int , int , int , int , int , int,
                                int , int , int , int , int ,
                                int , int , int , int , int );
-  void compute_tdmhh_spin( int , int , int , int , int , int,
+  void compute_tdmpp_spin( int , int , int , int , int , int,
                                int , int , int , int , int ,
                                int , int , int , int , int );
 

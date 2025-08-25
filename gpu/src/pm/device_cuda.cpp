@@ -724,7 +724,7 @@ __global__ void _compute_FCIrdm3h_a_t1ci(double * ci, double * buf, int stra_id,
     //if (k >= nb) return;//perhaps k can be looped over, and completely avoided if str1 is not in between ia-ja and ib-jb
     int norb2 = norb*norb;
     int * tab = &(link_index[4*nlinka*stra_id + 4*j]); 
-    for (int k= ib; k<jb; ++k){//k is the beta loop
+    for (int k=ib; k<jb; ++k){//k is the beta loop
       int sign = tab[3];
       if (sign != 0) {
         int str1 = tab[2];
@@ -1356,6 +1356,7 @@ void Device::compute_FCIrdm3h_a_t1ci(double * ci, double * buf, int stra_id, int
 /* ---------------------------------------------------------------------- */
 void Device::compute_FCIrdm3h_b_t1ci(double * ci, double * buf, int stra_id, int nb, int norb, int nlinkb, int ia, int ja, int ib, int jb, int * link_index)
 {
+  if ((stra_id>=ia) && stra_id<ja){ //I'm writing this in, but buf being zero needs to be accounted in the full function call as well
   dim3 block_size(1,1,1);
   dim3 grid_size(_TILE(nb, block_size.x), _TILE(nlinkb, block_size.y), 1);
   cudaStream_t s = *(pm->dev_get_queue());
@@ -1365,6 +1366,7 @@ void Device::compute_FCIrdm3h_b_t1ci(double * ci, double * buf, int stra_id, int
 	 nb, norb, nlinkb, grid_size.x,grid_size.y,grid_size.z,block_size.x,block_size.y,block_size.z);
   _CUDA_CHECK_ERRORS();
 #endif
+  }
 } 
 /* ---------------------------------------------------------------------- */
 void Device::gemv_fix(const double * buf, const double * bravec, double * pdm1, const int norb2, const int nb, const double alpha, const double beta)

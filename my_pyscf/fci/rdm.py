@@ -512,7 +512,7 @@ def _trans_ppdm_o1(cre, cibra, ciket, norb, nelec, spin = spin, link_index = lin
     libgpu.init_tdm2(gpu, norb+ndum)
     libgpu.push_link_index_ab(gpu, na, nb, nlinka, nlinkb, link_index[0], link_index[1])
     libgpu.push_ci(gpu, cibra, ciket, na, nb)
-    libgpu.compute_tdmhh_spin(gpu, na, nb, nlinkb, nlinkb, norb+ndum, spin, 
+    libgpu.compute_tdmpp_spin(gpu, na, nb, nlinkb, nlinkb, norb+ndum, spin, 
                               ia_bra, ja_bra, ib_bra, jb_bra, sgn_bra, 
                               ia_ket, ja_ket, ib_ket, jb_ket, sgn_ket) #TODO: write a better name
     libgpu.pull_tdm1(gpu, dumdm1, norb+ndum)

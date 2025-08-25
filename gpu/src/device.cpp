@@ -4552,7 +4552,7 @@ void Device::compute_tdm13h_spin_v3(int na, int nb, int nlinka, int nlinkb, int 
 } 
 
 /* ---------------------------------------------------------------------- */
-void Device::compute_tdm13h_spin_v3(int na, int nb, int nlinka, int nlinkb, int norb, int spin,
+void Device::compute_tdmpp_spin(int na, int nb, int nlinka, int nlinkb, int norb, int spin,
                                  int ia_bra, int ja_bra, int ib_bra, int jb_bra, int sgn_bra, 
                                  int ia_ket, int ja_ket, int ib_ket, int jb_ket, int sgn_ket )
 {
@@ -4599,12 +4599,67 @@ void Device::compute_tdm13h_spin_v3(int na, int nb, int nlinka, int nlinkb, int 
    
   if spin == 0
     tdm1, tdm2 = tdm12kern_a, cibra, ciket, get 1 and 2
-  if spin == 1
-    tdm1, tdm2 = tdm12kern_b, cibra, ciket, get 1 and 2
   if spin == 2
-    tdm1, tdm2 = tdm12kern_ab, cibra, ciket, get 1 and 2
+    tdm1, tdm2 = tdm12kern_b, cibra, ciket, get 1 and 2
+  if spin == 1
+    tdm1, tdm2 = tdm12kern_ab, cibra, ciket, get 2
   */
   //write code 
+  // since the difference between tdmhh and tdm13h is that zeros are added twice, only sending in the largest number should be sufficient, right?
+  switch(spin){
+    case 0:
+      for (int stra_id = 0; stra_id<na; ++stra_id){
+        compute_FCIrdm3h_a_t1ci(dd->d_cibra, dd->buf2, stra_id, nb, norb, nlinka, ia_bra, ja_bra, ib_bra, jb_bra, dd->d_clinka);
+        compute_FCIrdm3h_a_t1ci(dd->d_ciket, dd->buf1, stra_id, nb, norb, nlinka, ia_ket, ja_ket, ib_ket, jb_ket, dd->d_clinka);
+    
+        ml->gemm((char *) "N", (char *) "T", &norb2, &norb2, &nb, &alpha, 
+                dd->d_buf1, &norb2, dd->d_buf2, &norb2, 
+                &beta, dd->d_tdm2, &norb2);
+        if ((stra_id>=ia_bra) && (stra_id<ja_bra)){
+          double * bravec = &(dd->d_cibra[stra_id*nb]);
+          ml->gemv((char *) "N", &norb2, &nb, &alpha, 
+                dd->d_buf1, &norb2, bravec, &one, 
+                &beta, dd->d_tdm1, &one);
+          ml->memset(dd->d_buf1, &zero, &bits_buf);
+          ml->memset(dd->d_buf2, &zero, &bits_buf);
+        }
+      } 
+    case 1: 
+       for (int stra_id = 0; stra_id<na; ++stra_id){
+         if ((stra_id>=ia_bra) && (stra_id>=ia_ket) && (stra_id<ja_bra) && (stra_id<ja_ket)){
+           compute_FCIrdm3h_b_t1ci(dd->d_cibra, dd->buf2, stra_id, nb, norb, nlinkb, ia_bra, ja_bra, ib_bra, jb_bra, dd->d_clinkb);
+           compute_FCIrdm3h_b_t1ci(dd->d_ciket, dd->buf1, stra_id, nb, norb, nlinkb, ia_ket, ja_ket, ib_ket, jb_ket, dd->d_clinkb);
+    
+           ml->gemm((char *) "N", (char *) "T", &norb2, &norb2, &nb, &alpha, 
+                dd->d_buf1, &norb2, dd->d_buf2, &norb2, 
+                &beta, dd->d_tdm2, &norb2);
+           double * bravec = &(dd->d_cibra[stra_id*nb]);
+           ml->gemv((char *) "N", &norb2, &nb, &alpha, 
+                dd->d_buf1, &norb2, bravec, &one, 
+                &beta, dd->d_tdm1, &one);
+           ml->memset(dd->d_buf1, &zero, &bits_buf);
+           ml->memset(dd->d_buf2, &zero, &bits_buf);
+        }
+      } 
+    case 2: 
+      for (int stra_id = 0; stra_id<na; ++stra_id){
+        if ((stra_id>=ia_ket) && (stra_id<ja_ket)){
+          compute_FCIrdm3h_a_t1ci(dd->d_cibra, dd->buf2, stra_id, nb, norb, nlinka, ia_bra, ja_bra, ib_bra, jb_bra, dd->d_clinka);
+          compute_FCIrdm3h_b_t1ci(dd->d_ciket, dd->buf1, stra_id, nb, norb, nlinkb, ia_ket, ja_ket, ib_ket, jb_ket, dd->d_clinkb);
+    
+          ml->gemm((char *) "N", (char *) "T", &norb2, &norb2, &nb, &alpha, 
+                dd->d_buf1, &norb2, dd->d_buf2, &norb2, 
+                &beta, dd->d_tdm2, &norb2);
+          ml->memset(dd->d_buf1, &zero, &bits_buf);
+          ml->memset(dd->d_buf2, &zero, &bits_buf);
+        }
+      } 
+    }
+  transpose_jikl(dd->d_d_tdm2, dd->d_buf1, norb);
+  double t1 = omp_get_wtime();
+  //t_array[23] += t1-t0;//TODO: fix this
+  //count_array[13]++;//TODO: fix this
+  
 }
 /* ---------------------------------------------------------------------- */
 void Device::pull_tdm1(py::array_t<double> _tdm1, int norb)
