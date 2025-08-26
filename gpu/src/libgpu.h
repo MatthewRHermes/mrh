@@ -144,7 +144,7 @@ extern "C"
                             int , int , int , int , int ,
                             int , int , int , int , int );
   void libgpu_compute_tdm13h_spin_v3(void *, 
-                            int , int , int , int , int , int,
+                            int , int , int , int , int , int, int, 
                             int , int , int , int , int ,
                             int , int , int , int , int );
   void libgpu_compute_tdmpp_spin(void *, 

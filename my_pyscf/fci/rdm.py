@@ -296,13 +296,9 @@ def _trans_rdm13hs_o3(cre, cibra, ciket, norb, nelec, spin=0, link_index=None, r
                                    ia_ket, ja_ket, ib_ket, jb_ket, sgn_ket) #TODO: write a better name
     libgpu.pull_tdm1(gpu, tdm1h, norb+1)
     libgpu.pull_tdm3hab(gpu, tdm3ha, tdm3hb, norb+1)
-    tdm1h = tdm1h.T
     if spin: 
-        if reorder: tdm1h, tdm3hb = rdm.reorder_rdm(tdm1h, tdm3hb, inplace=True)
         tdm3ha = tdm3ha.transpose(3,2,1,0)
-    else:
-        if reorder: tdm1h, tdm3ha = rdm.reorder_rdm (tdm1h, tdm3ha, inplace=True)
-    return tdm1h, tdm3ha, tdm3hb 
+    return tdm1h.T, tdm3ha, tdm3hb 
 
 
 def trans_rdm13ha_cre (cibra, ciket, norb, nelec, link_index=None):
@@ -515,9 +511,7 @@ def _trans_ppdm_o1(cre, cibra, ciket, norb, nelec, spin = spin, link_index = lin
     libgpu.compute_tdmpp_spin(gpu, na, nb, nlinkb, nlinkb, norb+ndum, spin, 
                               ia_bra, ja_bra, ib_bra, jb_bra, sgn_bra, 
                               ia_ket, ja_ket, ib_ket, jb_ket, sgn_ket) #TODO: write a better name
-    libgpu.pull_tdm1(gpu, dumdm1, norb+ndum)
     libgpu.pull_tdm2(gpu, dumdm2, norb+ndum)
-    if (spin%2)==0: dumdm1, dumdm2 = rdm.reorder_rdm (dumdm1, dumdm2, inplace=True)
     return dumdm2[:-ndum,-1,:-ndum,-ndum]
 
 def trans_hhdm (cibra, ciket, norb, nelec, spin=0, link_index=None):
