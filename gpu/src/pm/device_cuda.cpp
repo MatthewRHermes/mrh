@@ -755,7 +755,47 @@ __global__ void _compute_FCIrdm3h_b_t1ci(double * ci, double * buf, int stra_id,
         }
       }
 }
-
+/* ---------------------------------------------------------------------- */
+__global__ void _compute_FCIrdm3h_a_t1ci_v2(double * ci, double * buf, int stra_id, int nb, int norb, int nlinka, int ia, int ja, int ib, int jb, int * link_index)
+{
+    int j = blockIdx.x * blockDim.x + threadIdx.x;
+    //int k = blockIdx.y * blockDim.y + threadIdx.y;
+    if (j >= nlinka) return;
+    int norb2 = norb*norb;
+    int * tab = &(link_index[4*nlinka*stra_id + 4*j]); 
+    //for (int k=ib; k<jb; ++k){//k is the beta loop
+    for (int k=0; k<jb-ib; ++k){// Doing this because ci[:, ib:jb] is filled, rest is zeros.
+                                // Also, buf only needs to get populated from ib<k<jb, so less data needs to be added
+      int sign = tab[3];
+      if (sign != 0) {
+        int str1 = tab[2];
+        if ((str1>=ia) && (str1<ja)){//str1 is alpha loop
+          int a = tab[0];
+          int i = tab[1];
+          atomicAdd(&(buf[(k+ib)*norb2 + i*norb + a]), sign*ci[(str1-ia)*nb + k]);//I'm not sure how this plays out in the bigger kernel, so keeping as k+ib on the buf side
+          }
+        }
+      }
+}
+/* ---------------------------------------------------------------------- */
+__global__ void _compute_FCIrdm3h_b_t1ci_v2(double * ci, double * buf, int stra_id, int nb, int norb, int nlinkb, int ia, int ja, int ib, int jb, int * link_index)
+{
+    int str0 = blockIdx.x * blockDim.x + threadIdx.x;
+    int j = blockIdx.y * blockDim.y + threadIdx.y;
+    if (str0 >= nb) return;
+    if (j >= nlinkb) return;
+    int norb2 = norb*norb;
+    int * tab = &(link_index[4*str0*nlinkb+4*j]);
+    int sign = tab[3];
+    if (sign!=0){ //return;
+      int str1 = tab[2];
+      if ((str1>=ib) && (str1<jb)){
+        int a = tab[0];
+        int i = tab[1];
+        atomicAdd(&(buf[str0*norb2 + i*norb + a]), sign*ci[(stra_id-ia)*nb + str1-ib]);// rdm3h_b_t1ci is only called when stra_id is more than ia
+        }
+      }
+}
 /* ---------------------------------------------------------------------- */
 __global__ void _transpose_jikl(const double * in, double *out, int norb)
 {
@@ -1391,7 +1431,36 @@ void Device::compute_FCIrdm3h_b_t1ci(double * ci, double * buf, int stra_id, int
   _CUDA_CHECK_ERRORS();
 #endif
   }
-} 
+}
+/* ---------------------------------------------------------------------- */
+void Device::compute_FCIrdm3h_a_t1ci_v2(double * ci, double * buf, int stra_id, int nb, int norb, int nlinka, int ia, int ja, int ib, int jb, int * link_index)
+{
+  dim3 block_size(1,1,1);
+  //dim3 grid_size(_TILE(nlinka, block_size.x), _TILE(nb, block_size.y), 1);
+  dim3 grid_size(_TILE(nlinka, block_size.x), 1, 1);
+  cudaStream_t s = *(pm->dev_get_queue());
+  _compute_FCIrdm3h_a_t1ci_v2<<<grid_size, block_size, 0,s>>>(ci, buf, stra_id, nb, norb, nlinka, ia, ja, ib, jb, link_index);
+#ifdef _DEBUG_DEVICE 
+  printf("LIBGPU ::  -- general::compute_FCIrdm2_a_t1ci; :: Nb= %i Norb =%i Nlinka =%i grid_size= %i %i %i  block_size= %i %i %i\n",
+	 nb, norb, nlinka, grid_size.x,grid_size.y,grid_size.z,block_size.x,block_size.y,block_size.z);
+  _CUDA_CHECK_ERRORS();
+#endif
+}  
+/* ---------------------------------------------------------------------- */
+void Device::compute_FCIrdm3h_b_t1ci_v2(double * ci, double * buf, int stra_id, int nb, int norb, int nlinkb, int ia, int ja, int ib, int jb, int * link_index)
+{
+  if ((stra_id>=ia) && stra_id<ja){ //I'm writing this in, but buf being zero needs to be accounted in the full function call as well
+  dim3 block_size(1,1,1);
+  dim3 grid_size(_TILE(nb, block_size.x), _TILE(nlinkb, block_size.y), 1);
+  cudaStream_t s = *(pm->dev_get_queue());
+  _compute_FCIrdm3h_b_t1ci_v2<<<grid_size, block_size, 0,s>>>(ci, buf, stra_id, nb, norb, nlinkb, ia, ja, ib, jb, link_index);
+#ifdef _DEBUG_DEVICE 
+  printf("LIBGPU ::  -- general::compute_FCIrdm2_b_t1ci; :: Nb= %i Norb =%i Nlinkb =%i grid_size= %i %i %i  block_size= %i %i %i\n",
+	 nb, norb, nlinkb, grid_size.x,grid_size.y,grid_size.z,block_size.x,block_size.y,block_size.z);
+  _CUDA_CHECK_ERRORS();
+#endif
+  }
+}  
 /* ---------------------------------------------------------------------- */
 void Device::gemv_fix(const double * buf, const double * bravec, double * pdm1, const int norb2, const int nb, const double alpha, const double beta)
 {

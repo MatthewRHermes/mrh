@@ -372,7 +372,22 @@ void libgpu_push_ci(void * ptr,
                       int na, int nb)
 {
   Device * dev = (Device *) ptr;
-  dev->push_ci(cibra, ciket, na, nb);
+  dev->push_cibra(cibra, na, nb);
+  dev->push_ciket(ciket, na, nb);
+}
+/* ---------------------------------------------------------------------- */
+void libgpu_push_cibra(void * ptr, 
+                      py::array_t<double> cibra, int na, int nb)
+{
+  Device * dev = (Device *) ptr;
+  dev->push_cibra(cibra, na, nb);
+}
+/* ---------------------------------------------------------------------- */
+void libgpu_push_ciket(void * ptr, 
+                      py::array_t<double> ciket, int na, int nb)
+{
+  Device * dev = (Device *) ptr;
+  dev->push_ciket(ciket, na, nb);
 }
 /* ---------------------------------------------------------------------- */
 void libgpu_push_link_indexa(void * ptr, 

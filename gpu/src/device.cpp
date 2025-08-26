@@ -3708,6 +3708,7 @@ void Device::init_tdm3hab(int norb)
 /* ---------------------------------------------------------------------- */
 void Device::push_ci(py::array_t<double> _cibra, py::array_t<double> _ciket, int na, int nb)
 {
+  //obsolete
   double t0 = omp_get_wtime();
   int id = 0;
   pm->dev_set_device(id); 
@@ -3729,7 +3730,48 @@ void Device::push_ci(py::array_t<double> _cibra, py::array_t<double> _ciket, int
   double t1 = omp_get_wtime();
   t_array[16] += t1 - t0;
   
+}
+/* ---------------------------------------------------------------------- */
+void Device::push_cibra(py::array_t<double> _cibra, int na, int nb)
+{
+  double t0 = omp_get_wtime();
+  int id = 0;
+  pm->dev_set_device(id); 
+  my_device_data * dd = &(device_data[id]);
+  pm->dev_profile_start("tdms :: push cibra");
+
+  py::buffer_info info_cibra = _cibra.request(); //2D array (na, nb)
+  double * cibra = static_cast<double*>(info_cibra.ptr);
+  int size_cibra = na*nb;
+  grow_array(dd->d_cibra, size_cibra, dd->size_cibra, "cibra", FLERR);
+
+  pm->dev_push_async(dd->d_cibra, cibra, size_cibra*sizeof(double));
+  pm->dev_profile_stop();
+  double t1 = omp_get_wtime();
+  t_array[16] += t1 - t0;
+  
 } 
+ /* ---------------------------------------------------------------------- */
+void Device::push_ciket(py::array_t<double> _ciket, int na, int nb)
+{
+  double t0 = omp_get_wtime();
+  int id = 0;
+  pm->dev_set_device(id); 
+  my_device_data * dd = &(device_data[id]);
+  pm->dev_profile_start("tdms :: push ciket");
+
+  py::buffer_info info_ciket = _ciket.request(); //2D array (na, nb)
+  double * ciket = static_cast<double*>(info_ciket.ptr);
+  int size_ciket = na*nb;
+  grow_array(dd->d_ciket, size_ciket, dd->size_ciket, "ciket", FLERR);
+
+  pm->dev_push_async(dd->d_ciket, ciket, size_ciket*sizeof(double));
+  pm->dev_profile_stop();
+  double t1 = omp_get_wtime();
+  t_array[16] += t1 - t0;
+  
+} 
+
 /* ---------------------------------------------------------------------- */
 void Device::push_link_indexa(int na, int nlinka, py::array_t<int> _link_indexa)
 {
@@ -4544,6 +4586,202 @@ void Device::compute_tdm13h_spin_v3(int na, int nb, int nlinka, int nlinkb, int 
       }
       ml->memset(dd->d_buf2, &zero, &bits_buf);
       ml->memset(dd->d_buf1, &zero, &bits_buf);
+    }
+  }
+  transpose_jikl(dd->d_tdm3ha, dd->d_buf1, norb);
+  transpose_jikl(dd->d_tdm3hb, dd->d_buf2, norb);
+  if (reorder){
+    if (spin) 
+      {reorder(dd->d_tdm1h, dd->d_tdm3hb, dd->d_buf1, norb);}
+    else
+      {reorder(dd->d_tdm1h, dd->d_tdm3ha, dd->d_buf1, norb);}
+  }
+  double t1 = omp_get_wtime();
+  //t_array[23] += t1-t0;//TODO: fix this
+  //count_array[13]++;//TODO: fix this
+} 
+/* ---------------------------------------------------------------------- */
+void Device::compute_tdm13h_spin_v4(int na, int nb, 
+                                 int nlinka, int nlinkb, 
+                                 int norb, int spin, int reorder,
+                                 int ia_bra, int ja_bra, int ib_bra, int jb_bra, int sgn_bra, 
+                                 int ia_ket, int ja_ket, int ib_ket, int jb_ket, int sgn_ket )
+{
+  //from v3: only gets non zero elements of ci vectors, no padded vectors
+  //na, nb is same for both zero-padded ci vectors, but not necessarily for non padded vectors
+  double t0 = omp_get_wtime();
+  int id = 0;
+  pm->dev_set_device(id);
+  ml->set_handle(id);
+  my_device_data * dd = &(device_data[id]);
+
+  
+  int na_bra = ja_bra - ia_bra;
+  int nb_bra = jb_bra - ib_bra;
+  int na_ket = ja_ket - ia_ket;
+  int nb_ket = jb_ket - ib_ket;
+
+  int norb2 = norb*norb;
+  int size_buf = norb2*nb;
+  int size_tdm3h = norb2*norb2;
+  int size_tdm1h = norb2;
+
+  int zero = 0;
+  int one = 1;
+  const double alpha = 1.0;
+  const double beta = 1.0;
+  int bits_buf = sizeof(double)*size_buf;
+  int bits_tdm1h = sizeof(double)*size_tdm1h;
+  int bits_tdm3h = sizeof(double)*size_tdm3h;
+  grow_array(dd->d_tdm1, size_tdm1h, dd->size_tdm1, "tdm1", FLERR);
+  grow_array(dd->d_tdm2, size_tdm3h, dd->size_tdm2, "tdm2", FLERR); 
+  grow_array(dd->d_tdm2_p, size_tdm3h, dd->size_tdm2_p, "tdm2_p", FLERR); 
+  grow_array(dd->d_buf1,size_buf, dd->size_buf1, "buf1", FLERR); 
+  grow_array(dd->d_buf2,size_buf, dd->size_buf2, "buf2", FLERR); 
+  dd->d_tdm1h = dd->d_tdm1;
+  ml->memset(dd->d_buf1, &zero, &bits_buf); 
+  ml->memset(dd->d_buf2, &zero, &bits_buf); 
+  ml->memset(dd->d_tdm1, &zero, &bits_tdm1h);
+  ml->memset(dd->d_tdm2, &zero, &bits_tdm3h);
+  ml->memset(dd->d_tdm2_p, &zero, &bits_tdm3h);
+  dd->d_tdm3ha = dd->d_tdm2;
+  dd->d_tdm3hb = dd->d_tdm2_p;
+  
+  /*
+  tdm12kern_a
+    a_t1ci: cibra, clinka -> buf2
+    a_t1ci: ciket, clinka -> buf1
+    tdm1 = gemv buf1, bravec
+    tdm2 = gemm buf1, buf2
+  tdm12kern_b 
+    b_t1ci: cibra, clinkb -> buf2
+    b_t1ci: ciket, clinkb -> buf1
+    tdm1 = gemv buf1, bravec
+    tdm2 = gemm buf1, buf2
+  tdm12kern_ab
+    a_t1ci: cibra, clinka -> buf2
+    b_t1ci: ciket, clinkb -> buf1
+    tdm2 = gemm buf1, buf2
+
+  if spin ==0  
+    tdm1, tdm3ha = tdm12kern_a, cibra, ciket, get 1 and 2
+      a_t1ci: cibra, clinka -> buf2
+      a_t1ci: ciket, clinka -> buf1
+      tdm1h = gemv buf1, bravec
+      tdm3ha = gemm buf1, buf2
+    tdm3hb = tdm12kern_ab, cibra, ciket, get 2
+      a_t1ci: cibra, clinka -> buf2  //same
+      b_t1ci: ciket, clinkb -> buf1  
+      tdm3hb = gemm buf1, buf2
+      
+  if spin ==1
+    tdm1, tdm3hb = tdm12kern_b, cibra, ciket, get 1 and 2
+      b_t1ci: cibra, clinkb -> buf2
+      b_t1ci: ciket, clinkb -> buf1
+      tdm1h = gemv buf1, bravec
+      tdm3hb = gemm buf1, buf2
+    tdm3ha = tdm12kern_ab, ciket, cibra, get 2
+      // !caution ciket and cibra switched
+      a_t1ci: ciket, clinka -> buf2
+      b_t1ci: cibra, clinkb -> buf1 
+      tdm3ha = gemm buf1, buf2
+      //therefore
+      b_t1ci: cibra, clinkb -> buf2 //doesn't matter where you store in 
+      a_t1ci: ciket, clinka -> buf1
+      tdm3ha = gemm buf2, buf1
+  */
+  /*
+  ci is zero except for [ia:ja, ib:jb] for both bra and ket. in v3, the full ci won't be passed, only non zero elements
+  */
+  if (spin){
+    for (int stra_id = 0; stra_id<na; ++stra_id){
+      if ((stra_id < ia_bra) || (stra_id > ja_bra)): continue 
+      //buf2 is 0, so the whole thing is meaningless. tdm1 uses buf1 and bravec = cibra[stra_id, :]
+      compute_FCIrdm3h_b_t1ci_v2(dd->d_cibra, dd->d_buf2, stra_id, nb, norb, nlinkb, ia_bra, ja_bra, ib_bra, jb_bra, dd->d_clinkb);
+      if ((stra_id < ia_ket) || (stra_id > ja_ket)) {
+      //buf1 is 0, so tdm3hb and tdm1hb don't calculate anything
+      }
+      else {
+        
+        compute_FCIrdm3h_b_t1ci_v2(dd->d_ciket, dd->d_buf1, stra_id, nb, norb, nlinkb, ia_ket, ja_ket, ib_ket, jb_ket, dd->d_clinb);
+         
+
+        ml->gemm((char *) "N", (char *) "T", &norb2, &norb2, &nb, &alpha, 
+                dd->d_buf1, &norb2, dd->d_buf2, &norb2, 
+                &beta, dd->d_tdm3hb, &norb2);
+        double * bravec = &(dd->d_cibra[stra_id*nb]);
+        ml->gemv((char *) "N", &norb2, &nb, &alpha, 
+                dd->d_buf1, &norb2, bravec, &one, 
+                &beta, dd->d_tdm1h, &one);
+        ml->memset(dd->d_buf1, &zero, &bits_buf);
+      }
+      compute_FCIrdm2_a_t1ci_v2(dd->d_ciket, dd->d_buf1, stra_id, nb, norb, nlinka, dd->d_clinka);
+      // buf1 is only populated from ib:jb, so don't need to run the multiplication over the whole thing 
+      ml->gemm((char *) "N", (char *) "T", &norb2, &norb2, &nb, &alpha, 
+               dd->d_buf2, &norb2, dd->d_buf1, &norb2, //remember the switch?
+               &beta, dd->d_tdm3ha, &norb2);
+      ml->memset(dd->d_buf2, &zero, &bits_buf);
+      ml->memset(dd->d_buf1, &zero, &bits_buf);
+    }
+
+
+  }
+  else {
+
+    int ib_max = (ib_bra > ib_ket) ? ib_bra : ib_ket;
+    int jb_min = (jb_bra < jb_ket) ? jb_bra : jb_ket;
+    int b_len  = jb_min - ib_max;
+    int bra_b_len = jb_bra - ib_bra;
+
+    for (int stra_id = 0; stra_id<na; ++stra_id){
+        /* buf2      buf1              tdm2      bravec  
+          0 0 0 0   0 0 0 0          # # # #     0  
+  ib_bra  # # # #   0 0 0 0          # # # #     # ib_bra
+          # # # #   # # # # ib_ket   # # # #     #
+  jb_bra  # # # #   # # # #          # # # #     # jb_bra
+          0 0 0 0   # # # # jb_ket               0 
+          0 0 0 0   0 0 0 0                      0  
+          
+          given buf2, don't need to calculate from all ib_ket to jb_ket for buf1, can only do max(ib_bra, ib_ket) to min(jb_bra, jb_ket)
+          gemm can also just go over the same limits.
+          gemv calculation can also be reduced
+        */
+
+      compute_FCIrdm3h_a_t1ci_v2(dd->d_cibra, dd->d_buf2, stra_id, nb, norb, nlinka, ia_bra, ja_bra, ib_bra, jb_bra, dd->d_clinka);
+      if (b_len>0){
+        compute_FCIrdm3h_a_t1ci_v2(dd->d_cibket, dd->d_buf1, stra_id, nb, norb, nlinka, ia_ket, ja_ket, ib_max, jb_min, dd->d_clinka);// !limits
+      //ml->gemm((char *) "N", (char *) "T", &norb2, &norb2, &nb, &alpha, 
+      //          dd->d_buf1, &norb2, dd->d_buf2, &norb2, 
+      //          &beta, dd->d_tdm3ha, &norb2);
+      ml->gemm((char *) "N", (char *) "T", &norb2, &norb2, &blen, &alpha, 
+                &(dd->d_buf1[ib_max*norb2]), &norb2, &(dd->d_buf2[ib_max*norb2]), &norb2, 
+                &beta, dd->d_tdm3ha, &norb2);
+      if ((stra_id >= ia_bra) && (stra_id < ja_bra)){
+        double * bravec = &(dd->d_cibra[stra_id*nb]);
+        ml->gemv((char *) "N", &norb2, &blen, &alpha, 
+                &(dd->d_buf1[ib_max*norb2]), &norb2, &(bravec[ib_max]), &one, 
+                &beta, dd->d_tdm1h, &one);
+        }
+      }
+
+      if ((stra_id>=ia_ket) && (stra_id<ja_ket)){
+
+      ml->memset(dd->d_buf1, &zero, &bits_buf); // can be optimized
+ 
+      //when populated, rdm3h_b has the capability to populate the entire matrix, but buf2 is still blocked zero from a
+      //can rdm3h_b take in what should be range of str0 (nb) because we are only need a specific range here (ib_bra -> jb_bra)
+      //similar to the plot above of rdm3h_a * rdm3h_b, but buf1 is fully filled. 
+      //compute_FCIrdm3h_b_t1ci_v2(dd->d_ciket, dd->d_buf1, stra_id, nb, norb, nlinkb, ia_ket, ja_ket, ib_ket, jb_ket, dd->d_clinkb); 
+      compute_FCIrdm3h_b_t1ci_v2(dd->d_ciket, dd->d_buf1, stra_id, bra_b_len, norb, nlinkb, ia_ket, ja_ket, ib_ket, jb_ket, dd->d_clinkb); 
+      //ml->gemm((char *) "N", (char *) "T", &norb2, &norb2, &nb, &alpha, 
+      //         dd->d_buf1, &norb2, dd->d_buf2, &norb2, 
+      //         &beta, dd->d_tdm3hb, &norb2);
+      ml->gemm((char *) "N", (char *) "T", &norb2, &norb2, &bra_b_len, &alpha, 
+               dd->d_buf1, &norb2, dd->d_buf2[ib_bra*norb2], &norb2, 
+               &beta, dd->d_tdm3hb, &norb2);
+      }
+      ml->memset(dd->d_buf2, &zero, &bits_buf); //can be optimized based
+      ml->memset(dd->d_buf1, &zero, &bits_buf); 
     }
   }
   transpose_jikl(dd->d_tdm3ha, dd->d_buf1, norb);

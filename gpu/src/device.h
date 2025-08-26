@@ -168,6 +168,8 @@ public :
   void init_tdm3hab(int);
   void push_ci(py::array_t<double>,  py::array_t<double>, 
                       int , int);
+  void push_cibra(py::array_t<double>, int , int);
+  void push_ciket(py::array_t<double>, int , int);
   void push_link_indexa(int, int , py::array_t<int> ); //TODO: figure out the shape? or maybe move the compressed version 
   void push_link_indexb(int, int , py::array_t<int> ); //TODO: figure out the shape? or maybe move the compressed version 
   void compute_trans_rdm1a(int , int , int , int , int );
@@ -222,6 +224,10 @@ public :
   void compute_FCIrdm3h_a_t1ci (double *, double *, int, int, int, int,
                                 int, int, int, int, int*);
   void compute_FCIrdm3h_b_t1ci (double *, double *, int, int, int, int,
+                                int, int, int, int, int*);
+  void compute_FCIrdm3h_a_t1ci_v2 (double *, double *, int, int, int, int,
+                                int, int, int, int, int*);
+  void compute_FCIrdm3h_b_t1ci_v2 (double *, double *, int, int, int, int,
                                 int, int, int, int, int*);
   // multi-gpu communication (better here or part of PM?)
 

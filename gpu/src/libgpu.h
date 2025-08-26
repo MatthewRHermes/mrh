@@ -115,6 +115,10 @@ extern "C"
   void libgpu_push_ci(void *, 
                       py::array_t<double>,  py::array_t<double>, 
                       int , int);
+  void libgpu_push_cibra(void *, 
+                      py::array_t<double>, int , int);
+  void libgpu_push_ciket(void *, 
+                      py::array_t<double>, int , int);
   void libgpu_push_link_indexa(void *, 
                               int, int , py::array_t<int> ); //TODO: figure out the shape? or maybe move the compressed version 
   void libgpu_push_link_indexb(void *, 
@@ -217,6 +221,8 @@ PYBIND11_MODULE(libgpu, m) {
   // this can be expanded with modulus and or spreading out. 
   // using mgpu_bcast is also needed at some point
   m.def("push_ci",&libgpu_push_ci,"pyscf/fci/rdm.py::make_rdm1_spin1 with FCItrans_rdm1a/b push ci");
+  m.def("push_cibra",&libgpu_push_cibra,"pyscf/fci/rdm.py:: push cibra");
+  m.def("push_ciket",&libgpu_push_ciket,"pyscf/fci/rdm.py:: push ciket");
   m.def("push_link_indexa",&libgpu_push_link_indexa,"pyscf/fci/:: push link indexa");
   m.def("push_link_indexb",&libgpu_push_link_indexb,"pyscf/fci/:: push link indexb");
   m.def("push_link_index_ab",&libgpu_push_link_index_ab,"pyscf/fci/:: push link index a and b");
