@@ -377,6 +377,37 @@ def trans_sfudm1 (cibra, ciket, norb, nelec, link_index=None):
         sfudm1: ndarray of shape (norb,norb)
             Spin-flip up transition density matrix between cibra and ciket
     '''
+    try: 
+      use_gpu = param.use_gpu
+      gpu = use_gpu
+      try: custom_fci = param.custom_fci
+      except: custom_fci = False
+      try: gpu_debug = param.gpu_debug
+      except: gpu_debug = False
+      try: custom_debug = param.custom_debug
+      except: custom_debug = False
+    except: 
+      use_gpu = None
+    if custom_fci and custom_debug and use_gpu:
+      ### Old kernel
+      dum2dm = _trans_sfudm1_o0 (cibra, ciket, norb, nelec, link_index=link_index)
+      ### New kernel
+      dum2dm_c = _trans_sfudm1_o1 (cibra, ciket, norb, nelec, link_index=link_index)
+      tdm2_correct = np.allclose(dum2dm, dum2dm_c)
+      if tdm2_correct: 
+        print('Trans SFUDM1 calculated correctly')
+      else:
+        print('Trans SFUDM1 calculated incorrectly')
+        exit()
+    elif custom_fci and use_gpu: 
+      dum2dm = _trans_sfudm1_o1 (cibra, ciket, norb, nelec, link_index=link_index)
+    else:
+      dum2dm = _trans_sfudm1 (cibra, ciket, norb, nelec, link_index=link_index)
+    sfudm1 = dm2dum[-1,:-1,:-1,-1]
+    return -sfudm1
+
+
+def _trans_sufdm1_o0(nibra, norb, nelec, link_index=None)
     nelec_ket = _unpack_nelec (nelec)
     nelec_bra = list (_unpack_nelec (nelec))
     nelec_bra[0] += 1
@@ -390,8 +421,35 @@ def trans_sfudm1 (cibra, ciket, norb, nelec, link_index=None):
     cibra = dummy.add_orbital (cibra, norb, nelec_bra, occ_a=0, occ_b=1)
     fn = 'FCItdm12kern_ab'
     dm2dum = rdm.make_rdm12_spin1 (fn, ciket, cibra, norb+1, nelecd, link_index, 0)[1]
-    sfudm1 = dm2dum[-1,:-1,:-1,-1]
-    return -sfudm1
+    return dm2dum
+
+def _trans_sufdm1_o1(nibra, norb, nelec, link_index=None)
+    nelec_ket = _unpack_nelec (nelec)
+    nelec_bra = list (_unpack_nelec (nelec))
+    nelec_bra[0] += 1
+    nelec_bra[1] -= 1
+    nelecd = [nelec_bra[0], nelec_ket[1]]
+    linkstr = direct_spin1._unpack (norb+1, nelecd, link_index)
+    errmsg = ("For the spin-flip transition density matrix functions, the linkstr must be for "
+              "(neleca+1,nelecb) electrons occupying norb+1 orbitals.")
+    for i in range (2): assert (linkstr[i].shape[1]==(nelecd[i]*(norb-nelecd[i]+2))), errmsg
+    ia_ket, ja_ket, ib_ket, jb_ket, sgn_ket = dummy_orbital_params(norb, nelec_ket, occ_a = 1, occ_b = 0)
+    ia_bra, ja_bra, ib_bra, jb_bra, sgn_bra = dummy_orbital_params(norb, nelec_bra, occ_a = 0, occ_b = 1)
+    libgpu.push_link_index_ab(gpu, na, nb, nlinka, nlinkb, link_index[0], link_index[1])
+    na, nlinka = link_index[0].shape[:2] 
+    nb, nlinkb = link_index[1].shape[:2] 
+    na_bra, nb_bra = cibra.shape
+    na_ket, nb_ket = ciket.shape
+    libgpu.push_cibra(gpu, cibra, na_bra, nb_bra)
+    libgpu.push_ciket(gpu, ciket, na_ket, nb_ket)
+    libgpu.init_tdm2(gpu, norb+1)
+    libgpu.compute_sfudm(gpu, na, nb, nlinka, nlinkb, norb+1, 
+                         ia_bra, ja_bra, ib_bra, jb_bra, sgn_bra,
+                         ia_ket, ja_ket, ib_ket, jb_ket, sgn_ket) #TODO: write a better name
+    libgpu.pull_tdm2(gpu, dum2dm, norb+1)
+    
+    return dum2dm
+
 
 def trans_sfddm1 (cibra, ciket, norb, nelec, link_index=None):
     ''' Evaluate the spin-flip-down single-electron transition density matrix: <cibra|b'a|ciket>.
