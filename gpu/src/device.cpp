@@ -5030,7 +5030,58 @@ void Device::compute_tdmpp_spin_v2(int na, int nb, int nlinka, int nlinkb, int n
   //count_array[13]++;//TODO: fix this
   
 }
-
+/* ---------------------------------------------------------------------- */
+void Device::compute_sfudm(int na, int nb, int nlinka, int nlinkb, int norb, 
+                             int ia_bra, int ja_bra, int ib_bra, int jb_bra, int sgn_bra, 
+                             int ia_ket, int ja_ket, int ib_ket, int jb_ket, int sgn_ket )
+{
+  double t0 = omp_get_wtime();
+  int id = 0;
+  pm->dev_set_device(id);
+  ml->set_handle(id);
+  my_device_data * dd = &(device_data[id]);
+  int norb2 = norb*norb;
+  int size_buf = norb2*nb;
+  int size_tdm2 = norb2*norb2;
+  int size_tdm1 = norb2;
+  int zero = 0;
+  int one = 1;
+  //const double alpha = 1.0;
+  const double alpha = 1.0*sgn_bra*sgn_ket;
+  const double beta = 1.0;
+  int bits_buf = sizeof(double)*size_buf;
+  int bits_tdm2 = sizeof(double)*size_tdm2;
+  grow_array(dd->d_tdm2, size_tdm2, dd->size_tdm2, "tdm2", FLERR); 
+  grow_array(dd->d_buf1,size_buf, dd->size_buf1, "buf1", FLERR); 
+  grow_array(dd->d_buf2,size_buf, dd->size_buf2, "buf2", FLERR); 
+  ml->memset(dd->d_buf1, &zero, &bits_buf); 
+  ml->memset(dd->d_buf2, &zero, &bits_buf); 
+  ml->memset(dd->d_tdm2, &zero, &bits_tdm2);
+  
+  /*
+  tdm12kern_ab
+    a_t1ci: cibra, clinka -> buf2
+    b_t1ci: ciket, clinkb -> buf1
+    tdm2 = gemm buf1, buf2
+  */
+  int bra_b_len = jb_bra - ib_bra;
+  for (int stra_id = 0; stra_id<na; ++stra_id){
+    if ((stra_id>=ia_ket) && (stra_id<ja_ket)){//buf1 is zero otherwise
+      compute_FCIrdm3h_a_t1ci_v2(dd->d_cibra, dd->buf2, stra_id, nb, norb, nlinka, ia_bra, ja_bra, ib_bra, jb_bra, dd->d_clinka);
+      compute_FCIrdm3h_b_t1ci_v2(dd->d_ciket, dd->buf1, stra_id, nb, norb, nlinkb, ia_ket, ja_ket, ib_ket, jb_ket, dd->d_clinkb);
+  
+      ml->gemm((char *) "N", (char *) "T", &norb2, &norb2, &bra_b_len, &alpha, 
+            &(dd->d_buf1[ib_bra*norb2]), &norb2, &(dd->d_buf2[ib_bra*norb2]), &norb2, 
+            &beta, dd->d_tdm2, &norb2);
+      ml->memset(dd->d_buf1, &zero, &bits_buf);
+      ml->memset(dd->d_buf2, &zero, &bits_buf);
+    }
+  }
+  transpose_jikl(dd->d_tdm2, dd->d_buf1, norb);
+  double t1 = omp_get_wtime();
+  //t_array[23] += t1-t0;//TODO: fix this
+  //count_array[13]++;//TODO: fix this
+}
 /* ---------------------------------------------------------------------- */
 void Device::pull_tdm1(py::array_t<double> _tdm1, int norb)
 {

@@ -193,6 +193,9 @@ public :
   void compute_tdmpp_spin_v2( int , int , int , int , int , int, 
                                int , int , int , int , int ,
                                int , int , int , int , int );
+  void compute_sfudm( int , int , int , int , 
+                      int , int , int , int , int ,
+                      int , int , int , int , int );
 
   void pull_tdm1(py::array_t<double> , int );
   void pull_tdm2(py::array_t<double> , int );
