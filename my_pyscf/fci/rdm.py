@@ -516,20 +516,25 @@ def _trans_ppdm_o1(cre, cibra, ciket, norb, nelec, spin = spin, link_index = lin
     assert (linkstr[1].shape[1]==(nelec_bra[1]*(norb+ndum-nelec_bra[1]+1))), errmsg
     nelecd = [nelec_ket[0], nelec_ket[1]]
     nelecd_copy = nelecd.copy()
-    ia_bra = ja_bra = ia_ket = ja_ket = ib_bra = jb_bra = ib_ket = jb_ket = sgn_bra = sgn_ket = 0
+    ia_bra = ia_ket = ib_bra = ib_ket = 0
+    ja_bra = ja_ket = linkstr[0].shape[0]
+    jb_bra = jb_ket = linkstr[1].shape[0]
+    sgn_bra = sgn_ket = 1
     for i in range (ndum):
-        ia_ket_new, ja_ket_new, ib_ket_new, jb_ket_new, sgn_ket = dummy_orbital_params(norb+i, nelecd, occ_a=occ_a, occ_b=occ_b)
-        nelecd[0] +=occ_a
-        nelecd[1] +=occ_b 
+        ia_ket_new, ja_ket_new, ib_ket_new, jb_ket_new, sgn_ket = dummy_orbital_params(norb+i, nelecd_copy, occ_a=occ_a, occ_b=occ_b)
+        nelecd_copy[0] +=occ_a
+        nelecd_copy[1] +=occ_b 
         ia_bra_new, ja_bra_new, ib_bra_new, jb_bra_new, sgn_bra = dummy_orbital_params(norb+i, nelec_bra, occ_a = 0, occ_b=0)
-        ia_bra = (ia_bra, ia_bra_new)[ia_bra<ia_bra_new]
-        ia_ket = (ia_ket, ia_ket_new)[ia_ket<ia_ket_new]
-        ja_bra = (ja_bra, ja_bra_new)[ja_bra>ja_bra_new]
-        ja_ket = (ja_ket, ja_ket_new)[ja_ket>ja_ket_new]
-        ib_bra = (ib_bra, ib_bra_new)[ib_bra<ib_bra_new]
-        ib_ket = (ib_ket, ib_ket_new)[ib_ket<ib_ket_new]
-        jb_bra = (jb_bra, jb_bra_new)[jb_bra>jb_bra_new]
-        jb_ket = (jb_ket, jb_ket_new)[jb_ket>jb_ket_new]
+        ia_bra += ia_bra_new
+        ib_bra += ib_bra_new
+        ia_ket += ia_ket_new
+        ib_ket += ib_ket_new
+        ja_bra -= ja_bra_new
+        jb_bra -= jb_bra_new
+        ja_ket -= ja_ket_new
+        jb_ket -= jb_ket_new
+        sgn_bra *= sgn_bra_new
+        sgn_ket *= sgn_ket_new
         
     for i in range (ndum):
         ciket = dummy.add_orbital (ciket, norb+i, nelecd, occ_a=occ_a, occ_b=occ_b)
@@ -551,6 +556,60 @@ def _trans_ppdm_o1(cre, cibra, ciket, norb, nelec, spin = spin, link_index = lin
                               ia_ket, ja_ket, ib_ket, jb_ket, sgn_ket) #TODO: write a better name
     libgpu.pull_tdm2(gpu, dumdm2, norb+ndum)
     return dumdm2[:-ndum,-1,:-ndum,-ndum]
+
+def _trans_ppdm_o2(cre, cibra, ciket, norb, nelec, spin = spin, link_index = link_index, reorder = reorder)
+    from mrh.my_pyscf.gpu import libgpu
+    gpu=param.use_gpu
+    s1 = int (spin>1)
+    s2 = int (spin>0)
+    ndum = 2 - (spin%2)
+    nelec_ket = _unpack_nelec (nelec)
+    nelec_bra = list (_unpack_nelec (nelec))
+    nelec_bra[s1] += 1
+    nelec_bra[s2] += 1
+    occ_a, occ_b = int (spin<2), int (spin>0)
+    linkstr = direct_spin1._unpack (norb+ndum, nelec_bra, link_index)
+    errmsg = ("For the pair-creation transition density matrix functions, the linkstr must "
+              "be for nelec+2 electrons occupying norb+1/norb+2 (ab/other spin case) orbitals.")
+    assert (linkstr[0].shape[1]==(nelec_bra[0]*(norb+ndum-nelec_bra[0]+1))), errmsg
+    assert (linkstr[1].shape[1]==(nelec_bra[1]*(norb+ndum-nelec_bra[1]+1))), errmsg
+    nelecd = [nelec_ket[0], nelec_ket[1]]
+    nelecd_copy = nelecd.copy()
+    ia_bra = ia_ket = ib_bra = ib_ket = 0
+    ja_bra = ja_ket = linkstr[0].shape[0]
+    jb_bra = jb_ket = linkstr[1].shape[0]
+    sgn_bra = sgn_ket = 1
+    for i in range (ndum):
+        ia_ket_new, ja_ket_new, ib_ket_new, jb_ket_new, sgn_ket = dummy_orbital_params(norb+i, nelecd_copy, occ_a=occ_a, occ_b=occ_b)
+        nelecd_copy[0] +=occ_a
+        nelecd_copy[1] +=occ_b 
+        ia_bra_new, ja_bra_new, ib_bra_new, jb_bra_new, sgn_bra = dummy_orbital_params(norb+i, nelec_bra, occ_a = 0, occ_b=0)
+        ia_bra += ia_bra_new
+        ib_bra += ib_bra_new
+        ia_ket += ia_ket_new
+        ib_ket += ib_ket_new
+        ja_bra -= ja_bra_new
+        jb_bra -= jb_bra_new
+        ja_ket -= ja_ket_new
+        jb_ket -= jb_ket_new
+        sgn_bra *= sgn_bra_new
+        sgn_ket *= sgn_ket_new
+        
+    dumdm1 = np.empty((norb+ndum, norb+ndum))
+    dumdm2 = np.empty((norb+ndum, norb+ndum, norb+ndum, norb+ndum))
+    libgpu.init_tdm1(gpu, norb+ndum)
+    libgpu.init_tdm2(gpu, norb+ndum)
+    libgpu.push_link_index_ab(gpu, na, nb, nlinka, nlinkb, link_index[0], link_index[1])
+    na_bra, nb_bra = cibra.shape
+    na_ket, nb_ket = ciket.shape
+    libgpu.push_cibra(gpu, cibra, na_bra, nb_bra)
+    libgpu.push_ciket(gpu, ciket, na_ket, nb_ket)
+    libgpu.compute_tdmpp_spin_v2(gpu, na, nb, nlinkb, nlinkb, norb+ndum, spin, 
+                              ia_bra, ja_bra, ib_bra, jb_bra, sgn_bra, 
+                              ia_ket, ja_ket, ib_ket, jb_ket, sgn_ket) #TODO: write a better name
+    libgpu.pull_tdm2(gpu, dumdm2, norb+ndum)
+    return dumdm2[:-ndum,-1,:-ndum,-ndum]
+
 
 def trans_hhdm (cibra, ciket, norb, nelec, spin=0, link_index=None):
     ''' Evaluate the pair-destruction single-electron transition density matrix: <cibra|pq|ciket>.

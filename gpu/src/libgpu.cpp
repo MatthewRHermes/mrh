@@ -508,6 +508,18 @@ void libgpu_compute_tdmpp_spin(void * ptr,
                              ia_bra, ja_bra, ib_bra, jb_bra, sgn_bra,      
                              ia_ket, ja_ket, ib_ket, jb_ket, sgn_ket );
 }
+/* ---------------------------------------------------------------------- */
+void libgpu_compute_tdmpp_spin_v2(void * ptr, 
+                            int na, int nb, int nlinka, int nlinkb, int norb, int spin,
+                            int ia_bra, int ja_bra, int ib_bra, int jb_bra, int sgn_bra, 
+                            int ia_ket, int ja_ket, int ib_ket, int jb_ket, int sgn_ket )
+{
+  Device * dev = (Device *) ptr;
+  dev->compute_tdmpp_spin_v2(na, nb, nlinka, nlinkb, norb, spin, 
+                             ia_bra, ja_bra, ib_bra, jb_bra, sgn_bra,      
+                             ia_ket, ja_ket, ib_ket, jb_ket, sgn_ket );
+}
+
 
 /* ---------------------------------------------------------------------- */
 void libgpu_pull_tdm1(void * ptr, 
