@@ -193,44 +193,6 @@ def _trans_rdm13hs_o0(cre, cibra, ciket, norb, nelec, spin=0, link_index=None, r
       tdm3hb = rdm.make_rdm12_spin1 (fn_ab, cibra, ciket, norb+1, nelec_bra, linkstr, 0)[1]
     return tdm1h, tdm3ha, tdm3hb 
 
-def _trans_rdm13hs_o1(cre, cibra, ciket, norb, nelec, spin=0, link_index=None, reorder=True):
-    '''GPU accelerated _trand_rdm13hs with custom FCI kernel'''
-    from mrh.my_pyscf.gpu import libgpu
-    gpu=param.use_gpu
-    nelec = list (_unpack_nelec (nelec))
-    if not cre:
-        cibra, ciket = ciket, cibra
-        nelec[spin] -= 1
-    nelec_ket = _unpack_nelec (nelec)
-    nelec_bra = [x for x in nelec]
-    nelec_bra[spin] += 1
-    linkstr = _unpack (norb+1, nelec_bra, link_index)
-    errmsg = ("For the half-particle transition density matrix functions, the linkstr must "
-              "be for nelec+1 electrons occupying norb+1 orbitals.")
-    for i in range (2): assert (linkstr[i].shape[1]==(nelec_bra[i]*(norb-nelec_bra[i]+2))), errmsg
-    ciket = dummy.add_orbital (ciket, norb, nelec_ket, occ_a=(1-spin), occ_b=spin)
-    cibra = dummy.add_orbital (cibra, norb, nelec_bra, occ_a=0, occ_b=0)
-
-    tdm1h = np.empty((norb+1, norb+1))
-    tdm3ha = np.empty((norb+1, norb+1, norb+1, norb+1))
-    tdm3hb = np.empty((norb+1, norb+1, norb+1, norb+1))
-    libgpu.init_tdm1(gpu, norb+1)
-    na, nlinka = linkstr[0].shape[:2] 
-    nb, nlinkb = linkstr[1].shape[:2] 
-    libgpu.push_link_index_ab(gpu, na, nb, nlinka, nlinkb, linkstr[0], linkstr[1])
-    libgpu.init_tdm3hab(gpu, norb+1)
-    libgpu.push_ci(gpu, cibra, ciket, na, nb)
-    libgpu.compute_tdm13h_spin(gpu, na, nb, nlinka, nlinkb, norb+1, spin) #TODO: write a better name
-    libgpu.pull_tdm1(gpu, tdm1h, norb+1)
-    libgpu.pull_tdm3hab(gpu, tdm3ha, tdm3hb, norb+1)
-    tdm1h = tdm1h.T
-    if spin: 
-        if reorder: tdm1h, tdm3hb = rdm.reorder_rdm(tdm1h, tdm3hb, inplace=True)
-        tdm3ha = tdm3ha.transpose(3,2,1,0)
-    else:
-        if reorder: tdm1h, tdm3ha = rdm.reorder_rdm (tdm1h, tdm3ha, inplace=True)
-    return tdm1h, tdm3ha, tdm3hb 
-
 def _trans_rdm13hs_o2(cre, cibra, ciket, norb, nelec, spin=0, link_index=None, reorder=True):
     '''GPU accelerated _trand_rdm13hs with custom FCI kernel'''
     from mrh.my_pyscf.gpu import libgpu
