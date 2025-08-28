@@ -47,6 +47,7 @@ ciket = np.random.random((na,nb))
 link_indexa = cistring.gen_linkstr_index(range(norb+1), neleca)
 link_indexb = cistring.gen_linkstr_index(range(norb+1), nelecb)
 link_index = (link_indexa, link_indexb)
+link_index=None
 _trans_rdm13hs(False, cibra, ciket, norb, nelec, spin=0, link_index = link_index, reorder=True)
 #_trans_rdm13hs(True, cibra, ciket, norb, nelec, spin=0, link_index = link_index, reorder=True)
 
@@ -61,5 +62,6 @@ ciket = np.random.random((na,nb))
 link_indexa = cistring.gen_linkstr_index(range(norb+1), neleca)
 link_indexb = cistring.gen_linkstr_index(range(norb+1), nelecb)
 link_index = (link_indexa, link_indexb)
+link_index=None
 
 _trans_rdm13hs(False, cibra, ciket, norb, nelec, spin=1, link_index = link_index, reorder=True)

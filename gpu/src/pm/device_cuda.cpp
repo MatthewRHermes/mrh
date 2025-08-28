@@ -852,7 +852,7 @@ __global__ void _gemm_fix(const double * buf1, const double * buf2, double * out
     out[k*norb2+i]+=tmp;
 }
 /* ---------------------------------------------------------------------- */
-void _add_rdm1_to_2(double * dm1, double * dm2, int norb)
+__global__ void _add_rdm1_to_2(double * dm1, double * dm2, int norb)
 {
     int i = blockIdx.x * blockDim.x + threadIdx.x;
     int j = blockIdx.y * blockDim.y + threadIdx.y;
@@ -865,9 +865,9 @@ void _add_rdm1_to_2(double * dm1, double * dm2, int norb)
     dm2[((i*norb+j)*norb+j)*norb + k] -= dm1[i*norb + k];
 }
 /* ---------------------------------------------------------------------- */
-void _add_rdm_transpose(double * buf, double * dm2, int norb)
+__global__ void _add_rdm_transpose(double * buf, double * dm2, int norb)
 {
-    int norb2 = norb*norb
+    int norb2 = norb*norb;
     int i = blockIdx.x * blockDim.x + threadIdx.x;
     int j = blockIdx.y * blockDim.y + threadIdx.y;
     if (i>=norb2) return;
@@ -1518,19 +1518,20 @@ void Device::reorder(double * dm1, double * dm2, double * buf, int norb)
   {
     dim3 block_size (1,1,1);
     dim3 grid_size (_TILE(norb, block_size.x), _TILE(norb, block_size.y), _TILE(norb, block_size.z));
-    _add_rdm1_to_2 <<<grid_size, block_size, 0, s>>> (dm1, dm2, norb);
+    _add_rdm1_to_2<<<grid_size, block_size, 0, s>>> (dm1, dm2, norb);
     _CUDA_CHECK_ERRORS();
   }
   {
     dim3 block_size(_DEFAULT_BLOCK_SIZE, 1, 1);
     dim3 grid_size(_TILE(norb2*norb2, block_size.x), 1, 1);
-    _veccopy<<<grid_size, block_size, 0,s>>>(rdm2, buf, norb2*norb2); 
+    _veccopy<<<grid_size, block_size, 0,s>>>(dm2, buf, norb2*norb2); 
     _CUDA_CHECK_ERRORS();
   }
   { 
     dim3 block_size(_DEFAULT_BLOCK_SIZE, _DEFAULT_BLOCK_SIZE, 1);
     dim3 grid_size (_TILE(norb2, block_size.x), _TILE(norb2, block_size.y),1);
-    _add_rdm_transpose(buf, rdm2, norb) 
+    _add_rdm_transpose<<<grid_size, block_size, 0, s>>>(buf, dm2, norb); 
+    _CUDA_CHECK_ERRORS();
   }
   
     

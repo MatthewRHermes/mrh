@@ -273,6 +273,7 @@ def _trans_rdm13hs_o2(cre, cibra, ciket, norb, nelec, spin=0, link_index=None, r
     else:
         if reorder: tdm1h, tdm3ha = rdm.reorder_rdm (tdm1h, tdm3ha, inplace=True)
     return tdm1h, tdm3ha, tdm3hb 
+
 def _trans_rdm13hs_o3(cre, cibra, ciket, norb, nelec, spin=0, link_index=None, reorder=True):
     '''GPU accelerated _trand_rdm13hs with custom FCI kernel'''
     from mrh.my_pyscf.gpu import libgpu
@@ -302,7 +303,7 @@ def _trans_rdm13hs_o3(cre, cibra, ciket, norb, nelec, spin=0, link_index=None, r
     libgpu.push_link_index_ab(gpu, na, nb, nlinka, nlinkb, linkstr[0], linkstr[1])
     libgpu.init_tdm3hab(gpu, norb+1)
     libgpu.push_ci(gpu, cibra, ciket, na, nb)
-    libgpu.compute_tdm13h_spin_v3(gpu, na, nb, nlinka, nlinkb, norb+1, spin, reorder 
+    libgpu.compute_tdm13h_spin_v3(gpu, na, nb, nlinka, nlinkb, norb+1, spin, reorder, 
                                    ia_bra, ja_bra, ib_bra, jb_bra, sgn_bra,
                                    ia_ket, ja_ket, ib_ket, jb_ket, sgn_ket) #TODO: write a better name
     libgpu.pull_tdm1(gpu, tdm1h, norb+1)
@@ -340,7 +341,7 @@ def _trans_rdm13hs_o4(cre, cibra, ciket, norb, nelec, spin=0, link_index=None, r
     na_ket, nb_ket = ciket.shape
     libgpu.push_cibra(gpu, cibra, na_bra, nb_bra)
     libgpu.push_ciket(gpu, ciket, na_ket, nb_ket)
-    libgpu.compute_tdm13h_spin_v4(gpu, na, nb, nlinka, nlinkb, norb+1, spin, reorder
+    libgpu.compute_tdm13h_spin_v4(gpu, na, nb, nlinka, nlinkb, norb+1, spin, reorder,
                                    ia_bra, ja_bra, ib_bra, jb_bra, sgn_bra,
                                    ia_ket, ja_ket, ib_ket, jb_ket, sgn_ket) #TODO: write a better name
     libgpu.pull_tdm1(gpu, tdm1h, norb+1)
@@ -418,7 +419,7 @@ def trans_sfudm1 (cibra, ciket, norb, nelec, link_index=None):
     return -sfudm1
 
 
-def _trans_sufdm1_o0(nibra, norb, nelec, link_index=None)
+def _trans_sufdm1_o0(cibra, ciket, norb, nelec, link_index=None):
     nelec_ket = _unpack_nelec (nelec)
     nelec_bra = list (_unpack_nelec (nelec))
     nelec_bra[0] += 1
@@ -434,7 +435,7 @@ def _trans_sufdm1_o0(nibra, norb, nelec, link_index=None)
     dm2dum = rdm.make_rdm12_spin1 (fn, ciket, cibra, norb+1, nelecd, linkstr, 0)[1]
     return dm2dum
 
-def _trans_sufdm1_o1(nibra, norb, nelec, link_index=None)
+def _trans_sufdm1_o1(cibra,ciket,norb, nelec, link_index=None):
     nelec_ket = _unpack_nelec (nelec)
     nelec_bra = list (_unpack_nelec (nelec))
     nelec_bra[0] += 1
@@ -526,9 +527,9 @@ def trans_ppdm (cibra, ciket, norb, nelec, spin=0, link_index=None):
       use_gpu = None
     if custom_fci and custom_debug and use_gpu:
       ### Old kernel
-      tdmhh = _trans_ppdm_o0(cre, cibra, ciket, norb, nelec, spin=spin, link_index=link_index, reorder = reorder)
+      tdmhh = _trans_ppdm_o0(cre, cibra, ciket, norb, nelec, spin=spin, link_index=link_index)
       ### New kernel
-      tdmhh_c = _trans_ppdm_o1(cre, cibra, ciket, norb, nelec, spin=spin, link_index=link_index, reorder = reorder)
+      tdmhh_c = _trans_ppdm_o1(cre, cibra, ciket, norb, nelec, spin=spin, link_index=link_index)
       tdmhh_correct = np.allclose(tdmhh, tdmhh_c)
       if tdmhh_correct: 
         print('Trans RDMhh calculated correctly')
@@ -536,12 +537,12 @@ def trans_ppdm (cibra, ciket, norb, nelec, spin=0, link_index=None):
         print('Trans RDMhh incorrect')
         exit()
     elif custom_fci and use_gpu: 
-      tdmhh = _trans_ppdm_o1(cre, cibra, ciket, norb, nelec, spin=spin, link_index=link_index, reorder = reorder)
+      tdmhh = _trans_ppdm_o1(cre, cibra, ciket, norb, nelec, spin=spin, link_index=link_index)
     else:
-      tdmhh = _trans_ppdm_o0(cre, cibra, ciket, norb, nelec, spin=spin, link_index=link_index, reorder = reorder)
+      tdmhh = _trans_ppdm_o0(cre, cibra, ciket, norb, nelec, spin=spin, link_index=link_index)
     return tdmhh
 
-def _trans_ppdm_o0(cre, cibra, ciket, norb, nelec, spin = spin, link_index = link_index, reorder = reorder)
+def _trans_ppdm_o0(cre, cibra, ciket, norb, nelec, spin = 0, link_index = None):
     s1 = int (spin>1)
     s2 = int (spin>0)
     ndum = 2 - (spin%2)
@@ -567,7 +568,7 @@ def _trans_ppdm_o0(cre, cibra, ciket, norb, nelec, spin = spin, link_index = lin
     if (spin%2)==0: dumdm1, dumdm2 = rdm.reorder_rdm (dumdm1, dumdm2, inplace=True)
     return dumdm2[:-ndum,-1,:-ndum,-ndum]
 
-def _trans_ppdm_o1(cre, cibra, ciket, norb, nelec, spin = spin, link_index = link_index, reorder = reorder)
+def _trans_ppdm_o1(cre, cibra, ciket, norb, nelec, spin = 0, link_index = None):
     from mrh.my_pyscf.gpu import libgpu
     gpu=param.use_gpu
     s1 = int (spin>1)
@@ -625,7 +626,7 @@ def _trans_ppdm_o1(cre, cibra, ciket, norb, nelec, spin = spin, link_index = lin
     libgpu.pull_tdm2(gpu, dumdm2, norb+ndum)
     return dumdm2[:-ndum,-1,:-ndum,-ndum]
 
-def _trans_ppdm_o2(cre, cibra, ciket, norb, nelec, spin = spin, link_index = link_index, reorder = reorder)
+def _trans_ppdm_o2(cre, cibra, ciket, norb, nelec, spin = 0, link_index = None):
     from mrh.my_pyscf.gpu import libgpu
     gpu=param.use_gpu
     s1 = int (spin>1)
