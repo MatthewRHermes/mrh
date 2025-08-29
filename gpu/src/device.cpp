@@ -4,8 +4,8 @@
 
 #include "device.h"
 
-#define _NUM_SIMPLE_TIMER 28
-#define _NUM_SIMPLE_COUNTER 16
+#define _NUM_SIMPLE_TIMER 30
+#define _NUM_SIMPLE_COUNTER 17
 #include <unistd.h>
 #include <string.h>
 #include <sched.h>
@@ -252,8 +252,10 @@ Device::~Device()
     printf("LIBGPU :: SIMPLE_TIMER :: i= %i  name= tdm12kern_b()             time= %f s\n",23,t_array[23]);
     printf("LIBGPU :: SIMPLE_TIMER :: i= %i  name= tdm12kern_ab()            time= %f s\n",24,t_array[24]);
     printf("LIBGPU :: SIMPLE_TIMER :: i= %i  name= rdm12kern_sf()            time= %f s\n",25,t_array[25]);
-    printf("LIBGPU :: SIMPLE_TIMER :: i= %i  name= pull_tdm1()               time= %f s\n",26,t_array[26]);
-    printf("LIBGPU :: SIMPLE_TIMER :: i= %i  name= pull_tdm2()               time= %f s\n",27,t_array[27]);
+    printf("LIBGPU :: SIMPLE_TIMER :: i= %i  name= tdm13h_spin_v2()          time= %f s\n",26,t_array[28]);
+    printf("LIBGPU :: SIMPLE_TIMER :: i= %i  name= pull_tdm1()               time= %f s\n",27,t_array[26]);
+    printf("LIBGPU :: SIMPLE_TIMER :: i= %i  name= pull_tdm2()               time= %f s\n",28,t_array[27]);
+    printf("LIBGPU :: SIMPLE_TIMER :: i= %i  name= pull_tdm13h()             time= %f s\n",29,t_array[29]);
     printf("LIBGPU :: SIMPLE_TIMER :: total= %f s\n",total);
     free(t_array);
     
@@ -293,6 +295,7 @@ Device::~Device()
     printf("LIBGPU :: SIMPLE_COUNTER :: i= %i  name= tdm12kern_b()        counts= %i \n",13,count_array[13]);
     printf("LIBGPU :: SIMPLE_COUNTER :: i= %i  name= tdm12kern_ab()       counts= %i \n",14,count_array[14]);
     printf("LIBGPU :: SIMPLE_COUNTER :: i= %i  name= rdm12kern_sf()       counts= %i \n",15,count_array[15]);
+    printf("LIBGPU :: SIMPLE_COUNTER :: i= %i  name= tdm13h_spin_v2()     counts= %i \n",15,count_array[16]);
     free(count_array);
   }
 
@@ -1197,7 +1200,6 @@ int * Device::dd_fetch_pumap(my_device_data * dd, int size_pumap_, int type_puma
 #endif
       
     } // if(type_pumap)
-    
     pm->dev_push_async(dd->d_pumap[indx], dd->pumap[indx], size_pumap*sizeof(int));
   } // if(map_not_found)
   
@@ -4254,6 +4256,7 @@ void Device::compute_tdm13h_spin_v2(int na, int nb, int nlinka, int nlinkb, int 
                                  int ia_bra, int ja_bra, int ib_bra, int jb_bra, int sgn_bra, 
                                  int ia_ket, int ja_ket, int ib_ket, int jb_ket, int sgn_ket )
 {
+  print("in v2\n");
   double t0 = omp_get_wtime();
   int id = 0;
   pm->dev_set_device(id);
@@ -4393,8 +4396,8 @@ void Device::compute_tdm13h_spin_v2(int na, int nb, int nlinka, int nlinkb, int 
   transpose_jikl(dd->d_tdm3ha, dd->d_buf1, norb);
   transpose_jikl(dd->d_tdm3hb, dd->d_buf2, norb);
   double t1 = omp_get_wtime();
-  //t_array[23] += t1-t0;//TODO: fix this
-  //count_array[13]++;//TODO: fix this
+  t_array[28] += t1-t0;//TODO: fix this
+  count_array[16]++;//TODO: fix this
 } 
 /* ---------------------------------------------------------------------- */
 void Device::pull_tdm1(py::array_t<double> _tdm1, int norb)
@@ -4443,6 +4446,7 @@ void Device::pull_tdm3hab(py::array_t<double> _tdm3ha, py::array_t<double> _tdm3
   pm->dev_pull_async(dd->d_tdm3hb, tdm3hb, norb*norb*norb*norb*sizeof(double));
   pm->dev_profile_stop();
   double t1 = omp_get_wtime();
+  t_array[29] += t1-t0;//TODO: fix this
   //t_array[27] += t1-t0;
 }
 

@@ -58,7 +58,7 @@ def _make_rdm1_spin1(fname, cibra, ciket, norb, nelec, link_index=None):
         libgpu.compute_make_rdm1b(gpu, na, nb, nlinka, nlinkb, norb) #TODO: update name
       libgpu.pull_tdm1(gpu, rdm_gpu, norb)
       if (numpy.allclose(rdm_cpu, rdm_gpu)):
-        print("RDM1_spin1", fname, "TDM1s calculate correctly")
+        print("RDM1_spin1", fname, "TDM1s calculate correctly", flush=True)
       else: 
         print("Problem in TDM1")
         print("rdm_cpu")
@@ -142,7 +142,6 @@ def _make_rdm12_spin1(fname, cibra, ciket, norb, nelec, link_index=None, symm=0)
     try: gpu_debug = param.gpu_debug
     except: gpu_debug = False
     if use_gpu and gpu_debug: 
-      print("Using debug path")
       from mrh.my_pyscf.gpu import libgpu
       rdm1_cpu = numpy.empty((norb,norb))
       rdm2_cpu = numpy.empty((norb,norb,norb,norb))
@@ -185,7 +184,8 @@ def _make_rdm12_spin1(fname, cibra, ciket, norb, nelec, link_index=None, symm=0)
         print('RDM12_spin1', fname, "TDM12 calculated correctly at GPU", gpu)
         pass
       else: 
-        print('RDM12_spin1', fname, use_gpu, "Problem in TDM12")
+        print('RDM12_spin1', fname, use_gpu, "Problem in TDM12", flush=True)
+        exit()
         if rdm1_correct: print("TDM1 correct")
         else: 
           print("Incorrect TDM1")
@@ -198,7 +198,6 @@ def _make_rdm12_spin1(fname, cibra, ciket, norb, nelec, link_index=None, symm=0)
           print("Incorrect TDM2")
           #print("CPU TDM2")
           #print(rdm2_cpu)
-          #print(rdm2_cpu.transpose(1,0,2,3))
           #print("GPU TDM2")
           #print(rdm2_gpu)
       return rdm1_cpu.T, rdm2_cpu

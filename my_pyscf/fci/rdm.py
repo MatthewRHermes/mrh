@@ -131,7 +131,7 @@ def _trans_rdm13hs (cre, cibra, ciket, norb, nelec, spin=0, link_index=None, reo
         print('TDM3hb correct?', tdm3hb_correct)
         exit()
     elif custom_fci and use_gpu: 
-      tdm1h, tdm3ha, tdm3hb = _trans_rdm13hs_o1(cre, cibra, ciket, norb, nelec, spin=spin, link_index=link_index, reorder = reorder)
+      tdm1h, tdm3ha, tdm3hb = _trans_rdm13hs_o2(cre, cibra, ciket, norb, nelec, spin=spin, link_index=link_index, reorder = reorder)
     else:
       tdm1h, tdm3ha, tdm3hb = _trans_rdm13hs_o0(cre, cibra, ciket, norb, nelec, spin=spin, link_index=link_index, reorder = reorder)
     tdm1h = tdm1h[-1,:-1]
