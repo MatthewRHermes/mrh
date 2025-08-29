@@ -29,15 +29,7 @@ using namespace MATHLIB_NS;
 //#define _DEBUG_DEVICE
 //#define _DEBUG_P2P
 #define _DEBUG_FCI
-
-#define EXTRACT_A(I)    (I.a)
-#define EXTRACT_I(I)    (I.i)
-#define EXTRACT_SIGN(I) (I.sign)
-#define EXTRACT_ADDR(I) (I.addr)
-#define EXTRACT_IA(I)   (I.ia)
-
-#define EXTRACT_CRE(I)  EXTRACT_A(I)
-#define EXTRACT_DES(I)  EXTRACT_I(I) 
+//#define _CUSTOM_FCI
 
 #define _PUMAP_2D_UNPACK 0       // generic unpacking of 1D array to 2D matrix
 #define _PUMAP_H2EFF_UNPACK 1    // unpacking h2eff array (generic?)
@@ -168,6 +160,8 @@ public :
   void init_tdm3hab(int);
   void push_ci(py::array_t<double>,  py::array_t<double>, 
                       int , int);
+  void push_cibra(py::array_t<double>, int , int);
+  void push_ciket(py::array_t<double>, int , int);
   void push_link_indexa(int, int , py::array_t<int> ); //TODO: figure out the shape? or maybe move the compressed version 
   void push_link_indexb(int, int , py::array_t<int> ); //TODO: figure out the shape? or maybe move the compressed version 
   void compute_trans_rdm1a(int , int , int , int , int );
@@ -182,6 +176,22 @@ public :
   void compute_tdm13h_spin_v2( int , int , int , int , int , int,
                                int , int , int , int , int ,
                                int , int , int , int , int );
+  void compute_tdm13h_spin_v3( int , int , int , int , int , int, int,
+                               int , int , int , int , int ,
+                               int , int , int , int , int );
+  void compute_tdm13h_spin_v4( int , int , int , int , int , int, int,
+                               int , int , int , int , int ,
+                               int , int , int , int , int );
+  void compute_tdmpp_spin( int , int , int , int , int , int, 
+                               int , int , int , int , int ,
+                               int , int , int , int , int );
+  void compute_tdmpp_spin_v2( int , int , int , int , int , int, 
+                               int , int , int , int , int ,
+                               int , int , int , int , int );
+  void compute_sfudm( int , int , int , int , int,  
+                      int , int , int , int , int ,
+                      int , int , int , int , int );
+
   void pull_tdm1(py::array_t<double> , int );
   void pull_tdm2(py::array_t<double> , int );
   void pull_tdm3hab(py::array_t<double> ,py::array_t<double> , int );
@@ -216,6 +226,11 @@ public :
                                 int, int, int, int, int*);
   void compute_FCIrdm3h_b_t1ci (double *, double *, int, int, int, int,
                                 int, int, int, int, int*);
+  void compute_FCIrdm3h_a_t1ci_v2 (double *, double *, int, int, int, int,
+                                int, int, int, int, int*);
+  void compute_FCIrdm3h_b_t1ci_v2 (double *, double *, int, int, int, int,
+                                int, int, int, int, int*);
+  void reorder(double *, double *, double *, int);
   // multi-gpu communication (better here or part of PM?)
 
   void mgpu_bcast(std::vector<double *>, double *, size_t);

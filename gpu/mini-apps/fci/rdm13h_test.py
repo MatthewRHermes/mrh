@@ -35,7 +35,7 @@ mf.max_cycle=1
 mf.kernel()
 
 norb = 10
-nelec = 9
+nelec = 6
 neleca, nelecb = _unpack_nelec(nelec)
 na = math.comb(norb, neleca-1)
 nb = math.comb(norb, nelecb)
@@ -47,7 +47,8 @@ ciket = np.random.random((na,nb))
 link_indexa = cistring.gen_linkstr_index(range(norb+1), neleca)
 link_indexb = cistring.gen_linkstr_index(range(norb+1), nelecb)
 link_index = (link_indexa, link_indexb)
-_trans_rdm13hs(False, cibra, ciket, norb, nelec, spin=0, link_index = link_index, reorder=True)
+link_index=None
+#_trans_rdm13hs(False, cibra, ciket, norb, nelec, spin=0, link_index = link_index, reorder=False)
 #_trans_rdm13hs(True, cibra, ciket, norb, nelec, spin=0, link_index = link_index, reorder=True)
 
 norb = 10
@@ -61,5 +62,6 @@ ciket = np.random.random((na,nb))
 link_indexa = cistring.gen_linkstr_index(range(norb+1), neleca)
 link_indexb = cistring.gen_linkstr_index(range(norb+1), nelecb)
 link_index = (link_indexa, link_indexb)
+link_index=None
 
-_trans_rdm13hs(False, cibra, ciket, norb, nelec, spin=1, link_index = link_index, reorder=True)
+_trans_rdm13hs(False, cibra, ciket, norb, nelec, spin=1, link_index = link_index, reorder=False)
