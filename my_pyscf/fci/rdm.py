@@ -499,12 +499,12 @@ def trans_ppdm (cibra, ciket, norb, nelec, spin=0, link_index=None):
         print('Trans RDMhh incorrect')
         exit()
     elif custom_fci and use_gpu: 
-      tdmhh = _trans_ppdm_o1(cre, cibra, ciket, norb, nelec, spin=spin, link_index=link_index)
+      tdmhh = _trans_ppdm_o1(cibra, ciket, norb, nelec, spin=spin, link_index=link_index)
     else:
-      tdmhh = _trans_ppdm_o0(cre, cibra, ciket, norb, nelec, spin=spin, link_index=link_index)
+      tdmhh = _trans_ppdm_o0(cibra, ciket, norb, nelec, spin=spin, link_index=link_index)
     return tdmhh
 
-def _trans_ppdm_o0(cre, cibra, ciket, norb, nelec, spin = 0, link_index = None):
+def _trans_ppdm_o0(cibra, ciket, norb, nelec, spin = 0, link_index = None):
     s1 = int (spin>1)
     s2 = int (spin>0)
     ndum = 2 - (spin%2)
@@ -530,7 +530,7 @@ def _trans_ppdm_o0(cre, cibra, ciket, norb, nelec, spin = 0, link_index = None):
     if (spin%2)==0: dumdm1, dumdm2 = rdm.reorder_rdm (dumdm1, dumdm2, inplace=True)
     return dumdm2[:-ndum,-1,:-ndum,-ndum]
 
-def _trans_ppdm_o1(cre, cibra, ciket, norb, nelec, spin = 0, link_index = None):
+def _trans_ppdm_o1(cibra, ciket, norb, nelec, spin = 0, link_index = None):
     from mrh.my_pyscf.gpu import libgpu
     gpu=param.use_gpu
     s1 = int (spin>1)
