@@ -4298,7 +4298,7 @@ void Device::compute_tdm13h_spin_v2(int na, int nb, int nlinka, int nlinkb, int 
                                  int ia_bra, int ja_bra, int ib_bra, int jb_bra, int sgn_bra, 
                                  int ia_ket, int ja_ket, int ib_ket, int jb_ket, int sgn_ket )
 {
-  print("in v2\n");
+  printf("in v2\n");
   double t0 = omp_get_wtime();
   int id = 0;
   pm->dev_set_device(id);
@@ -4600,10 +4600,10 @@ void Device::compute_tdm13h_spin_v3(int na, int nb, int nlinka, int nlinkb, int 
   if (_reorder){
     if (spin) {
       reorder(dd->d_tdm1h, dd->d_tdm3hb, dd->d_buf1, norb);
-      ml->axpy(&norb4,&half, dd->d_buf1, &one, dd->t_tdm3hb, &one); }
+      ml->axpy(&norb4,&half, dd->d_buf1, &one, dd->d_tdm3hb, &one); }
     else {
       reorder(dd->d_tdm1h, dd->d_tdm3ha, dd->d_buf1, norb);
-      ml->axpy(&norb4,&half, dd->d_buf1, &one, dd->t_tdm3ha, &one); }
+      ml->axpy(&norb4,&half, dd->d_buf1, &one, dd->d_tdm3ha, &one); }
   }
   double t1 = omp_get_wtime();
   //t_array[23] += t1-t0;//TODO: fix this

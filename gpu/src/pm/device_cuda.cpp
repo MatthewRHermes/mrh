@@ -872,7 +872,7 @@ __global__ void _add_rdm_transpose(double * buf, double * dm2, int norb)
     int j = blockIdx.y * blockDim.y + threadIdx.y;
     if (i>=norb2) return;
     if (j>=norb2) return;
-    buf2[i*norb2 + j] += dm2[j*norb2+i];// + buf[j*norb2+i])/2;
+    buf[i*norb2 + j] += dm2[j*norb2+i];// + buf[j*norb2+i])/2;
 }
 
 /* ---------------------------------------------------------------------- */
