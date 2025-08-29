@@ -29,15 +29,7 @@ using namespace MATHLIB_NS;
 //#define _DEBUG_DEVICE
 //#define _DEBUG_P2P
 #define _DEBUG_FCI
-
-#define EXTRACT_A(I)    (I.a)
-#define EXTRACT_I(I)    (I.i)
-#define EXTRACT_SIGN(I) (I.sign)
-#define EXTRACT_ADDR(I) (I.addr)
-#define EXTRACT_IA(I)   (I.ia)
-
-#define EXTRACT_CRE(I)  EXTRACT_A(I)
-#define EXTRACT_DES(I)  EXTRACT_I(I) 
+//#define _CUSTOM_FCI
 
 #define _PUMAP_2D_UNPACK 0       // generic unpacking of 1D array to 2D matrix
 #define _PUMAP_H2EFF_UNPACK 1    // unpacking h2eff array (generic?)

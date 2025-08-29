@@ -872,7 +872,7 @@ __global__ void _add_rdm_transpose(double * buf, double * dm2, int norb)
     int j = blockIdx.y * blockDim.y + threadIdx.y;
     if (i>=norb2) return;
     if (j>=norb2) return;
-    dm2[i*norb2 + j] = (dm2[i*norb2+j] + buf[j*norb2+i])/2;
+    buf2[i*norb2 + j] += dm2[j*norb2+i];// + buf[j*norb2+i])/2;
 }
 
 /* ---------------------------------------------------------------------- */
@@ -1533,9 +1533,7 @@ void Device::reorder(double * dm1, double * dm2, double * buf, int norb)
     _add_rdm_transpose<<<grid_size, block_size, 0, s>>>(buf, dm2, norb); 
     _CUDA_CHECK_ERRORS();
   }
-  
-    
-   
+  //axpy pending from buf2 to rdm2 
 }
 /* ---------------------------------------------------------------------- */
 void Device::set_to_zero(double * array, int size)

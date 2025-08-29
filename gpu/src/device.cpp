@@ -4522,10 +4522,11 @@ void Device::compute_tdm13h_spin_v3(int na, int nb, int nlinka, int nlinkb, int 
   if (spin){
     //for (int stra_id = 0; stra_id<na; ++stra_id){
     for (int stra_id = ia_bra; stra_id<ja_bra; ++stra_id){ //buf2 is is always required to multiply
-      #ifdef _DEFINE_CUSTOM 
+      #ifdef _CUSTOM_FCI
       compute_FCIrdm2_b_t1ci(dd->d_cibra, dd->d_buf2, stra_id, nb, norb, nlinkb, dd->d_clinkb);
       compute_FCIrdm2_b_t1ci(dd->d_ciket, dd->d_buf1, stra_id, nb, norb, nlinkb, dd->d_clinkb);
       #else
+      printf("using custom kernel\n");
       compute_FCIrdm3h_b_t1ci(dd->d_cibra, dd->d_buf2, stra_id, nb, norb, nlinkb, ia_bra, ja_bra, ib_bra, jb_bra, dd->d_clinkb);
       compute_FCIrdm3h_b_t1ci(dd->d_ciket, dd->d_buf1, stra_id, nb, norb, nlinkb, ia_ket, ja_ket, ib_ket, jb_ket, dd->d_clinkb);
       #endif
@@ -4551,10 +4552,11 @@ void Device::compute_tdm13h_spin_v3(int na, int nb, int nlinka, int nlinkb, int 
   }
   else {
     for (int stra_id = 0; stra_id<na; ++stra_id){
-      #ifdef _DEFINE_CUSTOM
+      #ifdef _CUSTOM_FCI
       compute_FCIrdm2_a_t1ci(dd->d_cibra, dd->d_buf2, stra_id, nb, norb, nlinka, dd->d_clinka);
       compute_FCIrdm2_a_t1ci(dd->d_ciket, dd->d_buf1, stra_id, nb, norb, nlinka, dd->d_clinka);
       #else
+      printf("using custom kernel\n");
       compute_FCIrdm3h_a_t1ci(dd->d_cibra, dd->d_buf2, stra_id, nb, norb, nlinka, ia_bra, ja_bra, ib_bra, jb_bra, dd->d_clinka);
       compute_FCIrdm3h_a_t1ci(dd->d_ciket, dd->d_buf1, stra_id, nb, norb, nlinka, ia_ket, ja_ket, ib_ket, jb_ket, dd->d_clinka);
       #endif
@@ -4575,7 +4577,7 @@ void Device::compute_tdm13h_spin_v3(int na, int nb, int nlinka, int nlinkb, int 
       if ((stra_id>=ia_ket) && (stra_id<ja_ket)){
 
       ml->memset(dd->d_buf1, &zero, &bits_buf);//Don't need to zero if this is not happening
-      #if _DEFINE_CUSTOM
+      #ifdef _CUSTOM_FCI
       compute_FCIrdm2_b_t1ci(dd->d_ciket, dd->d_buf1, stra_id, nb, norb, nlinkb, dd->d_clinkb);
       #else
       compute_FCIrdm3h_b_t1ci(dd->d_ciket, dd->d_buf1, stra_id, nb, norb, nlinkb, ia_ket, ja_ket, ib_ket, jb_ket, dd->d_clinkb);
@@ -4590,15 +4592,15 @@ void Device::compute_tdm13h_spin_v3(int na, int nb, int nlinka, int nlinkb, int 
   }
   transpose_jikl(dd->d_tdm3ha, dd->d_buf1, norb);
   transpose_jikl(dd->d_tdm3hb, dd->d_buf2, norb);
+  int norb4 = norb2*norb2;
+  double half = 0.5;
   if (_reorder){
-    if (spin) 
-      { 
-        reorder(dd->d_tdm1h, dd->d_tdm3hb, dd->d_buf1, norb);
-      }
-    else
-      {
+    if (spin) {
+      reorder(dd->d_tdm1h, dd->d_tdm3hb, dd->d_buf1, norb);
+      ml->axpy(&norb4,&half, dd->d_buf1, &one, dd->t_tdm3hb, &one); }
+    else {
       reorder(dd->d_tdm1h, dd->d_tdm3ha, dd->d_buf1, norb);
-      }
+      ml->axpy(&norb4,&half, dd->d_buf1, &one, dd->t_tdm3ha, &one); }
   }
   double t1 = omp_get_wtime();
   //t_array[23] += t1-t0;//TODO: fix this
