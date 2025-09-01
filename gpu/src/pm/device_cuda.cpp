@@ -705,7 +705,6 @@ __global__ void _compute_FCIrdm2_b_t1ci(double * ci, double * buf, int stra_id, 
     int i = link_index[4*str0*nlinkb + 4*j + 1]; 
     int str1 = link_index[4*str0*nlinkb + 4*j + 2]; 
     int sign = link_index[4*str0*nlinkb + 4*j + 3];
-    //printf("stra_id: %i str1: %i str0: %i a: %i i: %i j: %i sign: %i added: %f , prev: %f \n",stra_id, str1,str0, a,i,j,sign, sign*ci[stra_id*nb+str1], buf[str0*norb2+i*norb+a] );
       #ifdef _DEBUG_ATOMICADD
       atomicAdd(&(buf[str0*norb2 + i*norb + a]), sign*ci[stra_id*nb + str1]);
       #else
@@ -772,13 +771,14 @@ __global__ void _compute_FCIrdm3h_a_t1ci_v2(double * ci, double * buf, int stra_
         if ((str1>=ia) && (str1<ja)){//str1 is alpha loop
           int a = tab[0];
           int i = tab[1];
+          //printf("ci_loc: %i str1: %i k: %i buf_loc: %i a: %i i: %i j: %i sign: %i added: %f \n",(str1-ia)*nb+k, str1, k, (k+ib)*norb2 + i*norb + a, a, i, j, sign, sign*ci[(str1-ia)*nb + k]);
           atomicAdd(&(buf[(k+ib)*norb2 + i*norb + a]), sign*ci[(str1-ia)*nb + k]);//I'm not sure how this plays out in the bigger kernel, so keeping as k+ib on the buf side
           }
         }
       }
 }
 /* ---------------------------------------------------------------------- */
-__global__ void _compute_FCIrdm3h_b_t1ci_v2(double * ci, double * buf, int stra_id, int nb, int norb, int nlinkb, int ia, int ja, int ib, int jb, int * link_index)
+__global__ void _compute_FCIrdm3h_b_t1ci_v2(double * ci, double * buf, int stra_id, int nb, int nb_bra, int norb, int nlinkb, int ia, int ja, int ib, int jb, int * link_index)
 {
     int str0 = blockIdx.x * blockDim.x + threadIdx.x;
     int j = blockIdx.y * blockDim.y + threadIdx.y;
@@ -792,7 +792,8 @@ __global__ void _compute_FCIrdm3h_b_t1ci_v2(double * ci, double * buf, int stra_
       if ((str1>=ib) && (str1<jb)){
         int a = tab[0];
         int i = tab[1];
-        atomicAdd(&(buf[str0*norb2 + i*norb + a]), sign*ci[(stra_id-ia)*nb + str1-ib]);// rdm3h_b_t1ci is only called when stra_id is more than ia
+        //printf("(stra_id-ia)*nb_bra+str1-ib: %i str0: %i a: %i i: %i j: %i sign: %i added: %f \n",(stra_id-ia)*nb_bra + str1-ib, str0, a, i, j, sign, sign*ci[(stra_id-ia)*nb + str1-ib]);
+        atomicAdd(&(buf[str0*norb2 + i*norb + a]), sign*ci[(stra_id-ia)*nb_bra + str1-ib]);// rdm3h_b_t1ci is only called when stra_id is more than ia
         }
       }
 }
@@ -872,8 +873,16 @@ __global__ void _add_rdm_transpose(double * buf, double * dm2, int norb)
     int j = blockIdx.y * blockDim.y + threadIdx.y;
     if (i>=norb2) return;
     if (j>=norb2) return;
-    buf[i*norb2 + j] += dm2[j*norb2+i];// + buf[j*norb2+i])/2;
+    buf[i*norb2 + j] += dm2[j*norb2+i];
 }
+
+/* ---------------------------------------------------------------------- */
+__global__ void _build_rdm(double * buf, double * dm2, int size)
+{
+    int i = blockIdx.x * blockDim.x + threadIdx.x;
+    if (i >= size) return;
+    dm2[i] = buf[i]/2;
+} 
 
 /* ---------------------------------------------------------------------- */
 
@@ -1435,6 +1444,8 @@ void Device::compute_FCIrdm3h_b_t1ci(double * ci, double * buf, int stra_id, int
 /* ---------------------------------------------------------------------- */
 void Device::compute_FCIrdm3h_a_t1ci_v2(double * ci, double * buf, int stra_id, int nb, int norb, int nlinka, int ia, int ja, int ib, int jb, int * link_index)
 {
+  //printf("BUF location: (k+ib)*norb2 + i*norb + a\n");
+  //printf("CI location: (str1-ia)*nb + k, ia: %i \n ", ia);
   dim3 block_size(1,1,1);
   //dim3 grid_size(_TILE(nlinka, block_size.x), _TILE(nb, block_size.y), 1);
   dim3 grid_size(_TILE(nlinka, block_size.x), 1, 1);
@@ -1447,13 +1458,13 @@ void Device::compute_FCIrdm3h_a_t1ci_v2(double * ci, double * buf, int stra_id, 
 #endif
 }  
 /* ---------------------------------------------------------------------- */
-void Device::compute_FCIrdm3h_b_t1ci_v2(double * ci, double * buf, int stra_id, int nb, int norb, int nlinkb, int ia, int ja, int ib, int jb, int * link_index)
+void Device::compute_FCIrdm3h_b_t1ci_v2(double * ci, double * buf, int stra_id, int nb, int nb_bra, int norb, int nlinkb, int ia, int ja, int ib, int jb, int * link_index)
 {
   if ((stra_id>=ia) && stra_id<ja){ //I'm writing this in, but buf being zero needs to be accounted in the full function call as well
   dim3 block_size(1,1,1);
   dim3 grid_size(_TILE(nb, block_size.x), _TILE(nlinkb, block_size.y), 1);
   cudaStream_t s = *(pm->dev_get_queue());
-  _compute_FCIrdm3h_b_t1ci_v2<<<grid_size, block_size, 0,s>>>(ci, buf, stra_id, nb, norb, nlinkb, ia, ja, ib, jb, link_index);
+  _compute_FCIrdm3h_b_t1ci_v2<<<grid_size, block_size, 0,s>>>(ci, buf, stra_id, nb, nb_bra, norb, nlinkb, ia, ja, ib, jb, link_index);
 #ifdef _DEBUG_DEVICE 
   printf("LIBGPU ::  -- general::compute_FCIrdm2_b_t1ci; :: Nb= %i Norb =%i Nlinkb =%i grid_size= %i %i %i  block_size= %i %i %i\n",
 	 nb, norb, nlinkb, grid_size.x,grid_size.y,grid_size.z,block_size.x,block_size.y,block_size.z);
@@ -1531,6 +1542,12 @@ void Device::reorder(double * dm1, double * dm2, double * buf, int norb)
     dim3 block_size(_DEFAULT_BLOCK_SIZE, _DEFAULT_BLOCK_SIZE, 1);
     dim3 grid_size (_TILE(norb2, block_size.x), _TILE(norb2, block_size.y),1);
     _add_rdm_transpose<<<grid_size, block_size, 0, s>>>(buf, dm2, norb); 
+    _CUDA_CHECK_ERRORS();
+  }
+  {
+    dim3 block_size(_DEFAULT_BLOCK_SIZE, 1,1); 
+    dim3 grid_size(_TILE(norb2*norb2, block_size.x), 1,1);
+    _build_rdm<<<grid_size, block_size, 0>>>(buf, dm2, norb2*norb2);
     _CUDA_CHECK_ERRORS();
   }
   //axpy pending from buf2 to rdm2 

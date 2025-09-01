@@ -179,7 +179,9 @@ public :
   void compute_tdm13h_spin_v3( int , int , int , int , int , int, int,
                                int , int , int , int , int ,
                                int , int , int , int , int );
-  void compute_tdm13h_spin_v4( int , int , int , int , int , int, int,
+  void compute_tdm13h_spin_v4( int , int , 
+                               int , int , 
+                               int , int, int,
                                int , int , int , int , int ,
                                int , int , int , int , int );
   void compute_tdmpp_spin( int , int , int , int , int , int, 
@@ -228,7 +230,7 @@ public :
                                 int, int, int, int, int*);
   void compute_FCIrdm3h_a_t1ci_v2 (double *, double *, int, int, int, int,
                                 int, int, int, int, int*);
-  void compute_FCIrdm3h_b_t1ci_v2 (double *, double *, int, int, int, int,
+  void compute_FCIrdm3h_b_t1ci_v2 (double *, double *, int, int, int, int, int,
                                 int, int, int, int, int*);
   void reorder(double *, double *, double *, int);
   // multi-gpu communication (better here or part of PM?)

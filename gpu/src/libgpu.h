@@ -151,6 +151,12 @@ extern "C"
                             int , int , int , int , int , int, int, 
                             int , int , int , int , int ,
                             int , int , int , int , int );
+  void libgpu_compute_tdm13h_spin_v4(void *, 
+                            int , int , 
+                            int , int , 
+                            int , int, int, 
+                            int , int , int , int , int ,
+                            int , int , int , int , int );
   void libgpu_compute_tdmpp_spin(void *, 
                             int , int , int , int , int , int,
                             int , int , int , int , int ,
@@ -246,6 +252,7 @@ PYBIND11_MODULE(libgpu, m) {
   m.def("compute_tdm13h_spin",&libgpu_compute_tdm13h_spin,"mrh/my_pyscf/fci/rdm.py::trans_rdm13hs compute");
   m.def("compute_tdm13h_spin_v2",&libgpu_compute_tdm13h_spin_v2,"mrh/my_pyscf/fci/rdm.py::trans_rdm13hs compute_v2");
   m.def("compute_tdm13h_spin_v3",&libgpu_compute_tdm13h_spin_v3,"mrh/my_pyscf/fci/rdm.py::trans_rdm13hs compute_v3");
+  m.def("compute_tdm13h_spin_v4",&libgpu_compute_tdm13h_spin_v4,"mrh/my_pyscf/fci/rdm.py::trans_rdm13hs compute_v4");
   m.def("compute_tdmpp_spin",&libgpu_compute_tdmpp_spin,"mrh/my_pyscf/fci/rdm.py::trans_rdmhh");
   m.def("compute_tdmpp_spin_v2",&libgpu_compute_tdmpp_spin_v2,"mrh/my_pyscf/fci/rdm.py::trans_rdmhh_v2");
   m.def("compute_sfudm",&libgpu_compute_sfudm,"mrh/my_pyscf/fci/rdm.py::trans_sfudm");
