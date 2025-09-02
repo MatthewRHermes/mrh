@@ -758,7 +758,6 @@ __global__ void _compute_FCIrdm3h_b_t1ci(double * ci, double * buf, int stra_id,
 __global__ void _compute_FCIrdm3h_a_t1ci_v2(double * ci, double * buf, int stra_id, int nb, int norb, int nlinka, int ia, int ja, int ib, int jb, int * link_index)
 {
     int j = blockIdx.x * blockDim.x + threadIdx.x;
-    //int k = blockIdx.y * blockDim.y + threadIdx.y;
     if (j >= nlinka) return;
     int norb2 = norb*norb;
     int * tab = &(link_index[4*nlinka*stra_id + 4*j]); 
@@ -1446,6 +1445,7 @@ void Device::compute_FCIrdm3h_a_t1ci_v2(double * ci, double * buf, int stra_id, 
 {
   //printf("BUF location: (k+ib)*norb2 + i*norb + a\n");
   //printf("CI location: (str1-ia)*nb + k, ia: %i \n ", ia);
+  printf("stra_id: %i nb: %i \n",stra_id, nb);
   dim3 block_size(1,1,1);
   //dim3 grid_size(_TILE(nlinka, block_size.x), _TILE(nb, block_size.y), 1);
   dim3 grid_size(_TILE(nlinka, block_size.x), 1, 1);
