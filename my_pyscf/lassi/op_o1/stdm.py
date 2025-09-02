@@ -78,6 +78,7 @@ class LSTDM (object):
     def __init__(self, ints, nlas, lroots, mask_bra_space=None, mask_ket_space=None,
                  pt_order=None, do_pt_order=None, log=None, max_memory=param.MAX_MEMORY,
                  dtype=np.float64):
+        t0 = (lib.logger.process_clock (), lib.logger.perf_counter ())
         m0 = lib.current_memory ()[0]
         self.ints = ints
         self.log = log
@@ -103,9 +104,11 @@ class LSTDM (object):
         self.nstates = offs1[-1]
         self.dtype = dtype
         self.tdm1s = self.tdm2s = None
+        t0 = log.timer ('STDM class initialize', *t0)
 
         # overlap tensor
         self.ovlp = [i.ovlp for i in ints]
+        t0 = log.timer ('STDM class overlap timer', *t0)
 
         # spin-shuffle sign vector
         nelec_frs = np.asarray ([[list (i.nelec_r[ket]) for ket in range (self.nroots)]
@@ -113,20 +116,34 @@ class LSTDM (object):
         self.spin_shuffle = [fermion_spin_shuffle (nelec_sf[0], nelec_sf[1])
                              for nelec_sf in nelec_frs.transpose (1,2,0)]
         self.nelec_rf = nelec_frs.sum (2).T
+        t0 = log.timer ('STDM class overlap timer', *t0)
 
         self.urootstr = np.asarray ([[i.uroot_idx[r] for i in self.ints]
                                      for r in range (self.nroots)]).T
 
+        t0 = log.timer ('STDM class urootstr?', *t0)
+        t1 = (lib.logger.process_clock (), lib.logger.perf_counter ())
         exc = self.make_exc_tables (nelec_frs)
+        t1 = log.timer ('STDM class exc', *t1)
         self.nonuniq_exc = {}
         self.exc_null = self.mask_exc_table_(exc['null'], 'null', mask_bra_space, mask_ket_space)
+        t1 = log.timer ('STDM class exc_null', *t1)
         self.exc_1d = self.mask_exc_table_(exc['1d'], '1d', mask_bra_space, mask_ket_space)
+        t1 = log.timer ('STDM class exc_1d', *t1)
         self.exc_2d = self.mask_exc_table_(exc['2d'], '2d', mask_bra_space, mask_ket_space)
+        t1 = log.timer ('STDM class exc_2d', *t1)
         self.exc_1c = self.mask_exc_table_(exc['1c'], '1c', mask_bra_space, mask_ket_space)
+        t1 = log.timer ('STDM class exc_1c', *t1)
         self.exc_1c1d = self.mask_exc_table_(exc['1c1d'], '1c1d', mask_bra_space, mask_ket_space)
+        t1 = log.timer ('STDM class exc_1c1d', *t1)
         self.exc_1s = self.mask_exc_table_(exc['1s'], '1s', mask_bra_space, mask_ket_space)
+        t1 = log.timer ('STDM class exc_1s', *t1)
         self.exc_1s1c = self.mask_exc_table_(exc['1s1c'], '1s1c', mask_bra_space, mask_ket_space)
+        t1 = log.timer ('STDM class exc_1s1s', *t1)
         self.exc_2c = self.mask_exc_table_(exc['2c'], '2c', mask_bra_space, mask_ket_space)
+        t1 = log.timer ('STDM class exc_2c', *t1)
+
+        t0 = log.timer ('STDM class making exc tables', *t0) 
         self.init_profiling ()
         self._init_buffers_()
         self.memcheck ('LSTDM init', m0)
@@ -139,13 +156,17 @@ class LSTDM (object):
         self._norb_c = c_int (self.norb)
         self._orbidx = np.ones (self.norb, dtype=bool)
 
+        t0 = log.timer ('STDM class buffers', *t0)
+
         # C fns
         if self.dtype==np.float64:
             self._put_SD1_c_fn = liblassi.LASSIRDMdputSD1
             self._put_SD2_c_fn = liblassi.LASSIRDMdputSD2
+            t0 = log.timer ('STDM class Cfns float64', *t0)
         elif self.dtype==np.complex128:
             self._put_SD1_c_fn = liblassi.LASSIRDMzputSD1
             self._put_SD2_c_fn = liblassi.LASSIRDMzputSD2
+            t0 = log.timer ('STDM class Cfns complex128', *t0)
         else:
             raise NotImplementedError (self.dtype)
 
@@ -396,6 +417,7 @@ class LSTDM (object):
         idx  = mask_exc_table (exc, col=0, mask_space=mask_bra_space)
         idx &= mask_exc_table (exc, col=1, mask_space=mask_ket_space)
         exc = exc[idx]
+        #t0 = self.log.timer ('Exc caller specific rectangle', *t0)
         # Part 2: perturbation theory order
         if self.do_pt_order is not None:
             nexc = len (exc)
@@ -404,6 +426,7 @@ class LSTDM (object):
             exc = exc[idx]
             self.log.debug ('%d/%d interactions of PT order in %s',
                             len (exc), nexc, str(self.do_pt_order))
+        #t0 = self.log.timer ('Exc perturbation theory order', *t0)
         # Part 3: identify interactions which are equivalent except for the overlap
         # factor of spectator fragments. Reduce the exc table only to the unique
         # interactions and populate self.nonuniq_exc with the corresponding
@@ -411,7 +434,17 @@ class LSTDM (object):
         if lbl=='null': return exc
         ulblu = '_' + lbl + '_'
         excp = exc[:,:-1] if ulblu in self.interaction_has_spin else exc
-        fprint, fprintLT = self.interaction_fprints (exc, lbl)
+        fprintLT = np.empty (len (excp), dtype=int)
+        fprint = np.empty (len (excp), dtype=int)
+        #t0 = self.log.timer ('Exc part 3 setup ', *t0)
+        # MRH 08/01/2025: this loop is a significant bottleneck in many-fragment LASSIS and is
+        # trivial to multithread in C as long as you can find a good integer-list hash function
+        for i, row in enumerate (excp):
+            bra, ket = row[:2]
+            frags = row[2:]
+            fprintLT[i] = self.interaction_fprint (bra, ket, frags, ltri=self.ltri)
+            fprint[i] = self.interaction_fprint (bra, ket, frags, ltri=False)
+        #t0 = self.log.timer ('Exc part 3 bottleneck loop', *t0)
         nexc = len (exc)
         ufp, idx, cnts = np.unique (fprintLT, axis=0, return_index=True, return_counts=True)
         # for some reason this squeeze is necessary for some versions of numpy; however...
@@ -421,6 +454,7 @@ class LSTDM (object):
         cnts = cnts[ix_sort]
         image_sets = np.split (all_idxs, np.cumsum (cnts))
         exc_01 = exc[:,0:2]
+        t0 = self.log.timer ('Exc part 3 only unique interactions', *t0)
         for image_idxs, uniq_idx in zip (image_sets, idx):
             # ...numpy.where (0==0) triggers a DeprecationWarning, so I have to atleast_1d it
             braket_images = exc_01[image_idxs]
@@ -429,6 +463,7 @@ class LSTDM (object):
             self.nonuniq_exc[tuple(excp[uniq_idx])] = braket_images
         exc = exc[idx]
         nuniq = len (exc)
+        #t0 = self.log.timer ('Exc part 3 populating non unique', *t0)
         self.log.timer ('mask_exc_table_ {}'.format (lbl), *t0)
         self.log.debug ('%d/%d unique interactions of %s type',
                         nuniq, nexc, lbl)

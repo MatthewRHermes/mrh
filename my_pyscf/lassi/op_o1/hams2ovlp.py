@@ -30,13 +30,16 @@ class HamS2Ovlp (stdm.LSTDM):
     def __init__(self, ints, nlas, lroots, h1, h2, mask_bra_space=None,
                  mask_ket_space=None, pt_order=None, do_pt_order=None, log=None,
                  max_memory=param.MAX_MEMORY, dtype=np.float64):
+        t0 = (logger.process_clock (), logger.perf_counter ())
         stdm.LSTDM.__init__(self, ints, nlas, lroots,
                             mask_bra_space=mask_bra_space, mask_ket_space=mask_ket_space,
                             pt_order=pt_order, do_pt_order=do_pt_order,
                             log=log, max_memory=max_memory, dtype=dtype)
+        t0 = self.log.timer ('HamS2Ovlp init LSTDM init', *t0)
         if h1.ndim==2: h1 = np.stack ([h1,h1], axis=0)
         self.h1 = np.ascontiguousarray (h1)
         self.h2 = np.ascontiguousarray (h2)
+        t0 = self.log.timer ('HamS2Ovlp init other parts', *t0)
 
     def _init_buffers_(self): pass
 

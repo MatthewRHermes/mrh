@@ -28,8 +28,10 @@ from mrh.my_pyscf.lassi.lassi import LASSI
 
 def prepare_model_states (lsi, ci_ref, ci_sf, ci_ch):
     t0 = (logger.process_clock (), logger.perf_counter ())
+    t1 = (logger.process_clock (), logger.perf_counter ())
     log = logger.new_logger (lsi, lsi.verbose)
     las = lsi.get_las_of_ci_ref (ci_ref)
+    t1=log.timer ("LASSIS model space preparation: get_las_of_ci_ref ", *t1)
     space0 = list_spaces (las)[0]
     if not space0.civecs_have_good_spin ():
         log.warn ("spin-impure reference wfn in LASSIS")
@@ -48,8 +50,8 @@ def prepare_model_states (lsi, ci_ref, ci_sf, ci_ch):
             smults1.append (smult+2)
             spins1.append (smult+1)
             ci1.append (ci_sf[i][1])
-        spin_flip_i = SpinFlips (las.mol, ci1, space0.nlas[i], space0.nelec[i], spins1, smults1)
-        spin_flips.append (spin_flip_i)
+        spin_flips.append (SpinFlips (las.mol, ci1, space0.nlas[i], space0.nelec[i], spins1, smults1))
+    t1=log.timer ("LASSIS model space preparation: make spin flip objects ", *t1)
     # Make charge-hop objects
     spaces = [space0]
     spaces_ch = [[[] for a in range (lsi.nfrags)] for i in range (lsi.nfrags)]
@@ -62,10 +64,13 @@ def prepare_model_states (lsi, ci_ref, ci_sf, ci_ch):
             space_ias = space0.get_single_any_m (i, a, dsi, dsa, ci_i=ci_i, ci_a=ci_a)
             spaces.append (space_ias)
             spaces_ch[i][a].append (space_ias)
+    t1=log.timer ("LASSIS model space preparation: make charge-hop objects ", *t1)
     # Excitation products and spin-shuffling
     if lsi.nfrags > 3:
-        spaces = charge_excitation_products (lsi, spaces, spaces_ch, nroots_ref=1)
+        spaces = charge_excitation_products (lsi, spaces,spaces_ch, nroots_ref=1)
+    t1=log.timer ("LASSIS model space preparation: make charge excitation products ", *t1)
     spaces = spin_flip_products (las, spaces, spin_flips, nroots_ref=1)
+    t1=log.timer ("LASSIS model space preparation: make spin flip products ", *t1)
     # Throat-clear
     weights = [space.weight for space in spaces]
     charges = [space.charges for space in spaces]
@@ -75,6 +80,7 @@ def prepare_model_states (lsi, ci_ref, ci_sf, ci_ch):
     entmaps = [space.entmap for space in spaces]
     las = las.state_average (weights=weights, charges=charges, spins=spins, smults=smults, assert_no_dupes=False)
     las.ci = ci
+    t1=log.timer ("LASSIS model space preparation: throat clearing ", *t1)
     for ifrag in range (lsi.nfrags):
         for iroot in range (las.nroots):
             t = spaces[iroot].fcisolvers[ifrag].transformer
@@ -85,6 +91,7 @@ def prepare_model_states (lsi, ci_ref, ci_sf, ci_ch):
             las.fciboxes[ifrag].fcisolvers[iroot].nelec = nelec
             las.fciboxes[ifrag].fcisolvers[iroot].norb = norb
             las.fciboxes[ifrag].fcisolvers[iroot].spin = spin
+        t1=log.timer ("LASSIS model space preparation: fci for fragments ", *t1)
     log.timer ("LASSIS model space preparation", *t0)
     return las, entmaps
 
@@ -457,7 +464,7 @@ def spin_flip_products (las, spaces, spin_flips, nroots_ref=1):
     spaces = _spin_flip_products (spaces, spin_flips, nroots_ref=nroots_ref)
     t1 = log.timer ("LASSIS spin-flip bare injection", *t0)
     nfrags = spaces[0].nfrag
-    spaces = _spin_shuffle (spaces)
+    spaces = _spin_shuffle (spaces, las=las)
     t1 = log.timer ("LASSIS spin shuffle tabulation", *t1)
     spaces = _spin_shuffle_ci_(spaces, spin_flips, nroots_ref, nspaces)
     t1 = log.timer ("LASSIS spin shuffle CI population", *t1)
@@ -470,6 +477,7 @@ def spin_flip_products (las, spaces, spin_flips, nroots_ref=1):
         space.table_printlog (tverbose=logger.DEBUG)
     log.timer ("LASSIS spin-flip injection", *t0)
     return spaces
+
 
 def charge_excitation_products (lsi, spaces, spaces_ch, nroots_ref=0, space0=None):
     t0 = (logger.process_clock (), logger.perf_counter ())
@@ -621,7 +629,7 @@ class LASSIS (LASSI):
             self.e_roots, self.si = self.eig (**kwargs)
             t1 = log.timer ("LASSIS diagonalization", *t1)
 
-        log.timer ("LASSIS", *t0)
+        log.timer ("LASSIS kernel", *t0)
         return self.e_roots, self.si
 
     def get_ci_ref (self):
@@ -705,6 +713,7 @@ class LASSIS (LASSI):
     eig = LASSI.kernel
     as_scanner = as_scanner
     prepare_fbf = prepare_fbf
+    print("here after fbf", flush=True)
     prepare_model_states = prepare_model_states
 
     def get_ref_fbf_rootspaces (self, ifrag):

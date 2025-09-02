@@ -98,6 +98,7 @@ class HamS2OvlpOperators (HamS2Ovlp):
     def __init__(self, ints, nlas, lroots, h1, h2, mask_bra_space=None,
                  mask_ket_space=None, pt_order=None, do_pt_order=None, log=None,
                  max_memory=param.MAX_MEMORY, dtype=np.float64):
+        t0 = (logger.process_clock (), logger.perf_counter ())
         HamS2Ovlp.__init__(self, ints, nlas, lroots, h1, h2,
                            mask_bra_space=mask_bra_space, mask_ket_space=mask_ket_space,
                            pt_order=pt_order, do_pt_order=do_pt_order,
@@ -198,6 +199,7 @@ class HamS2OvlpOperators (HamS2Ovlp):
                 val = self.excgroups_s.get (key, [])
                 val.append ([op, bra, ket, row])
                 self.excgroups_s[key] = val
+            
 
     def _index_ovlppart (self, groups):
         # TODO: redesign this in a scalable graph-theoretic way
@@ -316,7 +318,7 @@ class HamS2OvlpOperators (HamS2Ovlp):
         self._umat_linequiv_loop_(0) # U.conj () @ x
         for inv, group in self.excgroups_h.items (): self._opuniq_x_group_(inv, group)
         self._umat_linequiv_loop_(1) # U.T @ ox
-        self.log.debug (self.sprint_profile ())
+        self.log.info (self.sprint_profile ())
         self.log.timer ('HamS2OvlpOperators._ham_op', *t0)
         return self.ox.copy ()
 
@@ -328,7 +330,7 @@ class HamS2OvlpOperators (HamS2Ovlp):
         self._umat_linequiv_loop_(0) # U.conj () @ x
         for inv, group in self.excgroups_s.items (): self._opuniq_x_group_(inv, group)
         self._umat_linequiv_loop_(1) # U.T @ ox
-        self.log.debug (self.sprint_profile ())
+        self.log.info (self.sprint_profile ())
         self.log.timer ('HamS2OvlpOperators._s2_op', *t0)
         return self.ox.copy ()
 
@@ -598,6 +600,7 @@ def gen_contract_op_si_hdiag (las, h1, h2, ci, nelec_frs, soc=0, nlas=None,
             Produce the overlap matrix between model states in a set of rootspaces,
             identified by ndarray or list "rootidx"
     '''
+    t1 = (lib.logger.process_clock (), lib.logger.perf_counter ())
     verbose = kwargs.get ('verbose', las.verbose)
     log = lib.logger.new_logger (las, verbose)
     if nlas is None: nlas = las.ncas_sub
@@ -608,24 +611,30 @@ def gen_contract_op_si_hdiag (las, h1, h2, ci, nelec_frs, soc=0, nlas=None,
     nfrags, nroots = nelec_frs.shape[:2]
     if soc>1: raise NotImplementedError ("Spin-orbit coupling of second order")
 
+    t1 = lib.logger.timer (las, 'LASSI hsi operator setup', *t1)
     # Handle possible SOC
     spin_pure, h1, h2, ci, nelec_frs, nlas, spin_shuffle_fac = soc_context (
         h1, h2, ci, nelec_frs, soc, nlas)
+    t1 = lib.logger.timer (las, 'LASSI hsi operator soc handling', *t1)
 
     # First pass: single-fragment intermediates
     ints, lroots = frag.make_ints (las, ci, nelec_frs, nlas=nlas,
                                                   pt_order=pt_order,
                                                   do_pt_order=do_pt_order)
+    t1 = lib.logger.timer (las, 'LASSI hsi operator first pass make ints', *t1)
     nstates = np.sum (np.prod (lroots, axis=0))
 
+    t1 = lib.logger.timer (las, 'LASSI hsi operator first pass nstates making', *t1)
     # Second pass: upper-triangle
     t0 = (lib.logger.process_clock (), lib.logger.perf_counter ())
     outerprod = _HamS2Ovlp_class (ints, nlas, lroots, h1, h2,
                                   pt_order=pt_order, do_pt_order=do_pt_order,
                                   dtype=dtype, max_memory=max_memory, log=log)
 
+    t1 = lib.logger.timer (las, 'LASSI hsi operator hams2ovlp class', *t1)
     if soc and not spin_pure:
         outerprod.spin_shuffle = spin_shuffle_fac
+    t1 = lib.logger.timer (las, 'LASSI hsi operator spin shuffle assigning?', *t1)
     lib.logger.timer (las, 'LASSI hsi operator build', *t0)
 
     if _return_int: return outerprod

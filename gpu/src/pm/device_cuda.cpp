@@ -13,7 +13,8 @@
 #define _UNPACK_BLOCK_SIZE 32
 #define _HESSOP_BLOCK_SIZE 32
 #define _DEFAULT_BLOCK_SIZE 32
-
+#define _ATOMICADD
+#define _ACCELERATE_KERNEL
 #define _TILE(A,B) (A + B - 1) / B
 
 /* ---------------------------------------------------------------------- */
@@ -457,8 +458,425 @@ __global__ void _vecadd(const double * in, double * out, int N)
     if(i >= N) return;
     out[i] += in[i];
 }
+/* ---------------------------------------------------------------------- */
+__global__ void _get_rho_to_Pi(double * rho, double * Pi, int ngrid)
+{
+    int i = blockIdx.x * blockDim.x + threadIdx.x;
+
+    if(i >= ngrid) return;
+
+    Pi[i] += rho[i] * rho[i];
+}  
+/* ---------------------------------------------------------------------- */
+__global__ void _make_gridkern(double * mo_grid, double * gridkern, int ngrid, int ncas)
+{
+    int i = blockIdx.x * blockDim.x + threadIdx.x;
+    int j = blockIdx.y * blockDim.y + threadIdx.y;
+    int k = blockIdx.z * blockDim.z + threadIdx.z;
+
+    if(i >= ngrid) return;
+    if(j >= ncas) return;
+    if(k >= ncas) return;
+    double * tmp_gridkern = &(gridkern[i*ncas*ncas]);
+    double * tmp_mo_grid = &(mo_grid[i*ncas]);
+    tmp_gridkern[j*ncas+k] = tmp_mo_grid[j]*tmp_mo_grid[k];
+} 
+/* ---------------------------------------------------------------------- */
+__global__ void _make_buf_pdft(double * gridkern, double * cascm2, double * out, int ngrid, int ncas)
+{
+    //TODO: convert this to a dgemm
+    int i = blockIdx.x * blockDim.x + threadIdx.x;
+    int j = blockIdx.y * blockDim.y + threadIdx.y;
+    int k = blockIdx.z * blockDim.z + threadIdx.z;
+
+    if(i >= ngrid) return;
+    if(j >= ncas*ncas) return;
+    if(k >= ncas*ncas) return;
+    double * tmp_gridkern = &(gridkern[i*ncas*ncas]);
+    double * tmp_cascm2 = &(cascm2[j*ncas*ncas]);
+    double * tmp_out = &(out[i*ncas*ncas+j]);
+    tmp_out[0] += tmp_gridkern[k]*tmp_cascm2[k];
+} 
+/* ---------------------------------------------------------------------- */
+__global__ void _make_Pi_final(double * gridkern, double * buf, double * Pi, int ngrid, int ncas)
+{
+    //TODO: convert this to a dgemm
+    int i = blockIdx.x * blockDim.x + threadIdx.x;
+    int j = blockIdx.y * blockDim.y + threadIdx.y;
+
+    if(i >= ngrid) return;
+    if(j >= ncas*ncas) return;
+    double * tmp_gridkern = &(gridkern[i*ncas*ncas]);
+    double * tmp_buf = &(buf[i*ncas*ncas]);
+    double * tmp_Pi = &(Pi[i]);
+    tmp_Pi[0] += tmp_gridkern[j]*tmp_buf[j];
+} 
+/* ---------------------------------------------------------------------- */
+__global__ void _set_to_zero(double * array, int size)
+{ 
+    int i = blockIdx.x * blockDim.x + threadIdx.x;
+    if (i>=size) return; 
+    array[i] = 0.0;
+}
+/* ---------------------------------------------------------------------- */
+__global__ void _compute_FCItrans_rdm1a(double * cibra, double * ciket, double * rdm, int norb, int na, int nb, int nlinka, int * link_index)
+{
+    int str0 = blockIdx.x * blockDim.x + threadIdx.x;
+    int j = blockIdx.y * blockDim.y + threadIdx.y;
+
+    if(str0 >= na) return;
+    if(j >= nlinka) return;
+    #ifdef _ACCELERATE_KERNEL
+    int * tab  = &(link_index[4*nlinka*str0+4*j]);
+    int a = tab[0];
+    int i = tab[1];
+    int str1 = tab[2];
+    int sign = tab[3];
+    if (sign == 0) return;
+    double * pket = &(ciket[str0*nb]);
+    double * pbra = &(cibra[str1*nb]);
+    for (int k=0; k<nb; ++k){
+       atomicAdd(&(rdm[a*norb+i]), sign*pbra[k]*pket[k]);
+    }
+    #else
+    int a  = link_index[4*str0*nlinka + 4*j];
+    int i  = link_index[4*str0*nlinka + 4*j + 1];
+    int str1  = link_index[4*str0*nlinka + 4*j + 2];
+    int sign  = link_index[4*str0*nlinka + 4*j + 3];
+    double * pket = &(ciket[str0*nb]);
+    double * pbra = &(cibra[str1*nb]);
+    for (int k=0; k<nb; ++k){
+       atomicAdd(&(rdm[a*norb+i]), sign*pbra[k]*pket[k]);
+    }
+    #endif
+}
+/* ---------------------------------------------------------------------- */
+__global__ void _compute_FCItrans_rdm1b(double * cibra, double * ciket, double * rdm, int norb, int na, int nb, int nlinkb, int * link_index)
+{
+    int str0 = blockIdx.x * blockDim.x + threadIdx.x;
+    int k = blockIdx.y * blockDim.y + threadIdx.y;
+    int j = blockIdx.z * blockDim.z + threadIdx.z;
+
+    if(str0 >= na) return;
+    if(k >= nb) return;
+    if(j >= nlinkb) return;
+    double * pbra = &(cibra[str0*nb]);
+    double tmp = ciket[str0*nb + k];
+    #ifdef _ACCELERATE_KERNEL
+    int * tab  = &(link_index[4*nlinkb*k+4*j]);
+    int a = tab[0];
+    int i = tab[1];
+    int str1 = tab[2];
+    int sign = tab[3];
+    #else
+    int a  = link_index[4*nlinkb*k+4*j];
+    int i  = link_index[4*nlinkb*k+4*j+1];
+    int str1  = link_index[4*nlinkb*k+4*j+2];
+    int sign  = link_index[4*nlinkb*k+4*j+3];
+    #endif
+    //rdm[a*norb + i] += sign*pbra[str1]*tmp; //doesn't work when race conditions are present with multiple x,y threads are trying to write to the same combination of a,i in rdm memory block
+    atomicAdd(&(rdm[a*norb + i]), sign*pbra[str1]*tmp);
+}
+/* ---------------------------------------------------------------------- */
+__global__ void _compute_FCImake_rdm1a(double * cibra, double * ciket, double * rdm, int norb, int na, int nb, int nlinka, int * link_index)
+{
+    int str0 = blockIdx.x * blockDim.x + threadIdx.x;
+    int j = blockIdx.y * blockDim.y + threadIdx.y;
+    if (str0>=na) return ;
+    if (j>=nlinka) return ;
+    double * pci0 = &(ciket[str0*nb]);
+    #ifdef _ACCELERATE_KERNEL 
+    int * tab = &(link_index[4*nlinka*str0 + 4*j]); 
+    int a = tab[0];
+    int i = tab[1];
+    int str1 = tab[2];
+    int sign = tab[3];
+    #else
+    int a = link_index[4*nlinka*str0 + 4*j]; 
+    int i = link_index[4*nlinka*str0 + 4*j + 1]; 
+    int str1 = link_index[4*nlinka*str0 + 4*j + 2]; 
+    int sign = link_index[4*nlinka*str0 + 4*j + 3];
+    #endif
+
+    double * pci1 = &(ciket[str1*nb]);
+    if (a>=i && sign!=0){
+      for (int k=0;k<nb; ++k){
+        atomicAdd(&(rdm[a*norb+i]), sign*pci0[k]*pci1[k]);
+        }
+      }
+}
+/* ---------------------------------------------------------------------- */
+__global__ void _compute_FCImake_rdm1b(double * cibra, double * ciket, double * rdm, int norb, int na, int nb, int nlinkb, int * link_index)
+{
+    int str0 = blockIdx.x * blockDim.x + threadIdx.x;
+    int k = blockIdx.y * blockDim.y + threadIdx.y;
+    int j = blockIdx.z * blockDim.z + threadIdx.z;
+    if (str0>=na) return ;
+    if (k>=nb) return ;
+    if (j>=nlinkb) return ;
+    double * pci0 = &(ciket[str0*nb]);
+    #ifdef _ACCELERATE_KERNEL
+    int * tab = &(link_index[4*nlinkb*k + 4*j]); 
+    int a = tab[0];
+    int i = tab[1];
+    int sign = tab[3];
+    if (a>=i && sign!=0) { 
+    int str1 = tab[2];
+    atomicAdd(&(rdm[a*norb+i]), sign*pci0[str1]*pci0[k]);
+      }
+    #else
+    int a = link_index[4*nlinkb*k + 4*j]; 
+    int i = link_index[4*nlinkb*k + 4*j + 1]; 
+    int str1 = link_index[4*nlinkb*k + 4*j + 2]; 
+    int sign = link_index[4*nlinkb*k + 4*j + 3];
+    if (a>=i && sign!=0) { 
+    atomicAdd(&(rdm[a*norb+i]), sign*pci0[str1]*pci0[k]);
+      }
+    #endif
+}
+/* ---------------------------------------------------------------------- */
+__global__ void _symmetrize_rdm(int norb, double * rdm)
+{
+  for (int i=0; i<norb; ++i){
+    for (int j=0; j<i; ++j){
+        rdm[j*norb+i] = rdm[i*norb+j];
+      }
+    }
+}
+/* ---------------------------------------------------------------------- */
+__global__ void _compute_FCIrdm2_a_t1ci(double * ci, double * buf, int stra_id, int nb, int norb, int nlinka, int * link_index)
+{
+    //this works.
+    int j = blockIdx.x * blockDim.x + threadIdx.x;
+    int k = blockIdx.y * blockDim.y + threadIdx.y;
+    if (j >= nlinka) return;
+    if (k >= nb) return;
+    int norb2 = norb*norb;
+    #ifdef _ACCELERATE_KERNEL 
+    int * tab = &(link_index[4*nlinka*stra_id + 4*j]); 
+    int sign = tab[3];
+    if (sign == 0) return;
+    int a = tab[0];
+    int i = tab[1];
+    int str1 = tab[2];
+    atomicAdd(&(buf[k*norb2 + i*norb + a]), sign*ci[str1*nb + k]);
+    
+    #else
+    int a = link_index[4*nlinka*stra_id + 4*j]; 
+    int i = link_index[4*nlinka*stra_id + 4*j + 1]; 
+    int str1 = link_index[4*nlinka*stra_id + 4*j + 2]; 
+    int sign = link_index[4*nlinka*stra_id + 4*j + 3];
+    
+    //double * pci = &(ci[str1*nb]);
+    //double * pbuf = &(buf[k*norb2 + i*norb + a]);
+    // pbuf[k*norb2] += pci[k]*sign;
+    #ifdef _DEBUG_ATOMICADD
+    atomicAdd(&(buf[k*norb2 + i*norb + a]), sign*ci[str1*nb + k]);
+    #else
+    buf[k*norb2 + i*norb + a] += sign*ci[str1*nb + k];
+    #endif
+    //printf("stra_id: %i str1: %i k: %i a: %i i: %i j: %i sign: %i pdm_location: %i ci_location: %i added: %f , after: %f \n",stra_id, str1,k, a,i,j,sign,k*norb2+i*norb+a, str1*nb+k, ci[str1*nb+k], buf[k*norb2+i*norb+a] );
+    #endif
+    //TODO: implement csum 
+    // Is it necessary to? 
+    // Sure, in case when it's blocked over nb of size 100 determinants at once, 
+    // but over entire nb, do you think it will be 0 enough times to get the performance boost?
+}
+/* ---------------------------------------------------------------------- */
+__global__ void _compute_FCIrdm2_b_t1ci(double * ci, double * buf, int stra_id, int nb, int norb, int nlinkb, int * link_index)
+{
+    int str0 = blockIdx.x * blockDim.x + threadIdx.x;
+    int j = blockIdx.y * blockDim.y + threadIdx.y;
+    if (str0 >= nb) return;
+    if (j >= nlinkb) return;
+    int norb2 = norb*norb;
+    //tab = clink_indexb + strb_id*nlinkb // remember strb_id = 0 since we are doing the entire b at once
+    //for (str0<nb) {for (j<nb) {t1[i*norb+a] += sign * pci[str1];} t1+=norb2; tab+=nlinkb;}
+    #ifdef _ACCELERATE_KERNEL
+    int * tab = &(link_index[4*str0*nlinkb+4*j]);
+    int sign = tab[3];
+    if (sign==0) return;
+    int a = tab[0];
+    int i = tab[1];
+    int str1 = tab[2];
+    atomicAdd(&(buf[str0*norb2 + i*norb + a]), sign*ci[stra_id*nb + str1]);
+    #else
+    int a = link_index[4*str0*nlinkb + 4*j]; 
+    int i = link_index[4*str0*nlinkb + 4*j + 1]; 
+    int str1 = link_index[4*str0*nlinkb + 4*j + 2]; 
+    int sign = link_index[4*str0*nlinkb + 4*j + 3];
+    //printf("stra_id: %i str1: %i str0: %i a: %i i: %i j: %i sign: %i added: %f , prev: %f \n",stra_id, str1,str0, a,i,j,sign, sign*ci[stra_id*nb+str1], buf[str0*norb2+i*norb+a] );
+      #ifdef _DEBUG_ATOMICADD
+      atomicAdd(&(buf[str0*norb2 + i*norb + a]), sign*ci[stra_id*nb + str1]);
+      #else
+      buf[str0*norb2 + i*norb + a] += sign*ci[stra_id*nb+str1];
+      #endif
+    #endif
+    //TODO: implement csum 
+    // Refer to comment in _compute_FCIrdm2_a_t1ci 
+}
+/* ---------------------------------------------------------------------- */
+__global__ void _compute_FCIrdm3h_a_t1ci(double * ci, double * buf, int stra_id, int nb, int norb, int nlinka, int ia, int ja, int ib, int jb, int * link_index)
+{
+    int j = blockIdx.x * blockDim.x + threadIdx.x;
+    //int k = blockIdx.y * blockDim.y + threadIdx.y;
+    if (j >= nlinka) return;
+    //if (k >= nb) return;//perhaps k can be looped over, and completely avoided if str1 is not in between ia-ja and ib-jb
+    int norb2 = norb*norb;
+    int * tab = &(link_index[4*nlinka*stra_id + 4*j]); 
+    for (int k=ib; k<jb; ++k){//k is the beta loop
+      int sign = tab[3];
+      if (sign != 0) {
+        int str1 = tab[2];
+        if ((str1>=ia) && (str1<ja)){//str1 is alpha loop
+          int a = tab[0];
+          int i = tab[1];
+          atomicAdd(&(buf[k*norb2 + i*norb + a]), sign*ci[str1*nb + k]);
+          }
+        }
+      }
+}
+/* ---------------------------------------------------------------------- */
+__global__ void _compute_FCIrdm3h_b_t1ci(double * ci, double * buf, int stra_id, int nb, int norb, int nlinkb, int ia, int ja, int ib, int jb, int * link_index)
+{
+    int str0 = blockIdx.x * blockDim.x + threadIdx.x;
+    int j = blockIdx.y * blockDim.y + threadIdx.y;
+    if (str0 >= nb) return;
+    if (j >= nlinkb) return;
+    int norb2 = norb*norb;
+    int * tab = &(link_index[4*str0*nlinkb+4*j]);
+    int sign = tab[3];
+    if (sign!=0){ //return;
+      int str1 = tab[2];
+      if ((str1>=ib) && (str1<jb)){
+        int a = tab[0];
+        int i = tab[1];
+        atomicAdd(&(buf[str0*norb2 + i*norb + a]), sign*ci[stra_id*nb + str1]);//stra_id is already taken care of in the call itself, maybe work that in the earlier call.
+        }
+      }
+}
+/* ---------------------------------------------------------------------- */
+__global__ void _compute_FCIrdm3h_a_t1ci_v2(double * ci, double * buf, int stra_id, int nb, int norb, int nlinka, int ia, int ja, int ib, int jb, int * link_index)
+{
+    int j = blockIdx.x * blockDim.x + threadIdx.x;
+    //int k = blockIdx.y * blockDim.y + threadIdx.y;
+    if (j >= nlinka) return;
+    int norb2 = norb*norb;
+    int * tab = &(link_index[4*nlinka*stra_id + 4*j]); 
+    //for (int k=ib; k<jb; ++k){//k is the beta loop
+    for (int k=0; k<jb-ib; ++k){// Doing this because ci[:, ib:jb] is filled, rest is zeros.
+                                // Also, buf only needs to get populated from ib<k<jb, so less data needs to be added
+      int sign = tab[3];
+      if (sign != 0) {
+        int str1 = tab[2];
+        if ((str1>=ia) && (str1<ja)){//str1 is alpha loop
+          int a = tab[0];
+          int i = tab[1];
+          atomicAdd(&(buf[(k+ib)*norb2 + i*norb + a]), sign*ci[(str1-ia)*nb + k]);//I'm not sure how this plays out in the bigger kernel, so keeping as k+ib on the buf side
+          }
+        }
+      }
+}
+/* ---------------------------------------------------------------------- */
+__global__ void _compute_FCIrdm3h_b_t1ci_v2(double * ci, double * buf, int stra_id, int nb, int norb, int nlinkb, int ia, int ja, int ib, int jb, int * link_index)
+{
+    int str0 = blockIdx.x * blockDim.x + threadIdx.x;
+    int j = blockIdx.y * blockDim.y + threadIdx.y;
+    if (str0 >= nb) return;
+    if (j >= nlinkb) return;
+    int norb2 = norb*norb;
+    int * tab = &(link_index[4*str0*nlinkb+4*j]);
+    int sign = tab[3];
+    if (sign!=0){ //return;
+      int str1 = tab[2];
+      if ((str1>=ib) && (str1<jb)){
+        int a = tab[0];
+        int i = tab[1];
+        atomicAdd(&(buf[str0*norb2 + i*norb + a]), sign*ci[(stra_id-ia)*nb + str1-ib]);// rdm3h_b_t1ci is only called when stra_id is more than ia
+        }
+      }
+}
+/* ---------------------------------------------------------------------- */
+__global__ void _transpose_jikl(const double * in, double *out, int norb)
+{
+    int norb2 = norb*norb;
+    int k = blockIdx.x * blockDim.x + threadIdx.x;
+    if (k >= norb2) return;
+    for (int i =0; i<norb; ++i){ 
+        for (int j=0; j<norb; ++j){
+          const double * tmp_in = &(in[(i*norb+j)*norb2]); 
+          double * tmp_out = &(out[(j*norb+i)*norb2]); 
+          tmp_out[k] = tmp_in[k];
+        } 
+      }
+} 
+/* ---------------------------------------------------------------------- */
+__global__ void _veccopy(const double * src, double *dest, int size)
+{
+    int i = blockIdx.x * blockDim.x + threadIdx.x;
+    if (i >= size) return;
+    dest[i] = src[i];
+} 
 
 /* ---------------------------------------------------------------------- */
+__global__ void _gemv_fix(const double * mat, const double * vec, double * out, const int norb2, const int nb, const double alpha, const double beta)
+{
+    //convert to gemv, shouldn't need this    
+    //for (int j=0;j<norb2;++j){for (int i=0;i<nb;++i){ h_tdm1[j] += h_buf1[i*norb2+j]*h_vec[i] ;}}
+    //beta is one
+    //int i = blockIdx.x * blockDim.x + threadIdx.x;
+    //int j = blockIdx.y * blockDim.y + threadIdx.y;
+    int j = blockIdx.x * blockDim.x + threadIdx.x;
+    //if (i>=nb) return;
+    if (j>=norb2) return;
+    //atomicAdd(&(out[j]),mat[i*norb2+j]*vec[i]);
+    double buf = 0.0;
+    for (int i=0; i<nb; ++i){buf += mat[i*norb2+j]*vec[i];}
+    //out[j] += mat[i*norb2+j]*vec[i];
+    out[j] += buf;
+}
+/* ---------------------------------------------------------------------- */
+__global__ void _gemm_fix(const double * buf1, const double * buf2, double * out, const int norb2, const int nb)
+{
+    //convert to gemm, shouldn't need this    
+    //i<norb2,k<norb2,j<nb
+    //tmp+=h_buf1[j*norb2+i]*h_buf2[j*norb2+k]; 
+    //h_pdm2[k*norb2+i]+=tmp;
+    int i = blockIdx.x * blockDim.x + threadIdx.x;
+    int k = blockIdx.y * blockDim.y + threadIdx.y;
+    if (i>=norb2) return;
+    if (k>=norb2) return;
+    double tmp=0.0;
+    for (int j=0;j<nb; ++j){
+      tmp+=buf1[j*norb2+i]*buf2[j*norb2+k];}
+    out[k*norb2+i]+=tmp;
+}
+/* ---------------------------------------------------------------------- */
+__global__ void _add_rdm1_to_2(double * dm1, double * dm2, int norb)
+{
+    int i = blockIdx.x * blockDim.x + threadIdx.x;
+    int j = blockIdx.y * blockDim.y + threadIdx.y;
+    int k = blockIdx.y * blockDim.y + threadIdx.y;
+    if (i>=norb) return;
+    if (j>=norb) return;
+    if (k>=norb) return;
+    //double * tmp_rdm2 = &(dm2[((i*norb+j)*norb+j)*norb + k]);
+    //double * tmp_rdm1 = &(dm1[i*norb + k]);
+    dm2[((i*norb+j)*norb+j)*norb + k] -= dm1[i*norb + k];
+}
+/* ---------------------------------------------------------------------- */
+__global__ void _add_rdm_transpose(double * buf, double * dm2, int norb)
+{
+    int norb2 = norb*norb;
+    int i = blockIdx.x * blockDim.x + threadIdx.x;
+    int j = blockIdx.y * blockDim.y + threadIdx.y;
+    if (i>=norb2) return;
+    if (j>=norb2) return;
+    buf[i*norb2 + j] += dm2[j*norb2+i];// + buf[j*norb2+i])/2;
+}
+
+/* ---------------------------------------------------------------------- */
+
 /* Interface functions calling CUDA kernels
 /* ---------------------------------------------------------------------- */
 
@@ -825,5 +1243,312 @@ void Device::vecadd(const double * in, double * out, int N)
   _CUDA_CHECK_ERRORS();
 #endif
 }
+
+/* ---------------------------------------------------------------------- */
+void Device::get_rho_to_Pi(double * rho, double * Pi, int ngrid)
+{
+  dim3 block_size(_DEFAULT_BLOCK_SIZE, 1, 1);
+  dim3 grid_size(_TILE(ngrid, block_size.x),1,1);
+
+  cudaStream_t s = *(pm->dev_get_queue());
+
+  _get_rho_to_Pi<<<grid_size, block_size,0, s>>>(rho, Pi, ngrid);
+#ifdef _DEBUG_DEVICE
+  printf("LIBGPU ::  -- general::get_rho_to_Pi :: N= %i  grid_size= %i %i %i  block_size= %i %i %i\n",
+	 ngrid, grid_size.x,grid_size.y,grid_size.z,block_size.x,block_size.y,block_size.z);
+  _CUDA_CHECK_ERRORS();
+#endif
+}
+/* ---------------------------------------------------------------------- */
+void Device::make_gridkern(double * d_mo_grid, double * d_gridkern, int ngrid, int ncas)
+{
+  dim3 block_size(_DEFAULT_BLOCK_SIZE, _DEFAULT_BLOCK_SIZE, _DEFAULT_BLOCK_SIZE);
+  dim3 grid_size(_TILE(ngrid, block_size.x),_TILE(ncas,block_size.y),_TILE(ncas,block_size.z));
+
+  cudaStream_t s = *(pm->dev_get_queue());
+
+  _make_gridkern<<<grid_size, block_size,0,s>>>(d_mo_grid, d_gridkern, ngrid, ncas);
+
+#ifdef _DEBUG_DEVICE
+  printf("LIBGPU ::  -- general::make_gridkern :: N= %i  grid_size= %i %i %i  block_size= %i %i %i\n",
+	 ncas, grid_size.x,grid_size.y,grid_size.z,block_size.x,block_size.y,block_size.z);
+  _CUDA_CHECK_ERRORS();
+#endif
+}
+/* ---------------------------------------------------------------------- */
+void Device::make_buf_pdft(double * gridkern, double * buf, double * cascm2, int ngrid, int ncas)
+{
+  dim3 block_size(_DEFAULT_BLOCK_SIZE, _DEFAULT_BLOCK_SIZE, _DEFAULT_BLOCK_SIZE);
+  dim3 grid_size(_TILE(ngrid, block_size.x),_TILE(ncas*ncas,block_size.y),_TILE(ncas*ncas,block_size.z));
+
+  cudaStream_t s = *(pm->dev_get_queue());
+
+  // buf = aij, klij ->akl, gridkern, cascm2
+  _make_buf_pdft<<<grid_size, block_size,0,s>>>(gridkern, cascm2, buf, ngrid, ncas);
+
+#ifdef _DEBUG_DEVICE
+  printf("LIBGPU ::  -- general::make_gridkern :: N= %i  grid_size= %i %i %i  block_size= %i %i %i\n",
+	 ncas, grid_size.x,grid_size.y,grid_size.z,block_size.x,block_size.y,block_size.z);
+  _CUDA_CHECK_ERRORS();
+#endif
+
+}
+/* ---------------------------------------------------------------------- */
+void Device::make_Pi_final(double * gridkern, double * buf, double * Pi, int ngrid, int ncas)
+{
+  dim3 block_size(_DEFAULT_BLOCK_SIZE, _DEFAULT_BLOCK_SIZE, 1);
+  dim3 grid_size(_TILE(ngrid, block_size.x),_TILE(ncas*ncas,block_size.y),1);
+
+  cudaStream_t s = *(pm->dev_get_queue());
+
+  _make_Pi_final<<<grid_size, block_size,0,s>>>(gridkern, buf, Pi, ngrid, ncas);
+#ifdef _DEBUG_DEVICE
+  printf("LIBGPU ::  -- general::make_Pi_final; :: Ngrid= %i Ncas =%i  grid_size= %i %i %i  block_size= %i %i %i\n",
+	 ngrid, ncas, grid_size.x,grid_size.y,grid_size.z,block_size.x,block_size.y,block_size.z);
+  _CUDA_CHECK_ERRORS();
+#endif
+}
+/* ---------------------------------------------------------------------- */
+void Device::compute_FCItrans_rdm1a(double * cibra, double * ciket, double * rdm, int norb, int na, int nb, int nlinka, int * link_index)
+{
+  dim3 block_size(_DEFAULT_BLOCK_SIZE, _DEFAULT_BLOCK_SIZE, 1);
+  dim3 grid_size(_TILE(na, block_size.x),_TILE(nlinka,block_size.y),1);
+
+  cudaStream_t s = *(pm->dev_get_queue());
+
+  _compute_FCItrans_rdm1a<<<grid_size, block_size,0,s>>>(cibra, ciket, rdm, norb, na, nb, nlinka, link_index);
+#ifdef _DEBUG_DEVICE
+  printf("LIBGPU ::  -- general::get_rdm_from_ci; :: Na= %i Nb =%i  grid_size= %i %i %i  block_size= %i %i %i\n",
+	 na, nb, grid_size.x,grid_size.y,grid_size.z,block_size.x,block_size.y,block_size.z);
+  _CUDA_CHECK_ERRORS();
+#endif
+}
+/* ---------------------------------------------------------------------- */
+void Device::compute_FCItrans_rdm1b(double * cibra, double * ciket, double * rdm, int norb, int na, int nb, int nlinkb, int * link_index)
+{
+  //dim3 block_size(_DEFAULT_BLOCK_SIZE, _DEFAULT_BLOCK_SIZE, _DEFAULT_BLOCK_SIZE);
+  dim3 block_size(1,1,1);
+  dim3 grid_size(_TILE(na, block_size.x),_TILE(nb,block_size.y),_TILE(nlinkb, block_size.z));
+  
+  cudaStream_t s = *(pm->dev_get_queue());
+
+
+  _compute_FCItrans_rdm1b<<<grid_size, block_size,0,s>>>(cibra, ciket, rdm, norb, na, nb, nlinkb, link_index);
+#ifdef _DEBUG_DEVICE
+  printf("LIBGPU ::  -- general::get_rdm_from_ci; :: Na= %i Nb =%i  grid_size= %i %i %i  block_size= %i %i %i\n",
+	 na, nb, grid_size.x,grid_size.y,grid_size.z,block_size.x,block_size.y,block_size.z);
+  _CUDA_CHECK_ERRORS();
+#endif
+}
+/* ---------------------------------------------------------------------- */
+void Device::compute_FCImake_rdm1a(double * cibra, double * ciket, double * rdm, int norb, int na, int nb, int nlinka, int * link_index)
+{
+  cudaStream_t s = *(pm->dev_get_queue());
+  {dim3 block_size(_DEFAULT_BLOCK_SIZE,_DEFAULT_BLOCK_SIZE,1);
+  dim3 grid_size(_TILE(na, block_size.x),_TILE(nlinka, block_size.y),1);
+  _compute_FCImake_rdm1a<<<grid_size, block_size,0,s>>>(cibra, ciket, rdm, norb, na, nb, nlinka, link_index);
+  #ifdef _DEBUG_DEVICE
+  printf("LIBGPU ::  -- general::get_rdm_from_ci; :: Na= %i Nb =%i  grid_size= %i %i %i  block_size= %i %i %i\n",
+	 na, nb, grid_size.x,grid_size.y,grid_size.z,block_size.x,block_size.y,block_size.z);
+  _CUDA_CHECK_ERRORS();
+  #endif
+  }
+  {dim3 block_size (1,1,1);
+   dim3 grid_size(1,1,1);
+   _symmetrize_rdm<<<grid_size, block_size, 0, s>>> (norb, rdm);}
+}
+/* ---------------------------------------------------------------------- */
+void Device::compute_FCImake_rdm1b(double * cibra, double * ciket, double * rdm, int norb, int na, int nb, int nlinkb, int * link_index)
+{
+  cudaStream_t s = *(pm->dev_get_queue());
+  {
+  //dim3 block_size(_DEFAULT_BLOCK_SIZE,_DEFAULT_BLOCK_SIZE,_DEFAULT_BLOCK_SIZE); //TODO: fix this?
+  dim3 block_size(1,1,1);
+  dim3 grid_size(_TILE(na, block_size.x),_TILE(nb, block_size.y),_TILE(nlinkb, block_size.z));
+  #ifdef _DEBUG_DEVICE
+  printf("LIBGPU ::  -- general::make_rdm1b; :: Na= %i Nb =%i  grid_size= %i %i %i  block_size= %i %i %i\n",
+	 na, nb, grid_size.x,grid_size.y,grid_size.z,block_size.x,block_size.y,block_size.z);
+  #endif
+  _compute_FCImake_rdm1b<<<grid_size, block_size,0,s>>>(cibra, ciket, rdm, norb, na, nb, nlinkb, link_index);
+  _CUDA_CHECK_ERRORS();
+  }
+  {dim3 block_size(1,1,1);
+   dim3 grid_size(1,1,1); 
+   _symmetrize_rdm<<<grid_size, block_size, 0, s>>> (norb, rdm); }
+}
+
+/* ---------------------------------------------------------------------- */
+void Device::compute_FCIrdm2_a_t1ci(double * ci, double * buf, int stra_id, int nb, int norb, int nlinka, int * link_index)
+{
+  dim3 block_size(1,1,1);
+  dim3 grid_size(_TILE(nlinka, block_size.x), _TILE(nb, block_size.y), 1);
+  cudaStream_t s = *(pm->dev_get_queue());
+  _compute_FCIrdm2_a_t1ci<<<grid_size, block_size, 0,s>>>(ci, buf, stra_id, nb, norb, nlinka, link_index);
+#ifdef _DEBUG_DEVICE 
+  printf("LIBGPU ::  -- general::compute_FCIrdm2_a_t1ci; :: Nb= %i Norb =%i Nlinka =%i grid_size= %i %i %i  block_size= %i %i %i\n",
+	 nb, norb, nlinka, grid_size.x,grid_size.y,grid_size.z,block_size.x,block_size.y,block_size.z);
+  _CUDA_CHECK_ERRORS();
+#endif
+}  
+/* ---------------------------------------------------------------------- */
+void Device::compute_FCIrdm2_b_t1ci(double * ci, double * buf, int stra_id, int nb, int norb, int nlinkb, int * link_index)
+{
+  dim3 block_size(1,1,1);
+  dim3 grid_size(_TILE(nb, block_size.x), _TILE(nlinkb, block_size.y), 1);
+  cudaStream_t s = *(pm->dev_get_queue());
+  _compute_FCIrdm2_b_t1ci<<<grid_size, block_size, 0,s>>>(ci, buf, stra_id, nb, norb, nlinkb, link_index);
+#ifdef _DEBUG_DEVICE 
+  printf("LIBGPU ::  -- general::compute_FCIrdm2_b_t1ci; :: Nb= %i Norb =%i Nlinkb =%i grid_size= %i %i %i  block_size= %i %i %i\n",
+	 nb, norb, nlinkb, grid_size.x,grid_size.y,grid_size.z,block_size.x,block_size.y,block_size.z);
+  _CUDA_CHECK_ERRORS();
+#endif
+} 
+/* ---------------------------------------------------------------------- */
+void Device::compute_FCIrdm3h_a_t1ci(double * ci, double * buf, int stra_id, int nb, int norb, int nlinka, int ia, int ja, int ib, int jb, int * link_index)
+{
+  dim3 block_size(1,1,1);
+  //dim3 grid_size(_TILE(nlinka, block_size.x), _TILE(nb, block_size.y), 1);
+  dim3 grid_size(_TILE(nlinka, block_size.x), 1, 1);
+  cudaStream_t s = *(pm->dev_get_queue());
+  _compute_FCIrdm3h_a_t1ci<<<grid_size, block_size, 0,s>>>(ci, buf, stra_id, nb, norb, nlinka, ia, ja, ib, jb, link_index);
+#ifdef _DEBUG_DEVICE 
+  printf("LIBGPU ::  -- general::compute_FCIrdm2_a_t1ci; :: Nb= %i Norb =%i Nlinka =%i grid_size= %i %i %i  block_size= %i %i %i\n",
+	 nb, norb, nlinka, grid_size.x,grid_size.y,grid_size.z,block_size.x,block_size.y,block_size.z);
+  _CUDA_CHECK_ERRORS();
+#endif
+}  
+/* ---------------------------------------------------------------------- */
+void Device::compute_FCIrdm3h_b_t1ci(double * ci, double * buf, int stra_id, int nb, int norb, int nlinkb, int ia, int ja, int ib, int jb, int * link_index)
+{
+  if ((stra_id>=ia) && stra_id<ja){ //I'm writing this in, but buf being zero needs to be accounted in the full function call as well
+  dim3 block_size(1,1,1);
+  dim3 grid_size(_TILE(nb, block_size.x), _TILE(nlinkb, block_size.y), 1);
+  cudaStream_t s = *(pm->dev_get_queue());
+  _compute_FCIrdm3h_b_t1ci<<<grid_size, block_size, 0,s>>>(ci, buf, stra_id, nb, norb, nlinkb, ia, ja, ib, jb, link_index);
+#ifdef _DEBUG_DEVICE 
+  printf("LIBGPU ::  -- general::compute_FCIrdm2_b_t1ci; :: Nb= %i Norb =%i Nlinkb =%i grid_size= %i %i %i  block_size= %i %i %i\n",
+	 nb, norb, nlinkb, grid_size.x,grid_size.y,grid_size.z,block_size.x,block_size.y,block_size.z);
+  _CUDA_CHECK_ERRORS();
+#endif
+  }
+}
+/* ---------------------------------------------------------------------- */
+void Device::compute_FCIrdm3h_a_t1ci_v2(double * ci, double * buf, int stra_id, int nb, int norb, int nlinka, int ia, int ja, int ib, int jb, int * link_index)
+{
+  dim3 block_size(1,1,1);
+  //dim3 grid_size(_TILE(nlinka, block_size.x), _TILE(nb, block_size.y), 1);
+  dim3 grid_size(_TILE(nlinka, block_size.x), 1, 1);
+  cudaStream_t s = *(pm->dev_get_queue());
+  _compute_FCIrdm3h_a_t1ci_v2<<<grid_size, block_size, 0,s>>>(ci, buf, stra_id, nb, norb, nlinka, ia, ja, ib, jb, link_index);
+#ifdef _DEBUG_DEVICE 
+  printf("LIBGPU ::  -- general::compute_FCIrdm2_a_t1ci; :: Nb= %i Norb =%i Nlinka =%i grid_size= %i %i %i  block_size= %i %i %i\n",
+	 nb, norb, nlinka, grid_size.x,grid_size.y,grid_size.z,block_size.x,block_size.y,block_size.z);
+  _CUDA_CHECK_ERRORS();
+#endif
+}  
+/* ---------------------------------------------------------------------- */
+void Device::compute_FCIrdm3h_b_t1ci_v2(double * ci, double * buf, int stra_id, int nb, int norb, int nlinkb, int ia, int ja, int ib, int jb, int * link_index)
+{
+  if ((stra_id>=ia) && stra_id<ja){ //I'm writing this in, but buf being zero needs to be accounted in the full function call as well
+  dim3 block_size(1,1,1);
+  dim3 grid_size(_TILE(nb, block_size.x), _TILE(nlinkb, block_size.y), 1);
+  cudaStream_t s = *(pm->dev_get_queue());
+  _compute_FCIrdm3h_b_t1ci_v2<<<grid_size, block_size, 0,s>>>(ci, buf, stra_id, nb, norb, nlinkb, ia, ja, ib, jb, link_index);
+#ifdef _DEBUG_DEVICE 
+  printf("LIBGPU ::  -- general::compute_FCIrdm2_b_t1ci; :: Nb= %i Norb =%i Nlinkb =%i grid_size= %i %i %i  block_size= %i %i %i\n",
+	 nb, norb, nlinkb, grid_size.x,grid_size.y,grid_size.z,block_size.x,block_size.y,block_size.z);
+  _CUDA_CHECK_ERRORS();
+#endif
+  }
+}  
+/* ---------------------------------------------------------------------- */
+void Device::gemv_fix(const double * buf, const double * bravec, double * pdm1, const int norb2, const int nb, const double alpha, const double beta)
+{
+  //dim3 block_size(_DEFAULT_BLOCK_SIZE,_DEFAULT_BLOCK_SIZE,1);
+  //dim3 grid_size(_TILE(nb, block_size.x), _TILE(norb2,block_size.y), 1);
+  dim3 block_size(_DEFAULT_BLOCK_SIZE,1,1);
+  dim3 grid_size(_TILE(norb2, block_size.x),1, 1);
+  cudaStream_t s = *(pm->dev_get_queue());
+  _gemv_fix<<<grid_size, block_size, 0, s>>>(buf, bravec, pdm1, norb2, nb, alpha, beta);
+  _CUDA_CHECK_ERRORS();
+}
+/* ---------------------------------------------------------------------- */
+void Device::gemm_fix(const double * buf1, const double * buf2, double * pdm2, const int norb2, const int nb)
+{
+  dim3 block_size(_DEFAULT_BLOCK_SIZE,_DEFAULT_BLOCK_SIZE,1);
+  dim3 grid_size(_TILE(norb2, block_size.x), _TILE(norb2,block_size.y), 1);
+  cudaStream_t s = *(pm->dev_get_queue());
+  _gemm_fix<<<grid_size, block_size, 0, s>>>(buf1, buf2, pdm2, norb2, nb);
+  _CUDA_CHECK_ERRORS();
+}
+
+/* ---------------------------------------------------------------------- */
+void Device::transpose_jikl(double * tdm, double * buf, int norb)
+{
+  int norb2 = norb*norb;
+  cudaStream_t s = *(pm->dev_get_queue());
+  {
+  dim3 block_size(_DEFAULT_BLOCK_SIZE, 1,1); 
+  dim3 grid_size(_TILE(norb2, block_size.x), 1,1);
+  _transpose_jikl<<<grid_size,block_size,0,s>>>(tdm,buf,norb);
+#ifdef _DEBUG_DEVICE 
+  printf("LIBGPU ::  -- general::transpose_jikl; :: Norb= %i grid_size= %i %i %i  block_size= %i %i %i\n",
+	 norb, grid_size.x,grid_size.y,grid_size.z,block_size.x,block_size.y,block_size.z);
+  _CUDA_CHECK_ERRORS();
+#endif  
+  }
+  {
+  dim3 block_size(_DEFAULT_BLOCK_SIZE, 1, 1);
+  dim3 grid_size(_TILE(norb2*norb2, block_size.x), 1, 1);
+  _veccopy<<<grid_size, block_size, 0,s>>>(buf, tdm, norb2*norb2); 
+#ifdef _DEBUG_DEVICE 
+  printf("LIBGPU ::  -- general::copy_tdm; :: Norb= %i grid_size= %i %i %i  block_size= %i %i %i\n",
+	 norb, grid_size.x,grid_size.y,grid_size.z,block_size.x,block_size.y,block_size.z);
+  _CUDA_CHECK_ERRORS();
+#endif  
+  }
+}
+/* ---------------------------------------------------------------------- */
+void Device::reorder(double * dm1, double * dm2, double * buf, int norb)
+{
+  int norb2 = norb*norb;
+  cudaStream_t s = *(pm->dev_get_queue());
+  //for k in range (norb): rdm2[:,k,k,:] -= rdm1.T //remember, rdm1 is returned as rdm1.T, so double transpose, hence just rdm1
+  //rdm2 = (rdm2+rdm2.transpose(2,3,0,1))/2
+  {
+    dim3 block_size (1,1,1);
+    dim3 grid_size (_TILE(norb, block_size.x), _TILE(norb, block_size.y), _TILE(norb, block_size.z));
+    _add_rdm1_to_2<<<grid_size, block_size, 0, s>>> (dm1, dm2, norb);
+    _CUDA_CHECK_ERRORS();
+  }
+  {
+    dim3 block_size(_DEFAULT_BLOCK_SIZE, 1, 1);
+    dim3 grid_size(_TILE(norb2*norb2, block_size.x), 1, 1);
+    _veccopy<<<grid_size, block_size, 0,s>>>(dm2, buf, norb2*norb2); 
+    _CUDA_CHECK_ERRORS();
+  }
+  { 
+    dim3 block_size(_DEFAULT_BLOCK_SIZE, _DEFAULT_BLOCK_SIZE, 1);
+    dim3 grid_size (_TILE(norb2, block_size.x), _TILE(norb2, block_size.y),1);
+    _add_rdm_transpose<<<grid_size, block_size, 0, s>>>(buf, dm2, norb); 
+    _CUDA_CHECK_ERRORS();
+  }
+  //axpy pending from buf2 to rdm2 
+}
+/* ---------------------------------------------------------------------- */
+void Device::set_to_zero(double * array, int size)
+{
+  cudaStream_t s = *(pm->dev_get_queue());
+  #if 1
+  dim3 block_size(_DEFAULT_BLOCK_SIZE, 1, 1);
+  dim3 grid_size(_TILE(size, block_size.x),1,1);
+  _set_to_zero<<<grid_size, block_size, 0,s>>>(array, size);
+  _CUDA_CHECK_ERRORS();
+ #else
+ cudaMemSet(array,0, size*sizeof(double), s); //Is this better?
+ #endif
+}
+
+
 
 #endif
