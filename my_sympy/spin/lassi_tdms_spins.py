@@ -1,7 +1,7 @@
 import numpy as np
 import sympy
 from mrh.my_sympy.spin import spin_1h
-from sympy import S, Rational, symbols, Matrix, Poly
+from sympy import S, Rational, symbols, Matrix, Poly, apart, powsimp, cancel
 import itertools
 
 s = symbols ("s", real=True, positive=True)
@@ -107,8 +107,12 @@ class CrVector (object):
         A = self.get_A (A_cols)
         B = make_B (B_rows, A_cols)
         xvec = B.solve (lvec)
-        coeffs = (A.T * xvec)
-        coeffs = coeffs[0].simplify ()
+        xvec = Matrix ([x.simplify () for x in xvec])
+        coeffs = 0
+        for Ael, xel in zip (A, xvec):
+            coeffs += (Ael * xel).simplify ()
+        #coeffs = (A.T * xvec)
+        #coeffs = coeffs[0]
         my_solution = str (self) + ' = \n   '
         lvec_symbols = list (lvec_lookup.keys ())
         lvec_exprs = lvec_lookup.values ()
@@ -275,17 +279,17 @@ if __name__=='__main__':
     print (solve_density (-3, [1,], [1,0], 0, 0))
     print (solve_density (-3, [0,], [0,1], 0, 0))
     print (solve_density (-3, [1,], [1,1], 0, 0))
-    print (solve_density (-1, [0,], [0,0], 0, 0))
-    print (solve_density (-1, [1,], [1,0], 0, 0))
-    print (solve_density (-1, [0,], [0,1], 0, 0))
-    print (solve_density (-1, [1,], [1,1], 0, 0))
+    print (solve_density (0, [0,], [0,0], 1, 1))
+    print (solve_density (0, [1,], [1,0], 1, 1))
+    print (solve_density (0, [0,], [0,1], 1, 1))
+    print (solve_density (0, [1,], [1,1], 1, 1))
     print ("\n\n============= Two-body density =============")
-    print (solve_density (-4, [0,0], [0,0], 0, 0))
-    print (solve_density (-4, [0,1], [1,0], 0, 0))
-    print (solve_density (-4, [1,1], [1,1], 0, 0))
-    print (solve_density (-2, [0,0], [0,0], 0, 0))
-    print (solve_density (-2, [0,1], [1,0], 0, 0))
-    print (solve_density (-2, [1,1], [1,1], 0, 0))
+    print (solve_density (4, [0,0], [0,0], 0, 0))
+    print (solve_density (4, [0,1], [1,0], 0, 0))
+    print (solve_density (4, [1,1], [1,1], 0, 0))
+    print (solve_density (2, [0,0], [0,0], 0, 0))
+    print (solve_density (2, [0,1], [1,0], 0, 0))
+    print (solve_density (2, [1,1], [1,1], 0, 0))
     print (solve_density (0, [0,0], [0,0], 0, 0))
     print (solve_density (0, [0,1], [1,0], 0, 0))
     print (solve_density (0, [1,1], [1,1], 0, 0))
