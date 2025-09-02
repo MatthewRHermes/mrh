@@ -1,7 +1,7 @@
 import numpy as np
 from scipy.sparse import linalg as sparse_linalg
 from pyscf import lib
-from pyscf.lib import logger
+from pyscf.lib import logger, param
 from mrh.my_pyscf.lassi import citools
 from mrh.my_pyscf.lassi.op_o1 import frag
 from mrh.my_pyscf.lassi.op_o1.rdm import LRRDM
@@ -10,6 +10,77 @@ from mrh.my_pyscf.lassi.citools import _fake_gen_contract_op_si_hdiag
 from mrh.my_pyscf.lassi.op_o1.utilities import *
 import functools
 from itertools import product
+from pyscf import __config__
+
+PROFVERBOSE = getattr (__config__, 'lassi_hsi_profverbose', None)
+
+class OpTermBase: pass
+
+class OpTermContracted (np.ndarray, OpTermBase):
+    ''' Just farm the dot method to pyscf.lib.dot '''
+    def dot (self, other):
+        return lib.dot (self, other)
+
+class OpTermNFragments (OpTermBase):
+    def __init__(self, op, idx, d, do_crunch=True):
+        assert (len (idx) == len (d))
+        isort = np.argsort (idx)
+        if do_crunch and (op.ndim == len (isort)):
+            self.op = op.transpose (isort)
+        else:
+            self.op = op
+        self.idx = [idx[i] for i in isort]
+        self.d = [d[i] for i in isort]
+        self.lroots_bra = [d.shape[0] for d in self.d]
+        self.lroots_ket = [d.shape[1] for d in self.d]
+        self.norb = [d.shape[2] for d in self.d]
+        if do_crunch: self._crunch_()
+
+    def reshape (self, new_shape, **kwargs):
+        pass
+
+    def _crunch_(self):
+        raise NotImplementedError
+
+    def conj (self, do_crunch=False):
+        d = [d.conj () for d in self.d]
+        op = self.op.conj ()
+        return self.__class__(op, self.idx, d, do_crunch=do_crunch)
+
+    def transpose (self, do_crunch=False):
+        d = [d.transpose (1,0,2) for d in self.d]
+        op = self.op.transpose (*self.op_transpose_axes)
+        return self.__class__(op, self.idx, d, do_crunch=do_crunch)
+
+    @property
+    def T (self): return self.transpose ()
+
+    def get_size (self):
+        # d should not be copies, but op is
+        return self.op.size
+
+    @property
+    def size (self): return self.get_size ()
+
+    @property
+    def op_transpose_axes (self): return list (range (self.op.ndim))
+
+class OpTerm4Fragments (OpTermNFragments):
+    def _crunch_(self):
+        self.op = lib.einsum ('aip,bjq,pqrs->rsbaji', self.d[0], self.d[1], self.op)
+        self.op = np.ascontiguousarray (self.op)
+
+    def dot (self, other):
+        ncol = other.shape[1]
+        shape = [ncol,] + self.lroots_ket[::-1]
+        other = other.T.reshape (*shape)
+        ox = lib.einsum ('rsbaji,zlkji->rsbazlk', self.op, other)
+        ox = lib.einsum ('ckr,rsbazlk->scbazl', self.d[2], ox)
+        ox = lib.einsum ('dls,scbazl->dcbaz', self.d[3], ox)
+        ox = ox.reshape (np.prod (self.lroots_bra), ncol)
+        return ox
+
+    op_transpose_axes = (0,1,4,5,2,3)
 
 class HamS2OvlpOperators (HamS2Ovlp):
     __doc__ = HamS2Ovlp.__doc__ + '''
@@ -25,35 +96,88 @@ class HamS2OvlpOperators (HamS2Ovlp):
             Hamiltonian diagonal
     '''
     def __init__(self, ints, nlas, lroots, h1, h2, mask_bra_space=None,
-                 mask_ket_space=None, pt_order=None, do_pt_order=None, log=None, max_memory=2000,
-                 dtype=np.float64):
+                 mask_ket_space=None, pt_order=None, do_pt_order=None, log=None,
+                 max_memory=param.MAX_MEMORY, dtype=np.float64):
         HamS2Ovlp.__init__(self, ints, nlas, lroots, h1, h2,
                            mask_bra_space=mask_bra_space, mask_ket_space=mask_ket_space,
                            pt_order=pt_order, do_pt_order=do_pt_order,
                            log=log, max_memory=max_memory, dtype=dtype)
+        self.log = logger.new_logger (self.log, verbose=PROFVERBOSE)
         self.x = self.si = np.zeros (self.nstates, self.dtype)
         self.ox = np.zeros (self.nstates, self.dtype)
         self.ox1 = np.zeros (self.nstates, self.dtype)
-        self._cache_operatorpart_()
-
-    def _cache_operatorpart_(self):
-        t0 = (logger.process_clock (), logger.perf_counter ())
         self.init_cache_profiling ()
+        self.checkmem_oppart ()
+        self._cache_()
+
+    def checkmem_oppart (self):
+        rm = 0
+        for exc, fn in zip ((self.exc_1d, self.exc_2d, self.exc_1s, self.exc_1c, self.exc_1c1d,
+                             self.exc_1s1c, self.exc_2c),
+                            (self._crunch_1d_, self._crunch_2d_, self._crunch_1s_,
+                             self._crunch_1c_, self._crunch_1c1d_, self._crunch_1s1c_,
+                             self._crunch_2c_)):
+            rm += self.checkmem_1oppart (exc, fn)
+        m0 = lib.current_memory ()[0]
+        memstr = "hsi operator cache req's >= {} MB ({} MB current; {} MB available)".format (
+            rm, m0, self.max_memory)
+        self.log.debug (memstr)
+        if (m0 + rm) > self.max_memory:
+            raise MemoryError (memstr)
+
+    def checkmem_1oppart (self, exc, fn):
+        rm = 0
+        has_s = self._fn_contributes_to_s2 (fn)
+        for row in exc:
+            if self._fn_row_has_spin (fn):
+                inv = row[2:-1]
+            else:
+                inv = row[2:]
+            bra, ket = row[:2]
+            inv = list (set (inv))
+            if len (inv) == 4:
+                data = fn (*row, dry_run=True)
+                rm += data[0].size
+                if data[1] is not None:
+                    rm += data[1].size
+            else:
+                opbralen = np.prod (self.lroots[inv,bra])
+                opketlen = np.prod (self.lroots[inv,ket])
+                rm += (1 + int (has_s)) * opbralen * opketlen
+        rm *= self.dtype.itemsize / 1e6
+        self.log.debug ("{} op cache req's {} MB".format (fn.__name__, rm))
+        return rm
+
+    def _cache_(self):
+        t0 = (logger.process_clock (), logger.perf_counter ())
         self.excgroups_s = {}
         self.excgroups_h = {}
-        for exc, fn in zip ((self.exc_1d, self.exc_2d, self.exc_1s),
-                            (self._crunch_1d_, self._crunch_2d_, self._crunch_1s_)):
-            self._crunch_oppart_(exc, fn, has_s=True)
-        for exc, fn in zip ((self.exc_1c, self.exc_1c1d, self.exc_1s1c, self.exc_2c),
-                            (self._crunch_1c_, self._crunch_1c1d_, self._crunch_1s1c_, 
+        for exc, fn in zip ((self.exc_1d, self.exc_2d, self.exc_1s, self.exc_1c, self.exc_1c1d,
+                             self.exc_1s1c, self.exc_2c),
+                            (self._crunch_1d_, self._crunch_2d_, self._crunch_1s_,
+                             self._crunch_1c_, self._crunch_1c1d_, self._crunch_1s1c_,
                              self._crunch_2c_)):
-            self._crunch_oppart_(exc, fn, has_s=False)
+            self._crunch_oppart_(exc, fn)
         self.excgroups_s = self._index_ovlppart (self.excgroups_s)
         self.excgroups_h = self._index_ovlppart (self.excgroups_h)
-        self.log.debug1 (self.sprint_cache_profile ())
-        self.log.timer_debug1 ('HamS2OvlpOperators operator cacheing', *t0)
+        self.log.debug (self.sprint_cache_profile ())
+        self.log.timer ('HamS2OvlpOperators operator cacheing', *t0)
 
-    def _crunch_oppart_(self, exc, fn, has_s=False):
+    def opterm_std_shape (self, bra, ket, op, inv, sinv):
+        t0, w0 = logger.process_clock (), logger.perf_counter ()
+        if isinstance (op, np.ndarray):
+            op = self.canonical_operator_order (op, sinv)
+            opbralen = np.prod (self.lroots[inv,bra])
+            opketlen = np.prod (self.lroots[inv,ket])
+            op = op.reshape ((opbralen, opketlen), order='C')
+            op = op.view (OpTermContracted)
+        t1, w1 = logger.process_clock (), logger.perf_counter ()
+        self.dt_oT += (t1-t0)
+        self.dw_oT += (w1-w0)
+        return op
+
+    def _crunch_oppart_(self, exc, fn):
+        has_s = self._fn_contributes_to_s2 (fn)
         for row in exc:
             if self._fn_row_has_spin (fn):
                 inv = row[2:-1]
@@ -64,51 +188,64 @@ class HamS2OvlpOperators (HamS2Ovlp):
             row = inv.copy ()
             sinv = data[2]
             inv = list (set (inv))
-            t0, w0 = logger.process_clock (), logger.perf_counter ()
-            op = self.canonical_operator_order (data[0], sinv)
-            opbralen = np.prod (self.lroots[inv,bra])
-            opketlen = np.prod (self.lroots[inv,ket])
-            op = op.reshape ((opbralen, opketlen), order='C')
-            t1, w1 = logger.process_clock (), logger.perf_counter ()
-            self.dt_oT += (t1-t0)
-            self.dw_oT += (w1-w0)
+            op = self.opterm_std_shape (bra, ket, data[0], inv, sinv)
             key = tuple (inv)
             val = self.excgroups_h.get (key, [])
             val.append ([op, bra, ket, row])
             self.excgroups_h[key] = val
             if has_s:
-                t0, w0 = logger.process_clock (), logger.perf_counter ()
-                op = self.canonical_operator_order (data[1], sinv)
-                op = op.reshape ((opbralen, opketlen), order='C')
-                t1, w1 = logger.process_clock (), logger.perf_counter ()
-                self.dt_oT += (t1-t0)
-                self.dw_oT += (w1-w0)
+                op = self.opterm_std_shape (bra, ket, data[1], inv, sinv)
                 val = self.excgroups_s.get (key, [])
                 val.append ([op, bra, ket, row])
                 self.excgroups_s[key] = val
 
     def _index_ovlppart (self, groups):
         # TODO: redesign this in a scalable graph-theoretic way
+        # TODO: memcheck for this. It's hard b/c IDK how to guess the final size of ovlplinkstr
         t0, w0 = logger.process_clock (), logger.perf_counter ()
+        #x0 = (logger.process_clock (), logger.perf_counter ())
         for inv, group in groups.items ():
-            tab = np.zeros ((0,2), dtype=int)
+            len_tab = 0
             for op, bra, ket, myinv in group:
                 key = tuple ((bra, ket)) + tuple (myinv)
-                tab = np.append (tab, self.get_nonuniq_exc_square (key)[0], axis=0)
-            tab = np.unique (tab, axis=0)
-            ovlplinkstr = [[ket,] + list (self.ox_ovlp_urootstr (bra, ket, inv)) for bra, ket in tab]
-            ovlplinkstr = np.unique (ovlplinkstr, axis=0)
+                tab = self.nonuniq_exc[key]
+                len_tab += tab.shape[0]
+                len_tab += np.count_nonzero (tab[:,0] != tab[:,1])
+            #x0 = self.log.timer ('tab_len', *x0)
+            ovlplinkstr = np.empty ((len_tab, self.nfrags+1), dtype=int)
+            seen = set ()
+            i = 0
+            for op, bra, ket, myinv in group:
+                key = tuple ((bra, ket)) + tuple (myinv)
+                tab = self.nonuniq_exc[key]
+                for bra, ket in tab:
+                    ovlplinkstr[i,0] = ket
+                    ovlplinkstr[i,1:] = self.ox_ovlp_urootstr (bra, ket, inv)
+                    fp = hash (tuple (ovlplinkstr[i,:]))
+                    if fp not in seen:
+                        seen.add (fp)
+                        i += 1
+                    if bra != ket:
+                        ovlplinkstr[i,0] = bra
+                        ovlplinkstr[i,1:] = self.ox_ovlp_urootstr (ket, bra, inv)
+                        fp = hash (tuple (ovlplinkstr[i,:]))
+                        if fp not in seen:
+                            seen.add (fp)
+                            i += 1
+            ovlplinkstr = ovlplinkstr[:i]
+            #x0 = self.log.timer ('ovlplinkstr', *x0)
             groups[inv] = (group, np.asarray (ovlplinkstr))
         t1, w1 = logger.process_clock (), logger.perf_counter ()
         self.dt_i += (t1-t0)
         self.dw_i += (w1-w0)
         return groups
 
-    def get_nonuniq_exc_square (self, key):
+    def get_nonuniq_exc_square (self, key, also_bras=True):
         tab_bk = self.nonuniq_exc[key]
         idx_equal = tab_bk[:,0]==tab_bk[:,1]
         tab_kb = tab_bk[~idx_equal,::-1]
         brakets = np.append (tab_bk, tab_kb, axis=0)
+        if not also_bras: return brakets
         bras = set (tab_bk[:,0])
         braHs = set (tab_kb[:,0]) - bras
         return brakets, list (bras), list (braHs)
@@ -179,8 +316,8 @@ class HamS2OvlpOperators (HamS2Ovlp):
         self._umat_linequiv_loop_(0) # U.conj () @ x
         for inv, group in self.excgroups_h.items (): self._opuniq_x_group_(inv, group)
         self._umat_linequiv_loop_(1) # U.T @ ox
-        self.log.debug1 (self.sprint_profile ())
-        self.log.timer_debug1 ('HamS2OvlpOperators._ham_op', *t0)
+        self.log.debug (self.sprint_profile ())
+        self.log.timer ('HamS2OvlpOperators._ham_op', *t0)
         return self.ox.copy ()
 
     def _s2_op (self, x):
@@ -191,8 +328,8 @@ class HamS2OvlpOperators (HamS2Ovlp):
         self._umat_linequiv_loop_(0) # U.conj () @ x
         for inv, group in self.excgroups_s.items (): self._opuniq_x_group_(inv, group)
         self._umat_linequiv_loop_(1) # U.T @ ox
-        self.log.debug1 (self.sprint_profile ())
-        self.log.timer_debug1 ('HamS2OvlpOperators._s2_op', *t0)
+        self.log.debug (self.sprint_profile ())
+        self.log.timer ('HamS2OvlpOperators._s2_op', *t0)
         return self.ox.copy ()
 
     def _opuniq_x_group_(self, inv, group):
@@ -243,12 +380,12 @@ class HamS2OvlpOperators (HamS2Ovlp):
         brakets, bras, braHs = self.get_nonuniq_exc_square (key)
         for bra in bras:
             vec = ovecs[self.ox_ovlp_urootstr (bra, oket, inv)]
-            self.put_ox1_(lib.dot (op, vec.T).ravel (), bra, *inv)
+            self.put_ox1_(op.dot (vec.T).ravel (), bra, *inv)
         if len (braHs):
             op = op.conj ().T
             for bra in braHs:
                 vec = ovecs[self.ox_ovlp_urootstr (bra, obra, inv)]
-                self.put_ox1_(lib.dot (op, vec.T).ravel (), bra, *inv)
+                self.put_ox1_(op.dot (vec.T).ravel (), bra, *inv)
         return
 
     def ox_ovlp_urootstr (self, bra, ket, inv):
@@ -298,7 +435,7 @@ class HamS2OvlpOperators (HamS2Ovlp):
             self.ox[i0:i1] += np.dot (ovlp, self.x[j0:j1])
             self.ox[j0:j1] += np.dot (ovlp.conj ().T, self.x[i0:i1])
         self._umat_linequiv_loop_(1) # U.T @ ox
-        self.log.timer_debug1 ('HamS2OvlpOperators._ovlp_op', *t0)
+        self.log.timer ('HamS2OvlpOperators._ovlp_op', *t0)
         return self.ox.copy ()
 
     def get_ham_op (self):
@@ -318,7 +455,7 @@ class HamS2OvlpOperators (HamS2Ovlp):
         self.ox[:] = 0
         for row in self.exc_1d: self._crunch_hdiag_env_(self._crunch_1d_, *row)
         for row in self.exc_2d: self._crunch_hdiag_env_(self._crunch_2d_, *row)
-        self.log.timer_debug1 ('HamS2OvlpOperators.get_hdiag', *t0)
+        self.log.timer ('HamS2OvlpOperators.get_hdiag', *t0)
         return self.ox.copy ()
 
     def _crunch_hdiag_env_(self, _crunch_fn, *row): 
@@ -327,7 +464,6 @@ class HamS2OvlpOperators (HamS2Ovlp):
             inv = row[2:-1]     
         else:
             inv = row[2:]
-        self._prepare_spec_addr_ovlp_(row[0], row[1], *inv)
         ham, s2, sinv = _crunch_fn (*row)
         sinv = self.inv_unique (sinv)[::-1]
         key = tuple ((row[0], row[1])) + inv
@@ -339,8 +475,6 @@ class HamS2OvlpOperators (HamS2Ovlp):
             hdiag = transpose_sivec_with_slow_fragments (hdiag.ravel (), self.lroots[:,bra], *sinv)
             i, j = self.offs_lroots[bra] 
             self.ox[i:j] += hdiag.ravel ()
-        #ham = self.canonical_operator_order (ham, ninv)
-        #self._put_hdiag_(row[0], row[1], ham, *inv)
 
     def get_hdiag_nonspectator (self, ham, bra, *inv):
         for i in inv:
@@ -366,22 +500,62 @@ class HamS2OvlpOperators (HamS2Ovlp):
             o = o.ravel ()
         return o
 
-    def _put_hdiag_(self, bra, ket, op, *inv):
-        bra_rng = self._get_addr_range (bra, *inv) # profiled as idx
+    def _crunch_2c_(self, bra, ket, i, j, k, l, s2lt, dry_run=False):
+        '''Compute the reduced density matrix elements of a two-electron hop; i.e.,
+
+        <bra|i'(s1)k'(s2)l(s2)j(s1)|ket>
+
+        i.e.,
+
+        j ---s1---> i
+        l ---s2---> k
+
+        with
+
+        s2lt = 0, 1, 2
+        s1   = a, a, b
+        s2   = a, b, b
+
+        and conjugate transpose
+
+        Note that this includes i=k and/or j=l cases, but no other coincident fragment indices. Any
+        other coincident fragment index (that is, any coincident index between the bra and the ket)
+        turns this into one of the other interactions implemented in the above _crunch_ functions:
+        s1 = s2  AND SORT (ik) = SORT (jl)                 : _crunch_1d_ and _crunch_2d_
+        s1 = s2  AND (i = j XOR i = l XOR j = k XOR k = l) : _crunch_1c_ and _crunch_1c1d_
+        s1 != s2 AND (i = l AND j = k)                     : _crunch_1s_
+        s1 != s2 AND (i = l XOR j = k)                     : _crunch_1s1c_
+        '''
+        if (i==k) or (j==l): return super()._crunch_2c_(bra, ket, i, j, k, l, s2lt)
         t0, w0 = logger.process_clock (), logger.perf_counter ()
-        op_nbra = np.prod (op.shape[:op.ndim//2])
-        op_nket = np.prod (op.shape[op.ndim//2:])
-        op = op.reshape (op_nbra, op_nket).diagonal ()
-        op = op + op.conj ()
-        for ix, bra1 in enumerate (bra_rng):
-            bra2, ket2, wgt = self._get_spec_addr_ovlp (bra1, bra1, *inv)
-            idx = (bra2==ket2)
-            t1, w1 = logger.process_clock (), logger.perf_counter ()
-            self.ox[bra2[idx]] += wgt[idx] * op[ix]
-            dt, dw = logger.process_clock () - t1, logger.perf_counter () - w1
-            self.dt_s, self.dw_s = self.dt_s + dt, self.dw_s + dw
+        # s2lt: 0, 1, 2 -> aa, ab, bb
+        # s2: 0, 1, 2, 3 -> aa, ab, ba, bb
+        s2  = (0, 1, 3)[s2lt] # aa, ab, bb
+        s2T = (0, 2, 3)[s2lt] # aa, ba, bb -> when you populate the e1 <-> e2 permutation
+        s11 = s2 // 2
+        s12 = s2 % 2
+        nelec_f_bra = self.nelec_rf[bra]
+        nelec_f_ket = self.nelec_rf[ket]
+        fac = (1,.5)[int ((i,j,s11)==(k,l,s12))] # 1/2 factor of h2 canceled by ijkl <-> klij
+        fac *= (1,-1)[int (i>k)]
+        fac *= fermion_des_shuffle (nelec_f_bra, (i, j, k, l), i)
+        fac *= fermion_des_shuffle (nelec_f_bra, (i, j, k, l), k)
+        fac *= (1,-1)[int (j>l)]
+        fac *= fermion_des_shuffle (nelec_f_ket, (i, j, k, l), j)
+        fac *= fermion_des_shuffle (nelec_f_ket, (i, j, k, l), l)
+        ham = self.get_ham_2q (l,k,j,i).transpose (0,2,3,1) # BEWARE CONJ
+        if s11==s12: # exchange
+            ham -= self.get_ham_2q (l,i,j,k).transpose (0,2,1,3) # BEWARE CONJ
+        ham *= fac
+        d_k = self.ints[k].get_p (bra, ket, s12)
+        d_i = self.ints[i].get_p (bra, ket, s11)
+        d_j = self.ints[j].get_h (bra, ket, s11)
+        d_l = self.ints[l].get_h (bra, ket, s12)
+        ham = OpTerm4Fragments (ham, (l,j,i,k), (d_l, d_j, d_i, d_k), do_crunch=(not dry_run))
+        s2 = None
         dt, dw = logger.process_clock () - t0, logger.perf_counter () - w0
-        #self.dt_p, self.dw_p = self.dt_p + dt, self.dw_p + dw
+        self.dt_2c, self.dw_2c = self.dt_2c + dt, self.dw_2c + dw
+        return ham, s2, (l, j, i, k)
 
 #gen_contract_op_si_hdiag = functools.partial (_fake_gen_contract_op_si_hdiag, ham)
 def gen_contract_op_si_hdiag (las, h1, h2, ci, nelec_frs, soc=0, nlas=None,

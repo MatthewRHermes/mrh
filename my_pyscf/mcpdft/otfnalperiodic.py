@@ -1,5 +1,5 @@
 import numpy as np
-from pyscf.lib import logger
+from pyscf.lib import logger, param
 from pyscf.mcpdft import _dms
 from pyscf.mcpdft.otpd import get_ontop_pair_density
 from pyscf.mcpdft.otfnal import otfnal
@@ -23,7 +23,7 @@ class otfnalperiodic(otfnal):
     Child class to define the otfnal class for periodic systems (Only for 1x1x1 kpts)
     '''
 
-    def energy_ot (ot, casdm1s, casdm2, mo_coeff, ncore, max_memory=2000, hermi=1):
+    def energy_ot (ot, casdm1s, casdm2, mo_coeff, ncore, max_memory=param.MAX_MEMORY, hermi=1):
         '''
         See the docstring of pyscf/mcpdft/otfnal.energy_ot for more information.
         '''

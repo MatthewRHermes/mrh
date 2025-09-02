@@ -2,7 +2,7 @@ import numpy as np
 from scipy import linalg
 from pyscf.fci.direct_spin1 import _unpack_nelec
 from pyscf.fci import cistring
-from pyscf.lib import logger
+from pyscf.lib import logger, issequence
 from pyscf.lo.orth import vec_lowdin
 from pyscf import symm, __config__
 from mrh.my_pyscf.lib.logger import select_log_printer
@@ -394,6 +394,7 @@ class SingleLASRootspace (object):
             row = [ifrag, nelec_norb, sm, irname]
             if lroots is not None: row += [lroots[ifrag]]
             printer (fmt_str.format (*row))
+        printer ('entmap: {}'.format (self.entmap))
 
     def single_fragment_spin_change (self, ifrag, new_smult, new_spin, ci=None):
         smults1 = self.smults.copy ()
@@ -451,6 +452,22 @@ class SingleLASRootspace (object):
         else:
             fcisolver = self.get_fcisolver (ifrag)
         return fcisolver
+
+    def civecs_have_good_spin (self, ifrag=None, ci=None):
+        if ci is None:
+            assert (self.has_ci ())
+            ci = self.ci
+        if ifrag is None:
+            ifrag = list (range (self.nfrag))
+        if issequence (ifrag):
+            result = True
+            for iifrag in ifrag:
+                result = result and self.civecs_have_good_spin (ifrag=iifrag, ci=ci)
+            return result
+        ci = ci[ifrag]
+        t = self.get_fcisolver (ifrag).transformer
+        norm = t.vec_det2csf (ci, return_norm=True)[1]
+        return np.allclose (norm, 1.0)
 
     def get_product_state_solver (self, lroots=None, lweights='gs'):
         fcisolvers = self.get_fcisolvers ()
@@ -534,7 +551,7 @@ def combine_orthogonal_excitations (exc1, exc2, ref, flexible_m=False):
         ref.las, spins, smults, charges, 0, ci=ci,
         nlas=ref.nlas, nelelas=ref.nelelas, stdout=ref.stdout, verbose=ref.verbose
     )
-    product.entmap = tuple (set (exc1.entmap + exc2.entmap))
+    product.entmap = tuple (sorted (list (exc1.entmap + exc2.entmap)))
     #assert (np.amax (product.entmap) < 2)
     assert (len (product.entmap) == len (set (product.entmap)))
     if not flexible_m:

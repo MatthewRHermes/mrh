@@ -1,7 +1,7 @@
 import numpy as np
 from scipy import linalg
 from pyscf import lib
-from pyscf.lib import logger
+from pyscf.lib import logger, param
 from itertools import product
 from mrh.my_pyscf.fci.csf import unpack_h1e_ab
 from mrh.my_pyscf.lassi import citools
@@ -28,8 +28,8 @@ class HamS2Ovlp (stdm.LSTDM):
             Contains 2-electron Hamiltonian amplitudes in second quantization
     '''
     def __init__(self, ints, nlas, lroots, h1, h2, mask_bra_space=None,
-                 mask_ket_space=None, pt_order=None, do_pt_order=None, log=None, max_memory=2000,
-                 dtype=np.float64):
+                 mask_ket_space=None, pt_order=None, do_pt_order=None, log=None,
+                 max_memory=param.MAX_MEMORY, dtype=np.float64):
         stdm.LSTDM.__init__(self, ints, nlas, lroots,
                             mask_bra_space=mask_bra_space, mask_ket_space=mask_ket_space,
                             pt_order=pt_order, do_pt_order=do_pt_order,
@@ -37,6 +37,8 @@ class HamS2Ovlp (stdm.LSTDM):
         if h1.ndim==2: h1 = np.stack ([h1,h1], axis=0)
         self.h1 = np.ascontiguousarray (h1)
         self.h2 = np.ascontiguousarray (h2)
+
+    def _init_buffers_(self): pass
 
     def _add_transpose_(self):
         self.ham += self.ham.conj ().T

@@ -122,3 +122,85 @@ long iexc = 0;
 }
 }
 
+// http://www.isthe.com/chongo/tech/comp/fnv/index.html#FNV-1a
+// ChatGPT also helped me find this...
+uint64_t fnv_1a (long * arr, size_t len) {
+    uint64_t hash = 14695981039346656037ULL; // FNV offset basis
+    uint64_t prime = 1099511628211ULL;       // FNV prime
+
+    for (size_t i = 0; i < len; i++){
+        hash ^= (uint64_t) arr[i];
+        hash *= prime;
+    }
+
+    return hash;
+}
+
+void bubblesort (long * a, size_t len_a)
+{
+    long temp;
+    for (size_t i = 0; i < (len_a-1); i++){
+        for (size_t j = 0; j < (len_a-i-1); j++){
+            if (a[j] > a[j+1]){
+                temp = a[j];
+                a[j] = a[j+1];
+                a[j+1] = temp;
+            }
+        }
+    }
+}
+
+void SCfprint (uint64_t * fprint, uint64_t * fprintLT, long * exc, long * urootstr,
+               const int nfrags, const int exc_nrows, const int exc_ncols,
+               const int urootstr_ncols)
+{
+const long three = 3;
+#pragma omp parallel
+{
+    int nt = omp_get_num_threads ();
+    int it = omp_get_thread_num ();
+    long * fprint_row = malloc (three*nfrags*sizeof(long));
+    long * brastr = fprint_row + nfrags;
+    long * ketstr = brastr + nfrags;
+    long bra, ket;
+    bool trans = false;
+    bool unsorted = true;
+    long * exc_row;
+    long ifrag;
+    int lbra, lket;
+    #pragma omp for schedule(static)
+    for (size_t i = 0; i < exc_nrows; i++){
+        exc_row = exc + i*exc_ncols;
+        bra = exc_row[0];
+        ket = exc_row[1];
+        for (int j = 0; j < nfrags; j++){
+            ifrag = exc_row[j+2];
+            fprint_row[j] = ifrag;
+        }
+        bubblesort (fprint_row, nfrags);
+        trans = false;
+        unsorted = true;
+        for (int j = 0; j < nfrags; j++){
+            ifrag = fprint_row[j];
+            // Double-check data orientation of urootstr
+            brastr[j] = urootstr[(bra*urootstr_ncols) + ifrag];
+            ketstr[j] = urootstr[(ket*urootstr_ncols) + ifrag];
+            if (unsorted && (brastr[j] < ketstr[j])){ trans = true; }
+            if (brastr[j] != ketstr[j]){ unsorted = false; }
+        }
+        fprint[i] = fnv_1a (fprint_row, three*nfrags);
+        if (trans){
+            for (int j = 0; j < nfrags; j++){
+                ifrag = brastr[j];
+                brastr[j] = ketstr[j];
+                ketstr[j] = ifrag;
+            }
+        }
+        fprintLT[i] = fnv_1a (fprint_row, three*nfrags);
+    }
+    free (fprint_row);
+}
+}
+
+
+

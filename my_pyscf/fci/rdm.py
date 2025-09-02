@@ -3,9 +3,19 @@ import math
 import itertools
 from scipy import linalg
 from pyscf import lib
-from pyscf.fci import direct_spin1, rdm
+from pyscf.fci import cistring, rdm
 from pyscf.fci.addons import _unpack_nelec
 from mrh.my_pyscf.fci import dummy
+
+def _unpack(norb, nelec, link_index, spin=None):
+    if link_index is None:  
+        neleca, nelecb = _unpack_nelec(nelec, spin)
+        link_indexa = link_indexb = cistring.gen_linkstr_index(range(norb), neleca)
+        if neleca != nelecb:
+            link_indexb = cistring.gen_linkstr_index(range(norb), nelecb)
+        return link_indexa, link_indexb
+    else:                   
+        return link_index   
 
 def _trans_rdm1hs (cre, cibra, ciket, norb, nelec, spin=0, link_index=None):
     '''Evaluate the one-half-particle transition density matrix between ci vectors in different
@@ -41,14 +51,14 @@ def _trans_rdm1hs (cre, cibra, ciket, norb, nelec, spin=0, link_index=None):
     nelec_ket = _unpack_nelec (nelec)
     nelec_bra = [x for x in nelec]
     nelec_bra[spin] += 1
-    linkstr = direct_spin1._unpack (norb+1, nelec_bra, link_index)
+    linkstr = _unpack (norb+1, nelec_bra, link_index)
     errmsg = ("For the half-particle transition density matrix functions, the linkstr must "
               "be for nelec+1 electrons occupying norb+1 orbitals.")
     for i in range (2): assert (linkstr[i].shape[1]==(nelec_bra[i]*(norb-nelec_bra[i]+2))), errmsg
     ciket = dummy.add_orbital (ciket, norb, nelec_ket, occ_a=(1-spin), occ_b=spin)
     cibra = dummy.add_orbital (cibra, norb, nelec_bra, occ_a=0, occ_b=0)
     fn = ('FCItrans_rdm1a', 'FCItrans_rdm1b')[spin]
-    tdm1h = rdm.make_rdm1_spin1 (fn, cibra, ciket, norb+1, nelec_bra, link_index)[-1,:-1]
+    tdm1h = rdm.make_rdm1_spin1 (fn, cibra, ciket, norb+1, nelec_bra, linkstr)[-1,:-1]
     if not cre: tdm1h = tdm1h.conj ()
     return tdm1h
 
@@ -108,7 +118,7 @@ def _trans_rdm13hs (cre, cibra, ciket, norb, nelec, spin=0, link_index=None, reo
     nelec_ket = _unpack_nelec (nelec)
     nelec_bra = [x for x in nelec]
     nelec_bra[spin] += 1
-    linkstr = direct_spin1._unpack (norb+1, nelec_bra, link_index)
+    linkstr = _unpack (norb+1, nelec_bra, link_index)
     errmsg = ("For the half-particle transition density matrix functions, the linkstr must "
               "be for nelec+1 electrons occupying norb+1 orbitals.")
     for i in range (2): assert (linkstr[i].shape[1]==(nelec_bra[i]*(norb-nelec_bra[i]+2))), errmsg
@@ -116,15 +126,15 @@ def _trans_rdm13hs (cre, cibra, ciket, norb, nelec, spin=0, link_index=None, reo
     cibra = dummy.add_orbital (cibra, norb, nelec_bra, occ_a=0, occ_b=0)
     fn_par = ('FCItdm12kern_a', 'FCItdm12kern_b')[spin]
     fn_ab = 'FCItdm12kern_ab'
-    tdm1h, tdm3h_par = rdm.make_rdm12_spin1 (fn_par, cibra, ciket, norb+1, nelec_bra, link_index, 2)
+    tdm1h, tdm3h_par = rdm.make_rdm12_spin1 (fn_par, cibra, ciket, norb+1, nelec_bra, linkstr, 2)
     if reorder: tdm1h, tdm3h_par = rdm.reorder_rdm (tdm1h, tdm3h_par, inplace=True)
     if spin:
-        tdm3ha = rdm.make_rdm12_spin1 (fn_ab, ciket, cibra, norb+1, nelec_bra, link_index, 0)[1]
+        tdm3ha = rdm.make_rdm12_spin1 (fn_ab, ciket, cibra, norb+1, nelec_bra, linkstr, 0)[1]
         tdm3ha = tdm3ha.transpose (3,2,1,0)
         tdm3hb = tdm3h_par
     else:
         tdm3ha = tdm3h_par
-        tdm3hb = rdm.make_rdm12_spin1 (fn_ab, cibra, ciket, norb+1, nelec_bra, link_index, 0)[1]
+        tdm3hb = rdm.make_rdm12_spin1 (fn_ab, cibra, ciket, norb+1, nelec_bra, linkstr, 0)[1]
     tdm1h = tdm1h[-1,:-1]
     tdm3ha = tdm3ha[:-1,-1,:-1,:-1]
     tdm3hb = tdm3hb[:-1,-1,:-1,:-1]
@@ -177,14 +187,14 @@ def trans_sfudm1 (cibra, ciket, norb, nelec, link_index=None):
     nelec_bra[0] += 1
     nelec_bra[1] -= 1
     nelecd = [nelec_bra[0], nelec_ket[1]]
-    linkstr = direct_spin1._unpack (norb+1, nelecd, link_index)
+    linkstr = _unpack (norb+1, nelecd, link_index)
     errmsg = ("For the spin-flip transition density matrix functions, the linkstr must be for "
               "(neleca+1,nelecb) electrons occupying norb+1 orbitals.")
     for i in range (2): assert (linkstr[i].shape[1]==(nelecd[i]*(norb-nelecd[i]+2))), errmsg
     ciket = dummy.add_orbital (ciket, norb, nelec_ket, occ_a=1, occ_b=0)
     cibra = dummy.add_orbital (cibra, norb, nelec_bra, occ_a=0, occ_b=1)
     fn = 'FCItdm12kern_ab'
-    dm2dum = rdm.make_rdm12_spin1 (fn, ciket, cibra, norb+1, nelecd, link_index, 0)[1]
+    dm2dum = rdm.make_rdm12_spin1 (fn, ciket, cibra, norb+1, nelecd, linkstr, 0)[1]
     sfudm1 = dm2dum[-1,:-1,:-1,-1]
     return -sfudm1
 
@@ -247,7 +257,7 @@ def trans_ppdm (cibra, ciket, norb, nelec, spin=0, link_index=None):
     nelec_bra[s1] += 1
     nelec_bra[s2] += 1
     occ_a, occ_b = int (spin<2), int (spin>0)
-    linkstr = direct_spin1._unpack (norb+ndum, nelec_bra, link_index)
+    linkstr = _unpack (norb+ndum, nelec_bra, link_index)
     errmsg = ("For the pair-creation transition density matrix functions, the linkstr must "
               "be for nelec+2 electrons occupying norb+1/norb+2 (ab/other spin case) orbitals.")
     assert (linkstr[0].shape[1]==(nelec_bra[0]*(norb+ndum-nelec_bra[0]+1))), errmsg
@@ -260,7 +270,7 @@ def trans_ppdm (cibra, ciket, norb, nelec, spin=0, link_index=None):
         cibra = dummy.add_orbital (cibra, norb+i, nelec_bra, occ_a=0, occ_b=0)
     fn = ('FCItdm12kern_a', 'FCItdm12kern_ab', 'FCItdm12kern_b')[spin]
     fac = (2,0,2)[spin]
-    dumdm1, dumdm2 = rdm.make_rdm12_spin1 (fn, cibra, ciket, norb+ndum, nelec_bra, link_index, fac)
+    dumdm1, dumdm2 = rdm.make_rdm12_spin1 (fn, cibra, ciket, norb+ndum, nelec_bra, linkstr, fac)
     if (spin%2)==0: dumdm1, dumdm2 = rdm.reorder_rdm (dumdm1, dumdm2, inplace=True)
     return dumdm2[:-ndum,-1,:-ndum,-ndum]
 

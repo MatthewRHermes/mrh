@@ -31,6 +31,8 @@ def prepare_model_states (lsi, ci_ref, ci_sf, ci_ch):
     log = logger.new_logger (lsi, lsi.verbose)
     las = lsi.get_las_of_ci_ref (ci_ref)
     space0 = list_spaces (las)[0]
+    if not space0.civecs_have_good_spin ():
+        log.warn ("spin-impure reference wfn in LASSIS")
     # Make spin flip objects
     spin_flips = []
     for i in range (las.nfrags):
@@ -46,7 +48,8 @@ def prepare_model_states (lsi, ci_ref, ci_sf, ci_ch):
             smults1.append (smult+2)
             spins1.append (smult+1)
             ci1.append (ci_sf[i][1])
-        spin_flips.append (SpinFlips (las.mol, ci1, space0.nlas[i], space0.nelec[i], spins1, smults1))
+        spin_flip_i = SpinFlips (las.mol, ci1, space0.nlas[i], space0.nelec[i], spins1, smults1)
+        spin_flips.append (spin_flip_i)
     # Make charge-hop objects
     spaces = [space0]
     spaces_ch = [[[] for a in range (lsi.nfrags)] for i in range (lsi.nfrags)]
@@ -120,6 +123,7 @@ def single_excitations_ci (lsi, las2, las1, ci_ch, ncharge=1, sa_heff=True, deac
                            spin_flips=None, crash_locmin=False, ham_2q=None):
     log = logger.new_logger (lsi, lsi.verbose)
     mol = lsi.mol
+    max_memory = getattr (lsi, 'max_memory', mol.max_memory)
     nfrags = lsi.nfrags
     e_roots = np.append (las1.e_states, np.zeros (las2.nroots-las1.nroots))
     spaces = list_spaces (las2)
@@ -184,7 +188,9 @@ def single_excitations_ci (lsi, las2, las1, ci_ch, ncharge=1, sa_heff=True, deac
         psref = [space.get_product_state_solver () for space in psref]
         psexc = ExcitationPSFCISolver (psref, ciref, las2.ncas_sub, las2.nelecas_sub,
                                        stdout=mol.stdout, verbose=mol.verbose,
-                                       crash_locmin=crash_locmin, opt=lsi.opt)
+                                       crash_locmin=crash_locmin, opt=lsi.opt,
+                                       max_memory=getattr (lsi, 'max_memory',
+                                                           mol.max_memory))
         psexc._deactivate_vrv = deactivate_vrv
         norb = spaces[i].nlas
         neleca = spaces[i].neleca
@@ -605,9 +611,10 @@ class LASSIS (LASSI):
         t1 = log.timer ("LASSIS integral transformation", *t0)
 
         with lib.temporary_env (self, _cached_ham_2q=(h0, self.h1_no_SOC(h1), h2)):
-            self.converged = self.prepare_states_(ncharge=ncharge, nspin=nspin,
-                                                  sa_heff=sa_heff, deactivate_vrv=deactivate_vrv,
-                                                  crash_locmin=crash_locmin)
+            self.converged = self.prepare_states_(
+                ncharge=ncharge, nspin=nspin, sa_heff=sa_heff,
+                deactivate_vrv=deactivate_vrv, crash_locmin=crash_locmin
+            )
 
         with lib.temporary_env (self, _cached_ham_2q=(h0, h1, h2)):
             t1 = log.timer ("LASSIS state preparation", *t1)
