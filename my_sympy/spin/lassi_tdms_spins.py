@@ -49,11 +49,26 @@ def cg_product (crops, csf, s_ket, m_ket):
         coeff = coeff * spin_1h.cg (my_s, my_m, t, n)
     return coeff
 
+def normal_order_factor (crops):
+    nperms = 0
+    nskip = 0
+    for spin in crops:
+        if spin==0:
+            nperms += nskip
+        else: nskip += 1
+    factor = (1,-1)[nperms % 2]
+    return factor
+
 class TDMExpression (object):
     def __init__(self, lhs, rhs_coeffs, rhs_terms):
+        fl, lhs = lhs.normal_order ()
         self.lhs = lhs
-        self.rhs_coeffs = rhs_coeffs
-        self.rhs_terms = rhs_terms
+        self.rhs_coeffs = []
+        self.rhs_terms = []
+        for c, t in zip (rhs_coeffs, rhs_terms):
+            fr, tno = t.normal_order ()
+            self.rhs_coeffs.append (fl * fr * c)
+            self.rhs_terms.append (tno)
 
     def __str__(self):
         my_solution = str (self.lhs) + ' = \n   '
@@ -80,12 +95,17 @@ class TDMExpression (object):
         my_latex = my_latex + '\n\\end{' + env.lower () + '}'
         return my_latex
 
+ORBINDICES = 'pqrstuvwxyz'
+
 class CrVector (object):
-    def __init__(self, s_bra, crops, s_ket, m_ket):
+    def __init__(self, s_bra, crops, s_ket, m_ket, indices=None):
+        if indices is None:
+            indices = list (ORBINDICES[:len(crops)])
         dm = Rational (get_d2s_fromarray (crops), 2)
         self.s_bra = s_bra
         self.m_bra = m_ket + dm
         self.crops = crops
+        self.indices = indices
         self.s_ket = s_ket
         self.m_ket = m_ket
 
@@ -110,7 +130,7 @@ class CrVector (object):
 
     def __str__(self):
         s = '<' + str (self.s_bra) + ',' + str (self.m_bra) + '| '
-        for crop, lbl in zip (self.crops, 'pqrstuvwxyz'):
+        for crop, lbl in zip (self.crops, self.indices):
             cr = ('a','b')[crop] + lbl + "' "
             s = s + cr
         s = s + '|' + str (self.s_ket) + ',' + str (self.m_ket) + '>'
@@ -156,22 +176,39 @@ class CrVector (object):
 
     def latex (self):
         my_latex = '\\braket{' + str (self.s_bra) + ',' + str (self.m_bra) + '|'
-        for crop, lbl in zip (self.crops, 'pqrstuvwxyz'):
+        for crop, lbl in zip (self.crops, self.indices):
             cr = ('a','b')[crop]
             my_latex += '\\cr' + cr + 'op{' + lbl + '}'
         my_latex += '|' + str (self.s_ket) + ',' + str (self.m_ket) + '}'
         return my_latex
 
+    def normal_order (self):
+        idx = np.argsort (np.asarray (self.crops), kind='stable')
+        new_crops = [self.crops[ix] for ix in idx]
+        new_indices = [self.indices[ix] for ix in idx]
+        factor = normal_order_factor (self.crops)
+        new_vector = self.normal_order_newvector (new_crops, new_indices)
+        return factor, new_vector
+
+    def normal_order_newvector (self, crops, indices):
+        return CrVector (self.s_bra, crops, self.s_ket, self.m_ket, indices=indices)
+
 class AnVector (CrVector):
-    def __init__(self, s_bra, anops, s_ket, m_ket):
+    '''The idea is that this is a CrVector; we just do I/O in the opposite order'''
+    def __init__(self, s_bra, anops, s_ket, m_ket, indices=None):
+        if indices is None:
+            indices = list (ORBINDICES[:len(anops)])
         dm = Rational (get_d2s_fromarray (anops), 2)
         m_bra = m_ket - dm
         crops = anops[::-1]
-        super().__init__(s_ket, crops, s_bra, m_bra)
+        super().__init__(s_ket, crops, s_bra, m_bra, indices=indices[::-1])
+
+    def normal_order_newvector (self, crops, indices):
+        return AnVector (self.s_ket, crops[::-1], self.s_bra, self.m_bra, indices=indices[::-1])
 
     def __str__(self):
         s = '<' + str (self.s_ket) + ',' + str (self.m_ket) + '| '
-        for crop, lbl in zip (self.crops[::-1], 'pqrstuvwxyz'):
+        for crop, lbl in zip (self.crops[::-1], self.indices[::-1]):
             cr = ('a','b')[crop] + lbl + " "
             s = s + cr
         s = s + '|' + str (self.s_bra) + ',' + str (self.m_bra) + '>'
@@ -188,29 +225,32 @@ class AnVector (CrVector):
 
     def latex (self):
         my_latex = '\\braket{' + str (self.s_ket) + ',' + str (self.m_ket) + '|'
-        for crop, lbl in zip (self.crops[::-1], 'pqrstuvwxyz'):
+        for crop, lbl in zip (self.crops[::-1], self.indices[::-1]):
             cr = ('a','b')[crop]
             my_latex += '\\an' + cr + 'op{' + lbl + '}'
         my_latex += '|' + str (self.s_bra) + ',' + str (self.m_bra) + '}'
         return my_latex
 
 class CrAnOperator (CrVector):
-    def __init__(self, s_bra, crops, anops, s_ket, m_ket):
+    def __init__(self, s_bra, crops, anops, s_ket, m_ket, indices=None):
+        if indices is None:
+            indices = list(ORBINDICES[:len(crops)+len(anops)])
         dm_cr = Rational (get_d2s_fromarray (crops), 2)
         dm_an = Rational (get_d2s_fromarray (anops), 2)
         self.s_bra = s_bra
         self.m_bra = m_ket + dm_cr - dm_an
         self.crops = crops
         self.anops = anops
+        self.indices = indices
         self.s_ket = s_ket
         self.m_ket = m_ket
 
     def __str__(self):
         s = '<' + str (self.s_bra) + ',' + str (self.m_bra) + '| '
-        for crop, lbl in zip (self.crops, 'pqrstuvwxyz'):
+        for crop, lbl in zip (self.crops, self.indices):
             cr = ('a','b')[crop] + lbl + "' "
             s = s + cr
-        for anop, lbl in zip (self.anops, 'pqrstuvwxyz'[len(self.crops):]):
+        for anop, lbl in zip (self.anops, self.indices[len(self.crops):]):
             an = ('a','b')[anop] + lbl + " "
             s = s + an
         s = s + '|' + str (self.s_ket) + ',' + str (self.m_ket) + '>'
@@ -218,9 +258,9 @@ class CrAnOperator (CrVector):
 
     def latex (self):
         my_latex = '\\braket{' + str (self.s_bra) + ',' + str (self.m_bra) + '|'
-        for crop, lbl in zip (self.crops, 'pqrstuvwxyz'):
+        for crop, lbl in zip (self.crops, self.indices):
             my_latex += '\\cr' + ('a','b')[crop] + 'op{' + lbl + '}'
-        for anop, lbl in zip (self.anops, 'pqrstuvwxyz'[len(self.crops):]):
+        for anop, lbl in zip (self.anops, self.indices[len(self.crops):]):
             my_latex += '\\an' + ('a','b')[anop] + 'op{' + lbl + '}'
         my_latex += '|' + str (self.s_ket) + ',' + str (self.m_ket) + '}'
         return my_latex
@@ -275,6 +315,29 @@ class CrAnOperator (CrVector):
         crvecs_spinup = [CrAnOperator (self.s_bra, crop_spinup, anop_spinup, self.s_ket, self.s_ket)
                       for crop_spinup, anop_spinup in zip (crops_spinup, anops_spinup)]
         return crvecs_spinup
+
+    def normal_order (self):
+        idx_cr = list (np.argsort (self.crops, kind='stable'))
+        new_crops = [self.crops[ix] for ix in idx_cr]
+        idx_an = list (np.argsort (-np.asarray (self.anops), kind='stable'))
+        new_anops = [self.anops[ix] for ix in idx_an]
+        cr_indices = self.indices
+        an_indices = self.indices[len(self.crops):]
+        new_indices = [cr_indices[ix] for ix in idx_cr] + [an_indices[ix] for ix in idx_an]
+        factor = normal_order_factor (self.crops) * normal_order_factor (self.anops[::-1])
+        if ((len (self.crops) == 1) and (len (self.anops) == 2) and 
+            (new_crops[0] != new_anops[0])):
+                new_anops = new_anops[::-1]
+                new_indices[1:3] = new_indices[1:3][::-1]
+                factor *= -1
+        if ((len (self.crops) == 2) and (len (self.anops) == 1) and 
+            (new_crops[1] != new_anops[0])):
+                new_crops = new_crops[::-1]
+                new_indices[:2] = new_indices[:2][::-1]
+                factor *= -1
+        new_op = CrAnOperator (self.s_bra, new_crops, new_anops, self.s_ket, self.m_ket,
+                               indices=new_indices)
+        return factor, new_op
 
 def make_B (B_rows, A_cols):
     B = B_rows[0] (A_cols).T
@@ -332,7 +395,7 @@ latex_header = r'''\documentclass[prb,amsmath,amssymb,floatfix,nofootinbib,super
 '''
 
 if __name__=='__main__':
-    print ("============= All creation/all destruction =============")
+    #print ("============= All creation/all destruction =============")
     a = []
     print ("------- Alpha only -------")
     a.append (solve_pure_destruction (-1, [0,], 0, 0))
@@ -353,6 +416,7 @@ if __name__=='__main__':
     print ("\n------- Mixed -------")
     ab.append (solve_pure_destruction (-2, [0,1], 0, 0))
     ab.append (solve_pure_destruction (0, [1,0], 0, 0))
+    ab.append (solve_pure_destruction (0, [0,1], 0, 0))
     ab.append (solve_pure_creation (-2, [0,1], 0, 0))
     for expr in ab: print (expr)
     gamma1 = []
@@ -373,7 +437,9 @@ if __name__=='__main__':
     gamma3h.append (solve_density (-3, [1,], [1,1], 0, 0))
     gamma3h.append (solve_density (0, [0,], [0,0], 1, 1))
     gamma3h.append (solve_density (0, [1,], [1,0], 1, 1))
+    gamma3h.append (solve_density (0, [1,], [0,1], 1, 1))
     gamma3h.append (solve_density (0, [0,], [0,1], 1, 1))
+    gamma3h.append (solve_density (0, [0,], [1,0], 1, 1))
     gamma3h.append (solve_density (0, [1,], [1,1], 1, 1))
     for expr in gamma3h: print (expr)
     gamma2 = []
@@ -383,9 +449,11 @@ if __name__=='__main__':
     gamma2.append (solve_density (4, [1,1], [1,1], 0, 0))
     gamma2.append (solve_density (2, [0,0], [0,0], 0, 0))
     gamma2.append (solve_density (2, [0,1], [1,0], 0, 0))
+    gamma2.append (solve_density (2, [1,0], [0,1], 0, 0))
     gamma2.append (solve_density (2, [1,1], [1,1], 0, 0))
     gamma2.append (solve_density (0, [0,0], [0,0], 0, 0))
     gamma2.append (solve_density (0, [0,1], [1,0], 0, 0))
+    gamma2.append (solve_density (0, [1,0], [0,1], 0, 0))
     gamma2.append (solve_density (0, [1,1], [1,1], 0, 0))
     for expr in gamma2: print (expr)
 
@@ -397,5 +465,13 @@ if __name__=='__main__':
         for expr in all_exprs:
             f.write (expr.latex () + '\n\n')
         f.write ('\n\n\\end{document}')
+
+    # Collect systems of interdependent expressions
+    hh = [ab[1], ab[2]] # <s,m| bp aq |s,m>
+    ph = [gamma1[0], gamma1[1]] # <s,m| ap'aq , bp'bq |s,m>
+    pha = gamma3h[4:7] # <s| cp'cq ar |s+1/2>
+    phb = gamma3h[7:10] # <s| cp'cq br |s+1/2>
+    gamma2_1 = gamma2[3:7] # <s+1| gamma2 |s>
+    gamma2_2 = gamma2[7:11] # <s+2| gamma2 |s>
 
 
