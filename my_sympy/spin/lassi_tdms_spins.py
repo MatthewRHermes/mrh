@@ -49,6 +49,37 @@ def cg_product (crops, csf, s_ket, m_ket):
         coeff = coeff * spin_1h.cg (my_s, my_m, t, n)
     return coeff
 
+class TDMExpression (object):
+    def __init__(self, lhs, rhs_coeffs, rhs_terms):
+        self.lhs = lhs
+        self.rhs_coeffs = rhs_coeffs
+        self.rhs_terms = rhs_terms
+
+    def __str__(self):
+        my_solution = str (self.lhs) + ' = \n   '
+        for c, t in zip (self.rhs_coeffs, self.rhs_terms): 
+            my_solution += ' ' + str (c) + ' * ' + str (t) + '\n + '
+        return my_solution[:-4]
+
+    def latex (self, env='align'):
+        equality = {'align': r''' =& ''',
+                    'equation': r''' = ''',
+                    'eqnarray': r''' &=& ''',}[env.lower ()]
+        my_latex = '\\begin{' + env.lower () + '}\n'
+        my_latex += self.lhs.latex () + equality
+        sum_linker = '\\nonumber \\\\ & '
+        first_term = True
+        for c, t in zip (self.rhs_coeffs, self.rhs_terms):
+            if not first_term:
+                my_latex += sum_linker
+            this_term = sympy.latex (c) + t.latex ()
+            if (not first_term) and (not this_term.startswith ('-')):
+                this_term = '+' + this_term
+            my_latex += this_term
+            first_term = False
+        my_latex = my_latex + '\n\\end{' + env.lower () + '}'
+        return my_latex
+
 class CrVector (object):
     def __init__(self, s_bra, crops, s_ket, m_ket):
         dm = Rational (get_d2s_fromarray (crops), 2)
@@ -96,7 +127,7 @@ class CrVector (object):
         ops_rhs = strs2arrays (csfs, len (self.crops))
         B_rows = self.get_spinupvecs (ops_rhs)
         lvec = [symbols ("l" + str (csf), real=True) for csf in csfs] 
-        lvec_lookup = {l: str (B_row) for l, B_row in zip (lvec, B_rows)}
+        lvec_lookup = {l: B_row for l, B_row in zip (lvec, B_rows)}
         lvec = Matrix (lvec)
         B_rows = [B_row.cg_products for B_row in B_rows]
         return B_rows, lvec, lvec_lookup
@@ -113,17 +144,23 @@ class CrVector (object):
             coeffs += (Ael * xel).simplify ()
         #coeffs = (A.T * xvec)
         #coeffs = coeffs[0]
-        my_solution = str (self) + ' = \n   '
         lvec_symbols = list (lvec_lookup.keys ())
-        lvec_exprs = lvec_lookup.values ()
+        lvec_exprs = list (lvec_lookup.values ())
         coeffs = Poly (coeffs, lvec_symbols).coeffs ()
-        for c, lvec_expr in zip (coeffs, lvec_exprs): 
-            my_solution += ' ' + str (c.simplify ()) + ' * ' + lvec_expr + '\n + '
-        return my_solution[:-4]
+        coeffs = [c.simplify () for c in coeffs]
+        return TDMExpression (self, coeffs, lvec_exprs)
 
     @property
     def H (self):
         return AnVector (self.s_ket, self.crops[::-1], self.s_bra, self.m_bra)
+
+    def latex (self):
+        my_latex = '\\braket{' + str (self.s_bra) + ',' + str (self.m_bra) + '|'
+        for crop, lbl in zip (self.crops, 'pqrstuvwxyz'):
+            cr = ('a','b')[crop]
+            my_latex += '\\cr' + cr + 'op{' + lbl + '}'
+        my_latex += '|' + str (self.s_ket) + ',' + str (self.m_ket) + '}'
+        return my_latex
 
 class AnVector (CrVector):
     def __init__(self, s_bra, anops, s_ket, m_ket):
@@ -149,6 +186,14 @@ class AnVector (CrVector):
     def H (self):
         return CrVector (self.s_bra, self.crops, self.s_ket, self.m_ket)
 
+    def latex (self):
+        my_latex = '\\braket{' + str (self.s_ket) + ',' + str (self.m_ket) + '|'
+        for crop, lbl in zip (self.crops[::-1], 'pqrstuvwxyz'):
+            cr = ('a','b')[crop]
+            my_latex += '\\an' + cr + 'op{' + lbl + '}'
+        my_latex += '|' + str (self.s_bra) + ',' + str (self.m_bra) + '}'
+        return my_latex
+
 class CrAnOperator (CrVector):
     def __init__(self, s_bra, crops, anops, s_ket, m_ket):
         dm_cr = Rational (get_d2s_fromarray (crops), 2)
@@ -170,6 +215,15 @@ class CrAnOperator (CrVector):
             s = s + an
         s = s + '|' + str (self.s_ket) + ',' + str (self.m_ket) + '>'
         return s
+
+    def latex (self):
+        my_latex = '\\braket{' + str (self.s_bra) + ',' + str (self.m_bra) + '|'
+        for crop, lbl in zip (self.crops, 'pqrstuvwxyz'):
+            my_latex += '\\cr' + ('a','b')[crop] + 'op{' + lbl + '}'
+        for anop, lbl in zip (self.anops, 'pqrstuvwxyz'[len(self.crops):]):
+            my_latex += '\\an' + ('a','b')[anop] + 'op{' + lbl + '}'
+        my_latex += '|' + str (self.s_ket) + ',' + str (self.m_ket) + '}'
+        return my_latex
 
     def get_crvec (self, s_res):
         m_res = self.m_bra - Rational (get_d2s_fromarray (self.crops), 2)
@@ -212,7 +266,7 @@ class CrAnOperator (CrVector):
         B_anops = 1 - B_strings[:,ncrops:]
         B_rows = self.get_spinupops (B_crops, B_anops)
         lvec = [symbols ("l" + str (i), real=True) for i in range (len (B_strings))] 
-        lvec_lookup = {l: str (B_row) for l, B_row in zip (lvec, B_rows)}
+        lvec_lookup = {l: B_row for l, B_row in zip (lvec, B_rows)}
         lvec = Matrix (lvec)
         B_rows = [B_row.cg_products for B_row in B_rows]
         return B_rows, lvec, lvec_lookup
@@ -248,51 +302,100 @@ def solve_density (d2s_bra, crops, anops, d2s_ket, d2m_ket):
     lhs = CrAnOperator (s_bra, crops, anops, s_ket, m_ket)
     return lhs.solve ()
 
+latex_header = r'''\documentclass[prb,amsmath,amssymb,floatfix,nofootinbib,superscriptaddress,reprint,onecolumn]{revtex4-1}
+\usepackage{rotating}
+\usepackage{txfonts}
+\usepackage{array}
+\usepackage{bm}
+\usepackage{dcolumn}
+\usepackage{amsmath}
+\usepackage{braket}
+\usepackage{xfrac}
+\DeclareMathOperator*{\argmin}{argmin}
+\DeclareMathOperator*{\argmax}{argmax}
+\newcommand{\crop}[1]{\ensuremath{\hat{c}_{#1}^\dagger}}
+\newcommand{\anop}[1]{\ensuremath{\hat{c}_{#1}}}
+\newcommand{\craop}[1]{\ensuremath{\hat{a}_{#1}^\dagger}}
+\newcommand{\anaop}[1]{\ensuremath{\hat{a}_{#1}}}
+\newcommand{\crbop}[1]{\ensuremath{\hat{b}_{#1}^\dagger}}
+\newcommand{\anbop}[1]{\ensuremath{\hat{b}_{#1}}}
+\newcommand{\crsop}[1]{\ensuremath{\hat{\sigma}_{#1}^\dagger}}
+\newcommand{\ansop}[1]{\ensuremath{\hat{\sigma}_{#1}}}
+\newcommand{\myapprox}[1]{\mathrel{\overset{\makebox[0pt]{\mbox{\normalfont\tiny\sffamily #1}}}{\approx}}}
+%\newcommand{\redsout}[1]{\textcolor{red}{\sout{#1}}}
+\newcommand{\pystrlit}{\textquotesingle\textquotesingle\textquotesingle}
+\newcommand{\spforall}{\ensuremath{\hspace{2mm}\forall\hspace{2mm}}}
+
+
+\begin{document}
+
+'''
+
 if __name__=='__main__':
     print ("============= All creation/all destruction =============")
+    a = []
     print ("------- Alpha only -------")
-    print (solve_pure_destruction (-1, [0,], 0, 0))
-    print (solve_pure_creation (-1, [0,], 0, 0))
-    print (solve_pure_destruction (-2, [0,0], 0, 0))
-    print (solve_pure_destruction (0, [0,0], 0, 0))
-    print (solve_pure_creation (-2, [0,0], 0, 0))
+    a.append (solve_pure_destruction (-1, [0,], 0, 0))
+    a.append (solve_pure_creation (-1, [0,], 0, 0))
+    a.append (solve_pure_destruction (-2, [0,0], 0, 0))
+    a.append (solve_pure_destruction (0, [0,0], 0, 0))
+    a.append (solve_pure_creation (-2, [0,0], 0, 0))
+    for expr in a: print (expr)
+    b = []
     print ("\n------- Beta only -------")
-    print (solve_pure_creation (-1, [1,], 0, 0))
-    print (solve_pure_destruction (-1, [1,], 0, 0))
-    print (solve_pure_creation (-2, [1,1], 0, 0))
-    print (solve_pure_creation (0, [1,1], 0, 0))
-    print (solve_pure_destruction (-2, [1,1], 0, 0))
+    b.append (solve_pure_creation (-1, [1,], 0, 0))
+    b.append (solve_pure_destruction (-1, [1,], 0, 0))
+    b.append (solve_pure_creation (-2, [1,1], 0, 0))
+    b.append (solve_pure_creation (0, [1,1], 0, 0))
+    b.append (solve_pure_destruction (-2, [1,1], 0, 0))
+    for expr in b: print (expr)
+    ab = []
     print ("\n------- Mixed -------")
-    print (solve_pure_destruction (-2, [0,1], 0, 0))
-    print (solve_pure_destruction (0, [1,0], 0, 0))
-    print (solve_pure_creation (-2, [0,1], 0, 0))
+    ab.append (solve_pure_destruction (-2, [0,1], 0, 0))
+    ab.append (solve_pure_destruction (0, [1,0], 0, 0))
+    ab.append (solve_pure_creation (-2, [0,1], 0, 0))
+    for expr in ab: print (expr)
+    gamma1 = []
     print ("\n\n============= One-body density =============")
-    print (solve_density (0, [0,], [0,], 0, 0))
-    print (solve_density (0, [1,], [1,], 0, 0))
-    print (solve_density (-2, [0,], [0,], 0, 0))
-    print (solve_density (-2, [1,], [1,], 0, 0))
-    print (solve_density (-2, [1,], [0,], 0, 0))
-    print (solve_density (0, [1,], [0,], 0, 0))
-    print (solve_density (-2, [0,], [1,], 0, 0))
+    gamma1.append (solve_density (0, [0,], [0,], 0, 0))
+    gamma1.append (solve_density (0, [1,], [1,], 0, 0))
+    gamma1.append (solve_density (-2, [0,], [0,], 0, 0))
+    gamma1.append (solve_density (-2, [1,], [1,], 0, 0))
+    gamma1.append (solve_density (-2, [1,], [0,], 0, 0))
+    gamma1.append (solve_density (0, [1,], [0,], 0, 0))
+    gamma1.append (solve_density (-2, [0,], [1,], 0, 0))
+    for expr in gamma1: print (expr)
+    gamma3h = []
     print ("\n\n============= Three-half-particle operators =============")
-    print (solve_density (-3, [0,], [0,0], 0, 0))
-    print (solve_density (-3, [1,], [1,0], 0, 0))
-    print (solve_density (-3, [0,], [0,1], 0, 0))
-    print (solve_density (-3, [1,], [1,1], 0, 0))
-    print (solve_density (0, [0,], [0,0], 1, 1))
-    print (solve_density (0, [1,], [1,0], 1, 1))
-    print (solve_density (0, [0,], [0,1], 1, 1))
-    print (solve_density (0, [1,], [1,1], 1, 1))
+    gamma3h.append (solve_density (-3, [0,], [0,0], 0, 0))
+    gamma3h.append (solve_density (-3, [1,], [1,0], 0, 0))
+    gamma3h.append (solve_density (-3, [0,], [0,1], 0, 0))
+    gamma3h.append (solve_density (-3, [1,], [1,1], 0, 0))
+    gamma3h.append (solve_density (0, [0,], [0,0], 1, 1))
+    gamma3h.append (solve_density (0, [1,], [1,0], 1, 1))
+    gamma3h.append (solve_density (0, [0,], [0,1], 1, 1))
+    gamma3h.append (solve_density (0, [1,], [1,1], 1, 1))
+    for expr in gamma3h: print (expr)
+    gamma2 = []
     print ("\n\n============= Two-body density =============")
-    print (solve_density (4, [0,0], [0,0], 0, 0))
-    print (solve_density (4, [0,1], [1,0], 0, 0))
-    print (solve_density (4, [1,1], [1,1], 0, 0))
-    print (solve_density (2, [0,0], [0,0], 0, 0))
-    print (solve_density (2, [0,1], [1,0], 0, 0))
-    print (solve_density (2, [1,1], [1,1], 0, 0))
-    print (solve_density (0, [0,0], [0,0], 0, 0))
-    print (solve_density (0, [0,1], [1,0], 0, 0))
-    print (solve_density (0, [1,1], [1,1], 0, 0))
+    gamma2.append (solve_density (4, [0,0], [0,0], 0, 0))
+    gamma2.append (solve_density (4, [0,1], [1,0], 0, 0))
+    gamma2.append (solve_density (4, [1,1], [1,1], 0, 0))
+    gamma2.append (solve_density (2, [0,0], [0,0], 0, 0))
+    gamma2.append (solve_density (2, [0,1], [1,0], 0, 0))
+    gamma2.append (solve_density (2, [1,1], [1,1], 0, 0))
+    gamma2.append (solve_density (0, [0,0], [0,0], 0, 0))
+    gamma2.append (solve_density (0, [0,1], [1,0], 0, 0))
+    gamma2.append (solve_density (0, [1,1], [1,1], 0, 0))
+    for expr in gamma2: print (expr)
 
+    all_exprs = a + b + ab + gamma1 + gamma3h + gamma2
+    import os
+    fname = os.path.splitext (os.path.basename (__file__))[0] + '.tex'
+    with open (fname, 'w') as f:
+        f.write (latex_header)
+        for expr in all_exprs:
+            f.write (expr.latex () + '\n\n')
+        f.write ('\n\n\\end{document}')
 
 
