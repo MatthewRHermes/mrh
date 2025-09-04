@@ -72,6 +72,11 @@ class TDMExpression (object):
             self.rhs_coeffs.append (fl * fr * c)
             self.rhs_terms.append (tno)
 
+    def transpose (self, idx):
+        new_lhs = self.lhs.transpose (idx)
+        new_terms = [t.transpose (idx) for t in self.rhs_terms]
+        return TDMExpression (new_lhs, self.rhs_coeffs, new_terms)
+
     def __str__(self):
         my_solution = str (self.lhs) + ' = \n   '
         for c, t in zip (self.rhs_coeffs, self.rhs_terms): 
@@ -113,7 +118,7 @@ class TDMExpression (object):
 class TDMSystem (object):
     def __init__(self, exprs):
         self._init_from_exprs (exprs)
-        self.simplify_cols_()
+        if len (self.rows) == 1: self.simplify_cols_()
 
     def _init_from_exprs (self, exprs):
         self.exprs = exprs
@@ -220,6 +225,15 @@ class CrVector (object):
         self.indices = indices
         self.s_ket = s_ket
         self.m_ket = m_ket
+
+    def transpose (self, idx):
+        s_bra = self.get_s_bra ()
+        m_ket = self.get_m_ket ()
+        s_ket = self.get_s_ket ()
+        ops = self.get_ops ()
+        indices = self.get_indices ()
+        indices = [indices[i] for i in idx]
+        return self.__class__(s_bra, crops, s_ket, m_ket, indices=indices)
 
     def max_m (self):
         dm = Rational (get_d2s_fromarray (self.crops), 2)
@@ -426,6 +440,16 @@ class CrAnOperator (CrVector):
         self.s_ket = s_ket
         self.m_ket = m_ket
 
+    def transpose (self, idx):
+        s_bra = self.get_s_bra ()
+        s_ket = self.get_s_ket ()
+        m_ket = self.get_m_ket ()
+        crops = self.crops
+        anops = self.anops
+        indices = self.get_indices ()
+        indices = [indices[i] for i in idx]
+        return self.__class__(s_bra, crops, anops, s_ket, m_ket, indices=indices)
+
     def max_m (self):
         dm = Rational (get_d2s_fromarray (self.crops), 2)
         dm -= Rational (get_d2s_fromarray (self.anops), 2)
@@ -548,6 +572,10 @@ class OpSum (CrVector):
         assert (all ([(t.s_ket == terms[0].s_ket) for t in terms]))
         assert (all ([(t.m_bra == terms[0].m_bra) for t in terms]))
         assert (all ([(t.m_ket == terms[0].m_ket) for t in terms]))
+
+    def transpose (self, idx):
+        new_terms = [t.transpose (idx) for t in self.terms]
+        return OpSum (new_terms, self.coeffs)
 
     def subs_m (self, new_m):
         return OpSum ([t.subs_m (new_m) for t in self.terms], self.coeffs)
@@ -724,13 +752,21 @@ if __name__=='__main__':
     gamma2.append (TDMSystem ([solve_density (4, [1,1], [1,1], 0, 0)]))
     gamma2.append (TDMSystem ([solve_density (2, [0,0], [0,0], 0, 0),
                                solve_density (2, [0,1], [1,0], 0, 0),
-                               solve_density (2, [1,0], [0,1], 0, 0),
+                               #solve_density (2, [1,0], [0,1], 0, 0),
+                               solve_density (2, [1,0], [1,0], 0, 0),
                                solve_density (2, [1,1], [1,1], 0, 0)]))
     gamma2.append (TDMSystem ([solve_density (0, [0,0], [0,0], 0, 0),
                                solve_density (0, [0,1], [1,0], 0, 0),
                                solve_density (0, [1,0], [0,1], 0, 0),
                                solve_density (0, [1,1], [1,1], 0, 0)]))
+    #gamma2[-2].exprs.append (gamma2[-2].exprs[1].transpose ((0,1,3,2)))
+    #gamma2[-2].exprs.append (gamma2[-2].exprs[2].transpose ((0,1,3,2)))
+    #gamma2[-2]._init_from_exprs (gamma2[-2].exprs)
+    gamma2[-1].exprs.append (gamma2[-1].exprs[1].transpose ((0,1,3,2)))
+    gamma2[-1].exprs.append (gamma2[-1].exprs[2].transpose ((0,1,3,2)))
+    gamma2[-1]._init_from_exprs (gamma2[-1].exprs)
     for expr in gamma2: print (expr)
+
 
     all_exprs = a + b + ab + gamma1 + gamma3h + gamma2
     same_ops = []
