@@ -1,3 +1,4 @@
+import copy
 import numpy as np
 import sympy
 from mrh.my_sympy.spin import spin_1h
@@ -62,6 +63,7 @@ def normal_order_factor (crops):
 class TDMExpression (object):
     def __init__(self, lhs, rhs_coeffs, rhs_terms):
         fl, lhs = lhs.normal_order ()
+        nl = 1
         self.lhs = lhs
         self.rhs_coeffs = []
         self.rhs_terms = []
@@ -77,12 +79,20 @@ class TDMExpression (object):
         return my_solution[:-4]
 
     def latex (self, env='align'):
+        my_latex = '\\begin{' + env.lower () + '}\n'
+        my_latex += self._latex_line (env=env)
+        my_latex += '\n\\end{' + env.lower () + '}'
+        return my_latex
+
+    def _latex_line (self, env='align'):
         equality = {'align': r''' =& ''',
                     'equation': r''' = ''',
                     'eqnarray': r''' &=& ''',}[env.lower ()]
-        my_latex = '\\begin{' + env.lower () + '}\n'
-        my_latex += self.lhs.latex () + equality
-        sum_linker = '\\nonumber \\\\ & '
+        my_latex = self.lhs.latex () + equality
+        sum_linker = '\\nonumber \\\\ '
+        sum_linker += {'align': r''' & ''',
+                       'equation': "",
+                       'eqnarray': r''' && '''}[env]
         first_term = True
         for c, t in zip (self.rhs_coeffs, self.rhs_terms):
             if not first_term:
@@ -92,8 +102,110 @@ class TDMExpression (object):
                 this_term = '+' + this_term
             my_latex += this_term
             first_term = False
-        my_latex = my_latex + '\n\\end{' + env.lower () + '}'
         return my_latex
+
+    def subs_m (self, new_m):
+        new_lhs = self.lhs.subs_m (new_m)
+        new_terms = [t.subs_m (new_m) for t in self.rhs_terms]
+        new_coeffs = [c.subs (m, new_m) for c in self.rhs_coeffs]
+        return TDMExpression (new_lhs, new_coeffs, new_terms)
+
+class TDMSystem (object):
+    def __init__(self, exprs):
+        self._init_from_exprs (exprs)
+        self.simplify_cols_()
+
+    def _init_from_exprs (self, exprs):
+        self.exprs = exprs
+        self.rows = [expr.lhs for expr in exprs]
+        self.cols = list (set (itertools.chain.from_iterable (
+            [expr.rhs_terms for expr in exprs]
+        )))
+
+    def simplify_cols_ (self):
+        nrows = len (self.rows)
+        ncols = len (self.cols)
+        if (ncols == 1):
+            return self
+        A = self.get_A ()
+        new_terms = []
+        skip = np.zeros (ncols, dtype=bool)
+        for i in range (ncols):
+            new_term = self.cols[i]
+            if skip[i]: continue
+            for j in range (i+1,ncols):
+                if all ([A[k,i]==A[k,j] for k in range (nrows)]):
+                    skip[j] = True
+                    new_term = new_term + self.cols[j]
+                elif all ([A[k,i]==-A[k,j] for k in range (nrows)]):
+                    skip[j] = True
+                    new_term = new_term - self.cols[j]
+            new_terms.append (new_term)
+        skip = list (np.where (~skip)[0])
+        new_A = A.extract (range (nrows), skip)
+        self._init_from_exprs([TDMExpression (lhs, list (new_A.row (i)), new_terms)
+                               for i, lhs in enumerate (self.rows)])
+        return self
+        
+    def __str__(self):
+        return '\n'.join ([str (expr) for expr in self.exprs])
+
+    def latex (self, env='align'):
+        my_latex = '\\begin{' + env.lower () + '}\n'
+        first_term = True
+        row_linker = ' \\\\ \n'
+        for expr in self.exprs:
+            if not first_term: my_latex += row_linker
+            my_latex += expr._latex_line (env=env)
+            first_term = False
+        my_latex += '\n\\end{' + env.lower () + '}'
+        return my_latex
+
+    def same_ops (self):
+        if any ([isinstance (c, OpSum) for c in self.cols]): return False
+        rows_closed = all ([any ([r.cmp_ops (c) for c in self.cols]) for r in self.rows])
+        cols_closed = all ([any ([r.cmp_ops (c) for r in self.rows]) for c in self.cols])
+        return rows_closed and cols_closed
+
+    def get_A (self):
+        A = []
+        for row, expr in zip (self.rows, self.exprs):
+            Arow = []
+            rhs_hashes = [hash (term) for term in expr.rhs_terms]
+            for col in self.cols:
+                if hash (col) in rhs_hashes:
+                    Arow.append (expr.rhs_coeffs[rhs_hashes.index (hash(col))])
+                else:
+                    Arow.append (S(0))
+            A.append (Arow)
+        return Matrix (A)
+
+    def inv (self):
+        try:
+            Ainv = self.get_A ().inv ()
+        except Exception as err:
+            # Try Moore-Penrose left pseudoinverse
+            A = self.get_A ()
+            AHA = A.H * A
+            try:
+                Ainv = AHA.inv ()
+            except Exception as err:
+                print ("A:", A)
+                print ("AHA:", AHA)
+                raise (err)
+        rhs_terms = self.rows
+        invexprs = []
+        for i, lhs in enumerate (self.cols):
+            rhs_coeffs = [el.simplify () for el in Ainv.row (i)]
+            invexprs.append (TDMExpression (lhs, list (rhs_coeffs), rhs_terms))
+        return TDMSystem (invexprs)
+
+    def subs_m (self, new_m):
+        new_exprs = [e.subs_m (new_m) for e in self.exprs]
+        return TDMSystem (new_exprs)
+
+    def subs_m_max (self):
+        return self.subs_m (min ([r.max_m () for r in self.rows]))
 
 ORBINDICES = 'pqrstuvwxyz'
 
@@ -108,6 +220,41 @@ class CrVector (object):
         self.indices = indices
         self.s_ket = s_ket
         self.m_ket = m_ket
+
+    def max_m (self):
+        dm = Rational (get_d2s_fromarray (self.crops), 2)
+        new_m_ket = min (self.s_ket, self.s_bra - dm)
+        a, b = Poly (self.m_ket, m).all_coeffs ()
+        return (new_m_ket - b) / a
+
+    def subs_m (self, new_m):
+        s_bra, ops, s_ket = self.get_s_bra (), self.get_ops (), self.get_s_ket ()
+        indices = self.get_indices ()
+        m_ket = self.get_m_ket ().subs (m, new_m)
+        return self.__class__(s_bra, ops, s_ket, m_ket, indices=indices)
+
+    def get_ops (self): return list(self.crops)
+    def get_indices (self): return list(self.indices)
+    def get_s_bra (self): return self.s_bra
+    def get_s_ket (self): return self.s_ket
+    def get_m_bra (self): return self.m_bra
+    def get_m_ket (self): return self.m_ket
+    def get_sum_coeff (self): return [1,]
+    def get_sum_terms (self): return [self,]
+
+    def cmp_ops (self, other):
+        sops, sidx = self.get_ops (), self.get_indices ()
+        oops, oidx = other.get_ops (), self.get_indices ()
+        if len (sops) != len (oops): return False
+        if len (sidx) != len (oidx): return False
+        return all ([x==y for x, y in zip (sops+sidx,oops+oidx)])
+
+    def __hash__(self):
+        return hash ((0,self.s_bra,self.s_ket,self.m_ket)
+                     + tuple (self.crops) + tuple (self.indices))
+
+    def __eq__(self, other):
+        return (hash (self) == hash (other))
 
     def get_strings (self):
         '''These strings simultaneously represent
@@ -129,11 +276,16 @@ class CrVector (object):
         return crvecs_spinup
 
     def __str__(self):
-        s = '<' + str (self.s_bra) + ',' + str (self.m_bra) + '| '
-        for crop, lbl in zip (self.crops, self.indices):
+        s = '<' + str (self.get_s_bra()) + ',' + str (self.get_m_bra()) + '| '
+        s = s + self._str_op ()
+        s = s + '|' + str (self.get_s_ket()) + ',' + str (self.get_m_ket()) + '>'
+        return s
+
+    def _str_op (self):
+        s = ''
+        for crop, lbl in zip (self.get_ops (), self.get_indices ()):
             cr = ('a','b')[crop] + lbl + "' "
             s = s + cr
-        s = s + '|' + str (self.s_ket) + ',' + str (self.m_ket) + '>'
         return s
 
     def get_A (self, A_cols):
@@ -175,11 +327,16 @@ class CrVector (object):
         return AnVector (self.s_ket, self.crops[::-1], self.s_bra, self.m_bra)
 
     def latex (self):
-        my_latex = '\\braket{' + str (self.s_bra) + ',' + str (self.m_bra) + '|'
-        for crop, lbl in zip (self.crops, self.indices):
+        my_latex = '\\braket{' + str (self.get_s_bra()) + ',' + str (self.get_m_bra()) + '|'
+        my_latex += self._latex_op ()
+        my_latex += '|' + str (self.get_s_ket()) + ',' + str (self.get_m_ket()) + '}'
+        return my_latex
+
+    def _latex_op (self):
+        my_latex = ''
+        for crop, lbl in zip (self.get_ops (), self.get_indices ()):
             cr = ('a','b')[crop]
             my_latex += '\\cr' + cr + 'op{' + lbl + '}'
-        my_latex += '|' + str (self.s_ket) + ',' + str (self.m_ket) + '}'
         return my_latex
 
     def normal_order (self):
@@ -193,6 +350,20 @@ class CrVector (object):
     def normal_order_newvector (self, crops, indices):
         return CrVector (self.s_bra, crops, self.s_ket, self.m_ket, indices=indices)
 
+    def __add__(self, other):
+        c0 = self.get_sum_coeff ()
+        c1 = other.get_sum_coeff ()
+        t0 = self.get_sum_terms ()
+        t1 = other.get_sum_terms ()
+        return OpSum (t0+t1,c0+c1)
+
+    def __sub__(self, other):
+        c0 = self.get_sum_coeff ()
+        c1 = [-c for c in other.get_sum_coeff ()]
+        t0 = self.get_sum_terms ()
+        t1 = other.get_sum_terms ()
+        return OpSum (t0+t1,c0+c1)
+
 class AnVector (CrVector):
     '''The idea is that this is a CrVector; we just do I/O in the opposite order'''
     def __init__(self, s_bra, anops, s_ket, m_ket, indices=None):
@@ -203,15 +374,26 @@ class AnVector (CrVector):
         crops = anops[::-1]
         super().__init__(s_ket, crops, s_bra, m_bra, indices=indices[::-1])
 
+
+    def get_ops (self): return list(self.crops[::-1])
+    def get_indices (self): return list(self.indices[::-1])
+    def get_s_bra (self): return self.s_ket
+    def get_s_ket (self): return self.s_bra
+    def get_m_bra (self): return self.m_ket
+    def get_m_ket (self): return self.m_bra
+
+    def __hash__(self):
+        return hash ((1,self.s_bra,self.s_ket,self.m_ket)
+                     + tuple (self.crops) + tuple (self.indices))
+
     def normal_order_newvector (self, crops, indices):
         return AnVector (self.s_ket, crops[::-1], self.s_bra, self.m_bra, indices=indices[::-1])
 
-    def __str__(self):
-        s = '<' + str (self.s_ket) + ',' + str (self.m_ket) + '| '
-        for crop, lbl in zip (self.crops[::-1], self.indices[::-1]):
+    def _str_op (self):
+        s = ''
+        for crop, lbl in zip (self.get_ops (), self.get_indices ()):
             cr = ('a','b')[crop] + lbl + " "
             s = s + cr
-        s = s + '|' + str (self.s_bra) + ',' + str (self.m_bra) + '>'
         return s
 
     def get_spinupvecs (self, anops_spinup):
@@ -223,12 +405,11 @@ class AnVector (CrVector):
     def H (self):
         return CrVector (self.s_bra, self.crops, self.s_ket, self.m_ket)
 
-    def latex (self):
-        my_latex = '\\braket{' + str (self.s_ket) + ',' + str (self.m_ket) + '|'
-        for crop, lbl in zip (self.crops[::-1], self.indices[::-1]):
+    def _latex_op (self):
+        my_latex = ''
+        for crop, lbl in zip (self.get_ops (), self.get_indices ()):
             cr = ('a','b')[crop]
             my_latex += '\\an' + cr + 'op{' + lbl + '}'
-        my_latex += '|' + str (self.s_bra) + ',' + str (self.m_bra) + '}'
         return my_latex
 
 class CrAnOperator (CrVector):
@@ -245,24 +426,44 @@ class CrAnOperator (CrVector):
         self.s_ket = s_ket
         self.m_ket = m_ket
 
-    def __str__(self):
-        s = '<' + str (self.s_bra) + ',' + str (self.m_bra) + '| '
+    def max_m (self):
+        dm = Rational (get_d2s_fromarray (self.crops), 2)
+        dm -= Rational (get_d2s_fromarray (self.anops), 2)
+        new_m_ket = min (self.s_ket, self.s_bra - dm)
+        a, b = Poly (self.m_ket, m).all_coeffs ()
+        return (new_m_ket - b) / a
+
+    def subs_m (self, new_m):
+        s_bra, s_ket = self.get_s_bra (), self.get_s_ket ()
+        indices = self.get_indices ()
+        crops = self.crops
+        anops = self.anops
+        m_ket = self.get_m_ket ().subs (m, new_m)
+        return self.__class__(s_bra, crops, anops, s_ket, m_ket, indices=indices)
+
+    def get_ops (self): return list(self.crops) + list(self.anops)
+    def get_indices (self): return list(self.indices)
+
+    def __hash__(self):
+        return hash ((2,len(self.crops),len(self.anops),self.s_bra,self.s_ket,self.m_ket)
+                     + tuple (self.crops) + tuple (self.anops) + tuple (self.indices))
+
+    def _str_op(self):
+        s = ''
         for crop, lbl in zip (self.crops, self.indices):
             cr = ('a','b')[crop] + lbl + "' "
             s = s + cr
         for anop, lbl in zip (self.anops, self.indices[len(self.crops):]):
             an = ('a','b')[anop] + lbl + " "
             s = s + an
-        s = s + '|' + str (self.s_ket) + ',' + str (self.m_ket) + '>'
         return s
 
-    def latex (self):
-        my_latex = '\\braket{' + str (self.s_bra) + ',' + str (self.m_bra) + '|'
+    def _latex_op (self):
+        my_latex = ''
         for crop, lbl in zip (self.crops, self.indices):
             my_latex += '\\cr' + ('a','b')[crop] + 'op{' + lbl + '}'
         for anop, lbl in zip (self.anops, self.indices[len(self.crops):]):
             my_latex += '\\an' + ('a','b')[anop] + 'op{' + lbl + '}'
-        my_latex += '|' + str (self.s_ket) + ',' + str (self.m_ket) + '}'
         return my_latex
 
     def get_crvec (self, s_res):
@@ -339,6 +540,80 @@ class CrAnOperator (CrVector):
                                indices=new_indices)
         return factor, new_op
 
+class OpSum (CrVector):
+    def __init__(self, terms, coeffs):
+        self.terms = terms
+        self.coeffs = coeffs
+        assert (all ([(t.s_bra == terms[0].s_bra) for t in terms]))
+        assert (all ([(t.s_ket == terms[0].s_ket) for t in terms]))
+        assert (all ([(t.m_bra == terms[0].m_bra) for t in terms]))
+        assert (all ([(t.m_ket == terms[0].m_ket) for t in terms]))
+
+    def subs_m (self, new_m):
+        return OpSum ([t.subs_m (new_m) for t in self.terms], self.coeffs)
+
+    def get_s_bra (self): return self.terms[0].s_bra
+    def get_s_ket (self): return self.terms[0].s_ket
+    def get_m_bra (self): return self.terms[0].m_bra
+    def get_m_ket (self): return self.terms[0].m_ket
+    def get_sum_coeff (self): return self.coeffs
+    def get_sum_terms (self): return self.terms
+
+    def __hash__(self):
+        return hash (tuple ((3,len(self.terms))) + tuple ((hash (t) for t in self.terms)))
+
+    def _str_op(self):
+        if self.coeffs[0] == -1:
+            s = '-'
+        elif self.coeffs[0] != 1:
+            s = str (self.coeffs[0])
+        else:
+            s = ''
+        s += self.terms[0]._str_op ()
+        for c, t in zip (self.coeffs[1:], self.terms[1:]):
+            if c < 0:
+                s += ' - '
+            else:
+                s += ' + '
+            if abs (c) == 1:
+                s += t._str_op ()
+            else:
+                s += str (c) + t._str_op ()
+        return s
+
+    def _latex_op (self):
+        if self.coeffs[0] == -1:
+            s = '-'
+        elif self.coeffs[0] != 1:
+            s = str (self.coeffs[0])
+        else:
+            s = ''
+        s += self.terms[0]._latex_op ()
+        for c, t in zip (self.coeffs[1:], self.terms[1:]):
+            if c < 0:
+                s += ' - '
+            else:
+                s += ' + '
+            if abs (c) == 1:
+                s += t._latex_op ()
+            else:
+                s += str (c) + t._latex_op ()
+        s += ')'
+        return s
+
+    def normal_order (self):
+        new_coeffs = []
+        new_terms = []
+        for c, t in zip (self.coeffs, self.terms):
+            nc, nt = t.normal_order ()
+            new_terms.append (t)
+            new_coeffs.append (c*nc)
+        f = 1
+        if new_coeffs[0] < 0:
+            f = -1
+            new_coeffs = [-c for c in new_coeffs]
+        return f, OpSum (new_terms, new_coeffs)
+        
 def make_B (B_rows, A_cols):
     B = B_rows[0] (A_cols).T
     for i, B_row in enumerate (B_rows[1:]):
@@ -398,80 +673,107 @@ if __name__=='__main__':
     #print ("============= All creation/all destruction =============")
     a = []
     print ("------- Alpha only -------")
-    a.append (solve_pure_destruction (-1, [0,], 0, 0))
-    a.append (solve_pure_creation (-1, [0,], 0, 0))
-    a.append (solve_pure_destruction (-2, [0,0], 0, 0))
-    a.append (solve_pure_destruction (0, [0,0], 0, 0))
-    a.append (solve_pure_creation (-2, [0,0], 0, 0))
+    a.append (TDMSystem ([solve_pure_destruction (-1, [0,], 0, 0)]))
+    a.append (TDMSystem ([solve_pure_creation (-1, [0,], 0, 0)]))
+    a.append (TDMSystem ([solve_pure_destruction (-2, [0,0], 0, 0)]))
+    a.append (TDMSystem ([solve_pure_destruction (0, [0,0], 0, 0)]))
+    a.append (TDMSystem ([solve_pure_creation (-2, [0,0], 0, 0)]))
     for expr in a: print (expr)
     b = []
     print ("\n------- Beta only -------")
-    b.append (solve_pure_creation (-1, [1,], 0, 0))
-    b.append (solve_pure_destruction (-1, [1,], 0, 0))
-    b.append (solve_pure_creation (-2, [1,1], 0, 0))
-    b.append (solve_pure_creation (0, [1,1], 0, 0))
-    b.append (solve_pure_destruction (-2, [1,1], 0, 0))
+    b.append (TDMSystem ([solve_pure_creation (-1, [1,], 0, 0)]))
+    b.append (TDMSystem ([solve_pure_destruction (-1, [1,], 0, 0)]))
+    b.append (TDMSystem ([solve_pure_creation (-2, [1,1], 0, 0)]))
+    b.append (TDMSystem ([solve_pure_creation (0, [1,1], 0, 0)]))
+    b.append (TDMSystem ([solve_pure_destruction (-2, [1,1], 0, 0)]))
     for expr in b: print (expr)
     ab = []
     print ("\n------- Mixed -------")
-    ab.append (solve_pure_destruction (-2, [0,1], 0, 0))
-    ab.append (solve_pure_destruction (0, [1,0], 0, 0))
-    ab.append (solve_pure_destruction (0, [0,1], 0, 0))
-    ab.append (solve_pure_creation (-2, [0,1], 0, 0))
+    ab.append (TDMSystem ([solve_pure_destruction (-2, [0,1], 0, 0)]))
+    ab.append (TDMSystem ([solve_pure_destruction (0, [1,0], 0, 0),
+                           solve_pure_destruction (0, [0,1], 0, 0)]))
+    ab.append (TDMSystem ([solve_pure_creation (-2, [0,1], 0, 0)]))
     for expr in ab: print (expr)
     gamma1 = []
     print ("\n\n============= One-body density =============")
-    gamma1.append (solve_density (0, [0,], [0,], 0, 0))
-    gamma1.append (solve_density (0, [1,], [1,], 0, 0))
-    gamma1.append (solve_density (-2, [0,], [0,], 0, 0))
-    gamma1.append (solve_density (-2, [1,], [1,], 0, 0))
-    gamma1.append (solve_density (-2, [1,], [0,], 0, 0))
-    gamma1.append (solve_density (0, [1,], [0,], 0, 0))
-    gamma1.append (solve_density (-2, [0,], [1,], 0, 0))
+    gamma1.append (TDMSystem ([solve_density (0, [0,], [0,], 0, 0),
+                               solve_density (0, [1,], [1,], 0, 0)]))
+    gamma1.append (TDMSystem ([solve_density (-2, [0,], [0,], 0, 0)]))
+    gamma1.append (TDMSystem ([solve_density (-2, [1,], [1,], 0, 0)]))
+    gamma1.append (TDMSystem ([solve_density (-2, [1,], [0,], 0, 0)]))
+    gamma1.append (TDMSystem ([solve_density (0, [1,], [0,], 0, 0)]))
+    gamma1.append (TDMSystem ([solve_density (-2, [0,], [1,], 0, 0)]))
     for expr in gamma1: print (expr)
     gamma3h = []
     print ("\n\n============= Three-half-particle operators =============")
-    gamma3h.append (solve_density (-3, [0,], [0,0], 0, 0))
-    gamma3h.append (solve_density (-3, [1,], [1,0], 0, 0))
-    gamma3h.append (solve_density (-3, [0,], [0,1], 0, 0))
-    gamma3h.append (solve_density (-3, [1,], [1,1], 0, 0))
-    gamma3h.append (solve_density (0, [0,], [0,0], 1, 1))
-    gamma3h.append (solve_density (0, [1,], [1,0], 1, 1))
-    gamma3h.append (solve_density (0, [1,], [0,1], 1, 1))
-    gamma3h.append (solve_density (0, [0,], [0,1], 1, 1))
-    gamma3h.append (solve_density (0, [0,], [1,0], 1, 1))
-    gamma3h.append (solve_density (0, [1,], [1,1], 1, 1))
+    gamma3h.append (TDMSystem ([solve_density (-3, [0,], [0,0], 0, 0)]))
+    gamma3h.append (TDMSystem ([solve_density (-3, [1,], [1,0], 0, 0)]))
+    gamma3h.append (TDMSystem ([solve_density (-3, [0,], [0,1], 0, 0)]))
+    gamma3h.append (TDMSystem ([solve_density (-3, [1,], [1,1], 0, 0)]))
+    gamma3h.append (TDMSystem ([solve_density (0, [0,], [0,0], 1, 1),
+                                solve_density (0, [1,], [1,0], 1, 1),
+                                solve_density (0, [1,], [0,1], 1, 1)]))
+    gamma3h.append (TDMSystem ([solve_density (0, [0,], [0,1], 1, 1),
+                                solve_density (0, [0,], [1,0], 1, 1),
+                                solve_density (0, [1,], [1,1], 1, 1)]))
     for expr in gamma3h: print (expr)
     gamma2 = []
     print ("\n\n============= Two-body density =============")
-    gamma2.append (solve_density (4, [0,0], [0,0], 0, 0))
-    gamma2.append (solve_density (4, [0,1], [1,0], 0, 0))
-    gamma2.append (solve_density (4, [1,1], [1,1], 0, 0))
-    gamma2.append (solve_density (2, [0,0], [0,0], 0, 0))
-    gamma2.append (solve_density (2, [0,1], [1,0], 0, 0))
-    gamma2.append (solve_density (2, [1,0], [0,1], 0, 0))
-    gamma2.append (solve_density (2, [1,1], [1,1], 0, 0))
-    gamma2.append (solve_density (0, [0,0], [0,0], 0, 0))
-    gamma2.append (solve_density (0, [0,1], [1,0], 0, 0))
-    gamma2.append (solve_density (0, [1,0], [0,1], 0, 0))
-    gamma2.append (solve_density (0, [1,1], [1,1], 0, 0))
+    gamma2.append (TDMSystem ([solve_density (4, [0,0], [0,0], 0, 0)]))
+    gamma2.append (TDMSystem ([solve_density (4, [0,1], [1,0], 0, 0)]))
+    gamma2.append (TDMSystem ([solve_density (4, [1,1], [1,1], 0, 0)]))
+    gamma2.append (TDMSystem ([solve_density (2, [0,0], [0,0], 0, 0),
+                               solve_density (2, [0,1], [1,0], 0, 0),
+                               solve_density (2, [1,0], [0,1], 0, 0),
+                               solve_density (2, [1,1], [1,1], 0, 0)]))
+    gamma2.append (TDMSystem ([solve_density (0, [0,0], [0,0], 0, 0),
+                               solve_density (0, [0,1], [1,0], 0, 0),
+                               solve_density (0, [1,0], [0,1], 0, 0),
+                               solve_density (0, [1,1], [1,1], 0, 0)]))
     for expr in gamma2: print (expr)
 
     all_exprs = a + b + ab + gamma1 + gamma3h + gamma2
+    same_ops = []
+    diff_ops = []
+    for expr in all_exprs:
+        if expr.same_ops ():
+            same_ops.append (expr)
+        else:
+            diff_ops.append (expr)
+
     import os
     fname = os.path.splitext (os.path.basename (__file__))[0] + '.tex'
     with open (fname, 'w') as f:
         f.write (latex_header)
-        for expr in all_exprs:
+        f.write ('\\section{same ops}\n')
+        for expr in same_ops:
             f.write (expr.latex () + '\n\n')
+        f.write ('\\section{diff ops}\n')
+        for expr in diff_ops:
+            f.write (expr.latex () + '\n\n')
+
+    sub_ops = []
+    print ("\n\n============= substitutions  =============")
+    with open (fname, 'a') as f:
+        f.write ('\\section{substitutions}\n')
+        for op in diff_ops:
+            op1 = op.subs_m_max ()
+            print (op1)
+            f.write (op1.latex () + '\n\n')
+            sub_ops.append (op1)
+        f.write ('\\section{inverses}\n')
+
+    sub_ops_inv = []
+    print ("\n\n============= inverses  =============")
+    for op in sub_ops:
+        try:
+            opinv = op.inv ()
+            sub_ops_inv.append (opinv)
+            print (opinv)
+            with open (fname, 'a') as f:
+                f.write (opinv.latex () + '\n\n')
+        except Exception as err:
+            print ("Couldn't invert:", err)
+    with open (fname, 'a') as f:
         f.write ('\n\n\\end{document}')
-
-    # Collect systems of interdependent expressions
-    hh = [ab[1], ab[2]] # <s,m| bp aq |s,m>
-    ph = [gamma1[0], gamma1[1]] # <s,m| ap'aq , bp'bq |s,m>
-    pha = gamma3h[4:7] # <s| cp'cq ar |s+1/2>
-    phb = gamma3h[7:10] # <s| cp'cq br |s+1/2>
-    gamma2_1 = gamma2[3:7] # <s+1| gamma2 |s>
-    gamma2_2 = gamma2[7:11] # <s+2| gamma2 |s>
-
 
