@@ -388,6 +388,7 @@ class CrVector (object):
                 ci += c0[t0.index (ti)]
             if ti in t1:
                 ci += c1[t1.index (ti)]
+            c2.append (ci)
         #return OpSum (t0+t1,c0+c1)
         return OpSum (t2, c2)
 
@@ -404,6 +405,7 @@ class CrVector (object):
                 ci += c0[t0.index (ti)]
             if ti in t1:
                 ci += c1[t1.index (ti)]
+            c2.append (ci)
         #return OpSum (t0+t1,c0+c1)
         return OpSum (t2, c2)
 
