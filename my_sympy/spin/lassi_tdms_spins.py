@@ -116,9 +116,20 @@ class TDMExpression (object):
         return TDMExpression (new_lhs, new_coeffs, new_terms)
 
 class TDMSystem (object):
-    def __init__(self, exprs):
+    def __init__(self, exprs, _try_inverse=True):
         self._init_from_exprs (exprs)
         if len (self.rows) == 1: self.simplify_cols_()
+        if _try_inverse and (not self.same_ops ()):
+            A = self.get_A ()
+            op_B = self.subs_m_max ().inv ()
+            new_A = A * op_B.get_A ()
+            rows = self.rows
+            cols = op_B.cols
+            new_exprs = []
+            for i, lhs in enumerate (rows):
+                new_row = [el.simplify () for el in new_A.row (i)]
+                new_exprs.append (TDMExpression (lhs, new_row, cols))
+            self._init_from_exprs (new_exprs)
 
     def _init_from_exprs (self, exprs):
         self.exprs = exprs
@@ -203,11 +214,11 @@ class TDMSystem (object):
         for i, lhs in enumerate (self.cols):
             rhs_coeffs = [el.simplify () for el in Ainv.row (i)]
             invexprs.append (TDMExpression (lhs, list (rhs_coeffs), rhs_terms))
-        return TDMSystem (invexprs)
+        return TDMSystem (invexprs, _try_inverse=False)
 
     def subs_m (self, new_m):
         new_exprs = [e.subs_m (new_m) for e in self.exprs]
-        return TDMSystem (new_exprs)
+        return TDMSystem (new_exprs, _try_inverse=False)
 
     def subs_m_max (self):
         return self.subs_m (min ([r.max_m () for r in self.rows]))
@@ -769,47 +780,15 @@ if __name__=='__main__':
 
 
     all_exprs = a + b + ab + gamma1 + gamma3h + gamma2
-    same_ops = []
-    diff_ops = []
-    for expr in all_exprs:
-        if expr.same_ops ():
-            same_ops.append (expr)
-        else:
-            diff_ops.append (expr)
 
     import os
     fname = os.path.splitext (os.path.basename (__file__))[0] + '.tex'
     with open (fname, 'w') as f:
         f.write (latex_header)
-        f.write ('\\section{same ops}\n')
-        for expr in same_ops:
-            f.write (expr.latex () + '\n\n')
-        f.write ('\\section{diff ops}\n')
-        for expr in diff_ops:
+        f.write ('\\section{Read relationships}\n')
+        for expr in all_exprs:
             f.write (expr.latex () + '\n\n')
 
-    sub_ops = []
-    print ("\n\n============= substitutions  =============")
-    with open (fname, 'a') as f:
-        f.write ('\\section{substitutions}\n')
-        for op in diff_ops:
-            op1 = op.subs_m_max ()
-            print (op1)
-            f.write (op1.latex () + '\n\n')
-            sub_ops.append (op1)
-        f.write ('\\section{inverses}\n')
-
-    sub_ops_inv = []
-    print ("\n\n============= inverses  =============")
-    for op in sub_ops:
-        try:
-            opinv = op.inv ()
-            sub_ops_inv.append (opinv)
-            print (opinv)
-            with open (fname, 'a') as f:
-                f.write (opinv.latex () + '\n\n')
-        except Exception as err:
-            print ("Couldn't invert:", err)
     with open (fname, 'a') as f:
         f.write ('\n\n\\end{document}')
 
