@@ -380,14 +380,32 @@ class CrVector (object):
         c1 = other.get_sum_coeff ()
         t0 = self.get_sum_terms ()
         t1 = other.get_sum_terms ()
-        return OpSum (t0+t1,c0+c1)
+        t2 = list (set (t0+t1))
+        c2 = []
+        for ti in t2:
+            ci = 0
+            if ti in t0:
+                ci += c0[t0.index (ti)]
+            if ti in t1:
+                ci += c1[t1.index (ti)]
+        #return OpSum (t0+t1,c0+c1)
+        return OpSum (t2, c2)
 
     def __sub__(self, other):
         c0 = self.get_sum_coeff ()
         c1 = [-c for c in other.get_sum_coeff ()]
         t0 = self.get_sum_terms ()
         t1 = other.get_sum_terms ()
-        return OpSum (t0+t1,c0+c1)
+        t2 = list (set (t0+t1))
+        c2 = []
+        for ti in t2:
+            ci = 0
+            if ti in t0:
+                ci += c0[t0.index (ti)]
+            if ti in t1:
+                ci += c1[t1.index (ti)]
+        #return OpSum (t0+t1,c0+c1)
+        return OpSum (t2, c2)
 
 class AnVector (CrVector):
     '''The idea is that this is a CrVector; we just do I/O in the opposite order'''
@@ -769,25 +787,41 @@ if __name__=='__main__':
     gamma2.append (TDMSystem ([solve_density (0, [0,0], [0,0], 0, 0),
                                solve_density (0, [0,1], [1,0], 0, 0),
                                solve_density (0, [1,0], [0,1], 0, 0),
-                               solve_density (0, [1,1], [1,1], 0, 0)]))
+                               solve_density (0, [1,1], [1,1], 0, 0)],
+                              _try_inverse=False))
     #gamma2[-2].exprs.append (gamma2[-2].exprs[1].transpose ((0,1,3,2)))
     #gamma2[-2].exprs.append (gamma2[-2].exprs[2].transpose ((0,1,3,2)))
     #gamma2[-2]._init_from_exprs (gamma2[-2].exprs)
-    gamma2[-1].exprs.append (gamma2[-1].exprs[1].transpose ((0,1,3,2)))
-    gamma2[-1].exprs.append (gamma2[-1].exprs[2].transpose ((0,1,3,2)))
-    gamma2[-1]._init_from_exprs (gamma2[-1].exprs)
+    #gamma2[-1].exprs.append (gamma2[-1].exprs[1].transpose ((0,1,3,2)))
+    #gamma2[-1].exprs.append (gamma2[-1].exprs[2].transpose ((0,1,3,2)))
+    #gamma2[-1]._init_from_exprs (gamma2[-1].exprs)
     for expr in gamma2: print (expr)
 
 
-    all_exprs = a + b + ab + gamma1 + gamma3h + gamma2
+    read_exprs = a + b + ab + gamma1 + gamma3h + gamma2
 
     import os
     fname = os.path.splitext (os.path.basename (__file__))[0] + '.tex'
     with open (fname, 'w') as f:
         f.write (latex_header)
         f.write ('\\section{Read relationships}\n')
-        for expr in all_exprs:
+        for expr in read_exprs:
             f.write (expr.latex () + '\n\n')
+
+    print ("\n\n============= Write relationships =============")
+    write_exprs = []
+    with open (fname, 'a') as f:
+        f.write ('\\section{Write relationships}\n')
+        for expr in read_exprs:
+            try:
+                exprI = expr.inv ()
+                print (exprI)
+                f.write (exprI.latex () + '\n\n')
+            except Exception as err:
+                print ("Couldn't invert {}:".format (str (expr.rows[0])),
+                       err)
+
+
 
     with open (fname, 'a') as f:
         f.write ('\n\n\\end{document}')
