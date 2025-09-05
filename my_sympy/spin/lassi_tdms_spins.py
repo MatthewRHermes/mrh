@@ -866,33 +866,33 @@ latex_header = r'''\documentclass[prb,amsmath,amssymb,floatfix,nofootinbib,super
 if __name__=='__main__':
     #print ("============= All creation/all destruction =============")
     a = []
-    print ("------- Alpha only -------")
+    #print ("------- Alpha only -------")
     a.append (TDMSystem ([solve_pure_destruction (-1, [0,], 0, 0)]))
     a.append (TDMSystem ([solve_pure_destruction (1, [0,], 0, 0)]))
     a.append (TDMSystem ([solve_pure_destruction (-2, [0,0], 0, 0)]))
     a.append (TDMSystem ([solve_pure_destruction (0, [0,0], 0, 0)]))
     a.append (TDMSystem ([solve_pure_destruction (2, [0,0], 0, 0)]))
     a = [e.subs_mket_to_m ().subs_sket_to_s () for e in a]
-    for expr in a: print (expr)
+    #for expr in a: print (expr)
     b = []
-    print ("\n------- Beta only -------")
+    #print ("\n------- Beta only -------")
     b.append (TDMSystem ([solve_pure_destruction (1, [1,], 0, 0)]))
     b.append (TDMSystem ([solve_pure_destruction (-1, [1,], 0, 0)]))
     b.append (TDMSystem ([solve_pure_destruction (2, [1,1], 0, 0)]))
     b.append (TDMSystem ([solve_pure_destruction (0, [1,1], 0, 0)]))
     b.append (TDMSystem ([solve_pure_destruction (-2, [1,1], 0, 0)]))
     b = [e.subs_mket_to_m ().subs_sket_to_s () for e in b]
-    for expr in b: print (expr)
+    #for expr in b: print (expr)
     ab = []
-    print ("\n------- Mixed -------")
+    #print ("\n------- Mixed -------")
     ab.append (TDMSystem ([solve_pure_destruction (-2, [1,0], 0, 0)]))
     ab.append (TDMSystem ([solve_pure_destruction (0, [1,0], 0, 0),
                            solve_pure_destruction (0, [0,1], 0, 0)]))
     ab.append (TDMSystem ([solve_pure_destruction (-2, [1,0], 0, 0)]))
     ab = [e.subs_mket_to_m ().subs_sket_to_s () for e in ab]
-    for expr in ab: print (expr)
+    #for expr in ab: print (expr)
     gamma1 = []
-    print ("\n\n============= One-body density =============")
+    #print ("\n\n============= One-body density =============")
     gamma1.append (TDMSystem ([solve_density (0, [0,], [0,], 0, 0),
                                solve_density (0, [1,], [1,], 0, 0)]))
     gamma1.append (TDMSystem ([solve_density (-2, [0,], [0,], 0, 0)]))
@@ -901,9 +901,9 @@ if __name__=='__main__':
     gamma1.append (TDMSystem ([solve_density (0, [1,], [0,], 0, 0)]))
     gamma1.append (TDMSystem ([solve_density (2, [1,], [0,], 0, 0)]))
     gamma1 = [e.subs_mket_to_m ().subs_sket_to_s () for e in gamma1]
-    for expr in gamma1: print (expr)
+    #for expr in gamma1: print (expr)
     gamma3h = []
-    print ("\n\n============= Three-half-particle operators =============")
+    #print ("\n\n============= Three-half-particle operators =============")
     gamma3h.append (TDMSystem ([solve_density (-2, [0,], [0,0], 1, 1)]))
     gamma3h.append (TDMSystem ([solve_density (-2, [1,], [1,0], 1, 1)]))
     gamma3h.append (TDMSystem ([solve_density (-2, [0,], [0,1], 1, 1)]))
@@ -930,9 +930,9 @@ if __name__=='__main__':
     gamma3h[-1].simplify_()
     #gamma3h = [e.subs_mket_to_m () for e in gamma3h]
     #gamma3h = [e.subs_sket_to_s () for e in gamma3h]
-    for expr in gamma3h: print (expr)
+    #for expr in gamma3h: print (expr)
     gamma2 = []
-    print ("\n\n============= Two-body density =============")
+    #print ("\n\n============= Two-body density =============")
     gamma2.append (TDMSystem ([solve_density (4, [0,0], [0,0], 0, 0)]))
     gamma2.append (TDMSystem ([solve_density (4, [0,1], [1,0], 0, 0)]))
     gamma2.append (TDMSystem ([solve_density (4, [1,1], [1,1], 0, 0)]))
@@ -960,26 +960,54 @@ if __name__=='__main__':
 
 
     read_exprs = a + b + ab + gamma1 + gamma3h + gamma2
-    write_exprs = []
+
+    subsec_lbls = ['ha_d', 'ha_u', 'hb_d', 'hb_u', 'hh_d', 'hh_0', 'hh_u',
+                   'dm1', 'sm',
+                   'phh_a_3d', 'phh_b_3d', 'phh_a_3u', 'phh_b_3u',
+                   'dm2_2', 'dm2_1', 'dm2_0']
+    subsec_read = []
+    subsec_read.append ([read_exprs[i] for i in (0,27)]) # ha_d
+    subsec_read.append ([read_exprs[i] for i in (1,28)]) # ha_u
+    subsec_read.append ([read_exprs[i] for i in (6,29)]) # hb_d
+    subsec_read.append ([read_exprs[i] for i in (5,30)]) # hb_u
+    subsec_read.append ([read_exprs[i] for i in (2,9,10)]) # hh_d
+    subsec_read.append ([read_exprs[i] for i in (3,8,11)]) # hh_0
+    subsec_read.append ([read_exprs[i] for i in (4,7,12)]) # hh_u
+    subsec_read.append ([read_exprs[i] for i in (13,14,15)]) # dm1
+    subsec_read.append ([read_exprs[i] for i in (16,17,18)]) # sm
+    subsec_read.append ([read_exprs[i] for i in (19,20)])
+    subsec_read.append ([read_exprs[i] for i in (21,22)])
+    subsec_read.append ([read_exprs[i] for i in (23,24)])
+    subsec_read.append ([read_exprs[i] for i in (25,26)])
+    subsec_read.append ([read_exprs[i] for i in (31,32,33)])
+    subsec_read.append ([read_exprs[i] for i in (34,)])
+    subsec_read.append ([read_exprs[i] for i in (35,)])
+
     import os
     fname = os.path.splitext (os.path.basename (__file__))[0] + '.tex'
+    subsec_write = []
     with open (fname, 'w') as f:
         f.write (latex_header)
-        f.write ('\\section{Read relationships}\n')
-        for idx, expr in enumerate (read_exprs):
-            f.write ('\\subsection{' + str (idx) + '}\n')
-            f.write (expr.latex () + '\n\n')
+        print ("================== READ ==================")
+        f.write ('\\section{Read}\n')
+        for exprs, lbl in zip (subsec_read, subsec_lbls):
+            print ("------------------ " + lbl + " ------------------")
+            f.write ('\\subsection{' + lbl + '}\n')
+            exprsI = []
+            for expr in exprs:
+                my_expr = expr.subs_mket_to_m ().subs_sket_to_s ()
+                print (my_expr, flush=True)
+                f.write (my_expr.latex () + '\n\n')
+                exprsI.append (expr.inv ())
+            subsec_write.append (exprsI)
+        print ("================== WRITE ==================")
+        f.write ('\\section{Write}\n')
+        for exprs, lbl in zip (subsec_write, subsec_lbls):
+            print ("------------------ " + lbl + " ------------------")
+            f.write ('\\subsection{' + lbl + '}\n')
+            for expr in exprs:
+                my_expr = expr.subs_mket_to_m ().subs_sket_to_s ()
+                print (my_expr, flush=True)
+                f.write (my_expr.latex () + '\n\n')
         f.write ('\n\n\\end{document}')
-
-    with open (fname, 'a') as f:
-        f.write ('\\section{Write relationships}\n')
-        for idx, expr in enumerate (read_exprs):
-            try:
-                exprI = expr.inv ()
-                print (exprI)
-                f.write ('\\subsection{' + str (idx) + '}\n')
-                f.write (exprI.latex () + '\n\n')
-            except Exception as err:
-                print ("Couldn't invert {}:".format (str (expr.rows[0])),
-                       err)
 
