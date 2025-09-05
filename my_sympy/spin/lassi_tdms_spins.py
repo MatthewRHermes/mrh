@@ -899,7 +899,7 @@ if __name__=='__main__':
     gamma1.append (TDMSystem ([solve_density (-2, [1,], [1,], 0, 0)]))
     gamma1.append (TDMSystem ([solve_density (-2, [1,], [0,], 0, 0)]))
     gamma1.append (TDMSystem ([solve_density (0, [1,], [0,], 0, 0)]))
-    gamma1.append (TDMSystem ([solve_density (-2, [0,], [1,], 0, 0)]))
+    gamma1.append (TDMSystem ([solve_density (2, [1,], [0,], 0, 0)]))
     gamma1 = [e.subs_mket_to_m ().subs_sket_to_s () for e in gamma1]
     for expr in gamma1: print (expr)
     gamma3h = []
@@ -957,34 +957,29 @@ if __name__=='__main__':
     gamma2[-1].simplify_cols_()
     #gamma2 = [e.subs_mket_to_m () for e in gamma2]
     #gamma2 = [e.subs_sket_to_s () for e in gamma2]
-    for expr in gamma2: print (expr)
 
 
     read_exprs = a + b + ab + gamma1 + gamma3h + gamma2
-
+    write_exprs = []
     import os
     fname = os.path.splitext (os.path.basename (__file__))[0] + '.tex'
     with open (fname, 'w') as f:
         f.write (latex_header)
         f.write ('\\section{Read relationships}\n')
-        for expr in read_exprs:
+        for idx, expr in enumerate (read_exprs):
+            f.write ('\\subsection{' + str (idx) + '}\n')
             f.write (expr.latex () + '\n\n')
+        f.write ('\n\n\\end{document}')
 
-    print ("\n\n============= Write relationships =============")
-    write_exprs = []
     with open (fname, 'a') as f:
         f.write ('\\section{Write relationships}\n')
-        for expr in read_exprs:
+        for idx, expr in enumerate (read_exprs):
             try:
                 exprI = expr.inv ()
                 print (exprI)
+                f.write ('\\subsection{' + str (idx) + '}\n')
                 f.write (exprI.latex () + '\n\n')
             except Exception as err:
                 print ("Couldn't invert {}:".format (str (expr.rows[0])),
                        err)
-
-
-
-    with open (fname, 'a') as f:
-        f.write ('\n\n\\end{document}')
 
