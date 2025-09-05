@@ -126,6 +126,12 @@ class TDMExpression (object):
         new_coeffs = [c.subs (m, new_m) for c in self.rhs_coeffs]
         return TDMExpression (new_lhs, new_coeffs, new_terms)
 
+    def subs_s (self, new_s):
+        new_lhs = self.lhs.subs_s (new_s)
+        new_terms = [t.subs_s (new_s) for t in self.rhs_terms]
+        new_coeffs = [c.subs (s, new_s) for c in self.rhs_coeffs]
+        return TDMExpression (new_lhs, new_coeffs, new_terms)
+
     def __add__(self, other):
         new_lhs = self.lhs + other.lhs
         new_terms = list (set (self.rhs_terms + other.rhs_terms))
@@ -165,6 +171,12 @@ class TDMExpression (object):
                 c = c.simplify ()
             new_coeffs.append (c)
         return TDMExpression (new_lhs, new_coeffs, new_terms)
+
+    def powsimp_(self):
+        self.rhs_coeffs = [powsimp (c, force=True) for c in self.rhs_coeffs]
+
+    def simplify_(self):
+        self.rhs_coeffs = [c.simplify () for c in self.rhs_coeffs]
 
 class TDMSystem (object):
     def __init__(self, exprs, _try_inverse=True):
@@ -223,6 +235,7 @@ class TDMSystem (object):
             nops = len (self.exprs[0].lhs.get_ops ())
             if (''.join (expr.lhs.get_indices ()) == ORBINDICES[:nops]):
                 exprs.append (expr)
+        assert (len (exprs))
         return exprs
         
     def __str__(self):
@@ -282,8 +295,20 @@ class TDMSystem (object):
         new_exprs = [e.subs_m (new_m) for e in self.exprs]
         return TDMSystem (new_exprs, _try_inverse=False)
 
+    def subs_s (self, new_s):
+        new_exprs = [e.subs_s (new_s) for e in self.exprs]
+        return TDMSystem (new_exprs, _try_inverse=False)
+
     def subs_m_max (self):
         return self.subs_m (min ([r.max_m () for r in self.rows]))
+
+    def powsimp_(self):
+        for expr in self.exprs:
+            expr.powsimp_()
+
+    def simplify_(self):
+        for expr in self.exprs:
+            expr.simplify_()
 
 ORBINDICES = 'pqrstuvwxyz'
 
@@ -318,6 +343,13 @@ class CrVector (object):
         s_bra, ops, s_ket = self.get_s_bra (), self.get_ops (), self.get_s_ket ()
         indices = self.get_indices ()
         m_ket = self.get_m_ket ().subs (m, new_m)
+        return self.__class__(s_bra, ops, s_ket, m_ket, indices=indices)
+
+    def subs_s (self, new_s):
+        ops, m_ket = self.get_ops (), self.get_m_ket ()
+        indices = self.get_indices ()
+        s_bra = self.get_s_bra ().subs (s, new_s)
+        s_ket = self.get_s_ket ().subs (s, new_s)
         return self.__class__(s_bra, ops, s_ket, m_ket, indices=indices)
 
     def get_ops (self): return list(self.crops)
@@ -556,6 +588,15 @@ class CrAnOperator (CrVector):
         crops = self.crops
         anops = self.anops
         m_ket = self.get_m_ket ().subs (m, new_m)
+        return self.__class__(s_bra, crops, anops, s_ket, m_ket, indices=indices)
+
+    def subs_s (self, new_s):
+        m_ket = self.get_m_ket ()
+        indices = self.get_indices ()
+        crops = self.crops
+        anops = self.anops
+        s_bra = self.get_s_bra ().subs (s, new_s)
+        s_ket = self.get_s_ket ().subs (s, new_s)
         return self.__class__(s_bra, crops, anops, s_ket, m_ket, indices=indices)
 
     def get_ops (self): return list(self.crops) + list(self.anops)
@@ -825,7 +866,7 @@ if __name__=='__main__':
     for expr in b: print (expr)
     ab = []
     print ("\n------- Mixed -------")
-    ab.append (TDMSystem ([solve_pure_destruction (-2, [0,1], 0, 0)]))
+    ab.append (TDMSystem ([solve_pure_destruction (-2, [1,0], 0, 0)]))
     ab.append (TDMSystem ([solve_pure_destruction (0, [1,0], 0, 0),
                            solve_pure_destruction (0, [0,1], 0, 0)]))
     ab.append (TDMSystem ([solve_pure_creation (-2, [0,1], 0, 0)]))
@@ -842,16 +883,30 @@ if __name__=='__main__':
     for expr in gamma1: print (expr)
     gamma3h = []
     print ("\n\n============= Three-half-particle operators =============")
-    gamma3h.append (TDMSystem ([solve_density (-3, [0,], [0,0], 0, 0)]))
-    gamma3h.append (TDMSystem ([solve_density (-3, [1,], [1,0], 0, 0)]))
-    gamma3h.append (TDMSystem ([solve_density (-3, [0,], [0,1], 0, 0)]))
-    gamma3h.append (TDMSystem ([solve_density (-3, [1,], [1,1], 0, 0)]))
+    gamma3h.append (TDMSystem ([solve_density (-2, [0,], [0,0], 1, 1)]))
+    gamma3h.append (TDMSystem ([solve_density (-2, [1,], [1,0], 1, 1)]))
+    gamma3h.append (TDMSystem ([solve_density (-2, [0,], [0,1], 1, 1)]))
+    gamma3h.append (TDMSystem ([solve_density (-2, [1,], [1,1], 1, 1)]))
+    gamma3h.append (TDMSystem ([solve_density (3, [0,], [0,0], 0, 0)]))
+    gamma3h.append (TDMSystem ([solve_density (3, [1,], [1,0], 0, 0)]))
+    gamma3h.append (TDMSystem ([solve_density (3, [0,], [0,1], 0, 0)]))
+    gamma3h.append (TDMSystem ([solve_density (3, [1,], [1,1], 0, 0)]))
     gamma3h.append (TDMSystem ([solve_density (0, [0,], [0,0], 1, 1),
                                 solve_density (0, [1,], [1,0], 1, 1),
                                 solve_density (0, [1,], [0,1], 1, 1)]))
+    gamma3h.append (TDMSystem ([solve_density (0, [0,], [0,0], -1, -1),
+                                solve_density (0, [1,], [1,0], -1, -1),
+                                solve_density (0, [1,], [0,1], -1, -1)]))
+    gamma3h[-1] = gamma3h[-1].subs_s(s+Rational(1,2))
+    gamma3h[-1].simplify_()
     gamma3h.append (TDMSystem ([solve_density (0, [0,], [0,1], 1, 1),
                                 solve_density (0, [0,], [1,0], 1, 1),
                                 solve_density (0, [1,], [1,1], 1, 1)]))
+    gamma3h.append (TDMSystem ([solve_density (0, [0,], [0,1], -1, 1),
+                                solve_density (0, [0,], [1,0], -1, 1),
+                                solve_density (0, [1,], [1,1], -1, 1)]))
+    gamma3h[-1] = gamma3h[-1].subs_s(s+Rational(1,2))
+    gamma3h[-1].simplify_()
     for expr in gamma3h: print (expr)
     gamma2 = []
     print ("\n\n============= Two-body density =============")
