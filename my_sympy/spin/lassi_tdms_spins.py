@@ -72,6 +72,15 @@ class TDMExpression (object):
             self.rhs_coeffs.append (fl * fr * c)
             self.rhs_terms.append (tno)
 
+    def normal_order_labels (self):
+        fl, lhs = self.lhs.normal_order_labels ()
+        rhs_coeffs, rhs_terms = [], []
+        for c, t in zip (self.rhs_coeffs, self.rhs_terms):
+            fr, tno = t.normal_order_labels ()
+            rhs_coeffs.append (fl * fr * c)
+            rhs_terms.append (tno)
+        return TDMExpression (lhs, rhs_coeffs, rhs_terms)
+
     def transpose (self, idx):
         new_lhs = self.lhs.transpose (idx)
         new_terms = [t.transpose (idx) for t in self.rhs_terms]
@@ -115,6 +124,26 @@ class TDMExpression (object):
         new_coeffs = [c.subs (m, new_m) for c in self.rhs_coeffs]
         return TDMExpression (new_lhs, new_coeffs, new_terms)
 
+    def __add__(self, other):
+        new_lhs = self.lhs + other.lhs
+        new_terms = list (set (self.rhs_terms + other.rhs_terms))
+        new_coeffs = []
+        for t in new_terms:
+            c = 0
+            ins = ino = False
+            if t in self.rhs_terms:
+                i = self.rhs_terms.index (t)
+                c += self.rhs_coeffs[i]
+                ins = True
+            if t in other.rhs_terms:
+                i = other.rhs_terms.index (t)
+                c += other.rhs_coeffs[i]
+                ino = True
+            if ins and ino:
+                c = c.simplify ()
+            new_coeffs.append (c)
+        return TDMExpression (new_lhs, new_coeffs, new_terms)
+
 class TDMSystem (object):
     def __init__(self, exprs, _try_inverse=True):
         self._init_from_exprs (exprs)
@@ -137,6 +166,8 @@ class TDMSystem (object):
         self.cols = list (set (itertools.chain.from_iterable (
             [expr.rhs_terms for expr in exprs]
         )))
+        hashes = [hash (c) for c in self.cols]
+        assert (len (set (hashes)) == len (hashes))
 
     def simplify_cols_ (self):
         nrows = len (self.rows)
@@ -595,6 +626,21 @@ class CrAnOperator (CrVector):
                                indices=new_indices)
         return factor, new_op
 
+    def normal_order_labels (self):
+        new_indices = [i for i in self.get_indices ()]
+        factor = 1
+        if ((len (self.crops) == 2) and (self.crops[0]==self.crops[1]) and
+            (new_indices[0] > new_indices[1])):
+                new_indices[:2] = new_indices[:2][::-1]
+                factor *= -1
+        if ((len (self.anops) == 2) and (self.anops[0]==self.anops[1]) and
+            (new_indices[-2] > new_indices[-1])):
+                new_indices[-2:] = new_indices[-2:][::-1]
+                factor *= -1
+        new_op = CrAnOperator (self.s_bra, self.crops, self.anops, self.s_ket, self.m_ket,
+                               indices=new_indices)
+        return factor, new_op
+
 class OpSum (CrVector):
     def __init__(self, terms, coeffs):
         self.terms = terms
@@ -794,9 +840,12 @@ if __name__=='__main__':
     #gamma2[-2].exprs.append (gamma2[-2].exprs[1].transpose ((0,1,3,2)))
     #gamma2[-2].exprs.append (gamma2[-2].exprs[2].transpose ((0,1,3,2)))
     #gamma2[-2]._init_from_exprs (gamma2[-2].exprs)
-    #gamma2[-1].exprs.append (gamma2[-1].exprs[1].transpose ((0,1,3,2)))
-    #gamma2[-1].exprs.append (gamma2[-1].exprs[2].transpose ((0,1,3,2)))
-    #gamma2[-1]._init_from_exprs (gamma2[-1].exprs)
+    gamma2[-1].exprs.append (gamma2[-1].exprs[1].transpose ((0,1,3,2)))
+    gamma2[-1].exprs.append (gamma2[-1].exprs[2].transpose ((0,1,3,2)))
+    exprs = [e.normal_order_labels () for e in gamma2[-1].exprs]
+    exprs = [exprs[0],exprs[3],exprs[1]+exprs[2],exprs[4]+exprs[5]]
+    gamma2[-1]._init_from_exprs (exprs)
+    gamma2[-1].simplify_cols_()
     for expr in gamma2: print (expr)
 
 
