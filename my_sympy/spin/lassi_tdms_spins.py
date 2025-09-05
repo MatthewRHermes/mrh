@@ -132,6 +132,14 @@ class TDMExpression (object):
         new_coeffs = [c.subs (s, new_s) for c in self.rhs_coeffs]
         return TDMExpression (new_lhs, new_coeffs, new_terms)
 
+    def subs_sket_to_s (self):
+        new_s = (2*s) - self.lhs.get_s_ket ()
+        return self.subs_s (new_s)
+
+    def subs_mket_to_m (self):
+        new_m = (2*m) - self.lhs.get_m_ket ()
+        return self.subs_m (new_m)
+
     def __add__(self, other):
         new_lhs = self.lhs + other.lhs
         new_terms = list (set (self.rhs_terms + other.rhs_terms))
@@ -297,6 +305,14 @@ class TDMSystem (object):
 
     def subs_s (self, new_s):
         new_exprs = [e.subs_s (new_s) for e in self.exprs]
+        return TDMSystem (new_exprs, _try_inverse=False)
+
+    def subs_sket_to_s (self):
+        new_exprs = [e.subs_sket_to_s () for e in self.exprs]
+        return TDMSystem (new_exprs, _try_inverse=False)
+
+    def subs_mket_to_m (self):
+        new_exprs = [e.subs_mket_to_m () for e in self.exprs]
         return TDMSystem (new_exprs, _try_inverse=False)
 
     def subs_m_max (self):
@@ -856,6 +872,7 @@ if __name__=='__main__':
     a.append (TDMSystem ([solve_pure_destruction (-2, [0,0], 0, 0)]))
     a.append (TDMSystem ([solve_pure_destruction (0, [0,0], 0, 0)]))
     a.append (TDMSystem ([solve_pure_destruction (2, [0,0], 0, 0)]))
+    a = [e.subs_mket_to_m ().subs_sket_to_s () for e in a]
     for expr in a: print (expr)
     b = []
     print ("\n------- Beta only -------")
@@ -864,6 +881,7 @@ if __name__=='__main__':
     b.append (TDMSystem ([solve_pure_destruction (2, [1,1], 0, 0)]))
     b.append (TDMSystem ([solve_pure_destruction (0, [1,1], 0, 0)]))
     b.append (TDMSystem ([solve_pure_destruction (-2, [1,1], 0, 0)]))
+    b = [e.subs_mket_to_m ().subs_sket_to_s () for e in b]
     for expr in b: print (expr)
     ab = []
     print ("\n------- Mixed -------")
@@ -871,6 +889,7 @@ if __name__=='__main__':
     ab.append (TDMSystem ([solve_pure_destruction (0, [1,0], 0, 0),
                            solve_pure_destruction (0, [0,1], 0, 0)]))
     ab.append (TDMSystem ([solve_pure_destruction (-2, [1,0], 0, 0)]))
+    ab = [e.subs_mket_to_m ().subs_sket_to_s () for e in ab]
     for expr in ab: print (expr)
     gamma1 = []
     print ("\n\n============= One-body density =============")
@@ -881,6 +900,7 @@ if __name__=='__main__':
     gamma1.append (TDMSystem ([solve_density (-2, [1,], [0,], 0, 0)]))
     gamma1.append (TDMSystem ([solve_density (0, [1,], [0,], 0, 0)]))
     gamma1.append (TDMSystem ([solve_density (-2, [0,], [1,], 0, 0)]))
+    gamma1 = [e.subs_mket_to_m ().subs_sket_to_s () for e in gamma1]
     for expr in gamma1: print (expr)
     gamma3h = []
     print ("\n\n============= Three-half-particle operators =============")
@@ -908,6 +928,8 @@ if __name__=='__main__':
                                 solve_density (0, [1,], [1,1], -1, 1)]))
     gamma3h[-1] = gamma3h[-1].subs_s(s+Rational(1,2))
     gamma3h[-1].simplify_()
+    gamma3h = [e.subs_mket_to_m () for e in gamma3h]
+    gamma3h = [e.subs_sket_to_s () for e in gamma3h]
     for expr in gamma3h: print (expr)
     gamma2 = []
     print ("\n\n============= Two-body density =============")
@@ -933,6 +955,8 @@ if __name__=='__main__':
     #exprs = [exprs[0],exprs[3],exprs[1]+exprs[2],exprs[4]+exprs[5],exprs[1]-exprs[2],exprs[4]-exprs[5]]
     gamma2[-1]._init_from_exprs (exprs)
     gamma2[-1].simplify_cols_()
+    gamma2 = [e.subs_mket_to_m () for e in gamma2]
+    gamma2 = [e.subs_sket_to_s () for e in gamma2]
     for expr in gamma2: print (expr)
 
 
