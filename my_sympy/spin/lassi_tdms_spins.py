@@ -992,7 +992,7 @@ if __name__=='__main__':
         f.write ('\\section{Read}\n')
         for exprs, lbl in zip (subsec_read, subsec_lbls):
             print ("------------------ " + lbl + " ------------------")
-            f.write ('\\subsection{' + lbl + '}\n')
+            f.write ('\\subsection{' + lbl.replace ('_','\\_') + '}\n')
             exprsI = []
             for expr in exprs:
                 my_expr = expr.subs_mket_to_m ().subs_sket_to_s ()
@@ -1004,7 +1004,7 @@ if __name__=='__main__':
         f.write ('\\section{Write}\n')
         for exprs, lbl in zip (subsec_write, subsec_lbls):
             print ("------------------ " + lbl + " ------------------")
-            f.write ('\\subsection{' + lbl + '}\n')
+            f.write ('\\subsection{' + lbl.replace ('_','\\_') + '}\n')
             for expr in exprs:
                 my_expr = expr.subs_mket_to_m ().subs_sket_to_s ()
                 print (my_expr, flush=True)
