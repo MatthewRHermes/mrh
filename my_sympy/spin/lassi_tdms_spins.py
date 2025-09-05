@@ -928,8 +928,8 @@ if __name__=='__main__':
                                 solve_density (0, [1,], [1,1], -1, 1)]))
     gamma3h[-1] = gamma3h[-1].subs_s(s+Rational(1,2))
     gamma3h[-1].simplify_()
-    gamma3h = [e.subs_mket_to_m () for e in gamma3h]
-    gamma3h = [e.subs_sket_to_s () for e in gamma3h]
+    #gamma3h = [e.subs_mket_to_m () for e in gamma3h]
+    #gamma3h = [e.subs_sket_to_s () for e in gamma3h]
     for expr in gamma3h: print (expr)
     gamma2 = []
     print ("\n\n============= Two-body density =============")
@@ -955,8 +955,8 @@ if __name__=='__main__':
     #exprs = [exprs[0],exprs[3],exprs[1]+exprs[2],exprs[4]+exprs[5],exprs[1]-exprs[2],exprs[4]-exprs[5]]
     gamma2[-1]._init_from_exprs (exprs)
     gamma2[-1].simplify_cols_()
-    gamma2 = [e.subs_mket_to_m () for e in gamma2]
-    gamma2 = [e.subs_sket_to_s () for e in gamma2]
+    #gamma2 = [e.subs_mket_to_m () for e in gamma2]
+    #gamma2 = [e.subs_sket_to_s () for e in gamma2]
     for expr in gamma2: print (expr)
 
 
