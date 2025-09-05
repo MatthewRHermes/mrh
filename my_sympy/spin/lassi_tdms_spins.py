@@ -346,8 +346,9 @@ class CrVector (object):
         return self.__class__(s_bra, ops, s_ket, m_ket, indices=indices)
 
     def subs_s (self, new_s):
-        ops, m_ket = self.get_ops (), self.get_m_ket ()
+        ops = self.get_ops ()
         indices = self.get_indices ()
+        m_ket = self.get_m_ket ().subs (s, new_s)
         s_bra = self.get_s_bra ().subs (s, new_s)
         s_ket = self.get_s_ket ().subs (s, new_s)
         return self.__class__(s_bra, ops, s_ket, m_ket, indices=indices)
@@ -591,10 +592,10 @@ class CrAnOperator (CrVector):
         return self.__class__(s_bra, crops, anops, s_ket, m_ket, indices=indices)
 
     def subs_s (self, new_s):
-        m_ket = self.get_m_ket ()
         indices = self.get_indices ()
         crops = self.crops
         anops = self.anops
+        m_ket = self.get_m_ket ().subs (s, new_s)
         s_bra = self.get_s_bra ().subs (s, new_s)
         s_ket = self.get_s_ket ().subs (s, new_s)
         return self.__class__(s_bra, crops, anops, s_ket, m_ket, indices=indices)
@@ -851,17 +852,17 @@ if __name__=='__main__':
     a = []
     print ("------- Alpha only -------")
     a.append (TDMSystem ([solve_pure_destruction (-1, [0,], 0, 0)]))
-    a.append (TDMSystem ([solve_pure_creation (-1, [0,], 0, 0)]))
+    a.append (TDMSystem ([solve_pure_destruction (1, [0,], 0, 0)]))
     a.append (TDMSystem ([solve_pure_destruction (-2, [0,0], 0, 0)]))
     a.append (TDMSystem ([solve_pure_destruction (0, [0,0], 0, 0)]))
-    a.append (TDMSystem ([solve_pure_creation (-2, [0,0], 0, 0)]))
+    a.append (TDMSystem ([solve_pure_destruction (2, [0,0], 0, 0)]))
     for expr in a: print (expr)
     b = []
     print ("\n------- Beta only -------")
-    b.append (TDMSystem ([solve_pure_creation (-1, [1,], 0, 0)]))
+    b.append (TDMSystem ([solve_pure_destruction (1, [1,], 0, 0)]))
     b.append (TDMSystem ([solve_pure_destruction (-1, [1,], 0, 0)]))
-    b.append (TDMSystem ([solve_pure_creation (-2, [1,1], 0, 0)]))
-    b.append (TDMSystem ([solve_pure_creation (0, [1,1], 0, 0)]))
+    b.append (TDMSystem ([solve_pure_destruction (2, [1,1], 0, 0)]))
+    b.append (TDMSystem ([solve_pure_destruction (0, [1,1], 0, 0)]))
     b.append (TDMSystem ([solve_pure_destruction (-2, [1,1], 0, 0)]))
     for expr in b: print (expr)
     ab = []
@@ -869,7 +870,7 @@ if __name__=='__main__':
     ab.append (TDMSystem ([solve_pure_destruction (-2, [1,0], 0, 0)]))
     ab.append (TDMSystem ([solve_pure_destruction (0, [1,0], 0, 0),
                            solve_pure_destruction (0, [0,1], 0, 0)]))
-    ab.append (TDMSystem ([solve_pure_creation (-2, [0,1], 0, 0)]))
+    ab.append (TDMSystem ([solve_pure_destruction (-2, [1,0], 0, 0)]))
     for expr in ab: print (expr)
     gamma1 = []
     print ("\n\n============= One-body density =============")
