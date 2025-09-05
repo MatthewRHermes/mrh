@@ -68,6 +68,7 @@ class TDMExpression (object):
         self.rhs_coeffs = []
         self.rhs_terms = []
         for c, t in zip (rhs_coeffs, rhs_terms):
+            if c == S(0): continue
             fr, tno = t.normal_order ()
             self.rhs_coeffs.append (fl * fr * c)
             self.rhs_terms.append (tno)
@@ -214,15 +215,24 @@ class TDMSystem (object):
         self._init_from_exprs([TDMExpression (lhs, list (new_A.row (i)), new_terms)
                                for i, lhs in enumerate (self.rows)])
         return self
+
+    def get_sorted_exprs (self):
+        ''' Get the exprs with pqrs in order on the lhs '''
+        exprs = []
+        for expr in self.exprs:
+            nops = len (self.exprs[0].lhs.get_ops ())
+            if (''.join (expr.lhs.get_indices ()) == ORBINDICES[:nops]):
+                exprs.append (expr)
+        return exprs
         
     def __str__(self):
-        return '\n'.join ([str (expr) for expr in self.exprs])
+        return '\n'.join ([str (expr) for expr in self.get_sorted_exprs ()])
 
     def latex (self, env='align'):
         my_latex = '\\begin{' + env.lower () + '}\n'
         first_term = True
         row_linker = ' \\\\ \n'
-        for expr in self.exprs:
+        for expr in self.get_sorted_exprs ():
             if not first_term: my_latex += row_linker
             my_latex += expr._latex_line (env=env)
             first_term = False
@@ -864,7 +874,7 @@ if __name__=='__main__':
     gamma2[-1].exprs.append (gamma2[-1].exprs[1].transpose ((0,1,3,2)))
     gamma2[-1].exprs.append (gamma2[-1].exprs[2].transpose ((0,1,3,2)))
     exprs = gamma2[-1].exprs
-    exprs = [exprs[0],exprs[3],exprs[1]+exprs[2],exprs[4]+exprs[5],exprs[1]-exprs[2],exprs[4]-exprs[5]]
+    #exprs = [exprs[0],exprs[3],exprs[1]+exprs[2],exprs[4]+exprs[5],exprs[1]-exprs[2],exprs[4]-exprs[5]]
     gamma2[-1]._init_from_exprs (exprs)
     gamma2[-1].simplify_cols_()
     for expr in gamma2: print (expr)
