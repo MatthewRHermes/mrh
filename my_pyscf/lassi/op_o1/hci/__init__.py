@@ -19,7 +19,7 @@ def ContractHamCI (las, ints, nlas, lroots, h0, h1, h2, si_bra=None, si_ket=None
                                   mask_bra_space=mask_bra_space,
                                   mask_ket_space=mask_ket_space,
                                   pt_order=pt_order, do_pt_order=do_pt_order,
-                                  log=log, max_memory=param.MAX_MEMORY, dtype=np.float64)
+                                  log=log, max_memory=max_memory, dtype=np.float64)
     elif (si_bra is None) or (si_ket is None):
         class ContractHamCI (ContractHamCI_CHC):
             def kernel (self):
