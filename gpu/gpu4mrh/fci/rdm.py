@@ -158,7 +158,6 @@ def _make_rdm12_spin1(fname, cibra, ciket, norb, nelec, link_index=None, symm=0)
                         link_indexa.ctypes.data_as(ctypes.c_void_p),
                         link_indexb.ctypes.data_as(ctypes.c_void_p),
                         ctypes.c_int(symm))
-      #print("finished cpu version",flush=True)
       libgpu.init_tdm1(gpu, norb)
       libgpu.init_tdm2(gpu, norb)
       libgpu.push_ci(gpu, cibra, ciket, na, nb)
@@ -182,28 +181,19 @@ def _make_rdm12_spin1(fname, cibra, ciket, norb, nelec, link_index=None, symm=0)
       rdm2_correct = numpy.allclose(rdm2_cpu, rdm2_gpu)
       if rdm1_correct and rdm2_correct:
         print('RDM12_spin1', fname, "TDM12 calculated correctly at GPU", gpu)
-        pass
       else: 
         print('RDM12_spin1', fname, use_gpu, "Problem in TDM12", flush=True)
-        exit()
         if rdm1_correct: print("TDM1 correct")
         else: 
           print("Incorrect TDM1")
-          #print("CPU TDM1")
-          #print(rdm1_cpu)
-          #print("GPU TDM1")
-          #print(rdm1_gpu)
         if rdm2_correct: print("TDM2 correct")
         else: 
           print("Incorrect TDM2")
-          #print("CPU TDM2")
-          #print(rdm2_cpu)
-          #print("GPU TDM2")
-          #print(rdm2_gpu)
+        exit()
       return rdm1_cpu.T, rdm2_cpu
     elif use_gpu: 
       from mrh.my_pyscf.gpu import libgpu
-      rdm1_gpu = numpy.empty((norb,norb))
+      rdm1_gpu = numpy.zeros((norb,norb))
       rdm2_gpu = numpy.empty((norb,norb,norb,norb))
       libgpu.init_tdm1(gpu, norb)
       libgpu.init_tdm2(gpu, norb)

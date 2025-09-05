@@ -662,20 +662,11 @@ __global__ void _compute_FCIrdm2_a_t1ci(double * ci, double * buf, int stra_id, 
     atomicAdd(&(buf[k*norb2 + i*norb + a]), sign*ci[str1*nb + k]);
     
     #else
-    int a = link_index[4*nlinka*stra_id + 4*j]; 
-    int i = link_index[4*nlinka*stra_id + 4*j + 1]; 
-    int str1 = link_index[4*nlinka*stra_id + 4*j + 2]; 
-    int sign = link_index[4*nlinka*stra_id + 4*j + 3];
-    
-    //double * pci = &(ci[str1*nb]);
-    //double * pbuf = &(buf[k*norb2 + i*norb + a]);
-    // pbuf[k*norb2] += pci[k]*sign;
     #ifdef _DEBUG_ATOMICADD
     atomicAdd(&(buf[k*norb2 + i*norb + a]), sign*ci[str1*nb + k]);
     #else
     buf[k*norb2 + i*norb + a] += sign*ci[str1*nb + k];
     #endif
-    //printf("stra_id: %i str1: %i k: %i a: %i i: %i j: %i sign: %i pdm_location: %i ci_location: %i added: %f , after: %f \n",stra_id, str1,k, a,i,j,sign,k*norb2+i*norb+a, str1*nb+k, ci[str1*nb+k], buf[k*norb2+i*norb+a] );
     #endif
     //TODO: implement csum 
     // Is it necessary to? 
@@ -791,7 +782,6 @@ __global__ void _compute_FCIrdm3h_b_t1ci_v2(double * ci, double * buf, int stra_
       if ((str1>=ib) && (str1<jb)){
         int a = tab[0];
         int i = tab[1];
-        //printf("(stra_id-ia)*nb_bra+str1-ib: %i str0: %i a: %i i: %i j: %i sign: %i added: %f \n",(stra_id-ia)*nb_bra + str1-ib, str0, a, i, j, sign, sign*ci[(stra_id-ia)*nb + str1-ib]);
         atomicAdd(&(buf[str0*norb2 + i*norb + a]), sign*ci[(stra_id-ia)*nb_bra + str1-ib]);// rdm3h_b_t1ci is only called when stra_id is more than ia
         }
       }
@@ -1443,11 +1433,7 @@ void Device::compute_FCIrdm3h_b_t1ci(double * ci, double * buf, int stra_id, int
 /* ---------------------------------------------------------------------- */
 void Device::compute_FCIrdm3h_a_t1ci_v2(double * ci, double * buf, int stra_id, int nb, int norb, int nlinka, int ia, int ja, int ib, int jb, int * link_index)
 {
-  //printf("BUF location: (k+ib)*norb2 + i*norb + a\n");
-  //printf("CI location: (str1-ia)*nb + k, ia: %i \n ", ia);
-  printf("stra_id: %i nb: %i \n",stra_id, nb);
   dim3 block_size(1,1,1);
-  //dim3 grid_size(_TILE(nlinka, block_size.x), _TILE(nb, block_size.y), 1);
   dim3 grid_size(_TILE(nlinka, block_size.x), 1, 1);
   cudaStream_t s = *(pm->dev_get_queue());
   _compute_FCIrdm3h_a_t1ci_v2<<<grid_size, block_size, 0,s>>>(ci, buf, stra_id, nb, norb, nlinka, ia, ja, ib, jb, link_index);
