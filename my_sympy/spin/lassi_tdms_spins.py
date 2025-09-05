@@ -84,7 +84,8 @@ class TDMExpression (object):
     def transpose (self, idx):
         new_lhs = self.lhs.transpose (idx)
         new_terms = [t.transpose (idx) for t in self.rhs_terms]
-        return TDMExpression (new_lhs, self.rhs_coeffs, new_terms)
+        new_expr = TDMExpression (new_lhs, self.rhs_coeffs, new_terms)
+        return new_expr.normal_order_labels ()
 
     def __str__(self):
         my_solution = str (self.lhs) + ' = \n   '
@@ -138,6 +139,26 @@ class TDMExpression (object):
             if t in other.rhs_terms:
                 i = other.rhs_terms.index (t)
                 c += other.rhs_coeffs[i]
+                ino = True
+            if ins and ino:
+                c = c.simplify ()
+            new_coeffs.append (c)
+        return TDMExpression (new_lhs, new_coeffs, new_terms)
+
+    def __sub__(self, other):
+        new_lhs = self.lhs - other.lhs
+        new_terms = list (set (self.rhs_terms + other.rhs_terms))
+        new_coeffs = []
+        for t in new_terms:
+            c = 0
+            ins = ino = False
+            if t in self.rhs_terms:
+                i = self.rhs_terms.index (t)
+                c += self.rhs_coeffs[i]
+                ins = True
+            if t in other.rhs_terms:
+                i = other.rhs_terms.index (t)
+                c -= other.rhs_coeffs[i]
                 ino = True
             if ins and ino:
                 c = c.simplify ()
@@ -842,8 +863,8 @@ if __name__=='__main__':
     #gamma2[-2]._init_from_exprs (gamma2[-2].exprs)
     gamma2[-1].exprs.append (gamma2[-1].exprs[1].transpose ((0,1,3,2)))
     gamma2[-1].exprs.append (gamma2[-1].exprs[2].transpose ((0,1,3,2)))
-    exprs = [e.normal_order_labels () for e in gamma2[-1].exprs]
-    exprs = [exprs[0],exprs[3],exprs[1]+exprs[2],exprs[4]+exprs[5]]
+    exprs = gamma2[-1].exprs
+    exprs = [exprs[0],exprs[3],exprs[1]+exprs[2],exprs[4]+exprs[5],exprs[1]-exprs[2],exprs[4]-exprs[5]]
     gamma2[-1]._init_from_exprs (exprs)
     gamma2[-1].simplify_cols_()
     for expr in gamma2: print (expr)
