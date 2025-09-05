@@ -53,7 +53,7 @@ def performance_checker(fn, cibra, ciket, norb, nelec, link_index, nruns=5):
   param.use_gpu = None
   for _ in range(nruns): rdm.make_rdm12_spin1(fn, cibra, ciket, norb, nelec, link_index)
   t2 = time.time()
-  print("GPU time: ", round(t1-t0,2), "CPU time: ", round(t2-t1,0))
+  print("GPU time: ", round(t1-t0,2), "CPU time: ", round(t2-t1,2))
 
 nruns=5
 for fn in ['FCItdm12kern_a', 'FCItdm12kern_b', 'FCItdm12kern_ab', 'FCIrdm12kern_sf']: 
