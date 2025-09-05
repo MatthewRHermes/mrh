@@ -4944,6 +4944,24 @@ void Device::compute_sfudm(int na, int nb, int nlinka, int nlinkb, int norb,
   //const double alpha = 1.0;
   const double alpha = 1.0*sgn_bra*sgn_ket;
   const double beta = 1.0;
+  int na_bra = ja_bra - ia_bra;
+  int nb_bra = jb_bra - ib_bra;
+  int na_ket = ja_ket - ia_ket;
+  int nb_ket = jb_ket - ib_ket;
+  #ifdef _DEBUG_FCI
+  double * h_cibra = (double *)pm->dev_malloc_host(na_bra*nb_bra*sizeof(double));
+  pm->dev_pull_async(dd->d_cibra, h_cibra, na_bra*nb_bra*sizeof(double));
+  double * h_ciket = (double *)pm->dev_malloc_host(na_ket*nb_ket*sizeof(double));
+  pm->dev_pull_async(dd->d_ciket, h_ciket, na_ket*nb_ket*sizeof(double));
+  pm->dev_barrier();
+  printf("cibra\n");
+  for (int i=0;i<na_bra; ++i){for (int j=0; j<nb_bra; ++j){printf("%f\t",h_cibra[i*nb_bra+j]);}printf("\n");}printf("\n");
+  printf("ciket\n");
+  for (int i=0;i<na_ket; ++i){for (int j=0; j<nb_ket; ++j){printf("%f\t",h_ciket[i*nb_ket+j]);}printf("\n");}printf("\n");
+  #endif
+  printf("ia_bra: %i ja_bra: %i ib_bra: %i jb_bra: %i sgn_bra: %i ia_ket: %i ja_ket: %i ib_ket: %i jb_ket: %i sgn_ket: %i\n",ia_bra, ja_bra, ib_bra,  jb_bra,  sgn_bra, ia_ket,  ja_ket,  ib_ket,  jb_ket,  sgn_ket );
+  printf("na_bra: %i nb_bra: %i, na_ket: %i nb_ket: %i\n",na_bra, nb_bra, na_ket, nb_ket);
+  printf("nlinka: %i nlinkb: %i\n", nlinka, nlinkb); 
   int bits_buf = sizeof(double)*size_buf;
   int bits_tdm2 = sizeof(double)*size_tdm2;
   grow_array(dd->d_tdm2, size_tdm2, dd->size_tdm2, "tdm2", FLERR); 
@@ -4962,12 +4980,19 @@ void Device::compute_sfudm(int na, int nb, int nlinka, int nlinkb, int norb,
   int bra_b_len = jb_bra - ib_bra;
   for (int stra_id = 0; stra_id<na; ++stra_id){
     if ((stra_id>=ia_ket) && (stra_id<ja_ket)){//buf1 is zero otherwise
-      compute_FCIrdm3h_a_t1ci_v2(dd->d_cibra, dd->d_buf2, stra_id, nb, norb, nlinka, ia_bra, ja_bra, ib_bra, jb_bra, dd->d_clinka);
-      compute_FCIrdm3h_b_t1ci_v2(dd->d_ciket, dd->d_buf1, stra_id, nb, bra_b_len,norb, nlinkb, ia_ket, ja_ket, ib_ket, jb_ket, dd->d_clinkb);
-  
-      ml->gemm((char *) "N", (char *) "T", &norb2, &norb2, &bra_b_len, &alpha, 
-            &(dd->d_buf1[ib_bra*norb2]), &norb2, &(dd->d_buf2[ib_bra*norb2]), &norb2, 
-            &beta, dd->d_tdm2, &norb2);
+
+      compute_FCIrdm3h_a_t1ci_v2(dd->d_cibra, dd->d_buf2, stra_id, nb_bra, norb, nlinka, ia_bra, ja_bra, ib_bra, jb_bra, dd->d_clinka);
+      compute_FCIrdm3h_b_t1ci_v2(dd->d_ciket, dd->d_buf1, stra_id, nb,nb_ket, norb, nlinkb, ia_ket, ja_ket, ib_ket, jb_ket, dd->d_clinkb);
+
+      ml->gemm((char *) "N",(char *) "T", &norb2, &norb2, &nb, 
+        &alpha,
+        dd->d_buf1, &norb2,
+        dd->d_buf2, &norb2,
+        &beta,
+        dd->d_tdm2, &norb2); //convert to gemm_batched, edit na loops to batches
+      //ml->gemm((char *) "N", (char *) "T", &norb2, &norb2, &bra_b_len, &alpha, 
+      //      &(dd->d_buf1[ib_bra*norb2]), &norb2, &(dd->d_buf2[ib_bra*norb2]), &norb2, 
+      //      &beta, dd->d_tdm2, &norb2);
       ml->memset(dd->d_buf1, &zero, &bits_buf);
       ml->memset(dd->d_buf2, &zero, &bits_buf);
     }
