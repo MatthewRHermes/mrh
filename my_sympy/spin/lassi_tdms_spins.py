@@ -186,6 +186,12 @@ class TDMExpression (object):
     def simplify_(self):
         self.rhs_coeffs = [c.simplify () for c in self.rhs_coeffs]
 
+
+def combine_TDMSystem (systems):
+    exprs = [system.exprs for system in systems]
+    exprs = list (itertools.chain.from_iterable (exprs))
+    return TDMSystem (exprs, _try_inverse=False)
+
 class TDMSystem (object):
     def __init__(self, exprs, _try_inverse=True):
         self._init_from_exprs (exprs)
@@ -973,13 +979,14 @@ if __name__=='__main__':
     subsec_read.append ([read_exprs[i] for i in (2,9,10)]) # hh_d
     subsec_read.append ([read_exprs[i] for i in (3,8,11)]) # hh_0
     subsec_read.append ([read_exprs[i] for i in (4,7,12)]) # hh_u
-    subsec_read.append ([read_exprs[i] for i in (13,14,15)]) # dm1
+    subsec_read.append ([read_exprs[13],
+                         combine_TDMSystem ([read_exprs[i] for i in (14,15)])]) # dm1
     subsec_read.append ([read_exprs[i] for i in (16,17,18)]) # sm
-    subsec_read.append ([read_exprs[i] for i in (19,20)])
-    subsec_read.append ([read_exprs[i] for i in (21,22)])
-    subsec_read.append ([read_exprs[i] for i in (23,24)])
-    subsec_read.append ([read_exprs[i] for i in (25,26)])
-    subsec_read.append ([read_exprs[i] for i in (31,32,33)])
+    subsec_read.append ([combine_TDMSystem ([read_exprs[i] for i in (19,20)])])
+    subsec_read.append ([combine_TDMSystem ([read_exprs[i] for i in (21,22)])])
+    subsec_read.append ([combine_TDMSystem ([read_exprs[i] for i in (23,24)])])
+    subsec_read.append ([combine_TDMSystem ([read_exprs[i] for i in (25,26)])])
+    subsec_read.append ([combine_TDMSystem ([read_exprs[i] for i in (31,32,33)])])
     subsec_read.append ([read_exprs[i] for i in (34,)])
     subsec_read.append ([read_exprs[i] for i in (35,)])
 
@@ -988,28 +995,24 @@ if __name__=='__main__':
     subsec_write = []
     with open (fname, 'w') as f:
         f.write (latex_header)
-        print ("================== READ ==================")
-        f.write ('\\section{Read}\n')
         for exprs, lbl in zip (subsec_read, subsec_lbls):
-            print ("------------------ " + lbl + " ------------------")
-            f.write ('\\subsection{' + lbl.replace ('_','\\_') + '}\n')
+            print ("================== " + lbl + " ==================")
+            f.write ('\\section{' + lbl.replace ('_','\\_') + '}\n')
             exprsI = []
-            for expr in exprs:
+            for idx, expr in enumerate (exprs):
                 new_s = (2*s) - expr.exprs[0].lhs.get_s_ket ()
                 new_m = (2*m) - expr.exprs[0].lhs.get_m_ket ()
                 my_expr = expr.subs_m (new_m).subs_s (new_s)
+                print ("------------------ READ " + str (idx) + "------------------")
                 print (my_expr, flush=True)
+                f.write ('Read {}:\n\n'.format (idx))
                 f.write (my_expr.latex () + '\n\n')
-                exprsI.append (expr.inv ().subs_m (new_m).subs_s (new_s))
+                exprI = expr.inv ().subs_m (new_m).subs_s (new_s)
+                print ("------------------ WRITE " + str (idx) + "------------------")
+                print (exprI, flush=True)
+                f.write ('Write {}:\n\n'.format (idx))
+                f.write (exprI.latex () + '\n\n')
+                exprsI.append (exprI)
             subsec_write.append (exprsI)
-        print ("================== WRITE ==================")
-        f.write ('\\section{Write}\n')
-        for exprs, lbl in zip (subsec_write, subsec_lbls):
-            print ("------------------ " + lbl + " ------------------")
-            f.write ('\\subsection{' + lbl.replace ('_','\\_') + '}\n')
-            for expr in exprs:
-                my_expr = expr
-                print (my_expr, flush=True)
-                f.write (my_expr.latex () + '\n\n')
         f.write ('\n\n\\end{document}')
 
