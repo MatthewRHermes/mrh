@@ -939,14 +939,14 @@ if __name__=='__main__':
     #for expr in gamma3h: print (expr)
     gamma2 = []
     #print ("\n\n============= Two-body density =============")
-    gamma2.append (TDMSystem ([solve_density (4, [0,0], [0,0], 0, 0)]))
-    gamma2.append (TDMSystem ([solve_density (4, [0,1], [1,0], 0, 0)]))
-    gamma2.append (TDMSystem ([solve_density (4, [1,1], [1,1], 0, 0)]))
-    gamma2.append (TDMSystem ([solve_density (2, [0,0], [0,0], 0, 0),
-                               solve_density (2, [0,1], [1,0], 0, 0),
+    gamma2.append (TDMSystem ([solve_density (0, [0,0], [0,0], 4, 0)]))
+    gamma2.append (TDMSystem ([solve_density (0, [0,1], [1,0], 4, 0)]))
+    gamma2.append (TDMSystem ([solve_density (0, [1,1], [1,1], 4, 0)]))
+    gamma2.append (TDMSystem ([solve_density (0, [0,0], [0,0], 2, 0),
+                               solve_density (0, [0,1], [1,0], 2, 0),
                                #solve_density (2, [1,0], [0,1], 0, 0),
-                               solve_density (2, [1,0], [1,0], 0, 0),
-                               solve_density (2, [1,1], [1,1], 0, 0)]))
+                               solve_density (0, [1,0], [1,0], 2, 0),
+                               solve_density (0, [1,1], [1,1], 2, 0)]))
     gamma2.append (TDMSystem ([solve_density (0, [0,0], [0,0], 0, 0),
                                solve_density (0, [0,1], [1,0], 0, 0),
                                solve_density (0, [1,0], [0,1], 0, 0),
