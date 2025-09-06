@@ -995,10 +995,12 @@ if __name__=='__main__':
             f.write ('\\subsection{' + lbl.replace ('_','\\_') + '}\n')
             exprsI = []
             for expr in exprs:
-                my_expr = expr.subs_mket_to_m ().subs_sket_to_s ()
+                new_s = (2*s) - expr.exprs[0].lhs.get_s_ket ()
+                new_m = (2*m) - expr.exprs[0].lhs.get_m_ket ()
+                my_expr = expr.subs_m (new_m).subs_s (new_s)
                 print (my_expr, flush=True)
                 f.write (my_expr.latex () + '\n\n')
-                exprsI.append (expr.inv ())
+                exprsI.append (expr.inv ().subs_m (new_m).subs_s (new_s))
             subsec_write.append (exprsI)
         print ("================== WRITE ==================")
         f.write ('\\section{Write}\n')
@@ -1006,7 +1008,7 @@ if __name__=='__main__':
             print ("------------------ " + lbl + " ------------------")
             f.write ('\\subsection{' + lbl.replace ('_','\\_') + '}\n')
             for expr in exprs:
-                my_expr = expr.subs_mket_to_m ().subs_sket_to_s ()
+                my_expr = expr
                 print (my_expr, flush=True)
                 f.write (my_expr.latex () + '\n\n')
         f.write ('\n\n\\end{document}')
