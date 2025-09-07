@@ -1053,8 +1053,9 @@ def standardize_m_s (eqn_dict):
 
 def get_scale_constants (eqn_dict):
     scale = {}
-    scale['1_h'] = {key: eqn_dict[key][0].get_A ()[0,0]
-                 for key in ('phh_a_3d', 'phh_b_3d', 'ha_d', 'hb_d', 'ha_u', 'hb_u', 'phh_a_3u', 'phh_b_3u')}
+    scale['1_h'] = {key: sum (eqn_dict[key][0].get_A ().col (0)).simplify ()
+                    for key in ('phh_a_3d', 'phh_b_3d', 'ha_d', 'hb_d', 'ha_u', 'hb_u',
+                                'phh_a_3u', 'phh_b_3u')}
     scale['1_h'] = Matrix ([[scale['1_h']['phh_a_3d'], scale['1_h']['phh_b_3d']],
                             [scale['1_h']['ha_d'], scale['1_h']['hb_d']],
                             [scale['1_h']['ha_u'], scale['1_h']['hb_u']],
@@ -1105,11 +1106,15 @@ def invert_eqn_dict (eqn_dict):
     return inv_eqn_dict
 
 if __name__=='__main__':
-    import os
+    import os, sys
     eqn_dict = get_eqn_dict ()
     inv_eqn_dict = invert_eqn_dict (eqn_dict)
     eqn_dict = standardize_m_s (eqn_dict)
     scale = get_scale_constants (eqn_dict)
+    for lbl, mat in scale.items ():
+        nrows, ncols = sympy.shape (mat)
+        for i, j in itertools.product (range (nrows), range (ncols)):
+            print (lbl + '[' + str(i) + '][' + str(j) + '] =',mat[i,j])
     fname = os.path.splitext (os.path.basename (__file__))[0] + '.tex'
     with open (fname, 'w') as f:
         f.write (latex_header)
