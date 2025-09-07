@@ -849,7 +849,6 @@ __global__ void _compute_FCIrdm3h_a_t1ci_v3(double * ci, double * buf, int stra_
         if ((str1>=ia) && (str1<ja)){
           int a = tab[0];
           int i = tab[1];
-          //atomicAdd(&(buf[(k+ib)*norb2 + i*norb + a]), sign*ci[(str1-ia)*nb + k]);//I'm not sure how this plays out in the bigger kernel, so keeping as k+ib on the buf side
           tmp_buf[i*norb + a] += sign*ci[(str1-ia)*nb + k];//I'm not sure how this plays out in the bigger kernel, so keeping as k+ib on the buf side
           }
         }
@@ -874,7 +873,62 @@ __global__ void _compute_FCIrdm3h_b_t1ci_v3(double * ci, double * buf, int stra_
         if ((str1>=ib) && (str1<jb)){
           int a = tab[0];
           int i = tab[1];
-          //atomicAdd(&(buf[str0*norb2 + i*norb + a]), sign*ci[(stra_id-ia)*nb_bra + str1-ib]);// rdm3h_b_t1ci is only called when stra_id is more than ia
+          tmp_buf[i*norb + a] += sign*ci[(stra_id-ia)*nb_bra + str1-ib];// rdm3h_b_t1ci is only called when stra_id is more than ia
+        }
+      }
+    }
+}
+/* ---------------------------------------------------------------------- */
+__global__ void _compute_FCIrdm3h_a_t1ci_v4(double * ci, double * buf, int stra_id, int nb, int norb, int nlinka, int ia, int ja, int ib, int jb, int * link_index)
+{
+    //int j = blockIdx.x * blockDim.x + threadIdx.x;
+    //if (j >= nlinka) return;
+    int k = blockIdx.x * blockDim.x + threadIdx.x;
+    int j = blockIdx.y * blockDim.y + threadIdx.y;
+    if (k >= jb-ib) return;
+    if (j >= nlinka) return;
+     
+
+    __shared__ double cache[norb][norb];
+
+    //zero out shared memory
+    int norb2 = norb*norb;
+    double * tmp_buf = &(buf[(k+ib)*norb2]);
+    //int * tab = &(link_index[4*nlinka*stra_id + 4*j]); 
+    int * tab_line = &(link_index[4*nlinka*stra_id]); 
+    //for (int k=0; k<jb-ib; ++k){// Doing this because ci[:, ib:jb] is filled, rest is zeros.
+    for (int j=0; j<nlinka; ++j){
+      int * tab = &(tab_line[4*j]);
+      int sign = tab[3];
+      if (sign != 0) {
+        int str1 = tab[2];
+        if ((str1>=ia) && (str1<ja)){
+          int a = tab[0];
+          int i = tab[1];
+          tmp_buf[i*norb + a] += sign*ci[(str1-ia)*nb + k];//I'm not sure how this plays out in the bigger kernel, so keeping as k+ib on the buf side
+          }
+        }
+      }
+}
+/* ---------------------------------------------------------------------- */
+__global__ void _compute_FCIrdm3h_b_t1ci_v4(double * ci, double * buf, int stra_id, int nb, int nb_bra, int norb, int nlinkb, int ia, int ja, int ib, int jb, int * link_index)
+{
+    int str0 = blockIdx.x * blockDim.x + threadIdx.x;
+    //int j = blockIdx.y * blockDim.y + threadIdx.y;
+    if (str0 >= nb) return;
+    //if (j >= nlinkb) return;
+    int norb2 = norb*norb;
+    double * tmp_buf = &(buf[str0*norb2]);
+    //int * tab = &(link_index[4*str0*nlinkb+4*j]);
+    int * tab_line = &(link_index[4*str0*nlinkb]);
+    for (int j=0;j<nlinkb;++j){
+      int * tab = &(tab_line[4*j]);
+      int sign = tab[3];
+      if (sign!=0){ //return;
+        int str1 = tab[2];
+        if ((str1>=ib) && (str1<jb)){
+          int a = tab[0];
+          int i = tab[1];
           tmp_buf[i*norb + a] += sign*ci[(stra_id-ia)*nb_bra + str1-ib];// rdm3h_b_t1ci is only called when stra_id is more than ia
         }
       }

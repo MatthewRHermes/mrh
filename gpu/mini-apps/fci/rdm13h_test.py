@@ -34,8 +34,8 @@ mf.with_df.auxbasis = pyscf.df.make_auxbasis(mol)
 mf.max_cycle=1
 mf.kernel()
 
-norb = 4
-nelec = 4
+norb = 12
+nelec = 15
 
 def run_test(cre, norb, nelec, spin, reorder):
     nelec_copy = list(_unpack_nelec(nelec))

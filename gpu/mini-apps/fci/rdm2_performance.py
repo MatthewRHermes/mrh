@@ -14,6 +14,7 @@ if gpu_run:
   from pyscf.lib import param
   param.use_gpu = gpu
   param.gpu_debug=False
+  libgpu.set_verbose_(gpu, 1)
 lib.logger.TIMER_LEVEL=lib.logger.INFO
 
 geom = ''' K 0 0 0;
@@ -53,8 +54,11 @@ def performance_checker(fn, cibra, ciket, norb, nelec, link_index, nruns=5):
   param.use_gpu = None
   for _ in range(nruns): rdm.make_rdm12_spin1(fn, cibra, ciket, norb, nelec, link_index)
   t2 = time.time()
-  print("GPU time: ", round(t1-t0,2), "CPU time: ", round(t2-t1,2))
+  return t1-t0, t2-t1
 
-nruns=5
+nruns=10
 for fn in ['FCItdm12kern_a', 'FCItdm12kern_b', 'FCItdm12kern_ab', 'FCIrdm12kern_sf']: 
-  performance_checker(fn, cibra, ciket, norb, nelec, link_index, nruns=nruns)
+  gpu_time, cpu_time = performance_checker(fn, cibra, ciket, norb, nelec, link_index, nruns=nruns)
+  print("GPU time: ", round(gpu_time,2), "CPU time: ", round(cpu_time,2))
+
+libgpu.destroy_device(gpu)

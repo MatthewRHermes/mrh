@@ -44,14 +44,14 @@ def run_test(norb, nelec):
     nb_bra = math.comb(norb, nelec_bra[1])
     na_ket = math.comb(norb, nelec_ket[0])
     nb_ket = math.comb(norb, nelec_ket[1])
-    cibra = np.arange(na_bra*nb_bra).reshape(na_bra, nb_bra)+0.5
-    ciket = np.arange(na_ket*nb_ket).reshape(na_ket, nb_ket)+4.5
-    print('cibra')
-    print(cibra)
-    print('ciket')
-    print(ciket)
-    #cibra = np.random.random((na_bra, nb_bra))
-    #ciket = np.random.random((na_ket, nb_ket))
+    #cibra = np.arange(na_bra*nb_bra).reshape(na_bra, nb_bra)+0.5
+    #ciket = np.arange(na_ket*nb_ket).reshape(na_ket, nb_ket)+4.5
+    #print('cibra')
+    #print(cibra)
+    #print('ciket')
+    #print(ciket)
+    cibra = np.random.random((na_bra, nb_bra))
+    ciket = np.random.random((na_ket, nb_ket))
     trans_sfudm1 (cibra, ciket, norb, nelec) 
 
 run_test(norb, nelec)
