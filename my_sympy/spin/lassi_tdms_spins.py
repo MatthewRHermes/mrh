@@ -1,4 +1,5 @@
 import copy
+from tqdm import tqdm
 import numpy as np
 import sympy
 from mrh.my_sympy.spin import spin_1h
@@ -179,6 +180,14 @@ class TDMExpression (object):
                 c = c.simplify ()
             new_coeffs.append (c)
         return TDMExpression (new_lhs, new_coeffs, new_terms)
+
+    def __mul__(self, scale):
+        new_coeffs = [c * scale for c in self.rhs_coeffs]
+        return TDMExpression (self.lhs, new_coeffs, self.rhs_terms)
+
+    def __truediv__(self, scale):
+        new_coeffs = [c / scale for c in self.rhs_coeffs]
+        return TDMExpression (self.lhs, new_coeffs, self.rhs_terms)
 
     def powsimp_(self):
         self.rhs_coeffs = [powsimp (c, force=True) for c in self.rhs_coeffs]
@@ -869,150 +878,253 @@ latex_header = r'''\documentclass[prb,amsmath,amssymb,floatfix,nofootinbib,super
 
 '''
 
-if __name__=='__main__':
-    #print ("============= All creation/all destruction =============")
-    a = []
-    #print ("------- Alpha only -------")
-    a.append (TDMSystem ([solve_pure_destruction (-1, [0,], 0, 0)]))
-    a.append (TDMSystem ([solve_pure_destruction (1, [0,], 0, 0)]))
-    a.append (TDMSystem ([solve_pure_destruction (-2, [0,0], 0, 0)]))
-    a.append (TDMSystem ([solve_pure_destruction (0, [0,0], 0, 0)]))
-    a.append (TDMSystem ([solve_pure_destruction (2, [0,0], 0, 0)]))
-    a = [e.subs_mket_to_m ().subs_sket_to_s () for e in a]
-    #for expr in a: print (expr)
-    b = []
-    #print ("\n------- Beta only -------")
-    b.append (TDMSystem ([solve_pure_destruction (1, [1,], 0, 0)]))
-    b.append (TDMSystem ([solve_pure_destruction (-1, [1,], 0, 0)]))
-    b.append (TDMSystem ([solve_pure_destruction (2, [1,1], 0, 0)]))
-    b.append (TDMSystem ([solve_pure_destruction (0, [1,1], 0, 0)]))
-    b.append (TDMSystem ([solve_pure_destruction (-2, [1,1], 0, 0)]))
-    b = [e.subs_mket_to_m ().subs_sket_to_s () for e in b]
-    #for expr in b: print (expr)
-    ab = []
-    #print ("\n------- Mixed -------")
-    ab.append (TDMSystem ([solve_pure_destruction (-2, [1,0], 0, 0)]))
-    ab.append (TDMSystem ([solve_pure_destruction (0, [1,0], 0, 0),
-                           solve_pure_destruction (0, [0,1], 0, 0)]))
-    ab.append (TDMSystem ([solve_pure_destruction (-2, [1,0], 0, 0)]))
-    ab = [e.subs_mket_to_m ().subs_sket_to_s () for e in ab]
-    #for expr in ab: print (expr)
-    gamma1 = []
-    #print ("\n\n============= One-body density =============")
-    gamma1.append (TDMSystem ([solve_density (0, [0,], [0,], 0, 0),
-                               solve_density (0, [1,], [1,], 0, 0)]))
-    gamma1.append (TDMSystem ([solve_density (-2, [0,], [0,], 0, 0)]))
-    gamma1.append (TDMSystem ([solve_density (-2, [1,], [1,], 0, 0)]))
-    gamma1.append (TDMSystem ([solve_density (-2, [1,], [0,], 0, 0)]))
-    gamma1.append (TDMSystem ([solve_density (0, [1,], [0,], 0, 0)]))
-    gamma1.append (TDMSystem ([solve_density (2, [1,], [0,], 0, 0)]))
-    gamma1 = [e.subs_mket_to_m ().subs_sket_to_s () for e in gamma1]
-    #for expr in gamma1: print (expr)
-    gamma3h = []
-    #print ("\n\n============= Three-half-particle operators =============")
-    gamma3h.append (TDMSystem ([solve_density (-2, [0,], [0,0], 1, 1)]))
-    gamma3h.append (TDMSystem ([solve_density (-2, [1,], [1,0], 1, 1)]))
-    gamma3h.append (TDMSystem ([solve_density (-2, [0,], [0,1], 1, 1)]))
-    gamma3h.append (TDMSystem ([solve_density (-2, [1,], [1,1], 1, 1)]))
-    gamma3h.append (TDMSystem ([solve_density (3, [0,], [0,0], 0, 0)]))
-    gamma3h.append (TDMSystem ([solve_density (3, [1,], [1,0], 0, 0)]))
-    gamma3h.append (TDMSystem ([solve_density (3, [0,], [0,1], 0, 0)]))
-    gamma3h.append (TDMSystem ([solve_density (3, [1,], [1,1], 0, 0)]))
-    gamma3h.append (TDMSystem ([solve_density (0, [0,], [0,0], 1, 1),
-                                solve_density (0, [1,], [1,0], 1, 1),
-                                solve_density (0, [1,], [0,1], 1, 1)]))
-    gamma3h.append (TDMSystem ([solve_density (0, [0,], [0,0], -1, -1),
-                                solve_density (0, [1,], [1,0], -1, -1),
-                                solve_density (0, [1,], [0,1], -1, -1)]))
-    gamma3h[-1] = gamma3h[-1].subs_s(s+Rational(1,2))
-    gamma3h[-1].simplify_()
-    gamma3h.append (TDMSystem ([solve_density (0, [0,], [0,1], 1, 1),
-                                solve_density (0, [0,], [1,0], 1, 1),
-                                solve_density (0, [1,], [1,1], 1, 1)]))
-    gamma3h.append (TDMSystem ([solve_density (0, [0,], [0,1], -1, 1),
-                                solve_density (0, [0,], [1,0], -1, 1),
-                                solve_density (0, [1,], [1,1], -1, 1)]))
-    gamma3h[-1] = gamma3h[-1].subs_s(s+Rational(1,2))
-    gamma3h[-1].simplify_()
-    #gamma3h = [e.subs_mket_to_m () for e in gamma3h]
-    #gamma3h = [e.subs_sket_to_s () for e in gamma3h]
-    #for expr in gamma3h: print (expr)
-    gamma2 = []
-    #print ("\n\n============= Two-body density =============")
-    gamma2.append (TDMSystem ([solve_density (0, [0,0], [0,0], 4, 0)]))
-    gamma2.append (TDMSystem ([solve_density (0, [0,1], [1,0], 4, 0)]))
-    gamma2.append (TDMSystem ([solve_density (0, [1,1], [1,1], 4, 0)]))
-    gamma2.append (TDMSystem ([solve_density (0, [0,0], [0,0], 2, 0),
-                               solve_density (0, [0,1], [1,0], 2, 0),
-                               #solve_density (2, [1,0], [0,1], 0, 0),
-                               solve_density (0, [1,0], [1,0], 2, 0),
-                               solve_density (0, [1,1], [1,1], 2, 0)]))
-    gamma2.append (TDMSystem ([solve_density (0, [0,0], [0,0], 0, 0),
-                               solve_density (0, [0,1], [1,0], 0, 0),
-                               solve_density (0, [1,0], [0,1], 0, 0),
-                               solve_density (0, [1,1], [1,1], 0, 0)],
-                              _try_inverse=False))
-    #gamma2[-2].exprs.append (gamma2[-2].exprs[1].transpose ((0,1,3,2)))
-    #gamma2[-2].exprs.append (gamma2[-2].exprs[2].transpose ((0,1,3,2)))
-    #gamma2[-2]._init_from_exprs (gamma2[-2].exprs)
-    gamma2[-1].exprs.append (gamma2[-1].exprs[1].transpose ((0,1,3,2)))
-    gamma2[-1].exprs.append (gamma2[-1].exprs[2].transpose ((0,1,3,2)))
-    exprs = gamma2[-1].exprs
-    #exprs = [exprs[0],exprs[3],exprs[1]+exprs[2],exprs[4]+exprs[5],exprs[1]-exprs[2],exprs[4]-exprs[5]]
-    gamma2[-1]._init_from_exprs (exprs)
-    gamma2[-1].simplify_cols_()
-    #gamma2 = [e.subs_mket_to_m () for e in gamma2]
-    #gamma2 = [e.subs_sket_to_s () for e in gamma2]
+def get_eqn_dict ():
+    print ("Building equation dictionary...", flush=True)
+    with tqdm(total=93) as pbar:
+        #print ("============= All creation/all destruction =============")
+        a = []
+        #print ("------- Alpha only -------")
+        a.append (TDMSystem ([solve_pure_destruction (-1, [0,], 0, 0)]))
+        pbar.update (1)
+        a.append (TDMSystem ([solve_pure_destruction (1, [0,], 0, 0)]))
+        pbar.update (1)
+        a.append (TDMSystem ([solve_pure_destruction (-2, [0,0], 0, 0)]))
+        pbar.update (1)
+        a.append (TDMSystem ([solve_pure_destruction (0, [0,0], 0, 0)]))
+        pbar.update (1)
+        a.append (TDMSystem ([solve_pure_destruction (2, [0,0], 0, 0)]))
+        pbar.update (1)
+        a = [e.subs_mket_to_m ().subs_sket_to_s () for e in a]
+        #for expr in a: print (expr)
+        b = []
+        #print ("\n------- Beta only -------")
+        b.append (TDMSystem ([solve_pure_destruction (1, [1,], 0, 0)]))
+        pbar.update (1)
+        b.append (TDMSystem ([solve_pure_destruction (-1, [1,], 0, 0)]))
+        pbar.update (1)
+        b.append (TDMSystem ([solve_pure_destruction (2, [1,1], 0, 0)]))
+        pbar.update (1)
+        b.append (TDMSystem ([solve_pure_destruction (0, [1,1], 0, 0)]))
+        pbar.update (1)
+        b.append (TDMSystem ([solve_pure_destruction (-2, [1,1], 0, 0)]))
+        pbar.update (1)
+        b = [e.subs_mket_to_m ().subs_sket_to_s () for e in b]
+        #for expr in b: print (expr)
+        ab = []
+        #print ("\n------- Mixed -------")
+        ab.append (TDMSystem ([solve_pure_destruction (-2, [1,0], 0, 0)]))
+        pbar.update (1)
+        ab.append (TDMSystem ([solve_pure_destruction (0, [1,0], 0, 0),
+                               solve_pure_destruction (0, [0,1], 0, 0)]))
+        pbar.update (4)
+        ab.append (TDMSystem ([solve_pure_destruction (-2, [1,0], 0, 0)]))
+        pbar.update (1)
+        ab = [e.subs_mket_to_m ().subs_sket_to_s () for e in ab]
+        #for expr in ab: print (expr)
+        gamma1 = []
+        #print ("\n\n============= One-body density =============")
+        gamma1.append (TDMSystem ([solve_density (0, [0,], [0,], 0, 0),
+                                   solve_density (0, [1,], [1,], 0, 0)]))
+        pbar.update (4)
+        gamma1.append (TDMSystem ([solve_density (-2, [0,], [0,], 0, 0)]))
+        pbar.update (1)
+        gamma1.append (TDMSystem ([solve_density (-2, [1,], [1,], 0, 0)]))
+        pbar.update (1)
+        gamma1.append (TDMSystem ([solve_density (-2, [1,], [0,], 0, 0)]))
+        pbar.update (1)
+        gamma1.append (TDMSystem ([solve_density (0, [1,], [0,], 0, 0)]))
+        pbar.update (1)
+        gamma1.append (TDMSystem ([solve_density (2, [1,], [0,], 0, 0)]))
+        pbar.update (1)
+        gamma1 = [e.subs_mket_to_m ().subs_sket_to_s () for e in gamma1]
+        #for expr in gamma1: print (expr)
+        gamma3h = []
+        #print ("\n\n============= Three-half-particle operators =============")
+        gamma3h.append (TDMSystem ([solve_density (-2, [0,], [0,0], 1, 1)]))
+        pbar.update (1)
+        gamma3h.append (TDMSystem ([solve_density (-2, [1,], [1,0], 1, 1)]))
+        pbar.update (1)
+        gamma3h.append (TDMSystem ([solve_density (-2, [0,], [0,1], 1, 1)]))
+        pbar.update (1)
+        gamma3h.append (TDMSystem ([solve_density (-2, [1,], [1,1], 1, 1)]))
+        pbar.update (1)
+        gamma3h.append (TDMSystem ([solve_density (3, [0,], [0,0], 0, 0)]))
+        pbar.update (1)
+        gamma3h.append (TDMSystem ([solve_density (3, [1,], [1,0], 0, 0)]))
+        pbar.update (1)
+        gamma3h.append (TDMSystem ([solve_density (3, [0,], [0,1], 0, 0)]))
+        pbar.update (1)
+        gamma3h.append (TDMSystem ([solve_density (3, [1,], [1,1], 0, 0)]))
+        pbar.update (1)
+        gamma3h.append (TDMSystem ([solve_density (0, [0,], [0,0], 1, 1),
+                                    solve_density (0, [1,], [1,0], 1, 1),
+                                    solve_density (0, [1,], [0,1], 1, 1)]))
+        pbar.update (9)
+        gamma3h.append (TDMSystem ([solve_density (0, [0,], [0,0], -1, -1),
+                                    solve_density (0, [1,], [1,0], -1, -1),
+                                    solve_density (0, [1,], [0,1], -1, -1)]))
+        gamma3h[-1] = gamma3h[-1].subs_s(s+Rational(1,2))
+        gamma3h[-1].simplify_()
+        pbar.update (9)
+        gamma3h.append (TDMSystem ([solve_density (0, [0,], [0,1], 1, 1),
+                                    solve_density (0, [0,], [1,0], 1, 1),
+                                    solve_density (0, [1,], [1,1], 1, 1)]))
+        pbar.update (9)
+        gamma3h.append (TDMSystem ([solve_density (0, [0,], [0,1], -1, 1),
+                                    solve_density (0, [0,], [1,0], -1, 1),
+                                    solve_density (0, [1,], [1,1], -1, 1)]))
+        gamma3h[-1] = gamma3h[-1].subs_s(s+Rational(1,2))
+        gamma3h[-1].simplify_()
+        pbar.update (9)
+        #gamma3h = [e.subs_mket_to_m () for e in gamma3h]
+        #gamma3h = [e.subs_sket_to_s () for e in gamma3h]
+        #for expr in gamma3h: print (expr)
+        gamma2 = []
+        #print ("\n\n============= Two-body density =============")
+        gamma2.append (TDMSystem ([solve_density (0, [0,0], [0,0], 4, 0)]))
+        pbar.update (1)
+        gamma2.append (TDMSystem ([solve_density (0, [0,1], [1,0], 4, 0)]))
+        pbar.update (1)
+        gamma2.append (TDMSystem ([solve_density (0, [1,1], [1,1], 4, 0)]))
+        pbar.update (1)
+        gamma2.append (TDMSystem ([solve_density (0, [0,0], [0,0], 2, 0),
+                                   solve_density (0, [0,1], [1,0], 2, 0),
+                                   #solve_density (2, [1,0], [0,1], 0, 0),
+                                   solve_density (0, [1,0], [1,0], 2, 0),
+                                   solve_density (0, [1,1], [1,1], 2, 0)]))
+        pbar.update (16)
+        gamma2.append (TDMSystem ([solve_density (0, [0,0], [0,0], 0, 0),
+                                   solve_density (0, [0,1], [1,0], 0, 0),
+                                   solve_density (0, [1,0], [0,1], 0, 0),
+                                   solve_density (0, [1,1], [1,1], 0, 0)],
+                                  _try_inverse=False))
+        #gamma2[-2].exprs.append (gamma2[-2].exprs[1].transpose ((0,1,3,2)))
+        #gamma2[-2].exprs.append (gamma2[-2].exprs[2].transpose ((0,1,3,2)))
+        #gamma2[-2]._init_from_exprs (gamma2[-2].exprs)
+        gamma2[-1].exprs.append (gamma2[-1].exprs[1].transpose ((0,1,3,2)))
+        gamma2[-1].exprs.append (gamma2[-1].exprs[2].transpose ((0,1,3,2)))
+        exprs = gamma2[-1].exprs
+        #exprs = [exprs[0],exprs[3],exprs[1]+exprs[2],exprs[4]+exprs[5],exprs[1]-exprs[2],exprs[4]-exprs[5]]
+        gamma2[-1]._init_from_exprs (exprs)
+        gamma2[-1].simplify_cols_()
+        #gamma2 = [e.subs_mket_to_m () for e in gamma2]
+        #gamma2 = [e.subs_sket_to_s () for e in gamma2]
+        pbar.update (5)
 
 
     read_exprs = a + b + ab + gamma1 + gamma3h + gamma2
 
-    subsec_lbls = ['ha_d', 'ha_u', 'hb_d', 'hb_u', 'hh_d', 'hh_0', 'hh_u',
+    lbls = ['ha_d', 'ha_u', 'hb_d', 'hb_u', 'hh_d', 'hh_0', 'hh_u',
                    'dm1', 'sm',
                    'phh_a_3d', 'phh_b_3d', 'phh_a_3u', 'phh_b_3u',
                    'dm2_2', 'dm2_1', 'dm2_0']
-    subsec_read = []
-    subsec_read.append ([read_exprs[i] for i in (0,27)]) # ha_d
-    subsec_read.append ([read_exprs[i] for i in (1,28)]) # ha_u
-    subsec_read.append ([read_exprs[i] for i in (6,29)]) # hb_d
-    subsec_read.append ([read_exprs[i] for i in (5,30)]) # hb_u
-    subsec_read.append ([read_exprs[i] for i in (2,9,10)]) # hh_d
-    subsec_read.append ([read_exprs[i] for i in (3,8,11)]) # hh_0
-    subsec_read.append ([read_exprs[i] for i in (4,7,12)]) # hh_u
-    subsec_read.append ([read_exprs[13],
-                         combine_TDMSystem ([read_exprs[i] for i in (14,15)])]) # dm1
-    subsec_read.append ([read_exprs[i] for i in (16,17,18)]) # sm
-    subsec_read.append ([combine_TDMSystem ([read_exprs[i] for i in (19,20)])])
-    subsec_read.append ([combine_TDMSystem ([read_exprs[i] for i in (21,22)])])
-    subsec_read.append ([combine_TDMSystem ([read_exprs[i] for i in (23,24)])])
-    subsec_read.append ([combine_TDMSystem ([read_exprs[i] for i in (25,26)])])
-    subsec_read.append ([combine_TDMSystem ([read_exprs[i] for i in (31,32,33)])])
-    subsec_read.append ([read_exprs[i] for i in (34,)])
-    subsec_read.append ([read_exprs[i] for i in (35,)])
+    subsec = []
+    subsec.append ([read_exprs[i] for i in (0,27)]) # ha_d
+    subsec.append ([read_exprs[i] for i in (1,28)]) # ha_u
+    subsec.append ([read_exprs[i] for i in (6,29)]) # hb_d
+    subsec.append ([read_exprs[i] for i in (5,30)]) # hb_u
+    subsec.append ([read_exprs[i] for i in (2,10,9)]) # hh_d
+    subsec.append ([read_exprs[i] for i in (3,11,8)]) # hh_0
+    subsec.append ([read_exprs[i] for i in (4,12,7)]) # hh_u
+    subsec.append ([read_exprs[13],
+                    combine_TDMSystem ([read_exprs[i] for i in (14,15)])]) # dm1
+    subsec.append ([read_exprs[i] for i in (16,17,18)]) # sm
+    subsec.append ([combine_TDMSystem ([read_exprs[i] for i in (19,20)])])
+    subsec.append ([combine_TDMSystem ([read_exprs[i] for i in (21,22)])])
+    subsec.append ([combine_TDMSystem ([read_exprs[i] for i in (23,24)])])
+    subsec.append ([combine_TDMSystem ([read_exprs[i] for i in (25,26)])])
+    subsec.append ([combine_TDMSystem ([read_exprs[i] for i in (31,32,33)])])
+    subsec.append ([read_exprs[i] for i in (34,)])
+    subsec.append ([read_exprs[i] for i in (35,)])
 
+    return {key: val for key, val in zip (lbls, subsec)}
+
+def standardize_m_s (eqn_dict):
+    eqn_dict1 = {}
+    for lbl, sector in eqn_dict.items ():
+        sector1 = []
+        for tdmsystem in sector:
+            new_s = (2*s) - tdmsystem.exprs[0].lhs.get_s_ket ()
+            new_m = (2*m) - tdmsystem.exprs[0].lhs.get_m_ket ()
+            tdmsystem1 = tdmsystem.subs_m (new_m).subs_s (new_s)
+            sector1.append (tdmsystem1)
+        eqn_dict1[lbl] = sector1
+    return eqn_dict1
+
+def get_scale_constants (eqn_dict):
+    scale = {}
+    scale['1_h'] = {key: eqn_dict[key][0].get_A ()[0,0]
+                 for key in ('phh_a_3d', 'phh_b_3d', 'ha_d', 'hb_d', 'ha_u', 'hb_u', 'phh_a_3u', 'phh_b_3u')}
+    scale['1_h'] = Matrix ([[scale['1_h']['phh_a_3d'], scale['1_h']['phh_b_3d']],
+                            [scale['1_h']['ha_d'], scale['1_h']['hb_d']],
+                            [scale['1_h']['ha_u'], scale['1_h']['hb_u']],
+                            [scale['1_h']['phh_a_3u'], scale['1_h']['phh_b_3u']]])
+    scale['1_hh'] = [[sum (el.get_A ().col (0)).simplify () for el in eqn_dict[key]]
+                     for key in ('hh_d', 'hh_0', 'hh_u')]
+    scale['1_hh'] = Matrix (scale['1_hh'])
+    scale['sm'] = Matrix ([el.get_A ()[0,0] for el in eqn_dict['sm']])
+    scale['dm'] = Matrix ([sum (eqn_dict['dm2_2'][0].get_A ().col (0)).simplify (),
+                           sum (eqn_dict['dm1'][1].get_A ().col (0)).simplify (),
+                           sum (eqn_dict['dm1'][0].get_A ().col (0)).simplify ()])
+    return scale
+
+class ScaledTDMSystem (TDMSystem):
+    def __init__(self, scale, tdmsystem):
+        self.scale = scale
+        exprs = [expr/scale for expr in tdmsystem.exprs]
+        self._init_from_exprs (exprs)
+
+    def __str__(self):
+        return '\n'.join (['c*' + str (expr) for expr in self.get_sorted_exprs ()])
+
+    def latex (self, env='align'):
+        my_latex = '\\begin{' + env.lower () + '}\n'
+        first_term = True
+        row_linker = ' \\\\ \n'
+        for expr in self.get_sorted_exprs ():
+            if not first_term: my_latex += row_linker
+            my_latex += 'c*' + expr._latex_line (env=env)
+            first_term = False
+        my_latex += '\n\\end{' + env.lower () + '}'
+        return my_latex
+
+def invert_eqn_dict (eqn_dict):
+    inv_eqn_dict = {}
+    barlen = sum ([len (sector) for sector in eqn_dict.values ()])
+    print ("Inverting equation dictionary...")
+    with tqdm(total=barlen) as pbar:
+        for lbl, sector in eqn_dict.items ():
+            sectorI = []
+            for tdmsystem in sector:
+                new_s = (2*s) - tdmsystem.exprs[0].lhs.get_s_ket ()
+                new_m = (2*m) - tdmsystem.exprs[0].lhs.get_m_ket ()
+                tdmsystemI = tdmsystem.inv ().subs_m (new_m).subs_s (new_s)
+                pbar.update (1)
+                sectorI.append (tdmsystemI)
+            inv_eqn_dict[lbl] = sectorI
+    return inv_eqn_dict
+
+if __name__=='__main__':
     import os
+    eqn_dict = get_eqn_dict ()
+    inv_eqn_dict = invert_eqn_dict (eqn_dict)
+    eqn_dict = standardize_m_s (eqn_dict)
+    scale = get_scale_constants (eqn_dict)
     fname = os.path.splitext (os.path.basename (__file__))[0] + '.tex'
-    subsec_write = []
     with open (fname, 'w') as f:
         f.write (latex_header)
-        for exprs, lbl in zip (subsec_read, subsec_lbls):
+        for lbl, exprs in eqn_dict.items ():
             print ("================== " + lbl + " ==================")
             f.write ('\\section{' + lbl.replace ('_','\\_') + '}\n')
-            exprsI = []
-            for idx, expr in enumerate (exprs):
-                new_s = (2*s) - expr.exprs[0].lhs.get_s_ket ()
-                new_m = (2*m) - expr.exprs[0].lhs.get_m_ket ()
-                my_expr = expr.subs_m (new_m).subs_s (new_s)
+            exprsI = inv_eqn_dict[lbl]
+            for idx, (expr, exprI) in enumerate (zip (exprs, exprsI)):
                 print ("------------------ READ " + str (idx) + "------------------")
-                print (my_expr, flush=True)
+                print (expr, flush=True)
                 f.write ('Read {}:\n\n'.format (idx))
-                f.write (my_expr.latex () + '\n\n')
-                exprI = expr.inv ().subs_m (new_m).subs_s (new_s)
+                f.write (expr.latex () + '\n\n')
                 print ("------------------ WRITE " + str (idx) + "------------------")
                 print (exprI, flush=True)
                 f.write ('Write {}:\n\n'.format (idx))
                 f.write (exprI.latex () + '\n\n')
-                exprsI.append (exprI)
-            subsec_write.append (exprsI)
         f.write ('\n\n\\end{document}')
 
