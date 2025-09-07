@@ -341,6 +341,14 @@ class TDMSystem (object):
         for expr in self.exprs:
             expr.simplify_()
 
+    def __mul__(self, scale):
+        old_scale = getattr (self, 'scale', S(1))
+        scale /= old_scale
+        return ScaledTDMSystem (self, scale)
+
+    def __truediv__(self, scale):
+        return self.__mul__(scale**-1)
+
 ORBINDICES = 'pqrstuvwxyz'
 
 class CrVector (object):
@@ -354,6 +362,11 @@ class CrVector (object):
         self.indices = indices
         self.s_ket = s_ket
         self.m_ket = m_ket
+
+    def get_net_opcount (self):
+        nbeta = sum (self.crops)
+        nalpha = len (self.crops) - nbeta
+        return (nalpha, nbeta)
 
     def transpose (self, idx):
         s_bra = self.get_s_bra ()
@@ -545,6 +558,10 @@ class AnVector (CrVector):
         crops = anops[::-1]
         super().__init__(s_ket, crops, s_bra, m_bra, indices=indices[::-1])
 
+    def get_net_opcount (self):
+        nbeta = sum (self.crops)
+        nalpha = len (self.crops) - nbeta
+        return (-nalpha, -nbeta)
 
     def get_ops (self): return list(self.crops[::-1])
     def get_indices (self): return list(self.indices[::-1])
@@ -596,6 +613,13 @@ class CrAnOperator (CrVector):
         self.indices = indices
         self.s_ket = s_ket
         self.m_ket = m_ket
+
+    def get_net_opcount (self):
+        nbeta_cr = sum (self.crops)
+        nalpha_cr = len (self.crops) - nbeta
+        nbeta_an = sum (self.anops)
+        nalpha_an = len (self.anops) - nbeta
+        return (nalpha_cr-nalpha_an, nbeta_cr-nbeta_an)
 
     def transpose (self, idx):
         s_bra = self.get_s_bra ()
@@ -1051,7 +1075,28 @@ def standardize_m_s (eqn_dict):
         eqn_dict1[lbl] = sector1
     return eqn_dict1
 
+class TDMScaleArray (object):
+    def __init__(self, name, tdmsystems_array):
+        self.name = name
+        nrows = len (tdmsystems_array)
+        ncols = len (tdmsystems_array[0])
+        self.shape = (nrows, ncols)
+        self.lhs = [[tdmsystem.lhs for tdmsystem in row]
+                    for row in tdmsystems_array]
+        col_indices = np.asarray ([[lhs.get_net_opcount () for lhs in row]
+                                   for row in self.lhs])
+        assert (all (np.all (col_indices==col_indices[0], axis=1)))
+        self.col_indices = list (col_indices[0])
+        row_indices = np.asarray ([[int(2*(lhs.get_s_bra () - lhs.get_s_ket ())) for lhs in row]
+                                   for row in self.lhs])
+        assert (all (np.all (row_indices==row_indices[:,0], axis=0)))
+        self.row_indices = row_indices
+        self.mat = Matrix ([[tdmsystem.get_A ().col (0).simplify ()
+                             for tdmsystem in row]
+                            for row in tdmsystems_array])
+
 def get_scale_constants (eqn_dict):
+    # TODO: finish refactoring this function into ^ that class up there
     scale = {}
     scale['1_h'] = {key: sum (eqn_dict[key][0].get_A ().col (0)).simplify ()
                     for key in ('phh_a_3d', 'phh_b_3d', 'ha_d', 'hb_d', 'ha_u', 'hb_u',
