@@ -616,9 +616,9 @@ class CrAnOperator (CrVector):
 
     def get_net_opcount (self):
         nbeta_cr = sum (self.crops)
-        nalpha_cr = len (self.crops) - nbeta
+        nalpha_cr = len (self.crops) - nbeta_cr
         nbeta_an = sum (self.anops)
-        nalpha_an = len (self.anops) - nbeta
+        nalpha_an = len (self.anops) - nbeta_an
         return (nalpha_cr-nalpha_an, nbeta_cr-nbeta_an)
 
     def transpose (self, idx):
@@ -941,7 +941,7 @@ def get_eqn_dict ():
         ab.append (TDMSystem ([solve_pure_destruction (0, [1,0], 0, 0),
                                solve_pure_destruction (0, [0,1], 0, 0)]))
         pbar.update (4)
-        ab.append (TDMSystem ([solve_pure_destruction (-2, [1,0], 0, 0)]))
+        ab.append (TDMSystem ([solve_pure_destruction (2, [1,0], 0, 0)]))
         pbar.update (1)
         ab = [e.subs_mket_to_m ().subs_sket_to_s () for e in ab]
         #for expr in ab: print (expr)
@@ -1039,9 +1039,9 @@ def get_eqn_dict ():
     read_exprs = a + b + ab + gamma1 + gamma3h + gamma2
 
     lbls = ['ha_d', 'ha_u', 'hb_d', 'hb_u', 'hh_d', 'hh_0', 'hh_u',
-                   'dm1', 'sm',
+                   'sm',
                    'phh_a_3d', 'phh_b_3d', 'phh_a_3u', 'phh_b_3u',
-                   'dm2_2', 'dm2_1', 'dm2_0']
+                   'dm_2', 'dm_1', 'dm_0']
     subsec = []
     subsec.append ([read_exprs[i] for i in (0,27)]) # ha_d
     subsec.append ([read_exprs[i] for i in (1,28)]) # ha_u
@@ -1050,16 +1050,15 @@ def get_eqn_dict ():
     subsec.append ([read_exprs[i] for i in (2,10,9)]) # hh_d
     subsec.append ([read_exprs[i] for i in (3,11,8)]) # hh_0
     subsec.append ([read_exprs[i] for i in (4,12,7)]) # hh_u
-    subsec.append ([read_exprs[13],
-                    combine_TDMSystem ([read_exprs[i] for i in (14,15)])]) # dm1
     subsec.append ([read_exprs[i] for i in (16,17,18)]) # sm
-    subsec.append ([combine_TDMSystem ([read_exprs[i] for i in (19,20)])])
-    subsec.append ([combine_TDMSystem ([read_exprs[i] for i in (21,22)])])
-    subsec.append ([combine_TDMSystem ([read_exprs[i] for i in (23,24)])])
-    subsec.append ([combine_TDMSystem ([read_exprs[i] for i in (25,26)])])
-    subsec.append ([combine_TDMSystem ([read_exprs[i] for i in (31,32,33)])])
-    subsec.append ([read_exprs[i] for i in (34,)])
-    subsec.append ([read_exprs[i] for i in (35,)])
+    subsec.append ([combine_TDMSystem ([read_exprs[i] for i in (19,20)])]) # phh_a_3d
+    subsec.append ([combine_TDMSystem ([read_exprs[i] for i in (21,22)])]) # phh_b_3d
+    subsec.append ([combine_TDMSystem ([read_exprs[i] for i in (23,24)])]) # phh_a_3u
+    subsec.append ([combine_TDMSystem ([read_exprs[i] for i in (25,26)])]) # phh_b_3u
+    subsec.append ([combine_TDMSystem ([read_exprs[i] for i in (31,32,33)])]) # dm_2
+    subsec.append ([combine_TDMSystem ([read_exprs[i] for i in (14,15)]),
+                    read_exprs[34]]) # dm_1
+    subsec.append ([read_exprs[i] for i in (13,35)]) # dm_0
 
     return {key: val for key, val in zip (lbls, subsec)}
 
@@ -1081,37 +1080,46 @@ class TDMScaleArray (object):
         nrows = len (tdmsystems_array)
         ncols = len (tdmsystems_array[0])
         self.shape = (nrows, ncols)
-        self.lhs = [[tdmsystem.lhs for tdmsystem in row]
+        self.lhs = [[[tdmsystem.exprs[0].lhs for tdmsystem in el] for el in row]
                     for row in tdmsystems_array]
-        col_indices = np.asarray ([[lhs.get_net_opcount () for lhs in row]
-                                   for row in self.lhs])
-        assert (all (np.all (col_indices==col_indices[0], axis=1)))
-        self.col_indices = list (col_indices[0])
-        row_indices = np.asarray ([[int(2*(lhs.get_s_bra () - lhs.get_s_ket ())) for lhs in row]
-                                   for row in self.lhs])
-        assert (all (np.all (row_indices==row_indices[:,0], axis=0)))
+        col_indices = np.zeros (self.shape + (2,), dtype=int)
+        row_indices = np.zeros (self.shape, dtype=int)
+        for i, row in enumerate (tdmsystems_array):
+            for j, el in enumerate (row):
+                col_idx = []
+                row_idx = []
+                for tdmsystem in el:
+                    lhs = tdmsystem.exprs[0].lhs
+                    col_idx.append (lhs.get_net_opcount ())
+                    row_idx.append (int(2*(lhs.get_s_bra () - lhs.get_s_ket ())))
+                assert (all ([ci==col_idx[0] for ci in col_idx]))
+                assert (all ([ri==row_idx[0] for ri in row_idx]))
+                col_indices[i,j,:] = col_idx[0]
+                row_indices[i,j] = row_idx[0]
+        self.col_indices = [tuple (el) for el in col_indices[0]]
+        col_indices = col_indices.reshape (nrows,-1)
+        assert (all (np.all (col_indices==col_indices[0], axis=0)))
+        assert (all (np.all (row_indices.T==row_indices.T[0], axis=0)))
         self.row_indices = row_indices
-        self.mat = Matrix ([[tdmsystem.get_A ().col (0).simplify ()
-                             for tdmsystem in row]
+        self.mat = Matrix ([[sum (el[0].get_A ().col (0)).simplify ()
+                             for el in row]
                             for row in tdmsystems_array])
+        self.tdmsystems_array = tdmsystems_array
 
 def get_scale_constants (eqn_dict):
-    # TODO: finish refactoring this function into ^ that class up there
     scale = {}
-    scale['1_h'] = {key: sum (eqn_dict[key][0].get_A ().col (0)).simplify ()
-                    for key in ('phh_a_3d', 'phh_b_3d', 'ha_d', 'hb_d', 'ha_u', 'hb_u',
-                                'phh_a_3u', 'phh_b_3u')}
-    scale['1_h'] = Matrix ([[scale['1_h']['phh_a_3d'], scale['1_h']['phh_b_3d']],
-                            [scale['1_h']['ha_d'], scale['1_h']['hb_d']],
-                            [scale['1_h']['ha_u'], scale['1_h']['hb_u']],
-                            [scale['1_h']['phh_a_3u'], scale['1_h']['phh_b_3u']]])
-    scale['1_hh'] = [[sum (el.get_A ().col (0)).simplify () for el in eqn_dict[key]]
-                     for key in ('hh_d', 'hh_0', 'hh_u')]
-    scale['1_hh'] = Matrix (scale['1_hh'])
-    scale['sm'] = Matrix ([el.get_A ()[0,0] for el in eqn_dict['sm']])
-    scale['dm'] = Matrix ([sum (eqn_dict['dm2_2'][0].get_A ().col (0)).simplify (),
-                           sum (eqn_dict['dm1'][1].get_A ().col (0)).simplify (),
-                           sum (eqn_dict['dm1'][0].get_A ().col (0)).simplify ()])
+    scale['1_h'] = TDMScaleArray ('1_h',
+        [[eqn_dict['phh_a_3d'], eqn_dict['phh_b_3d']],
+         [eqn_dict['ha_d'], eqn_dict['hb_d']],
+         [eqn_dict['ha_u'], eqn_dict['hb_u']],
+         [eqn_dict['phh_a_3u'], eqn_dict['phh_b_3u']]]
+    )
+    scale['1_hh'] = TDMScaleArray ('1_hh', [[[el,] for el in eqn_dict[key]]
+                                            for key in ('hh_d', 'hh_0', 'hh_u')])
+    scale['sm'] = TDMScaleArray ('sm', [[[el,],] for el in eqn_dict['sm']])
+    scale['dm'] = TDMScaleArray ('dm', [[eqn_dict['dm_2']],
+                                        [eqn_dict['dm_1']],
+                                        [eqn_dict['dm_0']]])
     return scale
 
 class ScaledTDMSystem (TDMSystem):
@@ -1156,8 +1164,9 @@ if __name__=='__main__':
     inv_eqn_dict = invert_eqn_dict (eqn_dict)
     eqn_dict = standardize_m_s (eqn_dict)
     scale = get_scale_constants (eqn_dict)
-    for lbl, mat in scale.items ():
-        nrows, ncols = sympy.shape (mat)
+    for lbl, scaleitem in scale.items ():
+        nrows, ncols = scaleitem.shape
+        mat = scaleitem.mat
         for i, j in itertools.product (range (nrows), range (ncols)):
             print (lbl + '[' + str(i) + '][' + str(j) + '] =',mat[i,j])
     fname = os.path.splitext (os.path.basename (__file__))[0] + '.tex'
