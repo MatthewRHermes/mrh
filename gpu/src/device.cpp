@@ -4989,17 +4989,6 @@ void Device::compute_sfudm(int na, int nb, int nlinka, int nlinkb, int norb,
   int nb_bra = jb_bra - ib_bra;
   int na_ket = ja_ket - ia_ket;
   int nb_ket = jb_ket - ib_ket;
-  #ifdef _DEBUG_FCI2
-  double * h_cibra = (double *)pm->dev_malloc_host(na_bra*nb_bra*sizeof(double));
-  pm->dev_pull_async(dd->d_cibra, h_cibra, na_bra*nb_bra*sizeof(double));
-  double * h_ciket = (double *)pm->dev_malloc_host(na_ket*nb_ket*sizeof(double));
-  pm->dev_pull_async(dd->d_ciket, h_ciket, na_ket*nb_ket*sizeof(double));
-  pm->dev_barrier();
-  printf("cibra\n");
-  for (int i=0;i<na_bra; ++i){for (int j=0; j<nb_bra; ++j){printf("%f\t",h_cibra[i*nb_bra+j]);}printf("\n");}printf("\n");
-  printf("ciket\n");
-  for (int i=0;i<na_ket; ++i){for (int j=0; j<nb_ket; ++j){printf("%f\t",h_ciket[i*nb_ket+j]);}printf("\n");}printf("\n");
-  #endif
   int bits_buf = sizeof(double)*size_buf;
   int bits_tdm2 = sizeof(double)*size_tdm2;
   grow_array(dd->d_tdm2, size_tdm2, dd->size_tdm2, "tdm2", FLERR); 
@@ -5028,9 +5017,6 @@ void Device::compute_sfudm(int na, int nb, int nlinka, int nlinkb, int norb,
         dd->d_buf2, &norb2,
         &beta,
         dd->d_tdm2, &norb2); //convert to gemm_batched, edit na loops to batches
-      //ml->gemm((char *) "N", (char *) "T", &norb2, &norb2, &bra_b_len, &alpha, 
-      //      &(dd->d_buf1[ib_bra*norb2]), &norb2, &(dd->d_buf2[ib_bra*norb2]), &norb2, 
-      //      &beta, dd->d_tdm2, &norb2);
       ml->memset(dd->d_buf1, &zero, &bits_buf);
       ml->memset(dd->d_buf2, &zero, &bits_buf);
     }

@@ -455,7 +455,7 @@ def trans_sfudm1 (cibra, ciket, norb, nelec, link_index=None):
         print('Trans SFUDM1 calculated incorrectly')
         exit()
     elif custom_fci and use_gpu: 
-      dum2dm = _trans_sfudm1_o0 (cibra, ciket, norb, nelec, link_index=link_index)
+      dum2dm = _trans_sfudm1_o1 (cibra, ciket, norb, nelec, link_index=link_index)
     else:
       dum2dm = _trans_sfudm1_o0 (cibra, ciket, norb, nelec, link_index=link_index)
     sfudm1 = dum2dm[-1,:-1,:-1,-1]
@@ -475,12 +475,7 @@ def _trans_sfudm1_o0(cibra, ciket, norb, nelec, link_index=None):
     for i in range (2): assert (linkstr[i].shape[1]==(nelecd[i]*(norb-nelecd[i]+2))), errmsg
     ciket = dummy.add_orbital (ciket, norb, nelec_ket, occ_a=1, occ_b=0)
     cibra = dummy.add_orbital (cibra, norb, nelec_bra, occ_a=0, occ_b=1)
-    #print('cibra', cibra.shape, 'ciket', ciket.shape)
     fn = 'FCItdm12kern_ab'
-    #print('cibra')
-    #print(cibra)
-    #print('ciket')
-    #print(ciket)
     dm2dum = rdm.make_rdm12_spin1 (fn, ciket, cibra, norb+1, nelecd, linkstr, 0)[1]
     return dm2dum
 
@@ -498,10 +493,6 @@ def _trans_sfudm1_o1(cibra,ciket,norb, nelec, link_index=None):
     for i in range (2): assert (linkstr[i].shape[1]==(nelecd[i]*(norb-nelecd[i]+2))), errmsg
     ia_ket, ja_ket, ib_ket, jb_ket, sgn_ket = dummy_orbital_params(norb, nelec_ket, occ_a = 1, occ_b = 0)
     ia_bra, ja_bra, ib_bra, jb_bra, sgn_bra = dummy_orbital_params(norb, nelec_bra, occ_a = 0, occ_b = 1)
-    print('ia_bra, ja_bra, ib_bra, jb_bra, sgn_bra') 
-    print(ia_bra, ja_bra, ib_bra, jb_bra, sgn_bra) 
-    print('ia_ket, ja_ket, ib_ket, jb_ket, sgn_ket') 
-    print(ia_ket, ja_ket, ib_ket, jb_ket, sgn_ket) 
     na, nlinka = linkstr[0].shape[:2] 
     nb, nlinkb = linkstr[1].shape[:2] 
     libgpu.push_link_index_ab(gpu, na, nb, nlinka, nlinkb, linkstr[0], linkstr[1])
@@ -512,8 +503,6 @@ def _trans_sfudm1_o1(cibra,ciket,norb, nelec, link_index=None):
     libgpu.push_ciket(gpu, cibra, na_bra, nb_bra)
     libgpu.init_tdm2(gpu, norb+1)
     libgpu.compute_sfudm(gpu, na, nb, nlinka, nlinkb, norb+1, 
-                         #ia_bra, ja_bra, ib_bra, jb_bra, sgn_bra,
-                         #ia_ket, ja_ket, ib_ket, jb_ket, sgn_ket) #TODO: write a better name
                          ia_ket, ja_ket, ib_ket, jb_ket, sgn_ket,
                          ia_bra, ja_bra, ib_bra, jb_bra, sgn_bra)
     libgpu.pull_tdm2(gpu, dm2dum, norb+1)

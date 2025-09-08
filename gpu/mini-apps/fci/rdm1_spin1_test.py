@@ -11,6 +11,7 @@ if gpu_run:
   gpu = libgpu.init()
   from pyscf.lib import param
   param.use_gpu = gpu
+  param.gpu_debug = True
 lib.logger.TIMER_LEVEL=lib.logger.INFO
 
 geom = ''' K 0 0 0;
@@ -29,7 +30,7 @@ mf.max_cycle=1
 mf.kernel()
 
 norb = 10
-nelec = 5
+nelec = 9
 
 neleca, nelecb = _unpack_nelec(nelec)
 link_indexa = link_indexb = cistring.gen_linkstr_index(range(norb), neleca)

@@ -1578,7 +1578,7 @@ void Device::compute_FCItrans_rdm1b_v2( double * cibra, double * ciket, double *
   int a_len  = ja_min - ia_max;
   if (a_len>0){
     //dim3 block_size(_DEFAULT_BLOCK_SIZE, _DEFAULT_BLOCK_SIZE, _DEFAULT_BLOCK_SIZE);
-    dim3 block_size(1,1,1);
+    dim3 block_size(1,_DEFAULT_BLOCK_SIZE,_DEFAULT_BLOCK_SIZE);
     dim3 grid_size(_TILE(a_len, block_size.x),_TILE(nb_ket,block_size.y),_TILE(nlinkb, block_size.z));
   
     _compute_FCItrans_rdm1b_v2<<<grid_size, block_size,0,s>>>(cibra, ciket, rdm, norb, nlinkb, 
