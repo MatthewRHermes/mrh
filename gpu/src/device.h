@@ -172,19 +172,7 @@ public :
   void compute_tdm12kern_b(int , int , int , int , int );
   void compute_tdm12kern_ab(int , int , int , int , int );
   void compute_rdm12kern_sf(int , int , int , int , int );
-  void compute_tdm13h_spin( int , int , int , int , int , int);
-  void compute_tdm13h_spin_v2( int , int , int , int , int , int,
-                               int , int , int , int , int ,
-                               int , int , int , int , int );
-  void compute_tdm13h_spin_v3( int , int , int , int , int , int, int,
-                               int , int , int , int , int ,
-                               int , int , int , int , int );
-  void compute_tdm13h_spin_v4( int , int , 
-                               int , int , 
-                               int , int, int,
-                               int , int , int , int , int ,
-                               int , int , int , int , int );
-  void compute_tdmpp_spin( int , int , int , int , int , int, 
+  void compute_tdm13h_spin_v4( int , int , int , int , int , int, int,
                                int , int , int , int , int ,
                                int , int , int , int , int );
   void compute_tdmpp_spin_v2( int , int , int , int , int , int, 

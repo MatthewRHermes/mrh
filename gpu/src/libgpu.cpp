@@ -469,35 +469,6 @@ void libgpu_compute_rdm12kern_sf(void * ptr,
   dev->compute_rdm12kern_sf(na, nb, nlinka, nlinkb, norb);
 }
 /* ---------------------------------------------------------------------- */
-void libgpu_compute_tdm13h_spin(void * ptr, 
-                            int na, int nb, int nlinka, int nlinkb, int norb, int spin)
-{
-  Device * dev = (Device *) ptr;
-  dev->compute_tdm13h_spin(na, nb, nlinka, nlinkb, norb, spin);
-}
-/* ---------------------------------------------------------------------- */
-void libgpu_compute_tdm13h_spin_v2(void * ptr, 
-                            int na, int nb, int nlinka, int nlinkb, int norb, int spin,
-                            int ia_bra, int ja_bra, int ib_bra, int jb_bra, int sgn_bra, 
-                            int ia_ket, int ja_ket, int ib_ket, int jb_ket, int sgn_ket )
-{
-  Device * dev = (Device *) ptr;
-  dev->compute_tdm13h_spin_v2(na, nb, nlinka, nlinkb, norb, spin,
-                             ia_bra, ja_bra, ib_bra, jb_bra, sgn_bra,      
-                             ia_ket, ja_ket, ib_ket, jb_ket, sgn_ket );
-}
-/* ---------------------------------------------------------------------- */
-void libgpu_compute_tdm13h_spin_v3(void * ptr, 
-                            int na, int nb, int nlinka, int nlinkb, int norb, int spin, int reorder,
-                            int ia_bra, int ja_bra, int ib_bra, int jb_bra, int sgn_bra, 
-                            int ia_ket, int ja_ket, int ib_ket, int jb_ket, int sgn_ket )
-{
-  Device * dev = (Device *) ptr;
-  dev->compute_tdm13h_spin_v3(na, nb, nlinka, nlinkb, norb, spin, reorder,
-                             ia_bra, ja_bra, ib_bra, jb_bra, sgn_bra,      
-                             ia_ket, ja_ket, ib_ket, jb_ket, sgn_ket );
-}
-/* ---------------------------------------------------------------------- */
 void libgpu_compute_tdm13h_spin_v4(void * ptr, 
                                  int na, int nb,
                                  int nlinka, int nlinkb, 
@@ -513,17 +484,6 @@ void libgpu_compute_tdm13h_spin_v4(void * ptr,
                                   ia_ket,  ja_ket,  ib_ket,  jb_ket,  sgn_ket );
 }
 
-/* ---------------------------------------------------------------------- */
-void libgpu_compute_tdmpp_spin(void * ptr, 
-                            int na, int nb, int nlinka, int nlinkb, int norb, int spin,
-                            int ia_bra, int ja_bra, int ib_bra, int jb_bra, int sgn_bra, 
-                            int ia_ket, int ja_ket, int ib_ket, int jb_ket, int sgn_ket )
-{
-  Device * dev = (Device *) ptr;
-  dev->compute_tdmpp_spin(na, nb, nlinka, nlinkb, norb, spin, 
-                             ia_bra, ja_bra, ib_bra, jb_bra, sgn_bra,      
-                             ia_ket, ja_ket, ib_ket, jb_ket, sgn_ket );
-}
 /* ---------------------------------------------------------------------- */
 void libgpu_compute_tdmpp_spin_v2(void * ptr, 
                             int na, int nb, int nlinka, int nlinkb, int norb, int spin,
