@@ -4,6 +4,7 @@ import numpy as np
 import sympy
 from mrh.my_sympy.spin import spin_1h
 from sympy import S, Rational, symbols, Matrix, Poly, apart, powsimp, cancel
+from sympy.utilities.lambdify import lambdastr
 import itertools
 
 s = symbols ("s", real=True, positive=True)
@@ -1225,6 +1226,48 @@ class TDMScaleArray (object):
     def count_transpose_eqns (self):
         return self.get_transpose_eqns (_count_only=True)
 
+    def get_scale_code (self):
+        fn_name = 'scale_' + self.name
+        code = '_' + fn_name + ' = [\n'
+        first_i = True
+        for i in range (self.shape[0]):
+            if not first_i: code += ',\n'
+            code += ' '*4
+            indent = 4
+            if self.shape[1] > 1:
+                code += '['
+                indent = 5
+            first_j = True
+            for j in range (self.shape[1]):
+                if not first_j: code = code + ',\n' + ' '*indent
+                line = str (lambdastr ((s,m), self.mat[i,j]))
+                code += line.replace ('sqrt','np.sqrt')
+                first_j = False
+            if self.shape[1] > 1:
+                code += ']'
+            first_i = False
+        code += ']\n\n'
+        code += 'def ' + fn_name + ' (smult_bra, '
+        if self.shape[1] > 1:
+            code += 'spin_op, '
+        code += 'smult_ket, spin_ket):\n'
+        code += ' '*4 + 'd2s_idx = (smult_bra - smult_ket + '
+        code += str (abs (self.row_indices[0])) + ')//2\n'
+        code += ' '*4 + 'if (d2s_idx < 0) or (d2s_idx >= {}):'.format (self.shape[0])
+        code += ' return 0\n'
+        no_pos = np.amax (self.row_indices) == 0
+        if no_pos:
+            code += ' '*4 + 'if smult_bra > smult_ket:\n'
+            code += ' '*8 + 'return ' + fn_name
+            code += ' (smult_ket, smult_bra, spin_ket)\n'
+        code += ' '*4 + 's = (smult_ket-1)/2\n'
+        code += ' '*4 + 'm = spin_ket/2\n'
+        code += ' '*4 + 'return _' + fn_name + '[d2s_idx]'
+        if self.shape[1]>1:
+            code += '[spin_op]'
+        code += ' (s, m)\n\n'
+        return code
+
 def get_scale_constants (eqn_dict):
     scale = {}
     scale['1_h'] = TDMScaleArray ('1_h',
@@ -1302,8 +1345,10 @@ if __name__=='__main__':
     eqn_dict = standardize_m_s (eqn_dict)
     scale = get_scale_constants (eqn_dict)
     transpose_eqns = invert_transpose_eqns (scale)
-    fname = os.path.splitext (os.path.basename (__file__))[0] + '.tex'
-    with open (fname, 'w') as f:
+    fbase = os.path.splitext (os.path.basename (__file__))[0]
+    fname_tex = fbase + '.tex'
+    fname_py = fbase + '.generated.py'
+    with open (fname_tex, 'w') as f:
         f.write (latex_header)
         f.write ('\\section{TDM scaling constants}\n\n')
         print ("=================== TDM scaling constants ===================")
@@ -1327,4 +1372,8 @@ if __name__=='__main__':
                 f.write ('{}, {} write:\n'.format (lbl_latex, key_latex))
                 f.write (write_eq.latex () + '\n\n')
         f.write ('\n\n\\end{document}')
+    with open (fname_py, 'w') as f:
+        f.write ('import numpy as np\n\n')
+        for scalearray in scale.values ():
+            f.write (scalearray.get_scale_code ())
 
