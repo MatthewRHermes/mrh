@@ -261,6 +261,9 @@ class TDMSystem (object):
                 exprs.append (expr)
         assert (len (exprs))
         return exprs
+
+    def reduce_to_sorted (self):
+        return TDMSystem (self.get_sorted_exprs (), _try_inverse=False)
         
     def __str__(self):
         return '\n'.join ([str (expr) for expr in self.get_sorted_exprs ()])
@@ -1219,7 +1222,8 @@ class TDMScaleArray (object):
                             cnt += 1
                             if not _count_only:
                                 reverse = forward.inv ()
-                                transpose_eqns[key] = [forward, reverse]
+                                transpose_eqns[key] = [forward.reduce_to_sorted (),
+                                                       reverse.reduce_to_sorted ()]
         if _count_only: return cnt
         return transpose_eqns
 
@@ -1309,6 +1313,12 @@ class ScaledTDMSystem (TDMSystem):
         myinv = ScaledTDMSystem (1, myinv)
         myinv.scale = self.scale**-1
         return myinv
+
+    def reduce_to_sorted (self):
+        mysorted = super().reduce_to_sorted ()
+        mysorted = ScaledTDMSystem (1, mysorted)
+        mysorted.scale = self.scale
+        return mysorted
 
 def invert_eqn_dict (eqn_dict):
     inv_eqn_dict = {}
