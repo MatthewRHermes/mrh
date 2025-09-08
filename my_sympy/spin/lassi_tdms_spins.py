@@ -336,15 +336,17 @@ class TDMSystem (object):
     def powsimp_(self):
         for expr in self.exprs:
             expr.powsimp_()
+        return self
 
     def simplify_(self):
         for expr in self.exprs:
             expr.simplify_()
+        return self
 
     def __mul__(self, scale):
         old_scale = getattr (self, 'scale', S(1))
         scale /= old_scale
-        return ScaledTDMSystem (self, scale)
+        return ScaledTDMSystem (scale**-1, self)
 
     def __truediv__(self, scale):
         return self.__mul__(scale**-1)
@@ -363,10 +365,13 @@ class CrVector (object):
         self.s_ket = s_ket
         self.m_ket = m_ket
 
-    def get_net_opcount (self):
+    def count_spins (self):
         nbeta = sum (self.crops)
         nalpha = len (self.crops) - nbeta
         return (nalpha, nbeta)
+
+    def count_ops (self):
+        return (len(self.crops),0)
 
     def transpose (self, idx):
         s_bra = self.get_s_bra ()
@@ -558,10 +563,13 @@ class AnVector (CrVector):
         crops = anops[::-1]
         super().__init__(s_ket, crops, s_bra, m_bra, indices=indices[::-1])
 
-    def get_net_opcount (self):
+    def count_spins (self):
         nbeta = sum (self.crops)
         nalpha = len (self.crops) - nbeta
         return (-nalpha, -nbeta)
+
+    def count_ops (self):
+        return (0,len(self.crops))
 
     def get_ops (self): return list(self.crops[::-1])
     def get_indices (self): return list(self.indices[::-1])
@@ -614,12 +622,15 @@ class CrAnOperator (CrVector):
         self.s_ket = s_ket
         self.m_ket = m_ket
 
-    def get_net_opcount (self):
+    def count_spins (self):
         nbeta_cr = sum (self.crops)
         nalpha_cr = len (self.crops) - nbeta_cr
         nbeta_an = sum (self.anops)
         nalpha_an = len (self.anops) - nbeta_an
         return (nalpha_cr-nalpha_an, nbeta_cr-nbeta_an)
+
+    def count_ops (self):
+        return (len(self.crops),len(self.anops))
 
     def transpose (self, idx):
         s_bra = self.get_s_bra ()
@@ -1090,7 +1101,7 @@ class TDMScaleArray (object):
                 row_idx = []
                 for tdmsystem in el:
                     lhs = tdmsystem.exprs[0].lhs
-                    col_idx.append (lhs.get_net_opcount ())
+                    col_idx.append (lhs.count_spins ())
                     row_idx.append (int(2*(lhs.get_s_bra () - lhs.get_s_ket ())))
                 assert (all ([ci==col_idx[0] for ci in col_idx]))
                 assert (all ([ri==row_idx[0] for ri in row_idx]))
@@ -1100,13 +1111,106 @@ class TDMScaleArray (object):
         col_indices = col_indices.reshape (nrows,-1)
         assert (all (np.all (col_indices==col_indices[0], axis=0)))
         assert (all (np.all (row_indices.T==row_indices.T[0], axis=0)))
-        self.row_indices = row_indices
+        self.row_indices = row_indices.T[0]
         self.mat = Matrix ([[sum (el[0].get_A ().col (0)).simplify ()
                              for el in row]
                             for row in tdmsystems_array])
         self.tdmsystems_array = tdmsystems_array
+        self.inv_tdmsystems_array = None
 
-def get_scale_constants (eqn_dict):
+    def get_dm_types (self):
+        dm_types = []
+        for row in self.lhs:
+            for col in row:
+                for el in col:
+                    dm_types.append (el.count_ops ())
+        return list (set (dm_types))
+
+    def dm_type_str (self, dm_type):
+        ncr, ndes = dm_type
+        sym = '<'
+        for i in range (ncr):
+            sym += 'c' + ORBINDICES[i] + "' "
+        for i in range (ndes):
+            sym += 'c' + ORBINDICES[i+ncr] + " "
+        sym = sym[:-1] + '>'
+        return sym
+
+    def dm_type_latex (self, dm_type):
+        ncr, ndes = dm_type
+        sym = '\\braket{'
+        for i in range (ncr):
+            sym += '\\crop{' + ORBINDICES[i] + "}"
+        for i in range (ndes):
+            sym += '\\anop{' + ORBINDICES[i+ncr] + "}"
+        sym += '}'
+        return sym
+
+    def col_index_str (self, col_index):
+        nalpha, nbeta = col_index
+        nalpha = int (nalpha)
+        nbeta = int (nbeta)
+        text = ''
+        if nalpha > 0:
+            text += "a'"*abs(nalpha)
+        if nbeta > 0:
+            text += "b'"*abs(nbeta)
+        if nbeta < 0:
+            text += "b"*abs(nbeta)
+        if nalpha < 0:
+            text += "a"*abs(nalpha)
+        return text
+
+    def __str__(self):
+        text = self.name + ' ('
+        for dm_type in self.get_dm_types ():
+            text += self.dm_type_str (dm_type) + ', '
+        text = text[:-2] + ')\n'
+        for i, row_index in enumerate (self.row_indices):
+            row_idx = str (Rational (row_index, 2))
+            for j, col_index in enumerate (self.col_indices):
+                col_idx = self.col_index_str (col_index)
+                text += '[' + row_idx + '][' + col_idx +'] = '
+                text += str (self.mat[i,j]) + '\n'
+        return text
+
+    def latex_row_lhs (self, row_index, col_index):
+        superscript = sympy.latex (Rational (row_index, 2))
+        subscript = self.col_index_str (col_index)
+        text = '\\mathcal{N}^{(' + superscript + ')}'
+        if len (subscript):
+            text += '_{' + subscript + '}'
+        return text
+
+    def latex (self):
+        text = self.name.replace ('_', '\\_') + ' ($'
+        for dm_type in self.get_dm_types ():
+            text += self.dm_type_latex (dm_type) + ', '
+        text = text[:-2] + '$):\n\\begin{align}\n'
+        for i, row_index in enumerate (self.row_indices):
+            for j, col_index in enumerate (self.col_indices):
+                text += self.latex_row_lhs (row_index, col_index)
+                text += ' =& ' + sympy.latex (self.mat[i,j])
+                text += ' \\\\\n'
+        text = text[:-4] + '\n\\end{align}\n\n'
+        return text
+
+    def get_transpose_eqns (self):
+        transpose_eqns = []
+        for i, row in enumerate (self.tdmsystems_array):
+            rowI = self.inv_tdmsystems_array[i]
+            for j, (col, colI) in enumerate (zip (row, rowI)):
+                const = self.mat[i,j]
+                for el, elI in zip (col, colI):
+                    if len (el.cols) > 1:
+                        forward = (el / const).simplify_().powsimp_().simplify_()
+                        reverse = (elI * const).simplify_().powsimp_().simplify_()
+                        if set ([x for x in forward.get_A ()]) != set ((0,1)):
+                            # not effectively diagonal
+                            transpose_eqns.append ([forward, reverse])
+        return transpose_eqns
+
+def get_scale_constants (eqn_dict, inv_eqn_dict):
     scale = {}
     scale['1_h'] = TDMScaleArray ('1_h',
         [[eqn_dict['phh_a_3d'], eqn_dict['phh_b_3d']],
@@ -1120,6 +1224,18 @@ def get_scale_constants (eqn_dict):
     scale['dm'] = TDMScaleArray ('dm', [[eqn_dict['dm_2']],
                                         [eqn_dict['dm_1']],
                                         [eqn_dict['dm_0']]])
+    eqn_dict = inv_eqn_dict
+    scale['1_h'].inv_tdmsystems_array = \
+        [[eqn_dict['phh_a_3d'], eqn_dict['phh_b_3d']],
+         [eqn_dict['ha_d'], eqn_dict['hb_d']],
+         [eqn_dict['ha_u'], eqn_dict['hb_u']],
+         [eqn_dict['phh_a_3u'], eqn_dict['phh_b_3u']]]
+    scale['1_hh'].inv_tdmsystems_array = [[[el,] for el in eqn_dict[key]]
+                                          for key in ('hh_d', 'hh_0', 'hh_u')]
+    scale['sm'].inv_tdmsystems_array = [[[el,],] for el in eqn_dict['sm']]
+    scale['dm'].inv_tdmsystems_array = [[eqn_dict['dm_2']],
+                                        [eqn_dict['dm_1']],
+                                        [eqn_dict['dm_0']]]
     return scale
 
 class ScaledTDMSystem (TDMSystem):
@@ -1163,27 +1279,32 @@ if __name__=='__main__':
     eqn_dict = get_eqn_dict ()
     inv_eqn_dict = invert_eqn_dict (eqn_dict)
     eqn_dict = standardize_m_s (eqn_dict)
-    scale = get_scale_constants (eqn_dict)
-    for lbl, scaleitem in scale.items ():
-        nrows, ncols = scaleitem.shape
-        mat = scaleitem.mat
-        for i, j in itertools.product (range (nrows), range (ncols)):
-            print (lbl + '[' + str(i) + '][' + str(j) + '] =',mat[i,j])
+    scale = get_scale_constants (eqn_dict, inv_eqn_dict)
     fname = os.path.splitext (os.path.basename (__file__))[0] + '.tex'
     with open (fname, 'w') as f:
         f.write (latex_header)
-        for lbl, exprs in eqn_dict.items ():
-            print ("================== " + lbl + " ==================")
-            f.write ('\\section{' + lbl.replace ('_','\\_') + '}\n')
-            exprsI = inv_eqn_dict[lbl]
-            for idx, (expr, exprI) in enumerate (zip (exprs, exprsI)):
-                print ("------------------ READ " + str (idx) + "------------------")
-                print (expr, flush=True)
-                f.write ('Read {}:\n\n'.format (idx))
-                f.write (expr.latex () + '\n\n')
-                print ("------------------ WRITE " + str (idx) + "------------------")
-                print (exprI, flush=True)
-                f.write ('Write {}:\n\n'.format (idx))
-                f.write (exprI.latex () + '\n\n')
+        f.write ('\\section{TDM scaling constants}\n\n')
+        print ("=================== TDM scaling constants ===================")
+        transpose_eqns = {}
+        for lbl, scalearray in scale.items ():
+            print (scalearray)
+            f.write (scalearray.latex ())
+            my_transpose_eqns = scalearray.get_transpose_eqns ()
+            if len (my_transpose_eqns) > 0:
+                transpose_eqns[lbl] = my_transpose_eqns
+        f.write ('\\section{TDM transpose equations}\n\n')
+        print ("=================== TDM transpose equations ===================")
+        for lbl, my_transpose_eqns in transpose_eqns.items ():
+            print ("------------------ " + lbl + " ------------------")
+            lbl_latex = lbl.replace ('_', '\\_')
+            for idx, (read_eq, write_eq) in enumerate (my_transpose_eqns):
+                print ("Read " + str(idx) + ":")
+                print (read_eq)
+                print ("Write " + str(idx) + ":")
+                print (write_eq)
+                f.write ('{} {} read:\n'.format (lbl_latex, idx))
+                f.write (read_eq.latex () + '\n\n')
+                f.write ('{} {} write:\n'.format (lbl_latex, idx))
+                f.write (write_eq.latex () + '\n\n')
         f.write ('\n\n\\end{document}')
 
