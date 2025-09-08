@@ -263,7 +263,11 @@ class TDMSystem (object):
         return exprs
 
     def reduce_to_sorted (self):
-        return TDMSystem (self.get_sorted_exprs (), _try_inverse=False)
+        exprs = self.get_sorted_exprs ()
+        score = [expr.lhs.get_sort_score () for expr in exprs]
+        idx = np.argsort (score)
+        exprs = [exprs[i] for i in idx]
+        return TDMSystem (exprs, _try_inverse=False)
         
     def __str__(self):
         return '\n'.join ([str (expr) for expr in self.get_sorted_exprs ()])
@@ -368,6 +372,11 @@ class CrVector (object):
         self.indices = indices
         self.s_ket = s_ket
         self.m_ket = m_ket
+
+    def get_sort_score (self):
+        score = np.power (list (range (len (self.get_ops ()))), 2)[::-1]
+        addr = self.crops
+        return np.dot (score, addr)
 
     def count_spins (self):
         nbeta = sum (self.crops)
@@ -575,6 +584,11 @@ class AnVector (CrVector):
     def count_ops (self):
         return (0,len(self.crops))
 
+    def get_sort_score (self):
+        score = np.power (list (range (len (self.get_ops ()))), 2)[::-1]
+        addr = 1-np.asarray (self.crops[::-1])
+        return np.dot (score, addr)
+
     def get_ops (self): return list(self.crops[::-1])
     def get_indices (self): return list(self.indices[::-1])
     def get_s_bra (self): return self.s_ket
@@ -672,6 +686,12 @@ class CrAnOperator (CrVector):
 
     def get_ops (self): return list(self.crops) + list(self.anops)
     def get_indices (self): return list(self.indices)
+
+    def get_sort_score (self):
+        score = np.power (list (range (len (self.get_ops ()))), 2)[::-1]
+        addr = np.append (self.crops, 1-np.asarray (self.anops))
+        return np.dot (score, addr)
+
 
     def __hash__(self):
         return hash ((2,len(self.crops),len(self.anops),self.s_bra,self.s_ket,self.m_ket)
@@ -1089,6 +1109,36 @@ def standardize_m_s (eqn_dict):
         eqn_dict1[lbl] = sector1
     return eqn_dict1
 
+put_fn_head = '''def put_{{dmname}} (dm, smult_bra, {cond_spin_op}smult_ket, spin_ket):
+    dm1 = scale_{{scalename}} (smult_bra, {cond_spin_op}smult_ket, spin_ket) * dm0
+'''
+get_fn_head = '''def get_{{dmname}} (dm, smult_bra, {cond_spin_op}smult_ket, spin_ket):
+    dm1 = dm0 / scale_{{scalename}} (smult_bra, {cond_spin_op}smult_ket, spin_ket)
+'''
+put_or_get_fn_calltranspose = '''    d2s_idx = smult_bra-smult_ket
+    key = (d2s_idx, {cond_spin_idx})
+    transpose = _transpose_{putorget}_{{dmname}}.get (key, lambda dm1, s, m: dm1)
+    return transpose (dm1)
+
+'''
+def put_fn_fmt (has_spin_op):
+    fmt_str = put_fn_head + put_or_get_fn_calltranspose
+    if has_spin_op:
+        return fmt_str.format (cond_spin_op = 'spin_op, ', putorget='put',
+                               cond_spin_idx = 'spin_op')
+    else:
+        return fmt_str.format (cond_spin_op = '', putorget='put',
+                               cond_spin_idx = '0')
+def get_fn_fmt (has_spin_op):
+    fmt_str = get_fn_head + put_or_get_fn_calltranspose
+    if has_spin_op:
+        return fmt_str.format (cond_spin_op = 'spin_op, ', putorget='get',
+                               cond_spin_idx = 'spin_op')
+    else:
+        return fmt_str.format (cond_spin_op = '', putorget='get',
+                               cond_spin_idx = '0')
+
+
 class TDMScaleArray (object):
     def __init__(self, name, tdmsystems_array):
         self.name = name
@@ -1208,13 +1258,11 @@ class TDMScaleArray (object):
         cnt = 0
         transpose_eqns = {}
         for i, row in enumerate (self.tdmsystems_array):
-            row_idx = self.row_indices[i]
             for j, col in enumerate (row):
-                col_idx = self.col_index_str (self.col_indices[j])
                 const = self.mat[i,j]
                 for k, el in enumerate (col):
                     nops = sum (self.lhs[i][j][k].count_ops ())
-                    key = (row_idx, col_idx, nops)
+                    key = (self.row_indices[i], j, nops)
                     if len (el.cols) > 1:
                         forward = (el / const).simplify_().powsimp_().simplify_()
                         if set ([x for x in forward.get_A ()]) != set ((0,1)):
@@ -1250,7 +1298,7 @@ class TDMScaleArray (object):
             if self.shape[1] > 1:
                 code += ']'
             first_i = False
-        code += ']\n\n'
+        code += '\n    ]\n\n'
         code += 'def ' + fn_name + ' (smult_bra, '
         if self.shape[1] > 1:
             code += 'spin_op, '
@@ -1272,16 +1320,21 @@ class TDMScaleArray (object):
         code += ' (s, m)\n\n'
         return code
 
+    def get_put_code (self, nops, dmname, transpose_eqns=None):
+        if transpose_eqns is None:
+            transpose_eqns = self.get_transpose_eqns ()
+        
+
 def get_scale_constants (eqn_dict):
     scale = {}
-    scale['1_h'] = TDMScaleArray ('1_h',
+    scale['h'] = TDMScaleArray ('h',
         [[eqn_dict['phh_a_3d'], eqn_dict['phh_b_3d']],
          [eqn_dict['ha_d'], eqn_dict['hb_d']],
          [eqn_dict['ha_u'], eqn_dict['hb_u']],
          [eqn_dict['phh_a_3u'], eqn_dict['phh_b_3u']]]
     )
-    scale['1_hh'] = TDMScaleArray ('1_hh', [[[el,] for el in eqn_dict[key]]
-                                            for key in ('hh_d', 'hh_0', 'hh_u')])
+    scale['hh'] = TDMScaleArray ('hh', [[[el,] for el in eqn_dict[key]]
+                                        for key in ('hh_d', 'hh_0', 'hh_u')])
     scale['sm'] = TDMScaleArray ('sm', [[[el,],] for el in eqn_dict['sm']])
     scale['dm'] = TDMScaleArray ('dm', [[eqn_dict['dm_2']],
                                         [eqn_dict['dm_1']],
@@ -1370,16 +1423,14 @@ if __name__=='__main__':
         for lbl, my_transpose_eqns in transpose_eqns.items ():
             print ("------------------ " + lbl + " ------------------")
             lbl_latex = lbl.replace ('_', '\\_')
-            key_fmt = '$2\\Delta S = {}$, opspin = {}, $n_{{\\textrm{{ops}}}} = {}$'
             for key, (read_eq, write_eq) in my_transpose_eqns.items ():
                 print ("Read " + str(key) + ":")
                 print (read_eq)
                 print ("Write " + str(key) + ":")
                 print (write_eq)
-                key_latex = key_fmt.format (*key)
-                f.write ('{}, {} read:\n'.format (lbl_latex, key_latex))
+                f.write ('{}, {} read:\n'.format (lbl_latex, key))
                 f.write (read_eq.latex () + '\n\n')
-                f.write ('{}, {} write:\n'.format (lbl_latex, key_latex))
+                f.write ('{}, {} write:\n'.format (lbl_latex, key))
                 f.write (write_eq.latex () + '\n\n')
         f.write ('\n\n\\end{document}')
     with open (fname_py, 'w') as f:
