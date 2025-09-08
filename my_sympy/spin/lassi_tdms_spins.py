@@ -1202,11 +1202,15 @@ class TDMScaleArray (object):
 
     def get_transpose_eqns (self, _count_only=False):
         cnt = 0
-        transpose_eqns = []
+        transpose_eqns = {}
         for i, row in enumerate (self.tdmsystems_array):
+            row_idx = self.row_indices[i]
             for j, col in enumerate (row):
+                col_idx = self.col_index_str (self.col_indices[j])
                 const = self.mat[i,j]
-                for el in col:
+                for k, el in enumerate (col):
+                    nops = sum (self.lhs[i][j][k].count_ops ())
+                    key = (row_idx, col_idx, nops)
                     if len (el.cols) > 1:
                         forward = (el / const).simplify_().powsimp_().simplify_()
                         if set ([x for x in forward.get_A ()]) != set ((0,1)):
@@ -1214,7 +1218,7 @@ class TDMScaleArray (object):
                             cnt += 1
                             if not _count_only:
                                 reverse = forward.inv ()
-                                transpose_eqns.append ([forward, reverse])
+                                transpose_eqns[key] = [forward, reverse]
         if _count_only: return cnt
         return transpose_eqns
 
@@ -1311,14 +1315,16 @@ if __name__=='__main__':
         for lbl, my_transpose_eqns in transpose_eqns.items ():
             print ("------------------ " + lbl + " ------------------")
             lbl_latex = lbl.replace ('_', '\\_')
-            for idx, (read_eq, write_eq) in enumerate (my_transpose_eqns):
-                print ("Read " + str(idx) + ":")
+            key_fmt = '$2\\Delta S = {}$, opspin = {}, $n_{{\\textrm{{ops}}}} = {}$'
+            for key, (read_eq, write_eq) in my_transpose_eqns.items ():
+                print ("Read " + str(key) + ":")
                 print (read_eq)
-                print ("Write " + str(idx) + ":")
+                print ("Write " + str(key) + ":")
                 print (write_eq)
-                f.write ('{} {} read:\n'.format (lbl_latex, idx))
+                key_latex = key_fmt.format (*key)
+                f.write ('{}, {} read:\n'.format (lbl_latex, key_latex))
                 f.write (read_eq.latex () + '\n\n')
-                f.write ('{} {} write:\n'.format (lbl_latex, idx))
+                f.write ('{}, {} write:\n'.format (lbl_latex, key_latex))
                 f.write (write_eq.latex () + '\n\n')
         f.write ('\n\n\\end{document}')
 
