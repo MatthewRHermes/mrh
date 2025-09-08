@@ -196,6 +196,29 @@ class TDMExpression (object):
     def simplify_(self):
         self.rhs_coeffs = [c.simplify () for c in self.rhs_coeffs]
 
+    def python_code (self, row_scores):
+        rows = ['dm_1[:,{}]'.format (i) for i in range (len (row_scores))]
+        if len (rows) == 1:
+            rows[0] = rows[0][:-3] + ']'
+        code = rows[row_scores.index (self.lhs.get_sort_score ())] + ' = ('
+        indent = len (code)
+        first_term = True
+        for rhs_coeff, rhs_term in zip (self.rhs_coeffs, self.rhs_terms):
+            if rhs_coeff == S(0): continue
+            if not first_term: code += '\n' + ' '*indent + '+ '
+            rhs_code = rows[row_scores.index (rhs_term.get_sort_score ())]
+            ops = rhs_term.get_indices ()
+            if not ORBINDICES.startswith (''.join (ops)):
+                idx = [list (ORBINDICES).index (x) for x in ops]
+                rhs_code += '.transpose (0,'
+                for x in ops:
+                    rhs_code += str (list (ORBINDICES).index (x)+1) + ','
+                rhs_code = rhs_code[:-1] + ')'
+            rhs_code = rhs_code.replace ('dm_1', 'dm_0')
+            code += '(' + sympy.pycode (rhs_coeff) + ') * ' + rhs_code
+            first_term = False
+        code += ')'
+        return code
 
 def combine_TDMSystem (systems):
     exprs = [system.exprs for system in systems]
@@ -358,6 +381,10 @@ class TDMSystem (object):
 
     def __truediv__(self, scale):
         return self.__mul__(scale**-1)
+
+    def python_code (self):
+        scores = [row.get_sort_score () for row in self.rows]
+        return '\n'.join ([expr.python_code (scores) for expr in self.exprs])
 
 ORBINDICES = 'pqrstuvwxyz'
 
@@ -1426,8 +1453,10 @@ if __name__=='__main__':
             for key, (read_eq, write_eq) in my_transpose_eqns.items ():
                 print ("Read " + str(key) + ":")
                 print (read_eq)
+                print (read_eq.python_code ())
                 print ("Write " + str(key) + ":")
                 print (write_eq)
+                print (write_eq.python_code ())
                 f.write ('{}, {} read:\n'.format (lbl_latex, key))
                 f.write (read_eq.latex () + '\n\n')
                 f.write ('{}, {} write:\n'.format (lbl_latex, key))
