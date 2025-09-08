@@ -1136,34 +1136,51 @@ def standardize_m_s (eqn_dict):
         eqn_dict1[lbl] = sector1
     return eqn_dict1
 
-put_fn_head = '''def put_{{dmname}} (dm, smult_bra, {cond_spin_op}smult_ket, spin_ket):
-    dm1 = scale_{{scalename}} (smult_bra, {cond_spin_op}smult_ket, spin_ket) * dm0
+put_fn_head = '''def put_{{dmname}} (dm_0, smult_bra, {cond_spin_op}smult_ket, spin_ket):
+    dm_1 = scale_{{scalename}} (smult_bra, {cond_spin_op}smult_ket, spin_ket) * dm_0
 '''
-get_fn_head = '''def get_{{dmname}} (dm, smult_bra, {cond_spin_op}smult_ket, spin_ket):
-    dm1 = dm0 / scale_{{scalename}} (smult_bra, {cond_spin_op}smult_ket, spin_ket)
+get_fn_head = '''def get_{{dmname}} (dm_0, smult_bra, {cond_spin_op}smult_ket, spin_ket):
+    dm_1 = dm_0 / scale_{{scalename}} (smult_bra, {cond_spin_op}smult_ket, spin_ket)
 '''
-put_or_get_fn_calltranspose = '''    d2s_idx = smult_bra-smult_ket
+put_or_get_fn_calltranspose = '''    old_shape = dm_1.shape
+    temp_shape = (-1,) + old_shape[-{{dmndim}}:]
+    dm_1 = dm_1.reshape (*temp_shape)
+    d2s_idx = {cond_d2s_idx}
     key = (d2s_idx, {cond_spin_idx})
-    transpose = _transpose_{putorget}_{{dmname}}.get (key, lambda dm1, s, m: dm1)
-    return transpose (dm1)
-
+    transpose = _transpose_{putorget}_{{dmname}}.get (key, lambda x, s, m: x)
+    s = ({cond_smult_ket} - 1) / 2
+    m = spin_ket / 2
+    return transpose (dm_1, s, m).reshape (*old_shape)
 '''
-def put_fn_fmt (has_spin_op):
+
+def put_fn_fmt (has_spin_op, is_d2):
     fmt_str = put_fn_head + put_or_get_fn_calltranspose
+    cond_d2s_idx = ('smult_bra-smult_ket', '-abs(smult_bra-smult_ket)')[int (is_d2)]
+    cond_smult_ket = ('smult_ket', 'max (smult_bra, smult_ket)')[int (is_d2)]
     if has_spin_op:
         return fmt_str.format (cond_spin_op = 'spin_op, ', putorget='put',
-                               cond_spin_idx = 'spin_op')
+                               cond_spin_idx = 'spin_op',
+                               cond_d2s_idx = cond_d2s_idx,
+                               cond_smult_ket = cond_smult_ket)
     else:
         return fmt_str.format (cond_spin_op = '', putorget='put',
-                               cond_spin_idx = '0')
-def get_fn_fmt (has_spin_op):
+                               cond_spin_idx = '0',
+                               cond_d2s_idx = cond_d2s_idx,
+                               cond_smult_ket = cond_smult_ket)
+def get_fn_fmt (has_spin_op, is_d2):
     fmt_str = get_fn_head + put_or_get_fn_calltranspose
+    cond_d2s_idx = ('smult_bra-smult_ket', '-abs(smult_bra-smult_ket)')[int (is_d2)]
+    cond_smult_ket = ('smult_ket', 'max (smult_bra, smult_ket)')[int (is_d2)]
     if has_spin_op:
         return fmt_str.format (cond_spin_op = 'spin_op, ', putorget='get',
-                               cond_spin_idx = 'spin_op')
+                               cond_spin_idx = 'spin_op',
+                               cond_d2s_idx = cond_d2s_idx,
+                               cond_smult_ket = cond_smult_ket)
     else:
         return fmt_str.format (cond_spin_op = '', putorget='get',
-                               cond_spin_idx = '0')
+                               cond_spin_idx = '0',
+                               cond_d2s_idx = cond_d2s_idx,
+                               cond_smult_ket = cond_smult_ket)
 
 
 class TDMScaleArray (object):
@@ -1347,10 +1364,49 @@ class TDMScaleArray (object):
         code += ' (s, m)\n\n'
         return code
 
-    def get_put_code (self, nops, dmname, transpose_eqns=None):
+    def get_putget_code (self, nops, dmname, transpose_eqns=None):
+        has_spin_op = (self.name == 'h')
+        dmndim = nops + int (self.name != 'hh')
+        is_d2 = (dmname == 'dm2')
         if transpose_eqns is None:
             transpose_eqns = self.get_transpose_eqns ()
-        
+        keys = [key[:2] for key in transpose_eqns.keys () if key[2] == nops]
+        transpose_put_lookup = '_transpose_put_{dmname} = '.format (dmname=dmname) + '{'
+        transpose_get_lookup = '_transpose_get_{dmname} = '.format (dmname=dmname) + '{'
+        lookup_indent = len (transpose_put_lookup)
+        transpose_put_header = '_transpose_put_{dmname}_{{idx}}'.format (dmname=dmname)
+        transpose_get_header = '_transpose_get_{dmname}_{{idx}}'.format (dmname=dmname)
+        code = ''
+        first_term = True
+        for i, key in enumerate (keys):
+            myput, myget = transpose_eqns[key + (nops,)]
+            myput = '    ' + '\n    '.join (myput.python_code ().split ('\n'))
+            myget = '    ' + '\n    '.join (myget.python_code ().split ('\n'))
+            code += 'def ' + transpose_put_header.format (idx=i) + '(dm_0, s, m):\n'
+            code += myput + '\n'
+            code += '    return dm_1\n'
+            code += 'def ' + transpose_get_header.format (idx=i) + '(dm_0, s, m):\n'
+            code += myget + '\n'
+            code += '    return dm_1\n'
+            if not first_term:
+                transpose_put_lookup += ',\n' + ' '*lookup_indent
+                transpose_get_lookup += ',\n' + ' '*lookup_indent
+            transpose_put_lookup += str (key) + ': '
+            transpose_put_lookup += transpose_put_header.format (idx=i)
+            transpose_get_lookup += str (key) + ': '
+            transpose_get_lookup += transpose_get_header.format (idx=i)
+            first_term = False
+        transpose_put_lookup = transpose_put_lookup + '}\n'
+        transpose_get_lookup = transpose_get_lookup + '}\n'
+        code += transpose_put_lookup
+        code += transpose_get_lookup
+        code += '\n'
+        code += put_fn_fmt (has_spin_op, is_d2=is_d2).format (
+            dmname=dmname, dmndim=dmndim, scalename=self.name) + '\n'
+        code += get_fn_fmt (has_spin_op, is_d2=is_d2).format (
+            dmname=dmname, dmndim=dmndim, scalename=self.name) + '\n'
+        return code
+
 
 def get_scale_constants (eqn_dict):
     scale = {}
@@ -1453,10 +1509,8 @@ if __name__=='__main__':
             for key, (read_eq, write_eq) in my_transpose_eqns.items ():
                 print ("Read " + str(key) + ":")
                 print (read_eq)
-                print (read_eq.python_code ())
                 print ("Write " + str(key) + ":")
                 print (write_eq)
-                print (write_eq.python_code ())
                 f.write ('{}, {} read:\n'.format (lbl_latex, key))
                 f.write (read_eq.latex () + '\n\n')
                 f.write ('{}, {} write:\n'.format (lbl_latex, key))
@@ -1466,4 +1520,10 @@ if __name__=='__main__':
         f.write ('import numpy as np\n\n')
         for scalearray in scale.values ():
             f.write (scalearray.get_scale_code ())
+        f.write (scale['h'].get_putget_code (1, 'h', transpose_eqns=transpose_eqns['h']))
+        f.write (scale['h'].get_putget_code (3, 'phh', transpose_eqns=transpose_eqns['h']))
+        f.write (scale['hh'].get_putget_code (2, 'hh', transpose_eqns=transpose_eqns['hh']))
+        f.write (scale['sm'].get_putget_code (2, 'sm'))
+        f.write (scale['dm'].get_putget_code (2, 'dm1', transpose_eqns=transpose_eqns['dm']))
+        f.write (scale['dm'].get_putget_code (4, 'dm2', transpose_eqns=transpose_eqns['dm']))
 
