@@ -526,7 +526,6 @@ __global__ void _compute_FCItrans_rdm1a(double * cibra, double * ciket, double *
 
     if(str0 >= na) return;
     if(j >= nlinka) return;
-    #ifdef _ACCELERATE_KERNEL
     int * tab  = &(link_index[4*nlinka*str0+4*j]);
     int a = tab[0];
     int i = tab[1];
@@ -538,17 +537,6 @@ __global__ void _compute_FCItrans_rdm1a(double * cibra, double * ciket, double *
     for (int k=0; k<nb; ++k){
        atomicAdd(&(rdm[a*norb+i]), sign*pbra[k]*pket[k]);
     }
-    #else
-    int a  = link_index[4*str0*nlinka + 4*j];
-    int i  = link_index[4*str0*nlinka + 4*j + 1];
-    int str1  = link_index[4*str0*nlinka + 4*j + 2];
-    int sign  = link_index[4*str0*nlinka + 4*j + 3];
-    double * pket = &(ciket[str0*nb]);
-    double * pbra = &(cibra[str1*nb]);
-    for (int k=0; k<nb; ++k){
-       atomicAdd(&(rdm[a*norb+i]), sign*pbra[k]*pket[k]);
-    }
-    #endif
 }
 /* ---------------------------------------------------------------------- */
 __global__ void _compute_FCItrans_rdm1b(double * cibra, double * ciket, double * rdm, int norb, int na, int nb, int nlinkb, int * link_index)
@@ -562,20 +550,77 @@ __global__ void _compute_FCItrans_rdm1b(double * cibra, double * ciket, double *
     if(j >= nlinkb) return;
     double * pbra = &(cibra[str0*nb]);
     double tmp = ciket[str0*nb + k];
-    #ifdef _ACCELERATE_KERNEL
     int * tab  = &(link_index[4*nlinkb*k+4*j]);
     int a = tab[0];
     int i = tab[1];
     int str1 = tab[2];
     int sign = tab[3];
-    #else
-    int a  = link_index[4*nlinkb*k+4*j];
-    int i  = link_index[4*nlinkb*k+4*j+1];
-    int str1  = link_index[4*nlinkb*k+4*j+2];
-    int sign  = link_index[4*nlinkb*k+4*j+3];
-    #endif
-    //rdm[a*norb + i] += sign*pbra[str1]*tmp; //doesn't work when race conditions are present with multiple x,y threads are trying to write to the same combination of a,i in rdm memory block
     atomicAdd(&(rdm[a*norb + i]), sign*pbra[str1]*tmp);
+}
+/* ---------------------------------------------------------------------- */
+__global__ void _compute_FCItrans_rdm1a_v2(double * cibra, double * ciket, double * rdm, int norb, int nlinka, 
+                                            int ia_ket, int ja_ket, int ib_ket, int jb_ket, 
+                                            int ia_bra, int ja_bra, int ib_bra, int jb_bra, 
+                                            int na_bra, int nb_bra, int na_ket, int nb_ket, 
+                                            int b_len, int b_bra_offset, int b_ket_offset, 
+                                            int sign_dummy, int * link_index)
+{
+    int str0 = blockIdx.x * blockDim.x + threadIdx.x;
+    int j = blockIdx.y * blockDim.y + threadIdx.y;
+
+    //if(str0 >= na) return;
+    if(str0 >= na_ket) return;//ciket is 0 if k is outside ia_bra:ja_bra
+    if(j >= nlinka) return;
+    int * tab  = &(link_index[4*nlinka*(str0+ia_ket)+4*j]);
+    int sign = tab[3];
+    if (sign == 0) return;
+    sign = sign * sign_dummy; 
+    int str1 = tab[2];
+    if ((str1>=ia_bra) && (str1<ja_bra)){
+      int a = tab[0];
+      int i = tab[1];
+      //double * pket = &(ciket[str0*nb]);
+      double * pket = &(ciket[str0*nb_ket]);
+      //double * pbra = &(cibra[str1*nb]);
+      double * pbra = &(cibra[(str1-ia_bra)*nb_bra]);
+      //for (int k=0; k<nb; ++k){
+      for (int k=0; k<b_len; ++k){ // only from  max(ib_bra, ib_ket): min(jb_bra, jb_ket)
+         //atomicAdd(&(rdm[a*norb+i]), sign*pbra[k-b_bra_offset-ib_bra]*pket[k-b_ket_offset-ib_ket]);
+         atomicAdd(&(rdm[a*norb+i]), sign*pbra[k+b_bra_offset]*pket[k+b_ket_offset]);
+        }
+      }
+}
+/* ---------------------------------------------------------------------- */
+__global__ void _compute_FCItrans_rdm1b_v2( double * cibra, double * ciket, double * rdm, int norb, int nlinkb, 
+                                            int ia_ket, int ja_ket, int ib_ket, int jb_ket, 
+                                            int ia_bra, int ja_bra, int ib_bra, int jb_bra, 
+                                            int na_bra, int nb_bra, int na_ket, int nb_ket, 
+                                            int a_len, int ia_max, 
+                                            int sign_dummy, int * link_index)
+{
+  int str0 = blockIdx.x * blockDim.x + threadIdx.x;
+  int k = blockIdx.y * blockDim.y + threadIdx.y;
+  int j = blockIdx.z * blockDim.z + threadIdx.z;
+  //if(str0 >= na) return;
+  if(str0 >= a_len) return;//ci[str0*nb] accessed for both, ia_max < str0 < ja_min, a_len = ja_min - ia_max
+  //if(k >= nb) return;
+  if(k >= nb_ket) return;
+  if(j >= nlinkb) return;
+  //double * pbra = &(cibra[str0*nb]);
+  double * pbra = &(cibra[(str0+ia_max)*nb_bra]);
+  //double tmp = ciket[str0*nb + k];
+  double tmp = ciket[(str0+ia_max)*nb_ket + k];
+  //int * tab  = &(link_index[4*nlinkb*k+4*j]);
+  int * tab  = &(link_index[4*nlinkb*(k+ib_ket)+4*j]);
+  int str1 = tab[2];
+  if ((str1>=ib_bra)&&(str1<jb_bra)){
+    int sign = tab[3];
+    if (sign ==0 ) return;
+      sign = sign*sign_dummy;
+      int a = tab[0];
+      int i = tab[1];
+      atomicAdd(&(rdm[a*norb + i]), sign*pbra[str1-ib_bra]*tmp);
+    }
 }
 /* ---------------------------------------------------------------------- */
 __global__ void _compute_FCImake_rdm1a(double * cibra, double * ciket, double * rdm, int norb, int na, int nb, int nlinka, int * link_index)
@@ -804,7 +849,6 @@ __global__ void _compute_FCIrdm3h_a_t1ci_v2(double * ci, double * buf, int stra_
         if ((str1>=ia) && (str1<ja)){//str1 is alpha loop
           int a = tab[0];
           int i = tab[1];
-          //printf("ci_loc: %i str1: %i k: %i buf_loc: %i a: %i i: %i j: %i sign: %i added: %f \n",(str1-ia)*nb+k, str1, k, (k+ib)*norb2 + i*norb + a, a, i, j, sign, sign*ci[(str1-ia)*nb + k]);
           atomicAdd(&(buf[(k+ib)*norb2 + i*norb + a]), sign*ci[(str1-ia)*nb + k]);//I'm not sure how this plays out in the bigger kernel, so keeping as k+ib on the buf side
           }
         }
@@ -888,9 +932,6 @@ __global__ void _compute_FCIrdm3h_a_t1ci_v4(double * ci, double * buf, int stra_
     if (k >= jb-ib) return;
     if (j >= nlinka) return;
      
-
-    __shared__ double cache[norb][norb];
-
     //zero out shared memory
     int norb2 = norb*norb;
     double * tmp_buf = &(buf[(k+ib)*norb2]);
@@ -1487,6 +1528,69 @@ void Device::compute_FCItrans_rdm1b(double * cibra, double * ciket, double * rdm
   _CUDA_CHECK_ERRORS();
 #endif
 }
+/* ---------------------------------------------------------------------- */
+void Device::compute_FCItrans_rdm1a_v2(double * cibra, double * ciket, double * rdm, int norb, int nlinka, 
+                                        int ia_bra, int ja_bra, int ib_bra, int jb_bra, 
+                                        int ia_ket, int ja_ket, int ib_ket, int jb_ket, int sign, 
+                                        int * link_index)
+{
+  cudaStream_t s = *(pm->dev_get_queue());
+  int na_bra = ja_bra - ia_bra; 
+  int na_ket = ja_ket - ia_ket; 
+  int nb_bra = jb_bra - ib_bra; 
+  int nb_ket = jb_ket - ib_ket; 
+  int ib_max = (ib_bra > ib_ket) ? ib_bra : ib_ket;
+  int jb_min = (jb_bra < jb_ket) ? jb_bra : jb_ket;
+  int b_len  = jb_min - ib_max;
+  if (b_len>0){
+    int b_bra_offset = ib_max - ib_bra;
+    int b_ket_offset = ib_max - ib_ket;
+
+    dim3 block_size(_DEFAULT_BLOCK_SIZE, _DEFAULT_BLOCK_SIZE, 1);
+    dim3 grid_size(_TILE(na_ket, block_size.x),_TILE(nlinka,block_size.y),1);
+
+    _compute_FCItrans_rdm1a_v2<<<grid_size, block_size,0,s>>>(cibra, ciket, rdm, norb, nlinka, 
+                                                             ia_ket, ja_ket, ib_ket, jb_ket, 
+                                                             ia_bra, ja_bra, ib_bra, jb_bra, 
+                                                             na_bra, nb_bra, na_ket, nb_ket, 
+                                                             b_len, b_bra_offset, b_ket_offset, 
+                                                             sign, link_index);
+    }
+#ifdef _DEBUG_DEVICE
+    printf("na_ket: %i ia_ket: %i ja_ket: %i ib_ket: %i ib_bra: %i nb_bra: %i nb_ket: %i b_len: %i b_bra_offset: %i b_ket_offset: %i sign: %i\n",na_ket, ia_ket, ja_ket, ib_ket, ib_bra, nb_bra, nb_ket, b_len, b_bra_offset, b_ket_offset, sign);
+#endif
+  _CUDA_CHECK_ERRORS();
+}
+/* ---------------------------------------------------------------------- */
+void Device::compute_FCItrans_rdm1b_v2( double * cibra, double * ciket, double * rdm, int norb, int nlinkb, 
+                                        int ia_bra, int ja_bra, int ib_bra, int jb_bra, 
+                                        int ia_ket, int ja_ket, int ib_ket, int jb_ket, int sign, 
+                                        int * link_index)
+{
+  cudaStream_t s = *(pm->dev_get_queue());
+
+  int na_bra = ja_bra - ia_bra; 
+  int na_ket = ja_ket - ia_ket; 
+  int nb_bra = jb_bra - ib_bra; 
+  int nb_ket = jb_ket - ib_ket; 
+  int ia_max = (ia_bra > ia_ket) ? ia_bra : ia_ket;
+  int ja_min = (ja_bra < ja_ket) ? ja_bra : ja_ket;
+  int a_len  = ja_min - ia_max;
+  if (a_len>0){
+    //dim3 block_size(_DEFAULT_BLOCK_SIZE, _DEFAULT_BLOCK_SIZE, _DEFAULT_BLOCK_SIZE);
+    dim3 block_size(1,1,1);
+    dim3 grid_size(_TILE(a_len, block_size.x),_TILE(nb_ket,block_size.y),_TILE(nlinkb, block_size.z));
+  
+    _compute_FCItrans_rdm1b_v2<<<grid_size, block_size,0,s>>>(cibra, ciket, rdm, norb, nlinkb, 
+                                                             ia_ket, ja_ket, ib_ket, jb_ket, 
+                                                             ia_bra, ja_bra, ib_bra, jb_bra, 
+                                                             na_bra, nb_bra, na_ket, nb_ket, 
+                                                             a_len, ia_max, 
+                                                             sign, link_index);
+    }
+  _CUDA_CHECK_ERRORS();
+}
+
 /* ---------------------------------------------------------------------- */
 void Device::compute_FCImake_rdm1a(double * cibra, double * ciket, double * rdm, int norb, int na, int nb, int nlinka, int * link_index)
 {

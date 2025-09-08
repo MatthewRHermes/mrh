@@ -59,6 +59,39 @@ def _trans_rdm1hs (cre, cibra, ciket, norb, nelec, spin=0, link_index=None):
         tdm1h: ndarray of shape (norb,)
             One-half-particle transition density matrix between cibra and ciket.
     '''
+    try: 
+      use_gpu = param.use_gpu
+      gpu = use_gpu
+      try: custom_fci = param.custom_fci
+      except: custom_fci = False
+      try: gpu_debug = param.gpu_debug
+      except: gpu_debug = False
+      try: custom_debug = param.custom_debug
+      except: custom_debug = False
+    except: 
+      use_gpu = None
+    if custom_fci and custom_debug and use_gpu:
+      ### New kernel
+      tdm1h = _trans_rdm1hs_o0(cre, cibra, ciket, norb, nelec, spin=spin, link_index=link_index)
+      tdm1h_c = _trans_rdm1hs_o1(cre, cibra, ciket, norb, nelec, spin=spin, link_index=link_index)
+      ### Old kernel
+      tdm1_correct = np.allclose(tdm1h, tdm1h_c)
+      if tdm1_correct: 
+        print('Trans RDM1hs calculated correctly')
+      else:
+        print('Trans RDM1hs calculated incorrectly')
+        exit()
+    elif custom_fci and use_gpu: 
+      tdm1h = _trans_rdm1hs_o1(cre, cibra, ciket, norb, nelec, spin=spin, link_index=link_index)
+    else:
+      tdm1h = _trans_rdm1hs_o0(cre, cibra, ciket, norb, nelec, spin=spin, link_index=link_index)
+    tdm1h = tdm1h[-1,:-1]
+    if not cre: tdm1h = tdm1h.conj ()
+    return tdm1h
+
+
+
+def _trans_rdm1hs_o0(cre, cibra, ciket, norb, nelec, spin=0, link_index=None):
     nelec = list (_unpack_nelec (nelec))
     if not cre:
         cibra, ciket = ciket, cibra
@@ -73,9 +106,42 @@ def _trans_rdm1hs (cre, cibra, ciket, norb, nelec, spin=0, link_index=None):
     ciket = dummy.add_orbital (ciket, norb, nelec_ket, occ_a=(1-spin), occ_b=spin)
     cibra = dummy.add_orbital (cibra, norb, nelec_bra, occ_a=0, occ_b=0)
     fn = ('FCItrans_rdm1a', 'FCItrans_rdm1b')[spin]
-    tdm1h = rdm.make_rdm1_spin1 (fn, cibra, ciket, norb+1, nelec_bra, linkstr)[-1,:-1]
-    if not cre: tdm1h = tdm1h.conj ()
+    tdm1h = rdm.make_rdm1_spin1 (fn, cibra, ciket, norb+1, nelec_bra, linkstr)
     return tdm1h
+
+def _trans_rdm1hs_o1(cre, cibra, ciket, norb, nelec, spin=0, link_index=None):
+    from mrh.my_pyscf.gpu import libgpu
+    gpu=param.use_gpu
+    nelec = list (_unpack_nelec (nelec))
+    if not cre:
+        cibra, ciket = ciket, cibra
+        nelec[spin] -= 1
+    nelec_ket = _unpack_nelec (nelec)
+    nelec_bra = [x for x in nelec]
+    nelec_bra[spin] += 1
+    linkstr = _unpack (norb+1, nelec_bra, link_index)
+    errmsg = ("For the half-particle transition density matrix functions, the linkstr must "
+              "be for nelec+1 electrons occupying norb+1 orbitals.")
+    for i in range (2): assert (linkstr[i].shape[1]==(nelec_bra[i]*(norb-nelec_bra[i]+2))), errmsg
+
+    ia_ket, ja_ket, ib_ket, jb_ket, sgn_ket = dummy_orbital_params(norb, nelec_ket, occ_a =(1-spin), occ_b = spin)
+    ia_bra, ja_bra, ib_bra, jb_bra, sgn_bra = dummy_orbital_params(norb, nelec_bra, occ_a = 0, occ_b = 0)
+    na, nlinka = linkstr[0].shape[:2] 
+    nb, nlinkb = linkstr[1].shape[:2] 
+    na_bra, nb_bra = cibra.shape
+    na_ket, nb_ket = ciket.shape
+    libgpu.push_cibra(gpu, cibra, na_bra, nb_bra)
+    libgpu.push_ciket(gpu, ciket, na_ket, nb_ket)
+    tdm1h = np.empty((norb+1, norb+1))
+    libgpu.init_tdm1(gpu, norb+1)
+    libgpu.push_link_index_ab(gpu, na, nb, nlinka, nlinkb, linkstr[0], linkstr[1])
+
+    libgpu.compute_tdm1h_spin(gpu, na, nb, nlinka, nlinkb, norb+1, spin, 
+                               ia_bra, ja_bra, ib_bra, jb_bra, sgn_bra,
+                               ia_ket, ja_ket, ib_ket, jb_ket, sgn_ket) #TODO: write a better name
+    libgpu.pull_tdm1(gpu, tdm1h, norb+1)
+    return tdm1h.T
+   
 
 def trans_rdm1ha_cre (cibra, ciket, norb, nelec, link_index=None):
     '''Half-electron spin-up creation case of:\n''' + _trans_rdm1hs.__doc__

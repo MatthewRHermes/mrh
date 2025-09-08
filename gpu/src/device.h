@@ -193,6 +193,9 @@ public :
   void compute_sfudm( int , int , int , int , int,  
                       int , int , int , int , int ,
                       int , int , int , int , int );
+  void compute_tdm1h_spin( int , int , int , int , int , int,
+                           int , int , int , int , int ,
+                           int , int , int , int , int );
 
   void pull_tdm1(py::array_t<double> , int );
   void pull_tdm2(py::array_t<double> , int );
@@ -220,6 +223,16 @@ public :
   void gemm_fix(const double *, const double *, double *, const int, const int);
   void compute_FCItrans_rdm1a (double *, double *, double *, int, int, int, int, int *);
   void compute_FCItrans_rdm1b (double *, double *, double *, int, int, int, int, int *);
+  void compute_FCItrans_rdm1a_v2 (double *, double *, double *, 
+                                 int, int, 
+                                 int, int, int, int,  
+                                 int, int, int, int, int,  
+                                 int *);
+  void compute_FCItrans_rdm1b_v2 (double *, double *, double *, 
+                                 int, int, 
+                                 int, int, int, int,  
+                                 int, int, int, int, int,  
+                                 int *);
   void compute_FCImake_rdm1a (double *, double *, double *, int, int, int, int, int *);
   void compute_FCImake_rdm1b (double *, double *, double *, int, int, int, int, int *);
   void compute_FCIrdm2_a_t1ci (double *, double *, int, int, int, int, int*); 

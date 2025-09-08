@@ -4,8 +4,8 @@
 
 #include "device.h"
 
-#define _NUM_SIMPLE_TIMER 30
-#define _NUM_SIMPLE_COUNTER 17
+#define _NUM_SIMPLE_TIMER 32
+#define _NUM_SIMPLE_COUNTER 23
 #include <unistd.h>
 #include <string.h>
 #include <sched.h>
@@ -252,10 +252,13 @@ Device::~Device()
     printf("LIBGPU :: SIMPLE_TIMER :: i= %i  name= tdm12kern_b()             time= %f s\n",23,t_array[23]);
     printf("LIBGPU :: SIMPLE_TIMER :: i= %i  name= tdm12kern_ab()            time= %f s\n",24,t_array[24]);
     printf("LIBGPU :: SIMPLE_TIMER :: i= %i  name= rdm12kern_sf()            time= %f s\n",25,t_array[25]);
-    printf("LIBGPU :: SIMPLE_TIMER :: i= %i  name= tdm13h_spin_v2()          time= %f s\n",26,t_array[28]);
-    printf("LIBGPU :: SIMPLE_TIMER :: i= %i  name= pull_tdm1()               time= %f s\n",27,t_array[26]);
-    printf("LIBGPU :: SIMPLE_TIMER :: i= %i  name= pull_tdm2()               time= %f s\n",28,t_array[27]);
-    printf("LIBGPU :: SIMPLE_TIMER :: i= %i  name= pull_tdm13h()             time= %f s\n",29,t_array[29]);
+    printf("LIBGPU :: SIMPLE_TIMER :: i= %i  name= tdm13h_spin()             time= %f s\n",26,t_array[26]);
+    printf("LIBGPU :: SIMPLE_TIMER :: i= %i  name= tdm1h_spin()              time= %f s\n",27,t_array[27]);
+    printf("LIBGPU :: SIMPLE_TIMER :: i= %i  name= sfudm_spin()              time= %f s\n",28,t_array[28]);
+    printf("LIBGPU :: SIMPLE_TIMER :: i= %i  name= pptdm_spin()              time= %f s\n",29,t_array[29]);
+    printf("LIBGPU :: SIMPLE_TIMER :: i= %i  name= pull_tdm1()               time= %f s\n",30,t_array[30]);
+    printf("LIBGPU :: SIMPLE_TIMER :: i= %i  name= pull_tdm2()               time= %f s\n",31,t_array[31]);
+    printf("LIBGPU :: SIMPLE_TIMER :: i= %i  name= pull_tdm13h()             time= %f s\n",32,t_array[32]);
     printf("LIBGPU :: SIMPLE_TIMER :: total= %f s\n",total);
     free(t_array);
     
@@ -295,7 +298,13 @@ Device::~Device()
     printf("LIBGPU :: SIMPLE_COUNTER :: i= %i  name= tdm12kern_b()        counts= %i \n",13,count_array[13]);
     printf("LIBGPU :: SIMPLE_COUNTER :: i= %i  name= tdm12kern_ab()       counts= %i \n",14,count_array[14]);
     printf("LIBGPU :: SIMPLE_COUNTER :: i= %i  name= rdm12kern_sf()       counts= %i \n",15,count_array[15]);
-    printf("LIBGPU :: SIMPLE_COUNTER :: i= %i  name= tdm13h_spin_v2()     counts= %i \n",15,count_array[16]);
+    printf("LIBGPU :: SIMPLE_COUNTER :: i= %i  name= tdm13h_spin()        counts= %i \n",16,count_array[16]);
+    printf("LIBGPU :: SIMPLE_COUNTER :: i= %i  name= tdm1h_spin()         counts= %i \n",17,count_array[17]);
+    printf("LIBGPU :: SIMPLE_COUNTER :: i= %i  name= sfudm_spin()         counts= %i \n",18,count_array[18]);
+    printf("LIBGPU :: SIMPLE_COUNTER :: i= %i  name= ppdm_spin()          counts= %i \n",19,count_array[19]);
+    printf("LIBGPU :: SIMPLE_COUNTER :: i= %i  name= pull_tdm1()          counts= %i \n",20,count_array[20]);
+    printf("LIBGPU :: SIMPLE_COUNTER :: i= %i  name= pull_tdm2()          counts= %i \n",21,count_array[21]);
+    printf("LIBGPU :: SIMPLE_COUNTER :: i= %i  name= pull_tdm13h()        counts= %i \n",22,count_array[22]);
     free(count_array);
   }
 
@@ -3784,7 +3793,6 @@ void Device::push_ciket(py::array_t<double> _ciket, int na, int nb)
 void Device::push_link_indexa(int na, int nlinka, py::array_t<int> _link_indexa)
 {
   double t0 = omp_get_wtime();
-  //printf("Started push link indexa\n");
   int id = 0;
   pm->dev_set_device(id); 
   my_device_data * dd = &(device_data[id]);
@@ -3797,7 +3805,6 @@ void Device::push_link_indexa(int na, int nlinka, py::array_t<int> _link_indexa)
   pm->dev_push_async(dd->d_clinka, link_indexa, size_clinka*sizeof(int));
 
   pm->dev_profile_stop();
-  //printf("Pushed link indexa\n");
   pm->dev_barrier();
   double t1 = omp_get_wtime();
   t_array[17] += t1 - t0;
@@ -3806,7 +3813,6 @@ void Device::push_link_indexa(int na, int nlinka, py::array_t<int> _link_indexa)
 void Device::push_link_indexb(int nb, int nlinkb, py::array_t<int> _link_indexb)
 {
   double t0 = omp_get_wtime();
-  //printf("Started push link indexb\n");
   int id = 0;
   pm->dev_set_device(id); 
   my_device_data * dd = &(device_data[id]);
@@ -3819,7 +3825,6 @@ void Device::push_link_indexb(int nb, int nlinkb, py::array_t<int> _link_indexb)
   pm->dev_push_async(dd->d_clinkb, link_indexb, size_clinkb*sizeof(int));
 
   pm->dev_profile_stop();
-  //printf("Pushed link indexb\n");
   pm->dev_barrier();
   double t1 = omp_get_wtime();
   t_array[17] += t1 - t0;
@@ -4277,7 +4282,6 @@ void Device::compute_tdm13h_spin_v2(int na, int nb, int nlinka, int nlinkb, int 
                                  int ia_bra, int ja_bra, int ib_bra, int jb_bra, int sgn_bra, 
                                  int ia_ket, int ja_ket, int ib_ket, int jb_ket, int sgn_ket )
 {
-  printf("in v2\n");
   double t0 = omp_get_wtime();
   int id = 0;
   pm->dev_set_device(id);
@@ -4816,7 +4820,7 @@ void Device::compute_tdm13h_spin_v4(int na, int nb,
   #endif
   pm->dev_barrier();
   double t1 = omp_get_wtime();
-  t_array[28] += t1-t0;//TODO: fix this
+  t_array[26] += t1-t0;//TODO: fix this
   count_array[16]++;//TODO: fix this
 } 
 
@@ -4958,8 +4962,8 @@ void Device::compute_tdmpp_spin_v2(int na, int nb, int nlinka, int nlinkb, int n
   #endif
   pm->dev_barrier();
   double t1 = omp_get_wtime();
-  //t_array[23] += t1-t0;//TODO: fix this
-  //count_array[13]++;//TODO: fix this
+  t_array[29] += t1-t0;//TODO: fix this
+  count_array[19]++;//TODO: fix this
   
 }
 /* ---------------------------------------------------------------------- */
@@ -4985,7 +4989,7 @@ void Device::compute_sfudm(int na, int nb, int nlinka, int nlinkb, int norb,
   int nb_bra = jb_bra - ib_bra;
   int na_ket = ja_ket - ia_ket;
   int nb_ket = jb_ket - ib_ket;
-  #ifdef _DEBUG_FCI
+  #ifdef _DEBUG_FCI2
   double * h_cibra = (double *)pm->dev_malloc_host(na_bra*nb_bra*sizeof(double));
   pm->dev_pull_async(dd->d_cibra, h_cibra, na_bra*nb_bra*sizeof(double));
   double * h_ciket = (double *)pm->dev_malloc_host(na_ket*nb_ket*sizeof(double));
@@ -4996,9 +5000,6 @@ void Device::compute_sfudm(int na, int nb, int nlinka, int nlinkb, int norb,
   printf("ciket\n");
   for (int i=0;i<na_ket; ++i){for (int j=0; j<nb_ket; ++j){printf("%f\t",h_ciket[i*nb_ket+j]);}printf("\n");}printf("\n");
   #endif
-  printf("ia_bra: %i ja_bra: %i ib_bra: %i jb_bra: %i sgn_bra: %i ia_ket: %i ja_ket: %i ib_ket: %i jb_ket: %i sgn_ket: %i\n",ia_bra, ja_bra, ib_bra,  jb_bra,  sgn_bra, ia_ket,  ja_ket,  ib_ket,  jb_ket,  sgn_ket );
-  printf("na_bra: %i nb_bra: %i, na_ket: %i nb_ket: %i\n",na_bra, nb_bra, na_ket, nb_ket);
-  printf("nlinka: %i nlinkb: %i\n", nlinka, nlinkb); 
   int bits_buf = sizeof(double)*size_buf;
   int bits_tdm2 = sizeof(double)*size_tdm2;
   grow_array(dd->d_tdm2, size_tdm2, dd->size_tdm2, "tdm2", FLERR); 
@@ -5035,9 +5036,53 @@ void Device::compute_sfudm(int na, int nb, int nlinka, int nlinkb, int norb,
     }
   }
   transpose_jikl(dd->d_tdm2, dd->d_buf1, norb);
+  pm->dev_barrier();
   double t1 = omp_get_wtime();
-  //t_array[23] += t1-t0;//TODO: fix this
-  //count_array[13]++;//TODO: fix this
+  t_array[28] += t1-t0;//TODO: fix this
+  count_array[18]++;//TODO: fix this
+}
+/* ---------------------------------------------------------------------- */
+void Device::compute_tdm1h_spin( int na, int nb, int nlinka, int nlinkb, int norb, int spin, 
+                             int ia_bra, int ja_bra, int ib_bra, int jb_bra, int sgn_bra, 
+                             int ia_ket, int ja_ket, int ib_ket, int jb_ket, int sgn_ket )
+{
+  double t0 = omp_get_wtime();
+  int id = 0;
+  pm->dev_set_device(id);
+  ml->set_handle(id);
+  my_device_data * dd = &(device_data[id]);
+  int norb2 = norb*norb;
+  int size_tdm1 = norb2;
+
+  grow_array(dd->d_tdm1,size_tdm1, dd->size_tdm1, "tdm1", FLERR); //actual returned
+  set_to_zero(dd->d_tdm1, size_tdm1);
+  /* 
+     spin = 0: 
+       trans_rdm1a: cibra, ciket -> tdm1
+     spin = 1:
+       trans_rdm1b: cibra, ciket -> tdm1
+  */
+  if (spin==0)
+  {
+    compute_FCItrans_rdm1a_v2 (dd->d_cibra, dd->d_ciket, dd->d_tdm1, 
+                                norb, nlinka, 
+                                ia_bra, ja_bra, ib_bra, jb_bra, 
+                                ia_ket, ja_ket, ib_ket, jb_ket, sgn_bra*sgn_ket,  
+                                dd->d_clinka);
+  }
+  else
+  {
+    compute_FCItrans_rdm1b_v2(dd->d_cibra, dd->d_ciket, dd->d_tdm1,  
+                                norb, nlinkb, 
+                                ia_bra, ja_bra, ib_bra, jb_bra, 
+                                ia_ket, ja_ket, ib_ket, jb_ket, sgn_bra*sgn_ket,  
+                                dd->d_clinkb);
+  }
+  pm->dev_profile_stop();
+  pm->dev_barrier();
+  double t1 = omp_get_wtime();
+  t_array[27] += t1 - t0;
+  count_array[17]++;
 }
 /* ---------------------------------------------------------------------- */
 void Device::pull_tdm1(py::array_t<double> _tdm1, int norb)
@@ -5051,8 +5096,10 @@ void Device::pull_tdm1(py::array_t<double> _tdm1, int norb)
   double * tdm1 = static_cast<double*>(info_tdm1.ptr);
   pm->dev_pull_async(dd->d_tdm1, tdm1, norb*norb*sizeof(double));
   pm->dev_profile_stop();
+  pm->dev_barrier();
   double t1 = omp_get_wtime();
-  t_array[26] += t1-t0;
+  t_array[30] += t1-t0;
+  count_array[20]++;
 
 }
 /* ---------------------------------------------------------------------- */
@@ -5067,8 +5114,10 @@ void Device::pull_tdm2(py::array_t<double> _tdm2, int norb)
   double * tdm2 = static_cast<double*>(info_tdm2.ptr);
   pm->dev_pull_async(dd->d_tdm2, tdm2, norb*norb*norb*norb*sizeof(double));
   pm->dev_profile_stop();
+  pm->dev_barrier();
   double t1 = omp_get_wtime();
-  t_array[27] += t1-t0;
+  t_array[31] += t1-t0;
+  count_array[21]++;
 }
 /* ---------------------------------------------------------------------- */
 void Device::pull_tdm3hab(py::array_t<double> _tdm3ha, py::array_t<double> _tdm3hb, int norb)
@@ -5085,9 +5134,10 @@ void Device::pull_tdm3hab(py::array_t<double> _tdm3ha, py::array_t<double> _tdm3
   double * tdm3hb = static_cast<double*>(info_tdm3hb.ptr);
   pm->dev_pull_async(dd->d_tdm3hb, tdm3hb, norb*norb*norb*norb*sizeof(double));
   pm->dev_profile_stop();
+  pm->dev_barrier();
   double t1 = omp_get_wtime();
-  t_array[29] += t1-t0;//TODO: fix this
-  //t_array[27] += t1-t0;
+  t_array[32] += t1-t0;
+  count_array[22]++;
 }
 
 /* ---------------------------------------------------------------------- */
