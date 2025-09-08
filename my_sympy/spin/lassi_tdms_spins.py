@@ -1116,7 +1116,6 @@ class TDMScaleArray (object):
                              for el in row]
                             for row in tdmsystems_array])
         self.tdmsystems_array = tdmsystems_array
-        self.inv_tdmsystems_array = None
 
     def get_dm_types (self):
         dm_types = []
@@ -1127,6 +1126,8 @@ class TDMScaleArray (object):
         return list (set (dm_types))
 
     def dm_type_str (self, dm_type):
+        if self.name == 'sm':
+            return "<bp' aq>"
         ncr, ndes = dm_type
         sym = '<'
         for i in range (ncr):
@@ -1137,6 +1138,8 @@ class TDMScaleArray (object):
         return sym
 
     def dm_type_latex (self, dm_type):
+        if self.name == 'sm':
+            return '\\braket{\\crbop{p}\\anaop{q}}'
         ncr, ndes = dm_type
         sym = '\\braket{'
         for i in range (ncr):
@@ -1170,15 +1173,17 @@ class TDMScaleArray (object):
             row_idx = str (Rational (row_index, 2))
             for j, col_index in enumerate (self.col_indices):
                 col_idx = self.col_index_str (col_index)
-                text += '[' + row_idx + '][' + col_idx +'] = '
-                text += str (self.mat[i,j]) + '\n'
+                text += '[' + row_idx + ']'
+                if self.shape[1] > 1:
+                    text += '[' + col_idx +']'
+                text += ' = ' + str (self.mat[i,j]) + '\n'
         return text
 
     def latex_row_lhs (self, row_index, col_index):
         superscript = sympy.latex (Rational (row_index, 2))
         subscript = self.col_index_str (col_index)
         text = '\\mathcal{N}^{(' + superscript + ')}'
-        if len (subscript):
+        if len (subscript) > 0 and self.shape[1] > 1:
             text += '_{' + subscript + '}'
         return text
 
@@ -1195,22 +1200,28 @@ class TDMScaleArray (object):
         text = text[:-4] + '\n\\end{align}\n\n'
         return text
 
-    def get_transpose_eqns (self):
+    def get_transpose_eqns (self, _count_only=False):
+        cnt = 0
         transpose_eqns = []
         for i, row in enumerate (self.tdmsystems_array):
-            rowI = self.inv_tdmsystems_array[i]
-            for j, (col, colI) in enumerate (zip (row, rowI)):
+            for j, col in enumerate (row):
                 const = self.mat[i,j]
-                for el, elI in zip (col, colI):
+                for el in col:
                     if len (el.cols) > 1:
                         forward = (el / const).simplify_().powsimp_().simplify_()
-                        reverse = (elI * const).simplify_().powsimp_().simplify_()
                         if set ([x for x in forward.get_A ()]) != set ((0,1)):
                             # not effectively diagonal
-                            transpose_eqns.append ([forward, reverse])
+                            cnt += 1
+                            if not _count_only:
+                                reverse = forward.inv ()
+                                transpose_eqns.append ([forward, reverse])
+        if _count_only: return cnt
         return transpose_eqns
 
-def get_scale_constants (eqn_dict, inv_eqn_dict):
+    def count_transpose_eqns (self):
+        return self.get_transpose_eqns (_count_only=True)
+
+def get_scale_constants (eqn_dict):
     scale = {}
     scale['1_h'] = TDMScaleArray ('1_h',
         [[eqn_dict['phh_a_3d'], eqn_dict['phh_b_3d']],
@@ -1224,18 +1235,6 @@ def get_scale_constants (eqn_dict, inv_eqn_dict):
     scale['dm'] = TDMScaleArray ('dm', [[eqn_dict['dm_2']],
                                         [eqn_dict['dm_1']],
                                         [eqn_dict['dm_0']]])
-    eqn_dict = inv_eqn_dict
-    scale['1_h'].inv_tdmsystems_array = \
-        [[eqn_dict['phh_a_3d'], eqn_dict['phh_b_3d']],
-         [eqn_dict['ha_d'], eqn_dict['hb_d']],
-         [eqn_dict['ha_u'], eqn_dict['hb_u']],
-         [eqn_dict['phh_a_3u'], eqn_dict['phh_b_3u']]]
-    scale['1_hh'].inv_tdmsystems_array = [[[el,] for el in eqn_dict[key]]
-                                          for key in ('hh_d', 'hh_0', 'hh_u')]
-    scale['sm'].inv_tdmsystems_array = [[[el,],] for el in eqn_dict['sm']]
-    scale['dm'].inv_tdmsystems_array = [[eqn_dict['dm_2']],
-                                        [eqn_dict['dm_1']],
-                                        [eqn_dict['dm_0']]]
     return scale
 
 class ScaledTDMSystem (TDMSystem):
@@ -1258,6 +1257,12 @@ class ScaledTDMSystem (TDMSystem):
         my_latex += '\n\\end{' + env.lower () + '}'
         return my_latex
 
+    def inv (self):
+        myinv = super ().inv ()
+        myinv = ScaledTDMSystem (1, myinv)
+        myinv.scale = self.scale**-1
+        return myinv
+
 def invert_eqn_dict (eqn_dict):
     inv_eqn_dict = {}
     barlen = sum ([len (sector) for sector in eqn_dict.values ()])
@@ -1274,24 +1279,33 @@ def invert_eqn_dict (eqn_dict):
             inv_eqn_dict[lbl] = sectorI
     return inv_eqn_dict
 
+def invert_transpose_eqns (scale):
+    cnt = sum ([scalearray.count_transpose_eqns () for scalearray in scale.values ()])
+    transpose_eqns = {}
+    print ("Inverting transpose equations...")
+    with tqdm(total=cnt) as pbar:
+        for lbl, scalearray in scale.items ():
+            my_transpose_eqns = scalearray.get_transpose_eqns ()
+            if len (my_transpose_eqns) > 0:
+                transpose_eqns[lbl] = my_transpose_eqns
+                pbar.update (len (my_transpose_eqns))
+    return transpose_eqns
+
 if __name__=='__main__':
     import os, sys
     eqn_dict = get_eqn_dict ()
-    inv_eqn_dict = invert_eqn_dict (eqn_dict)
+    #inv_eqn_dict = invert_eqn_dict (eqn_dict)
     eqn_dict = standardize_m_s (eqn_dict)
-    scale = get_scale_constants (eqn_dict, inv_eqn_dict)
+    scale = get_scale_constants (eqn_dict)
+    transpose_eqns = invert_transpose_eqns (scale)
     fname = os.path.splitext (os.path.basename (__file__))[0] + '.tex'
     with open (fname, 'w') as f:
         f.write (latex_header)
         f.write ('\\section{TDM scaling constants}\n\n')
         print ("=================== TDM scaling constants ===================")
-        transpose_eqns = {}
         for lbl, scalearray in scale.items ():
             print (scalearray)
             f.write (scalearray.latex ())
-            my_transpose_eqns = scalearray.get_transpose_eqns ()
-            if len (my_transpose_eqns) > 0:
-                transpose_eqns[lbl] = my_transpose_eqns
         f.write ('\\section{TDM transpose equations}\n\n')
         print ("=================== TDM transpose equations ===================")
         for lbl, my_transpose_eqns in transpose_eqns.items ():
