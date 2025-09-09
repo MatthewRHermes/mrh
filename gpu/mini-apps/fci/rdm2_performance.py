@@ -7,11 +7,14 @@ from pyscf import gto, scf, tools, mcscf, lib
 from pyscf.fci import rdm, cistring
 from pyscf.fci.addons import _unpack_nelec
 from mrh.my_pyscf.mcscf.lasscf_async import LASSCF
+import time
+
 if gpu_run:
   gpu = libgpu.init()
   from pyscf.lib import param
   param.use_gpu = gpu
-  param.gpu_debug = True
+  param.gpu_debug=False
+  libgpu.set_verbose_(gpu, 1)
 lib.logger.TIMER_LEVEL=lib.logger.INFO
 
 geom = ''' K 0 0 0;
@@ -29,8 +32,8 @@ mf.with_df.auxbasis = pyscf.df.make_auxbasis(mol)
 mf.max_cycle=1
 mf.kernel()
 
-norb = 10
-nelec = 9
+norb = 12
+nelec = 15
 
 neleca, nelecb = _unpack_nelec(nelec)
 link_indexa = link_indexb = cistring.gen_linkstr_index(range(norb), neleca)
@@ -41,7 +44,21 @@ nb = link_indexb.shape[0]
 cibra = np.random.random((na,nb))
 ciket = np.random.random((na,nb))
 link_index = (link_indexa, link_indexb)
-rdm.make_rdm1_spin1('FCItrans_rdm1a', cibra, ciket, norb, nelec, link_index)#, use_gpu = True, gpu=gpu)
-rdm.make_rdm1_spin1('FCItrans_rdm1b', cibra, ciket, norb, nelec, link_index)#, use_gpu = True, gpu=gpu)
-rdm.make_rdm1_spin1('FCImake_rdm1a', cibra, ciket, norb, nelec, link_index)#, use_gpu = True, gpu=gpu)
-rdm.make_rdm1_spin1('FCImake_rdm1b', cibra, ciket, norb, nelec, link_index)#, use_gpu = True, gpu=gpu)
+
+def performance_checker(fn, cibra, ciket, norb, nelec, link_index, nruns=5):
+  
+  param.use_gpu = gpu
+  t0 = time.time()
+  for _ in range(nruns): rdm.make_rdm12_spin1(fn, cibra, ciket, norb, nelec, link_index)
+  t1 = time.time()
+  param.use_gpu = None
+  for _ in range(nruns): rdm.make_rdm12_spin1(fn, cibra, ciket, norb, nelec, link_index)
+  t2 = time.time()
+  return t1-t0, t2-t1
+
+nruns=10
+for fn in ['FCItdm12kern_a', 'FCItdm12kern_b', 'FCItdm12kern_ab', 'FCIrdm12kern_sf']: 
+  gpu_time, cpu_time = performance_checker(fn, cibra, ciket, norb, nelec, link_index, nruns=nruns)
+  print("GPU time: ", round(gpu_time,2), "CPU time: ", round(cpu_time,2))
+
+libgpu.destroy_device(gpu)

@@ -112,7 +112,6 @@ class FragTDMInt (object):
 
         try: 
             if getattr(las.mol, 'use_gpu') is not None:
-               print("using gpu")
                self.use_gpu = las.mol.use_gpu
         except: 
             pass
@@ -490,11 +489,7 @@ class FragTDMInt (object):
                     tdm2s[i,j] = np.stack (d2s, axis=0)
             else:
                 for i, j in product (range (bra.shape[0]), range (ket.shape[0])):
-                    if use_gpu:
-                        d1s = trans_rdm1s (bra[i], ket[j], norb, nelec,
-                                       link_index=linkstr,use_gpu=use_gpu, gpu=gpu)
-                    else: 
-                        d1s = trans_rdm1s (bra[i], ket[j], norb, nelec,
+                    d1s = trans_rdm1s (bra[i], ket[j], norb, nelec,
                                        link_index=linkstr)
                     # Transpose based on docstring of direct_spin1.trans_rdm12s
                     tdm1s[i,j] = np.stack (d1s, axis=0).transpose (0, 2, 1)
@@ -562,6 +557,7 @@ class FragTDMInt (object):
             self.set_dm1 (k, l, dm1s)
             self.set_dm2 (k, l, dm2s)
  
+        t1 = self.log.timer ('_make_dms_ trans_rdm12s_loop ', *t1)
         hidx_ket_a = np.where (np.any (hopping_index[0] < 0, axis=0))[0]
         hidx_ket_b = np.where (np.any (hopping_index[1] < 0, axis=0))[0]
 
@@ -580,15 +576,19 @@ class FragTDMInt (object):
                     # ^ Passing this assert proves that I have the correct index
                     # and argument ordering for the call and return of trans_rdm12s
                     self.set_phh (bra, ket, 0, phh)
+                    t1 = self.log.timer ('_make_dms_ trans_rdm13h_loop ', *t1)
                 # <j|b'_q a_p|i> = <j|s-|i>
                 elif np.all (hopping_index[:,b,k] == [-1,1]):
                     self.set_sm (bra, ket, trans_sfddm_loop (bra, ket))
+                    t1 = self.log.timer ('_make_dms_ trans_sfddm_loop ', *t1)
                 # <j|b_q a_p|i>
                 elif np.all (hopping_index[:,b,k] == [-1,-1]):
                     self.set_hh (bra, ket, 1, trans_hhdm_loop (bra, ket, spin=1))
+                    t1 = self.log.timer ('_make_dms_ trans_hhdm_loop ', *t1)
                 # <j|a_q a_p|i>
                 elif np.all (hopping_index[:,b,k] == [-2,0]):
                     self.set_hh (bra, ket, 0, trans_hhdm_loop (bra, ket, spin=0))
+                    t1 = self.log.timer ('_make_dms_ trans_hhdm_loop ', *t1)
                 
         # b_p|i>
         for k in hidx_ket_b:
@@ -605,9 +605,11 @@ class FragTDMInt (object):
                     # ^ Passing this assert proves that I have the correct index
                     # and argument ordering for the call and return of trans_rdm12s
                     self.set_phh (bra, ket, 1, phh)
+                    t1 = self.log.timer ('_make_dms_ trans_rdm13h_loop ', *t1)
                 # <j|b_q b_p|i>
                 elif np.all (hopping_index[:,b,k] == [0,-2]):
                     self.set_hh (bra, ket, 2, trans_hhdm_loop (bra, ket, spin=2))
+                    t1 = self.log.timer ('_make_dms_ trans_hhdm_loop ', *t1)
         
         return t0
 

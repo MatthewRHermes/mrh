@@ -29,15 +29,7 @@ using namespace MATHLIB_NS;
 //#define _DEBUG_DEVICE
 //#define _DEBUG_P2P
 #define _DEBUG_FCI
-
-#define EXTRACT_A(I)    (I.a)
-#define EXTRACT_I(I)    (I.i)
-#define EXTRACT_SIGN(I) (I.sign)
-#define EXTRACT_ADDR(I) (I.addr)
-#define EXTRACT_IA(I)   (I.ia)
-
-#define EXTRACT_CRE(I)  EXTRACT_A(I)
-#define EXTRACT_DES(I)  EXTRACT_I(I) 
+//#define _CUSTOM_FCI
 
 #define _PUMAP_2D_UNPACK 0       // generic unpacking of 1D array to 2D matrix
 #define _PUMAP_H2EFF_UNPACK 1    // unpacking h2eff array (generic?)
@@ -165,8 +157,11 @@ public :
   //  };
   void init_tdm1(int);
   void init_tdm2(int);
+  void init_tdm3hab(int);
   void push_ci(py::array_t<double>,  py::array_t<double>, 
                       int , int);
+  void push_cibra(py::array_t<double>, int , int);
+  void push_ciket(py::array_t<double>, int , int);
   void push_link_indexa(int, int , py::array_t<int> ); //TODO: figure out the shape? or maybe move the compressed version 
   void push_link_indexb(int, int , py::array_t<int> ); //TODO: figure out the shape? or maybe move the compressed version 
   void compute_trans_rdm1a(int , int , int , int , int );
@@ -177,9 +172,22 @@ public :
   void compute_tdm12kern_b(int , int , int , int , int );
   void compute_tdm12kern_ab(int , int , int , int , int );
   void compute_rdm12kern_sf(int , int , int , int , int );
+  void compute_tdm13h_spin_v4( int , int , int , int , int , int, int,
+                               int , int , int , int , int ,
+                               int , int , int , int , int );
+  void compute_tdmpp_spin_v2( int , int , int , int , int , int, 
+                               int , int , int , int , int ,
+                               int , int , int , int , int );
+  void compute_sfudm( int , int , int , int , int,  
+                      int , int , int , int , int ,
+                      int , int , int , int , int );
+  void compute_tdm1h_spin( int , int , int , int , int , int,
+                           int , int , int , int , int ,
+                           int , int , int , int , int );
+
   void pull_tdm1(py::array_t<double> , int );
   void pull_tdm2(py::array_t<double> , int );
-   
+  void pull_tdm3hab(py::array_t<double> ,py::array_t<double> , int );
 
   //inner functions
   void extract_mo_cas(int, int, int);//TODO: fix the difference - changed slightly
@@ -199,14 +207,27 @@ public :
   void set_to_zero(double *, int);
   void transpose_jikl(double *, double *, int);
   void veccopy(const double *, double *, int);
-  void gemv_fix(const double *, const double *, double *, const int, const int, const double, const double);
-  void gemm_fix(const double *, const double *, double *, const int, const int);
   void compute_FCItrans_rdm1a (double *, double *, double *, int, int, int, int, int *);
   void compute_FCItrans_rdm1b (double *, double *, double *, int, int, int, int, int *);
+  void compute_FCItrans_rdm1a_v2 (double *, double *, double *, 
+                                 int, int, 
+                                 int, int, int, int,  
+                                 int, int, int, int, int,  
+                                 int *);
+  void compute_FCItrans_rdm1b_v2 (double *, double *, double *, 
+                                 int, int, 
+                                 int, int, int, int,  
+                                 int, int, int, int, int,  
+                                 int *);
   void compute_FCImake_rdm1a (double *, double *, double *, int, int, int, int, int *);
   void compute_FCImake_rdm1b (double *, double *, double *, int, int, int, int, int *);
   void compute_FCIrdm2_a_t1ci (double *, double *, int, int, int, int, int*); 
   void compute_FCIrdm2_b_t1ci (double *, double *, int, int, int, int, int*); 
+  void compute_FCIrdm3h_a_t1ci_v2 (double *, double *, int, int, int, int,
+                                int, int, int, int, int*);
+  void compute_FCIrdm3h_b_t1ci_v2 (double *, double *, int, int, int, int, int,
+                                int, int, int, int, int*);
+  void reorder(double *, double *, double *, int);
   // multi-gpu communication (better here or part of PM?)
 
   void mgpu_bcast(std::vector<double *>, double *, size_t);
@@ -351,8 +372,9 @@ private:
     int size_ciket;
     int size_tdm1;
     int size_tdm2;
-    int size_pdm1;
-    int size_pdm2;
+    int size_tdm2_p;
+    int size_pdm1;//do we need this anymore?
+    int size_pdm2;//do we need this anymore?
 
 
     double * d_rho;
@@ -393,9 +415,13 @@ private:
     double * d_cibra;
     double * d_ciket;
     double * d_tdm2;
+    double * d_tdm2_p;
     double * d_tdm1;
-    double * d_pdm2; 
-    double * d_pdm1;
+    double * d_tdm1h;
+    double * d_tdm3ha;
+    double * d_tdm3hb;
+    double * d_pdm2; //do we need these anymore
+    double * d_pdm1; //do we need these anymore
 
     std::vector<int> type_pumap;
     std::vector<int> size_pumap;

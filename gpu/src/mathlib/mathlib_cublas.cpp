@@ -83,6 +83,57 @@ void MATHLIB::destroy_handle()
   my_handles[id] = NULL;
 }
 // ----------------------------------------------------------------
+void MATHLIB::memset(double * array, const int * num, const int * size)
+{
+#ifdef _DEBUG_ML 
+  printf("Inside MATHLIB::memset()\n");
+#endif
+//TODO: add profiling lines related things
+
+  //cublasHandle_t * h = current_handle;
+  
+  //cublasOperation_t ta;
+
+  //cudaMemsetAsync ( array, *num, *size, *h);   
+  cudaMemset ( array, *num, *size);//, *h);   
+  
+  _CUDA_CHECK_ERRORS();
+
+#ifdef _DEBUG_ML 
+  printf(" -- Leaving MATHLIB::memset()\n");
+#endif
+
+}
+
+
+// ----------------------------------------------------------------
+void MATHLIB::axpy(const int * n, 
+                   const double * alpha, const double * x, const int * incx,
+                   double * y, const int * incy)
+{
+#ifdef _DEBUG_ML 
+  printf("Inside MATHLIB::axpy()\n");
+#endif
+//TODO: add profiling lines related things
+
+  cublasHandle_t * h = current_handle;
+  
+#ifdef _SINGLE_PRECISION
+  cublasSaxpy (*h , *n, alpha, x, *incx, y, *incy);   
+#else
+  cublasDaxpy (*h , *n, alpha, x, *incx, y, *incy);   
+#endif
+  
+  _CUDA_CHECK_ERRORS();
+
+#ifdef _DEBUG_ML 
+  printf(" -- Leaving MATHLIB::axpy()\n");
+#endif
+
+}
+
+
+// ----------------------------------------------------------------
 
 void MATHLIB::gemv(const char * transa,
 		   const int * m, const int * n, 
@@ -120,7 +171,6 @@ void MATHLIB::gemv(const char * transa,
   else if(strcmp(transa, "T") == 0) ta = CUBLAS_OP_T;
   else ta = CUBLAS_OP_C;
 
-  
 #ifdef _SINGLE_PRECISION
   cublasSgemv(*h, ta, *m, *n, alpha, a, *lda, b, *ldb, beta, c, *ldc);
 #else

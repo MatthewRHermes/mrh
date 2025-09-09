@@ -94,7 +94,6 @@ class HamS2OvlpOperators (HamS2Ovlp):
     def _crunch_oppart_(self, exc, fn):
         has_s = self._fn_contributes_to_s2 (fn)
         for row in exc:
-            print(f"started {row}",flush=True)
             if self._fn_row_has_spin (fn):
                 inv = row[2:-1]
             else:
@@ -109,7 +108,6 @@ class HamS2OvlpOperators (HamS2Ovlp):
             opbralen = np.prod (self.lroots[inv,bra])
             opketlen = np.prod (self.lroots[inv,ket])
             op = op.reshape ((opbralen, opketlen), order='C')
-            print(f"reshaped op",flush=True)
             t1, w1 = logger.process_clock (), logger.perf_counter ()
             self.dt_oT += (t1-t0)
             self.dw_oT += (w1-w0)
@@ -117,7 +115,6 @@ class HamS2OvlpOperators (HamS2Ovlp):
             val = self.excgroups_h.get (key, [])
             val.append ([op, bra, ket, row])
             self.excgroups_h[key] = val
-            print(f"excgroups_s",flush=True)
             if has_s:
                 t0, w0 = logger.process_clock (), logger.perf_counter ()
                 op = self.canonical_operator_order (data[1], sinv)
@@ -128,8 +125,6 @@ class HamS2OvlpOperators (HamS2Ovlp):
                 val = self.excgroups_s.get (key, [])
                 val.append ([op, bra, ket, row])
                 self.excgroups_s[key] = val
-                print(f"excgroups_h",flush=True)
-            print(f"finished {row}",flush=True)
             
 
     def _index_ovlppart (self, groups):

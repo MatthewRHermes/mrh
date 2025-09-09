@@ -104,20 +104,27 @@ extern "C"
                    int, int, int, int); 
   void libgpu_pull_Pi (void *,
                    py::array_t<double>, int, int); 
+
   //FCI
   void libgpu_init_tdm1(void *,
                        int);
   void libgpu_init_tdm2(void *,
                        int);
+  void libgpu_init_tdm3hab(void *,
+                       int);
   void libgpu_push_ci(void *, 
                       py::array_t<double>,  py::array_t<double>, 
                       int , int);
+  void libgpu_push_cibra(void *, 
+                      py::array_t<double>, int , int);
+  void libgpu_push_ciket(void *, 
+                      py::array_t<double>, int , int);
   void libgpu_push_link_indexa(void *, 
                               int, int , py::array_t<int> ); //TODO: figure out the shape? or maybe move the compressed version 
   void libgpu_push_link_indexb(void *, 
                               int, int , py::array_t<int> ); //TODO: figure out the shape? or maybe move the compressed version 
   void libgpu_push_link_index_ab(void *, 
-                              int, int ,int, int, py::array_t<int>, py::array_t<int> ); //TODO: figure out the shape? or maybe move the compressed version 
+                              int, int ,int, int, py::array_t<int>, py::array_t<int> ); //TODO: figure out the shape? or maybe move the compressed version
   void libgpu_compute_trans_rdm1a(void *, 
                             int , int , int , int , int );
   void libgpu_compute_trans_rdm1b(void *, 
@@ -134,10 +141,28 @@ extern "C"
                             int , int , int , int , int );
   void libgpu_compute_rdm12kern_sf(void *, 
                             int , int , int , int , int );
+  void libgpu_compute_tdm13h_spin_v4(void *, 
+                            int , int , int , int , int , int, int, 
+                            int , int , int , int , int ,
+                            int , int , int , int , int );
+  void libgpu_compute_tdmpp_spin_v2(void *, 
+                            int , int , int , int , int , int,
+                            int , int , int , int , int ,
+                            int , int , int , int , int );
+  void libgpu_compute_sfudm(void *, 
+                            int , int , int , int , int ,
+                            int , int , int , int , int ,
+                            int , int , int , int , int );
+  void libgpu_compute_tdm1h_spin(void *, 
+                            int , int , int , int , int , int, 
+                            int , int , int , int , int ,
+                            int , int , int , int , int );
   void libgpu_pull_tdm1(void *, 
                       py::array_t<double> , int );
   void libgpu_pull_tdm2(void *, 
                       py::array_t<double> , int );
+  void libgpu_pull_tdm3hab(void *, 
+                      py::array_t<double>, py::array_t<double> , int);
 }
 
 
@@ -190,6 +215,7 @@ PYBIND11_MODULE(libgpu, m) {
   // RDM can be used from previously made JKs
   m.def("init_tdm1",&libgpu_init_tdm1, "pyscf/fci/rdm.py::allocate rdm1 space");
   m.def("init_tdm2",&libgpu_init_tdm2, "pyscf/fci/rdm.py::allocate rdm2 space");
+  m.def("init_tdm3hab",&libgpu_init_tdm3hab, "mrh/my_pyscf/fci/rdm.py::allocate rdm3hab space");
   // Valay: 8/12/2025: This is done as a test to get FCI running. 
   // specifically with several fragment CI problems, I have thoughts on how to optimize this, over several GPUs 
   // Frag 1 cibra is always on gpu 1, Frag 2 cibra on gpu 2 and so on.
@@ -197,6 +223,8 @@ PYBIND11_MODULE(libgpu, m) {
   // this can be expanded with modulus and or spreading out. 
   // using mgpu_bcast is also needed at some point
   m.def("push_ci",&libgpu_push_ci,"pyscf/fci/rdm.py::make_rdm1_spin1 with FCItrans_rdm1a/b push ci");
+  m.def("push_cibra",&libgpu_push_cibra,"pyscf/fci/rdm.py:: push cibra");
+  m.def("push_ciket",&libgpu_push_ciket,"pyscf/fci/rdm.py:: push ciket");
   m.def("push_link_indexa",&libgpu_push_link_indexa,"pyscf/fci/:: push link indexa");
   m.def("push_link_indexb",&libgpu_push_link_indexb,"pyscf/fci/:: push link indexb");
   m.def("push_link_index_ab",&libgpu_push_link_index_ab,"pyscf/fci/:: push link index a and b");
@@ -209,8 +237,13 @@ PYBIND11_MODULE(libgpu, m) {
   m.def("compute_tdm12kern_b",&libgpu_compute_tdm12kern_b,"pyscf/fci/rdm.py::make_rdm1_spin1 compute FCItdm12kern_b");
   m.def("compute_tdm12kern_ab",&libgpu_compute_tdm12kern_ab,"pyscf/fci/rdm.py::make_rdm1_spin1 compute FCItdm12kern_ab");
   m.def("compute_rdm12kern_sf",&libgpu_compute_rdm12kern_sf,"pyscf/fci/rdm.py::make_rdm1_spin1 compute FCIrdm12kern_sf");
+  m.def("compute_tdm13h_spin_v4",&libgpu_compute_tdm13h_spin_v4,"mrh/my_pyscf/fci/rdm.py::trans_rdm13hs compute_v4");
+  m.def("compute_tdmpp_spin_v2",&libgpu_compute_tdmpp_spin_v2,"mrh/my_pyscf/fci/rdm.py::trans_rdmhh_v2");
+  m.def("compute_sfudm",&libgpu_compute_sfudm,"mrh/my_pyscf/fci/rdm.py::trans_sfudm");
+  m.def("compute_tdm1h_spin",&libgpu_compute_tdm1h_spin,"mrh/my_pyscf/fci/rdm.py::trans_tdm1hs");
   m.def("pull_tdm1",&libgpu_pull_tdm1,"pyscf/fci/rdm.py::make_rdm12_spin1 pull_tdm1");        
   m.def("pull_tdm2",&libgpu_pull_tdm2,"pyscf/fci/rdm.py::make_rdm12_spin1 pull_tdm2");        
+  m.def("pull_tdm3hab",&libgpu_pull_tdm3hab,"mrh/my_pyscf/fci/rdm.py::trans_rdm13hs spin1 pull_tdm13hab");        
   
 }
 
