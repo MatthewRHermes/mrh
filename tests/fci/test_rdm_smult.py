@@ -53,7 +53,7 @@ def smult_loop (ks, dm):
 def norb_nelec_loop (ks, dm, smult_bra, smult_ket):
     min_n = max (smult_bra, smult_ket) - 1
     for norb in (min_n, min_n+1, min_n+2):
-        max_n = min (norb, min_n+2):
+        max_n = min (norb, min_n+2)
         for nelec in range (min_n, max_n+1, 2):
             spin_loop (ks, dm, smult_bra, smult_ket, norb, nelec)
 
