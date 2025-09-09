@@ -9,6 +9,7 @@ import itertools
 from mrh.my_sympy.spin.lassi_tdms_spins.glob import *
 from mrh.my_sympy.spin.lassi_tdms_spins.operators import CrVector, AnVector, CrAnOperator, OpSum
 from mrh.my_sympy.spin.lassi_tdms_spins.expressions import TDMExpression, combine_TDMSystem, TDMSystem, TDMScaleArray
+from mrh.my_sympy.spin.lassi_tdms_spins.documentation import latex_header
 
 def solve_pure_destruction (d2s_bra, anops, d2s_ket, d2m_ket):
     return solve_pure_creation (d2s_bra, anops, d2s_ket, d2m_ket, H=True)
@@ -29,35 +30,6 @@ def solve_density (d2s_bra, crops, anops, d2s_ket, d2m_ket):
     m_ket = m + Rational (d2m_ket, 2)
     lhs = CrAnOperator (s_bra, crops, anops, s_ket, m_ket)
     return lhs.solve ()
-
-latex_header = r'''\documentclass[prb,amsmath,amssymb,floatfix,nofootinbib,superscriptaddress,reprint,onecolumn]{revtex4-1}
-\usepackage{rotating}
-\usepackage{txfonts}
-\usepackage{array}
-\usepackage{bm}
-\usepackage{dcolumn}
-\usepackage{amsmath}
-\usepackage{braket}
-\usepackage{xfrac}
-\DeclareMathOperator*{\argmin}{argmin}
-\DeclareMathOperator*{\argmax}{argmax}
-\newcommand{\crop}[1]{\ensuremath{\hat{c}_{#1}^\dagger}}
-\newcommand{\anop}[1]{\ensuremath{\hat{c}_{#1}}}
-\newcommand{\craop}[1]{\ensuremath{\hat{a}_{#1}^\dagger}}
-\newcommand{\anaop}[1]{\ensuremath{\hat{a}_{#1}}}
-\newcommand{\crbop}[1]{\ensuremath{\hat{b}_{#1}^\dagger}}
-\newcommand{\anbop}[1]{\ensuremath{\hat{b}_{#1}}}
-\newcommand{\crsop}[1]{\ensuremath{\hat{\sigma}_{#1}^\dagger}}
-\newcommand{\ansop}[1]{\ensuremath{\hat{\sigma}_{#1}}}
-\newcommand{\myapprox}[1]{\mathrel{\overset{\makebox[0pt]{\mbox{\normalfont\tiny\sffamily #1}}}{\approx}}}
-%\newcommand{\redsout}[1]{\textcolor{red}{\sout{#1}}}
-\newcommand{\pystrlit}{\textquotesingle\textquotesingle\textquotesingle}
-\newcommand{\spforall}{\ensuremath{\hspace{2mm}\forall\hspace{2mm}}}
-
-
-\begin{document}
-
-'''
 
 def get_eqn_dict ():
     print ("Building equation dictionary...", flush=True)
@@ -274,17 +246,6 @@ def invert_transpose_eqns (scale):
                 transpose_eqns[lbl] = my_transpose_eqns
                 pbar.update (len (my_transpose_eqns))
     return transpose_eqns
-
-
-
-_docstring_scale = '''Compute the scale factor A(s',s,m) for the transition density matrices
-
-    <s',s"{dm}|{{ops}}|s,s"> = A(s',s,m) <s',m{dm}|{{ops}}|s,m>
-
-    where {cond_mmax} = max (s,s'){cond_dm}
-    not accounting for any transposition of spin sectors among the operators if present.'''
-
-#def get_docstring_scale (
 
 if __name__=='__main__':
     import os, sys
