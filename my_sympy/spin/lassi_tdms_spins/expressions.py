@@ -548,12 +548,19 @@ class TDMScaleArray (object):
         return code
 
     def get_mupmdown_code (self, nops, dmname, transpose_eqns=None):
-        has_spin_op = (self.name == 'h')
-        dmndim = nops + int (self.name != 'hh')
-        is_d2 = (dmname == 'dm2')
         if transpose_eqns is None:
             transpose_eqns = self.get_transpose_eqns ()
         keys = [key[:2] for key in transpose_eqns.keys () if key[2] == nops]
+        for i,j in itertools.product (range (self.shape[0]), range (self.shape[1])):
+            broken = False
+            for k in range (len (self.lhs[i][j])):
+                if sum (self.lhs[i][j][k].count_ops ()) == nops:
+                    has_spin_op = self.lhs[i][j][k].has_spin_op ()
+                    dmndim = self.lhs[i][j][k].get_dmndim ()
+                    mirror_sym = self.lhs[i][j][k].has_mirror_sym ()
+                    broken = True
+                    break
+            if broken: break
         transpose_mup_lookup = '_transpose_mup_{dmname} = '.format (dmname=dmname) + '{'
         transpose_mdown_lookup = '_transpose_mdown_{dmname} = '.format (dmname=dmname) + '{'
         lookup_indent_mup = len (transpose_mup_lookup)
@@ -585,9 +592,9 @@ class TDMScaleArray (object):
         code += transpose_mup_lookup
         code += transpose_mdown_lookup
         code += '\n'
-        code += mup_fn_fmt (has_spin_op, mirror_sym=is_d2).format (
+        code += mup_fn_fmt (has_spin_op, mirror_sym=mirror_sym).format (
             dmname=dmname, dmndim=dmndim, scalename=self.name) + '\n'
-        code += mdown_fn_fmt (has_spin_op, mirror_sym=is_d2).format (
+        code += mdown_fn_fmt (has_spin_op, mirror_sym=mirror_sym).format (
             dmname=dmname, dmndim=dmndim, scalename=self.name) + '\n'
         return code
 

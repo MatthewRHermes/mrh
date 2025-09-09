@@ -72,6 +72,10 @@ class CrVector (object):
         self.s_ket = s_ket
         self.m_ket = m_ket
 
+    def has_spin_op (self): return True
+    def get_dmndim (self): return sum (self.count_ops ())
+    def has_mirror_sym (self): return False
+
     def get_sort_score (self):
         score = np.power (list (range (len (self.get_ops ()))), 2)[::-1]
         addr = self.crops
@@ -339,6 +343,23 @@ class CrAnOperator (CrVector):
         self.indices = indices
         self.s_ket = s_ket
         self.m_ket = m_ket
+
+    def has_spin_op (self):
+        # NOTE: I don't think this logic generalizes past 2 electrons!!
+        ops = self.count_ops ()
+        return (ops[0] != ops[1])
+
+    def get_dmndim (self):
+        ndim = sum (self.count_ops ())
+        nel = min (len (self.crops), len (self.anops))
+        crel = np.asarray (self.crops)[-nel:]
+        anel = np.asarray (self.anops)[-nel:][::-1]
+        if np.count_nonzero (crel==anel) > 0:
+            ndim += 1
+        return ndim
+
+    def has_mirror_sym (self):
+        return ((not self.has_spin_op ()) and self.count_spins () == (0,0))
 
     def count_spins (self):
         nbeta_cr = sum (self.crops)
