@@ -22,6 +22,11 @@ class TDMExpression (object):
             self.rhs_coeffs.append (fl * fr * c)
             self.rhs_terms.append (tno)
 
+    def subs_labels_(self, lbl_dict):
+        self.lhs.subs_labels_(lbl_dict)
+        for rhs_term in self.rhs_terms:
+            rhs_term.subs_labels_(lbl_dict)
+
     def normal_order_labels (self):
         fl, lhs = self.lhs.normal_order_labels ()
         rhs_coeffs, rhs_terms = [], []
@@ -150,11 +155,15 @@ class TDMExpression (object):
         code = rows[row_scores.index (self.lhs.get_sort_score ())] + ' = ('
         indent = len (code)
         first_term = True
+        orbindices = list (ORBINDICES)[:len(self.lhs.get_indices ())]
+        lhs_order = [self.lhs.get_indices ().index (x)
+                     for x in orbindices]
         for rhs_coeff, rhs_term in zip (self.rhs_coeffs, self.rhs_terms):
             if rhs_coeff == S(0): continue
             if not first_term: code += '\n' + ' '*indent + '+ '
             rhs_code = rows[row_scores.index (rhs_term.get_sort_score ())]
             ops = rhs_term.get_indices ()
+            ops = [ops[i] for i in lhs_order]
             if not ORBINDICES.startswith (''.join (ops)):
                 idx = [list (ORBINDICES).index (x) for x in ops]
                 rhs_code += '.transpose (0,'
@@ -187,6 +196,11 @@ class TDMSystem (object):
                 new_row = [el.simplify () for el in new_A.row (i)]
                 new_exprs.append (TDMExpression (lhs, new_row, cols))
             self._init_from_exprs (new_exprs)
+
+    def subs_labels_(self, lbl_dict):
+        for expr in self.exprs:
+            expr.subs_labels_(lbl_dict)
+        self._init_from_exprs (self.exprs)
 
     def _init_from_exprs (self, exprs):
         self.exprs = exprs
@@ -240,13 +254,13 @@ class TDMSystem (object):
         return TDMSystem (exprs, _try_inverse=False)
         
     def __str__(self):
-        return '\n'.join ([str (expr) for expr in self.get_sorted_exprs ()])
+        return '\n'.join ([str (expr) for expr in self.exprs])
 
     def latex (self, env='align'):
         my_latex = '\\begin{' + env.lower () + '}\n'
         first_term = True
         row_linker = ' \\\\ \n'
-        for expr in self.get_sorted_exprs ():
+        for expr in self.exprs:
             if not first_term: my_latex += row_linker
             my_latex += expr._latex_line (env=env)
             first_term = False
@@ -605,13 +619,13 @@ class ScaledTDMSystem (TDMSystem):
         self._init_from_exprs (exprs)
 
     def __str__(self):
-        return '\n'.join (['c*' + str (expr) for expr in self.get_sorted_exprs ()])
+        return '\n'.join (['c*' + str (expr) for expr in self.exprs])
 
     def latex (self, env='align'):
         my_latex = '\\begin{' + env.lower () + '}\n'
         first_term = True
         row_linker = ' \\\\ \n'
-        for expr in self.get_sorted_exprs ():
+        for expr in self.exprs:
             if not first_term: my_latex += row_linker
             my_latex += 'c*' + expr._latex_line (env=env)
             first_term = False

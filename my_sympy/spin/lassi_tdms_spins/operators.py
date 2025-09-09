@@ -76,6 +76,9 @@ class CrVector (object):
     def get_dmndim (self): return sum (self.count_ops ())
     def has_mirror_sym (self): return False
 
+    def subs_labels_(self, lbl_dict):
+        self.indices = [lbl_dict[i] for i in self.indices]
+
     def get_sort_score (self):
         score = np.power (list (range (len (self.get_ops ()))), 2)[::-1]
         addr = self.crops

@@ -245,6 +245,17 @@ def invert_transpose_eqns (scale):
             if len (my_transpose_eqns) > 0:
                 transpose_eqns[lbl] = my_transpose_eqns
                 pbar.update (len (my_transpose_eqns))
+    return dm2_mulliken_order (transpose_eqns)
+
+def dm2_mulliken_order (transpose_eqns):
+    mulliken = {'p': 'p',
+                'q': 'r',
+                'r': 's',
+                's': 'q'}
+    for key, (forward, reverse) in transpose_eqns['dm'].items ():
+        if key[2] == 4:
+            forward.subs_labels_(mulliken)
+            reverse.subs_labels_(mulliken)
     return transpose_eqns
 
 if __name__=='__main__':
