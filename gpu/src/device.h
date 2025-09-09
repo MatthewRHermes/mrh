@@ -207,8 +207,6 @@ public :
   void set_to_zero(double *, int);
   void transpose_jikl(double *, double *, int);
   void veccopy(const double *, double *, int);
-  void gemv_fix(const double *, const double *, double *, const int, const int, const double, const double);
-  void gemm_fix(const double *, const double *, double *, const int, const int);
   void compute_FCItrans_rdm1a (double *, double *, double *, int, int, int, int, int *);
   void compute_FCItrans_rdm1b (double *, double *, double *, int, int, int, int, int *);
   void compute_FCItrans_rdm1a_v2 (double *, double *, double *, 
@@ -225,10 +223,6 @@ public :
   void compute_FCImake_rdm1b (double *, double *, double *, int, int, int, int, int *);
   void compute_FCIrdm2_a_t1ci (double *, double *, int, int, int, int, int*); 
   void compute_FCIrdm2_b_t1ci (double *, double *, int, int, int, int, int*); 
-  void compute_FCIrdm3h_a_t1ci (double *, double *, int, int, int, int,
-                                int, int, int, int, int*);
-  void compute_FCIrdm3h_b_t1ci (double *, double *, int, int, int, int,
-                                int, int, int, int, int*);
   void compute_FCIrdm3h_a_t1ci_v2 (double *, double *, int, int, int, int,
                                 int, int, int, int, int*);
   void compute_FCIrdm3h_b_t1ci_v2 (double *, double *, int, int, int, int, int,

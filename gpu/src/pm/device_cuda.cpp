@@ -794,46 +794,6 @@ __global__ void _compute_FCIrdm2_b_t1ci_v2(double * ci, double * buf, int stra_i
 }
 
 /* ---------------------------------------------------------------------- */
-__global__ void _compute_FCIrdm3h_a_t1ci(double * ci, double * buf, int stra_id, int nb, int norb, int nlinka, int ia, int ja, int ib, int jb, int * link_index)
-{
-    int j = blockIdx.x * blockDim.x + threadIdx.x;
-    //int k = blockIdx.y * blockDim.y + threadIdx.y;
-    if (j >= nlinka) return;
-    //if (k >= nb) return;//perhaps k can be looped over, and completely avoided if str1 is not in between ia-ja and ib-jb
-    int norb2 = norb*norb;
-    int * tab = &(link_index[4*nlinka*stra_id + 4*j]); 
-    for (int k=ib; k<jb; ++k){//k is the beta loop
-      int sign = tab[3];
-      if (sign != 0) {
-        int str1 = tab[2];
-        if ((str1>=ia) && (str1<ja)){//str1 is alpha loop
-          int a = tab[0];
-          int i = tab[1];
-          atomicAdd(&(buf[k*norb2 + i*norb + a]), sign*ci[str1*nb + k]);
-          }
-        }
-      }
-}
-/* ---------------------------------------------------------------------- */
-__global__ void _compute_FCIrdm3h_b_t1ci(double * ci, double * buf, int stra_id, int nb, int norb, int nlinkb, int ia, int ja, int ib, int jb, int * link_index)
-{
-    int str0 = blockIdx.x * blockDim.x + threadIdx.x;
-    int j = blockIdx.y * blockDim.y + threadIdx.y;
-    if (str0 >= nb) return;
-    if (j >= nlinkb) return;
-    int norb2 = norb*norb;
-    int * tab = &(link_index[4*str0*nlinkb+4*j]);
-    int sign = tab[3];
-    if (sign!=0){ //return;
-      int str1 = tab[2];
-      if ((str1>=ib) && (str1<jb)){
-        int a = tab[0];
-        int i = tab[1];
-        atomicAdd(&(buf[str0*norb2 + i*norb + a]), sign*ci[stra_id*nb + str1]);//stra_id is already taken care of in the call itself, maybe work that in the earlier call.
-        }
-      }
-}
-/* ---------------------------------------------------------------------- */
 __global__ void _compute_FCIrdm3h_a_t1ci_v2(double * ci, double * buf, int stra_id, int nb, int norb, int nlinka, int ia, int ja, int ib, int jb, int * link_index)
 {
     int j = blockIdx.x * blockDim.x + threadIdx.x;
@@ -998,39 +958,6 @@ __global__ void _veccopy(const double * src, double *dest, int size)
     dest[i] = src[i];
 } 
 
-/* ---------------------------------------------------------------------- */
-__global__ void _gemv_fix(const double * mat, const double * vec, double * out, const int norb2, const int nb, const double alpha, const double beta)
-{
-    //convert to gemv, shouldn't need this    
-    //for (int j=0;j<norb2;++j){for (int i=0;i<nb;++i){ h_tdm1[j] += h_buf1[i*norb2+j]*h_vec[i] ;}}
-    //beta is one
-    //int i = blockIdx.x * blockDim.x + threadIdx.x;
-    //int j = blockIdx.y * blockDim.y + threadIdx.y;
-    int j = blockIdx.x * blockDim.x + threadIdx.x;
-    //if (i>=nb) return;
-    if (j>=norb2) return;
-    //atomicAdd(&(out[j]),mat[i*norb2+j]*vec[i]);
-    double buf = 0.0;
-    for (int i=0; i<nb; ++i){buf += mat[i*norb2+j]*vec[i];}
-    //out[j] += mat[i*norb2+j]*vec[i];
-    out[j] += buf;
-}
-/* ---------------------------------------------------------------------- */
-__global__ void _gemm_fix(const double * buf1, const double * buf2, double * out, const int norb2, const int nb)
-{
-    //convert to gemm, shouldn't need this    
-    //i<norb2,k<norb2,j<nb
-    //tmp+=h_buf1[j*norb2+i]*h_buf2[j*norb2+k]; 
-    //h_pdm2[k*norb2+i]+=tmp;
-    int i = blockIdx.x * blockDim.x + threadIdx.x;
-    int k = blockIdx.y * blockDim.y + threadIdx.y;
-    if (i>=norb2) return;
-    if (k>=norb2) return;
-    double tmp=0.0;
-    for (int j=0;j<nb; ++j){
-      tmp+=buf1[j*norb2+i]*buf2[j*norb2+k];}
-    out[k*norb2+i]+=tmp;
-}
 /* ---------------------------------------------------------------------- */
 __global__ void _add_rdm1_to_2(double * dm1, double * dm2, int norb)
 {
@@ -1667,35 +1594,6 @@ void Device::compute_FCIrdm2_b_t1ci(double * ci, double * buf, int stra_id, int 
 #endif
 } 
 /* ---------------------------------------------------------------------- */
-void Device::compute_FCIrdm3h_a_t1ci(double * ci, double * buf, int stra_id, int nb, int norb, int nlinka, int ia, int ja, int ib, int jb, int * link_index)
-{
-  dim3 block_size(1,1,1);
-  //dim3 grid_size(_TILE(nlinka, block_size.x), _TILE(nb, block_size.y), 1);
-  dim3 grid_size(_TILE(nlinka, block_size.x), 1, 1);
-  cudaStream_t s = *(pm->dev_get_queue());
-  _compute_FCIrdm3h_a_t1ci<<<grid_size, block_size, 0,s>>>(ci, buf, stra_id, nb, norb, nlinka, ia, ja, ib, jb, link_index);
-#ifdef _DEBUG_DEVICE 
-  printf("LIBGPU ::  -- general::compute_FCIrdm2_a_t1ci; :: Nb= %i Norb =%i Nlinka =%i grid_size= %i %i %i  block_size= %i %i %i\n",
-	 nb, norb, nlinka, grid_size.x,grid_size.y,grid_size.z,block_size.x,block_size.y,block_size.z);
-  _CUDA_CHECK_ERRORS();
-#endif
-}  
-/* ---------------------------------------------------------------------- */
-void Device::compute_FCIrdm3h_b_t1ci(double * ci, double * buf, int stra_id, int nb, int norb, int nlinkb, int ia, int ja, int ib, int jb, int * link_index)
-{
-  if ((stra_id>=ia) && stra_id<ja){ //I'm writing this in, but buf being zero needs to be accounted in the full function call as well
-  dim3 block_size(1,1,1);
-  dim3 grid_size(_TILE(nb, block_size.x), _TILE(nlinkb, block_size.y), 1);
-  cudaStream_t s = *(pm->dev_get_queue());
-  _compute_FCIrdm3h_b_t1ci<<<grid_size, block_size, 0,s>>>(ci, buf, stra_id, nb, norb, nlinkb, ia, ja, ib, jb, link_index);
-#ifdef _DEBUG_DEVICE 
-  printf("LIBGPU ::  -- general::compute_FCIrdm2_b_t1ci; :: Nb= %i Norb =%i Nlinkb =%i grid_size= %i %i %i  block_size= %i %i %i\n",
-	 nb, norb, nlinkb, grid_size.x,grid_size.y,grid_size.z,block_size.x,block_size.y,block_size.z);
-  _CUDA_CHECK_ERRORS();
-#endif
-  }
-}
-/* ---------------------------------------------------------------------- */
 void Device::compute_FCIrdm3h_a_t1ci_v2(double * ci, double * buf, int stra_id, int nb, int norb, int nlinka, int ia, int ja, int ib, int jb, int * link_index)
 {
   cudaStream_t s = *(pm->dev_get_queue());
@@ -1733,27 +1631,6 @@ void Device::compute_FCIrdm3h_b_t1ci_v2(double * ci, double * buf, int stra_id, 
   _CUDA_CHECK_ERRORS();
 #endif
 }  
-/* ---------------------------------------------------------------------- */
-void Device::gemv_fix(const double * buf, const double * bravec, double * pdm1, const int norb2, const int nb, const double alpha, const double beta)
-{
-  //dim3 block_size(_DEFAULT_BLOCK_SIZE,_DEFAULT_BLOCK_SIZE,1);
-  //dim3 grid_size(_TILE(nb, block_size.x), _TILE(norb2,block_size.y), 1);
-  dim3 block_size(_DEFAULT_BLOCK_SIZE,1,1);
-  dim3 grid_size(_TILE(norb2, block_size.x),1, 1);
-  cudaStream_t s = *(pm->dev_get_queue());
-  _gemv_fix<<<grid_size, block_size, 0, s>>>(buf, bravec, pdm1, norb2, nb, alpha, beta);
-  _CUDA_CHECK_ERRORS();
-}
-/* ---------------------------------------------------------------------- */
-void Device::gemm_fix(const double * buf1, const double * buf2, double * pdm2, const int norb2, const int nb)
-{
-  dim3 block_size(_DEFAULT_BLOCK_SIZE,_DEFAULT_BLOCK_SIZE,1);
-  dim3 grid_size(_TILE(norb2, block_size.x), _TILE(norb2,block_size.y), 1);
-  cudaStream_t s = *(pm->dev_get_queue());
-  _gemm_fix<<<grid_size, block_size, 0, s>>>(buf1, buf2, pdm2, norb2, nb);
-  _CUDA_CHECK_ERRORS();
-}
-
 /* ---------------------------------------------------------------------- */
 void Device::transpose_jikl(double * tdm, double * buf, int norb)
 {

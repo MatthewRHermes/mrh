@@ -4118,18 +4118,12 @@ void Device::compute_rdm12kern_sf(int na, int nb, int nlinka, int nlinkb, int no
     const double beta = 1.0;
     const int one = 1;
     double * ketvec = &(dd->d_ciket[stra_id*nb]);//ket+stra_id*nb+strb_id;
-    #if 1
     ml->gemv((char *) "N", &norb2, &nb, 
                 &alpha, 
                 dd->d_buf1, &norb2, 
                 ketvec, &one, 
                 &beta, 
                 dd->d_tdm1, &one); //convert to gemv_batched, edit na loop to batches, may need to increase buf
-    #else
-    gemv_fix(dd->d_buf1, ketvec, dd->d_tdm1, norb2, nb, alpha, beta);
-    #endif
-
-    #if 1
 
     ml->gemm((char *) "N",(char *) "T", &norb2, &norb2, &nb, 
                 &alpha,
@@ -4137,9 +4131,6 @@ void Device::compute_rdm12kern_sf(int na, int nb, int nlinka, int nlinkb, int no
                 dd->d_buf1, &norb2,
                 &beta,
                 dd->d_tdm2, &norb2); //convert to gemm_batched, edit na loops to batches
-    #else
-    gemm_fix(dd->d_buf1, dd->d_buf1, dd->d_tdm2, norb2, nb);
-    #endif
     ml->memset(dd->d_buf1, &zero, &bits_buf); 
       }     
     transpose_jikl(dd->d_tdm2, dd->d_buf1, norb);
