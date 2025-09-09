@@ -35,7 +35,10 @@ if (OPENMP_FOUND)
     set (CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} ${OpenMP_CXX_FLAGS}")
 endif (OPENMP_FOUND)
 
+enable_language(Fortran)
+
 include (CheckCXXCompilerFlag)
+include(CheckFortranCompilerFlag)
 
 # Compile to run of this machine
 check_cxx_compiler_flag (-xHost HAS_XHOST)
@@ -127,3 +130,13 @@ set_target_properties (clib_mrh_fsucc PROPERTIES
 
 add_subdirectory(lassi)
 
+# Build the DKH library
+set(CMAKE_Fortran_FLAGS "${CMAKE_Fortran_FLAGS}")
+set (DKH_SOURCE_FILES "dkh.f90")
+add_library (clib_mrh_dkh SHARED ${DKH_SOURCE_FILES})
+target_link_libraries (clib_mrh_dkh ${LAPACK_LIBRARIES})
+set_target_properties (clib_mrh_dkh PROPERTIES
+    LINKER_LANGUAGE Fortran
+    CLEAN_DIRECT_OUTPUT 1
+    LIBRARY_OUTPUT_DIRECTORY ${PROJECT_SOURCE_DIR}
+    OUTPUT_NAME "dkh")

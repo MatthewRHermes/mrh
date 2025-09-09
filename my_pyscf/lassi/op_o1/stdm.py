@@ -1,6 +1,6 @@
 import numpy as np
 from pyscf import lib
-from pyscf.lib import logger
+from pyscf.lib import logger, param
 from itertools import product, combinations
 from mrh.my_pyscf.lassi.citools import get_rootaddr_fragaddr, umat_dot_1frag_
 from mrh.my_pyscf.lassi.op_o1 import frag
@@ -76,8 +76,10 @@ class LSTDM (object):
     # TODO: at some point, if it ever becomes rate-limiting, make this multithread better
 
     def __init__(self, ints, nlas, lroots, mask_bra_space=None, mask_ket_space=None,
-                 pt_order=None, do_pt_order=None, log=None, max_memory=2000, dtype=np.float64):
+                 pt_order=None, do_pt_order=None, log=None, max_memory=param.MAX_MEMORY,
+                 dtype=np.float64):
         t0 = (lib.logger.process_clock (), lib.logger.perf_counter ())
+        m0 = lib.current_memory ()[0]
         self.ints = ints
         self.log = log
         self.max_memory = max_memory
@@ -143,9 +145,12 @@ class LSTDM (object):
 
         t0 = log.timer ('STDM class making exc tables', *t0) 
         self.init_profiling ()
+        self._init_buffers_()
+        self.memcheck ('LSTDM init', m0)
 
+    def _init_buffers_(self):
         # buffer
-        bigorb = np.sort (nlas)[::-1]
+        bigorb = np.sort (self.nlas)[::-1]
         self.d1 = np.zeros (2*(sum(bigorb[:2])**2), dtype=self.dtype)
         self.d2 = np.zeros (4*(sum(bigorb[:4])**4), dtype=self.dtype)
         self._norb_c = c_int (self.norb)
@@ -165,6 +170,19 @@ class LSTDM (object):
         else:
             raise NotImplementedError (self.dtype)
 
+    def memcheck (self, lbl, m0=None):
+        m1 = lib.current_memory ()[0]
+        if m0 is not None:
+            dm = m1 - m0
+            self.log.debug ('{} consumes {} MB of {} MB total used ({} MB max)'.format (
+                lbl, dm, m1, self.max_memory))
+        else:
+            self.log.debug ('Using {} MB of {} MB available in {}'.format (
+                m1, self.max_memory, lbl))
+        if m1 > self.max_memory:
+            raise MemoryError (("{} using {} MB > {} MB max! Crashing now to save you from "
+                                "sigkill!").format (lbl, m1, self.max_memory))
+
     def interaction_fprint (self, bra, ket, frags, ltri=False):
         frags = np.sort (frags)
         brastr = self.urootstr[frags,bra]
@@ -172,6 +190,25 @@ class LSTDM (object):
         if ltri: brastr, ketstr = sorted ([list(brastr),list(ketstr)])
         fprint = hash (tuple (np.stack ([frags, brastr, ketstr], axis=0).ravel ()))
         return fprint
+
+    def interaction_fprints (self, exc, lbl):
+        exc_nrows, exc_ncols = exc.shape
+        if '_'+lbl+'_' in self.interaction_has_spin:
+            nfrags = exc_ncols - 3
+        else:
+            nfrags = exc_ncols - 2
+        assert (exc.flags['C_CONTIGUOUS']), '{} {}'.format (exc.shape, exc.strides)
+        assert (self.urootstr.flags['F_CONTIGUOUS']), '{} {}'.format (self.urootstr.shape,
+                                                                      self.urootstr.strides)
+        fprint = np.empty (exc_nrows, dtype=np.uint64)
+        fprintLT = np.empty (exc_nrows, dtype=np.uint64)
+        liblassi.SCfprint (c_arr (fprint), c_arr (fprintLT), c_arr (exc), c_arr (self.urootstr),
+                           c_int (nfrags), c_int (exc_nrows), c_int (exc_ncols),
+                           c_int (self.nfrags))
+        if not self.ltri:
+            fprintLT = fprint
+        return fprint, fprintLT
+
 
     def init_profiling (self):
         self.dt_1d, self.dw_1d = 0.0, 0.0
@@ -372,12 +409,15 @@ class LSTDM (object):
 
     ltri = True
     interaction_has_spin = ('_1c_', '_1c1d_', '_1s1c_', '_2c_')
+    interaction_contributes_to_s2 = ('_1d_', '_2d_', '_1s_')
 
     def mask_exc_table_(self, exc, lbl, mask_bra_space=None, mask_ket_space=None):
+        t0 = (lib.logger.process_clock (), lib.logger.perf_counter ())
         # Part 1: restrict to the caller-specified rectangle
         idx  = mask_exc_table (exc, col=0, mask_space=mask_bra_space)
         idx &= mask_exc_table (exc, col=1, mask_space=mask_ket_space)
         exc = exc[idx]
+        #t0 = self.log.timer ('Exc caller specific rectangle', *t0)
         # Part 2: perturbation theory order
         if self.do_pt_order is not None:
             nexc = len (exc)
@@ -386,6 +426,7 @@ class LSTDM (object):
             exc = exc[idx]
             self.log.debug ('%d/%d interactions of PT order in %s',
                             len (exc), nexc, str(self.do_pt_order))
+        #t0 = self.log.timer ('Exc perturbation theory order', *t0)
         # Part 3: identify interactions which are equivalent except for the overlap
         # factor of spectator fragments. Reduce the exc table only to the unique
         # interactions and populate self.nonuniq_exc with the corresponding
@@ -395,6 +436,7 @@ class LSTDM (object):
         excp = exc[:,:-1] if ulblu in self.interaction_has_spin else exc
         fprintLT = np.empty (len (excp), dtype=int)
         fprint = np.empty (len (excp), dtype=int)
+        #t0 = self.log.timer ('Exc part 3 setup ', *t0)
         # MRH 08/01/2025: this loop is a significant bottleneck in many-fragment LASSIS and is
         # trivial to multithread in C as long as you can find a good integer-list hash function
         for i, row in enumerate (excp):
@@ -402,6 +444,7 @@ class LSTDM (object):
             frags = row[2:]
             fprintLT[i] = self.interaction_fprint (bra, ket, frags, ltri=self.ltri)
             fprint[i] = self.interaction_fprint (bra, ket, frags, ltri=False)
+        #t0 = self.log.timer ('Exc part 3 bottleneck loop', *t0)
         nexc = len (exc)
         ufp, idx, cnts = np.unique (fprintLT, axis=0, return_index=True, return_counts=True)
         # for some reason this squeeze is necessary for some versions of numpy; however...
@@ -411,6 +454,7 @@ class LSTDM (object):
         cnts = cnts[ix_sort]
         image_sets = np.split (all_idxs, np.cumsum (cnts))
         exc_01 = exc[:,0:2]
+        t0 = self.log.timer ('Exc part 3 only unique interactions', *t0)
         for image_idxs, uniq_idx in zip (image_sets, idx):
             # ...numpy.where (0==0) triggers a DeprecationWarning, so I have to atleast_1d it
             braket_images = exc_01[image_idxs]
@@ -419,6 +463,8 @@ class LSTDM (object):
             self.nonuniq_exc[tuple(excp[uniq_idx])] = braket_images
         exc = exc[idx]
         nuniq = len (exc)
+        #t0 = self.log.timer ('Exc part 3 populating non unique', *t0)
+        self.log.timer ('mask_exc_table_ {}'.format (lbl), *t0)
         self.log.debug ('%d/%d unique interactions of %s type',
                         nuniq, nexc, lbl)
         return exc
@@ -968,6 +1014,9 @@ class LSTDM (object):
 
     def _fn_row_has_spin (self, _crunch_fn):
         return any ((i in _crunch_fn.__name__ for i in self.interaction_has_spin))
+
+    def _fn_contributes_to_s2 (self, _crunch_fn):
+        return any ((i in _crunch_fn.__name__ for i in self.interaction_contributes_to_s2))
 
     def _crunch_env_(self, _crunch_fn, *row):
         if self._fn_row_has_spin (_crunch_fn):

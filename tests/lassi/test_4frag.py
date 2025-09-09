@@ -35,6 +35,7 @@ from mrh.my_pyscf.lassi.op_o1 import get_fdm1_maker
 from mrh.my_pyscf.lassi.sitools import make_sdm1
 from mrh.tests.lassi.addons import case_contract_hlas_ci, case_lassis_fbf_2_model_state
 from mrh.tests.lassi.addons import case_lassis_fbfdm, case_contract_op_si, debug_contract_op_si
+from mrh.tests.lassi.addons import fuzz_sivecs
 
 def setUpModule ():
     global mol, mf, las, nroots, nelec_frs, si
@@ -188,18 +189,21 @@ class KnownValues(unittest.TestCase):
         las0 = las.get_single_state_las (state=0)
         for ifrag in range (len (las0.ci)):
             las0.ci[ifrag][0] = las0.ci[ifrag][0][0]
+        lsi = LASSIS (las0)
+        lsi.prepare_states_()
+        # Starting from converged SIvecs doesn't guarantee instant convergence for some reason
         for dson in (False,True):
             with self.subTest (davidson_only=dson):
-                lsi = LASSIS (las0).set (davidson_only=dson)
+                lsi.eig (davidson_only=dson)
                 if dson:
-                    lsi.prepare_states_()
                     h0, h1, h2 = ham_2q (las0, las0.mo_coeff)
                     case_contract_op_si (self, las, h1, h2, lsi.ci, lsi.get_nelec_frs ())
-                lsi.kernel ()
                 self.assertTrue (lsi.converged)
+                self.assertTrue (lsi.converged_si)
                 self.assertAlmostEqual (lsi.e_roots[0], -304.5372586630968, 3)
                 case_lassis_fbf_2_model_state (self, lsi)
                 #case_lassis_fbfdm (self, lsi)
+                lsi.si = fuzz_sivecs (lsi.si)
 
     def test_scallowed (self):
         las0 = las.get_single_state_las (state=0)
