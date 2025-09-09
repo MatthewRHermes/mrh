@@ -32,6 +32,16 @@ def dummy_orbital_params(norb, nelec, occ_a=0, occ_b=0, return_size=False):
     if return_size: return ia, ja, ib, jb, sgn, ndeta1, ndetb1
     else: return ia, ja, ib, jb, sgn
 
+def _unpack(norb, nelec, link_index, spin=None):
+    if link_index is None:  
+        neleca, nelecb = _unpack_nelec(nelec, spin)
+        link_indexa = link_indexb = cistring.gen_linkstr_index(range(norb), neleca)
+        if neleca != nelecb:
+            link_indexb = cistring.gen_linkstr_index(range(norb), nelecb)
+        return link_indexa, link_indexb
+    else:                   
+        return link_index   
+
 def _trans_rdm1hs (cre, cibra, ciket, norb, nelec, spin=0, link_index=None):
     '''Evaluate the one-half-particle transition density matrix between ci vectors in different
     Hilbert spaces: <cibra|r'|ciket>, where |cibra> has the same number of orbitals but one
@@ -422,7 +432,6 @@ def _trans_sfudm1_o1(cibra,ciket,norb, nelec, link_index=None):
     libgpu.pull_tdm2(gpu, dm2dum, norb+1)
     return dm2dum
 
-
 def trans_sfddm1 (cibra, ciket, norb, nelec, link_index=None):
     ''' Evaluate the spin-flip-down single-electron transition density matrix: <cibra|b'a|ciket>.
 
@@ -596,7 +605,6 @@ def _trans_ppdm_o2(cibra, ciket, norb, nelec, spin = 0, link_index = None):
     return dumdm1.T, dumdm2
     #if (spin%2)==0: dumdm1, dumdm2 = rdm.reorder_rdm (dumdm1.T, dumdm2, inplace=True)
     #return dumdm2[:-ndum,-1,:-ndum,-ndum]
-
 
 def trans_hhdm (cibra, ciket, norb, nelec, spin=0, link_index=None):
     ''' Evaluate the pair-destruction single-electron transition density matrix: <cibra|pq|ciket>.
