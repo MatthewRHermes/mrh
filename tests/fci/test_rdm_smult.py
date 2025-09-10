@@ -4,7 +4,7 @@ from scipy import linalg
 from pyscf.csf_fci.csfstring import CSFTransformer
 import itertools, functools
 from mrh.my_pyscf.fci import rdm as mrh_rdm
-from mrh.my_pyscf.fci import rdm_smult
+from mrh.my_pyscf.fci import rdm_smult, spin_op
 from pyscf.fci.direct_spin1 import trans_rdm1s, trans_rdm12s
 from pyscf import lib
 
@@ -96,9 +96,10 @@ def spin_loop (ks, dm, smult_bra, smult_ket, norb, nelec):
 def dim_loop (ks, dm, smult_bra, spin_op, smult_ket, tdms):
     for i in range (3):
         mytdms = {key: val[i] for key, val in tdms.items ()}
-        case_scale (ks, dm, smult_bra, spin_op, smult_ket, mytdms)
-        stored = case_mup (ks, dm, smult_bra, spin_op, smult_ket, mytdms)
-        case_mdown (ks, dm, smult_bra, spin_op, smult_ket, mytdms, stored)
+        if i==0:
+            case_scale (ks, dm, smult_bra, spin_op, smult_ket, mytdms)
+        #stored = case_mup (ks, dm, smult_bra, spin_op, smult_ket, mytdms)
+        #case_mdown (ks, dm, smult_bra, spin_op, smult_ket, mytdms, stored)
 
 def _spin_sum_dm2 (dm2):
     idx = np.arange (dm2.ndim-1, dtype=int)
@@ -177,14 +178,16 @@ def get_civecs (norb, nelec, smult):
     spin = smult-1
     csfvec = None
     civecs = {}
+    civec_up = None
     for spin in range (smult-1, -smult, -2):
         neleca = (nelec + spin) // 2
         nelecb = (nelec - spin) // 2
-        t = CSFTransformer (norb, neleca, nelecb, smult)
-        if csfvec is None:
+        if civec_up is None:
+            t = CSFTransformer (norb, neleca, nelecb, smult)
             csfvec = 2*np.random.rand (4,t.ncsf) - 1
             csfvec /= linalg.norm (csfvec, axis=1)[:,None]
-        civecs[spin] = t.vec_csf2det (csfvec)
+            civec_up = t.vec_csf2det (csfvec).reshape (-1,t.ndeta,t.ndetb)
+        civecs[spin] = spin_op.mdown (civec_up, norb, (neleca,nelecb), smult)
     civec_cache[(norb,nelec,smult)] = civecs
     return civecs
 
