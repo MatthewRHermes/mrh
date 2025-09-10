@@ -72,7 +72,7 @@ def spin_loop (ks, dm, smult_bra, smult_ket, norb, nelec):
 
 def dim_loop (ks, dm, smult_bra, spin_op, smult_ket, tdms):
     for i in range (3):
-        mytdms = {key, val[i] for key, val in tdms.items ()}
+        mytdms = {key: val[i] for key, val in tdms.items ()}
         case_scale (ks, dm, smult_bra, spin_op, smult_ket, mytdms)
         stored = case_mup (ks, dm, smult_bra, spin_op, smult_ket, mytdms)
         case_mdown (ks, dm, smult_bra, spin_op, smult_ket, mytdms, stored)
