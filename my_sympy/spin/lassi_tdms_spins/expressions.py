@@ -369,8 +369,8 @@ def _mupormdown_fn_fmt (has_spin_op, mirror_sym, mdown):
     fields = {}
     fields['cond_d2s_idx'] = ('smult_bra-smult_ket', '-abs(smult_bra-smult_ket)')[int (mirror_sym)]
     fields['cond_smult_ket'] = ('smult_ket', 'max (smult_bra, smult_ket)')[int (mirror_sym)]
-    fields['cond_spin_op'] = ('', 'spin op, ')[int (has_spin_op)]
-    fields['cond_spin_idx'] = ('0', 'spin op')[int (has_spin_op)]
+    fields['cond_spin_op'] = ('', 'spin_op, ')[int (has_spin_op)]
+    fields['cond_spin_idx'] = ('0', 'spin_op')[int (has_spin_op)]
     fields['mupormdown'] = ('mup','mdown')[int (mdown)]
     return fmt_str.format (**fields)    
         

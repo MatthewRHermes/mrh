@@ -1,3 +1,4 @@
+import unittest
 import numpy as np
 from pyscf.csf_fci.csfstring import CSFTransformer
 import itertools, functools
@@ -14,30 +15,44 @@ def trans_rdm3ha_des (cibra, ciket, norb, nelec):
 def trans_rdm3hb_des (cibra, ciket, norb, nelec):
     return mrh_rdm.trans_rdm13hb_des (cibra, ciket, norb, nelec)[1]
 
-max_d2s = {'h': 1,
-           'hh': 2,
-           'dm1': 2,
-           'sm': 2,
-           'phh': 3,
-           'dm2': 4}
+def setUpModule ():
+    global max_d2s, spin_op_cases, make_dm, scale_map, scale_proc
+    max_d2s = {'h': 1,
+               'hh': 2,
+               'dm1': 2,
+               'sm': 2,
+               'phh': 3,
+               'dm2': 4}
+    
+    spin_op_cases = {'h': [-1,1],
+                     'hh': [-2,0,2],
+                     'dm1': [0,],
+                     'sm': [0,],
+                     'phh': [-1,1],
+                     'dm2': [0,]}
+    
+    make_dm = {('h',0): mrh_rdm.trans_rdm1ha_des,
+               ('h',1): mrh_rdm.trans_rdm1hb_des,
+               ('hh',0): functools.partial (mrh_rdm.trans_hhdm, spin=0),
+               ('hh',1): functools.partial (mrh_rdm.trans_hhdm, spin=1),
+               ('hh',2): functools.partial (mrh_rdm.trans_hhdm, spin=2),
+               ('dm1',0): trans_rdm1s,
+               ('sm',0): mrh_rdm.trans_sfddm1,
+               ('phh',0): trans_rdm3ha_des,
+               ('phh',1): trans_rdm3hb_des,
+               ('dm2',0): trans_rdm2s}
 
-spin_op_cases = {'h': [-1,1],
-                 'hh': [-2,0,2],
-                 'dm1': [0,],
-                 'sm': [0,],
-                 'phh': [-1,1],
-                 'dm2': [0,]}
+    scale_map = {'phh': 'h',
+                 'dm1': 'dm',
+                 'dm2': 'dm'}
 
-make_dm = {('h',0): mrh_rdm.trans_rdm1ha_des,
-           ('h',1): mrh_rdm.trans_rdm1hb_des,
-           ('hh',0): functools.partial (mrh_rdm.trans_hhdm, spin=0),
-           ('hh',1): functools.partial (mrh_rdm.trans_hhdm, spin=1),
-           ('hh',2): functools.partial (mrh_rdm.trans_hhdm, spin=2),
-           ('dm1',0): trans_rdm1s,
-           ('sm',0): mrh_rdm.trans_sfddm1,
-           ('phh',0): trans_rdm3ha_des,
-           ('phh',1): trans_rdm3hb_des,
-           ('dm2',0): trans_rdm2s}
+    scale_proc = {'phh': lambda x: x.sum (-4),
+                  'dm1': lambda x: x.sum (-3),
+                  'dm2': _spin_sum_dm2}
+
+def tearDownModule ():
+    global max_d2s, spin_op_cases, make_dm, scale_map, scale_proc
+    del max_d2s, spin_op_cases, make_dm, scale_map, scale_proc
 
 def smult_loop (ks, dm):
     for smult_ket in range (1, 4+max_d2s[dm], 2):
@@ -72,14 +87,11 @@ def spin_loop (ks, dm, smult_bra, smult_ket, norb, nelec):
 
 def dim_loop (ks, dm, smult_bra, spin_op, smult_ket, tdms):
     for i in range (3):
-        mytdms = {key, val[i] for key, val in tdms.items ()}
+        mytdms = {key: val[i] for key, val in tdms.items ()}
         case_scale (ks, dm, smult_bra, spin_op, smult_ket, mytdms)
         stored = case_mup (ks, dm, smult_bra, spin_op, smult_ket, mytdms)
         case_mdown (ks, dm, smult_bra, spin_op, smult_ket, mytdms, stored)
 
-scale_map = {'phh': 'h',
-             'dm1': 'dm',
-             'dm2': 'dm'}
 def _spin_sum_dm2 (dm2):
     idx = np.arange (dm2.ndim-1, dtype=int)
     idx[-4:] = [idx[-3],idx[-4],idx[-1],idx[-2]]
@@ -87,9 +99,6 @@ def _spin_sum_dm2 (dm2):
             + dm2[...,1,:,:,:,:]
             + dm2[...,1,:,:,:,:].transpose (*idx),
             + dm2[...,2,:,:,:,:])
-scale_proc = {'phh': lambda x: x.sum (-4),
-              'dm1': lambda x: x.sum (-3),
-              'dm2': _spin_sum_dm2}
 
 def get_scale_fns (dm, smult_bra, spin_op, smult_ket):
     proc = scale_proc.get (dm, lambda x:x)
@@ -182,5 +191,13 @@ def make_tdms (dm, ci_bra, ci_ket, norb, nelec, spin_ket):
             np.stack (tdm_list[:2], axis=0),
             np.stack (tdm_list, axis=0).reshape (*third_shape)]
     return tdms
+
+class KnownValues(unittest.TestCase):
+    pass
+
+if __name__ == '__main__':
+    print ("Full tests for rdm_smult")
+    unittest.main()
+
 
 
