@@ -2,6 +2,7 @@ import numpy as np
 from pyscf.csf_fci.csfstring import CSFTransformer
 import itertools, functools
 from mrh.my_pyscf.fci import rdm as mrh_rdm
+from mrh.my_pyscf.fci import rdm_smult
 from pyscf.fci.direct_spin1 import trans_rdm1s, trans_rdm12s
 
 def trans_rdm2s (cibra, ciket, norb, nelec):
@@ -22,10 +23,10 @@ max_d2s = {'h': 1,
 
 spin_op_cases = {'h': [-1,1],
                  'hh': [-2,0,2],
-                 'dm1': 1,
-                 'sm': 1,
+                 'dm1': [0,],
+                 'sm': [0,],
                  'phh': [-1,1],
-                 'dm2': 1}
+                 'dm2': [0,]}
 
 make_dm = {('h',0): mrh_rdm.trans_rdm1ha_des,
            ('h',1): mrh_rdm.trans_rdm1hb_des,
@@ -75,8 +76,19 @@ def dim_loop (ks, dm, smult_bra, spin_op, smult_ket, tdms):
         stored = case_mup (ks, dm, smult_bra, spin_op, smult_ket, mytdms)
         case_mdown (ks, dm, smult_bra, spin_op, smult_ket, mytdms, stored)
 
+def get_fn (dm, fn, smult_bra, spin_op, smult_ket):
+    fn0 = getattr (rdm_smult, dm+'_'+fn)
+    if len (spin_op_cases[fn]) > 1:
+        def fn1 (mat, spin_ket):
+            return fn0 (mat, smult_bra, spin_op, smult_ket, spin_ket)
+    else:
+        def fn1 (mat, spin_ket):
+            return fn0 (mat, smult_bra, smult_ket, spin_ket)
+    return fn1
+
 def case_mup (ks, dm, smult_bra, spin_op, smult_ket, tdms):
     spins_ket = list (tdms.keys ())
+    mup = get_fn (dm, 'mup', smult_bra, spin_op, smult_ket)
     ref = mup (tdms[spins_ket[0]], spins_ket[0])
     for spin_ket in spins_ket[1:]:
         test = mup (tdms[spin_ket], spin_ket)
@@ -87,6 +99,7 @@ def case_mup (ks, dm, smult_bra, spin_op, smult_ket, tdms):
 
 def case_mdown (ks, dm, smult_bra, spin_op, smult_ket, tdms, stored):
     spins_ket = list (tdms.keys ())
+    mdown = get_fn (dm, 'mdown', smult_bra, spin_op, smult_ket)
     for spin_ket in spins_ket:
         ref = tdms[spin_ket]
         test = mdown (stored, spin_ket)
