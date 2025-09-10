@@ -73,12 +73,53 @@ def spin_loop (ks, dm, smult_bra, smult_ket, norb, nelec):
 def dim_loop (ks, dm, smult_bra, spin_op, smult_ket, tdms):
     for i in range (3):
         mytdms = {key, val[i] for key, val in tdms.items ()}
+        case_scale (ks, dm, smult_bra, spin_op, smult_ket, mytdms)
         stored = case_mup (ks, dm, smult_bra, spin_op, smult_ket, mytdms)
         case_mdown (ks, dm, smult_bra, spin_op, smult_ket, mytdms, stored)
 
-def get_fn (dm, fn, smult_bra, spin_op, smult_ket):
-    fn0 = getattr (rdm_smult, dm+'_'+fn)
-    if len (spin_op_cases[fn]) > 1:
+scale_map = {'phh': 'h',
+             'dm1': 'dm',
+             'dm2': 'dm'}
+def _spin_sum_dm2 (dm2):
+    idx = np.arange (dm2.ndim-1, dtype=int)
+    idx[-4:] = [idx[-3],idx[-4],idx[-1],idx[-2]]
+    return (dm2[...,0,:,:,:,:]
+            + dm2[...,1,:,:,:,:]
+            + dm2[...,1,:,:,:,:].transpose (*idx),
+            + dm2[...,2,:,:,:,:])
+scale_proc = {'phh': lambda x: x.sum (-4),
+              'dm1': lambda x: x.sum (-3),
+              'dm2': _spin_sum_dm2}
+
+def get_scale_fns (dm, smult_bra, spin_op, smult_ket):
+    proc = scale_proc.get (dm, lambda x:x)
+    fn0 = 'scale_' + scale_map.get (dm, dm)
+    fn0 = getattr (rdm_smult, fn0)
+    if len (spin_op_cases[dm]) > 1:
+        def fn1 (spin_ket):
+            return fn0 (smult_bra, spin_op, smult_ket, spin_ket)
+    else:
+        def fn1 (spin_ket):
+            return fn0 (smult_bra, smult_ket, spin_ket)
+    return fn1, proc
+
+def case_scale (ks, dm, smult_bra, spin_op, smult_ket, tdms):
+    fn, proc = get_scale_fns (dm, smult_bra, spin_op, smult_ket)
+    spin_kets = tdms.keys ()
+    scales = np.asarray ([fn (spin_ket) for spin_ket in spins_ket])
+    idx_ref = np.argmax (np.abs (scales))
+    assert (abs (scales[idx_ref]) > 0)
+    ref = proc (tdms[spins_ket[idx_ref]]) / scales[idx_ref]
+    for spin_ket, scale in zip (spins_ket, scales):
+        test = proc (tdms[spin_ket])
+        with ks.subTest ('scale', dm=dm, smult_bra=smult_bra, spin_op=spin_op, smult_ket=smult_ket,
+                         spin_ket=spin_ket, dim=ref.shape):
+            ks.assertAlmostEqual (lib.fp (test), lib.fp (ref*scale), 8)
+
+
+def get_transpose_fn (dm, fn, smult_bra, spin_op, smult_ket):
+    fn0 = getattr (rdm_smult, fn+'_'+dm)
+    if len (spin_op_cases[dm]) > 1:
         def fn1 (mat, spin_ket):
             return fn0 (mat, smult_bra, spin_op, smult_ket, spin_ket)
     else:
@@ -88,7 +129,7 @@ def get_fn (dm, fn, smult_bra, spin_op, smult_ket):
 
 def case_mup (ks, dm, smult_bra, spin_op, smult_ket, tdms):
     spins_ket = list (tdms.keys ())
-    mup = get_fn (dm, 'mup', smult_bra, spin_op, smult_ket)
+    mup = get_transpose_fn (dm, 'mup', smult_bra, spin_op, smult_ket)
     ref = mup (tdms[spins_ket[0]], spins_ket[0])
     for spin_ket in spins_ket[1:]:
         test = mup (tdms[spin_ket], spin_ket)
@@ -99,7 +140,7 @@ def case_mup (ks, dm, smult_bra, spin_op, smult_ket, tdms):
 
 def case_mdown (ks, dm, smult_bra, spin_op, smult_ket, tdms, stored):
     spins_ket = list (tdms.keys ())
-    mdown = get_fn (dm, 'mdown', smult_bra, spin_op, smult_ket)
+    mdown = get_transpose_fn (dm, 'mdown', smult_bra, spin_op, smult_ket)
     for spin_ket in spins_ket:
         ref = tdms[spin_ket]
         test = mdown (stored, spin_ket)
