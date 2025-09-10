@@ -64,11 +64,15 @@ def smult_loop (ks, dm):
         min_smult_bra = max (1+par, smult_ket-max_d2s_p1)
         max_smult_bra = smult_ket+max_d2s_p1
         for smult_bra in range (min_smult_bra, max_smult_bra, 2):
-            norb_nelec_loop (ks, dm, smult_bra, smult_ket)
+            sublbls = {'smult_bra': smult_bra,
+                       'smult_ket': smult_ket}
+            norb_nelec_loop (ks, dm, sublbls, smult_bra, smult_ket)
             if par > 0:
-                norb_nelec_loop (ks, dm, smult_ket, smult_bra)
+                sublbls = {'smult_bra': smult_ket,
+                           'smult_ket': smult_bra}
+                norb_nelec_loop (ks, dm, sublbls, smult_ket, smult_bra)
 
-def norb_nelec_loop (ks, dm, smult_bra, smult_ket):
+def norb_nelec_loop (ks, dm, sublbls, smult_bra, smult_ket):
     dnelec = {'h': -1, 'hh': -2}.get (dm, 0)
     min_somo = max (smult_bra-dnelec, smult_ket) - 1
     min_domo = (0,2)[min_somo==0]
@@ -78,10 +82,12 @@ def norb_nelec_loop (ks, dm, smult_bra, smult_ket):
         nelec = min_nelec + 2*extra_domo
         for extra_umo in (0,1):
             norb = min_norb + extra_domo + extra_umo
-            spin_loop (ks, dm, smult_bra, smult_ket, norb, nelec)
+            sublbls1 = {'norb': norb, 'nelec': nelec}
+            sublbls1.update (sublbls)
+            spin_loop (ks, dm, sublbls1, smult_bra, smult_ket, norb, nelec)
 
 
-def spin_loop (ks, dm, smult_bra, smult_ket, norb, nelec):
+def spin_loop (ks, dm, sublbls, smult_bra, smult_ket, norb, nelec):
     ci_bra = get_civecs (norb, nelec, smult_bra)
     ci_ket = get_civecs (norb, nelec, smult_ket)
     for spin_op, dspin_op in enumerate (spin_op_cases[dm]):
@@ -91,15 +97,19 @@ def spin_loop (ks, dm, smult_bra, smult_ket, norb, nelec):
         dm_maker = make_dm[(dm,spin_op)]
         tdms = {spin_ket: make_tdms (dm_maker, ci_bra, dspin_op, ci_ket, norb, nelec, spin_ket)
                 for spin_ket in spin_ket_range}
-        dim_loop (ks, dm, smult_bra, spin_op, smult_ket, tdms)
+        sublbls1 = {'spin_op': spin_op}
+        sublbls1.update (sublbls)
+        dim_loop (ks, dm, sublbls1, smult_bra, spin_op, smult_ket, tdms)
 
-def dim_loop (ks, dm, smult_bra, spin_op, smult_ket, tdms):
+def dim_loop (ks, dm, sublbls, smult_bra, spin_op, smult_ket, tdms):
     for i in range (3):
         mytdms = {key: val[i] for key, val in tdms.items ()}
         if i==0:
-            case_scale (ks, dm, smult_bra, spin_op, smult_ket, mytdms)
-        #stored = case_mup (ks, dm, smult_bra, spin_op, smult_ket, mytdms)
-        #case_mdown (ks, dm, smult_bra, spin_op, smult_ket, mytdms, stored)
+            case_scale (ks, dm, sublbls, smult_bra, spin_op, smult_ket, mytdms)
+        sublbls1 = {'dim': i}
+        sublbls1.update (sublbls)
+        #stored = case_mup (ks, dm, sublbls1, smult_bra, spin_op, smult_ket, mytdms)
+        #case_mdown (ks, dm, sublbls1, smult_bra, spin_op, smult_ket, mytdms, stored)
 
 def _spin_sum_dm2 (dm2):
     idx = np.arange (dm2.ndim-1, dtype=int)
@@ -121,7 +131,7 @@ def get_scale_fns (dm, smult_bra, spin_op, smult_ket):
             return fn0 (smult_bra, smult_ket, spin_ket)
     return fn1, proc
 
-def case_scale (ks, dm, smult_bra, spin_op, smult_ket, tdms):
+def case_scale (ks, dm, sublbls, smult_bra, spin_op, smult_ket, tdms):
     fn, proc = get_scale_fns (dm, smult_bra, spin_op, smult_ket)
     spins_ket = list (tdms.keys ())
     scales = np.asarray ([fn (spin_ket) for spin_ket in spins_ket])
@@ -130,8 +140,9 @@ def case_scale (ks, dm, smult_bra, spin_op, smult_ket, tdms):
     ref = proc (tdms[spins_ket[idx_ref]]) / scales[idx_ref]
     for spin_ket, scale in zip (spins_ket, scales):
         test = proc (tdms[spin_ket])
-        with ks.subTest ('scale', dm=dm, smult_bra=smult_bra, spin_op=spin_op, smult_ket=smult_ket,
-                         spin_ket=spin_ket, dim=ref.shape):
+        sublbls1 = {'spin_ket': spin_ket, 'ptr_spin': spins_ket[idx_ref]}
+        sublbls1.update (sublbls)
+        with ks.subTest ('scale', **sublbls1):
             ks.assertAlmostEqual (lib.fp (test), lib.fp (ref*scale), 8)
 
 
