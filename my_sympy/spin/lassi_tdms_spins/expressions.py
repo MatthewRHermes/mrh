@@ -348,10 +348,10 @@ class TDMSystem (object):
         return '\n'.join ([expr.python_code (scores) for expr in self.exprs])
 
 mup_fn_head = '''def mup_{{dmname}} (dm_0, smult_bra, {cond_spin_op}smult_ket, spin_ket):
-    dm_1 = scale_{{scalename}} (smult_bra, {cond_spin_op}smult_ket, spin_ket) * dm_0
+    dm_1 = dm_0 / scale_{{scalename}} (smult_bra, {cond_spin_op}smult_ket, spin_ket)
 '''     
 mdown_fn_head = '''def mdown_{{dmname}} (dm_0, smult_bra, {cond_spin_op}smult_ket, spin_ket):
-    dm_1 = dm_0 / scale_{{scalename}} (smult_bra, {cond_spin_op}smult_ket, spin_ket)
+    dm_1 = dm_0 * scale_{{scalename}} (smult_bra, {cond_spin_op}smult_ket, spin_ket)
 '''         
 mup_or_mdown_fn_calltranspose = '''    old_shape = dm_1.shape
     temp_shape = (-1,) + old_shape[-{{dmndim}}:]

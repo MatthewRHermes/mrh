@@ -108,8 +108,8 @@ def dim_loop (ks, dm, sublbls, smult_bra, spin_op, smult_ket, tdms):
             case_scale (ks, dm, sublbls, smult_bra, spin_op, smult_ket, mytdms)
         sublbls1 = {'dim': i}
         sublbls1.update (sublbls)
-        #stored = case_mup (ks, dm, sublbls1, smult_bra, spin_op, smult_ket, mytdms)
-        #case_mdown (ks, dm, sublbls1, smult_bra, spin_op, smult_ket, mytdms, stored)
+        stored = case_mup (ks, dm, sublbls1, smult_bra, spin_op, smult_ket, mytdms)
+        case_mdown (ks, dm, sublbls1, smult_bra, spin_op, smult_ket, mytdms, stored)
 
 def _spin_sum_dm2 (dm2):
     idx = np.arange (dm2.ndim-1, dtype=int)
@@ -156,23 +156,26 @@ def get_transpose_fn (dm, fn, smult_bra, spin_op, smult_ket):
             return fn0 (mat, smult_bra, smult_ket, spin_ket)
     return fn1
 
-def case_mup (ks, dm, smult_bra, spin_op, smult_ket, tdms):
+def case_mup (ks, dm, sublbls, smult_bra, spin_op, smult_ket, tdms):
     spins_ket = list (tdms.keys ())
     mup = get_transpose_fn (dm, 'mup', smult_bra, spin_op, smult_ket)
     ref = mup (tdms[spins_ket[0]], spins_ket[0])
     for spin_ket in spins_ket[1:]:
         test = mup (tdms[spin_ket], spin_ket)
-        with ks.subTest ('up', dm=dm, smult_bra=smult_bra, spin_op=spin_op, smult_ket=smult_ket,
-                         spin_ket=spin_ket, dim=test.shape):
+        sublbls1 = {'spin_ket': spin_ket, 'ptr_spin': spins_ket[0]}
+        sublbls1.update (sublbls)
+        with ks.subTest ('up', **sublbls1):
             ks.assertAlmostEqual (lib.fp (test), lib.fp (ref), 8)
     return ref
 
-def case_mdown (ks, dm, smult_bra, spin_op, smult_ket, tdms, stored):
+def case_mdown (ks, dm, sublbls, smult_bra, spin_op, smult_ket, tdms, stored):
     spins_ket = list (tdms.keys ())
     mdown = get_transpose_fn (dm, 'mdown', smult_bra, spin_op, smult_ket)
     for spin_ket in spins_ket:
         ref = tdms[spin_ket]
         test = mdown (stored, spin_ket)
+        sublbls1 = {'spin_ket': spin_ket}
+        sublbls1.update (sublbls)
         with ks.subTest ('down', dm=dm, smult_bra=smult_bra, spin_op=spin_op, smult_ket=smult_ket,
                          spin_ket=spin_ket, dim=stored.shape):
             ks.assertAlmostEqual (lib.fp (test), lib.fp (ref), 8)

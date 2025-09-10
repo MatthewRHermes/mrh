@@ -69,7 +69,7 @@ _transpose_mup_h = {}
 _transpose_mdown_h = {}
 
 def mup_h (dm_0, smult_bra, spin_op, smult_ket, spin_ket):
-    dm_1 = scale_h (smult_bra, spin_op, smult_ket, spin_ket) * dm_0
+    dm_1 = dm_0 / scale_h (smult_bra, spin_op, smult_ket, spin_ket)
     old_shape = dm_1.shape
     temp_shape = (-1,) + old_shape[-1:]
     dm_1 = dm_1.reshape (*temp_shape)
@@ -81,7 +81,7 @@ def mup_h (dm_0, smult_bra, spin_op, smult_ket, spin_ket):
     return transpose (dm_1, s, m).reshape (*old_shape)
 
 def mdown_h (dm_0, smult_bra, spin_op, smult_ket, spin_ket):
-    dm_1 = dm_0 / scale_h (smult_bra, spin_op, smult_ket, spin_ket)
+    dm_1 = dm_0 * scale_h (smult_bra, spin_op, smult_ket, spin_ket)
     old_shape = dm_1.shape
     temp_shape = (-1,) + old_shape[-1:]
     dm_1 = dm_1.reshape (*temp_shape)
@@ -110,19 +110,18 @@ def _transpose_mdown_phh_0(dm_0, s, m):
     return dm_1
 def _transpose_mup_phh_1(dm_0, s, m):
     dm_1[:,0] = (((1/2)*(m + 3*s - 1)/(2*s - 1)) * dm_0[:,0]
-                 + ((1/2)*(-m + s - 1)/(2*s - 1)) * dm_0[:,1]
+                 + ((1/2)*(3*m + s + 1)/(2*s - 1)) * dm_0[:,1]
                  + ((1/2)*(-m + s - 1)/(2*s - 1)) * dm_0[:,0].transpose (0,1,3,2))
     dm_1[:,1] = (((1/2)*(-m + s - 1)/(2*s - 1)) * dm_0[:,0]
-                 + ((1/2)*(m + 3*s - 1)/(2*s - 1)) * dm_0[:,1]
+                 + ((1/2)*(-3*m - s - 1)/(2*s - 1)) * dm_0[:,1]
                  + ((1/2)*(m - s + 1)/(2*s - 1)) * dm_0[:,0].transpose (0,1,3,2))
     return dm_1
 def _transpose_mdown_phh_1(dm_0, s, m):
-    dm_1[:,0] = ((2*(m + s)/(3*m + s + 1)) * dm_0[:,0]
+    dm_1[:,0] = ((1) * dm_0[:,0]
+                 + (1) * dm_0[:,1])
+    dm_1[:,1] = (((-m + s - 1)/(3*m + s + 1)) * dm_0[:,0]
                  + ((m - s + 1)/(3*m + s + 1)) * dm_0[:,0].transpose (0,1,3,2)
-                 + ((m - s + 1)/(3*m + s + 1)) * dm_0[:,1])
-    dm_1[:,1] = (((m - s + 1)/(3*m + s + 1)) * dm_0[:,0]
-                 + ((-m + s - 1)/(3*m + s + 1)) * dm_0[:,0].transpose (0,1,3,2)
-                 + (2*(m + s)/(3*m + s + 1)) * dm_0[:,1])
+                 + (2*(-m - s)/(3*m + s + 1)) * dm_0[:,1])
     return dm_1
 def _transpose_mup_phh_2(dm_0, s, m):
     dm_1[:,0] = (((1/4)*(m - s)/s) * dm_0[:,1].transpose (0,1,3,2)
@@ -166,7 +165,7 @@ _transpose_mdown_phh = {(-1, 0): _transpose_mdown_phh_0,
                         (1, 1): _transpose_mdown_phh_3}
 
 def mup_phh (dm_0, smult_bra, spin_op, smult_ket, spin_ket):
-    dm_1 = scale_h (smult_bra, spin_op, smult_ket, spin_ket) * dm_0
+    dm_1 = dm_0 / scale_h (smult_bra, spin_op, smult_ket, spin_ket)
     old_shape = dm_1.shape
     temp_shape = (-1,) + old_shape[-4:]
     dm_1 = dm_1.reshape (*temp_shape)
@@ -178,7 +177,7 @@ def mup_phh (dm_0, smult_bra, spin_op, smult_ket, spin_ket):
     return transpose (dm_1, s, m).reshape (*old_shape)
 
 def mdown_phh (dm_0, smult_bra, spin_op, smult_ket, spin_ket):
-    dm_1 = dm_0 / scale_h (smult_bra, spin_op, smult_ket, spin_ket)
+    dm_1 = dm_0 * scale_h (smult_bra, spin_op, smult_ket, spin_ket)
     old_shape = dm_1.shape
     temp_shape = (-1,) + old_shape[-4:]
     dm_1 = dm_1.reshape (*temp_shape)
@@ -194,14 +193,14 @@ def _transpose_mup_hh_0(dm_0, s, m):
                + ((1/2)*(m + s)/s) * dm_0[:])
     return dm_1
 def _transpose_mdown_hh_0(dm_0, s, m):
-    dm_1[:] = (((1/2)*(m - s)/m) * dm_0[:].transpose (0,2,1)
-               + ((1/2)*(m + s)/m) * dm_0[:])
+    dm_1[:] = (((1/2)*(m + s)/m) * dm_0[:]
+               + ((1/2)*(m - s)/m) * dm_0[:].transpose (0,2,1))
     return dm_1
 _transpose_mup_hh = {(0, 1): _transpose_mup_hh_0}
 _transpose_mdown_hh = {(0, 1): _transpose_mdown_hh_0}
 
 def mup_hh (dm_0, smult_bra, spin_op, smult_ket, spin_ket):
-    dm_1 = scale_hh (smult_bra, spin_op, smult_ket, spin_ket) * dm_0
+    dm_1 = dm_0 / scale_hh (smult_bra, spin_op, smult_ket, spin_ket)
     old_shape = dm_1.shape
     temp_shape = (-1,) + old_shape[-2:]
     dm_1 = dm_1.reshape (*temp_shape)
@@ -213,7 +212,7 @@ def mup_hh (dm_0, smult_bra, spin_op, smult_ket, spin_ket):
     return transpose (dm_1, s, m).reshape (*old_shape)
 
 def mdown_hh (dm_0, smult_bra, spin_op, smult_ket, spin_ket):
-    dm_1 = dm_0 / scale_hh (smult_bra, spin_op, smult_ket, spin_ket)
+    dm_1 = dm_0 * scale_hh (smult_bra, spin_op, smult_ket, spin_ket)
     old_shape = dm_1.shape
     temp_shape = (-1,) + old_shape[-2:]
     dm_1 = dm_1.reshape (*temp_shape)
@@ -228,7 +227,7 @@ _transpose_mup_sm = {}
 _transpose_mdown_sm = {}
 
 def mup_sm (dm_0, smult_bra, smult_ket, spin_ket):
-    dm_1 = scale_sm (smult_bra, smult_ket, spin_ket) * dm_0
+    dm_1 = dm_0 / scale_sm (smult_bra, smult_ket, spin_ket)
     old_shape = dm_1.shape
     temp_shape = (-1,) + old_shape[-2:]
     dm_1 = dm_1.reshape (*temp_shape)
@@ -240,7 +239,7 @@ def mup_sm (dm_0, smult_bra, smult_ket, spin_ket):
     return transpose (dm_1, s, m).reshape (*old_shape)
 
 def mdown_sm (dm_0, smult_bra, smult_ket, spin_ket):
-    dm_1 = dm_0 / scale_sm (smult_bra, smult_ket, spin_ket)
+    dm_1 = dm_0 * scale_sm (smult_bra, smult_ket, spin_ket)
     old_shape = dm_1.shape
     temp_shape = (-1,) + old_shape[-2:]
     dm_1 = dm_1.reshape (*temp_shape)
@@ -267,7 +266,7 @@ _transpose_mup_dm1 = {(0, 0): _transpose_mup_dm1_0}
 _transpose_mdown_dm1 = {(0, 0): _transpose_mdown_dm1_0}
 
 def mup_dm1 (dm_0, smult_bra, smult_ket, spin_ket):
-    dm_1 = scale_dm (smult_bra, smult_ket, spin_ket) * dm_0
+    dm_1 = dm_0 / scale_dm (smult_bra, smult_ket, spin_ket)
     old_shape = dm_1.shape
     temp_shape = (-1,) + old_shape[-3:]
     dm_1 = dm_1.reshape (*temp_shape)
@@ -279,7 +278,7 @@ def mup_dm1 (dm_0, smult_bra, smult_ket, spin_ket):
     return transpose (dm_1, s, m).reshape (*old_shape)
 
 def mdown_dm1 (dm_0, smult_bra, smult_ket, spin_ket):
-    dm_1 = dm_0 / scale_dm (smult_bra, smult_ket, spin_ket)
+    dm_1 = dm_0 * scale_dm (smult_bra, smult_ket, spin_ket)
     old_shape = dm_1.shape
     temp_shape = (-1,) + old_shape[-3:]
     dm_1 = dm_1.reshape (*temp_shape)
@@ -293,9 +292,9 @@ def mdown_dm1 (dm_0, smult_bra, smult_ket, spin_ket):
 def _transpose_mup_dm2_0(dm_0, s, m):
     dm_1[:,0] = (((1/2)*(m - s + 1)/(s - 1)) * dm_0[:,2]
                  + ((1/2)*(m + s - 1)/(s - 1)) * dm_0[:,0])
-    dm_1[:,1] = ((1) * dm_0[:,1]
-                 + ((1/2)*(-m + s - 1)/(s - 1)) * dm_0[:,2]
-                 + ((1/2)*(-m + s - 1)/(s - 1)) * dm_0[:,0])
+    dm_1[:,1] = (((1/2)*(-m + s - 1)/(s - 1)) * dm_0[:,2]
+                 + ((1/2)*(-m + s - 1)/(s - 1)) * dm_0[:,0]
+                 + (1) * dm_0[:,1])
     dm_1[:,2] = (((1/2)*(m + s - 1)/(s - 1)) * dm_0[:,2]
                  + ((1/2)*(m - s + 1)/(s - 1)) * dm_0[:,0])
     return dm_1
@@ -309,24 +308,24 @@ def _transpose_mdown_dm2_0(dm_0, s, m):
                  + ((1/2)*(m + s - 1)/m) * dm_0[:,2])
     return dm_1
 def _transpose_mup_dm2_1(dm_0, s, m):
-    dm_1[:,0] = (((1/2)*(-m**2 + s**2)/(s*(2*s - 1))) * dm_0[:,1]
-                 + ((1/2)*(m**2 - 2*m*s + m + s**2 - s)/(s*(2*s - 1))) * dm_0[:,2]
+    dm_1[:,0] = (((1/2)*(m**2 - s**2)/(s*(2*s - 1))) * dm_0[:,1].transpose (0,1,4,3,2)
                  + ((1/2)*(m**2 + 2*m*s - m + s**2 - s)/(s*(2*s - 1))) * dm_0[:,0]
-                 + ((1/2)*(m**2 - s**2)/(s*(2*s - 1))) * dm_0[:,1].transpose (0,1,4,3,2)
                  + ((1/2)*(-m**2 + s**2)/(s*(2*s - 1))) * dm_0[:,1].transpose (0,3,4,1,2)
-                 + ((1/2)*(m**2 - s**2)/(s*(2*s - 1))) * dm_0[:,1].transpose (0,3,2,1,4))
-    dm_1[:,1] = (((1/2)*(m**2 + 2*m*s - m + s**2 - s)/(s*(2*s - 1))) * dm_0[:,1]
-                 + ((1/2)*(-m**2 + s**2)/(s*(2*s - 1))) * dm_0[:,2]
+                 + ((1/2)*(m**2 - s**2)/(s*(2*s - 1))) * dm_0[:,1].transpose (0,3,2,1,4)
+                 + ((1/2)*(-m**2 + s**2)/(s*(2*s - 1))) * dm_0[:,1]
+                 + ((1/2)*(m**2 - 2*m*s + m + s**2 - s)/(s*(2*s - 1))) * dm_0[:,2])
+    dm_1[:,1] = (((1/2)*(-m**2 + s**2)/(s*(2*s - 1))) * dm_0[:,1].transpose (0,1,4,3,2)
                  + ((1/2)*(-m**2 + s**2)/(s*(2*s - 1))) * dm_0[:,0]
-                 + ((1/2)*(-m**2 + s**2)/(s*(2*s - 1))) * dm_0[:,1].transpose (0,1,4,3,2)
                  + ((1/2)*(m**2 - 2*m*s + m + s**2 - s)/(s*(2*s - 1))) * dm_0[:,1].transpose (0,3,4,1,2)
-                 + ((1/2)*(-m**2 + s**2)/(s*(2*s - 1))) * dm_0[:,1].transpose (0,3,2,1,4))
-    dm_1[:,2] = (((1/2)*(-m**2 + s**2)/(s*(2*s - 1))) * dm_0[:,1]
-                 + ((1/2)*(m**2 + 2*m*s - m + s**2 - s)/(s*(2*s - 1))) * dm_0[:,2]
+                 + ((1/2)*(-m**2 + s**2)/(s*(2*s - 1))) * dm_0[:,1].transpose (0,3,2,1,4)
+                 + ((1/2)*(m**2 + 2*m*s - m + s**2 - s)/(s*(2*s - 1))) * dm_0[:,1]
+                 + ((1/2)*(-m**2 + s**2)/(s*(2*s - 1))) * dm_0[:,2])
+    dm_1[:,2] = (((1/2)*(m**2 - s**2)/(s*(2*s - 1))) * dm_0[:,1].transpose (0,1,4,3,2)
                  + ((1/2)*(m**2 - 2*m*s + m + s**2 - s)/(s*(2*s - 1))) * dm_0[:,0]
-                 + ((1/2)*(m**2 - s**2)/(s*(2*s - 1))) * dm_0[:,1].transpose (0,1,4,3,2)
                  + ((1/2)*(-m**2 + s**2)/(s*(2*s - 1))) * dm_0[:,1].transpose (0,3,4,1,2)
-                 + ((1/2)*(m**2 - s**2)/(s*(2*s - 1))) * dm_0[:,1].transpose (0,3,2,1,4))
+                 + ((1/2)*(m**2 - s**2)/(s*(2*s - 1))) * dm_0[:,1].transpose (0,3,2,1,4)
+                 + ((1/2)*(-m**2 + s**2)/(s*(2*s - 1))) * dm_0[:,1]
+                 + ((1/2)*(m**2 + 2*m*s - m + s**2 - s)/(s*(2*s - 1))) * dm_0[:,2])
     return dm_1
 def _transpose_mdown_dm2_1(dm_0, s, m):
     dm_1[:,0] = (((1/2)*(-2*m**3 - 3*m**2*s + m*s + s**3 + s**2)/(m*(-3*m**2 + s**2 + s))) * dm_0[:,0]
@@ -354,7 +353,7 @@ _transpose_mdown_dm2 = {(-2, 0): _transpose_mdown_dm2_0,
                         (0, 0): _transpose_mdown_dm2_1}
 
 def mup_dm2 (dm_0, smult_bra, smult_ket, spin_ket):
-    dm_1 = scale_dm (smult_bra, smult_ket, spin_ket) * dm_0
+    dm_1 = dm_0 / scale_dm (smult_bra, smult_ket, spin_ket)
     old_shape = dm_1.shape
     temp_shape = (-1,) + old_shape[-5:]
     dm_1 = dm_1.reshape (*temp_shape)
@@ -366,7 +365,7 @@ def mup_dm2 (dm_0, smult_bra, smult_ket, spin_ket):
     return transpose (dm_1, s, m).reshape (*old_shape)
 
 def mdown_dm2 (dm_0, smult_bra, smult_ket, spin_ket):
-    dm_1 = dm_0 / scale_dm (smult_bra, smult_ket, spin_ket)
+    dm_1 = dm_0 * scale_dm (smult_bra, smult_ket, spin_ket)
     old_shape = dm_1.shape
     temp_shape = (-1,) + old_shape[-5:]
     dm_1 = dm_1.reshape (*temp_shape)
