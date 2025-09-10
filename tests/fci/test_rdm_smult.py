@@ -195,10 +195,12 @@ def get_civecs (norb, nelec, smult):
         nelecb = (nelec - spin) // 2
         if civec_up is None:
             t = CSFTransformer (norb, neleca, nelecb, smult)
+        #if csfvec is None:
             csfvec = 2*np.random.rand (4,t.ncsf) - 1
             csfvec /= linalg.norm (csfvec, axis=1)[:,None]
             civec_up = t.vec_csf2det (csfvec).reshape (-1,t.ndeta,t.ndetb)
         civecs[spin] = spin_op.mdown (civec_up, norb, (neleca,nelecb), smult)
+        #civecs[spin] = t.vec_csf2det (csfvec).reshape (-1,t.ndeta,t.ndetb)
     civec_cache[(norb,nelec,smult)] = civecs
     return civecs
 

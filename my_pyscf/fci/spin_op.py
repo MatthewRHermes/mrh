@@ -94,6 +94,8 @@ def contract_sladder(fcivec, norb, nelec, op=-1):
 
     ci1 = np.zeros((cistring.num_strings(norb,neleca+op),
                    cistring.num_strings(norb,nelecb-op)))
+    nspin_comm = neleca-1 if op==-1 else neleca
+    spin_comm_fac = (-1) ** nspin_comm
     for i in range(norb):
         signa = aindex[:,i,1]
         signb = bindex[:,i,1]
@@ -104,6 +106,7 @@ def contract_sladder(fcivec, norb, nelec, op=-1):
         citmp = lib.take_2d(fcivec, maska, maskb)
         citmp *= signa[maska].reshape(-1,1)
         citmp *= signb[maskb]
+        citmp *= spin_comm_fac
         #: ci1[addra.reshape(-1,1),addrb] += citmp
         lib.takebak_2d(ci1, citmp, addra, addrb)
     norm_ci1 = linalg.norm (ci1) + np.finfo (float).tiny
