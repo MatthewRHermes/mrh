@@ -67,11 +67,33 @@ def spin_loop (ks, dm, smult_bra, smult_ket, norb, nelec):
         dm_maker = make_dm[(dm,spin_op)]
         tdms = {spin_ket: make_tdms (dm_maker, ci_bra, ci_ket, norb, nelec, spin_ket)
                 for spin_ket in spin_ket_range}
-        for m1, m2 in itertools.product (spin_ket_range, repeat=2):
-            for i in range (3):
-                ref = tdms[m2][i]
-                test = mdown (mup (tdms[m1][i],m1), m2)
-                ks.assertAlmostEqual (lib.fp (test), lib.fp (ref), 8)
+        dim_loop (ks, dm, smult_bra, spin_op, smult_ket, tdms)
+
+def dim_loop (ks, dm, smult_bra, spin_op, smult_ket, tdms):
+    for i in range (3):
+        mytdms = {key, val[i] for key, val in tdms.items ()}
+        stored = case_mup (ks, dm, smult_bra, spin_op, smult_ket, mytdms)
+        case_mdown (ks, dm, smult_bra, spin_op, smult_ket, mytdms, stored)
+
+def case_mup (ks, dm, smult_bra, spin_op, smult_ket, tdms):
+    spins_ket = list (tdms.keys ())
+    ref = mup (tdms[spins_ket[0]], spins_ket[0])
+    for spin_ket in spins_ket[1:]:
+        test = mup (tdms[spin_ket], spin_ket)
+        with ks.subTest ('up', dm=dm, smult_bra=smult_bra, spin_op=spin_op, smult_ket=smult_ket,
+                         spin_ket=spin_ket, dim=test.shape):
+            ks.assertAlmostEqual (lib.fp (test), lib.fp (ref), 8)
+    return ref
+
+def case_mdown (ks, dm, smult_bra, spin_op, smult_ket, tdms, stored):
+    spins_ket = list (tdms.keys ())
+    for spin_ket in spins_ket:
+        ref = tdms[spin_ket]
+        test = mdown (stored, spin_ket)
+        with ks.subTest ('down', dm=dm, smult_bra=smult_bra, spin_op=spin_op, smult_ket=smult_ket,
+                         spin_ket=spin_ket, dim=stored.shape):
+            ks.assertAlmostEqual (lib.fp (test), lib.fp (ref), 8)
+    return ref
 
 civec_cache = {}
 def get_civecs (norb, nelec, smult):
