@@ -2,7 +2,7 @@ import numpy as np
 from pyscf.csf_fci.csfstring import CSFTransformer
 import itertools, functools
 from mrh.my_pyscf.fci import rdm as mrh_rdm
-from mrh.my_pyscf.fci import rdm_smult
+#from mrh.my_pyscf.fci import rdm_smult
 from pyscf.fci.direct_spin1 import trans_rdm1s, trans_rdm12s
 
 def trans_rdm2s (cibra, ciket, norb, nelec):
