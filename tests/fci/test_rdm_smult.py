@@ -54,7 +54,7 @@ def setUpModule ():
 
     scale_proc = {'phh': lambda x: x.sum (-4),
                   'dm1': lambda x: x.sum (-3),
-                  'dm2': _spin_sum_dm2}
+                  'dm2': lambda x: x.sum (-5)}
 
     dnelec = {'h': -1,
               'hh': -2,
@@ -258,6 +258,10 @@ class KnownValues(unittest.TestCase):
     #@unittest.skip ('debugging')
     def test_phh (self):
         smult_loop (self, 'phh')
+
+    #@unittest.skip ('debugging')
+    def test_dm2 (self):
+        smult_loop (self, 'dm2')
 
 if __name__ == '__main__':
     print ("Full tests for rdm_smult")
