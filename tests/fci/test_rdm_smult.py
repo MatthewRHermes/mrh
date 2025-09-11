@@ -52,9 +52,11 @@ def setUpModule ():
                  'dm1': 'dm',
                  'dm2': 'dm'}
 
-    scale_proc = {'phh': lambda x: x.sum (-4),
-                  'dm1': lambda x: x.sum (-3),
-                  'dm2': lambda x: x.sum (-5)}
+    scale_proc = {('phh',0): lambda x: x.sum (-4),
+                  ('phh',1): lambda x: x.sum (-4),
+                  ('dm1',0): lambda x: x.sum (-3),
+                  ('dm2',0): lambda x: x.sum (-5),
+                  ('hh',1): lambda x: x + x.T}
 
     dnelec = {'h': -1,
               'hh': -2,
@@ -105,6 +107,8 @@ def spin_loop (ks, dm, sublbls, smult_bra, smult_ket, norb, nelec):
         min_spin_ket = max (-smult_ket, -smult_bra-dspin_op)+1
         max_spin_ket = min (smult_ket, smult_bra-dspin_op)-1
         if min_spin_ket > max_spin_ket: continue
+        if dspin_op == 0:
+            assert (abs (min_spin_ket) == abs (max_spin_ket))
         spin_ket_range = range (min_spin_ket,max_spin_ket+1,2)
         dm_maker = make_dm[(dm,spin_op)]
         tdms = {spin_ket: make_tdms (dm_maker, ci_bra, dspin_op, ci_ket, norb, nelec, spin_ket)
@@ -132,7 +136,7 @@ def _spin_sum_dm2 (dm2):
             + dm2[...,2,:,:,:,:])
 
 def get_scale_fns (dm, smult_bra, spin_op, smult_ket):
-    proc = scale_proc.get (dm, lambda x:x)
+    proc = scale_proc.get ((dm,spin_op), lambda x:x)
     fn0 = 'scale_' + scale_map.get (dm, dm)
     fn0 = getattr (rdm_smult, fn0)
     if len (spin_op_cases[dm]) > 1:
@@ -243,7 +247,7 @@ class KnownValues(unittest.TestCase):
     def test_h (self):
         smult_loop (self, 'h')
 
-    @unittest.skip ('debugging')
+    #@unittest.skip ('debugging')
     def test_hh (self):
         smult_loop (self, 'hh')
 
