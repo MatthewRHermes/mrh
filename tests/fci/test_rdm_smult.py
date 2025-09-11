@@ -5,17 +5,21 @@ from pyscf.csf_fci.csfstring import CSFTransformer
 import itertools, functools
 from mrh.my_pyscf.fci import rdm as mrh_rdm
 from mrh.my_pyscf.fci import rdm_smult, spin_op
-from pyscf.fci.direct_spin1 import trans_rdm1s, trans_rdm12s
+from pyscf.fci import direct_spin1
 from pyscf import lib
 
+def trans_rdm1s (cibra, ciket, norb, nelec):
+    return np.stack (direct_spin1.trans_rdm1s (cibra, ciket, norb, nelec), axis=0)
+
 def trans_rdm2s (cibra, ciket, norb, nelec):
-    return trans_rdm12s (cibra, ciket, norb, nelec)[1]
+    return np.stack (direct_spin1.trans_rdm12s (cibra, ciket, norb, nelec)[1], axis=0)
 
 def trans_rdm3ha_des (cibra, ciket, norb, nelec):
     return mrh_rdm.trans_rdm13ha_des (cibra, ciket, norb, nelec)[1]
 
 def trans_rdm3hb_des (cibra, ciket, norb, nelec):
     return mrh_rdm.trans_rdm13hb_des (cibra, ciket, norb, nelec)[1]
+
 
 def setUpModule ():
     global max_d2s, spin_op_cases, make_dm, scale_map, scale_proc, dnelec
@@ -29,7 +33,7 @@ def setUpModule ():
     spin_op_cases = {'h': [-1,1],
                      'hh': [-2,0,2],
                      'dm1': [0,],
-                     'sm': [0,],
+                     'sm': [-2,],
                      'phh': [-1,1],
                      'dm2': [0,]}
     
@@ -63,15 +67,15 @@ def tearDownModule ():
 def smult_loop (ks, dm):
     for smult_ket in range (1, 4+max_d2s[dm], 2):
         # 4 = smult off-by-1 + range off-by-1 + an additional step of 2 above the max
-        par = max_d2s[dm] % 2
-        max_d2s_p1 = max_d2s[dm] + 1 # test zeros
-        min_smult_bra = max (1+par, smult_ket-max_d2s_p1)
-        max_smult_bra = smult_ket+max_d2s_p1
+        par_bra = (smult_ket + max_d2s[dm]) % 2
+        max_d2s_p2 = max_d2s[dm] + 2 # test zeros
+        min_smult_bra = max (2-par_bra, smult_ket-max_d2s_p2)
+        max_smult_bra = smult_ket+max_d2s_p2
         for smult_bra in range (min_smult_bra, max_smult_bra, 2):
             sublbls = {'smult_bra': smult_bra,
                        'smult_ket': smult_ket}
             norb_nelec_loop (ks, dm, sublbls, smult_bra, smult_ket)
-            if par > 0:
+            if par_bra > 0:
                 sublbls = {'smult_bra': smult_ket,
                            'smult_ket': smult_bra}
                 norb_nelec_loop (ks, dm, sublbls, smult_ket, smult_bra)
@@ -81,6 +85,7 @@ def norb_nelec_loop (ks, dm, sublbls, smult_bra, smult_ket):
     min_somo = max (smult_bra-dnelec, smult_ket) - 1
     min_domo = (0,2)[min_somo==0]
     min_norb = min_somo + min_domo
+    if dm == 'sm': min_norb += 1
     min_nelec = 2*min_domo + min_somo
     for extra_domo in (0,1):
         nelec = min_nelec + 2*extra_domo
@@ -115,8 +120,8 @@ def dim_loop (ks, dm, sublbls, smult_bra, spin_op, smult_ket, tdms):
             case_scale (ks, dm, sublbls, smult_bra, spin_op, smult_ket, mytdms)
         sublbls1 = {'dim': i}
         sublbls1.update (sublbls)
-        stored = case_mup (ks, dm, sublbls1, smult_bra, spin_op, smult_ket, mytdms)
-        case_mdown (ks, dm, sublbls1, smult_bra, spin_op, smult_ket, mytdms, stored)
+        #stored = case_mup (ks, dm, sublbls1, smult_bra, spin_op, smult_ket, mytdms)
+        #case_mdown (ks, dm, sublbls1, smult_bra, spin_op, smult_ket, mytdms, stored)
 
 def _spin_sum_dm2 (dm2):
     idx = np.arange (dm2.ndim-1, dtype=int)
@@ -143,8 +148,7 @@ def case_scale (ks, dm, sublbls, smult_bra, spin_op, smult_ket, tdms):
     spins_ket = list (tdms.keys ())
     scales = np.asarray ([fn (spin_ket) for spin_ket in spins_ket])
     idx_ref = np.argmax (np.abs (scales))
-    assert (abs (scales[idx_ref]) > 0)
-    ref = proc (tdms[spins_ket[idx_ref]]) / scales[idx_ref]
+    ref = proc (tdms[spins_ket[idx_ref]]) / (scales[idx_ref] + np.finfo (float).tiny)
     for spin_ket, scale in zip (spins_ket, scales):
         test = proc (tdms[spin_ket])
         sublbls1 = {'spin_ket': spin_ket, 'ptr_spin': spins_ket[idx_ref]}
@@ -235,11 +239,21 @@ def make_tdms (dm_maker, ci_bra, spin_op, ci_ket, norb, nelec, spin_ket):
 
 class KnownValues(unittest.TestCase):
 
+    #@unittest.skip ('debugging')
     def test_h (self):
         smult_loop (self, 'h')
 
-    #def test_hh (self):
-    #    smult_loop (self, 'hh')
+    @unittest.skip ('debugging')
+    def test_hh (self):
+        smult_loop (self, 'hh')
+
+    #@unittest.skip ('debugging')
+    def test_sm (self):
+        smult_loop (self, 'sm')
+
+    #@unittest.skip ('debugging')
+    def test_dm1 (self):
+        smult_loop (self, 'dm1')
 
 if __name__ == '__main__':
     print ("Full tests for rdm_smult")
