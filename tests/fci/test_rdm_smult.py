@@ -15,10 +15,10 @@ def trans_rdm2s (cibra, ciket, norb, nelec):
     return np.stack (direct_spin1.trans_rdm12s (cibra, ciket, norb, nelec)[1], axis=0)
 
 def trans_rdm3ha_des (cibra, ciket, norb, nelec):
-    return mrh_rdm.trans_rdm13ha_des (cibra, ciket, norb, nelec)[1]
+    return np.stack (mrh_rdm.trans_rdm13ha_des (cibra, ciket, norb, nelec)[1], axis=0)
 
 def trans_rdm3hb_des (cibra, ciket, norb, nelec):
-    return mrh_rdm.trans_rdm13hb_des (cibra, ciket, norb, nelec)[1]
+    return np.stack (mrh_rdm.trans_rdm13hb_des (cibra, ciket, norb, nelec)[1], axis=0)
 
 
 def setUpModule ():
@@ -81,7 +81,7 @@ def smult_loop (ks, dm):
                 norb_nelec_loop (ks, dm, sublbls, smult_ket, smult_bra)
 
 def norb_nelec_loop (ks, dm, sublbls, smult_bra, smult_ket):
-    dnelec = {'h': -1, 'hh': -2}.get (dm, 0)
+    dnelec = {'h': -1, 'hh': -2, 'phh': -1}.get (dm, 0)
     min_somo = max (smult_bra-dnelec, smult_ket) - 1
     min_domo = (0,2)[min_somo==0]
     min_norb = min_somo + min_domo
@@ -254,6 +254,10 @@ class KnownValues(unittest.TestCase):
     #@unittest.skip ('debugging')
     def test_dm1 (self):
         smult_loop (self, 'dm1')
+
+    #@unittest.skip ('debugging')
+    def test_phh (self):
+        smult_loop (self, 'phh')
 
 if __name__ == '__main__':
     print ("Full tests for rdm_smult")
