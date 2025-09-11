@@ -584,7 +584,7 @@ class TDMScaleArray (object):
         code = ''
         first_term = True
         for i, key in enumerate (keys):
-            myput, myget = transpose_eqns[key + (nops,)]
+            myget, myput = transpose_eqns[key + (nops,)]
             myput = '    ' + '\n    '.join (myput.python_code ().split ('\n'))
             myget = '    ' + '\n    '.join (myget.python_code ().split ('\n'))
             code += 'def ' + transpose_mup_header.format (idx=i) + '(dm_0, s, m):\n'

@@ -18,7 +18,7 @@ def trans_rdm3hb_des (cibra, ciket, norb, nelec):
     return mrh_rdm.trans_rdm13hb_des (cibra, ciket, norb, nelec)[1]
 
 def setUpModule ():
-    global max_d2s, spin_op_cases, make_dm, scale_map, scale_proc
+    global max_d2s, spin_op_cases, make_dm, scale_map, scale_proc, dnelec
     max_d2s = {'h': 1,
                'hh': 2,
                'dm1': 2,
@@ -52,9 +52,13 @@ def setUpModule ():
                   'dm1': lambda x: x.sum (-3),
                   'dm2': _spin_sum_dm2}
 
+    dnelec = {'h': -1,
+              'hh': -2,
+              'phh': -1}
+
 def tearDownModule ():
-    global max_d2s, spin_op_cases, make_dm, scale_map, scale_proc
-    del max_d2s, spin_op_cases, make_dm, scale_map, scale_proc
+    global max_d2s, spin_op_cases, make_dm, scale_map, scale_proc, dnelec
+    del max_d2s, spin_op_cases, make_dm, scale_map, scale_proc, dnelec
 
 def smult_loop (ks, dm):
     for smult_ket in range (1, 4+max_d2s[dm], 2):
@@ -88,11 +92,14 @@ def norb_nelec_loop (ks, dm, sublbls, smult_bra, smult_ket):
 
 
 def spin_loop (ks, dm, sublbls, smult_bra, smult_ket, norb, nelec):
-    ci_bra = get_civecs (norb, nelec, smult_bra)
-    ci_ket = get_civecs (norb, nelec, smult_ket)
+    nelec_ket = nelec
+    nelec_bra = nelec + dnelec.get (dm, 0)
+    ci_bra = get_civecs (norb, nelec_bra, smult_bra)
+    ci_ket = get_civecs (norb, nelec_ket, smult_ket)
     for spin_op, dspin_op in enumerate (spin_op_cases[dm]):
         min_spin_ket = max (-smult_ket, -smult_bra-dspin_op)+1
         max_spin_ket = min (smult_ket, smult_bra-dspin_op)-1
+        if min_spin_ket > max_spin_ket: continue
         spin_ket_range = range (min_spin_ket,max_spin_ket+1,2)
         dm_maker = make_dm[(dm,spin_op)]
         tdms = {spin_ket: make_tdms (dm_maker, ci_bra, dspin_op, ci_ket, norb, nelec, spin_ket)
@@ -159,12 +166,14 @@ def get_transpose_fn (dm, fn, smult_bra, spin_op, smult_ket):
 def case_mup (ks, dm, sublbls, smult_bra, spin_op, smult_ket, tdms):
     spins_ket = list (tdms.keys ())
     mup = get_transpose_fn (dm, 'mup', smult_bra, spin_op, smult_ket)
-    ref = mup (tdms[spins_ket[0]], spins_ket[0])
+    sublbls1 = {'spin_ket': spins_ket[0], 'ptr_spin': spins_ket[0]}
+    sublbls1.update (sublbls)
+    with ks.subTest ('up', **sublbls1):
+        ref = mup (tdms[spins_ket[0]], spins_ket[0])
     for spin_ket in spins_ket[1:]:
-        test = mup (tdms[spin_ket], spin_ket)
-        sublbls1 = {'spin_ket': spin_ket, 'ptr_spin': spins_ket[0]}
-        sublbls1.update (sublbls)
+        sublbls1['spin_ket'] = spin_ket
         with ks.subTest ('up', **sublbls1):
+            test = mup (tdms[spin_ket], spin_ket)
             ks.assertAlmostEqual (lib.fp (test), lib.fp (ref), 8)
     return ref
 
@@ -173,11 +182,10 @@ def case_mdown (ks, dm, sublbls, smult_bra, spin_op, smult_ket, tdms, stored):
     mdown = get_transpose_fn (dm, 'mdown', smult_bra, spin_op, smult_ket)
     for spin_ket in spins_ket:
         ref = tdms[spin_ket]
-        test = mdown (stored, spin_ket)
         sublbls1 = {'spin_ket': spin_ket}
         sublbls1.update (sublbls)
-        with ks.subTest ('down', dm=dm, smult_bra=smult_bra, spin_op=spin_op, smult_ket=smult_ket,
-                         spin_ket=spin_ket, dim=stored.shape):
+        with ks.subTest ('down', **sublbls1):
+            test = mdown (stored, spin_ket)
             ks.assertAlmostEqual (lib.fp (test), lib.fp (ref), 8)
     return ref
 
@@ -186,9 +194,13 @@ def get_civecs (norb, nelec, smult):
     assert (smult >= 1)
     assert (smult-1 <= 2*nelec)
     assert (2*norb >= nelec)
-    assert (nelec > 0)
+    assert (nelec >= 0)
     if (norb,nelec,smult) in civec_cache.keys ():
         return civec_cache[(norb,nelec,smult)]
+    if nelec == 0:
+        civecs = {0: np.zeros ((4,1,1), dtype=float)}
+        civec_cache[(norb,nelec,smult)] = civecs
+        return civecs
     spin = smult-1
     csfvec = None
     civecs = {}
@@ -225,6 +237,9 @@ class KnownValues(unittest.TestCase):
 
     def test_h (self):
         smult_loop (self, 'h')
+
+    #def test_hh (self):
+    #    smult_loop (self, 'hh')
 
 if __name__ == '__main__':
     print ("Full tests for rdm_smult")
