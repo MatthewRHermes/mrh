@@ -48,7 +48,7 @@ def contract_ano_basis (mol, contractions):
 
 def parse_basis_tbl (contr):
     ''' Read OpenMolcas's basis.tbl to get the meaning of strings like MB, VTZP, etc. '''
-    splitter = re.compile ('\.|\ ')
+    splitter = re.compile(r'\.|\ ')
     with open (os.path.join (os.path.dirname (__file__), 'basis.tbl'), 'r') as f:
         for line in f:
             if not 'ANO-RCC' in line:
@@ -64,7 +64,7 @@ BREAK_ELEMENT = {'VDZP': 'Fr',
 def ano_rcc_(level='MB'):
     ''' Read OpenMolcas's basis.tbl and build a complete PySCF basis dictionary
         for MB, VTZP, etc. '''
-    splitter = re.compile ('\.|\ ')
+    splitter = re.compile(r'\.|\ ')
     basis = {}
     break_element = BREAK_ELEMENT.get (level.upper ())
     with open (os.path.join (os.path.dirname (__file__), 'basis.tbl'), 'r') as f:
@@ -78,6 +78,52 @@ def ano_rcc_(level='MB'):
                 basis[cols[0]] = 'ano@' + cols[-2]
     return basis
                 
+def get_ano_rcc_basis (mol, basis='MB'):
+    '''
+    Wrapper function to get a complete PySCF basis dictionary for different ANO or
+    non-ANO basis sets for different elements.
 
+    args:
+        mol: pyscf.gto.mole object
+    basis: str or dict
+        If str, must be one of 'MB', 'VDZP', 'VTZP', 'VQZP'.
+        If dict, must be a valid PySCF basis dictionary.
+    returns:
+        dict: PySCF basis dictionary
+    '''
+    known_ctrs = ['VDZP', 'VTZP', 'VQZP']
+    fakemol = mol.copy ()
+
+    if not fakemol._built:
+        fakemol.basis = 'ano'
+        fakemol.build(0,0)
+
+    from pyscf.gto.mole import _parse_default_basis
+    if isinstance (basis, dict):
+        if 'default' in basis:
+            unique_atoms = {a[0] for a in fakemol._atom}
+            basis = _parse_default_basis (basis, unique_atoms)
+    elif isinstance (basis, str):
+        unique_atoms = {a[0] for a in fakemol._atom}
+        basis = _parse_default_basis (basis, unique_atoms)
+    else:
+        raise ValueError ('Basis must be a string or a dictionary')
+
+    baslst = {}
+    for atm, basis_ in basis.items():
+        if len(basis_) > 4:
+            anobasis_ = basis_[-4:].upper()
+            if anobasis_ in known_ctrs:
+                baslst[atm] = ano_rcc_(anobasis_)[atm]
+            elif anobasis_[-2:] == 'MB':
+                baslst[atm] = ano_rcc_(anobasis_[-2:])[atm]
+            else:
+                baslst[atm] = basis_
+        else:
+            try:
+                baslst[atm] = ano_rcc_(basis_)[atm]
+            except KeyError:
+                baslst[atm] = basis_
+    return baslst
 
 
