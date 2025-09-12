@@ -645,14 +645,30 @@ class TDMScaleArray (object):
         transpose_mdown_header = '_transpose_mdown_{dmname}_{{idx}}'.format (dmname=dmname)
         code = ''
         first_term = True
+        initialize = 'dm_1 = np.empty_like (dm_0)'
         for i, key in enumerate (keys):
             myget, myput = transpose_eqns[key + (nops,)]
+            cases = myget.get_abs_m_eq_s_cases ()
+            myget_cases = ''
+            first_case = True
+            for mval, case_eq in cases.items ():
+                case_lines = ['elif round (m,1) == round ({},1):'.format (sympy.pycode (mval)),]
+                if first_case: case_lines[0] = case_lines[0][2:]
+                first_case = False
+                case_lines.extend (case_eq.python_code ().split ('\n'))
+                myget_cases += '\n    '.join (case_lines) + '\n'
+            myget_maincase = myget.python_code ()
+            if not first_case:
+                myget_maincase = 'else:\n    ' + '\n    '.join (myget_maincase.split ('\n'))
+            myget = myget_cases + myget_maincase
+            myget = '    ' + '\n    '.join ((myget).split ('\n'))
             myput = '    ' + '\n    '.join (myput.python_code ().split ('\n'))
-            myget = '    ' + '\n    '.join (myget.python_code ().split ('\n'))
             code += 'def ' + transpose_mup_header.format (idx=i) + '(dm_0, s, m):\n'
+            code += '    ' + initialize + '\n'
             code += myput + '\n'
             code += '    return dm_1\n'
             code += 'def ' + transpose_mdown_header.format (idx=i) + '(dm_0, s, m):\n'
+            code += '    ' + initialize + '\n'
             code += myget + '\n'
             code += '    return dm_1\n'
             if not first_term:
