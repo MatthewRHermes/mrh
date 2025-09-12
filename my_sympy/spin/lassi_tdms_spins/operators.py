@@ -513,18 +513,27 @@ class CrAnOperator (CrVector):
                                indices=new_indices)
         return factor, new_op
 
-    def normal_order_labels (self):
+    def normal_order_labels (self, spin_priority=True, keep_particles_together=False):
         new_indices = [i for i in self.get_indices ()]
         factor = 1
-        if ((len (self.crops) == 2) and (self.crops[0]==self.crops[1]) and
-            (new_indices[0] > new_indices[1])):
-                new_indices[:2] = new_indices[:2][::-1]
-                factor *= -1
-        if ((len (self.anops) == 2) and (self.anops[0]==self.anops[1]) and
-            (new_indices[-2] > new_indices[-1])):
-                new_indices[-2:] = new_indices[-2:][::-1]
-                factor *= -1
-        new_op = CrAnOperator (self.s_bra, self.crops, self.anops, self.s_ket, self.m_ket,
+        cond_cr = new_indices[0] > new_indices[1]
+        cond_an = new_indices[-2] > new_indices[-1]
+        if spin_priority: # absolutely preserve spin order
+            cond_cr = (self.crops[0]==self.crops[1]) and cond_cr
+            cond_an = (self.anops[0]==self.anops[1]) and cond_an
+        if keep_particles_together:
+            cond_an = cond_cr
+        new_crops = [c for c in self.crops]
+        new_anops = [a for a in self.anops]
+        if (len (self.crops) == 2) and cond_cr:
+            new_indices[:2] = new_indices[:2][::-1]
+            new_crops[:2] = new_crops[:2][::-1]
+            factor *= -1
+        if (len (self.anops) == 2) and cond_an:
+            new_indices[-2:] = new_indices[-2:][::-1]
+            new_anops[:2] = new_anops[:2][::-1]
+            factor *= -1
+        new_op = CrAnOperator (self.s_bra, new_crops, new_anops, self.s_ket, self.m_ket,
                                indices=new_indices)
         return factor, new_op
 

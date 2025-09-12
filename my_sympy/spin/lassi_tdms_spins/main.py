@@ -245,9 +245,9 @@ def invert_transpose_eqns (scale):
             if len (my_transpose_eqns) > 0:
                 transpose_eqns[lbl] = my_transpose_eqns
                 pbar.update (len (my_transpose_eqns))
-    return dm2_mulliken_order (transpose_eqns)
+    return dm2_hacks (transpose_eqns)
 
-def dm2_mulliken_order (transpose_eqns):
+def dm2_hacks (transpose_eqns):
     mulliken = {'p': 'p',
                 'q': 'r',
                 'r': 's',
@@ -255,7 +255,13 @@ def dm2_mulliken_order (transpose_eqns):
     for key, (forward, reverse) in transpose_eqns['dm'].items ():
         if key[2] == 4:
             forward.subs_labels_(mulliken)
+            forward.insert_transpose_(1,2,(1,0,3,2))
+            forward.normal_order_labels_(spin_priority=False,
+                                         keep_particles_together=True)
             reverse.subs_labels_(mulliken)
+            reverse.insert_transpose_(1,2,(1,0,3,2))
+            reverse.normal_order_labels_(spin_priority=False,
+                                         keep_particles_together=True)
     return transpose_eqns
 
 if __name__=='__main__':

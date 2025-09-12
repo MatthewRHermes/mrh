@@ -10,15 +10,14 @@ from mrh.my_sympy.spin.lassi_tdms_spins.glob import *
 from mrh.my_sympy.spin.lassi_tdms_spins.operators import CrVector, AnVector, CrAnOperator, OpSum
 
 class TDMExpression (object):
-    def __init__(self, lhs, rhs_coeffs, rhs_terms):
-        fl, lhs = lhs.normal_order ()
-        nl = 1
+    def __init__(self, lhs, rhs_coeffs, rhs_terms, do_normal_order=True):
+        fl, lhs = lhs.normal_order () if do_normal_order else (1,lhs)
         self.lhs = lhs
         self.rhs_coeffs = []
         self.rhs_terms = []
         for c, t in zip (rhs_coeffs, rhs_terms):
             if c == S(0): continue
-            fr, tno = t.normal_order ()
+            fr, tno = t.normal_order () if do_normal_order else (1,t)
             self.rhs_coeffs.append (fl * fr * c)
             self.rhs_terms.append (tno)
 
@@ -27,20 +26,28 @@ class TDMExpression (object):
         for rhs_term in self.rhs_terms:
             rhs_term.subs_labels_(lbl_dict)
 
-    def normal_order_labels (self):
-        fl, lhs = self.lhs.normal_order_labels ()
+    def normal_order_labels (self, **kwargs):
+        do_normal_order=True
+        if not kwargs.get ('spin_priority', True):
+            do_normal_order=False
+        fl, lhs = self.lhs.normal_order_labels (**kwargs)
         rhs_coeffs, rhs_terms = [], []
         for c, t in zip (self.rhs_coeffs, self.rhs_terms):
-            fr, tno = t.normal_order_labels ()
+            fr, tno = t.normal_order_labels (**kwargs)
             rhs_coeffs.append (fl * fr * c)
             rhs_terms.append (tno)
-        return TDMExpression (lhs, rhs_coeffs, rhs_terms)
+        new_expr = TDMExpression (lhs, rhs_coeffs, rhs_terms,
+                                  do_normal_order=do_normal_order)
+        assert (lhs == new_expr.lhs)
+        if not do_normal_order:
+            print (self.lhs, lhs, new_expr.lhs)
+        return new_expr
 
-    def transpose (self, idx):
+    def transpose (self, idx, **kwargs):
         new_lhs = self.lhs.transpose (idx)
         new_terms = [t.transpose (idx) for t in self.rhs_terms]
         new_expr = TDMExpression (new_lhs, self.rhs_coeffs, new_terms)
-        return new_expr.normal_order_labels ()
+        return new_expr.normal_order_labels (**kwargs)
 
     def __str__(self):
         my_solution = str (self.lhs) + ' = \n   '
@@ -217,6 +224,20 @@ class TDMSystem (object):
                 new_row = [el.simplify () for el in new_A.row (i)]
                 new_exprs.append (TDMExpression (lhs, new_row, cols))
             self._init_from_exprs (new_exprs)
+
+    def normal_order_labels (self, **kwargs):
+        new_exprs = [expr.normal_order_labels (**kwargs) for expr in self.exprs]
+        return TDMSystem (new_exprs, _try_inverse=False)
+
+    def normal_order_labels_(self, **kwargs):
+        self.exprs = [expr.normal_order_labels (**kwargs) for expr in self.exprs]
+        self._init_from_exprs (self.exprs)
+        return self
+
+    def insert_transpose_(self, src, pos, idx, **kwargs):
+        new_expr = self.exprs[src].transpose (idx, **kwargs)
+        self.exprs.insert (pos, new_expr)
+        self._init_from_exprs (self.exprs)
 
     def get_abs_m_eq_s_cases (self):
         lhs_m_ket = self.rows[0].m_ket
