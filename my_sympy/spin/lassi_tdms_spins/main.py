@@ -283,10 +283,11 @@ if __name__=='__main__':
             for key, (read_eq, write_eq) in my_transpose_eqns.items ():
                 print ("Read " + str(key) + ":")
                 print (read_eq)
-                print (read_eq.find_singularities ())
+                for key, val in read_eq.get_abs_m_eq_s_cases ().items ():
+                    print ("Read special case m = " + str (key) + ":")
+                    print (val)
                 print ("Write " + str(key) + ":")
                 print (write_eq)
-                print (write_eq.find_singularities ())
                 f.write ('{}, {} read:\n'.format (lbl_latex, key))
                 f.write (read_eq.latex () + '\n\n')
                 f.write ('{}, {} write:\n'.format (lbl_latex, key))

@@ -218,6 +218,16 @@ class TDMSystem (object):
                 new_exprs.append (TDMExpression (lhs, new_row, cols))
             self._init_from_exprs (new_exprs)
 
+    def get_abs_m_eq_s_cases (self):
+        lhs_m_ket = self.rows[0].m_ket
+        rhs_m_ket = self.cols[0].m_ket
+        m_val = sympy.solve (lhs_m_ket-rhs_m_ket, m)[0]
+        cases = {}
+        cases[m_val] = self.subs_m (m_val).simplify_()
+        if self.rows[0].has_mirror_sym ():
+            cases[-m_val] = self.subs_m(-m_val).simplify_()
+        return cases
+
     def subs_labels_(self, lbl_dict):
         for expr in self.exprs:
             expr.subs_labels_(lbl_dict)
