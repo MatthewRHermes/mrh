@@ -176,6 +176,27 @@ class TDMExpression (object):
         code += ')'
         return code
 
+    def find_singularities (self):
+        roots = {s: set (),
+                 m: set ()}
+        for coeff in self.rhs_coeffs:
+            numer, denom = coeff.as_numer_denom ()
+            free = denom.free_symbols
+            rooteq = sympy.Eq (denom, 0)
+            if len (free) == 0:
+                continue
+            elif len (free) == 1:
+                x = free.pop ()
+                if Poly (denom).is_monomial:
+                    roots[x].add (0)
+                else:
+                    roots[x] = roots[x].union (set (sympy.solveset (rooteq, x)))
+            elif len (free) == 2:
+                roots[m] = roots[m].union (set (sympy.solveset (rooteq, m)))
+            else:
+                raise RuntimeError ("third variable out of nowhere?")
+        return roots
+
 def combine_TDMSystem (systems):
     exprs = [system.exprs for system in systems]
     exprs = list (itertools.chain.from_iterable (exprs))
@@ -292,7 +313,7 @@ class TDMSystem (object):
         except Exception as err:
             # Try Moore-Penrose left pseudoinverse
             A = self.get_A ()
-            AHA = A.H * A
+            AHA = A.T * A
             try:
                 Ainv = AHA.inv ()
             except Exception as err:
@@ -346,6 +367,16 @@ class TDMSystem (object):
     def python_code (self):
         scores = [row.get_sort_score () for row in self.rows]
         return '\n'.join ([expr.python_code (scores) for expr in self.exprs])
+
+    def find_singularities (self):
+        roots = {s: set(),
+                 m: set()}
+        for expr in self.exprs:
+            new_roots = expr.find_singularities ()
+            roots[s].update (new_roots[s])
+            roots[m].update (new_roots[m])
+        roots = {key: val for key, val in roots.items () if len (val)>0}
+        return roots
 
 mup_fn_head = '''def mup_{{dmname}} (dm_0, smult_bra, {cond_spin_op}smult_ket, spin_ket):
     dm_1 = dm_0 / scale_{{scalename}} (smult_bra, {cond_spin_op}smult_ket, spin_ket)
