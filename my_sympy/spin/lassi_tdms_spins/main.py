@@ -289,8 +289,8 @@ if __name__=='__main__':
             for key, (read_eq, write_eq) in my_transpose_eqns.items ():
                 print ("Read " + str(key) + ":")
                 print (read_eq)
-                for key, val in read_eq.get_abs_m_eq_s_cases ().items ():
-                    print ("Read special case m = " + str (key) + ":")
+                for key2, val in read_eq.get_abs_m_eq_s_cases ().items ():
+                    print ("Read special case m = " + str (key2) + ":")
                     print (val)
                 print ("Write " + str(key) + ":")
                 print (write_eq)

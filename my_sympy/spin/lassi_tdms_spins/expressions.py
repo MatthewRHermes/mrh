@@ -85,13 +85,13 @@ class TDMExpression (object):
         new_lhs = self.lhs.subs_m (new_m)
         new_terms = [t.subs_m (new_m) for t in self.rhs_terms]
         new_coeffs = [c.subs (m, new_m) for c in self.rhs_coeffs]
-        return TDMExpression (new_lhs, new_coeffs, new_terms)
+        return TDMExpression (new_lhs, new_coeffs, new_terms, do_normal_order=False)
 
     def subs_s (self, new_s):
         new_lhs = self.lhs.subs_s (new_s)
         new_terms = [t.subs_s (new_s) for t in self.rhs_terms]
         new_coeffs = [c.subs (s, new_s) for c in self.rhs_coeffs]
-        return TDMExpression (new_lhs, new_coeffs, new_terms)
+        return TDMExpression (new_lhs, new_coeffs, new_terms, do_normal_order=False)
 
     def subs_sket_to_s (self):
         new_s = (2*s) - self.lhs.get_s_ket ()
