@@ -33,8 +33,8 @@ mf.with_df.auxbasis = pyscf.df.make_auxbasis(mol)
 mf.max_cycle=1
 mf.kernel()
 
-norb = 8
-nelec = 6
+norb = 11
+nelec = 15
 def run_test(norb, nelec):
     nelec_ket = _unpack_nelec(nelec)
     nelec_bra = list(_unpack_nelec(nelec))
@@ -44,12 +44,8 @@ def run_test(norb, nelec):
     nb_bra = math.comb(norb, nelec_bra[1])
     na_ket = math.comb(norb, nelec_ket[0])
     nb_ket = math.comb(norb, nelec_ket[1])
-    #cibra = np.arange(na_bra*nb_bra).reshape(na_bra, nb_bra)+0.5
-    #ciket = np.arange(na_ket*nb_ket).reshape(na_ket, nb_ket)+4.5
-    #print('cibra')
-    #print(cibra)
-    #print('ciket')
-    #print(ciket)
+    #cibra = np.arange(na_bra*nb_bra).reshape(na_bra, nb_bra)+1.0
+    #ciket = np.arange(na_ket*nb_ket).reshape(na_ket, nb_ket)-1.0
     cibra = np.random.random((na_bra, nb_bra))
     ciket = np.random.random((na_ket, nb_ket))
     trans_sfudm1 (cibra, ciket, norb, nelec) 

@@ -128,8 +128,8 @@ def _make_rdm12_spin1(fname, cibra, ciket, norb, nelec, link_index=None, symm=0)
        gpu=param.use_gpu
     else: 
        use_gpu = None
-       print('RDM12_spin1', fname, 'not currently offloaded')
     assert (cibra is not None and ciket is not None)
+    print(fname, param.use_gpu)
     cibra = numpy.asarray(cibra, order='C')
     ciket = numpy.asarray(ciket, order='C')
     if link_index is None:
