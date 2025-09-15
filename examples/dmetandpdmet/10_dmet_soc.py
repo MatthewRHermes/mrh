@@ -9,6 +9,12 @@ SOC interactions with-in DMET Framework at QDPT level using BP or DK Hamiltonian
 One can use this with following methods CAS, MC-PDFT, NEVPT2, and L-PDFT.
 '''
 
+'''
+Currently, the SOC is hosted on my local fork of pyscf-forge:
+https://github.com/JangidBhavnesh/pyscf-forge/tree/qdptsoclpdft
+In future, I will try to push this to main pyscf-forge repo.
+'''
+
 np.set_printoptions(precision=4)
 
 mol = gto.Mole(spin=1, charge=0, verbose=4, max_memory=100000)
