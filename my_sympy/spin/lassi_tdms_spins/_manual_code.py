@@ -7,7 +7,7 @@ def _get_highm_civecs (cibra, ciket, norb, nelec, dnelec, smult_bra, smult_ket):
     nelec_ket = nelec
     nelec_bra = (nelec[0]+dnelec[0], nelec[1]+dnelec[1])
     cibra = spin_op.mup (cibra, norb, nelec_bra, smult_bra)
-    ciket = spin_op.mup (cibra, norb, nelec_ket, smult_ket)
+    ciket = spin_op.mup (ciket, norb, nelec_ket, smult_ket)
     nelec_bra = sum (nelec_bra)
     nelec_ket = sum (nelec_ket)
     dspin_op = dnelec[0]-dnelec[1]

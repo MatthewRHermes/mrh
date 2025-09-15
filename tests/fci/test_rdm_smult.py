@@ -107,20 +107,25 @@ def spin_loop (ks, dm, sublbls, smult_bra, smult_ket, norb, nelec):
             assert (abs (min_spin_ket) == abs (max_spin_ket))
         spin_ket_range = range (min_spin_ket,max_spin_ket+1,2)
         dm_maker = make_dm[(dm,spin_op)]
-        tdms = {spin_ket: make_tdms (dm_maker, ci_bra, dspin_op, ci_ket, norb, nelec, spin_ket)
+        tdms = {spin_ket: make_tdms (dm, dm_maker, ci_bra, spin_op, ci_ket, norb, nelec,
+                                     spin_ket, None, None)
                 for spin_ket in spin_ket_range}
+        tdms_highm = {spin_ket: make_tdms (dm, dm_maker, ci_bra, spin_op, ci_ket, norb, nelec,
+                                           spin_ket, smult_bra, smult_ket)
+                      for spin_ket in spin_ket_range}
         sublbls1 = {'spin_op': spin_op}
         sublbls1.update (sublbls)
-        dim_loop (ks, dm, sublbls1, smult_bra, spin_op, smult_ket, tdms)
+        dim_loop (ks, dm, sublbls1, smult_bra, spin_op, smult_ket, tdms, tdms_highm)
 
-def dim_loop (ks, dm, sublbls, smult_bra, spin_op, smult_ket, tdms):
+def dim_loop (ks, dm, sublbls, smult_bra, spin_op, smult_ket, tdms, tdms_highm):
     for i in range (3):
         mytdms = {key: val[i] for key, val in tdms.items ()}
+        mytdms_highm = {key: val[i] for key, val in tdms_highm.items ()}
         if i==0:
             case_scale (ks, dm, sublbls, smult_bra, spin_op, smult_ket, mytdms)
         sublbls1 = {'dim': i}
         sublbls1.update (sublbls)
-        stored = case_mup (ks, dm, sublbls1, smult_bra, spin_op, smult_ket, mytdms)
+        stored = case_mup (ks, dm, sublbls1, smult_bra, spin_op, smult_ket, mytdms_highm)
         case_mdown (ks, dm, sublbls1, smult_bra, spin_op, smult_ket, mytdms, stored)
         #break
 
@@ -170,18 +175,14 @@ def get_transpose_fn (dm, fn, smult_bra, spin_op, smult_ket):
 
 def case_mup (ks, dm, sublbls, smult_bra, spin_op, smult_ket, tdms):
     spins_ket = list (tdms.keys ())
-    spin_ket = np.amax (spins_ket)
-    return tdms[spin_ket]
-    mup = get_transpose_fn (dm, 'mup', smult_bra, spin_op, smult_ket)
-    sublbls1 = {'spin_ket': spins_ket[0], 'ptr_spin': spins_ket[0]}
-    sublbls1.update (sublbls)
-    with ks.subTest ('up', **sublbls1):
-        ref = mup (tdms[spins_ket[0]], spins_ket[0])
+    ref = tdms[spins_ket[0]]
     for spin_ket in spins_ket[1:]:
-        sublbls1['spin_ket'] = spin_ket
-        with ks.subTest ('up', **sublbls1):
-            test = mup (tdms[spin_ket], spin_ket)
+        test = tdms[spin_ket]
+        sublbls1 = {'spin_ket': spin_ket}
+        sublbls1.update (sublbls)
+        with ks.subTest ('mup', **sublbls1):
             ks.assertAlmostEqual (lib.fp (test), lib.fp (ref), 8)
+    spin_ket = np.amax (spins_ket)
     return ref
 
 def case_mdown (ks, dm, sublbls, smult_bra, spin_op, smult_ket, tdms, stored):
@@ -226,12 +227,10 @@ def get_civecs (norb, nelec, smult):
     civec_cache[(norb,nelec,smult)] = civecs
     return civecs
 
-def make_tdms (dm_maker, ci_bra, spin_op, ci_ket, norb, nelec, spin_ket):
-    neleca = (nelec + spin_ket) // 2
-    nelecb = (nelec - spin_ket) // 2
-    nelec = (neleca,nelecb)
-    spin_bra = spin_ket + spin_op
-    tdm_list = [dm_maker (ci_bra[spin_bra][i], ci_ket[spin_ket][i], norb, nelec)
+def make_tdms (dm, dm_maker, ci_bra, spin_op, ci_ket, norb, nelec, spin_ket, smult_bra, smult_ket):
+    ci_bra, ci_ket, nelec = _get_cibra_ciket_nelec (dm, ci_bra, spin_op, ci_ket, norb, nelec,
+                                                    spin_ket, smult_bra, smult_ket)
+    tdm_list = [dm_maker (ci_bra[i], ci_ket[i], norb, nelec)
                 for i in range (4)]
     tdm_shape = tdm_list[0].shape
     third_shape = (2,2) + tdm_shape
@@ -239,6 +238,19 @@ def make_tdms (dm_maker, ci_bra, spin_op, ci_ket, norb, nelec, spin_ket):
             np.stack (tdm_list[:2], axis=0),
             np.stack (tdm_list, axis=0).reshape (*third_shape)]
     return tdms
+
+def _get_cibra_ciket_nelec (dm, ci_bra, spin_op, ci_ket, norb, nelec, spin_ket, smult_bra, smult_ket):
+    neleca = (nelec + spin_ket) // 2
+    nelecb = (nelec - spin_ket) // 2
+    nelec = (neleca,nelecb)
+    spin_bra = spin_ket + spin_op_cases[dm][spin_op]
+    ci_bra = ci_bra[spin_bra]
+    ci_ket = ci_ket[spin_ket]
+    fn = getattr (rdm_smult, 'get_highm_civecs_{}'.format (scale_map.get (dm, dm)))
+    if len (spin_op_cases[dm]) > 1:
+        return fn (ci_bra, ci_ket, norb, nelec, spin_op, smult_bra=smult_bra, smult_ket=smult_ket)
+    else:
+        return fn (ci_bra, ci_ket, norb, nelec, smult_bra=smult_bra, smult_ket=smult_ket)
 
 class KnownValues(unittest.TestCase):
 
