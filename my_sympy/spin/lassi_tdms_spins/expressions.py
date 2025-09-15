@@ -581,6 +581,23 @@ class TDMScaleArray (object):
     def count_transpose_eqns (self):
         return self.get_transpose_eqns (_count_only=True)
 
+    def get_highm_civecs_code (self):
+        fname = os.path.join (topdir, '_get_highm_civecs_fmt.py')
+        with open (fname, 'r') as f:
+            fmt = f.read ()
+        dneleca = tuple ((idx[0] for idx in self.col_indices))
+        dnelecb = tuple ((idx[1] for idx in self.col_indices))
+        if self.shape[1] > 1:
+            dneleca = str (dneleca) + '[spin_op]'
+            dnelecb = str (dnelecb) + '[spin_op]'
+            spinop = 'spin_op, '
+        else:
+            dneleca = str (dneleca[0])
+            dnelecb = str (dnelecb[0])
+            spinop = ''        
+        return fmt.format (dmname=self.name, spinop=spinop, dneleca=dneleca, dnelecb=dnelecb)
+
+
     def get_scale_code (self):
         fn_name = 'scale_' + self.name
         code = '_' + fn_name + ' = [\n'

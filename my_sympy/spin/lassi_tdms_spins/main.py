@@ -272,7 +272,7 @@ def dm2_hacks (transpose_eqns):
     return transpose_eqns
 
 if __name__=='__main__':
-    import os, sys
+    import sys
     eqn_dict = get_eqn_dict ()
     #inv_eqn_dict = invert_eqn_dict (eqn_dict)
     eqn_dict = standardize_m_s (eqn_dict)
@@ -281,6 +281,7 @@ if __name__=='__main__':
     fbase = os.path.splitext (os.path.basename (__file__))[0]
     fname_tex = fbase + '.tex'
     fname_py = fbase + '.generated.py'
+    fname_manual_py = os.path.join (topdir, '_manual_code.py')
     with open (fname_tex, 'w') as f:
         f.write (latex_header)
         f.write ('\\section{TDM scaling constants}\n\n')
@@ -306,9 +307,12 @@ if __name__=='__main__':
                 f.write ('{}, {} write:\n'.format (lbl_latex, key))
                 f.write (write_eq.latex () + '\n\n')
         f.write ('\n\n\\end{document}')
+    with open (fname_manual_py, 'r') as f:
+        manual_code = f.read ()
     with open (fname_py, 'w') as f:
-        f.write ('import numpy as np\n\n')
+        f.write (manual_code)
         for scalearray in scale.values ():
+            f.write (scalearray.get_highm_civecs_code ())
             f.write (scalearray.get_scale_code ())
         f.write (scale['h'].get_mupmdown_code (1, 'h', transpose_eqns=transpose_eqns['h']))
         f.write (scale['h'].get_mupmdown_code (3, 'phh', transpose_eqns=transpose_eqns['h']))

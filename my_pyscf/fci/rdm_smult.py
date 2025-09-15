@@ -1,4 +1,28 @@
 import numpy as np
+from mrh.my_pyscf.fci import spin_op
+
+def _get_highm_civecs (cibra, ciket, norb, nelec, dnelec, smult_bra, smult_ket):
+    if smult_bra is None or smult_ket is None:
+        return cibra, ciket, nelec
+    nelec_ket = nelec
+    nelec_bra = (nelec[0]+dnelec[0], nelec[1]+dnelec[1])
+    cibra = spin_op.mup (cibra, norb, nelec_bra, smult_bra)
+    ciket = spin_op.mup (cibra, norb, nelec_ket, smult_ket)
+    nelec_bra = sum (nelec_bra)
+    nelec_ket = sum (nelec_ket)
+    dspin_op = dnelec[0]-dnelec[1]
+    spin_ket = min (smult_ket-1, smult_bra-1-dspin_op)
+    spin_bra = spin_ket + dspin_op
+    nelec_bra = ((nelec_bra + spin_bra)//2, (nelec_bra-spin_bra)//2)
+    nelec_ket = ((nelec_ket + spin_ket)//2, (nelec_ket-spin_ket)//2)
+    cibra = spin_op.mdown (cibra, norb, nelec_bra, smult_bra)
+    ciket = spin_op.mdown (ciket, norb, nelec_ket, smult_ket)
+    return cibra, ciket, nelec_ket
+
+def get_highm_civecs_h (cibra, ciket, norb, nelec, spin_op, smult_bra=None, smult_ket=None):
+    dneleca = (-1, 0)[spin_op]
+    dnelecb = (0, -1)[spin_op]
+    return _get_highm_civecs (cibra, ciket, norb, nelec, dnelec, smult_bra, smult_ket)
 
 _scale_h = [
     [lambda s,m: ((1/2)*np.sqrt(2)*np.sqrt(-m + s)*np.sqrt(m + s)*np.sqrt(m + s - 1)/(np.sqrt(s - 1)*np.sqrt(2*s - 1))),
@@ -17,6 +41,11 @@ def scale_h (smult_bra, spin_op, smult_ket, spin_ket):
     s = (smult_ket-1)/2
     m = spin_ket/2
     return _scale_h[d2s_idx][spin_op] (s, m)
+
+def get_highm_civecs_hh (cibra, ciket, norb, nelec, spin_op, smult_bra=None, smult_ket=None):
+    dneleca = (-2, -1, 0)[spin_op]
+    dnelecb = (0, -1, -2)[spin_op]
+    return _get_highm_civecs (cibra, ciket, norb, nelec, dnelec, smult_bra, smult_ket)
 
 _scale_hh = [
     [lambda s,m: ((1/2)*np.sqrt(2)*np.sqrt((m + s - 1)/(2*s - 1))*np.sqrt(m + s)/np.sqrt(s)),
@@ -37,6 +66,11 @@ def scale_hh (smult_bra, spin_op, smult_ket, spin_ket):
     m = spin_ket/2
     return _scale_hh[d2s_idx][spin_op] (s, m)
 
+def get_highm_civecs_sm (cibra, ciket, norb, nelec, smult_bra=None, smult_ket=None):
+    dneleca = -1
+    dnelecb = 1
+    return _get_highm_civecs (cibra, ciket, norb, nelec, dnelec, smult_bra, smult_ket)
+
 _scale_sm = [
     lambda s,m: ((1/2)*np.sqrt(2)*np.sqrt(m + s)*np.sqrt(m + s - 1)/(np.sqrt(s)*np.sqrt(2*s - 1))),
     lambda s,m: ((1/2)*np.sqrt(2)*np.sqrt(m + s)*np.sqrt(-m + s + 1)/np.sqrt(s)),
@@ -49,6 +83,11 @@ def scale_sm (smult_bra, smult_ket, spin_ket):
     s = (smult_ket-1)/2
     m = spin_ket/2
     return _scale_sm[d2s_idx] (s, m)
+
+def get_highm_civecs_dm (cibra, ciket, norb, nelec, smult_bra=None, smult_ket=None):
+    dneleca = 0
+    dnelecb = 0
+    return _get_highm_civecs (cibra, ciket, norb, nelec, dnelec, smult_bra, smult_ket)
 
 _scale_dm = [
     lambda s,m: ((1/2)*np.sqrt(-m + s)*np.sqrt(m + s)*np.sqrt(-m + s - 1)*np.sqrt(m + s - 1)/np.sqrt(2*s**2 - 5*s + 3)),
@@ -129,12 +168,12 @@ def _transpose_mdown_phh_1(dm_0, s, m):
         dm_1[:,0] = ((1) * dm_0[:,0])
         dm_1[:,1] = ((1) * dm_0[:,1])
     else:
-        dm_1[:,0] = (((1/2)*(-m + s - 1)/(2*s - 1)) * dm_0[:,0].transpose (0,3,2,1)
+        dm_1[:,0] = (((1/2)*(-m + s - 1)/(2*s - 1)) * dm_0[:,1]
                      + ((1/2)*(m + 3*s - 1)/(2*s - 1)) * dm_0[:,0]
-                     + ((1/2)*(-m + s - 1)/(2*s - 1)) * dm_0[:,1])
-        dm_1[:,1] = (((1/2)*(m - s + 1)/(2*s - 1)) * dm_0[:,0].transpose (0,3,2,1)
+                     + ((1/2)*(-m + s - 1)/(2*s - 1)) * dm_0[:,0].transpose (0,3,2,1))
+        dm_1[:,1] = (((1/2)*(m + 3*s - 1)/(2*s - 1)) * dm_0[:,1]
                      + ((1/2)*(-m + s - 1)/(2*s - 1)) * dm_0[:,0]
-                     + ((1/2)*(m + 3*s - 1)/(2*s - 1)) * dm_0[:,1])
+                     + ((1/2)*(m - s + 1)/(2*s - 1)) * dm_0[:,0].transpose (0,3,2,1))
     return dm_1
 def _transpose_mup_phh_2(dm_0, s, m):
     dm_1 = np.empty_like (dm_0)
@@ -151,11 +190,11 @@ def _transpose_mdown_phh_2(dm_0, s, m):
         dm_1[:,0] = ((1) * dm_0[:,0])
         dm_1[:,1] = ((1) * dm_0[:,1])
     else:
-        dm_1[:,0] = (((1/4)*(m - s)/s) * dm_0[:,1].transpose (0,3,2,1)
-                     + ((1/4)*(-m + s)/s) * dm_0[:,1]
+        dm_1[:,0] = (((1/4)*(-m + s)/s) * dm_0[:,1]
+                     + ((1/4)*(m - s)/s) * dm_0[:,1].transpose (0,3,2,1)
                      + ((1/4)*(m + 3*s)/s) * dm_0[:,0])
-        dm_1[:,1] = (((1/4)*(-m + s)/s) * dm_0[:,1].transpose (0,3,2,1)
-                     + ((1/4)*(m + 3*s)/s) * dm_0[:,1]
+        dm_1[:,1] = (((1/4)*(m + 3*s)/s) * dm_0[:,1]
+                     + ((1/4)*(-m + s)/s) * dm_0[:,1].transpose (0,3,2,1)
                      + ((1/4)*(-m + s)/s) * dm_0[:,0])
     return dm_1
 def _transpose_mup_phh_3(dm_0, s, m):
@@ -215,16 +254,16 @@ def mdown_phh (dm_0, smult_bra, spin_op, smult_ket, spin_ket):
 
 def _transpose_mup_hh_0(dm_0, s, m):
     dm_1 = np.empty_like (dm_0)
-    dm_1[:] = (((1/2)*(m - s)/m) * dm_0[:].transpose (0,2,1)
-               + ((1/2)*(m + s)/m) * dm_0[:])
+    dm_1[:] = (((1/2)*(m + s)/m) * dm_0[:]
+               + ((1/2)*(m - s)/m) * dm_0[:].transpose (0,2,1))
     return dm_1
 def _transpose_mdown_hh_0(dm_0, s, m):
     dm_1 = np.empty_like (dm_0)
     if round (m,1) == round (s,1):
         dm_1[:] = ((1) * dm_0[:])
     else:
-        dm_1[:] = (((1/2)*(-m + s)/s) * dm_0[:].transpose (0,2,1)
-                   + ((1/2)*(m + s)/s) * dm_0[:])
+        dm_1[:] = (((1/2)*(m + s)/s) * dm_0[:]
+                   + ((1/2)*(-m + s)/s) * dm_0[:].transpose (0,2,1))
     return dm_1
 _transpose_mup_hh = {(0, 1): _transpose_mup_hh_0}
 _transpose_mdown_hh = {(0, 1): _transpose_mdown_hh_0}
@@ -409,30 +448,30 @@ def _transpose_mdown_dm2_1(dm_0, s, m):
         dm_1[:,2] = ((1) * dm_0[:,1])
         dm_1[:,3] = ((1) * dm_0[:,0])
     else:
-        dm_1[:,0] = (((1/2)*(-m**2 + s**2)/(s*(2*s - 1))) * dm_0[:,2]
+        dm_1[:,0] = (((1/2)*(m**2 - s**2)/(s*(2*s - 1))) * dm_0[:,2].transpose (0,1,4,3,2)
                      + ((1/2)*(m**2 - 2*m*s + m + s**2 - s)/(s*(2*s - 1))) * dm_0[:,3]
-                     + ((1/2)*(m**2 - s**2)/(s*(2*s - 1))) * dm_0[:,1].transpose (0,1,4,3,2)
-                     + ((1/2)*(m**2 - s**2)/(s*(2*s - 1))) * dm_0[:,2].transpose (0,1,4,3,2)
                      + ((1/2)*(m**2 + 2*m*s - m + s**2 - s)/(s*(2*s - 1))) * dm_0[:,0]
-                     + ((1/2)*(-m**2 + s**2)/(s*(2*s - 1))) * dm_0[:,1])
-        dm_1[:,1] = (((1/2)*(m**2 - 2*m*s + m + s**2 - s)/(s*(2*s - 1))) * dm_0[:,2]
-                     + ((1/2)*(-m**2 + s**2)/(s*(2*s - 1))) * dm_0[:,3]
-                     + ((1/2)*(-m**2 + s**2)/(s*(2*s - 1))) * dm_0[:,1].transpose (0,1,4,3,2)
-                     + ((1/2)*(-m**2 + s**2)/(s*(2*s - 1))) * dm_0[:,2].transpose (0,1,4,3,2)
-                     + ((1/2)*(-m**2 + s**2)/(s*(2*s - 1))) * dm_0[:,0]
-                     + ((1/2)*(m**2 + 2*m*s - m + s**2 - s)/(s*(2*s - 1))) * dm_0[:,1])
-        dm_1[:,2] = (((1/2)*(m**2 - 2*m*s + m + s**2 - s)/(s*(2*s - 1))) * dm_0[:,1]
-                     + (-1/2*(-m**2 + s**2)/(s*(2*s - 1))) * dm_0[:,3].transpose (0,1,4,3,2)
-                     + ((1/2)*(-m**2 + s**2)/(s*(2*s - 1))) * dm_0[:,2].transpose (0,1,4,3,2)
-                     + ((1/2)*(-m**2 + s**2)/(s*(2*s - 1))) * dm_0[:,1].transpose (0,1,4,3,2)
-                     + (-1/2*(-m**2 + s**2)/(s*(2*s - 1))) * dm_0[:,0].transpose (0,1,4,3,2)
-                     + ((1/2)*(m**2 + 2*m*s - m + s**2 - s)/(s*(2*s - 1))) * dm_0[:,2])
-        dm_1[:,3] = (((1/2)*(-m**2 + s**2)/(s*(2*s - 1))) * dm_0[:,2]
-                     + ((1/2)*(m**2 + 2*m*s - m + s**2 - s)/(s*(2*s - 1))) * dm_0[:,3]
                      + ((1/2)*(m**2 - s**2)/(s*(2*s - 1))) * dm_0[:,1].transpose (0,1,4,3,2)
-                     + ((1/2)*(m**2 - s**2)/(s*(2*s - 1))) * dm_0[:,2].transpose (0,1,4,3,2)
+                     + ((1/2)*(-m**2 + s**2)/(s*(2*s - 1))) * dm_0[:,1]
+                     + ((1/2)*(-m**2 + s**2)/(s*(2*s - 1))) * dm_0[:,2])
+        dm_1[:,1] = (((1/2)*(-m**2 + s**2)/(s*(2*s - 1))) * dm_0[:,2].transpose (0,1,4,3,2)
+                     + ((1/2)*(-m**2 + s**2)/(s*(2*s - 1))) * dm_0[:,3]
+                     + ((1/2)*(-m**2 + s**2)/(s*(2*s - 1))) * dm_0[:,0]
+                     + ((1/2)*(-m**2 + s**2)/(s*(2*s - 1))) * dm_0[:,1].transpose (0,1,4,3,2)
+                     + ((1/2)*(m**2 + 2*m*s - m + s**2 - s)/(s*(2*s - 1))) * dm_0[:,1]
+                     + ((1/2)*(m**2 - 2*m*s + m + s**2 - s)/(s*(2*s - 1))) * dm_0[:,2])
+        dm_1[:,2] = (((1/2)*(-m**2 + s**2)/(s*(2*s - 1))) * dm_0[:,1].transpose (0,1,4,3,2)
+                     + (-1/2*(-m**2 + s**2)/(s*(2*s - 1))) * dm_0[:,3].transpose (0,1,4,3,2)
+                     + (-1/2*(-m**2 + s**2)/(s*(2*s - 1))) * dm_0[:,0].transpose (0,1,4,3,2)
+                     + ((1/2)*(-m**2 + s**2)/(s*(2*s - 1))) * dm_0[:,2].transpose (0,1,4,3,2)
+                     + ((1/2)*(m**2 + 2*m*s - m + s**2 - s)/(s*(2*s - 1))) * dm_0[:,2]
+                     + ((1/2)*(m**2 - 2*m*s + m + s**2 - s)/(s*(2*s - 1))) * dm_0[:,1])
+        dm_1[:,3] = (((1/2)*(m**2 - s**2)/(s*(2*s - 1))) * dm_0[:,2].transpose (0,1,4,3,2)
+                     + ((1/2)*(m**2 + 2*m*s - m + s**2 - s)/(s*(2*s - 1))) * dm_0[:,3]
                      + ((1/2)*(m**2 - 2*m*s + m + s**2 - s)/(s*(2*s - 1))) * dm_0[:,0]
-                     + ((1/2)*(-m**2 + s**2)/(s*(2*s - 1))) * dm_0[:,1])
+                     + ((1/2)*(m**2 - s**2)/(s*(2*s - 1))) * dm_0[:,1].transpose (0,1,4,3,2)
+                     + ((1/2)*(-m**2 + s**2)/(s*(2*s - 1))) * dm_0[:,1]
+                     + ((1/2)*(-m**2 + s**2)/(s*(2*s - 1))) * dm_0[:,2])
     return dm_1
 _transpose_mup_dm2 = {(-2, 0): _transpose_mup_dm2_0,
                       (0, 0): _transpose_mup_dm2_1}
