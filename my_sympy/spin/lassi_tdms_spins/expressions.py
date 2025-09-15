@@ -39,8 +39,8 @@ class TDMExpression (object):
         new_expr = TDMExpression (lhs, rhs_coeffs, rhs_terms,
                                   do_normal_order=do_normal_order)
         assert (lhs == new_expr.lhs)
-        if not do_normal_order:
-            print (self.lhs, lhs, new_expr.lhs)
+        #if not do_normal_order:
+        #    print (self.lhs, lhs, new_expr.lhs)
         return new_expr
 
     def transpose (self, idx, **kwargs):
@@ -606,15 +606,15 @@ class TDMScaleArray (object):
         if self.shape[1] > 1:
             code += 'spin_op, '
         code += 'smult_ket, spin_ket):\n'
-        code += ' '*4 + 'd2s_idx = (smult_bra - smult_ket + '
-        code += str (abs (self.row_indices[0])) + ')//2\n'
-        code += ' '*4 + 'if (d2s_idx < 0) or (d2s_idx >= {}):'.format (self.shape[0])
-        code += ' return 0\n'
         no_pos = np.amax (self.row_indices) == 0
         if no_pos:
             code += ' '*4 + 'if smult_bra > smult_ket:\n'
             code += ' '*8 + 'return ' + fn_name
             code += ' (smult_ket, smult_bra, spin_ket)\n'
+        code += ' '*4 + 'd2s_idx = (smult_bra - smult_ket + '
+        code += str (abs (self.row_indices[0])) + ')//2\n'
+        code += ' '*4 + 'if (d2s_idx < 0) or (d2s_idx >= {}):'.format (self.shape[0])
+        code += ' return 0\n'
         code += ' '*4 + 's = (smult_ket-1)/2\n'
         code += ' '*4 + 'm = spin_ket/2\n'
         code += ' '*4 + 'return _' + fn_name + '[d2s_idx]'

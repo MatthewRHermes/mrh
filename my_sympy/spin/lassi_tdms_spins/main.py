@@ -262,6 +262,13 @@ def dm2_hacks (transpose_eqns):
             reverse.insert_transpose_(1,2,(1,0,3,2))
             reverse.normal_order_labels_(spin_priority=False,
                                          keep_particles_together=True)
+    mulliken = {'p': 'q',
+                'q': 'r',
+                'r': 'p'}
+    for key, (forward, reverse) in transpose_eqns['h'].items ():
+        if key[2] == 3:
+            forward.subs_labels_(mulliken)
+            reverse.subs_labels_(mulliken)
     return transpose_eqns
 
 if __name__=='__main__':

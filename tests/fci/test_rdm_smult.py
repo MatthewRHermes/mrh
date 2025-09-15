@@ -67,7 +67,7 @@ def tearDownModule ():
     del max_d2s, spin_op_cases, make_dm, scale_map, scale_proc, dnelec
 
 def smult_loop (ks, dm):
-    for smult_ket in range (1, 4+max_d2s[dm], 2):
+    for smult_ket in range (1, 4+max_d2s[dm]):
         # 4 = smult off-by-1 + range off-by-1 + an additional step of 2 above the max
         par_bra = (smult_ket + max_d2s[dm]) % 2
         max_d2s_p2 = max_d2s[dm] + 2 # test zeros
@@ -77,10 +77,6 @@ def smult_loop (ks, dm):
             sublbls = {'smult_bra': smult_bra,
                        'smult_ket': smult_ket}
             norb_nelec_loop (ks, dm, sublbls, smult_bra, smult_ket)
-            if par_bra > 0:
-                sublbls = {'smult_bra': smult_ket,
-                           'smult_ket': smult_bra}
-                norb_nelec_loop (ks, dm, sublbls, smult_ket, smult_bra)
 
 def norb_nelec_loop (ks, dm, sublbls, smult_bra, smult_ket):
     dnelec = {'h': -1, 'hh': -2, 'phh': -1}.get (dm, 0)
@@ -124,8 +120,9 @@ def dim_loop (ks, dm, sublbls, smult_bra, spin_op, smult_ket, tdms):
             case_scale (ks, dm, sublbls, smult_bra, spin_op, smult_ket, mytdms)
         sublbls1 = {'dim': i}
         sublbls1.update (sublbls)
-        #stored = case_mup (ks, dm, sublbls1, smult_bra, spin_op, smult_ket, mytdms)
-        #case_mdown (ks, dm, sublbls1, smult_bra, spin_op, smult_ket, mytdms, stored)
+        stored = case_mup (ks, dm, sublbls1, smult_bra, spin_op, smult_ket, mytdms)
+        case_mdown (ks, dm, sublbls1, smult_bra, spin_op, smult_ket, mytdms, stored)
+        #break
 
 def _spin_sum_dm2 (dm2):
     idx = np.arange (dm2.ndim-1, dtype=int)
@@ -173,6 +170,8 @@ def get_transpose_fn (dm, fn, smult_bra, spin_op, smult_ket):
 
 def case_mup (ks, dm, sublbls, smult_bra, spin_op, smult_ket, tdms):
     spins_ket = list (tdms.keys ())
+    spin_ket = np.amax (spins_ket)
+    return tdms[spin_ket]
     mup = get_transpose_fn (dm, 'mup', smult_bra, spin_op, smult_ket)
     sublbls1 = {'spin_ket': spins_ket[0], 'ptr_spin': spins_ket[0]}
     sublbls1.update (sublbls)

@@ -500,12 +500,12 @@ class CrAnOperator (CrVector):
         new_indices = [cr_indices[ix] for ix in idx_cr] + [an_indices[ix] for ix in idx_an]
         factor = normal_order_factor (self.crops) * normal_order_factor (self.anops[::-1])
         if ((len (self.crops) == 1) and (len (self.anops) == 2) and
-            (new_crops[0] != new_anops[0])):
+            (new_crops[0] != new_anops[0]) and (new_crops[0] == new_anops[1])):
                 new_anops = new_anops[::-1]
                 new_indices[1:3] = new_indices[1:3][::-1]
                 factor *= -1
         if ((len (self.crops) == 2) and (len (self.anops) == 1) and
-            (new_crops[1] != new_anops[0])):
+            (new_crops[1] != new_anops[0]) and (new_crops[0] == new_anops[0])):
                 new_crops = new_crops[::-1]
                 new_indices[:2] = new_indices[:2][::-1]
                 factor *= -1
