@@ -89,11 +89,13 @@ class FragTDMInt (object):
     '''
 
     def __init__(self, las, ci, norb, nroots, nelec_rs,
-                 rootaddr, fragaddr, idx_frag, mask_ints, dtype=np.float64, discriminator=None,
+                 rootaddr, fragaddr, idx_frag, mask_ints, smult_r=None,
+                 dtype=np.float64, discriminator=None,
                  pt_order=None, do_pt_order=None, screen_linequiv=DO_SCREEN_LINEQUIV,
                  verbose=None):
         # TODO: if it actually helps, cache the "linkstr" arrays
         if verbose is None: verbose = las.verbose
+        if smult_r is None: smult_r = [None for n in nelec_rs]
         self.verbose = verbose
         self.log = lib.logger.new_logger (las, self.verbose)
         self.ci = ci
@@ -101,7 +103,7 @@ class FragTDMInt (object):
         self.nroots = nroots
         self.dtype = dtype
         self.nelec_r = [tuple (n) for n in nelec_rs]
-        self.smult_r = [None for n in nelec_rs]
+        self.smult_r = smult_r
         self.linkstr_cache = {}
         self.linkstrl_cache = {}
         self.rootaddr = rootaddr
@@ -265,9 +267,10 @@ class FragTDMInt (object):
         return self.try_get_1 ('hh', s, j, i).conj ().T
 
     # 1-particle 3-operator intermediate
+    # Note Mulliken -> Dirac transpose
 
     def get_phh (self, i, j, s):
-        return self.try_get ('phh', s, i, j)
+        return self.try_get ('phh', s, i, j).transpose (0,1,2,4,5,3)
 
     def set_phh (self, i, j, s, x):
         i, j = self.uroot_idx[i], self.uroot_idx[j]
@@ -276,13 +279,13 @@ class FragTDMInt (object):
         return x
 
     def get_pph (self, i, j, s):
-        return self.try_get ('phh', s, j, i).conj ().transpose (1,0,2,5,4,3)
+        return self.try_get ('phh', s, j, i).conj ().transpose (1,0,2,3,5,4)
 
     def get_1_phh (self, i, j, s):
-        return self.try_get_1 ('phh', s, i, j)
+        return self.try_get_1 ('phh', s, i, j).transpose (0,2,3,1)
 
     def get_1_pph (self, i, j, s):
-        return self.try_get_1 ('phh', s, j, i).conj ().transpose (0,3,2,1)
+        return self.try_get_1 ('phh', s, j, i).conj ().transpose (0,1,3,2)
 
     # spin-hop intermediate
 
@@ -530,8 +533,7 @@ class FragTDMInt (object):
                     d1s, d2s = trans_rdm13h (bravecs[i], ketvecs[j], norb, nelec_ket,
                                              link_index=linkstr)
                     tdm1h[i,j] = d1s
-                    tdm3h[i,j] = np.stack (d2s, axis=0).transpose (0,2,3,1)
-                    # Mulliken -> Dirac
+                    tdm3h[i,j] = np.stack (d2s, axis=0)
             else:
                 for i, j in product (range (bravecs.shape[0]), range (ketvecs.shape[0])):
                     d1s = trans_rdm1h (bravecs[i], ketvecs[j], norb, nelec_ket,
@@ -596,7 +598,7 @@ class FragTDMInt (object):
                     h, phh = trans_rdm13h_loop (bra, ket, spin=0)
                     self.set_h (bra, ket, 0, h)
                     # <j|a'_q a_r a_p|i>, <j|b'_q b_r a_p|i> - how to tell if consistent sign rule?
-                    err = np.abs (phh[:,:,0] + phh[:,:,0].transpose (0,1,2,4,3))
+                    err = np.abs (phh[:,:,0] + phh[:,:,0].transpose (0,1,4,3,2))
                     assert (np.amax (err) < 1e-8), '{}'.format (np.amax (err)) 
                     # ^ Passing this assert proves that I have the correct index
                     # and argument ordering for the call and return of trans_rdm12s
@@ -621,7 +623,7 @@ class FragTDMInt (object):
                     h, phh = trans_rdm13h_loop (bra, ket, spin=1)
                     self.set_h (bra, ket, 1, h)
                     # <j|a'_q a_r b_p|i>, <j|b'_q b_r b_p|i> - how to tell if consistent sign rule?
-                    err = np.abs (phh[:,:,1] + phh[:,:,1].transpose (0,1,2,4,3))
+                    err = np.abs (phh[:,:,1] + phh[:,:,1].transpose (0,1,4,3,2))
                     assert (np.amax (err) < 1e-8), '{}'.format (np.amax (err))
                     # ^ Passing this assert proves that I have the correct index
                     # and argument ordering for the call and return of trans_rdm12s
@@ -692,6 +694,8 @@ class FragTDMInt (object):
                     self.set_h (bet, kra, 0, h)
                     # <j|a'_q a_r a_p|i>, <j|b'_q b_r a_p|i> - how to tell if consistent sign rule?
                     phh = (self.get_phh (bra, ket, 0) + self.get_phh (bet, kra, 0)) / 2
+                    # Dirac -> Mulliken transpose
+                    phh = phh.transpose (0,1,2,5,3,4)
                     self.set_phh (bra, ket, 0, phh)
                     self.set_phh (bet, kra, 0, phh)
                 # <j|b'_q a_p|i> = <j|s-|i>
@@ -724,6 +728,8 @@ class FragTDMInt (object):
                     self.set_h (bet, kra, 1, h)
                     # <j|a'_q a_r b_p|i>, <j|b'_q b_r b_p|i> - how to tell if consistent sign rule?
                     phh = (self.get_phh (bra, ket, 1) + self.get_phh (bet, kra, 1)) / 2
+                    # Dirac -> Mulliken transpose
+                    phh = phh.transpose (0,1,2,5,3,4)
                     self.set_phh (bra, ket, 1, phh)
                     self.set_phh (bet, kra, 1, phh)
                 # <j|b_q b_p|i>
@@ -1026,7 +1032,7 @@ class HamTerm:
         return np.amax (np.abs (ci)) < 1e-15
 
 
-def make_ints (las, ci, nelec_frs, screen_linequiv=DO_SCREEN_LINEQUIV, nlas=None,
+def make_ints (las, ci, nelec_frs, smult_r=None, screen_linequiv=DO_SCREEN_LINEQUIV, nlas=None,
                _FragTDMInt_class=FragTDMInt, mask_ints=None, discriminator=None,
                pt_order=None, do_pt_order=None, verbose=None):
     ''' Build fragment-local intermediates (`FragTDMInt`) for LASSI o1
@@ -1040,6 +1046,8 @@ def make_ints (las, ci, nelec_frs, screen_linequiv=DO_SCREEN_LINEQUIV, nlas=None
             fragment
 
     Kwargs:
+        smult_r : sequence of length (nroots)
+            Spin multiplicity of each root r.
         screen_linequiv : logical
             Whether to compress data by aggressively identifying linearly equivalent
             rootspaces and storing the relevant unitary matrices.
@@ -1067,6 +1075,7 @@ def make_ints (las, ci, nelec_frs, screen_linequiv=DO_SCREEN_LINEQUIV, nlas=None
         tdmint = _FragTDMInt_class (las, ci[ifrag],
                                     nlas[ifrag], nroots, nelec_frs[ifrag], rootaddr,
                                     fragaddr[ifrag], ifrag, mask_ints,
+                                    smult_r=smult_r,
                                     discriminator=discriminator,
                                     screen_linequiv=screen_linequiv,
                                     pt_order=pt_order, do_pt_order=do_pt_order,
