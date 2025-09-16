@@ -611,8 +611,8 @@ def gen_contract_op_si_hdiag (las, h1, h2, ci, nelec_frs, smult_fr=None, soc=0, 
     if soc>1: raise NotImplementedError ("Spin-orbit coupling of second order")
 
     # Handle possible SOC
-    spin_pure, h1, h2, ci, nelec_frs, nlas, spin_shuffle_fac = soc_context (
-        h1, h2, ci, nelec_frs, soc, nlas)
+    spin_pure, h1, h2, ci, nelec_frs, smult_fr, nlas, spin_shuffle_fac = soc_context (
+        h1, h2, ci, nelec_frs, smult_fr, soc, nlas)
 
     # First pass: single-fragment intermediates
     ints, lroots = frag.make_ints (las, ci, nelec_frs, nlas=nlas, smult_fr=smult_fr,

@@ -392,7 +392,7 @@ class HamS2Ovlp (stdm.LSTDM):
         return ham, s2, (l, j, i, k)
 
 
-def soc_context (h1, h2, ci, nelec_frs, soc, nlas):
+def soc_context (h1, h2, ci, nelec_frs, smult_fr, soc, nlas):
     nfrags, nroots = nelec_frs.shape[:2]
     spin_shuffle_fac = None
     n = sum (nlas)
@@ -416,7 +416,8 @@ def soc_context (h1, h2, ci, nelec_frs, soc, nlas):
         nelec_frs = nelec_frs.copy ()
         nelec_frs[:,:,0] += nelec_frs[:,:,1]
         nelec_frs[:,:,1] = 0
-    return spin_pure, h1, h2, ci, nelec_frs, nlas, spin_shuffle_fac
+        smult_fr = None
+    return spin_pure, h1, h2, ci, nelec_frs, smult_fr, nlas, spin_shuffle_fac
 
 
 def ham (las, h1, h2, ci, nelec_frs, smult_fr=None, soc=0, nlas=None, _HamS2Ovlp_class=HamS2Ovlp,
@@ -468,8 +469,8 @@ def ham (las, h1, h2, ci, nelec_frs, smult_fr=None, soc=0, nlas=None, _HamS2Ovlp
     if soc>1: raise NotImplementedError ("Spin-orbit coupling of second order")
 
     # Handle possible SOC
-    spin_pure, h1, h2, ci, nelec_frs, nlas, spin_shuffle_fac = soc_context (
-        h1, h2, ci, nelec_frs, soc, nlas)
+    spin_pure, h1, h2, ci, nelec_frs, smult_fr, nlas, spin_shuffle_fac = soc_context (
+        h1, h2, ci, nelec_frs, smult_fr, soc, nlas)
 
     # First pass: single-fragment intermediates
     ints, lroots = frag.make_ints (las, ci, nelec_frs, nlas=nlas, smult_fr=smult_fr)

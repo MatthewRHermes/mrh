@@ -681,6 +681,7 @@ class LASSIS (LASSI):
         las = self.prepare_model_states (ci_ref, ci_sf, ci_ch)[0]
         ci = las.ci
         self.fciboxes = las.fciboxes # TODO: set this at initialization
+        self.nroots = las.nroots
         return LASSI.energy_tot (self, mo_coeff=mo_coeff, ci=ci, si=si, soc=soc)
 
     def get_lroots (self, ci=None):

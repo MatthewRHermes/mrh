@@ -731,7 +731,7 @@ def contract_ham_ci (las, h1, h2, ci_fr, nelec_frs, si_bra=None, si_ket=None, ci
             hket_fr_pabq[ifrag][ibra] = np.stack (hket_fr_pabq[ifrag][ibra], axis=-1)
     return citools.hci_dot_sivecs (hket_fr_pabq, si_bra, si_ket, citools.get_lroots (ci_fr_bra))
 
-def make_stdm12s (las, ci_fr, nelec_frs, orbsym=None, wfnsym=None):
+def make_stdm12s (las, ci_fr, nelec_frs, orbsym=None, wfnsym=None, **kwargs):
     '''Build LAS state interaction transition density matrices
 
     Args:
