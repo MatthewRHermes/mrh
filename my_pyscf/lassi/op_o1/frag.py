@@ -122,6 +122,15 @@ class FragTDMInt (object):
 
         self.time_crunch = self._init_crunch_(screen_linequiv)
 
+    mat_keys = ('ovlp', 'h', 'hh', 'phh', 'sm', 'dm1', 'dm2')
+    mdown_tdm = {'ovlp': lambda *args: args[0],
+                 'h': rdm_smult.mdown_h,
+                 'hh': rdm_smult.mdown_hh,
+                 'phh': rdm_smult.mdown_phh,
+                 'sm': rdm_smult.mdown_sm,
+                 'dm1': rdm_smult.mdown_dm1,
+                 'dm2': rdm_smult.mdown_dm2}
+
     def _check_linkstr_cache (self, no, na, nb):
         if (no, na, nb) not in self.linkstr_cache.keys ():
             la = cistring.gen_linkstr_index(range(no), na)
@@ -144,33 +153,47 @@ class FragTDMInt (object):
 
     # Exception catching
 
-    def try_get_1 (self, tab, *args):
+    def try_get_1 (self, tag, *args):
         i, j = args[-2:]
         ir, jr = self.rootaddr[i], self.rootaddr[j]
         ip, jp = self.fragaddr[i], self.fragaddr[j]
         rargs = [x for x in args[:-2]] + [ir,jr]
-        return self.try_get (tab, *rargs)[ip,jp]
+        return self.try_get (tag, *rargs)[ip,jp]
 
-    def try_get (self, tab, *args):
-        if len (args) == 3: return self.try_get_tdm (tab, *args)
-        elif len (args) == 2: return self.try_get_dm (tab, *args)
+    def try_get (self, tag, *args):
+        if len (args) == 3: return self.try_get_tdm (tag, *args)
+        elif len (args) == 2: return self.try_get_dm (tag, *args)
         else: raise RuntimeError (str (len (args)))
 
-    def try_get_dm (self, tab, i, j):
+    def try_get_dm (self, tag, i, j):
+        tab = self.mats[tag]
+        mdown_fn = self.mdown_tdm[tag]
         ir, jr = self.uroot_idx[i], self.uroot_idx[j]
+        si, sj = self.smult_r[i], self.smult_r[j]
+        mj = self.nelec_r[j][0] - self.nelec_r[j][1]
         try:
             assert (tab[ir][jr] is not None)
-            return tab[ir][jr]
+            tab = tab[ir][jr]
+            if si is None: return tab
+            if sj is None: return tab
+            return mdown_fn (tab, si, sj, mj)
         except Exception as e:
             errstr = 'frag {} failure to get element {},{}'.format (self.idx_frag, ir, jr)
             errstr = errstr + '\nhopping_index entry: {}'.format (self.hopping_index[:,ir,jr])
             raise RuntimeError (errstr)
 
-    def try_get_tdm (self, tab, s, i, j):
+    def try_get_tdm (self, tag, s, i, j):
+        tab = self.mats[tag]
+        mdown_fn = self.mdown_tdm[tag]
         ir, jr = self.uroot_idx[i], self.uroot_idx[j]
+        si, sj = self.smult_r[i], self.smult_r[j]
+        mj = self.nelec_r[j][0] - self.nelec_r[j][1]
         try:
             assert (tab[s][ir][jr] is not None)
-            return tab[s][ir][jr]
+            tab = tab[s][ir][jr]
+            if self.smult_r[i] is None: return tab
+            if self.smult_r[j] is None: return tab
+            return mdown_fn (tab, si, s, sj, mj)
         except Exception as e:
             errstr = 'frag {} failure to get element {},{} w spin {}'.format (
                 self.idx_frag, ir, jr, s)
@@ -181,8 +204,11 @@ class FragTDMInt (object):
 
     # 0-particle intermediate (overlap)
 
+    @property
+    def ovlp (self): return self.mats['ovlp']
+
     def get_ovlp (self, i, j):
-        return self.try_get (self.ovlp, i, j)
+        return self.try_get ('ovlp', i, j)
 
     def get_ovlp_inpbasis (self, i, j):
         ''' Apply umat if present to get the actual original-basis overlap '''
@@ -194,89 +220,89 @@ class FragTDMInt (object):
         return ovlp
 
     def get_1_ovlp (self, i, j):
-        return self.try_get_1 (self.ovlp, i, j)
+        return self.try_get_1 ('ovlp', i, j)
 
     # 1-particle 1-operator intermediate
 
     def get_h (self, i, j, s):
-        return self.try_get (self._h, s, i, j)
+        return self.try_get ('h', s, i, j)
 
     def set_h (self, i, j, s, x):
         i, j = self.uroot_idx[i], self.uroot_idx[j]
         x = self.setmanip (x)
-        self._h[s][i][j] = x
+        self.mats['h'][s][i][j] = x
         return x
 
     def get_p (self, i, j, s):
-        return self.try_get (self._h, s, j, i).conj ().transpose (1,0,2)
+        return self.try_get ('h', s, j, i).conj ().transpose (1,0,2)
 
     def get_1_h (self, i, j, s):
-        return self.try_get_1 (self._h, s, i, j)
+        return self.try_get_1 ('h', s, i, j)
 
     def get_1_p (self, i, j, s):
-        return self.try_get_1 (self._h, s, j, i).conj ()
+        return self.try_get_1 ('h', s, j, i).conj ()
 
     # 2-particle intermediate
 
     def get_hh (self, i, j, s):
-        return self.try_get (self._hh, s, i, j)
-        #return self._hh[s][i][j]
+        return self.try_get ('hh', s, i, j)
+        #return self.mats['hh'][s][i][j]
 
     def set_hh (self, i, j, s, x):
         i, j = self.uroot_idx[i], self.uroot_idx[j]
         x = self.setmanip (x)
-        self._hh[s][i][j] = x
+        self.mats['hh'][s][i][j] = x
         return x
 
     def get_pp (self, i, j, s):
-        return self.try_get (self._hh, s, j, i).conj ().transpose (1,0,3,2)
+        return self.try_get ('hh', s, j, i).conj ().transpose (1,0,3,2)
 
     def get_1_hh (self, i, j, s):
-        return self.try_get_1 (self._hh, s, i, j)
-        #return self._hh[s][i][j]
+        return self.try_get_1 ('hh', s, i, j)
+        #return self.mats['hh'][s][i][j]
 
     def get_1_pp (self, i, j, s):
-        return self.try_get_1 (self._hh, s, j, i).conj ().T
+        return self.try_get_1 ('hh', s, j, i).conj ().T
 
     # 1-particle 3-operator intermediate
 
     def get_phh (self, i, j, s):
-        return self.try_get (self._phh, s, i, j)
+        return self.try_get ('phh', s, i, j)
 
     def set_phh (self, i, j, s, x):
         i, j = self.uroot_idx[i], self.uroot_idx[j]
         x = self.setmanip (x)
-        self._phh[s][i][j] = x
+        self.mats['phh'][s][i][j] = x
         return x
 
     def get_pph (self, i, j, s):
-        return self.try_get (self._phh, s, j, i).conj ().transpose (1,0,2,5,4,3)
+        return self.try_get ('phh', s, j, i).conj ().transpose (1,0,2,5,4,3)
 
     def get_1_phh (self, i, j, s):
-        return self.try_get_1 (self._phh, s, i, j)
+        return self.try_get_1 ('phh', s, i, j)
 
     def get_1_pph (self, i, j, s):
-        return self.try_get_1 (self._phh, s, j, i).conj ().transpose (0,3,2,1)
+        return self.try_get_1 ('phh', s, j, i).conj ().transpose (0,3,2,1)
 
     # spin-hop intermediate
 
     def get_sm (self, i, j):
-        return self.try_get (self._sm, i, j)
+        return self.try_get ('sm', i, j)
 
     def set_sm (self, i, j, x):
         i, j = self.uroot_idx[i], self.uroot_idx[j]
         x = self.setmanip (x)
-        self._sm[i][j] = x
+        self.mats['sm'][i][j] = x
         return x
 
     def get_sp (self, i, j):
-        return self.try_get (self._sm, j, i).conj ().transpose (1,0,3,2)
+        return self.try_get ('sm', j, i).conj ().transpose (1,0,3,2)
 
     def get_1_sm (self, i, j):
-        return self.try_get_1 (self._sm, i, j)
+        return self.try_get_1 ('sm', i, j)
 
     def get_1_sp (self, i, j):
-        return self.try_get_1 (self._sm, j, i).conj ().T
+        return self.try_get_1 ('sm', j, i).conj ().T
 
     def get_smp (self, i, j, s):
         if s==0: return self.get_sm (i, j)
@@ -292,37 +318,37 @@ class FragTDMInt (object):
 
     def get_dm1 (self, i, j):
         if self.unique_root[j] > self.unique_root[i]:
-            return self.try_get (self.dm1, j, i).conj ().transpose (1,0,2,4,3)
-        return self.try_get (self.dm1, i, j)
+            return self.try_get ('dm1', j, i).conj ().transpose (1,0,2,4,3)
+        return self.try_get ('dm1', i, j)
 
     def set_dm1 (self, i, j, x):
         assert (j <= i)
         i, j = self.uroot_idx[i], self.uroot_idx[j]
         x = self.setmanip (x)
-        self.dm1[i][j] = x
+        self.mats['dm1'][i][j] = x
 
     def get_1_dm1 (self, i, j):
         if self.unique_root[self.rootaddr[j]] > self.unique_root[self.rootaddr[i]]:
-            return self.try_get_1 (self.dm1, j, i).conj ().transpose (0, 2, 1)
-        return self.try_get_1 (self.dm1, i, j)
+            return self.try_get_1 ('dm1', j, i).conj ().transpose (0, 2, 1)
+        return self.try_get_1 ('dm1', i, j)
 
     # 2-density intermediate
 
     def get_dm2 (self, i, j):
         if self.unique_root[j] > self.unique_root[i]:
-            return self.try_get (self.dm2, j, i).conj ().transpose (1,0,2,4,3,6,5)
-        return self.try_get (self.dm2, i, j)
+            return self.try_get ('dm2', j, i).conj ().transpose (1,0,2,4,3,6,5)
+        return self.try_get ('dm2', i, j)
 
     def get_1_dm2 (self, i, j):
         if self.unique_root[self.rootaddr[j]] > self.unique_root[self.rootaddr[i]]:
-            return self.try_get_1 (self.dm2, j, i).conj ().transpose (0, 2, 1, 4, 3)
-        return self.try_get_1 (self.dm2, i, j)
+            return self.try_get_1 ('dm2', j, i).conj ().transpose (0, 2, 1, 4, 3)
+        return self.try_get_1 ('dm2', i, j)
 
     def set_dm2 (self, i, j, x):
         assert (j <= i)
         i, j = self.uroot_idx[i], self.uroot_idx[j]
         x = self.setmanip (x)
-        self.dm2[i][j] = x
+        self.mats['dm2'][i][j] = x
 
     def get_lroots (self, i):
         return self.ci[i].shape[0]
@@ -370,13 +396,14 @@ class FragTDMInt (object):
         self.uroot_addr = np.where (self.root_unique)[0]
         assert (np.all (self.uroot_idx >= 0))
 
-        self.ovlp = [[None for i in range (nuroots)] for j in range (nuroots)]
-        self._h = [[[None for i in range (nuroots)] for j in range (nuroots)] for s in (0,1)]
-        self._hh = [[[None for i in range (nuroots)] for j in range (nuroots)] for s in (-1,0,1)] 
-        self._phh = [[[None for i in range (nuroots)] for j in range (nuroots)] for s in (0,1)]
-        self._sm = [[None for i in range (nuroots)] for j in range (nuroots)]
-        self.dm1 = [[None for i in range (nuroots)] for j in range (nuroots)]
-        self.dm2 = [[None for i in range (nuroots)] for j in range (nuroots)]
+        self.mats = {}
+        self.mats['ovlp'] = [[None for i in range (nuroots)] for j in range (nuroots)]
+        self.mats['h'] = [[[None for i in range (nuroots)] for j in range (nuroots)] for s in (0,1)]
+        self.mats['hh'] = [[[None for i in range (nuroots)] for j in range (nuroots)] for s in (-1,0,1)] 
+        self.mats['phh'] = [[[None for i in range (nuroots)] for j in range (nuroots)] for s in (0,1)]
+        self.mats['sm'] = [[None for i in range (nuroots)] for j in range (nuroots)]
+        self.mats['dm1'] = [[None for i in range (nuroots)] for j in range (nuroots)]
+        self.mats['dm2'] = [[None for i in range (nuroots)] for j in range (nuroots)]
 
         # Characterize the matrix elements involving these fragment states
         nelec_frs = np.asarray ([list(self.nelec_r[i]) for i in self.uroot_addr])[None,:,:]
@@ -432,16 +459,16 @@ class FragTDMInt (object):
             ci_i = ci[i].reshape (lroots[i], -1)
             ci_j = ci[j].reshape (lroots[j], -1)
             k, l = self.uroot_idx[i], self.uroot_idx[j]
-            self.ovlp[k][l] = np.dot (ci_i.conj (), ci_j.T)
-            self.ovlp[l][k] = self.ovlp[k][l].conj ().T
+            self.mats['ovlp'][k][l] = np.dot (ci_i.conj (), ci_j.T)
+            self.mats['ovlp'][l][k] = self.mats['ovlp'][k][l].conj ().T
         for i in np.where (idx_uniq)[0]:
             if not self.unmasked_int (i,i,screen): continue
             ci_i = ci[i].reshape (lroots[i], -1)
             j = self.uroot_idx[i]
-            self.ovlp[j][j] = np.dot (ci_i.conj (), ci_i.T)
-            #errmat = self.ovlp[i][i] - np.eye (lroots[i])
+            self.mats['ovlp'][j][j] = np.dot (ci_i.conj (), ci_i.T)
+            #errmat = self.mats['ovlp'][i][i] - np.eye (lroots[i])
             #if np.amax (np.abs (errmat)) > 1e-3:
-            #    w, v = np.linalg.eigh (self.ovlp[i][i])
+            #    w, v = np.linalg.eigh (self.mats['ovlp'][i][i])
             #    errmsg = ('States w/in single Hilbert space must be orthonormal; '
             #              'eigvals (ovlp) = {}')
             #    raise RuntimeError (errmsg.format (w))
@@ -625,7 +652,7 @@ class FragTDMInt (object):
             o = (self.get_ovlp (i,j) + self.get_ovlp (k,l)) / 2
             i, j = self.uroot_idx[i], self.uroot_idx[j]
             k, l = self.uroot_idx[k], self.uroot_idx[l]
-            self.ovlp[i][j] = self.ovlp[k][l] = o
+            self.mats['ovlp'][i][j] = self.mats['ovlp'][k][l] = o
 
         # Spectator fragment contribution
         hopping_index = self.hopping_index
