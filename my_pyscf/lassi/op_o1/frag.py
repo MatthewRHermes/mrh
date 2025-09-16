@@ -8,6 +8,7 @@ from pyscf.fci.addons import cre_a, cre_b, des_a, des_b
 from pyscf.fci import cistring
 from itertools import product, combinations
 from mrh.my_pyscf.lassi.citools import get_lroots, get_rootaddr_fragaddr, get_unique_roots
+from mrh.my_pyscf.lassi.citools import _get_unique_roots_with_spin
 from mrh.my_pyscf.lassi.op_o1.utilities import *
 from mrh.my_pyscf.fci.rdm import trans_rdm1ha_des, trans_rdm1hb_des
 from mrh.my_pyscf.fci.rdm import trans_rdm13ha_des, trans_rdm13hb_des
@@ -170,10 +171,13 @@ class FragTDMInt (object):
     def try_get_dm (self, tag, i, j):
         tab = self.mats[tag]
         mdown_fn = self.mdown_tdm[tag]
-        ir, jr = self.uroot_idx[i], self.uroot_idx[j]
-        si, sj = self.smult_r[i], self.smult_r[j]
+        mi = self.nelec_r[i][0] - self.nelec_r[i][1]
         mj = self.nelec_r[j][0] - self.nelec_r[j][1]
+        si, sj = self.smult_r[i], self.smult_r[j]
+        ir, jr = self.uroot_idx[i], self.uroot_idx[j]
+        ir, jr = self.spman[ir], self.spman[jr]
         try:
+            ir, jr = self.spman_inter[(ir,jr,mi-mj)]
             assert (tab[ir][jr] is not None)
             tab = tab[ir][jr]
             if si is None: return tab
@@ -187,10 +191,13 @@ class FragTDMInt (object):
     def try_get_tdm (self, tag, s, i, j):
         tab = self.mats[tag]
         mdown_fn = self.mdown_tdm[tag]
-        ir, jr = self.uroot_idx[i], self.uroot_idx[j]
-        si, sj = self.smult_r[i], self.smult_r[j]
+        mi = self.nelec_r[i][0] - self.nelec_r[i][1]
         mj = self.nelec_r[j][0] - self.nelec_r[j][1]
+        si, sj = self.smult_r[i], self.smult_r[j]
+        ir, jr = self.uroot_idx[i], self.uroot_idx[j]
+        ir, jr = self.spman[ir], self.spman[jr]
         try:
+            ir, jr = self.spman_inter[(ir,jr,mi-mj)]
             assert (tab[s][ir][jr] is not None)
             tab = tab[s][ir][jr]
             if self.smult_r[i] is None: return tab
@@ -399,6 +406,25 @@ class FragTDMInt (object):
         self.uroot_addr = np.where (self.root_unique)[0]
         assert (np.all (self.uroot_idx >= 0))
 
+        self.spman = np.arange (nuroots)
+        if all ([smult is not None for smult in self.smult_r]):
+            ci_u = [ci[i] for i in self.uroot_addr]
+            nelec_u = [self.nelec_r[i] for i in self.uroot_addr]
+            smult_u = [self.smult_r[i] for i in self.uroot_addr]
+            self.spman = _get_unique_roots_with_spin (ci_u, self.norb, nelec_u, smult_u)
+        self.spman_inter = {}
+        for i,j in product (range (nuroots), repeat=2):
+            k, l = self.uroot_addr[i], self.uroot_addr[j]
+            mi = self.nelec_r[k][0] - self.nelec_r[k][1]
+            mj = self.nelec_r[l][0] - self.nelec_r[l][1]
+            a, b = self.spman[i], self.spman[j]
+            key = (a, b, mi-mj)
+            self.spman_inter[key] = (i,j)
+        self.spman_inter_uniq = np.zeros ((nuroots,nuroots), dtype=bool)
+        for key, val in self.spman_inter.items ():
+            i, j = val
+            self.spman_inter_uniq[i,j] = True
+
         self.mats = {}
         self.mats['ovlp'] = [[None for i in range (nuroots)] for j in range (nuroots)]
         self.mats['h'] = [[[None for i in range (nuroots)] for j in range (nuroots)] for s in (0,1)]
@@ -451,6 +477,7 @@ class FragTDMInt (object):
         ndeta, ndetb = self.ndeta_r, self.ndetb_r
         hopping_index = self.hopping_index
         idx_uniq = self.root_unique
+        spman_inter_uniq = self.spman_inter_uniq
         lroots = [c.shape[0] for c in ci]
         nroots, norb, nuroots = self.nroots, self.norb, self.nuroots
 
@@ -459,9 +486,10 @@ class FragTDMInt (object):
         for i, j in combinations (np.where (idx_uniq)[0], 2):
             if self.nelec_r[i] != self.nelec_r[j]: continue
             if not self.unmasked_int (i,j,screen): continue
+            k, l = self.uroot_idx[i], self.uroot_idx[j]
+            if not spman_inter_uniq[k,l]: continue
             ci_i = ci[i].reshape (lroots[i], -1)
             ci_j = ci[j].reshape (lroots[j], -1)
-            k, l = self.uroot_idx[i], self.uroot_idx[j]
             self.mats['ovlp'][k][l] = np.dot (ci_i.conj (), ci_j.T)
             self.mats['ovlp'][l][k] = self.mats['ovlp'][k][l].conj ().T
         for i in np.where (idx_uniq)[0]:
@@ -579,6 +607,7 @@ class FragTDMInt (object):
         spectator_index[np.triu_indices (nuroots, k=1)] = False
         spectator_index = np.stack (np.where (spectator_index), axis=1)
         for i, j in spectator_index:
+            if not spman_inter_uniq[i,j]: continue
             k, l = self.uroot_addr[i], self.uroot_addr[j]
             if not self.unmasked_int (k,l,screen): continue
             dm1s, dm2s = trans_rdm12s_loop (k, l, do2=True)
@@ -591,6 +620,7 @@ class FragTDMInt (object):
         # a_p|i>; shape = (norb, lroots[ket], ndeta[*], ndetb[ket])
         for k in hidx_ket_a:
             for b in np.where (hopping_index[0,:,k] < 0)[0]:
+                if not spman_inter_uniq[b,k]: continue
                 bra, ket = self.uroot_addr[b], self.uroot_addr[k]
                 if not self.unmasked_int (bra,ket,screen): continue
                 # <j|a_p|i>
@@ -616,6 +646,7 @@ class FragTDMInt (object):
         # b_p|i>
         for k in hidx_ket_b:
             for b in np.where (hopping_index[1,:,k] < 0)[0]:
+                if not spman_inter_uniq[b,k]: continue
                 bra, ket = self.uroot_addr[b], self.uroot_addr[k]
                 if not self.unmasked_int (bra,ket,screen): continue
                 # <j|b_p|i>
