@@ -558,7 +558,7 @@ class HamS2OvlpOperators (HamS2Ovlp):
         return ham, s2, (l, j, i, k)
 
 #gen_contract_op_si_hdiag = functools.partial (_fake_gen_contract_op_si_hdiag, ham)
-def gen_contract_op_si_hdiag (las, h1, h2, ci, nelec_frs, soc=0, nlas=None,
+def gen_contract_op_si_hdiag (las, h1, h2, ci, nelec_frs, smult_fr=None, soc=0, nlas=None,
                               _HamS2Ovlp_class=HamS2OvlpOperators, _return_int=False, **kwargs):
     ''' Build Hamiltonian, spin-squared, and overlap matrices in LAS product state basis
 
@@ -575,6 +575,8 @@ def gen_contract_op_si_hdiag (las, h1, h2, ci, nelec_frs, soc=0, nlas=None,
             fragment
 
     Kwargs:
+        smult_fr : ndarray of shape (nfrags,nroots)
+            Spin multiplicity of each fragment in each rootspace
         soc : integer
             Order of spin-orbit coupling included in the Hamiltonian
         nlas : sequence of length (nfrags)
@@ -613,9 +615,8 @@ def gen_contract_op_si_hdiag (las, h1, h2, ci, nelec_frs, soc=0, nlas=None,
         h1, h2, ci, nelec_frs, soc, nlas)
 
     # First pass: single-fragment intermediates
-    ints, lroots = frag.make_ints (las, ci, nelec_frs, nlas=nlas,
-                                                  pt_order=pt_order,
-                                                  do_pt_order=do_pt_order)
+    ints, lroots = frag.make_ints (las, ci, nelec_frs, nlas=nlas, smult_fr=smult_fr,
+                                   pt_order=pt_order, do_pt_order=do_pt_order)
     nstates = np.sum (np.prod (lroots, axis=0))
 
     # Second pass: upper-triangle

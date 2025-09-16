@@ -1137,6 +1137,7 @@ def make_stdm12s (las, ci, nelec_frs, **kwargs):
     nlas = las.ncas_sub
     ncas = las.ncas
     nfrags, nroots = nelec_frs.shape[:2]
+    smult_fr = kwargs.get ('smult_fr', None)
     dtype = ci[0][0].dtype
     max_memory = getattr (las, 'max_memory', las.mol.max_memory)
 
@@ -1154,7 +1155,7 @@ def make_stdm12s (las, ci, nelec_frs, **kwargs):
         ncas = ncas * 2
 
     # First pass: single-fragment intermediates
-    ints, lroots = frag.make_ints (las, ci, nelec_frs, nlas=nlas)
+    ints, lroots = frag.make_ints (las, ci, nelec_frs, smult_fr=smult_fr, nlas=nlas)
     nstates = np.sum (np.prod (lroots, axis=0))
 
     # Memory check

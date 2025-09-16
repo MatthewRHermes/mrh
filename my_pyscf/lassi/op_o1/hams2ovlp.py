@@ -419,8 +419,8 @@ def soc_context (h1, h2, ci, nelec_frs, soc, nlas):
     return spin_pure, h1, h2, ci, nelec_frs, nlas, spin_shuffle_fac
 
 
-def ham (las, h1, h2, ci, nelec_frs, soc=0, nlas=None, _HamS2Ovlp_class=HamS2Ovlp, _do_kernel=True,
-         **kwargs):
+def ham (las, h1, h2, ci, nelec_frs, smult_fr=None, soc=0, nlas=None, _HamS2Ovlp_class=HamS2Ovlp,
+         _do_kernel=True, **kwargs):
     ''' Build Hamiltonian, spin-squared, and overlap matrices in LAS product state basis
 
     Args:
@@ -436,6 +436,8 @@ def ham (las, h1, h2, ci, nelec_frs, soc=0, nlas=None, _HamS2Ovlp_class=HamS2Ovl
             fragment
 
     Kwargs:
+        smult_fr : ndarray of shape (nfrags,nroots)
+            Spin multiplicity of each fragment in each rootspace
         soc : integer
             Order of spin-orbit coupling included in the Hamiltonian
         nlas : sequence of length (nfrags)
@@ -470,7 +472,7 @@ def ham (las, h1, h2, ci, nelec_frs, soc=0, nlas=None, _HamS2Ovlp_class=HamS2Ovl
         h1, h2, ci, nelec_frs, soc, nlas)
 
     # First pass: single-fragment intermediates
-    ints, lroots = frag.make_ints (las, ci, nelec_frs, nlas=nlas)
+    ints, lroots = frag.make_ints (las, ci, nelec_frs, nlas=nlas, smult_fr=smult_fr)
     nstates = np.sum (np.prod (lroots, axis=0))
         
     # Memory check

@@ -1032,7 +1032,7 @@ class HamTerm:
         return np.amax (np.abs (ci)) < 1e-15
 
 
-def make_ints (las, ci, nelec_frs, smult_r=None, screen_linequiv=DO_SCREEN_LINEQUIV, nlas=None,
+def make_ints (las, ci, nelec_frs, smult_fr=None, screen_linequiv=DO_SCREEN_LINEQUIV, nlas=None,
                _FragTDMInt_class=FragTDMInt, mask_ints=None, discriminator=None,
                pt_order=None, do_pt_order=None, verbose=None):
     ''' Build fragment-local intermediates (`FragTDMInt`) for LASSI o1
@@ -1046,8 +1046,8 @@ def make_ints (las, ci, nelec_frs, smult_r=None, screen_linequiv=DO_SCREEN_LINEQ
             fragment
 
     Kwargs:
-        smult_r : sequence of length (nroots)
-            Spin multiplicity of each root r.
+        smult_fr : ndarray of shape (nfrags,nroots)
+            Spin multiplicity of each root r in each fragment f.
         screen_linequiv : logical
             Whether to compress data by aggressively identifying linearly equivalent
             rootspaces and storing the relevant unitary matrices.
@@ -1067,6 +1067,7 @@ def make_ints (las, ci, nelec_frs, smult_r=None, screen_linequiv=DO_SCREEN_LINEQ
     log = lib.logger.new_logger (las, las.verbose)
     max_memory = getattr (las, 'max_memory', las.mol.max_memory)
     if nlas is None: nlas = las.ncas_sub
+    if smult_fr is None: smult_fr = [None for i in range (nfrags)]
     lroots = get_lroots (ci)
     rootaddr, fragaddr = get_rootaddr_fragaddr (lroots)
     ints = []
@@ -1075,7 +1076,7 @@ def make_ints (las, ci, nelec_frs, smult_r=None, screen_linequiv=DO_SCREEN_LINEQ
         tdmint = _FragTDMInt_class (las, ci[ifrag],
                                     nlas[ifrag], nroots, nelec_frs[ifrag], rootaddr,
                                     fragaddr[ifrag], ifrag, mask_ints,
-                                    smult_r=smult_r,
+                                    smult_r=smult_fr[ifrag],
                                     discriminator=discriminator,
                                     screen_linequiv=screen_linequiv,
                                     pt_order=pt_order, do_pt_order=do_pt_order,
