@@ -380,7 +380,7 @@ def trans_sfudm1 (cibra, ciket, norb, nelec, link_index=None):
         #print(dum2dm)
         exit()
     elif custom_fci and use_gpu: 
-      dum2dm = _trans_sfudm1_o1 (cibra, ciket, norb, nelec, link_index=link_index)
+      dum2dm = _trans_sfudm1_o2 (cibra, ciket, norb, nelec, link_index=link_index)
     else:
       dum2dm = _trans_sfudm1_o0 (cibra, ciket, norb, nelec, link_index=link_index)
     sfudm1 = dum2dm[-1,:-1,:-1,-1]
@@ -538,7 +538,7 @@ def trans_ppdm (cibra, ciket, norb, nelec, spin=0, link_index=None):
         else: print('Trans TDMpp correct')
         exit()
     elif custom_fci and use_gpu: 
-      tdm1, tdmhh = _trans_ppdm_o2(cibra, ciket, norb, nelec, spin=spin, link_index=link_index)
+      tdm1, tdmhh = _trans_ppdm_o3(cibra, ciket, norb, nelec, spin=spin, link_index=link_index)
     else:
       tdm1, tdmhh = _trans_ppdm_o0(cibra, ciket, norb, nelec, spin=spin, link_index=link_index)
     if (spin%2)==0: tdm1, tdmhh = rdm.reorder_rdm (tdm1, tdmhh, inplace=True)

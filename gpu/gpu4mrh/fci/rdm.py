@@ -170,17 +170,17 @@ def _make_rdm12_spin1(fname, cibra, ciket, norb, nelec, link_index=None, symm=0)
       libgpu.push_link_index_ab(gpu, na, nb, nlinka, nlinkb, link_indexa, link_indexb) #TODO: move this to direct_spin1 or generate on the fly
       rdm1_correct=True
       if fname == 'FCItdm12kern_a': 
-        libgpu.compute_tdm12kern_a(gpu, na, nb, nlinka, nlinkb, norb)
+        libgpu.compute_tdm12kern_a_v2(gpu, na, nb, nlinka, nlinkb, norb)
         libgpu.pull_tdm1(gpu, rdm1_gpu, norb)
         rdm1_correct = numpy.allclose(rdm1_cpu, rdm1_gpu)
       if fname == 'FCItdm12kern_b': 
-        libgpu.compute_tdm12kern_b(gpu, na, nb, nlinka, nlinkb, norb)
+        libgpu.compute_tdm12kern_b_v2(gpu, na, nb, nlinka, nlinkb, norb)
         libgpu.pull_tdm1(gpu, rdm1_gpu, norb)
         rdm1_correct = numpy.allclose(rdm1_cpu, rdm1_gpu)
       if fname == 'FCItdm12kern_ab': 
-        libgpu.compute_tdm12kern_ab(gpu, na, nb, nlinka, nlinkb, norb)
+        libgpu.compute_tdm12kern_ab_v2(gpu, na, nb, nlinka, nlinkb, norb)
       if fname == 'FCIrdm12kern_sf': 
-        libgpu.compute_rdm12kern_sf(gpu, na, nb, nlinka, nlinkb, norb)
+        libgpu.compute_rdm12kern_sf_v2(gpu, na, nb, nlinka, nlinkb, norb)
         libgpu.pull_tdm1(gpu, rdm1_gpu, norb)
         rdm1_correct = numpy.allclose(rdm1_cpu, rdm1_gpu)
       libgpu.pull_tdm2(gpu, rdm2_gpu, norb)
@@ -206,16 +206,16 @@ def _make_rdm12_spin1(fname, cibra, ciket, norb, nelec, link_index=None, symm=0)
       libgpu.push_ci(gpu, cibra, ciket, na, nb)
       libgpu.push_link_index_ab(gpu, na, nb, nlinka, nlinkb, link_indexa, link_indexb) #TODO: move this to direct_spin1 because it's used with both a and b
       if fname == 'FCItdm12kern_a': 
-        libgpu.compute_tdm12kern_a(gpu, na, nb, nlinka, nlinkb, norb)
+        libgpu.compute_tdm12kern_a_v2(gpu, na, nb, nlinka, nlinkb, norb)
         libgpu.pull_tdm1(gpu, rdm1_gpu, norb)
       if fname == 'FCItdm12kern_b': 
-        libgpu.compute_tdm12kern_b(gpu, na, nb, nlinka, nlinkb, norb)
+        libgpu.compute_tdm12kern_b_v2(gpu, na, nb, nlinka, nlinkb, norb)
         libgpu.pull_tdm1(gpu, rdm1_gpu, norb)
       if fname == 'FCItdm12kern_ab': 
-        libgpu.compute_tdm12kern_ab(gpu, na, nb, nlinka, nlinkb, norb)
+        libgpu.compute_tdm12kern_ab_v2(gpu, na, nb, nlinka, nlinkb, norb)
       if fname == 'FCIrdm12kern_sf': 
         libgpu.pull_tdm1(gpu, rdm1_gpu, norb)
-        libgpu.compute_rdm12kern_sf(gpu, na, nb, nlinka, nlinkb, norb)
+        libgpu.compute_rdm12kern_sf_v2(gpu, na, nb, nlinka, nlinkb, norb)
       libgpu.pull_tdm2(gpu, rdm2_gpu, norb)
       return rdm1_gpu.T, rdm2_gpu
     else: 

@@ -832,8 +832,49 @@ __global__ void _compute_FCIrdm2_b_t1ci_v3(double * ci, double * buf, int stra_i
     tmp_buf[i*norb + a] += sign*ci[stra_id*nb + str1];}
     }
 }
+/* ---------------------------------------------------------------------- */
+__global__ void _compute_FCIrdm2_a_t1ci_v4(double * ci, double * buf, int stra_id, int batches, int nb, int norb, int nlinka, int * link_index)
+{
+    int batch_id = blockIdx.x * blockDim.x + threadIdx.x;
+    int k = blockIdx.y * blockDim.y + threadIdx.y;
+    if (batch_id >= batches) return;
+    if (k >= nb) return;
+    int norb2 = norb*norb;
+    int * tab_line = &(link_index[4*nlinka*(stra_id+batch_id)]); 
 
-
+    double * tmp_buf = &(buf[batch_id*norb2*nb+k*norb2]);
+    for (int j=threadIdx.z;j<nlinka;j+=blockDim.z){
+    int * tab = &(tab_line[4*j]);
+    int sign = tab[3];
+    if (sign != 0){
+    int a = tab[0];
+    int i = tab[1];
+    int str1 = tab[2];
+    tmp_buf[i*norb + a]+= sign*ci[str1*nb + k];}
+    }
+}
+/* ---------------------------------------------------------------------- */
+__global__ void _compute_FCIrdm2_b_t1ci_v4(double * ci, double * buf, int stra_id, int batches, int nb, int norb, int nlinkb, int * link_index)
+{
+    int batch_id = blockIdx.x * blockDim.x + threadIdx.x;
+    int str0 = blockIdx.y * blockDim.y + threadIdx.y;
+    if (batch_id >= batches) return;
+    if (str0 >= nb) return;
+    int norb2 = norb*norb;
+    double * tmp_buf = &(buf[batch_id*norb2*nb + str0*norb2]);
+    int * tab_line = &(link_index[4*str0*nlinkb]); 
+    double * tmp_ci = &(ci[(stra_id+batch_id)*nb]);
+    for (int j=threadIdx.z;j<nlinkb;j+=blockDim.z){
+    int * tab = &(tab_line[4*j]);
+    int sign = tab[3];
+    if (sign!=0){
+    int a = tab[0];
+    int i = tab[1];
+    int str1 = tab[2];
+    //atomicAdd(&(buf[str0*norb2 + i*norb + a]), sign*ci[stra_id*nb + str1]);
+    tmp_buf[i*norb + a] += sign*tmp_ci[str1];}
+    }
+}
 /* ---------------------------------------------------------------------- */
 __global__ void _compute_FCIrdm3h_a_t1ci_v2(double * ci, double * buf, int stra_id, int nb, int norb, int nlinka, int ia, int ja, int ib, int jb, int * link_index)
 {
@@ -1681,6 +1722,33 @@ void Device::compute_FCIrdm2_b_t1ci(double * ci, double * buf, int stra_id, int 
   _CUDA_CHECK_ERRORS();
 #endif
 } 
+/* ---------------------------------------------------------------------- */
+void Device::compute_FCIrdm2_a_t1ci_v2(double * ci, double * buf, int stra_id, int batches, int nb, int norb, int nlinka, int * link_index)
+{
+  cudaStream_t s = *(pm->dev_get_queue());
+  dim3 block_size(1, 1, _DEFAULT_BLOCK_SIZE);
+  dim3 grid_size(_TILE(batches, block_size.x),_TILE(nb, block_size.y), 1);
+  _compute_FCIrdm2_a_t1ci_v4<<<grid_size, block_size, 0,s>>>(ci, buf, stra_id,batches,nb, norb, nlinka, link_index);
+#ifdef _DEBUG_DEVICE 
+  printf("LIBGPU ::  -- general::compute_FCIrdm2_a_t1ci; :: Nb= %i Norb =%i Nlinka =%i grid_size= %i %i %i  block_size= %i %i %i\n",
+	 nb, norb, nlinka, grid_size.x,grid_size.y,grid_size.z,block_size.x,block_size.y,block_size.z);
+#endif
+  _CUDA_CHECK_ERRORS();
+}  
+/* ---------------------------------------------------------------------- */
+void Device::compute_FCIrdm2_b_t1ci_v2(double * ci, double * buf, int stra_id, int batches, int nb, int norb, int nlinkb, int * link_index)
+{
+  cudaStream_t s = *(pm->dev_get_queue());
+  {dim3 block_size(1, 1,_DEFAULT_BLOCK_SIZE);
+  dim3 grid_size(_TILE(batches,block_size.x),_TILE(nb, block_size.y), 1);
+  _compute_FCIrdm2_b_t1ci_v4<<<grid_size, block_size, 0,s>>>(ci, buf, stra_id, batches, nb, norb, nlinkb, link_index);}
+#ifdef _DEBUG_DEVICE 
+  printf("LIBGPU ::  -- general::compute_FCIrdm2_b_t1ci; :: Nb= %i Norb =%i Nlinkb =%i grid_size= %i %i %i  block_size= %i %i %i\n",
+	 nb, norb, nlinkb, grid_size.x,grid_size.y,grid_size.z,block_size.x,block_size.y,block_size.z);
+  _CUDA_CHECK_ERRORS();
+#endif
+} 
+
 /* ---------------------------------------------------------------------- */
 void Device::compute_FCIrdm3h_a_t1ci_v2(double * ci, double * buf, int stra_id, int nb, int norb, int nlinka, int ia, int ja, int ib, int jb, int * link_index)
 {

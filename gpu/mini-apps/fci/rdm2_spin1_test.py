@@ -36,10 +36,10 @@ def run_test(norb, nelec):
   nb = math.comb(norb, nelecb)
   cibra = np.random.random((na,nb))
   ciket = np.random.random((na,nb))
-  #rdm.make_rdm12_spin1('FCItdm12kern_a', cibra, ciket, norb, nelec)
-  #rdm.make_rdm12_spin1('FCItdm12kern_b', cibra, ciket, norb, nelec)
+  rdm.make_rdm12_spin1('FCItdm12kern_a', cibra, ciket, norb, nelec)
+  rdm.make_rdm12_spin1('FCItdm12kern_b', cibra, ciket, norb, nelec)
   rdm.make_rdm12_spin1('FCItdm12kern_ab', cibra, ciket, norb, nelec)
-  #rdm.make_rdm12_spin1('FCIrdm12kern_sf', cibra, ciket, norb, nelec)
+  rdm.make_rdm12_spin1('FCIrdm12kern_sf', cibra, ciket, norb, nelec)
 
 norb, nelec = 4, 4
 run_test(norb, nelec)

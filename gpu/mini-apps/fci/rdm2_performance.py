@@ -21,11 +21,13 @@ def performance_checker(fn, norb, nelec, nruns=10):
   cibra = np.random.random((na,nb))
   ciket = np.random.random((na,nb))
   link_index = (link_indexa, link_indexb)
+  gpu = param.use_gpu
   t0 = time.time()
   for _ in range(nruns): rdm.make_rdm12_spin1(fn, cibra, ciket, norb, nelec, link_index)
   t1 = time.time()
   param.use_gpu = None
   for _ in range(nruns): rdm.make_rdm12_spin1(fn, cibra, ciket, norb, nelec, link_index)
+  param.use_gpu = gpu
   t2 = time.time()
   return t1-t0, t2-t1
 
