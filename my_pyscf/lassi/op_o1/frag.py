@@ -12,6 +12,7 @@ from mrh.my_pyscf.lassi.op_o1.utilities import *
 from mrh.my_pyscf.fci.rdm import trans_rdm1ha_des, trans_rdm1hb_des
 from mrh.my_pyscf.fci.rdm import trans_rdm13ha_des, trans_rdm13hb_des
 from mrh.my_pyscf.fci.rdm import trans_sfddm1, trans_hhdm
+from mrh.my_pyscf.fci import rdm_smult
 from mrh.my_pyscf.fci.direct_halfelectron import contract_1he, absorb_h1he, contract_3he
 from mrh.my_pyscf.fci.direct_nosym_uhf import contract_1e as contract_1e_nosym_uhf
 from mrh.my_pyscf.fci.direct_nosym_ghf import contract_1e as contract_1e_nosym_ghf
@@ -100,6 +101,7 @@ class FragTDMInt (object):
         self.nroots = nroots
         self.dtype = dtype
         self.nelec_r = [tuple (n) for n in nelec_rs]
+        self.smult_r = [None for n in nelec_rs]
         self.linkstr_cache = {}
         self.linkstrl_cache = {}
         self.rootaddr = rootaddr
@@ -454,36 +456,44 @@ class FragTDMInt (object):
             return np.asarray (des_c)
         def des_a_loop (c, nelec, p): return des_loop (des_a, c, nelec, p)
         def des_b_loop (c, nelec, p): return des_loop (des_b, c, nelec, p)
-        def trans_rdm12s_loop (iroot, bra, ket, do2=True):
-            nelec = self.nelec_r[iroot]
-            na, nb = ndeta[iroot], ndetb[iroot]
-            bra = bra.reshape (-1, na, nb)
-            ket = ket.reshape (-1, na, nb)
-            tdm1s = np.zeros ((bra.shape[0],ket.shape[0],2,norb,norb), dtype=self.dtype)
-            tdm2s = np.zeros ((bra.shape[0],ket.shape[0],4,norb,norb,norb,norb), dtype=self.dtype)
+        def trans_rdm12s_loop (bra_r, ket_r, do2=True):
+            bravecs = ci[bra_r].reshape (-1, ndeta[bra_r], ndetb[bra_r])
+            ketvecs = ci[ket_r].reshape (-1, ndeta[ket_r], ndetb[ket_r])
+            nelec = self.nelec_r[ket_r]
+            bravecs, ketvecs, nelec = rdm_smult.get_highm_civecs_dm (
+                bravecs, ketvecs, norb, nelec, smult_bra=self.smult_r[bra_r],
+                smult_ket=self.smult_r[ket_r]
+            )
+            tdm1s = np.zeros ((bravecs.shape[0],ketvecs.shape[0],2,norb,norb), dtype=self.dtype)
+            tdm2s = np.zeros ((bravecs.shape[0],ketvecs.shape[0],4,norb,norb,norb,norb),
+                              dtype=self.dtype)
             linkstr = self._check_linkstr_cache (norb, nelec[0], nelec[1])
             if do2:
-                for i, j in product (range (bra.shape[0]), range (ket.shape[0])):
-                    d1s, d2s = trans_rdm12s (bra[i], ket[j], norb, nelec,
+                for i, j in product (range (bravecs.shape[0]), range (ketvecs.shape[0])):
+                    d1s, d2s = trans_rdm12s (bravecs[i], ketvecs[j], norb, nelec,
                                              link_index=linkstr)
                     # Transpose based on docstring of direct_spin1.trans_rdm12s
                     tdm1s[i,j] = np.stack (d1s, axis=0).transpose (0, 2, 1)
                     tdm2s[i,j] = np.stack (d2s, axis=0)
             else:
-                for i, j in product (range (bra.shape[0]), range (ket.shape[0])):
-                    d1s = trans_rdm1s (bra[i], ket[j], norb, nelec,
+                for i, j in product (range (bravecs.shape[0]), range (ketvecs.shape[0])):
+                    d1s = trans_rdm1s (bravecs[i], ketvecs[j], norb, nelec,
                                        link_index=linkstr)
                     # Transpose based on docstring of direct_spin1.trans_rdm12s
                     tdm1s[i,j] = np.stack (d1s, axis=0).transpose (0, 2, 1)
             return tdm1s, tdm2s
-        def trans_rdm1s_loop (iroot, bra, ket):
-            return trans_rdm12s_loop (iroot, bra, ket, do2=False)[0]
+        def trans_rdm1s_loop (bra_r, ket_r):
+            return trans_rdm12s_loop (bra_r, ket_r, do2=False)[0]
         def trans_rdm13h_loop (bra_r, ket_r, spin=0, do3h=True):
             trans_rdm13h = (trans_rdm13ha_des, trans_rdm13hb_des)[spin]
             trans_rdm1h = (trans_rdm1ha_des, trans_rdm1hb_des)[spin]
             nelec_ket = self.nelec_r[ket_r]
             bravecs = ci[bra_r].reshape (-1, ndeta[bra_r], ndetb[bra_r])
             ketvecs = ci[ket_r].reshape (-1, ndeta[ket_r], ndetb[ket_r])
+            bravecs, ketvecs, nelec_ket = rdm_smult.get_highm_civecs_h (
+                bravecs, ketvecs, norb, nelec_ket, spin, smult_bra=self.smult_r[bra_r],
+                smult_ket=self.smult_r[ket_r]
+            )
             tdm1h = np.zeros ((bravecs.shape[0],ketvecs.shape[0],norb), dtype=self.dtype)
             tdm3h = np.zeros ((bravecs.shape[0],ketvecs.shape[0],2,norb,norb,norb),
                               dtype=self.dtype)
@@ -507,6 +517,10 @@ class FragTDMInt (object):
             bravecs = ci[bra_r].reshape (-1, ndeta[bra_r], ndetb[bra_r])
             ketvecs = ci[ket_r].reshape (-1, ndeta[ket_r], ndetb[ket_r])
             nelec_ket = self.nelec_r[ket_r]
+            bravecs, ketvecs, nelec_ket = rdm_smult.get_highm_civecs_sm (
+                bravecs, ketvecs, norb, nelec_ket, smult_bra=self.smult_r[bra_r],
+                smult_ket=self.smult_r[ket_r]
+            )
             sfddm = np.zeros ((bravecs.shape[0],ketvecs.shape[0],norb,norb), dtype=self.dtype)
             linkstr = self._check_linkstr_cache (norb+1, nelec_ket[0], nelec_ket[1]+1)
             for i, j in product (range (bravecs.shape[0]), range (ketvecs.shape[0])):
@@ -518,6 +532,10 @@ class FragTDMInt (object):
             bravecs = ci[bra_r].reshape (-1, ndeta[bra_r], ndetb[bra_r])
             ketvecs = ci[ket_r].reshape (-1, ndeta[ket_r], ndetb[ket_r])
             nelec_ket = self.nelec_r[ket_r]
+            bravecs, ketvecs, nelec_ket = rdm_smult.get_highm_civecs_hh (
+                bravecs, ketvecs, norb, nelec_ket, spin, smult_bra=self.smult_r[bra_r],
+                smult_ket=self.smult_r[ket_r]
+            )
             hhdm = np.zeros ((bravecs.shape[0],ketvecs.shape[0],norb,norb), dtype=self.dtype)
             ndum = 2 - (spin%2)
             linkstr = self._check_linkstr_cache (norb+ndum, nelec_ket[0], nelec_ket[1])
@@ -534,7 +552,7 @@ class FragTDMInt (object):
         for i, j in spectator_index:
             k, l = self.uroot_addr[i], self.uroot_addr[j]
             if not self.unmasked_int (k,l,screen): continue
-            dm1s, dm2s = trans_rdm12s_loop (l, ci[k], ci[l], do2=True)
+            dm1s, dm2s = trans_rdm12s_loop (k, l, do2=True)
             self.set_dm1 (k, l, dm1s)
             self.set_dm2 (k, l, dm2s)
  
