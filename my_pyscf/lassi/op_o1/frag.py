@@ -424,7 +424,6 @@ class FragTDMInt (object):
             nelec_u = [self.nelec_r[i] for i in self.uroot_addr]
             smult_u = [self.smult_r[i] for i in self.uroot_addr]
             self.spman = _get_unique_roots_with_spin (ci_u, self.norb, nelec_u, smult_u)
-        print (self.spman)
         self.spman_inter = {}
         for i,j in product (range (nuroots), repeat=2):
             k, l = self.uroot_addr[i], self.uroot_addr[j]
@@ -435,10 +434,8 @@ class FragTDMInt (object):
             self.spman_inter[key] = (i,j)
         self.spman_inter_uniq = np.zeros ((nuroots,nuroots), dtype=bool)
         for key, val in self.spman_inter.items ():
-            print (key, val)
             i, j = val
             self.spman_inter_uniq[i,j] = True
-        print (self.spman_inter_uniq)
 
         self.mats = {}
         self.mats['ovlp'] = [[None for i in range (nuroots)] for j in range (nuroots)]
