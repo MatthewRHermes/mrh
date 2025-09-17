@@ -327,7 +327,10 @@ class FragTDMInt (object):
     # 1-density intermediate
 
     def get_dm1 (self, i, j):
-        if self.unique_root[j] > self.unique_root[i]:
+        k = self.spman[self.uroot_idx[i]]
+        l = self.spman[self.uroot_idx[j]]
+        a, b = self.spman_inter[(k,l,0)]
+        if b > a:
             return self.try_get ('dm1', j, i).conj ().transpose (1,0,2,4,3)
         return self.try_get ('dm1', i, j)
 
@@ -338,19 +341,28 @@ class FragTDMInt (object):
         self.mats['dm1'][i][j] = x
 
     def get_1_dm1 (self, i, j):
-        if self.unique_root[self.rootaddr[j]] > self.unique_root[self.rootaddr[i]]:
+        k = self.spman[self.uroot_idx[self.rootaddr[i]]]
+        l = self.spman[self.uroot_idx[self.rootaddr[j]]]
+        a, b = self.spman_inter[(k,l,0)]
+        if b > a:
             return self.try_get_1 ('dm1', j, i).conj ().transpose (0, 2, 1)
         return self.try_get_1 ('dm1', i, j)
 
     # 2-density intermediate
 
     def get_dm2 (self, i, j):
-        if self.unique_root[j] > self.unique_root[i]:
+        k = self.spman[self.uroot_idx[i]]
+        l = self.spman[self.uroot_idx[j]]
+        a, b = self.spman_inter[(k,l,0)]
+        if b > a:
             return self.try_get ('dm2', j, i).conj ().transpose (1,0,2,4,3,6,5)
         return self.try_get ('dm2', i, j)
 
     def get_1_dm2 (self, i, j):
-        if self.unique_root[self.rootaddr[j]] > self.unique_root[self.rootaddr[i]]:
+        k = self.spman[self.uroot_idx[self.rootaddr[i]]]
+        l = self.spman[self.uroot_idx[self.rootaddr[j]]]
+        a, b = self.spman_inter[(k,l,0)]
+        if b > a:
             return self.try_get_1 ('dm2', j, i).conj ().transpose (0, 2, 1, 4, 3)
         return self.try_get_1 ('dm2', i, j)
 
@@ -412,6 +424,7 @@ class FragTDMInt (object):
             nelec_u = [self.nelec_r[i] for i in self.uroot_addr]
             smult_u = [self.smult_r[i] for i in self.uroot_addr]
             self.spman = _get_unique_roots_with_spin (ci_u, self.norb, nelec_u, smult_u)
+        print (self.spman)
         self.spman_inter = {}
         for i,j in product (range (nuroots), repeat=2):
             k, l = self.uroot_addr[i], self.uroot_addr[j]
@@ -422,8 +435,10 @@ class FragTDMInt (object):
             self.spman_inter[key] = (i,j)
         self.spman_inter_uniq = np.zeros ((nuroots,nuroots), dtype=bool)
         for key, val in self.spman_inter.items ():
+            print (key, val)
             i, j = val
             self.spman_inter_uniq[i,j] = True
+        print (self.spman_inter_uniq)
 
         self.mats = {}
         self.mats['ovlp'] = [[None for i in range (nuroots)] for j in range (nuroots)]

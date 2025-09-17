@@ -482,8 +482,7 @@ class LSTDM (object):
 
     def crunch_ovlp (self, bra, ket):
         i = self.ints[-1]
-        b, k = i.uroot_idx[bra], i.uroot_idx[ket]
-        o = i.ovlp[b][k] / (1 + int (bra==ket))
+        o = i.get_ovlp (bra, ket) / (1 + int (bra==ket))
         for i in self.ints[-2::-1]:
             o = np.multiply.outer (o, i.get_ovlp (bra, ket)).transpose (0,2,1,3)
             o = o.reshape (o.shape[0]*o.shape[1], o.shape[2]*o.shape[3])
