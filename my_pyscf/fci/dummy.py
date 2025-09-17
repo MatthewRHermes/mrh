@@ -27,6 +27,21 @@ def add_orbital (ci0, norb, nelec, occ_a=0, occ_b=0):
         ci1 = tuple (ci1)
     return ci1
 
+def dummy_orbital_params(norb, nelec, occ_a=0, occ_b=0, return_size=False):
+    '''Same as adding a dummy orbital, but only sends in parameters that define the padding'''
+    ia = ib = 0
+    neleca, nelecb = _unpack_nelec (nelec)
+    ndeta0 = ja = cistring.num_strings (norb, neleca) 
+    ndetb0 = jb = cistring.num_strings (norb, nelecb) 
+    ndeta1 = cistring.num_strings (norb+1, neleca+occ_a) 
+    ndetb1 = cistring.num_strings (norb+1, nelecb+occ_b) 
+    if occ_a: ia, ja = ndeta1-ndeta0, ndeta1
+    if occ_b: ib, jb = ndetb1-ndetb0, ndetb1
+    sgn = (1,-1)[occ_b * (neleca%2)]
+    if return_size: return ia, ja, ib, jb, sgn, ndeta1, ndetb1
+    else: return ia, ja, ib, jb, sgn
+
+
 def read_orbital (ci1, norb, nelec, occ_a=0, occ_b=0):
     is_list = isinstance (ci1, list)
     is_tuple = isinstance (ci1, tuple)

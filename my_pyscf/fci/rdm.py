@@ -19,19 +19,6 @@ def _unpack(norb, nelec, link_index, spin=None):
     else:
         return link_index
 
-def dummy_orbital_params(norb, nelec, occ_a=0, occ_b=0, return_size=False):
-    ia = ib = 0
-    neleca, nelecb = _unpack_nelec (nelec)
-    ndeta0 = ja = cistring.num_strings (norb, neleca) 
-    ndetb0 = jb = cistring.num_strings (norb, nelecb) 
-    ndeta1 = cistring.num_strings (norb+1, neleca+occ_a) 
-    ndetb1 = cistring.num_strings (norb+1, nelecb+occ_b) 
-    if occ_a: ia, ja = ndeta1-ndeta0, ndeta1
-    if occ_b: ib, jb = ndetb1-ndetb0, ndetb1
-    sgn = (1,-1)[occ_b * (neleca%2)]
-    if return_size: return ia, ja, ib, jb, sgn, ndeta1, ndetb1
-    else: return ia, ja, ib, jb, sgn
-
 def _trans_rdm1hs (cre, cibra, ciket, norb, nelec, spin=0, link_index=None):
     '''Evaluate the one-half-particle transition density matrix between ci vectors in different
     Hilbert spaces: <cibra|r'|ciket>, where |cibra> has the same number of orbitals but one
@@ -124,8 +111,8 @@ def _trans_rdm1hs_o1(cre, cibra, ciket, norb, nelec, spin=0, link_index=None):
               "be for nelec+1 electrons occupying norb+1 orbitals.")
     for i in range (2): assert (linkstr[i].shape[1]==(nelec_bra[i]*(norb-nelec_bra[i]+2))), errmsg
 
-    ia_ket, ja_ket, ib_ket, jb_ket, sgn_ket = dummy_orbital_params(norb, nelec_ket, occ_a =(1-spin), occ_b = spin)
-    ia_bra, ja_bra, ib_bra, jb_bra, sgn_bra = dummy_orbital_params(norb, nelec_bra, occ_a = 0, occ_b = 0)
+    ia_ket, ja_ket, ib_ket, jb_ket, sgn_ket = dummy.dummy_orbital_params(norb, nelec_ket, occ_a =(1-spin), occ_b = spin)
+    ia_bra, ja_bra, ib_bra, jb_bra, sgn_bra = dummy.dummy_orbital_params(norb, nelec_bra, occ_a = 0, occ_b = 0)
     na, nlinka = linkstr[0].shape[:2] 
     nb, nlinkb = linkstr[1].shape[:2] 
     na_bra, nb_bra = cibra.shape
@@ -280,8 +267,8 @@ def _trans_rdm13hs_o4(cre, cibra, ciket, norb, nelec, spin=0, link_index=None, r
     errmsg = ("For the half-particle transition density matrix functions, the linkstr must "
               "be for nelec+1 electrons occupying norb+1 orbitals.")
     for i in range (2): assert (linkstr[i].shape[1]==(nelec_bra[i]*(norb-nelec_bra[i]+2))), errmsg
-    ia_ket, ja_ket, ib_ket, jb_ket, sgn_ket = dummy_orbital_params(norb, nelec_ket, occ_a = (1-spin), occ_b = spin)
-    ia_bra, ja_bra, ib_bra, jb_bra, sgn_bra = dummy_orbital_params(norb, nelec_bra, occ_a = 0, occ_b = 0)
+    ia_ket, ja_ket, ib_ket, jb_ket, sgn_ket = dummy.dummy_orbital_params(norb, nelec_ket, occ_a = (1-spin), occ_b = spin)
+    ia_bra, ja_bra, ib_bra, jb_bra, sgn_bra = dummy.dummy_orbital_params(norb, nelec_bra, occ_a = 0, occ_b = 0)
     na, nlinka = linkstr[0].shape[:2] 
     nb, nlinkb = linkstr[1].shape[:2] 
     na_bra, nb_bra = cibra.shape
@@ -325,8 +312,8 @@ def _trans_rdm13hs_o5(cre, cibra, ciket, norb, nelec, spin=0, link_index=None, r
     errmsg = ("For the half-particle transition density matrix functions, the linkstr must "
               "be for nelec+1 electrons occupying norb+1 orbitals.")
     for i in range (2): assert (linkstr[i].shape[1]==(nelec_bra[i]*(norb-nelec_bra[i]+2))), errmsg
-    ia_ket, ja_ket, ib_ket, jb_ket, sgn_ket = dummy_orbital_params(norb, nelec_ket, occ_a = (1-spin), occ_b = spin)
-    ia_bra, ja_bra, ib_bra, jb_bra, sgn_bra = dummy_orbital_params(norb, nelec_bra, occ_a = 0, occ_b = 0)
+    ia_ket, ja_ket, ib_ket, jb_ket, sgn_ket = dummy.dummy_orbital_params(norb, nelec_ket, occ_a = (1-spin), occ_b = spin)
+    ia_bra, ja_bra, ib_bra, jb_bra, sgn_bra = dummy.dummy_orbital_params(norb, nelec_bra, occ_a = 0, occ_b = 0)
     na, nlinka = linkstr[0].shape[:2] 
     nb, nlinkb = linkstr[1].shape[:2] 
     na_bra, nb_bra = cibra.shape
@@ -467,8 +454,8 @@ def _trans_sfudm1_o1(cibra,ciket,norb, nelec, link_index=None):
     errmsg = ("For the spin-flip transition density matrix functions, the linkstr must be for "
               "(neleca+1,nelecb) electrons occupying norb+1 orbitals.")
     for i in range (2): assert (linkstr[i].shape[1]==(nelecd[i]*(norb-nelecd[i]+2))), errmsg
-    ia_ket, ja_ket, ib_ket, jb_ket, sgn_ket = dummy_orbital_params(norb, nelec_ket, occ_a = 1, occ_b = 0)
-    ia_bra, ja_bra, ib_bra, jb_bra, sgn_bra = dummy_orbital_params(norb, nelec_bra, occ_a = 0, occ_b = 1)
+    ia_ket, ja_ket, ib_ket, jb_ket, sgn_ket = dummy.dummy_orbital_params(norb, nelec_ket, occ_a = 1, occ_b = 0)
+    ia_bra, ja_bra, ib_bra, jb_bra, sgn_bra = dummy.dummy_orbital_params(norb, nelec_bra, occ_a = 0, occ_b = 1)
     na, nlinka = linkstr[0].shape[:2] 
     nb, nlinkb = linkstr[1].shape[:2] 
     libgpu.push_link_index_ab(gpu, na, nb, nlinka, nlinkb, linkstr[0], linkstr[1])
@@ -495,8 +482,8 @@ def _trans_sfudm1_o2(cibra,ciket,norb, nelec, link_index=None):
     errmsg = ("For the spin-flip transition density matrix functions, the linkstr must be for "
               "(neleca+1,nelecb) electrons occupying norb+1 orbitals.")
     for i in range (2): assert (linkstr[i].shape[1]==(nelecd[i]*(norb-nelecd[i]+2))), errmsg
-    ia_ket, ja_ket, ib_ket, jb_ket, sgn_ket = dummy_orbital_params(norb, nelec_ket, occ_a = 1, occ_b = 0)
-    ia_bra, ja_bra, ib_bra, jb_bra, sgn_bra = dummy_orbital_params(norb, nelec_bra, occ_a = 0, occ_b = 1)
+    ia_ket, ja_ket, ib_ket, jb_ket, sgn_ket = dummy.dummy_orbital_params(norb, nelec_ket, occ_a = 1, occ_b = 0)
+    ia_bra, ja_bra, ib_bra, jb_bra, sgn_bra = dummy.dummy_orbital_params(norb, nelec_bra, occ_a = 0, occ_b = 1)
     na, nlinka = linkstr[0].shape[:2] 
     nb, nlinkb = linkstr[1].shape[:2] 
     libgpu.push_link_index_ab(gpu, na, nb, nlinka, nlinkb, linkstr[0], linkstr[1])
@@ -647,10 +634,10 @@ def _trans_ppdm_o2(cibra, ciket, norb, nelec, spin = 0, link_index = None):
     ja_bra, jb_bra, ja_ket, jb_ket = na_bra, nb_bra, na_ket, nb_ket
     sgn_bra = sgn_ket = 1
     for i in range (ndum):
-        ia_ket_new, ja_ket_new, ib_ket_new, jb_ket_new, sgn_ket_new = dummy_orbital_params(norb+i, nelecd_copy, occ_a=occ_a, occ_b=occ_b)
+        ia_ket_new, ja_ket_new, ib_ket_new, jb_ket_new, sgn_ket_new = dummy.dummy_orbital_params(norb+i, nelecd_copy, occ_a=occ_a, occ_b=occ_b)
         nelecd_copy[0] +=occ_a
         nelecd_copy[1] +=occ_b 
-        ia_bra_new, ja_bra_new, ib_bra_new, jb_bra_new, sgn_bra_new = dummy_orbital_params(norb+i, nelec_bra, occ_a = 0, occ_b=0)
+        ia_bra_new, ja_bra_new, ib_bra_new, jb_bra_new, sgn_bra_new = dummy.dummy_orbital_params(norb+i, nelec_bra, occ_a = 0, occ_b=0)
         ia_bra += ia_bra_new
         ib_bra += ib_bra_new
         ia_ket += ia_ket_new
@@ -704,10 +691,10 @@ def _trans_ppdm_o3(cibra, ciket, norb, nelec, spin = 0, link_index = None):
     ja_bra, jb_bra, ja_ket, jb_ket = na_bra, nb_bra, na_ket, nb_ket
     sgn_bra = sgn_ket = 1
     for i in range (ndum):
-        ia_ket_new, ja_ket_new, ib_ket_new, jb_ket_new, sgn_ket_new = dummy_orbital_params(norb+i, nelecd_copy, occ_a=occ_a, occ_b=occ_b)
+        ia_ket_new, ja_ket_new, ib_ket_new, jb_ket_new, sgn_ket_new = dummy.dummy_orbital_params(norb+i, nelecd_copy, occ_a=occ_a, occ_b=occ_b)
         nelecd_copy[0] +=occ_a
         nelecd_copy[1] +=occ_b 
-        ia_bra_new, ja_bra_new, ib_bra_new, jb_bra_new, sgn_bra_new = dummy_orbital_params(norb+i, nelec_bra, occ_a = 0, occ_b=0)
+        ia_bra_new, ja_bra_new, ib_bra_new, jb_bra_new, sgn_bra_new = dummy.dummy_orbital_params(norb+i, nelec_bra, occ_a = 0, occ_b=0)
         ia_bra += ia_bra_new
         ib_bra += ib_bra_new
         ia_ket += ia_ket_new
