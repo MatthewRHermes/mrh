@@ -434,17 +434,7 @@ class LSTDM (object):
         if lbl=='null': return exc
         ulblu = '_' + lbl + '_'
         excp = exc[:,:-1] if ulblu in self.interaction_has_spin else exc
-        fprintLT = np.empty (len (excp), dtype=int)
-        fprint = np.empty (len (excp), dtype=int)
-        #t0 = self.log.timer ('Exc part 3 setup ', *t0)
-        # MRH 08/01/2025: this loop is a significant bottleneck in many-fragment LASSIS and is
-        # trivial to multithread in C as long as you can find a good integer-list hash function
-        for i, row in enumerate (excp):
-            bra, ket = row[:2]
-            frags = row[2:]
-            fprintLT[i] = self.interaction_fprint (bra, ket, frags, ltri=self.ltri)
-            fprint[i] = self.interaction_fprint (bra, ket, frags, ltri=False)
-        #t0 = self.log.timer ('Exc part 3 bottleneck loop', *t0)
+        fprint, fprintLT = self.interaction_fprints (exc, lbl)
         nexc = len (exc)
         ufp, idx, cnts = np.unique (fprintLT, axis=0, return_index=True, return_counts=True)
         # for some reason this squeeze is necessary for some versions of numpy; however...
