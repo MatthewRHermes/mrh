@@ -30,10 +30,51 @@ latex_header = r'''\documentclass[prb,amsmath,amssymb,floatfix,nofootinbib,super
 
 _docstring_scale = '''Compute the scale factor A(s',s,m) for the transition density matrices
 
-    <s',s"{dm}|{{ops}}|s,s"> = A(s',s,m) <s',m{dm}|{{ops}}|s,m>
+    <s',m'{pdm}|{ops}|s,m'> = A(s',s,m) <s',m{pdm}|{ops}|s,m>
 
-    where {cond_mmax} = max (s,s'){cond_dm}
+    where m' = max (s,s'{mdm}){mdoubprime}
     not accounting for any transposition of spin sectors among the operators if present.'''
 
-#def get_docstring_scale (
+args = {'smult_bra': r'''        smult_bra: integer
+            spin multiplicity of the bra
+''',
+        'smult_ket': r'''        smult_ket: integer
+            spin multiplicity of the ket
+''',
+        'spin_op': ['', r'''        spin_op: 0 or 1
+            identify spin sector of operator: alpha (0) or beta (1)
+''',
+                    r'''        spin op: 0, 1, or 2
+            identify spin sector of operator: aa (0), ba (1), or bb (2)
+'''],
+        'spin_ket': r'''        spin_ket: integer
+            2*spin polarization (= na - nb) in the ket
+'''}
+
+def get_docstring_scale (ops, col_indices):
+    col_indices = list (set ([idx[0] - idx[1] for idx in col_indices]))
+    if len (col_indices) == 1:
+        mdoubprime = ''
+        if col_indices[0] == 0:
+            pdm = mdm = ''
+        else:
+            pdm = '+{}'.format (abs (col_indices[0]))
+            mdm = '-{}'.format (abs (col_indices[0]))
+            if col_indices[0] < 0:
+                pdm, mdm = mdm, pdm
+    else:
+        pdm = '+m"'
+        mdm = '-m:'
+        mdoubprime = ' and m" is the spin sector of the operator'
+    my_docstring = _docstring_scale.format (ops=ops, pdm=pdm, mdm=mdm, mdoubprime=mdoubprime)
+    my_docstring += '\n\n    Args:\n'
+    my_docstring += args['smult_bra']
+    my_docstring += args['spin_op'][len(col_indices)-1]
+    my_docstring += args['smult_ket']
+    my_docstring += args['spin_ket']
+    my_docstring += '\n    Returns:\n'
+    my_docstring += '        A: float\n'
+    my_docstring += '            scale factor'
+    my_docstring = "    '''" + my_docstring + "'''\n"
+    return my_docstring
 

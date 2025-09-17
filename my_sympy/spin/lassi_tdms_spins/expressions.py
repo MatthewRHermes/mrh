@@ -8,6 +8,7 @@ from sympy.utilities.lambdify import lambdastr
 import itertools
 from mrh.my_sympy.spin.lassi_tdms_spins.glob import *
 from mrh.my_sympy.spin.lassi_tdms_spins.operators import CrVector, AnVector, CrAnOperator, OpSum
+from mrh.my_sympy.spin.lassi_tdms_spins import documentation
 
 class TDMExpression (object):
     def __init__(self, lhs, rhs_coeffs, rhs_terms, do_normal_order=True):
@@ -623,6 +624,13 @@ class TDMScaleArray (object):
         if self.shape[1] > 1:
             code += 'spin_op, '
         code += 'smult_ket, spin_ket):\n'
+
+        ops = ''
+        for dm_type in self.get_dm_types ():
+            ops += self.dm_type_str (dm_type)[1:-1] + ', '
+        ops = ops[:-2]
+        code += documentation.get_docstring_scale (ops, self.col_indices)
+
         no_pos = np.amax (self.row_indices) == 0
         if no_pos:
             code += ' '*4 + 'if smult_bra > smult_ket:\n'
