@@ -411,10 +411,10 @@ class TDMSystem (object):
         return roots
 
 mup_fn_head = '''def mup_{{dmname}} (dm_0, smult_bra, {cond_spin_op}smult_ket, spin_ket):
-    dm_1 = dm_0 / scale_{{scalename}} (smult_bra, {cond_spin_op}smult_ket, spin_ket)
+{{docstring}}    dm_1 = dm_0 / scale_{{scalename}} (smult_bra, {cond_spin_op}smult_ket, spin_ket)
 '''     
 mdown_fn_head = '''def mdown_{{dmname}} (dm_0, smult_bra, {cond_spin_op}smult_ket, spin_ket):
-    dm_1 = dm_0 * scale_{{scalename}} (smult_bra, {cond_spin_op}smult_ket, spin_ket)
+{{docstring}}    dm_1 = dm_0 * scale_{{scalename}} (smult_bra, {cond_spin_op}smult_ket, spin_ket)
 '''         
 mup_or_mdown_fn_calltranspose = '''    old_shape = dm_1.shape
     temp_shape = (-1,) + old_shape[-{{dmndim}}:]
@@ -654,7 +654,7 @@ class TDMScaleArray (object):
         code += ' (s, m)\n\n'
         return code
 
-    def get_mupmdown_code (self, nops, dmname, transpose_eqns=None):
+    def get_mdown_code (self, nops, dmname, transpose_eqns=None):
         if transpose_eqns is None:
             transpose_eqns = self.get_transpose_eqns ()
         keys = [key[:2] for key in transpose_eqns.keys () if key[2] == nops]
@@ -665,6 +665,8 @@ class TDMScaleArray (object):
                     has_spin_op = self.lhs[i][j][k].has_spin_op ()
                     dmndim = self.lhs[i][j][k].get_dmndim ()
                     mirror_sym = self.lhs[i][j][k].has_mirror_sym ()
+                    dm_type = self.lhs[i][j][k].count_ops ()
+                    ncomp = self.lhs[i][j][k].count_spin_sectors ()
                     broken = True
                     break
             if broken: break
@@ -694,10 +696,10 @@ class TDMScaleArray (object):
             myget = myget_cases + myget_maincase
             myget = '    ' + '\n    '.join ((myget).split ('\n'))
             myput = '    ' + '\n    '.join (myput.python_code ().split ('\n'))
-            code += 'def ' + transpose_mup_header.format (idx=i) + '(dm_0, s, m):\n'
-            code += '    ' + initialize + '\n'
-            code += myput + '\n'
-            code += '    return dm_1\n'
+            #code += 'def ' + transpose_mup_header.format (idx=i) + '(dm_0, s, m):\n'
+            #code += '    ' + initialize + '\n'
+            #code += myput + '\n'
+            #code += '    return dm_1\n'
             code += 'def ' + transpose_mdown_header.format (idx=i) + '(dm_0, s, m):\n'
             code += '    ' + initialize + '\n'
             code += myget + '\n'
@@ -712,13 +714,18 @@ class TDMScaleArray (object):
             first_term = False
         transpose_mup_lookup = transpose_mup_lookup + '}\n'
         transpose_mdown_lookup = transpose_mdown_lookup + '}\n'
-        code += transpose_mup_lookup
+        #code += transpose_mup_lookup
         code += transpose_mdown_lookup
         code += '\n'
-        code += mup_fn_fmt (has_spin_op, mirror_sym=mirror_sym).format (
-            dmname=dmname, dmndim=dmndim, scalename=self.name) + '\n'
+        #code += mup_fn_fmt (has_spin_op, mirror_sym=mirror_sym).format (
+        #    dmname=dmname, dmndim=dmndim, scalename=self.name) + '\n'
+        docstring = documentation.get_docstring_mdown (
+            self.dm_type_str (dm_type)[1:-1],
+            self.col_indices,
+            ncomp
+        )
         code += mdown_fn_fmt (has_spin_op, mirror_sym=mirror_sym).format (
-            dmname=dmname, dmndim=dmndim, scalename=self.name) + '\n'
+            dmname=dmname, dmndim=dmndim, scalename=self.name, docstring=docstring) + '\n'
         return code
 
 class ScaledTDMSystem (TDMSystem):

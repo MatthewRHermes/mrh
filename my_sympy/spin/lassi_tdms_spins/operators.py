@@ -73,6 +73,7 @@ class CrVector (object):
         self.m_ket = m_ket
 
     def has_spin_op (self): return True
+    def count_spin_sectors (self): return 1
     def get_dmndim (self): return sum (self.count_ops ())
     def has_mirror_sym (self): return False
 
@@ -354,12 +355,15 @@ class CrAnOperator (CrVector):
 
     def get_dmndim (self):
         ndim = sum (self.count_ops ())
+        if self.count_spin_sectors () > 1:
+            ndim += 1
+        return ndim
+
+    def count_spin_sectors (self):
         nel = min (len (self.crops), len (self.anops))
         crel = np.asarray (self.crops)[-nel:]
         anel = np.asarray (self.anops)[-nel:][::-1]
-        if np.count_nonzero (crel==anel) > 0:
-            ndim += 1
-        return ndim
+        return 2**np.count_nonzero (crel==anel)
 
     def has_mirror_sym (self):
         return ((not self.has_spin_op ()) and self.count_spins () == (0,0))
