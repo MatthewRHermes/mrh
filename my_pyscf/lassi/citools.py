@@ -1,3 +1,4 @@
+import sys
 import numpy as np
 import functools
 from scipy.sparse import linalg as sparse_linalg
@@ -5,6 +6,7 @@ from scipy import linalg
 from pyscf.scf.addons import canonical_orth_
 from pyscf import __config__
 from itertools import combinations
+from mrh.my_pyscf.fci import spin_op
 
 LINDEP_THRESH = getattr (__config__, 'lassi_lindep_thresh', 1.0e-5)
 SCREEN_THRESH = getattr (__config__, 'lassi_frag_screen_thresh', 1e-10)
@@ -124,7 +126,7 @@ def _umat_dot_1frag (target, umat, lroots, ifrag):
     old_shape2[0] = old_shape2[0] * ncol2 // ncol1
     return target.reshape (*old_shape2)
 
-def get_orth_basis (ci_fr, norb_f, nelec_frs, _get_ovlp=None):
+def get_orth_basis (ci_fr, norb_f, nelec_frs, _get_ovlp=None, smult_fr=None):
     '''Unitary matrix for an orthonormal product-state basis from a set of CI vectors.
 
     Args:
@@ -148,7 +150,10 @@ def get_orth_basis (ci_fr, norb_f, nelec_frs, _get_ovlp=None):
         from mrh.my_pyscf.lassi.op_o0 import get_ovlp
         _get_ovlp = functools.partial (get_ovlp, ci_fr, norb_f, nelec_frs)
     nfrags, nroots = nelec_frs.shape[:2]
-    unique, uniq_idx, inverse, cnts = np.unique (nelec_frs, axis=1, return_index=True,
+    tabulator = nelec_frs.sum (2)
+    if smult_fr is not None:
+        tabulator = np.append (tabulator, smult_fr, axis=0)
+    unique, uniq_idx, inverse, cnts = np.unique (tabulator, axis=1, return_index=True,
                                                  return_inverse=True, return_counts=True)
     lroots_fr = np.array ([[1 if c.ndim<3 else c.shape[0]
                             for c in ci_r]
@@ -162,63 +167,137 @@ def get_orth_basis (ci_fr, norb_f, nelec_frs, _get_ovlp=None):
 
     if not np.count_nonzero (cnts>1): 
         _get_ovlp = None
-        return sparse_linalg.LinearOperator (shape=(nraw,nraw), dtype=dtype,
-                                             matvec=lambda x: x,
-                                             rmatvec=lambda x: x)
+        return NullOrthBasis (nraw, dtype)
     uniq_prod_idx = []
     for i in uniq_idx[cnts==1]: uniq_prod_idx.extend (list(range(offs0[i],offs1[i])))
     manifolds_prod_idx = []
     manifolds_xmat = []
-    nuniq_prod = north = len (uniq_prod_idx)
+    north = len (uniq_prod_idx)
     for manifold_idx in np.where (cnts>1)[0]:
-        manifold = np.where (inverse==manifold_idx)[0]
-        manifold_prod_idx = []
-        for i in manifold: manifold_prod_idx.extend (list(range(offs0[i],offs1[i])))
-        manifolds_prod_idx.append (manifold_prod_idx)
-        ovlp = _get_ovlp (rootidx=manifold)
-        eye = np.eye (ovlp.shape[0])
-        err_from_diag = np.amax (np.abs (ovlp - eye))
-        if err_from_diag > 1e-8:
-            xmat = canonical_orth_(ovlp, thr=LINDEP_THRESH)
-        else:
-            xmat = eye
-        north += xmat.shape[1]
-        manifolds_xmat.append (xmat)
+        manifolds = _get_spin_split_manifolds (ci_fr, norb_f, nelec_frs, smult_fr, lroots_fr,
+                                               inverse==manifold_idx)
+        for manifold in manifolds:
+            manifold_prod_idx = []
+            for spin_mirror in manifold:
+                prod_idx = []
+                for i in spin_mirror:
+                    prod_idx.extend (list(range(offs0[i],offs1[i])))
+                manifold_prod_idx.append (prod_idx)
+            manifold_prod_idx = np.asarray (manifold_prod_idx, dtype=int)
+            nmirror, nprod = manifold_prod_idx.shape
+            ovlp = _get_ovlp (rootidx=manifold[0])
+            ovlp[np.diag_indices_from (ovlp)] -= 1.0
+            err_from_diag = np.amax (np.abs (ovlp))
+            if err_from_diag > 1e-8:
+                ovlp[np.diag_indices_from (ovlp)] += 1.0
+                manifolds_prod_idx.append (manifold_prod_idx)
+                xmat = canonical_orth_(ovlp, thr=LINDEP_THRESH)
+                north += xmat.shape[1] * nmirror
+                manifolds_xmat.append (xmat)
+            else:
+                north += ovlp.shape[0] * nmirror
+                uniq_prod_idx.extend (list (manifold_prod_idx.ravel ()))
+            ovlp = None
+    nuniq_prod = len (uniq_prod_idx)
+    nraw = offs1[-1]
 
     _get_ovlp = None
 
-    nraw = offs1[-1]
-    def raw2orth (rawarr):
-        is_out_complex = is_complex or np.iscomplexobj (rawarr)
+    return OrthBasis ((north,nraw), dtype, uniq_prod_idx, manifolds_prod_idx, manifolds_xmat)
+
+def _get_spin_split_manifolds (ci_fr, norb_f, nelec_frs, smult_fr, lroots_fr, idx):
+    '''The same as _get_spin_split_manifolds_idx, except that all of the arguments need to be
+    indexed down from the full model space into the input manifold via "idx" first. The returned
+    submanifold list is likewise indexed back into the full model space.'''
+    nelec_frs = nelec_frs[:,idx,:]
+    if smult_fr is not None: smult_fr = smult_fr[:,idx]
+    lroots_fr = lroots_fr[:,idx]
+    idx = np.where (idx)[0]
+    ci1_fr = [[ci_r[i] for i in idx] for ci_r in ci_fr]
+    manifolds = _get_spin_split_manifolds_idx (ci1_fr, norb_f, nelec_frs, smult_fr, lroots_fr)
+    for i in range (len (manifolds)):
+        manifolds[i] = [idx[j] for j in manifolds[i]]
+    return manifolds
+
+def _get_spin_split_manifolds_idx (ci_fr, norb_f, nelec_frs, smult_fr, lroots_fr):
+    '''Split a manifold of model state rootspaces which have same numbers of electrons and spin
+    multiplicities in each fragment into submanifolds according to their spin-projection quantum
+    numbers Na-Nb.'''
+    # after indexing down to the current spinless manifold
+    nfrags = len (norb_f)
+    spins_fr = nelec_frs[:,:,0] - nelec_frs[:,:,1]
+    tabulator = spins_fr.T
+    uniq, inverse = np.unique (tabulator, axis=0, return_inverse=True)
+    nmanifolds = len (uniq)
+    manifolds = [np.where (inverse==i)[0] for i in range (nmanifolds)]
+    if smult_fr is None or nmanifolds<2:
+        return [manifold[None,:] for manifold in manifolds]
+    fprint = np.stack ([get_unique_roots_with_spin (
+        ci_fr[ifrag], norb_f[ifrag], [tuple (n) for n in nelec_frs[ifrag]], smult_fr[ifrag]
+    ) for ifrag in range (nfrags)], axis=1)
+    fprint = [fprint[manifold] for manifold in manifolds]
+    uniq, inverse = np.unique (fprint, axis=0, return_inverse=True)
+    manifolds = [np.stack ([manifolds[i] for i in np.where (inverse==j)[0]],
+                           axis=0)
+                 for j in range (len (uniq))]
+    return manifolds
+
+class OrthBasis (sparse_linalg.LinearOperator):
+    def __init__(self, shape, dtype, uniq_prod_idx, manifolds_prod_idx, manifolds_xmat):
+        self.shape = shape
+        self.dtype = dtype
+        self.uniq_prod_idx = np.asarray (uniq_prod_idx, dtype=int)
+        self.manifolds_prod_idx = [np.asarray (x, dtype=int) for x in manifolds_prod_idx]
+        self.manifolds_xmat = manifolds_xmat
+
+    def _matvec (self, rawarr):
+        nuniq_prod = len (self.uniq_prod_idx)
+        is_out_complex = (self.dtype==np.complex128) or np.iscomplexobj (rawarr)
         my_dtype = np.complex128 if is_out_complex else np.float64
         col_shape = rawarr.shape[1:]
-        orth_shape = [north,] + list (col_shape)
+        orth_shape = [self.shape[0],] + list (col_shape)
         ortharr = np.zeros (orth_shape, dtype=my_dtype)
-        ortharr[:nuniq_prod] = rawarr[uniq_prod_idx]
+        ortharr[:nuniq_prod] = rawarr[self.uniq_prod_idx]
         i = nuniq_prod
-        for prod_idx, xmat in zip (manifolds_prod_idx, manifolds_xmat):
-            j = i + xmat.shape[1]
-            ortharr[i:j] = np.tensordot (xmat.T, rawarr[prod_idx], axes=1)
-            i = j
+        for prod_idx, xmat in zip (self.manifolds_prod_idx, self.manifolds_xmat):
+            for mirror in prod_idx:
+                j = i + xmat.shape[1]
+                ortharr[i:j] = np.tensordot (xmat.T, rawarr[mirror], axes=1)
+                i = j
         return ortharr
 
-    def orth2raw (ortharr):
-        is_out_complex = is_complex or np.iscomplexobj (ortharr)
+    def _rmatvec (self, ortharr):
+        nuniq_prod = len (self.uniq_prod_idx)
+        is_out_complex = (self.dtype==np.complex128) or np.iscomplexobj (ortharr)
         my_dtype = np.complex128 if is_out_complex else np.float64
         col_shape = ortharr.shape[1:]
-        raw_shape = [nraw,] + list (col_shape)
+        raw_shape = [self.shape[1],] + list (col_shape)
         rawarr = np.zeros (raw_shape, dtype=my_dtype)
-        rawarr[uniq_prod_idx] = ortharr[:nuniq_prod]
+        rawarr[self.uniq_prod_idx] = ortharr[:nuniq_prod]
         i = nuniq_prod
-        for prod_idx, xmat in zip (manifolds_prod_idx, manifolds_xmat):
-            j = i + xmat.shape[1]
-            rawarr[prod_idx] = np.tensordot (xmat.conj (), ortharr[i:j], axes=1)
-            i = j
+        for prod_idx, xmat in zip (self.manifolds_prod_idx, self.manifolds_xmat):
+            for mirror in prod_idx:
+                j = i + xmat.shape[1]
+                rawarr[mirror] = np.tensordot (xmat.conj (), ortharr[i:j], axes=1)
+                i = j
         return rawarr
 
-    return sparse_linalg.LinearOperator (shape=(north,nraw), dtype=dtype,
-                                         matvec=raw2orth,
-                                         rmatvec=orth2raw)
+    def get_nbytes (self):
+        nbytes = self.uniq_prod_idx.nbytes
+        for x in self.manifolds_xmat + self.manifolds_prod_idx:
+            nbytes += x.nbytes
+        return nbytes
+
+class NullOrthBasis (sparse_linalg.LinearOperator):
+    def __init__(self, nraw, dtype):
+        self.shape = (nraw,nraw)
+        self.dtype = dtype
+
+    def _matvec (self, x): return x
+
+    def _rmatvec (self, x): return x
+
+    def get_nbytes (self): return 0
 
 def get_unique_roots (ci, nelec_r, screen_linequiv=True, screen_thresh=SCREEN_THRESH,
                       discriminator=None):
@@ -336,4 +415,64 @@ def hci_dot_sivecs_ij (hci_pabq, si_bra, si_ket, lroots, i, j):
                 if is1d: hci_pabq = hci_pabq[0]
     return hci_pabq
 
+def get_unique_roots_with_spin (ci_r, norb, nelec_r, smult_r):
+    '''Identify which groups of CI vectors are equal or equivalent from a list, including
+    equivalencies under rotation of the spin Z-axis.
 
+    Args:
+        ci_r: list of length nroots of ndarray
+            CI vectors
+        norb : integer
+            Number of orbitals
+        nelec_r: list of length nroots of tuple of length 2 of int
+            Numbers of electrons in each group of CI vectors
+        smult_r: list of length nroots
+            Spin multiplicity (2S+1 <= (Na-Nb)+1) for each group of CI vectors
+
+    Returns:
+        unique_root: ndarray of ints length nroots
+            The index of the unique image of each set of CI vectors in the list
+    '''
+    root_unique, unique_root1 = get_unique_roots (ci_r, nelec_r, screen_linequiv=False,
+                                                  discriminator=smult_r)[:2]
+    idx = np.where (root_unique)[0]
+    ci_r = [ci_r[i] for i in idx]
+    nelec_r = [nelec_r[i] for i in idx]
+    smult_r = [smult_r[i] for i in idx]
+    unique_root2 = _get_unique_roots_with_spin (ci_r, norb, nelec_r, smult_r)
+    unique_root3 = -np.ones (len (root_unique), dtype=int)
+    unique_root3[root_unique] = unique_root2
+    unique_root = unique_root3[unique_root1]
+    assert (np.all (unique_root>=0))
+    return unique_root
+
+def _get_unique_roots_with_spin (ci_r, norb, nelec_r, smult_r):
+    '''The same as get_unique_roots_with_spin, except that it is assumed that all CI vectors are
+    already unique except for equivalencies under rotation of the spin Z-axis that have not yet
+    been considered.'''
+    # After indexing down to only unique roots, so each root can be only 1 manifold
+    nroots = len (ci_r)
+    lroots_r = get_lroots (ci_r)
+    # TODO (maybe): refactor for fewer sup operations. The logic would be complicated.
+    for iroot in range (nroots):
+        ci0 = ci_r[iroot]
+        ci1 = []
+        if ci0.ndim == 2: ci0 = ci0[None,:,:]
+        for lroot in range (lroots_r[iroot]):
+            ci1.append (spin_op.mup (ci0[lroot], norb, nelec_r[iroot], smult_r[iroot]))
+        ci_r[iroot] = np.stack (ci1, axis=0).reshape (lroots_r[iroot],-1)
+    nelec_r = [sum (n) for n in nelec_r]
+    root_unique = np.ones (nroots, dtype=bool)
+    unique_root = np.arange (nroots, dtype=int)
+    umat_root = {}
+    for i, j in combinations (range (nroots), 2):
+        if not root_unique[i]: continue
+        if not root_unique[j]: continue
+        if nelec_r[i] != nelec_r[j]: continue
+        if lroots_r[i] != lroots_r[j]: continue
+        ovlp = [np.dot (ci_r[i][l], ci_r[j][l]) for l in range (lroots_r[i])]
+        if np.allclose (ovlp, 1.0):
+            root_unique[j] = False
+            unique_root[j] = i
+    # TODO (maybe): make sure that the "unique root" doesn't have m = 0? Is this important?
+    return unique_root

@@ -499,7 +499,6 @@ def _trans_sfudm1_o2(cibra,ciket,norb, nelec, link_index=None):
     libgpu.pull_tdm2(gpu, dm2dum, norb+1)
     return dm2dum
 
-
 def trans_sfddm1 (cibra, ciket, norb, nelec, link_index=None):
     ''' Evaluate the spin-flip-down single-electron transition density matrix: <cibra|b'a|ciket>.
 
@@ -727,7 +726,6 @@ def _trans_ppdm_o3(cibra, ciket, norb, nelec, spin = 0, link_index = None):
 
     #if (spin%2)==0: dumdm1, dumdm2 = rdm.reorder_rdm (dumdm1.T, dumdm2, inplace=True)
     #return dumdm2[:-ndum,-1,:-ndum,-ndum]
-
 
 def trans_hhdm (cibra, ciket, norb, nelec, spin=0, link_index=None):
     ''' Evaluate the pair-destruction single-electron transition density matrix: <cibra|pq|ciket>.

@@ -33,6 +33,8 @@ def prepare_model_states (lsi, ci_ref, ci_sf, ci_ch):
     las = lsi.get_las_of_ci_ref (ci_ref)
     t1=log.timer ("LASSIS model space preparation: get_las_of_ci_ref ", *t1)
     space0 = list_spaces (las)[0]
+    if not space0.civecs_have_good_spin ():
+        log.warn ("spin-impure reference wfn in LASSIS")
     # Make spin flip objects
     spin_flips = []
     for i in range (las.nfrags):
@@ -48,8 +50,10 @@ def prepare_model_states (lsi, ci_ref, ci_sf, ci_ch):
             smults1.append (smult+2)
             spins1.append (smult+1)
             ci1.append (ci_sf[i][1])
-        spin_flips.append (SpinFlips (las.mol, ci1, space0.nlas[i], space0.nelec[i], spins1, smults1))
+        spin_flip_i = SpinFlips (las.mol, ci1, space0.nlas[i], space0.nelec[i], spins1, smults1)
+        spin_flips.append (spin_flip_i)
     t1=log.timer ("LASSIS model space preparation: make spin flip objects ", *t1)
+    
     # Make charge-hop objects
     spaces = [space0]
     spaces_ch = [[[] for a in range (lsi.nfrags)] for i in range (lsi.nfrags)]
@@ -619,9 +623,10 @@ class LASSIS (LASSI):
         t1 = log.timer ("LASSIS integral transformation", *t0)
 
         with lib.temporary_env (self, _cached_ham_2q=(h0, self.h1_no_SOC(h1), h2)):
-            self.converged = self.prepare_states_(ncharge=ncharge, nspin=nspin,
-                                                  sa_heff=sa_heff, deactivate_vrv=deactivate_vrv,
-                                                  crash_locmin=crash_locmin)
+            self.converged = self.prepare_states_(
+                ncharge=ncharge, nspin=nspin, sa_heff=sa_heff,
+                deactivate_vrv=deactivate_vrv, crash_locmin=crash_locmin
+            )
 
         with lib.temporary_env (self, _cached_ham_2q=(h0, h1, h2)):
             t1 = log.timer ("LASSIS state preparation", *t1)
