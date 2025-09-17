@@ -499,7 +499,7 @@ class FragTDMInt (object):
             if self.nelec_r[i] != self.nelec_r[j]: continue
             if not self.unmasked_int (i,j,screen): continue
             k, l = self.uroot_idx[i], self.uroot_idx[j]
-            if not spman_inter_uniq[k,l]: continue
+            if not (spman_inter_uniq[k,l] or spman_inter_uniq[l,k]): continue
             ci_i = ci[i].reshape (lroots[i], -1)
             ci_j = ci[j].reshape (lroots[j], -1)
             self.mats['ovlp'][k][l] = np.dot (ci_i.conj (), ci_j.T)
