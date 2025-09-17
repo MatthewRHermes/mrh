@@ -9,7 +9,7 @@ import itertools
 from mrh.my_sympy.spin.lassi_tdms_spins.glob import *
 from mrh.my_sympy.spin.lassi_tdms_spins.operators import CrVector, AnVector, CrAnOperator, OpSum
 from mrh.my_sympy.spin.lassi_tdms_spins.expressions import TDMExpression, combine_TDMSystem, TDMSystem, TDMScaleArray
-from mrh.my_sympy.spin.lassi_tdms_spins.documentation import latex_header
+from mrh.my_sympy.spin.lassi_tdms_spins.documentation import latex_header, _file_docstring
 
 def solve_pure_destruction (d2s_bra, anops, d2s_ket, d2m_ket):
     return solve_pure_creation (d2s_bra, anops, d2s_ket, d2m_ket, H=True)
@@ -272,7 +272,18 @@ def dm2_hacks (transpose_eqns):
     return transpose_eqns
 
 if __name__=='__main__':
-    import sys
+    import sys, hashlib
+    from pyscf.lib.misc import repo_info
+    from datetime import datetime
+    mrh_path = os.path.abspath (os.path.join (topdir, '..', '..', '..'))
+    mrh_info = repo_info (mrh_path)
+    file_docstring = "'''" + _file_docstring.format (
+        executable=sys.executable,
+        filepath=os.path.abspath(__file__),
+        mrh_path=repo_info(mrh_path)['path'],
+        mrh_git=repo_info(mrh_path)['git'],
+        datetime=datetime.now ()
+    ) + "'''\n"
     eqn_dict = get_eqn_dict ()
     #inv_eqn_dict = invert_eqn_dict (eqn_dict)
     eqn_dict = standardize_m_s (eqn_dict)
@@ -310,14 +321,19 @@ if __name__=='__main__':
     with open (fname_manual_py, 'r') as f:
         manual_code = f.read ()
     with open (fname_py, 'w') as f:
+        f.write (file_docstring)
         f.write (manual_code)
         for scalearray in scale.values ():
             f.write (scalearray.get_highm_civecs_code ())
             f.write (scalearray.get_scale_code ())
-        f.write (scale['h'].get_mupmdown_code (1, 'h', transpose_eqns=transpose_eqns['h']))
-        f.write (scale['h'].get_mupmdown_code (3, 'phh', transpose_eqns=transpose_eqns['h']))
-        f.write (scale['hh'].get_mupmdown_code (2, 'hh', transpose_eqns=transpose_eqns['hh']))
-        f.write (scale['sm'].get_mupmdown_code (2, 'sm'))
-        f.write (scale['dm'].get_mupmdown_code (2, 'dm1', transpose_eqns=transpose_eqns['dm']))
-        f.write (scale['dm'].get_mupmdown_code (4, 'dm2', transpose_eqns=transpose_eqns['dm']))
+        f.write (scale['h'].get_mdown_code (1, 'h', transpose_eqns=transpose_eqns['h']))
+        f.write (scale['h'].get_mdown_code (3, 'phh', transpose_eqns=transpose_eqns['h']))
+        f.write (scale['hh'].get_mdown_code (2, 'hh', transpose_eqns=transpose_eqns['hh']))
+        f.write (scale['sm'].get_mdown_code (2, 'sm'))
+        f.write (scale['dm'].get_mdown_code (2, 'dm1', transpose_eqns=transpose_eqns['dm']))
+        f.write (scale['dm'].get_mdown_code (4, 'dm2', transpose_eqns=transpose_eqns['dm']))
+    with open (fname_py, 'rb') as f:
+        filebytes = f.read ()
+    print ("The SHA-256 hash of main.generated.py is", hashlib.sha256 (filebytes).hexdigest ())
+
 

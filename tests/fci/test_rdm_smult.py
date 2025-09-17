@@ -1,4 +1,6 @@
 import unittest
+import hashlib
+import sys, os
 import numpy as np
 from scipy import linalg
 from pyscf.csf_fci.csfstring import CSFTransformer
@@ -253,6 +255,15 @@ def _get_cibra_ciket_nelec (dm, ci_bra, spin_op, ci_ket, norb, nelec, spin_ket, 
         return fn (ci_bra, ci_ket, norb, nelec, smult_bra=smult_bra, smult_ket=smult_ket)
 
 class KnownValues(unittest.TestCase):
+
+    def test_sha256 (self):
+        # Check if the automatically-generated code was ever edited
+        fname = os.path.abspath (rdm_smult.__file__)
+        with open (fname, 'rb') as f:
+            filebytes = f.read ()
+        test = hashlib.sha256 (filebytes).hexdigest ()
+        ref = 'bbc95562fd76553d6d1e3fc316f1da32371dc53a739a7875a74ed56f03c13c9c'
+        self.assertEqual (test, ref)
 
     #@unittest.skip ('debugging')
     def test_h (self):
