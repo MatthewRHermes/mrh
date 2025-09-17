@@ -110,11 +110,6 @@ class FragTDMInt (object):
         self.mask_ints = mask_ints
         self.discriminator = discriminator
 
-        try: 
-            if getattr(las.mol, 'use_gpu') is not None:
-               self.use_gpu = las.mol.use_gpu
-        except: 
-            pass
 
         if pt_order is None: pt_order = np.zeros (nroots, dtype=int)
         self.pt_order = pt_order
@@ -468,7 +463,7 @@ class FragTDMInt (object):
             return np.asarray (des_c)
         def des_a_loop (c, nelec, p): return des_loop (des_a, c, nelec, p)
         def des_b_loop (c, nelec, p): return des_loop (des_b, c, nelec, p)
-        def trans_rdm12s_loop (iroot, bra, ket, do2=True, use_gpu=None, gpu=None):
+        def trans_rdm12s_loop (iroot, bra, ket, do2=True):
             nelec = self.nelec_r[iroot]
             na, nb = ndeta[iroot], ndetb[iroot]
             bra = bra.reshape (-1, na, nb)
@@ -478,11 +473,7 @@ class FragTDMInt (object):
             linkstr = self._check_linkstr_cache (norb, nelec[0], nelec[1])
             if do2:
                 for i, j in product (range (bra.shape[0]), range (ket.shape[0])):
-                    if use_gpu:
-                        d1s, d2s = trans_rdm12s (bra[i], ket[j], norb, nelec,
-                                             link_index=linkstr, use_gpu=use_gpu, gpu=gpu)
-                    else:
-                        d1s, d2s = trans_rdm12s (bra[i], ket[j], norb, nelec,
+                    d1s, d2s = trans_rdm12s (bra[i], ket[j], norb, nelec,
                                              link_index=linkstr)
                     # Transpose based on docstring of direct_spin1.trans_rdm12s
                     tdm1s[i,j] = np.stack (d1s, axis=0).transpose (0, 2, 1)
