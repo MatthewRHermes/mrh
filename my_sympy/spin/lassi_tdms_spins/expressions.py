@@ -595,8 +595,14 @@ class TDMScaleArray (object):
         else:
             dneleca = str (dneleca[0])
             dnelecb = str (dnelecb[0])
-            spinop = ''        
-        return fmt.format (dmname=self.name, spinop=spinop, dneleca=dneleca, dnelecb=dnelecb)
+            spinop = ''
+        dmtypes = ''
+        for dm_type in self.get_dm_types ():
+            dmtypes += self.dm_type_str (dm_type) + ', '
+        dmtypes = dmtypes[:-2]
+        docstring = documentation.get_docstring_highm (dmtypes, self.col_indices)
+        return fmt.format (dmname=self.name, spinop=spinop, dneleca=dneleca, dnelecb=dnelecb,
+                           docstring=docstring)
 
 
     def get_scale_code (self):
