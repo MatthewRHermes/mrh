@@ -118,10 +118,6 @@ def _make_rdm12_spin1(fname, cibra, ciket, norb, nelec, link_index=None, symm=0)
     #FCItdm12_kern_a, FCItdm12kern_b, FCItdm12kern_ab 
     #add traceback
     #    traceback.print_stack(file=sys.stdout)
-    #print('cibra')
-    #print(cibra)
-    #print('ciket')
-    #print(ciket)
     from pyscf.lib import param
     if (fname in ['FCItdm12kern_a', 'FCItdm12kern_b', 'FCItdm12kern_ab', 'FCIrdm12kern_sf']) and param.use_gpu is not None:
        use_gpu = param.use_gpu
@@ -129,7 +125,6 @@ def _make_rdm12_spin1(fname, cibra, ciket, norb, nelec, link_index=None, symm=0)
     else: 
        use_gpu = None
     assert (cibra is not None and ciket is not None)
-    print(fname, param.use_gpu)
     cibra = numpy.asarray(cibra, order='C')
     ciket = numpy.asarray(ciket, order='C')
     if link_index is None:

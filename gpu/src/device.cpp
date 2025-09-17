@@ -4685,7 +4685,7 @@ void Device::compute_tdm13h_spin_v5(int na, int nb,
                                  int ia_bra, int ja_bra, int ib_bra, int jb_bra, int sgn_bra, 
                                  int ia_ket, int ja_ket, int ib_ket, int jb_ket, int sgn_ket )
 {
-  #if 0
+  #if 1
   //na, nb is same for both zero-padded ci vectors, but not necessarily for non padded vectors
   double t0 = omp_get_wtime();
   int id = 0;
@@ -4697,34 +4697,52 @@ void Device::compute_tdm13h_spin_v5(int na, int nb,
   int nb_bra = jb_bra - ib_bra;
   int na_ket = ja_ket - ia_ket;
   int nb_ket = jb_ket - ib_ket;
+  int ia_max = _MAX(ia_bra, ia_ket);
+  int ja_min = _MIN(ja_bra, ja_ket);
   int zero = 0;
   int one = 1;
   const double alpha = 1.0*sgn_bra*sgn_ket;
   const double beta = 0.0;
+  const double beta_one = 1.0;
+  int norb2 = norb*norb;
+  int size_tdm1 = norb2;
+  int size_tdm2 = norb2*norb2;
+  int size_buf = norb2*nb;
   int bits_tdm1 = sizeof(double)*size_tdm1;
   int bits_tdm2 = sizeof(double)*size_tdm2;
   int _size_buf = _MAX(dd->size_buf1, dd->size_buf2);// (dd->size_buf1 > dd->size_buf2) ? dd->size_buf1 : dd->size_buf2;
   #ifdef _TEMP_BUFSIZING
-  _size_buf = size_buf*6;
+  _size_buf = size_buf*5;
   #endif
   int final_size_buf = _MAX(_size_buf, size_buf);//(_size_buf > size_buf) ? _size_buf : size_buf;
   int buf_batch_size = final_size_buf/size_buf; //this is integer division // number of buf1/2 in a single buffer
-  int gemm_batch_size = final_size_buf/(norb2*norb2); // this is integer division // number of tdm2 in a single buf
-  int gemv_batch_size = final_size_buf/norb2; // this is integer division // number of tdm1 in a single buf
+  int gemm_batch_size = final_size_buf/size_tdm2; // this is integer division // number of tdm2 in a single buf
+  int gemv_batch_size = final_size_buf/size_tdm1; // this is integer division // number of tdm1 in a single buf
   int num_buf_batches; 
   int num_gemm_batches; 
   int num_gemv_batches; 
   grow_array(dd->d_buf1,final_size_buf, dd->size_buf1, "buf1", FLERR); 
   grow_array(dd->d_buf2,final_size_buf, dd->size_buf2, "buf2", FLERR); 
   grow_array(dd->d_buf3,final_size_buf, dd->size_buf3, "buf3", FLERR); 
+  printf("norb: %i norb2: %i nb: %i size_buf: %i _size_buf: %i final_size_buf: %i buf_batch_size: %i\n",norb, norb2, nb, size_buf, _size_buf, final_size_buf, buf_batch_size);
   int bits_buf = sizeof(double)*buf_batch_size*size_buf;
   int bits_buf3;
+  printf("starting 1st memset\n");
   ml->memset(dd->d_buf1, &zero, &bits_buf); 
+  printf("starting 2nd memset\n");
   ml->memset(dd->d_buf2, &zero, &bits_buf); 
   grow_array(dd->d_tdm1, size_tdm1, dd->size_tdm1, "tdm1", FLERR);
   grow_array(dd->d_tdm2, size_tdm2, dd->size_tdm2, "tdm2", FLERR); 
+  grow_array(dd->d_tdm2_p, size_tdm2, dd->size_tdm2_p, "tdm2_p", FLERR); 
+  printf("starting 3rd memset\n");
   ml->memset(dd->d_tdm1, &zero, &bits_tdm1);
+  printf("starting 4th memset\n");
   ml->memset(dd->d_tdm2, &zero, &bits_tdm2);
+  printf("starting 5th memset\n");
+  ml->memset(dd->d_tdm2_p, &zero, &bits_tdm2);
+  printf("finished 6th memset\n");
+  dd->d_tdm3ha = dd->d_tdm2;
+  dd->d_tdm3hb = dd->d_tdm2_p;
  
   /*
   tdm12kern_a
@@ -4771,16 +4789,71 @@ void Device::compute_tdm13h_spin_v5(int na, int nb,
 
   ci is zero except for [ia:ja, ib:jb] for both bra and ket. in v3, the full ci won't be passed, only non zero elements
   */
+  #ifdef _DEBUG_FCI
+  double * h_vec = (double *)pm->dev_malloc_host(nb_bra*sizeof(double));
+  double * h_buf = (double *)pm->dev_malloc_host(norb2*nb*sizeof(double));
+  #endif
   if (spin){
-    for (int stra_id = ia_bra; stra_id<ja_bra; stra_id+=buf_batch_size){
-      num_buf_batches = _MIN(buf_batch_size, ja_bra-stra_id);
-      //buf2 is 0, so the whole thing is meaningless. tdm1 uses buf1 and bravec = cibra[stra_id, :]
-      //compute_FCIrdm3h_b_t1ci_v2(dd->d_cibra, dd->d_buf2, stra_id, nb, nb_bra, norb, nlinkb, ia_bra, ja_bra, ib_bra, jb_bra, dd->d_clinkb);
+    //when stra_id in (ia_bra, ja_bra), tdm3hb is calculated
+    //when stra_id in (ia_ket, ja_ket) && (ia_bra, ja_bra), tdm3ha, tdm1h is also calculated
+    //when stra_id not in (ia_bra, ja_bra), nothing is calculated.
+    //need to split this in three parts, ia_bra->ia_ket, ia_ket->ja_ket, ja_ket->ja_bra;
+    //need to split this in three parts, ia_bra->ia_ket, ia_ket->ja_ket, ja_ket->ja_bra for a clean batching
+    // ia_bra, ia_ket, ja_ket, ja_bra : diff_ia != 0; diff_ja != 0; ia_ket -> ja_ket is equiv to ia_max -> ja_min
+    // ia_bra, ia_ket, ja_bra, ja_ket : diff_ia != 0; diff_ja == 0; ia_ket -> ja_bra is equiv to ia_max -> ja_min
+    // ia_ket, ia_bra, ja_ket, ja_bra : diff_ia == 0; diff_ja != 0; ia_bra -> ja_ket is equiv to ia_max -> ja_min
+    // ia_ket, ia_bra, ja_bra, ja_ket : diff_ia != 0; diff_ja != 0; ia_bra -> ja_bra is equiv to ia_max -> ja_min
+     
+    printf("in spin == 1 branch\n");
+    int diff_ia = 0;
+    int diff_ja = 0;
+    if (ia_ket>ia_bra){diff_ia = ia_ket - ia_bra;}
+    if (ja_bra>ja_ket){diff_ja = ja_bra - ja_ket;}
+    //ia_bra -> ia_ket
+    if (diff_ia){
+      for (int stra_id = ia_bra; stra_id<ia_ket; stra_id+=buf_batch_size){
+        num_buf_batches = _MIN(buf_batch_size, ia_ket -stra_id);
+        compute_FCIrdm3h_b_t1ci_v3(dd->d_cibra, dd->d_buf2, stra_id, num_buf_batches, nb, nb_bra, norb, nlinkb, ia_bra, ja_bra, ib_bra, jb_bra, dd->d_clinkb);
+        compute_FCIrdm3h_a_t1ci_v3(dd->d_ciket, dd->d_buf1, stra_id, num_buf_batches, nb, nb_ket, norb, nlinka, ia_ket, ja_ket, ib_ket, jb_ket, dd->d_clinka);
+        for (int i=0; i<num_buf_batches; i+=gemm_batch_size) {
+          num_gemm_batches = _MIN(gemm_batch_size, num_buf_batches-i);
+          ml->gemm_batch((char *) "N",(char *) "T", &norb2, &norb2, &nb, 
+            &alpha, 
+            &(dd->d_buf1[i*size_buf]), &norb2, &size_buf, 
+            &(dd->d_buf2[i*size_buf]), &norb2, &size_buf, 
+            &beta, dd->d_buf3, &norb2, &size_tdm2, &num_gemm_batches); 
+          reduce_buf3_to_rdm(dd->d_buf3, dd->d_tdm3ha, size_tdm2, num_gemm_batches);
+          }
+        ml->memset(dd->d_buf2, &zero, &bits_buf);
+        ml->memset(dd->d_buf1, &zero, &bits_buf);
+        }
+      }
+    //ja_ket->ja_bra
+    if (diff_ja){
+      for (int stra_id = ja_ket; stra_id<ja_bra; stra_id+=buf_batch_size){
+        num_buf_batches = _MIN(buf_batch_size, ja_bra -stra_id);
+        compute_FCIrdm3h_b_t1ci_v3(dd->d_cibra, dd->d_buf2, stra_id, num_buf_batches, nb, nb_bra, norb, nlinkb, ia_bra, ja_bra, ib_bra, jb_bra, dd->d_clinkb);
+        compute_FCIrdm3h_a_t1ci_v3(dd->d_ciket, dd->d_buf1, stra_id, num_buf_batches, nb, nb_ket, norb, nlinka, ia_ket, ja_ket, ib_ket, jb_ket, dd->d_clinka);
+        for (int i=0; i<num_buf_batches; i+=gemm_batch_size) {
+          num_gemm_batches = _MIN(gemm_batch_size, num_buf_batches-i);
+          ml->gemm_batch((char *) "N",(char *) "T", &norb2, &norb2, &nb, 
+            &alpha, 
+            &(dd->d_buf1[i*size_buf]), &norb2, &size_buf, 
+            &(dd->d_buf2[i*size_buf]), &norb2, &size_buf, 
+            &beta, dd->d_buf3, &norb2, &size_tdm2, &num_gemm_batches); 
+          reduce_buf3_to_rdm(dd->d_buf3, dd->d_tdm3ha, size_tdm2, num_gemm_batches);
+          }
+
+        ml->memset(dd->d_buf2, &zero, &bits_buf);
+        ml->memset(dd->d_buf1, &zero, &bits_buf);
+        }
+      }
+    //ia_max->ja_min
+    for (int stra_id = ia_max; stra_id<ja_min; stra_id+=buf_batch_size){
+      num_buf_batches = _MIN(buf_batch_size, ja_min -stra_id);
       compute_FCIrdm3h_b_t1ci_v3(dd->d_cibra, dd->d_buf2, stra_id, num_buf_batches, nb, nb_bra, norb, nlinkb, ia_bra, ja_bra, ib_bra, jb_bra, dd->d_clinkb);
-      //if ((stra_id >= ia_ket) && (stra_id < ja_ket)) {  //I am going to not worry about it for now because it messes up gemm/v_batch
-      //buf1 is 0, so tdm3hb and tdm1hb don't calculate anything
-      //compute_FCIrdm3h_b_t1ci_v2(dd->d_ciket, dd->d_buf1, stra_id, nb, nb_ket, norb, nlinkb, ia_ket, ja_ket, ib_ket, jb_ket, dd->d_clinkb);
-      compute_FCIrdm3h_b_t1ci_v3(dd->d_ciket, dd->d_buf1, stra_id, num_buf_batches, nb, nb_ket, norb, nlinkb, ia_ket, ja_ket, ib_ket, jb_ket, dd->d_clinkb);
+      compute_FCIrdm3h_b_t1ci_v3(dd->d_ciket, dd->d_buf1, stra_id, num_buf_batches, nb, nb_ket, norb, nlinka, ia_ket, ja_ket, ib_ket, jb_ket, dd->d_clinka);
+      //we need to start finding a solution for this, this is getting ridiculous amount of code
       for (int i=0; i<num_buf_batches; i+=gemm_batch_size) {
         num_gemm_batches = _MIN(gemm_batch_size, num_buf_batches-i);
         ml->gemm_batch((char *) "N",(char *) "T", &norb2, &norb2, &nb, 
@@ -4790,36 +4863,20 @@ void Device::compute_tdm13h_spin_v5(int na, int nb,
           &beta, dd->d_buf3, &norb2, &size_tdm2, &num_gemm_batches); 
         reduce_buf3_to_rdm(dd->d_buf3, dd->d_tdm3hb, size_tdm2, num_gemm_batches);
         }
-
-      if ((stra_id + num_buf_batches >= ia_bra) && (stra_id < ia_bra)){
-        num_buf_batches_for_gemv = stra_id+num_buf_batches - ia_bra;}
-      else if ((stra_id<ja_bra)&&(stra_id+num_buf_batches >=ja_bra){
-        num_buf_batches_for_gemv = ja_bra-stra_id;}
-      else if ((stra_id>=ia_bra) && (stra_id+num_buf_batches <ja_bra)){
-        num_buf_batches_for_gemv = num_buf_batches;}
-      else num_buf_batches_for_gemv = 0;  
-
-      for (int i=0; i<num_buf_batches_for_gemv; i+=gemv_batch_size){
+      for (int i=0; i<num_buf_batches; i+=gemv_batch_size){
         double * bravec = &(dd->d_cibra[(stra_id-ia_bra+i)*nb_bra]);//ia_bra, not ia_max
-        num_gemv_batches = _MIN(gemv_batch_size, num_buf_batches_for_gemv-i);
+        num_gemv_batches = _MIN(gemv_batch_size, num_buf_batches-i);
         ml->gemv_batch((char *) "N", &norb2, &nb_bra, 
-             &alpha, 
-             &(dd->d_buf1[i*size_buf + ib_bra*nb]), &norb2, &size_buf,
-             bravec, &one, &nb_bra, 
-             &beta, dd->d_buf3, &one, &size_tdm1,
-             &num_gemv_batches);
+            &alpha, 
+            &(dd->d_buf1[i*size_buf + ib_bra*nb]), &norb2, &size_buf,
+            bravec, &one, &nb_bra, 
+            &beta, dd->d_buf3, &one, &size_tdm1,
+            &num_gemv_batches);
         reduce_buf3_to_rdm(dd->d_buf3, dd->d_tdm1h, size_tdm1, num_gemv_batches);
         }
-       
-        //double * bravec = &(dd->d_cibra[(stra_id-ia_bra)*nb_bra]);
-        //ml->gemv((char *) "N", &norb2, &nb_bra, &alpha, 
-        //        &(dd->d_buf1[ib_bra*norb2]), &norb2, bravec, &one, 
-        //        &beta, dd->d_tdm1h, &one);
       ml->memset(dd->d_buf1, &zero, &bits_buf);
-      compute_FCIrdm3h_a_t1ci_v3(dd->d_ciket, dd->d_buf1, stra_id, num_buf_batches, nb, nb_ket, norb, nlinka, ia_ket, ja_ket, ib_ket, jb_ket, dd->d_clinka);
-      //compute_FCIrdm3h_a_t1ci_v2(dd->d_ciket, dd->d_buf1, stra_id, nb_ket, norb, nlinka, ia_ket, ja_ket, ib_ket, jb_ket, dd->d_clinka);
-      // buf1 is only populated from ib_ket:jb_ket, so don't need to run the multiplication over the whole thing 
 
+      compute_FCIrdm3h_a_t1ci_v3(dd->d_ciket, dd->d_buf1, stra_id, num_buf_batches, nb, nb_ket, norb, nlinka, ia_ket, ja_ket, ib_ket, jb_ket, dd->d_clinka);
       for (int i=0; i<num_buf_batches; i+=gemm_batch_size) {
         num_gemm_batches = _MIN(gemm_batch_size, num_buf_batches-i);
         ml->gemm_batch((char *) "N",(char *) "T", &norb2, &norb2, &nb, 
@@ -4829,19 +4886,13 @@ void Device::compute_tdm13h_spin_v5(int na, int nb,
           &beta, dd->d_buf3, &norb2, &size_tdm2, &num_gemm_batches); 
         reduce_buf3_to_rdm(dd->d_buf3, dd->d_tdm3ha, size_tdm2, num_gemm_batches);
         }
-      //ml->gemm((char *) "N", (char *) "T", &norb2, &norb2, &nb_ket, &alpha, 
-      //       &(dd->d_buf2[ib_ket*norb2]), &norb2, &(dd->d_buf1[ib_ket*norb2]), &norb2, //remember the switch?
-      //       &beta, dd->d_tdm3ha, &norb2);
-      ml->memset(dd->d_buf2, &zero, &bits_buf);
-      ml->memset(dd->d_buf1, &zero, &bits_buf);
       }
+    
   }
   else {
     int ib_max = (ib_bra > ib_ket) ? ib_bra : ib_ket;
     int jb_min = (jb_bra < jb_ket) ? jb_bra : jb_ket;
     int b_len  = jb_min - ib_max;
-
-    for (int stra_id = 0; stra_id<na; ++stra_id){
         /* buf2      buf1              tdm2      bravec  
           0 0 0 0   0 0 0 0          # # # #     0  
   ib_bra  # # # #   0 0 0 0          # # # #     # ib_bra
@@ -4854,12 +4905,13 @@ void Device::compute_tdm13h_spin_v5(int na, int nb,
           gemm can also just go over the same limits.
           gemv calculation can also be reduced
         */
-
+    // going to split this in 0 -> ia_ket -> ja_ket -> na
+    printf("in spin == 0 branch\n");
+    for (int stra_id = 0; stra_id < ia_ket; stra_id+= num_buf_batches){
+      num_buf_batches = _MIN(buf_batch_size, ia_ket - stra_id);
+      printf("num_buf_batches: %i stra_id: %i ia_ket: %i\n",num_buf_batches, stra_id, ia_ket);
       compute_FCIrdm3h_a_t1ci_v3(dd->d_ciket, dd->d_buf1, stra_id, num_buf_batches, nb, nb_ket, norb, nlinka, ia_ket, ja_ket, ib_ket, jb_ket, dd->d_clinka);
       compute_FCIrdm3h_a_t1ci_v3(dd->d_cibra, dd->d_buf2, stra_id, num_buf_batches, nb, nb_bra, norb, nlinka, ia_bra, ja_bra, ib_bra, jb_bra, dd->d_clinka);
-      //compute_FCIrdm3h_a_t1ci_v2(dd->d_cibra, dd->d_buf2, stra_id, nb_bra, norb, nlinka, ia_bra, ja_bra, ib_bra, jb_bra, dd->d_clinka);
-      //if (b_len>0){
-        //compute_FCIrdm3h_a_t1ci_v2(dd->d_ciket, dd->d_buf1, stra_id, nb_ket, norb, nlinka, ia_ket, ja_ket, ib_max, jb_min, dd->d_clinka);// !limits
       for (int i=0; i<num_buf_batches; i+=gemm_batch_size) {
         num_gemm_batches = _MIN(gemm_batch_size, num_buf_batches-i);
         ml->gemm_batch((char *) "N",(char *) "T", &norb2, &norb2, &nb, 
@@ -4869,48 +4921,67 @@ void Device::compute_tdm13h_spin_v5(int na, int nb,
           &beta, dd->d_buf3, &norb2, &size_tdm2, &num_gemm_batches); 
         reduce_buf3_to_rdm(dd->d_buf3, dd->d_tdm3ha, size_tdm2, num_gemm_batches);
         }
-
-      if ((stra_id + num_buf_batches >= ia_bra) && (stra_id < ia_bra)){
-        num_buf_batches_for_gemv = stra_id+num_buf_batches - ia_bra;}
-      else if ((stra_id<ja_bra)&&(stra_id+num_buf_batches >=ja_bra){
-        num_buf_batches_for_gemv = ja_bra-stra_id;}
-      else if ((stra_id>=ia_bra) && (stra_id+num_buf_batches <ja_bra)){
-        num_buf_batches_for_gemv = num_buf_batches;}
-      else num_buf_batches_for_gemv = 0;  
-
-      for (int i=0; i<num_buf_batches_for_gemv; i+=gemv_batch_size){
-        double * bravec = &(dd->d_cibra[(stra_id-ia_bra+i)*nb_bra]);//ia_bra, not ia_max
-        num_gemv_batches = _MIN(gemv_batch_size, num_buf_batches_for_gemv-i);
-        ml->gemv_batch((char *) "N", &norb2, &nb_bra, 
+      for (int i= stra_id; i<stra_id+num_buf_batches; ++i){
+        if ((i >=ia_bra) && (i<ja_bra)){
+          double * bravec = &(dd->d_cibra[(i-ia_bra)*nb_bra]);
+          #ifdef _DEBUG_FCI
+          printf("gemv i: %i\n", i);
+          pm->dev_pull_async(bravec, h_vec, nb_bra*sizeof(double));
+          pm->dev_pull_async(&(dd->d_buf1[i*size_buf]), h_buf, nb*norb2*sizeof(double));
+          pm->dev_barrier(); 
+          for (int j = 0; j<nb_bra; ++j){printf("%f\t",h_vec[j]);}printf("\n"); 
+          for (int j=0;j<nb;++j){for (int k=0; k<norb2; ++k){if (h_buf[j*norb2+k] !=0){printf("%i %i %f\t",j ,k, h_buf[j*norb2+k]);}}printf("\n");}printf("\n");
+          #endif
+          ml->gemv((char *) "N", &norb2, &nb_bra, 
              &alpha, 
-             &(dd->d_buf1[i*size_buf + ib_bra*nb]), &norb2, &size_buf,
-             bravec, &one, &nb_bra, 
-             &beta, dd->d_buf3, &one, &size_tdm1h,
-             &num_gemv_batches);
-        reduce_buf3_to_rdm(dd->d_buf3, dd->d_tdm1h, size_tdm1h, num_gemv_batches);
+             &(dd->d_buf1[i*size_buf + ib_bra*norb2]), &norb2, 
+             bravec, &one, 
+             &beta_one, dd->d_tdm1h, &one);
+          }
         }
-  
-        //ml->gemm((char *) "N", (char *) "T", &norb2, &norb2, &b_len, &alpha, 
-        //        &(dd->d_buf1[ib_max*norb2]), &norb2, &(dd->d_buf2[ib_max*norb2]), &norb2, 
-        //        &beta, dd->d_tdm3ha, &norb2);
-        //if ((stra_id >= ia_bra) && (stra_id < ja_bra)){
-        //  double * bravec = &(dd->d_cibra[(stra_id-ia_bra)*nb_bra]);
-        //  ml->gemv((char *) "N", &norb2, &nb_bra, &alpha, 
-        //        &(dd->d_buf1[ib_bra*nb]), &norb2, bravec, &one, 
-        //        &beta, dd->d_tdm1h, &one);
-        // }
-      //}
-
-      //if ((stra_id>=ia_ket) && (stra_id<ja_ket)){
-
       ml->memset(dd->d_buf1, &zero, &bits_buf); // can be optimized
- 
-      //when populated, rdm3h_b has the capability to populate the entire matrix, but buf2 is still blocked zero from a
+      ml->memset(dd->d_buf2, &zero, &bits_buf); // can be optimized
+    }
+
+    for (int stra_id = ia_ket; stra_id<ja_ket; stra_id+=num_buf_batches){
+      printf("num_buf_batches: %i stra_id: %i ja_ket: %i\n",num_buf_batches, stra_id, ja_ket);
+      num_buf_batches = _MIN(buf_batch_size, ja_ket - stra_id);
+      compute_FCIrdm3h_a_t1ci_v3(dd->d_ciket, dd->d_buf1, stra_id, num_buf_batches, nb, nb_ket, norb, nlinka, ia_ket, ja_ket, ib_ket, jb_ket, dd->d_clinka);
+      compute_FCIrdm3h_a_t1ci_v3(dd->d_cibra, dd->d_buf2, stra_id, num_buf_batches, nb, nb_bra, norb, nlinka, ia_bra, ja_bra, ib_bra, jb_bra, dd->d_clinka);
+      for (int i=0; i<num_buf_batches; i+=gemm_batch_size) {
+        num_gemm_batches = _MIN(gemm_batch_size, num_buf_batches-i);
+        printf("num_gemm_batches: %i i: %i\n",num_gemm_batches, i);
+        ml->gemm_batch((char *) "N",(char *) "T", &norb2, &norb2, &nb, 
+          &alpha, 
+          &(dd->d_buf1[i*size_buf]), &norb2, &size_buf, 
+          &(dd->d_buf2[i*size_buf]), &norb2, &size_buf, 
+          &beta, dd->d_buf3, &norb2, &size_tdm2, &num_gemm_batches); 
+        reduce_buf3_to_rdm(dd->d_buf3, dd->d_tdm3ha, size_tdm2, num_gemm_batches);
+        }
+      for (int i= stra_id; i<stra_id+num_buf_batches; ++i){
+        if ((i >=ia_bra) && (i<ja_bra)){
+          double * bravec = &(dd->d_cibra[(i-ia_bra)*nb_bra]);
+          #ifdef _DEBUG_FCI
+          printf("gemv i: %i\n", i);
+          pm->dev_pull_async(bravec, h_vec, nb_bra*sizeof(double));
+          pm->dev_pull_async(&(dd->d_buf1[i*size_buf]), h_buf, nb*norb2*sizeof(double));
+          pm->dev_barrier(); 
+          for (int j = 0; j<nb_bra; ++j){printf("%f\t",h_vec[j]);}printf("\n"); 
+          for (int j=0;j<nb;++j){for (int k=0; k<norb2; ++k){if (h_buf[j*norb2+k] !=0){printf("%i %i %f\t",j ,k, h_buf[j*norb2+k]);}}printf("\n");}printf("\n");
+          #endif
+          ml->gemv((char *) "N", &norb2, &nb_bra, 
+             &alpha, 
+             &(dd->d_buf1[i*size_buf + ib_bra*norb2]), &norb2, 
+             bravec, &one, 
+             &beta_one, dd->d_tdm1h, &one);
+          }
+        }
+      ml->memset(dd->d_buf1, &zero, &bits_buf); // can be optimized
+
       //can rdm3h_b take in what should be range of str0 (nb) because we are only need a specific range here (ib_bra -> jb_bra)
+      //when populated, rdm3h_b has the capability to populate the entire matrix, but buf2 is still blocked zero from a
       //similar to the plot above of rdm3h_a * rdm3h_b, but buf1 is fully filled. 
       compute_FCIrdm3h_b_t1ci_v3(dd->d_ciket, dd->d_buf1, stra_id, num_buf_batches, nb, nb_ket, norb, nlinkb, ia_ket, ja_ket, ib_ket, jb_ket, dd->d_clinkb);
-      //compute_FCIrdm3h_b_t1ci_v2(dd->d_ciket, dd->d_buf1, stra_id, nb, nb_ket, norb, nlinkb, ia_ket, ja_ket, ib_ket, jb_ket, dd->d_clinkb); 
-
       for (int i=0; i<num_buf_batches; i+=gemm_batch_size) {
         num_gemm_batches = _MIN(gemm_batch_size, num_buf_batches-i);
         ml->gemm_batch((char *) "N",(char *) "T", &norb2, &norb2, &nb, 
@@ -4921,14 +4992,46 @@ void Device::compute_tdm13h_spin_v5(int na, int nb,
         reduce_buf3_to_rdm(dd->d_buf3, dd->d_tdm3hb, size_tdm2, num_gemm_batches);
         }
 
-      //ml->gemm((char *) "N", (char *) "T", &norb2, &norb2, &nb_bra, &alpha, 
-      //         &(dd->d_buf1[ib_bra*norb2]),&norb2, &(dd->d_buf2[ib_bra*norb2]), &norb2, 
-      //         &beta, dd->d_tdm3hb, &norb2);
-      //}
-      ml->memset(dd->d_buf2, &zero, &bits_buf); //can be optimized based
-      ml->memset(dd->d_buf1, &zero, &bits_buf); 
+      ml->memset(dd->d_buf1, &zero, &bits_buf); // can be optimized
+      ml->memset(dd->d_buf2, &zero, &bits_buf); // can be optimized
+     } 
+    for (int stra_id = ja_ket; stra_id < na; stra_id+= num_buf_batches){
+      num_buf_batches = _MIN(buf_batch_size, na - stra_id);
+      printf("num_buf_batches: %i stra_id: %i na: %i\n",num_buf_batches, stra_id, na);
+      compute_FCIrdm3h_a_t1ci_v3(dd->d_ciket, dd->d_buf1, stra_id, num_buf_batches, nb, nb_ket, norb, nlinka, ia_ket, ja_ket, ib_ket, jb_ket, dd->d_clinka);
+      compute_FCIrdm3h_a_t1ci_v3(dd->d_cibra, dd->d_buf2, stra_id, num_buf_batches, nb, nb_bra, norb, nlinka, ia_bra, ja_bra, ib_bra, jb_bra, dd->d_clinka);
+      for (int i=0; i<num_buf_batches; i+=gemm_batch_size) {
+        num_gemm_batches = _MIN(gemm_batch_size, num_buf_batches-i);
+        ml->gemm_batch((char *) "N",(char *) "T", &norb2, &norb2, &nb, 
+          &alpha, 
+          &(dd->d_buf1[i*size_buf]), &norb2, &size_buf, 
+          &(dd->d_buf2[i*size_buf]), &norb2, &size_buf, 
+          &beta, dd->d_buf3, &norb2, &size_tdm2, &num_gemm_batches); 
+        reduce_buf3_to_rdm(dd->d_buf3, dd->d_tdm3ha, size_tdm2, num_gemm_batches);
+        }
+      for (int i= stra_id; i<stra_id+num_buf_batches; ++i){
+        if ((i >=ia_bra) && (i<ja_bra)){
+          double * bravec = &(dd->d_cibra[(i-ia_bra)*nb_bra]);
+          #ifdef _DEBUG_FCI
+          printf("gemv i: %i\n", i);
+          pm->dev_pull_async(bravec, h_vec, nb_bra*sizeof(double));
+          pm->dev_pull_async(&(dd->d_buf1[i*size_buf]), h_buf, nb*norb2*sizeof(double));
+          pm->dev_barrier(); 
+          for (int j = 0; j<nb_bra; ++j){printf("%f\t",h_vec[j]);}printf("\n"); 
+          for (int j=0;j<nb;++j){for (int k=0; k<norb2; ++k){if (h_buf[j*norb2+k] !=0){printf("%i %i %f\t",j ,k, h_buf[j*norb2+k]);}}printf("\n");}printf("\n");
+          #endif
+          ml->gemv((char *) "N", &norb2, &nb_bra, 
+             &alpha, 
+             &(dd->d_buf1[i*size_buf + ib_bra*norb2]), &norb2, 
+             bravec, &one, 
+             &beta_one, dd->d_tdm1h, &one);
+          }
+        }
+      ml->memset(dd->d_buf1, &zero, &bits_buf); // can be optimized
+      ml->memset(dd->d_buf2, &zero, &bits_buf); // can be optimized
+      }
     }
-  }
+
   transpose_jikl(dd->d_tdm3ha, dd->d_buf1, norb);
   transpose_jikl(dd->d_tdm3hb, dd->d_buf2, norb);
   #ifdef _ENABLE_REORDER
