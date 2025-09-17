@@ -49,14 +49,14 @@ def _trans_rdm1hs (cre, cibra, ciket, norb, nelec, spin=0, link_index=None):
     try: 
       use_gpu = param.use_gpu
       gpu = use_gpu
-      try: custom_fci = param.custom_fci
-      except: custom_fci = False
-      try: gpu_debug = param.gpu_debug
-      except: gpu_debug = False
-      try: custom_debug = param.custom_debug
-      except: custom_debug = False
     except: 
       use_gpu = None
+    try: gpu_debug = param.gpu_debug
+    except: gpu_debug = False
+    try: custom_fci = param.custom_fci
+    except: custom_fci = False
+    try: custom_debug = param.custom_debug
+    except: custom_debug = False
     if custom_fci and custom_debug and use_gpu:
       ### New kernel
       tdm1h = _trans_rdm1hs_o0(cre, cibra, ciket, norb, nelec, spin=spin, link_index=link_index)
@@ -182,14 +182,14 @@ def _trans_rdm13hs (cre, cibra, ciket, norb, nelec, spin=0, link_index=None, reo
     try: 
       use_gpu = param.use_gpu
       gpu = use_gpu
-      try: custom_fci = param.custom_fci
-      except: custom_fci = False
-      try: gpu_debug = param.gpu_debug
-      except: gpu_debug = False
-      try: custom_debug = param.custom_debug
-      except: custom_debug = False
     except: 
       use_gpu = None
+    try: gpu_debug = param.gpu_debug
+    except: gpu_debug = False
+    try: custom_fci = param.custom_fci
+    except: custom_fci = False
+    try: custom_debug = param.custom_debug
+    except: custom_debug = False
     if custom_fci and custom_debug and use_gpu:
       ### Old kernel
       tdm1h, tdm3ha, tdm3hb = _trans_rdm13hs_o0(cre, cibra, ciket, norb, nelec, spin=spin, link_index=link_index, reorder = reorder)
@@ -388,14 +388,14 @@ def trans_sfudm1 (cibra, ciket, norb, nelec, link_index=None):
     try: 
       use_gpu = param.use_gpu
       gpu = use_gpu
-      try: custom_fci = param.custom_fci
-      except: custom_fci = False
-      try: gpu_debug = param.gpu_debug
-      except: gpu_debug = False
-      try: custom_debug = param.custom_debug
-      except: custom_debug = False
     except: 
       use_gpu = None
+    try: gpu_debug = param.gpu_debug
+    except: gpu_debug = False
+    try: custom_fci = param.custom_fci
+    except: custom_fci = False
+    try: custom_debug = param.custom_debug
+    except: custom_debug = False
     if custom_fci and custom_debug and use_gpu:
       #param.use_gpu=None
       dum2dm = _trans_sfudm1_o1 (cibra, ciket, norb, nelec, link_index=link_index)
@@ -550,18 +550,18 @@ def trans_ppdm (cibra, ciket, norb, nelec, spin=0, link_index=None):
         ppdm: ndarray of shape (norb,norb)
             Pair-creation single-electron transition density matrix
     '''
-    ndum = 2 - (spin%2)
     try: 
       use_gpu = param.use_gpu
       gpu = use_gpu
-      try: custom_fci = param.custom_fci
-      except: custom_fci = False
-      try: gpu_debug = param.gpu_debug
-      except: gpu_debug = False
-      try: custom_debug = param.custom_debug
-      except: custom_debug = False
     except: 
       use_gpu = None
+    try: gpu_debug = param.gpu_debug
+    except: gpu_debug = False
+    try: custom_fci = param.custom_fci
+    except: custom_fci = False
+    try: custom_debug = param.custom_debug
+    except: custom_debug = False
+    ndum = 2 - (spin%2)
     if custom_fci and custom_debug and use_gpu:
       tdm1_c, tdmhh_c = _trans_ppdm_o3(cibra, ciket, norb, nelec, spin=spin, link_index=link_index)
       tdm1, tdmhh = _trans_ppdm_o0(cibra, ciket, norb, nelec, spin=spin, link_index=link_index)
