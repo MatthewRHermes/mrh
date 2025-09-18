@@ -6,9 +6,15 @@ from pyscf.fci import cistring
 from pyscf.fci.addons import _unpack_nelec
 import traceback, sys
 librdm = cistring.libfci
+
 def _make_rdm1_spin1(fname, cibra, ciket, norb, nelec, link_index=None):
     assert (cibra is not None and ciket is not None)
     from pyscf.lib import param
+    try:
+      use_gpu = param.use_gpu
+      gpu = param.use_gpu
+    except: 
+      use_gpu = None
     if (fname in ['FCItrans_rdm1a', 'FCItrans_rdm1b', 'FCImake_rdm1a', 'FCImake_rdm1b']) and param.use_gpu is not None:
         use_gpu = param.use_gpu
         gpu = param.use_gpu
@@ -65,7 +71,7 @@ def _make_rdm1_spin1(fname, cibra, ciket, norb, nelec, link_index=None):
         print(rdm_cpu)
         print("rdm_gpu")
         print(rdm_gpu)
-      return rdm_cpu.T
+      return rdm_gpu.T
     elif use_gpu:  
  
       from mrh.my_pyscf.gpu import libgpu
@@ -191,11 +197,11 @@ def _make_rdm12_spin1(fname, cibra, ciket, norb, nelec, link_index=None, symm=0)
         else: 
           print("Incorrect TDM2")
         exit()
-      return rdm1_cpu.T, rdm2_cpu
+      return rdm1_gpu.T, rdm2_gpu
     elif use_gpu: 
       from mrh.my_pyscf.gpu import libgpu
       rdm1_gpu = numpy.zeros((norb,norb))
-      rdm2_gpu = numpy.empty((norb,norb,norb,norb))
+      rdm2_gpu = numpy.zeros((norb,norb,norb,norb))
       libgpu.init_tdm1(gpu, norb)
       libgpu.init_tdm2(gpu, norb)
       libgpu.push_ci(gpu, cibra, ciket, na, nb)
@@ -209,8 +215,8 @@ def _make_rdm12_spin1(fname, cibra, ciket, norb, nelec, link_index=None, symm=0)
       if fname == 'FCItdm12kern_ab': 
         libgpu.compute_tdm12kern_ab_v2(gpu, na, nb, nlinka, nlinkb, norb)
       if fname == 'FCIrdm12kern_sf': 
-        libgpu.pull_tdm1(gpu, rdm1_gpu, norb)
         libgpu.compute_rdm12kern_sf_v2(gpu, na, nb, nlinka, nlinkb, norb)
+        libgpu.pull_tdm1(gpu, rdm1_gpu, norb)
       libgpu.pull_tdm2(gpu, rdm2_gpu, norb)
       return rdm1_gpu.T, rdm2_gpu
     else: 

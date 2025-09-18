@@ -1847,7 +1847,6 @@ void Device::pull_ppaa_papa_ao2mo_v4(py::array_t<double> _ppaa, py::array_t<doub
 void Device::df_ao2mo_v4 (int blksize, int nmo, int nao, int ncore, int ncas, int naux, 
 				  int count, size_t addr_dfobj)
 {
-  printf("using ao2mo v4\n");
   double t0 = omp_get_wtime();
   
   pm->dev_profile_start("AO2MO v4");
@@ -4789,7 +4788,7 @@ void Device::compute_tdm13h_spin_v5(int na, int nb,
 
   ci is zero except for [ia:ja, ib:jb] for both bra and ket. in v3, the full ci won't be passed, only non zero elements
   */
-  #ifdef _DEBUG_FCI
+  #ifdef _DEBUG_FCI2
   double * h_vec = (double *)pm->dev_malloc_host(nb_bra*sizeof(double));
   double * h_buf = (double *)pm->dev_malloc_host(norb2*nb*sizeof(double));
   #endif
@@ -4924,7 +4923,7 @@ void Device::compute_tdm13h_spin_v5(int na, int nb,
       for (int i= stra_id; i<stra_id+num_buf_batches; ++i){
         if ((i >=ia_bra) && (i<ja_bra)){
           double * bravec = &(dd->d_cibra[(i-ia_bra)*nb_bra]);
-          #ifdef _DEBUG_FCI
+          #ifdef _DEBUG_FCI2
           printf("gemv i: %i\n", i);
           pm->dev_pull_async(bravec, h_vec, nb_bra*sizeof(double));
           pm->dev_pull_async(&(dd->d_buf1[i*size_buf]), h_buf, nb*norb2*sizeof(double));

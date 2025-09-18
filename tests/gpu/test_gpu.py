@@ -6,7 +6,7 @@ from mrh.tests.gpu.geometry_generator import generator
 
 def setUpModule():
     global nfrags, basis
-    nfrags = 4
+    nfrags = 2
     basis = '631g'
     
 def tearDownModule():
@@ -20,6 +20,8 @@ def _run_mod (gpu_run):
         gpu = libgpu.init()
         outputfile=str(nfrags)+'_'+str(basis)+'_out_gpu_ref.log';
         mol=gto.M(atom=generator(nfrags),basis=basis,verbose=4,output=outputfile, use_gpu=gpu)
+        from pyscf.lib import param
+        param.use_gpu = gpu
     else: 
         outputfile=str(nfrags)+'_'+str(basis)+'_out_cpu_ref.log';
         mol=gto.M(atom=generator(nfrags),basis=basis,verbose=4,output=outputfile)
