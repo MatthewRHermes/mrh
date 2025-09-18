@@ -4960,7 +4960,7 @@ void Device::compute_tdm13h_spin_v5(int na, int nb,
       for (int i= stra_id; i<stra_id+num_buf_batches; ++i){
         if ((i >=ia_bra) && (i<ja_bra)){
           double * bravec = &(dd->d_cibra[(i-ia_bra)*nb_bra]);
-          #ifdef _DEBUG_FCI
+          #ifdef _DEBUG_FCI2
           printf("gemv i: %i\n", i);
           pm->dev_pull_async(bravec, h_vec, nb_bra*sizeof(double));
           pm->dev_pull_async(&(dd->d_buf1[i*size_buf]), h_buf, nb*norb2*sizeof(double));
@@ -5011,7 +5011,7 @@ void Device::compute_tdm13h_spin_v5(int na, int nb,
       for (int i= stra_id; i<stra_id+num_buf_batches; ++i){
         if ((i >=ia_bra) && (i<ja_bra)){
           double * bravec = &(dd->d_cibra[(i-ia_bra)*nb_bra]);
-          #ifdef _DEBUG_FCI
+          #ifdef _DEBUG_FCI2
           printf("gemv i: %i\n", i);
           pm->dev_pull_async(bravec, h_vec, nb_bra*sizeof(double));
           pm->dev_pull_async(&(dd->d_buf1[i*size_buf]), h_buf, nb*norb2*sizeof(double));
