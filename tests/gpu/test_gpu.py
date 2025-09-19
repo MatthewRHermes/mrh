@@ -18,10 +18,10 @@ def _run_mod (gpu_run):
         from mrh.my_pyscf.gpu import libgpu
         from gpu4mrh import patch_pyscf
         gpu = libgpu.init()
-        outputfile=str(nfrags)+'_'+str(basis)+'_out_gpu_ref.log';
-        mol=gto.M(atom=generator(nfrags),basis=basis,verbose=4,output=outputfile, use_gpu=gpu)
         from pyscf.lib import param
         param.use_gpu = gpu
+        outputfile=str(nfrags)+'_'+str(basis)+'_out_gpu_ref.log';
+        mol=gto.M(atom=generator(nfrags),basis=basis,verbose=4,output=outputfile, use_gpu=gpu)
     else: 
         outputfile=str(nfrags)+'_'+str(basis)+'_out_cpu_ref.log';
         mol=gto.M(atom=generator(nfrags),basis=basis,verbose=4,output=outputfile)
@@ -42,14 +42,14 @@ def _run_mod (gpu_run):
 class KnownValues (unittest.TestCase):
 
     def test_implementations (self):
-        mf_gpu, las_gpu = _run_mod (gpu_run=True)
-        with self.subTest ('GPU accelerated calculation converged'):
-            self.assertTrue (mf_gpu.converged)
-            self.assertTrue (las_gpu.converged)
         mf_cpu, las_cpu = _run_mod (gpu_run=False)
-        with self.subTest ('CPU-only calculation converged'):
+        with self.subTest ('GPU accelerated calculation converged'):
             self.assertTrue (mf_cpu.converged)
             self.assertTrue (las_cpu.converged)
+        mf_gpu, las_gpu = _run_mod (gpu_run=True)
+        with self.subTest ('CPU-only calculation converged'):
+            self.assertTrue (mf_gpu.converged)
+            self.assertTrue (las_gpu.converged)
         with self.subTest ('Total energy'):
             self.assertAlmostEqual (las_cpu.e_tot, las_gpu.e_tot, 7)
             self.assertAlmostEqual (mf_cpu.e_tot, mf_gpu.e_tot, 7)
