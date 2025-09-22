@@ -34,6 +34,45 @@ bool is_interaction_coupled (int * nelec_fs_bra, int * nelec_fs_ket, const int n
     return is_coupled;
 }
 
+bool is_interaction_coupled_s (int * nelec_fs_bra, int * nelec_fs_ket,
+                               int * smult_f_bra, int * smult_f_ket, const int nfrags)
+{
+    int dna, dnb;
+    int sa = 0;
+    int sb = 0;
+    int d = 0;
+    for (int ifrag = 0; ifrag < nfrags; ifrag++){
+        dna = nelec_fs_bra[ifrag*2] - nelec_fs_ket[ifrag*2];
+        dnb = nelec_fs_bra[(ifrag*2)+1] - nelec_fs_ket[(ifrag*2)+1];
+        sa += dna;
+        sb += dnb;
+        d += abs (dna);
+        d += abs (dnb);
+    }
+    bool is_coupled = (sa == 0) && (sb == 0) && (d <= 4);
+    int sladder = 2;
+    if (is_coupled == true){ assert (d!=3); }
+    if (d > 2){
+        sladder = 0;
+    } else if (d > 0){
+        sladder = 1;
+    }
+    int dn = 0;
+    int ds = 0;
+    for (int ifrag = 0; ifrag < nfrags; ifrag++){
+        dn = abs (nelec_fs_bra[ifrag*2] - nelec_fs_ket[ifrag*2]) +
+             abs (nelec_fs_bra[(ifrag*2)+1] - nelec_fs_ket[(ifrag*2)+1]);
+        ds = abs (smult_f_bra[ifrag] - smult_f_ket[ifrag]);
+        if (ds > dn){
+            if (is_coupled == true){ assert (((ds-dn)%2)==0); }
+            sladder -= (ds-dn)/2;
+        }
+    }
+    is_coupled = is_coupled && (sladder >= 0);
+    return is_coupled;
+}
+
+
 long SCcntinter (int * nelec_rfs_bra, int * nelec_rfs_ket,
                  const long nroots_bra, const long nroots_ket,
                  const int nfrags)
@@ -62,6 +101,52 @@ const long rstride = nfrags * 2;
         nelec_fs_ket = nelec_rfs_ket + (iket * rstride);
         nelec_fs_bra = nelec_rfs_bra + (ibra * rstride);
         if (is_interaction_coupled (nelec_fs_bra, nelec_fs_ket, nfrags)){
+            my_n++;
+        }
+    }
+    #pragma omp critical
+    {
+        n += my_n;
+    }
+}
+return n;
+}
+
+long SCcntinterspin (int * nelec_rfs_bra, int * nelec_rfs_ket,
+                     int * smult_rf_bra, int * smult_rf_ket,
+                     const long nroots_bra, const long nroots_ket,
+                     const int nfrags)
+{
+/* Count the number of valid interactions between spin-adapted model states based on the electron
+   numbers and the spin multiplicities
+   Input:
+        nelec_rfs_bra : array of shape (nroots_bra,nfrags,2)
+        nelec_rfs_ket : array of shape (nroots_ket,nfrags,2)
+        smult_rf_bra : array of shape (nroots_bra,nfrags)
+        smult_rf_ket : array of shape (nroots_ket,nfrags)
+
+   Returns:
+        n : Number of pairs of model states which can be coupled by the Hamiltonian.
+*/
+long n = 0;
+const long nroots2 = nroots_bra * nroots_ket;
+#pragma omp parallel
+{
+    long iket, ibra;
+    long my_n = 0;
+    int * nelec_fs_bra;
+    int * nelec_fs_ket;
+    int * smult_f_bra;
+    int * smult_f_ket;
+    #pragma omp for schedule(static)
+    for (long iel = 0; iel < nroots2; iel++){
+        iket = iel % nroots_ket;
+        ibra = iel / nroots_ket;
+        nelec_fs_ket = nelec_rfs_ket + (iket * nfrags * 2);
+        nelec_fs_bra = nelec_rfs_bra + (ibra * nfrags * 2);
+        smult_f_ket = smult_rf_ket + (iket * nfrags);
+        smult_f_bra = smult_rf_bra + (ibra * nfrags);
+        if (is_interaction_coupled_s (nelec_fs_bra, nelec_fs_ket, smult_f_bra, smult_f_ket, nfrags)){
             my_n++;
         }
     }
@@ -106,6 +191,61 @@ long iexc = 0;
         nelec_fs_ket = nelec_rfs_ket + (iket * rstride);
         nelec_fs_bra = nelec_rfs_bra + (ibra * rstride);
         if (is_interaction_coupled (nelec_fs_bra, nelec_fs_ket, nfrags)){
+            my_exc[my_iexc*two] = ibra;
+            my_exc[(my_iexc*two)+one] = iket;
+            my_iexc++;
+        }
+    }
+    #pragma omp critical
+    {
+        for (long i=0; i<my_iexc*two; i++){
+            exc[iexc+i] = my_exc[i];
+        }
+        iexc += my_iexc*two;
+    }
+    free (my_exc);
+}
+}
+
+void SClistinterspin (long * exc, int * nelec_rfs_bra, int * nelec_rfs_ket,
+                      int * smult_rf_bra, int * smult_rf_ket,
+                      const long nexc, const long nroots_bra, const long nroots_ket,
+                      const int nfrags)
+{
+/* List all valid interactions between model states based on the electron numbers
+   Input:
+        nelec_rfs_bra : array of shape (nroots_bra,nfrags,2)
+        nelec_rfs_ket : array of shape (nroots_ket,nfrags,2)
+        smult_rf_bra : array of shape (nroots_bra,nfrags)
+        smult_rf_ket : array of shape (nroots_ket,nfrags)
+
+   Output:
+        exc : array of shape (nexc,2)
+*/
+const long nroots2 = nroots_bra * nroots_ket;
+const long one = 1;
+const long two = 2;
+long iexc = 0;
+#pragma omp parallel
+{
+    int nt = omp_get_num_threads ();
+    int it = omp_get_thread_num ();
+    long * my_exc = malloc (nexc*two*sizeof(long));
+    long my_iexc = 0;
+    long iket, ibra;
+    int * nelec_fs_bra;
+    int * nelec_fs_ket;
+    int * smult_f_bra;
+    int * smult_f_ket;
+    #pragma omp for schedule(static)
+    for (long iel = 0; iel < nroots2; iel++){
+        iket = iel % nroots_ket;
+        ibra = iel / nroots_ket;
+        nelec_fs_ket = nelec_rfs_ket + (iket * nfrags * 2);
+        nelec_fs_bra = nelec_rfs_bra + (ibra * nfrags * 2);
+        smult_f_ket = smult_rf_ket + (iket * nfrags);
+        smult_f_bra = smult_rf_bra + (ibra * nfrags);
+        if (is_interaction_coupled_s (nelec_fs_bra, nelec_fs_ket, smult_f_bra, smult_f_ket, nfrags)){
             my_exc[my_iexc*two] = ibra;
             my_exc[(my_iexc*two)+one] = iket;
             my_iexc++;

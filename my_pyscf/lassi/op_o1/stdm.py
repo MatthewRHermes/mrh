@@ -117,7 +117,10 @@ class LSTDM (object):
         self.urootstr = np.asarray ([[i.uroot_idx[r] for i in self.ints]
                                      for r in range (self.nroots)]).T
 
-        exc = self.make_exc_tables (nelec_frs)
+        smult_fr = np.asarray ([i.smult_r for i in self.ints])
+        if smult_fr.dtype == np.object_: smult_fr = None
+
+        exc = self.make_exc_tables (nelec_frs, smult_fr)
         self.nonuniq_exc = {}
         self.exc_null = self.mask_exc_table_(exc['null'], 'null', mask_bra_space, mask_ket_space)
         self.exc_1d = self.mask_exc_table_(exc['1d'], '1d', mask_bra_space, mask_ket_space)
@@ -208,7 +211,7 @@ class LSTDM (object):
     def fermion_frag_shuffle (self, iroot, frags):
         return fermion_frag_shuffle (self.nelec_rf[iroot], frags)
 
-    def make_exc_tables (self, nelec_frs):
+    def make_exc_tables (self, nelec_frs, smult_fr):
         ''' Generate excitation tables. The nth column of each array is the (n+1)th argument of the
         corresponding _crunch_*_ member function below. The first two columns are always the bra
         rootspace index and the ket rootspace index, respectively. Further columns identify
@@ -235,7 +238,8 @@ class LSTDM (object):
         exc['1s1c_T'] = np.empty ((0,5), dtype=int)
         exc['2c'] = np.empty ((0,7), dtype=int)
         nfrags = self.nfrags
-        scai = get_scallowed_interactions (nelec_frs, max_memory=self.max_memory)
+        scai = get_scallowed_interactions (nelec_frs, smult_fr=smult_fr,
+                                           max_memory=self.max_memory)
 
         if self.ltri:
             tril_index = scai[:,0] >= scai[:,1]
