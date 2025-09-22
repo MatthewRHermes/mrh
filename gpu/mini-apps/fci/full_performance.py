@@ -30,7 +30,7 @@ if __name__ == "__main__":
     libgpu.set_verbose_(gpu, 1)
     param.custom_fci=True
   lib.logger.TIMER_LEVEL=lib.logger.INFO
-  nruns = 10
+  nruns =20
   geom = ''' K 0 0 0;
              K 0 0 2;'''
   
@@ -53,17 +53,21 @@ if __name__ == "__main__":
   for fn in ['FCItdm12kern_a', 'FCItdm12kern_b', 'FCItdm12kern_ab', 'FCIrdm12kern_sf']: 
     gpu_time, cpu_time = rdm2_pc(fn, norb, nelec, nruns = nruns)
     print("For RDM2 with" + fn +" GPU time: ", round(gpu_time,2), "CPU time: ", round(cpu_time,2))
+    print("Speedup = ", round(cpu_time/gpu_time, 2))
     param.use_gpu = gpu
   for spin in range(2): 
     gpu_time, cpu_time = tppdm_pc(norb, nelec, spin)
     print("For tppdm GPU time: ", round(gpu_time,2), "CPU time: ", round(cpu_time,2))
+    print("Speedup = ", round(cpu_time/gpu_time, 2))
     param.use_gpu = gpu
   
   gpu_time, cpu_time = sfudm_pc( norb, nelec, nruns = nruns)
   print("GPU time: ", round(gpu_time,2), "CPU time: ", round(cpu_time,2))
+  print("Speedup = ", round(cpu_time/gpu_time, 2))
   param.use_gpu = gpu
   for cre, spin, reorder in itertools.product(range(2), range(2), range(2)): 
     gpu_time, cpu_time = rdm13h_pc(cre, norb, nelec, spin, link_index= None, reorder=reorder, nruns = nruns)
     print("For rdm13h GPU time: ", round(gpu_time,2), "CPU time: ", round(cpu_time,2))
+    print("Speedup = ", round(cpu_time/gpu_time, 2))
     param.use_gpu = gpu
   libgpu.destroy_device(gpu)

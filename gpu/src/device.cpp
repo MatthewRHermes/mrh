@@ -369,6 +369,7 @@ Device::~Device()
     pm->dev_free(dd->d_bufpa, "bufpa");
     pm->dev_free(dd->d_bufd, "bufd");
     pm->dev_free(dd->d_bufaa, "bufaa");
+
     pm->dev_free(dd->d_clinka, "clinka");
     pm->dev_free(dd->d_clinkb, "clinkb");
     pm->dev_free(dd->d_cibra, "cibra");
@@ -376,11 +377,6 @@ Device::~Device()
     pm->dev_free(dd->d_tdm1, "tdm1");
     pm->dev_free(dd->d_tdm2, "tdm2");
     pm->dev_free(dd->d_tdm2_p, "tdm2_p");
-    //pm->dev_free(dd->d_tdm1h, "tdm1h");
-    //pm->dev_free(dd->d_tdm3ha, "tdm3ha");
-    //pm->dev_free(dd->d_tdm3hb, "tdm3hb");
-    //pm->dev_free(dd->d_pdm1, "pdm1");
-    //pm->dev_free(dd->d_pdm2, "pdm2");
 
     for(int i=0; i<dd->size_pumap.size(); ++i) {
       pm->dev_free_host(dd->pumap[i]);
@@ -4413,6 +4409,8 @@ void Device::compute_rdm12kern_sf_v2 (int na, int nb, int nlinka, int nlinkb, in
   ml->set_handle(id);
   my_device_data * dd = &(device_data[id]);
   pm->dev_profile_start("tdms :: compute_tdm12kern_sf");
+  printf("Starting tdm compute_rdm12kern_sf\n");
+  pm->dev_barrier();
   int norb2 = norb*norb;
   int size_buf = norb2*nb;
   int size_tdm2 = norb2*norb2;
@@ -4447,25 +4445,35 @@ void Device::compute_rdm12kern_sf_v2 (int na, int nb, int nlinka, int nlinkb, in
   ml->memset(dd->d_tdm2, &zero, &bits_tdm2);
  
 
+  printf("After setups gemv_batch_size = %i gemm_batch_size = %i na: %i nb: %i norb\n", gemv_batch_size, gemm_batch_size, na, nb, norb);
   for (int stra_id = 0; stra_id<na; stra_id += buf_batch_size){
   //for (int stra_id = 0; stra_id<na; ++stra_id) { 
     num_buf_batches = _MIN(buf_batch_size, na-stra_id);
     //compute_FCIrdm2_b_t1ci(dd->d_ciket, dd->d_buf1, stra_id, nb, norb, nlinkb, dd->d_clinkb); 
     //compute_FCIrdm2_a_t1ci(dd->d_ciket, dd->d_buf1, stra_id, nb, norb, nlinka, dd->d_clinka); 
+    printf("Before rdm2_a_t1ci\n");
     compute_FCIrdm2_a_t1ci_v2( dd->d_ciket, dd->d_buf1, stra_id, num_buf_batches, nb, norb, nlinka, dd->d_clinka); 
+    pm->dev_barrier();
+    printf("After rdm2_a_t1ci\n");
     compute_FCIrdm2_b_t1ci_v2( dd->d_ciket, dd->d_buf1, stra_id, num_buf_batches, nb, norb, nlinkb, dd->d_clinkb); 
+    pm->dev_barrier();
+    printf("After rdm2_b_t1ci\n");
 
     //ml->gemm((char *) "N",(char *) "T", &norb2, &norb2, &nb, 
     //            &alpha, dd->d_buf1, &norb2, dd->d_buf2, &norb2,
     //            &beta, dd->d_tdm2, &norb2); //convert to gemm_batched, edit na loops to batches
     for (int i=0; i<num_buf_batches; i+=gemm_batch_size) {
+ 
       num_gemm_batches = _MIN(gemm_batch_size, num_buf_batches-i);
+      printf("stra_id: %i num_buf_batches = %i num_gemm_batches = %i norb2: %i nb: %i\n", stra_id, num_buf_batches, num_gemm_batches, norb2, nb);
       ml->gemm_batch((char *) "N",(char *) "T", &norb2, &norb2, &nb, 
         &alpha, 
         &(dd->d_buf1[i*size_buf]), &norb2, &size_buf, 
         &(dd->d_buf1[i*size_buf]), &norb2, &size_buf, 
         &beta, dd->d_buf3, &norb2, &size_tdm2, &num_gemm_batches); 
+      pm->dev_barrier();
       reduce_buf3_to_rdm(dd->d_buf3, dd->d_tdm2, size_tdm2, num_gemm_batches);
+      pm->dev_barrier();
       }
 
     for (int i=0; i<num_buf_batches; i+=gemv_batch_size){
@@ -4528,14 +4536,14 @@ void Device::compute_tdm13h_spin_v4(int na, int nb,
   grow_array(dd->d_tdm2_p, size_tdm3h, dd->size_tdm2_p, "tdm2_p", FLERR); 
   grow_array(dd->d_buf1,size_buf, dd->size_buf1, "buf1", FLERR); 
   grow_array(dd->d_buf2,size_buf, dd->size_buf2, "buf2", FLERR); 
-  dd->d_tdm1h = dd->d_tdm1;
+  //dd->d_tdm1h = dd->d_tdm1;
   ml->memset(dd->d_buf1, &zero, &bits_buf); 
   ml->memset(dd->d_buf2, &zero, &bits_buf); 
   ml->memset(dd->d_tdm1, &zero, &bits_tdm1h);
   ml->memset(dd->d_tdm2, &zero, &bits_tdm3h);
   ml->memset(dd->d_tdm2_p, &zero, &bits_tdm3h);
-  dd->d_tdm3ha = dd->d_tdm2;
-  dd->d_tdm3hb = dd->d_tdm2_p;
+  //dd->d_tdm3ha = dd->d_tdm2;
+  //dd->d_tdm3hb = dd->d_tdm2_p;
 
   /*
   tdm12kern_a
@@ -4594,18 +4602,21 @@ void Device::compute_tdm13h_spin_v4(int na, int nb,
 
           ml->gemm((char *) "N", (char *) "T", &norb2, &norb2, &nb, &alpha, 
                 dd->d_buf1, &norb2, dd->d_buf2, &norb2, 
-                &beta, dd->d_tdm3hb, &norb2);
+                //&beta, dd->d_tdm3hb, &norb2);
+                &beta, dd->d_tdm2_p, &norb2);
           double * bravec = &(dd->d_cibra[(stra_id-ia_bra)*nb_bra]);
           ml->gemv((char *) "N", &norb2, &nb_bra, &alpha, 
                 &(dd->d_buf1[ib_bra*norb2]), &norb2, bravec, &one, 
-                &beta, dd->d_tdm1h, &one);
+                //&beta, dd->d_tdm1h, &one);
+                &beta, dd->d_tdm1, &one);
           ml->memset(dd->d_buf1, &zero, &bits_buf);
           }
         compute_FCIrdm3h_a_t1ci_v2(dd->d_ciket, dd->d_buf1, stra_id, nb_ket, norb, nlinka, ia_ket, ja_ket, ib_ket, jb_ket, dd->d_clinka);
         // buf1 is only populated from ib_ket:jb_ket, so don't need to run the multiplication over the whole thing 
         ml->gemm((char *) "N", (char *) "T", &norb2, &norb2, &nb_ket, &alpha, 
                &(dd->d_buf2[ib_ket*norb2]), &norb2, &(dd->d_buf1[ib_ket*norb2]), &norb2, //remember the switch?
-               &beta, dd->d_tdm3ha, &norb2);
+               //&beta, dd->d_tdm3ha, &norb2);
+               &beta, dd->d_tdm2, &norb2);
         ml->memset(dd->d_buf2, &zero, &bits_buf);
         ml->memset(&(dd->d_buf1[ib_ket*norb2]), &zero, &bits_nbket);
       }
@@ -4635,12 +4646,14 @@ void Device::compute_tdm13h_spin_v4(int na, int nb,
 
         ml->gemm((char *) "N", (char *) "T", &norb2, &norb2, &b_len, &alpha, 
                 &(dd->d_buf1[ib_max*norb2]), &norb2, &(dd->d_buf2[ib_max*norb2]), &norb2, 
-                &beta, dd->d_tdm3ha, &norb2);
+                //&beta, dd->d_tdm3ha, &norb2);
+                &beta, dd->d_tdm2, &norb2);
         if ((stra_id >= ia_bra) && (stra_id < ja_bra)){
           double * bravec = &(dd->d_cibra[(stra_id-ia_bra)*nb_bra]);
           ml->gemv((char *) "N", &norb2, &nb_bra, &alpha, 
                 &(dd->d_buf1[ib_bra*nb]), &norb2, bravec, &one, 
-                &beta, dd->d_tdm1h, &one);
+                //&beta, dd->d_tdm1h, &one);
+                &beta, dd->d_tdm1, &one);
         }
       }
 
@@ -4654,20 +4667,25 @@ void Device::compute_tdm13h_spin_v4(int na, int nb,
       compute_FCIrdm3h_b_t1ci_v2(dd->d_ciket, dd->d_buf1, stra_id, nb, nb_bra, norb, nlinkb, ia_ket, ja_ket, ib_ket, jb_ket, dd->d_clinkb); 
       ml->gemm((char *) "N", (char *) "T", &norb2, &norb2, &nb_bra, &alpha, 
                &(dd->d_buf1[ib_bra*norb2]),&norb2, &(dd->d_buf2[ib_bra*norb2]), &norb2, 
-               &beta, dd->d_tdm3hb, &norb2);
+               //&beta, dd->d_tdm3hb, &norb2);
+               &beta, dd->d_tdm2_p, &norb2);
       }
       ml->memset(dd->d_buf2, &zero, &bits_buf); //can be optimized based
       ml->memset(dd->d_buf1, &zero, &bits_buf); 
     }
   }
-  transpose_jikl(dd->d_tdm3ha, dd->d_buf1, norb);
-  transpose_jikl(dd->d_tdm3hb, dd->d_buf2, norb);
+  //transpose_jikl(dd->d_tdm3ha, dd->d_buf1, norb);
+  //transpose_jikl(dd->d_tdm3hb, dd->d_buf2, norb);
+  transpose_jikl(dd->d_tdm2, dd->d_buf1, norb);
+  transpose_jikl(dd->d_tdm2_p, dd->d_buf2, norb);
   #ifdef _ENABLE_REORDER
   if (_reorder){
     if (spin) 
-      {reorder(dd->d_tdm1h, dd->d_tdm3hb, dd->d_buf1, norb);}
+      //{reorder(dd->d_tdm1h, dd->d_tdm3hb, dd->d_buf1, norb);}
+      {reorder(dd->d_tdm1h, dd->d_tdm2_p, dd->d_buf1, norb);}
     else
-      {reorder(dd->d_tdm1h, dd->d_tdm3ha, dd->d_buf1, norb);}
+      //{reorder(dd->d_tdm1h, dd->d_tdm3ha, dd->d_buf1, norb);}
+      {reorder(dd->d_tdm1h, dd->d_tdm2, dd->d_buf1, norb);}
   }
   #endif
 
@@ -5510,7 +5528,7 @@ void Device::compute_sfudm_v2(int na, int nb, int nlinka, int nlinkb, int norb,
 
       for (int i=0; i<num_buf_batches; i+=gemm_batch_size) {
         num_gemm_batches = (gemm_batch_size < num_buf_batches - i) ? gemm_batch_size : num_buf_batches - i;
-        printf("stra_id: %i num_buf_batches: %i num_gemm_batches: %i norb2: %i nb: %i\n",stra_id, num_buf_batches, num_gemm_batches, norb2, nb);
+        //printf("stra_id: %i num_buf_batches: %i num_gemm_batches: %i norb2: %i nb: %i\n",stra_id, num_buf_batches, num_gemm_batches, norb2, nb);
         ml->gemm_batch((char *) "N",(char *) "T", &norb2, &norb2, &nb, 
           &alpha, 
           &(dd->d_buf1[i*size_buf]), &norb2, &size_buf, 
@@ -5623,10 +5641,12 @@ void Device::pull_tdm3hab(py::array_t<double> _tdm3ha, py::array_t<double> _tdm3
   pm->dev_profile_start("tdms :: pull tdm2");
   py::buffer_info info_tdm3ha = _tdm3ha.request(); //4D array (norb, norb, norb, norb)
   double * tdm3ha = static_cast<double*>(info_tdm3ha.ptr);
-  pm->dev_pull_async(dd->d_tdm3ha, tdm3ha, norb*norb*norb*norb*sizeof(double));
+  //pm->dev_pull_async(dd->d_tdm3ha, tdm3ha, norb*norb*norb*norb*sizeof(double));
+  pm->dev_pull_async(dd->d_tdm2, tdm3ha, norb*norb*norb*norb*sizeof(double));
   py::buffer_info info_tdm3hb = _tdm3hb.request(); //4D array (norb, norb, norb, norb)
   double * tdm3hb = static_cast<double*>(info_tdm3hb.ptr);
-  pm->dev_pull_async(dd->d_tdm3hb, tdm3hb, norb*norb*norb*norb*sizeof(double));
+  //pm->dev_pull_async(dd->d_tdm3hb, tdm3hb, norb*norb*norb*norb*sizeof(double));
+  pm->dev_pull_async(dd->d_tdm2_p, tdm3hb, norb*norb*norb*norb*sizeof(double));
 
   pm->dev_barrier();
   pm->dev_profile_stop();
