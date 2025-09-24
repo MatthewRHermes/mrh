@@ -3,6 +3,27 @@ from pyscf import lib
 
 class OpTermBase: pass
 
+class OpTerm (OpTermBase):
+    def __init__(self, arr, ints, comp):
+        self.arr = arr
+        self.ints = ints
+        self.comp = comp
+
+    def reduce_spin (self, bra, ket):
+        if any ([i.smult_r[ket] is None for i in self.ints]):
+            return self.arr.view (OpTermContracted)
+        if self.comp is None:
+            arr = self.arr
+        else:
+            fac = np.ones (len (self.comp), dtype=float)
+            for i, comp_i in enumerate (self.comp):
+                for intj, comp_ij in zip (self.ints, comp_i):
+                    fac[i] *= intj.spin_factor_component (bra, ket, comp_ij)
+            arr = np.tensordot (fac, self.arr, axes=1)
+        for inti in self.ints:
+            arr *= inti.spin_factor_constant (bra, ket)
+        return arr.view (OpTermContracted)
+
 class OpTermContracted (np.ndarray, OpTermBase):
     ''' Just farm the dot method to pyscf.lib.dot '''
     def dot (self, other):

@@ -133,6 +133,13 @@ class FragTDMInt (object):
                  'sm': rdm_smult.mdown_sm,
                  'dm1': rdm_smult.mdown_dm1,
                  'dm2': rdm_smult.mdown_dm2}
+    scale_dnelec = {(-1, 0): (rdm_smult.scale_h, 0),
+                    (0, -1): (rdm_smult.scale_h, 1),
+                    (-2, 0): (rdm_smult.scale_hh, 0),
+                    (-1, -1): (rdm_smult.scale_hh, 1),
+                    (0, -2): (rdm_smult.scale_hh, 2),
+                    (-1,1): (rdm_smult.scale_sm, None),
+                    (0,0): (rdm_smult.scale_dm, None)}
 
     def _check_linkstr_cache (self, no, na, nb):
         if (no, na, nb) not in self.linkstr_cache.keys ():
@@ -923,6 +930,26 @@ class FragTDMInt (object):
                 if hterm.is_zero () or hterm.is_civec_zero (): continue
                 hci_r_plab[i] += hterm.op ()
         return hci_r_plab
+
+    def spin_factor_constant (self, bra, ket):
+        dnelec = (self.nelec_r[bra][0] - self.nelec_r[ket][0],
+                  self.nelec_r[bra][1] - self.nelec_r[ket][1])
+        if (dnelec[0] < 0 and dnelec[1] < 0) or (dnelec==(1,-1)):
+            return self.spin_factor_constant (ket, bra)
+        smult_bra = self.smult_r[bra]
+        smult_ket = self.smult_r[ket]
+        spin_ket = self.nelec_r[ket][0] - self.nelec_r[ket][1]
+        fn, spin_op = self.scale_dnelec[dnelec]
+        if spin_op is None:
+            return fn (smult_bra, smult_ket, spin_ket)
+        else:
+            return fn (smult_bra, spin_op, smult_ket, spin_ket)
+
+    def spin_factor_component (self, bra, ket, comp):
+        if (self.smult_r[bra] != self.smult_r[ket]) or (comp == 0): return 1
+        s2 = float (self.smult_r[ket] - 1)
+        m2 = self.nelec_r[ket][0] - self.nelec_r[ket][1]
+        return m2 / s2
 
 class HamTerm:
     def __init__(self, parent, ket, ir, jr, h0, h1, h2, hermi=0, spin=None):
