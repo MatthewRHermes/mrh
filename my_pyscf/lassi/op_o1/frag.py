@@ -163,19 +163,19 @@ class FragTDMInt (object):
 
     # Exception catching
 
-    def try_get_1 (self, tag, *args):
+    def try_get_1 (self, tag, *args, **kwargs):
         i, j = args[-2:]
         ir, jr = self.rootaddr[i], self.rootaddr[j]
         ip, jp = self.fragaddr[i], self.fragaddr[j]
         rargs = [x for x in args[:-2]] + [ir,jr]
-        return self.try_get (tag, *rargs)[ip,jp]
+        return self.try_get (tag, *rargs, **kwargs)[ip,jp]
 
-    def try_get (self, tag, *args):
-        if len (args) == 3: return self.try_get_tdm (tag, *args)
-        elif len (args) == 2: return self.try_get_dm (tag, *args)
+    def try_get (self, tag, *args, **kwargs):
+        if len (args) == 3: return self.try_get_tdm (tag, *args, **kwargs)
+        elif len (args) == 2: return self.try_get_dm (tag, *args, **kwargs)
         else: raise RuntimeError (str (len (args)))
 
-    def try_get_dm (self, tag, i, j):
+    def try_get_dm (self, tag, i, j, highm=False):
         tab = self.mats[tag]
         mdown_fn = self.mdown_tdm[tag]
         mi = self.nelec_r[i][0] - self.nelec_r[i][1]
@@ -189,13 +189,14 @@ class FragTDMInt (object):
             tab = tab[ir][jr]
             if si is None: return tab
             if sj is None: return tab
+            if highm: return tab
             return mdown_fn (tab, si, sj, mj)
         except Exception as e:
             errstr = 'frag {} failure to get element {},{}'.format (self.idx_frag, ir, jr)
             errstr = errstr + '\nhopping_index entry: {}'.format (self.hopping_index[:,ir,jr])
             raise RuntimeError (errstr)
 
-    def try_get_tdm (self, tag, s, i, j):
+    def try_get_tdm (self, tag, s, i, j, highm=False):
         tab = self.mats[tag]
         mdown_fn = self.mdown_tdm[tag]
         mi = self.nelec_r[i][0] - self.nelec_r[i][1]
@@ -209,6 +210,7 @@ class FragTDMInt (object):
             tab = tab[s][ir][jr]
             if self.smult_r[i] is None: return tab
             if self.smult_r[j] is None: return tab
+            if highm: return tab
             return mdown_fn (tab, si, s, sj, mj)
         except Exception as e:
             errstr = 'frag {} failure to get element {},{} w spin {}'.format (
@@ -240,8 +242,8 @@ class FragTDMInt (object):
 
     # 1-particle 1-operator intermediate
 
-    def get_h (self, i, j, s):
-        return self.try_get ('h', s, i, j)
+    def get_h (self, i, j, s, **kwargs):
+        return self.try_get ('h', s, i, j, **kwargs)
 
     def set_h (self, i, j, s, x):
         i, j = self.uroot_idx[i], self.uroot_idx[j]
@@ -249,19 +251,19 @@ class FragTDMInt (object):
         self.mats['h'][s][i][j] = x
         return x
 
-    def get_p (self, i, j, s):
-        return self.try_get ('h', s, j, i).conj ().transpose (1,0,2)
+    def get_p (self, i, j, s, **kwargs):
+        return self.try_get ('h', s, j, i, **kwargs).conj ().transpose (1,0,2)
 
-    def get_1_h (self, i, j, s):
-        return self.try_get_1 ('h', s, i, j)
+    def get_1_h (self, i, j, s, **kwargs):
+        return self.try_get_1 ('h', s, i, j, **kwargs)
 
-    def get_1_p (self, i, j, s):
-        return self.try_get_1 ('h', s, j, i).conj ()
+    def get_1_p (self, i, j, s, **kwargs):
+        return self.try_get_1 ('h', s, j, i, **kwargs).conj ()
 
     # 2-particle intermediate
 
-    def get_hh (self, i, j, s):
-        return self.try_get ('hh', s, i, j)
+    def get_hh (self, i, j, s, **kwargs):
+        return self.try_get ('hh', s, i, j, **kwargs)
         #return self.mats['hh'][s][i][j]
 
     def set_hh (self, i, j, s, x):
@@ -270,21 +272,21 @@ class FragTDMInt (object):
         self.mats['hh'][s][i][j] = x
         return x
 
-    def get_pp (self, i, j, s):
-        return self.try_get ('hh', s, j, i).conj ().transpose (1,0,3,2)
+    def get_pp (self, i, j, s, **kwargs):
+        return self.try_get ('hh', s, j, i, **kwargs).conj ().transpose (1,0,3,2)
 
-    def get_1_hh (self, i, j, s):
-        return self.try_get_1 ('hh', s, i, j)
+    def get_1_hh (self, i, j, s, **kwargs):
+        return self.try_get_1 ('hh', s, i, j, **kwargs)
         #return self.mats['hh'][s][i][j]
 
-    def get_1_pp (self, i, j, s):
-        return self.try_get_1 ('hh', s, j, i).conj ().T
+    def get_1_pp (self, i, j, s, **kwargs):
+        return self.try_get_1 ('hh', s, j, i, **kwargs).conj ().T
 
     # 1-particle 3-operator intermediate
     # Note Mulliken -> Dirac transpose
 
-    def get_phh (self, i, j, s):
-        return self.try_get ('phh', s, i, j).transpose (0,1,2,4,5,3)
+    def get_phh (self, i, j, s, **kwargs):
+        return self.try_get ('phh', s, i, j, **kwargs).transpose (0,1,2,4,5,3)
 
     def set_phh (self, i, j, s, x):
         i, j = self.uroot_idx[i], self.uroot_idx[j]
@@ -292,19 +294,19 @@ class FragTDMInt (object):
         self.mats['phh'][s][i][j] = x
         return x
 
-    def get_pph (self, i, j, s):
-        return self.try_get ('phh', s, j, i).conj ().transpose (1,0,2,3,5,4)
+    def get_pph (self, i, j, s, **kwargs):
+        return self.try_get ('phh', s, j, i, **kwargs).conj ().transpose (1,0,2,3,5,4)
 
-    def get_1_phh (self, i, j, s):
-        return self.try_get_1 ('phh', s, i, j).transpose (0,2,3,1)
+    def get_1_phh (self, i, j, s, **kwargs):
+        return self.try_get_1 ('phh', s, i, j, **kwargs).transpose (0,2,3,1)
 
-    def get_1_pph (self, i, j, s):
-        return self.try_get_1 ('phh', s, j, i).conj ().transpose (0,1,3,2)
+    def get_1_pph (self, i, j, s, **kwargs):
+        return self.try_get_1 ('phh', s, j, i, **kwargs).conj ().transpose (0,1,3,2)
 
     # spin-hop intermediate
 
-    def get_sm (self, i, j):
-        return self.try_get ('sm', i, j)
+    def get_sm (self, i, j, **kwargs):
+        return self.try_get ('sm', i, j, **kwargs)
 
     def set_sm (self, i, j, x):
         i, j = self.uroot_idx[i], self.uroot_idx[j]
@@ -312,34 +314,34 @@ class FragTDMInt (object):
         self.mats['sm'][i][j] = x
         return x
 
-    def get_sp (self, i, j):
-        return self.try_get ('sm', j, i).conj ().transpose (1,0,3,2)
+    def get_sp (self, i, j, **kwargs):
+        return self.try_get ('sm', j, i, **kwargs).conj ().transpose (1,0,3,2)
 
-    def get_1_sm (self, i, j):
-        return self.try_get_1 ('sm', i, j)
+    def get_1_sm (self, i, j, **kwargs):
+        return self.try_get_1 ('sm', i, j, **kwargs)
 
-    def get_1_sp (self, i, j):
-        return self.try_get_1 ('sm', j, i).conj ().T
+    def get_1_sp (self, i, j, **kwargs):
+        return self.try_get_1 ('sm', j, i, **kwargs).conj ().T
 
-    def get_smp (self, i, j, s):
-        if s==0: return self.get_sm (i, j)
-        elif s==1: return self.get_sp (i, j)
+    def get_smp (self, i, j, s, **kwargs):
+        if s==0: return self.get_sm (i, j, **kwargs)
+        elif s==1: return self.get_sp (i, j, **kwargs)
         else: raise RuntimeError
 
-    def get_1_smp (self, i, j, s):
-        if s==0: return self.get_1_sm (i, j)
-        elif s==1: return self.get_1_sp (i, j)
+    def get_1_smp (self, i, j, s, **kwargs):
+        if s==0: return self.get_1_sm (i, j, **kwargs)
+        elif s==1: return self.get_1_sp (i, j, **kwargs)
         else: raise RuntimeError
 
     # 1-density intermediate
 
-    def get_dm1 (self, i, j):
+    def get_dm1 (self, i, j, **kwargs):
         k = self.spman[self.uroot_idx[i]]
         l = self.spman[self.uroot_idx[j]]
         a, b = self.spman_inter[(k,l,0)]
         if b > a:
-            return self.try_get ('dm1', j, i).conj ().transpose (1,0,2,4,3)
-        return self.try_get ('dm1', i, j)
+            return self.try_get ('dm1', j, i, **kwargs).conj ().transpose (1,0,2,4,3)
+        return self.try_get ('dm1', i, j, **kwargs)
 
     def set_dm1 (self, i, j, x):
         assert (j <= i)
@@ -347,7 +349,7 @@ class FragTDMInt (object):
         x = self.setmanip (x)
         self.mats['dm1'][i][j] = x
 
-    def get_1_dm1 (self, i, j):
+    def get_1_dm1 (self, i, j, **kwargs):
         k = self.spman[self.uroot_idx[self.rootaddr[i]]]
         l = self.spman[self.uroot_idx[self.rootaddr[j]]]
         a, b = self.spman_inter[(k,l,0)]
@@ -357,21 +359,21 @@ class FragTDMInt (object):
 
     # 2-density intermediate
 
-    def get_dm2 (self, i, j):
+    def get_dm2 (self, i, j, **kwargs):
         k = self.spman[self.uroot_idx[i]]
         l = self.spman[self.uroot_idx[j]]
         a, b = self.spman_inter[(k,l,0)]
         if b > a:
-            return self.try_get ('dm2', j, i).conj ().transpose (1,0,2,4,3,6,5)
-        return self.try_get ('dm2', i, j)
+            return self.try_get ('dm2', j, i, **kwargs).conj ().transpose (1,0,2,4,3,6,5)
+        return self.try_get ('dm2', i, j, **kwargs)
 
-    def get_1_dm2 (self, i, j):
+    def get_1_dm2 (self, i, j, **kwargs):
         k = self.spman[self.uroot_idx[self.rootaddr[i]]]
         l = self.spman[self.uroot_idx[self.rootaddr[j]]]
         a, b = self.spman_inter[(k,l,0)]
         if b > a:
-            return self.try_get_1 ('dm2', j, i).conj ().transpose (0, 2, 1, 4, 3)
-        return self.try_get_1 ('dm2', i, j)
+            return self.try_get_1 ('dm2', j, i, **kwargs).conj ().transpose (0, 2, 1, 4, 3)
+        return self.try_get_1 ('dm2', i, j, **kwargs)
 
     def set_dm2 (self, i, j, x):
         assert (j <= i)
@@ -932,6 +934,8 @@ class FragTDMInt (object):
         return hci_r_plab
 
     def spin_factor_constant (self, bra, ket):
+        '''Return the constant (i.e., not depending on the operator) spin factor a(m(ket))
+        <bra|O(comp)|ket> = a(m(ket)) * b(m(ket),comp) * <highm(bra)|O(comp)|highm(ket)>'''
         dnelec = (self.nelec_r[bra][0] - self.nelec_r[ket][0],
                   self.nelec_r[bra][1] - self.nelec_r[ket][1])
         if (dnelec[0] < 0 and dnelec[1] < 0) or (dnelec==(1,-1)):
@@ -946,6 +950,12 @@ class FragTDMInt (object):
             return fn (smult_bra, spin_op, smult_ket, spin_ket)
 
     def spin_factor_component (self, bra, ket, comp):
+        '''Return the operator-dependent spin factor b(m(ket),comp)
+        <bra|O(comp)|ket> = a(m(ket)) * b(m(ket),comp) * <highm(bra)|O(comp)|highm(ket)>
+        I can get away with this level of abstraction because for a strictly two-electron
+        Hamiltonian, the only values of b turn out to be 1 or m/s. So comp==0 -> 1,
+        and comp==1 -> m/s.
+        '''
         if (self.smult_r[bra] != self.smult_r[ket]) or (comp == 0): return 1
         s2 = float (self.smult_r[ket] - 1)
         m2 = self.nelec_r[ket][0] - self.nelec_r[ket][1]

@@ -122,8 +122,10 @@ class HamS2Ovlp (stdm.LSTDM):
         s2 = self.canonical_operator_order (s2, ninv)
         self._put_ham_s2_(row[0], row[1], ham, s2, *inv)
 
-    def _put_op_(self, op, bra, ket, opval, wgt):
+    def _put_op_(self, op, bra, ket, opval, wgt, spin_key):
         t0, w0 = logger.process_clock (), logger.perf_counter ()
+        if callable (getattr (opval, 'reduce_spin', None)):
+            opval = opval.reduce_spin (*spin_key)
         op[bra,ket] += wgt * opval
         dt, dw = logger.process_clock () - t0, logger.perf_counter () - w0
         self.dt_s, self.dw_s = self.dt_s + dt, self.dw_s + dw
@@ -135,14 +137,16 @@ class HamS2Ovlp (stdm.LSTDM):
         t0, w0 = logger.process_clock (), logger.perf_counter ()
         ham = ham.flat
         if s2 is None:
-            def _put_s2_(b,k,i,w): pass
+            def _put_s2_(b,k,i,w,y): pass
         else:
             s2 = s2.flat
-            def _put_s2_(b,k,i,w): self._put_op_(self.s2, b, k, s2[i], w)
+            def _put_s2_(b,k,i,w,y): self._put_op_(self.s2, b, k, s2[i], w, y)
         for ix, (bra1, ket1) in enumerate (product (bra_rng, ket_rng)):
-            bra2, ket2, wgt = self._get_spec_addr_ovlp (bra1, ket1, *inv)
-            self._put_op_(self.ham, bra2, ket2, ham[ix], wgt)
-            _put_s2_(bra2, ket2, ix, wgt)
+            for spin_key, bra2, ket2, wgt in self._get_spec_addr_ovlp (
+                bra1, ket1, *inv, return_spin_keys=True
+            ):
+                self._put_op_(self.ham, bra2, ket2, ham[ix], wgt, spin_key)
+                _put_s2_(bra2, ket2, ix, wgt, spin_key)
         dt, dw = logger.process_clock () - t0, logger.perf_counter () - w0
         self.dt_p, self.dw_p = self.dt_p + dt, self.dw_p + dw
 

@@ -3,7 +3,7 @@ from pyscf import lib
 from pyscf.lib import logger, param
 from itertools import product, combinations
 from mrh.my_pyscf.lassi.citools import get_rootaddr_fragaddr, umat_dot_1frag_
-from mrh.my_pyscf.lassi.op_o1 import frag
+from mrh.my_pyscf.lassi.op_o1 import frag, opterm
 from mrh.my_pyscf.lassi.op_o1.utilities import *
 
 # C interface
@@ -584,7 +584,7 @@ class LSTDM (object):
         self.dt_o, self.dw_o = self.dt_o + dt, self.dw_o + dw
         return
 
-    def _get_spec_addr_ovlp (self, bra, ket, *inv):
+    def _get_spec_addr_ovlp (self, bra, ket, *inv, **kwargs):
         '''Obtain the integer indices and overlap*permutation factors for all pairs of model states
         for which a specified list of nonspectator fragments are in same state that they are in a
         provided input pair bra, ket. Uses a cache that must be prepared beforehand by the function
@@ -614,21 +614,41 @@ class LSTDM (object):
         rbra, rket = self.rootaddr[bra], self.rootaddr[ket]
         braenv = self.envaddr[bra]
         ketenv = self.envaddr[ket]
-        bra_rng = []
-        ket_rng = []
-        facs = []
+        bra_rng = {}
+        ket_rng = {}
+        facs = {}
+        spin_keys = set ()
+        spin_key_reducer = opterm.SpinKeyReducer ([self.ints[i] for i in inv])
         for (rbra1, rket1, b, k, o) in self._spec_addr_ovlp_cache:
+            spin_key = spin_key_reducer (rbra1, rket1)
+            if spin_key not in spin_keys:
+                spin_keys.add (spin_key)
+                bra_rng[spin_key] = []
+                ket_rng[spin_key] = []
+                facs[spin_key] = []
             dbra = np.dot (braenv, self.strides[rbra1])
             dket = np.dot (ketenv, self.strides[rket1])
-            bra_rng.append (b+dbra)
-            ket_rng.append (k+dket)
-            facs.append (o)
-        bra_rng = np.concatenate (bra_rng)
-        ket_rng = np.concatenate (ket_rng)
-        facs = np.concatenate (facs)
-        dt, dw = logger.process_clock () - t0, logger.perf_counter () - w0
-        self.dt_g, self.dw_g = self.dt_g + dt, self.dw_g + dw
-        return bra_rng, ket_rng, facs
+            bra_rng[spin_key].append (b+dbra)
+            ket_rng[spin_key].append (k+dket)
+            facs[spin_key].append (o)
+        for spin_key in spin_keys:
+            bra_rng[spin_key] = np.concatenate (bra_rng[spin_key])
+            ket_rng[spin_key] = np.concatenate (ket_rng[spin_key])
+            facs[spin_key] = np.concatenate (facs[spin_key])
+        def my_gen ():
+            for spin_key in spin_keys:
+                yield spin_key, bra_rng[spin_key], ket_rng[spin_key], facs[spin_key]
+        if kwargs.get ('return_spin_keys', False):
+            dt, dw = logger.process_clock () - t0, logger.perf_counter () - w0
+            self.dt_g, self.dw_g = self.dt_g + dt, self.dw_g + dw
+            return my_gen ()
+        else:
+            bra_rng = np.concatenate (list (bra_rng.values ()))
+            ket_rng = np.concatenate (list (ket_rng.values ()))
+            facs = np.concatenate (list (facs.values ()))
+            dt, dw = logger.process_clock () - t0, logger.perf_counter () - w0
+            self.dt_g, self.dw_g = self.dt_g + dt, self.dw_g + dw
+            return bra_rng, ket_rng, facs
 
     def _get_spec_addr_ovlp_1space (self, rbra, rket, *inv):
         '''Obtain the integer indices and overlap*permutation factors for all pairs of model states

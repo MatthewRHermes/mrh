@@ -5,9 +5,12 @@ class OpTermBase: pass
 
 class OpTerm (OpTermBase):
     def __init__(self, arr, ints, comp):
-        self.arr = arr
         self.ints = ints
         self.comp = comp
+        if comp is None:
+            self.arr = arr
+        else:
+            self.arr = np.stack (arr, axis=-1)
 
     def reduce_spin (self, bra, ket):
         if any ([i.smult_r[ket] is None for i in self.ints]):
@@ -19,10 +22,21 @@ class OpTerm (OpTermBase):
             for i, comp_i in enumerate (self.comp):
                 for intj, comp_ij in zip (self.ints, comp_i):
                     fac[i] *= intj.spin_factor_component (bra, ket, comp_ij)
-            arr = np.tensordot (fac, self.arr, axes=1)
+            arr = np.dot (self.arr, fac)
         for inti in self.ints:
             arr *= inti.spin_factor_constant (bra, ket)
         return arr.view (OpTermContracted)
+
+    @property
+    def flat (self):
+        if self.comp is None:
+            arr = self.arr.flat
+        else:
+            arr = self.arr.reshape (-1, len (self.comp))
+        return OpTerm (arr, self.ints, self.comp)
+
+    def __getiterm__(self, idx):
+        return OpTerm (self.arr[idx], self.ints, self.comp)
 
 class OpTermContracted (np.ndarray, OpTermBase):
     ''' Just farm the dot method to pyscf.lib.dot '''
@@ -89,4 +103,19 @@ class OpTerm4Fragments (OpTermNFragments):
         return ox
 
     op_transpose_axes = (0,1,4,5,2,3)
+
+class SpinKeyReducer:
+    def __init__(self, ints):
+        self.ints = ints
+        self.map = {}
+
+    def spin_key_hash (self, bra, ket):
+        return hash (tuple ([inti.nelec_r[ket][0] - inti.nelec_r[ket][1]
+                             for inti in self.ints]))
+
+    def __call__(self, bra, ket):
+        myhash = self.spin_key_hash (bra, ket)
+        if myhash not in self.map.keys ():
+            self.map[myhash] = (bra, ket)
+        return self.map[myhash]
 
