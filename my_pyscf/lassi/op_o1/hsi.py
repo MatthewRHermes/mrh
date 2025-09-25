@@ -123,12 +123,14 @@ class HamS2OvlpOperators (HamS2Ovlp):
             op = self.opterm_std_shape (bra, ket, data[0], inv, sinv)
             key = tuple (inv)
             val = self.excgroups_h.get (key, [])
-            val.append ([op, bra, ket, row])
+            for mybra, myket in self.spman[tuple((bra,ket))+tuple(row)]:
+                val.append ([op, mybra, myket, row])
             self.excgroups_h[key] = val
             if has_s:
                 op = self.opterm_std_shape (bra, ket, data[1], inv, sinv)
                 val = self.excgroups_s.get (key, [])
-                val.append ([op, bra, ket, row])
+                for mybra, myket in self.spman[tuple((bra,ket))+tuple(row)]:
+                    val.append ([op, mybra, myket, row])
                 self.excgroups_s[key] = val
 
     def _index_ovlppart (self, groups):
@@ -307,6 +309,7 @@ class HamS2OvlpOperators (HamS2Ovlp):
     def _opuniq_x_(self, op, obra, oket, ovecs, *inv):
         '''All operations which are unique in that a given set of nonspectator fragment bra
         statelets are coupled to a given set of nonspectator fragment ket statelets'''
+        op = opterm.reduce_spin (op, obra, oket)
         key = tuple ((obra, oket)) + inv
         inv = list (set (inv))
         brakets, bras, braHs = self.get_nonuniq_exc_square (key)

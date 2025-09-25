@@ -5,7 +5,7 @@ from pyscf.lib import logger, param
 from itertools import product
 from mrh.my_pyscf.fci.csf import unpack_h1e_ab
 from mrh.my_pyscf.lassi import citools
-from mrh.my_pyscf.lassi.op_o1 import frag, stdm
+from mrh.my_pyscf.lassi.op_o1 import frag, stdm, opterm
 from mrh.my_pyscf.lassi.op_o1.utilities import *
 
 # S2 is:
@@ -37,6 +37,20 @@ class HamS2Ovlp (stdm.LSTDM):
         if h1.ndim==2: h1 = np.stack ([h1,h1], axis=0)
         self.h1 = np.ascontiguousarray (h1)
         self.h2 = np.ascontiguousarray (h2)
+
+    def mask_exc_table_(self, exc, lbl, mask_bra_space=None, mask_ket_space=None):
+        exc = super().mask_exc_table_(exc, lbl, mask_bra_space=mask_bra_space,
+                                      mask_ket_space=mask_ket_space)
+        exc_nrows, exc_ncols = exc.shape
+        if '_'+lbl+'_' in self.interaction_has_spin:
+            nfrags = exc_ncols - 3
+        else:
+            nfrags = exc_ncols - 2
+        # TODO: collect sets of unique excitations into manifolds that differ only
+        # in the m quantum number (i.e., of the ket)
+        for i in range (exc_nrows):
+            self.spman[tuple(exc[i,:2+nfrags])] = [tuple(exc[i,:2]),]
+        return exc
 
     def _init_buffers_(self): pass
 
@@ -129,6 +143,12 @@ class HamS2Ovlp (stdm.LSTDM):
         self.dt_s, self.dw_s = self.dt_s + dt, self.dw_s + dw
 
     def _put_ham_s2_(self, bra, ket, ham, s2, *inv):
+        for mybra, myket in self.spman[tuple ((bra,ket)) + inv]:
+            myham = opterm.reduce_spin (ham, mybra, myket)
+            mys2 = opterm.reduce_spin (s2, mybra, myket)
+            self._put_ham_s2_spincase_(mybra, myket, myham, mys2, *inv)
+
+    def _put_ham_s2_spincase_(self, bra, ket, ham, s2, *inv):
         # TODO: vectorize this part
         bra_rng = self._get_addr_range (bra, *inv) # profiled as idx
         ket_rng = self._get_addr_range (ket, *inv) # profiled as idx

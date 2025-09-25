@@ -27,6 +27,12 @@ class OpTerm (OpTermBase):
             arr *= inti.spin_factor_constant (bra, ket)
         return arr.view (OpTermContracted)
 
+def reduce_spin (op, bra, ket):
+    if isinstance (op, OpTerm):
+        return op.reduce_spin (bra, ket)
+    else:
+        return op
+
 class OpTermContracted (np.ndarray, OpTermBase):
     ''' Just farm the dot method to pyscf.lib.dot '''
     def dot (self, other):

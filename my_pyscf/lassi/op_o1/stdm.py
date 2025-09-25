@@ -122,6 +122,7 @@ class LSTDM (object):
 
         exc = self.make_exc_tables (nelec_frs, smult_fr)
         self.nonuniq_exc = {}
+        self.spman = {}
         self.exc_null = self.mask_exc_table_(exc['null'], 'null', mask_bra_space, mask_ket_space)
         self.exc_1d = self.mask_exc_table_(exc['1d'], '1d', mask_bra_space, mask_ket_space)
         self.exc_2d = self.mask_exc_table_(exc['2d'], '2d', mask_bra_space, mask_ket_space)
