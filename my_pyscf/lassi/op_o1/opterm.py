@@ -27,17 +27,6 @@ class OpTerm (OpTermBase):
             arr *= inti.spin_factor_constant (bra, ket)
         return arr.view (OpTermContracted)
 
-    @property
-    def flat (self):
-        if self.comp is None:
-            arr = self.arr.flat
-        else:
-            arr = self.arr.reshape (-1, len (self.comp))
-        return OpTerm (arr, self.ints, self.comp)
-
-    def __getiterm__(self, idx):
-        return OpTerm (self.arr[idx], self.ints, self.comp)
-
 class OpTermContracted (np.ndarray, OpTermBase):
     ''' Just farm the dot method to pyscf.lib.dot '''
     def dot (self, other):
@@ -103,19 +92,4 @@ class OpTerm4Fragments (OpTermNFragments):
         return ox
 
     op_transpose_axes = (0,1,4,5,2,3)
-
-class SpinKeyReducer:
-    def __init__(self, ints):
-        self.ints = ints
-        self.map = {}
-
-    def spin_key_hash (self, bra, ket):
-        return hash (tuple ([inti.nelec_r[ket][0] - inti.nelec_r[ket][1]
-                             for inti in self.ints]))
-
-    def __call__(self, bra, ket):
-        myhash = self.spin_key_hash (bra, ket)
-        if myhash not in self.map.keys ():
-            self.map[myhash] = (bra, ket)
-        return self.map[myhash]
 
