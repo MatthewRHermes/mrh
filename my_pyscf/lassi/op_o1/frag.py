@@ -335,13 +335,21 @@ class FragTDMInt (object):
 
     # 1-density intermediate
 
-    def get_dm1 (self, i, j, **kwargs):
+    def get_dm1 (self, i, j, cs=False, **kwargs):
         k = self.spman[self.uroot_idx[i]]
         l = self.spman[self.uroot_idx[j]]
         a, b = self.spman_inter[(k,l,0)]
         if b > a:
-            return self.try_get ('dm1', j, i, **kwargs).conj ().transpose (1,0,2,4,3)
-        return self.try_get ('dm1', i, j, **kwargs)
+            dm1 = self.try_get ('dm1', j, i, **kwargs).conj ().transpose (1,0,2,4,3)
+        else:
+            dm1 = self.try_get ('dm1', i, j, **kwargs)
+        if cs:
+            # Canonical transformation of spin d.o.f.: ab -> cs
+            dm1_cs = np.zeros_like (dm1)
+            dm1_cs[:,:,0] = dm1.sum (2)
+            dm1_cs[:,:,1] = dm1[:,:,0] - dm1[:,:,1]
+            dm1 = dm1_cs
+        return dm1
 
     def set_dm1 (self, i, j, x):
         assert (j <= i)
@@ -957,7 +965,7 @@ class FragTDMInt (object):
         and comp==1 -> m/s.
         '''
         if (self.smult_r[bra] != self.smult_r[ket]) or (comp == 0): return 1
-        s2 = float (self.smult_r[ket] - 1)
+        s2 = float (self.smult_r[ket] - 1) + np.finfo (float).tiny
         m2 = self.nelec_r[ket][0] - self.nelec_r[ket][1]
         return m2 / s2
 

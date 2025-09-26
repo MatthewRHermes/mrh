@@ -205,24 +205,24 @@ class HamS2Ovlp (stdm.LSTDM):
         '''Compute a two-fragment density fluctuation.'''
         # 1/2 factor of h2 canceled by i<->j
         t0, w0 = logger.process_clock (), logger.perf_counter ()
-        d1s_ii = self.ints[i].get_dm1 (bra, ket)
-        d1s_jj = self.ints[j].get_dm1 (bra, ket)
+        d1s_ii = self.ints[i].get_dm1 (bra, ket, cs=True, highm=True).transpose (2,0,1,3,4)
+        d1s_jj = self.ints[j].get_dm1 (bra, ket, cs=True, highm=True).transpose (2,0,1,3,4)
         h_ = self.get_ham_2q (j,j,i,i)
-        h_ = np.tensordot (d1s_ii.sum (2), h_, axes=((-1,-2),(-2,-1)))
-        h_ = np.tensordot (d1s_jj.sum (2), h_, axes=((-1,-2),(-2,-1)))
-        ham = h_
-        hs_ = self.get_ham_2q (j,i,i,j).transpose (0,3,2,1)
-        hs_ = np.tensordot (d1s_ii, hs_, axes=((-1,-2),(-2,-1)))
-        hs_ = hs_.transpose (2,0,1,3,4)
-        d1s_ii = d1s_ii.transpose (2,0,1,3,4)
-        d1s_jj = d1s_jj.transpose (2,0,1,3,4)
-        for h_, d1_jj in zip (hs_, d1s_jj):
-            ham -= np.tensordot (d1_jj, h_, axes=((-1,-2),(-2,-1)))
-        mi = np.trace (d1s_ii, axis1=-2, axis2=-1)
-        mi = (mi[0] - mi[1])
-        mj = np.trace (d1s_jj, axis1=-2, axis2=-1)
-        mj = (mj[0] - mj[1]) 
+        h_ = np.tensordot (d1s_ii[0], h_, axes=((-1,-2),(-2,-1)))
+        h_ = np.tensordot (d1s_jj[0], h_, axes=((-1,-2),(-2,-1)))
+        ham = [h_, 0]
+        hs_ = self.get_ham_2q (j,i,i,j).transpose (0,3,2,1) / 2
+        for s in range (2):
+            h_ = np.tensordot (d1s_ii[s], hs_, axes=((-1,-2),(-2,-1)))
+            ham[s] -= np.tensordot (d1s_jj[s], h_, axes=((-1,-2),(-2,-1)))
+        mi = np.trace (d1s_ii[1], axis1=-2, axis2=-1)
+        mj = np.trace (d1s_jj[1], axis1=-2, axis2=-1)
         s2 = np.multiply.outer (mj, mi) / 2
+        s2 = [np.zeros_like (s2), s2]
+        ints = [self.ints[i], self.ints[j]]
+        comp = [[0,0],[1,1]]
+        ham = opterm.OpTerm (ham, ints, comp)
+        s2 = opterm.OpTerm (s2, ints, comp)
         dt, dw = logger.process_clock () - t0, logger.perf_counter () - w0
         self.dt_2d, self.dw_2d = self.dt_2d + dt, self.dw_2d + dw
         return ham, s2, (j, i)

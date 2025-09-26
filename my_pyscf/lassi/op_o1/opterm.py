@@ -14,11 +14,13 @@ class OpTerm (OpTermBase):
 
     def reduce_spin (self, bra, ket):
         if any ([i.smult_r[ket] is None for i in self.ints]):
-            return self.arr.view (OpTermContracted)
+            arr = self.arr
+            if self.comp is not None:
+                arr = arr.sum (-1)
+            return arr.view (OpTermContracted)
         if self.comp is None:
             arr = self.arr.copy ()
         else:
-            assert (False)
             fac = np.ones (len (self.comp), dtype=float)
             for i, comp_i in enumerate (self.comp):
                 for intj, comp_ij in zip (self.ints, comp_i):
@@ -44,7 +46,7 @@ class OpTerm (OpTermBase):
         if self.comp is None:
             return self.arr.shape
         else:
-            return self.arr.shape[-1]
+            return self.arr.shape[:-1]
 
     @property
     def size (self):
