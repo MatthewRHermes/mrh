@@ -274,20 +274,26 @@ class HamS2Ovlp (stdm.LSTDM):
         nelec_f_ket = self.nelec_rf[ket]
         fac *= fermion_des_shuffle (nelec_f_bra, (i, j, k), i)
         fac *= fermion_des_shuffle (nelec_f_ket, (i, j, k), j)
-        p_i = self.ints[i].get_p (bra, ket, s1)
-        h_j = self.ints[j].get_h (bra, ket, s1)
-        d1s_k = self.ints[k].get_dm1 (bra, ket)
-        d1_k = d1s_k.sum (2)
+        p_i = self.ints[i].get_p (bra, ket, s1, highm=True)
+        h_j = self.ints[j].get_h (bra, ket, s1, highm=True)
+        d1s_k = self.ints[k].get_dm1 (bra, ket, cs=True, highm=True).transpose (2,0,1,3,4)
+        d1s_k[1] *= (-1)**s1
+        ham = [0, 0]
+        d1_k = d1s_k[0]
         h_ = self.get_ham_2q (k,k,j,i) # BEWARE CONJ
         h_ = np.tensordot (p_i, h_, axes=((-1),(-1)))
         h_ = np.tensordot (h_j, h_, axes=((-1),(-1)))
-        ham = np.tensordot (d1_k, h_, axes=((-1,-2),(-2,-1)))
-        d1_k = d1s_k[:,:,s1]
+        ham[0] = np.tensordot (d1_k, h_, axes=((-1,-2),(-2,-1)))
         h_ = self.get_ham_2q (j,k,k,i).transpose (1,2,0,3) # BEWARE CONJ
         h_ = np.tensordot (p_i, h_, axes=((-1),(-1)))
         h_ = np.tensordot (h_j, h_, axes=((-1),(-1)))
-        ham -= np.tensordot (d1_k, h_, axes=((-2,-1),(-2,-1)))
-        ham *= fac
+        d1s_k /= 2
+        for s in range (2):
+            ham[s] -= np.tensordot (d1s_k[s], h_, axes=((-2,-1),(-2,-1)))
+            ham[s] *= fac
+        ints = [self.ints[i], self.ints[j], self.ints[k]]
+        comp = [[0,0,0],[0,0,1]]
+        ham = opterm.OpTerm (ham, ints, comp)
         s2 = None
         dt, dw = logger.process_clock () - t0, logger.perf_counter () - w0
         self.dt_1c1d, self.dw_1c1d = self.dt_1c1d + dt, self.dw_1c1d + dw
@@ -343,28 +349,30 @@ class HamS2Ovlp (stdm.LSTDM):
         fac *= fermion_des_shuffle (nelec_f_bra, (i, j, k), i)
         fac *= fermion_des_shuffle (nelec_f_ket, (i, j, k), j)
         ham = self.get_ham_2q (j,k,k,i).transpose (1,2,0,3) # BEWARE CONJ
-        ham = np.tensordot (self.ints[i].get_p (bra, ket, s1), ham, axes=((-1),(-1)))
-        ham = np.tensordot (self.ints[j].get_h (bra, ket, s2), ham, axes=((-1),(-1)))
+        ham = np.tensordot (self.ints[i].get_p (bra, ket, s1, highm=True), ham, axes=((-1),(-1)))
+        ham = np.tensordot (self.ints[j].get_h (bra, ket, s2, highm=True), ham, axes=((-1),(-1)))
         if s1 == 0:
-            dkk = self.ints[k].get_sm (bra, ket)
+            dkk = self.ints[k].get_sm (bra, ket, highm=True)
         else:
-            dkk = self.ints[k].get_sp (bra, ket)
+            dkk = self.ints[k].get_sp (bra, ket, highm=True)
         ham = np.tensordot (dkk, ham, axes=((-2,-1),(-2,-1)))
         ham *= fac
         s2 = None
+        ints = [self.ints[i], self.ints[j], self.ints[k]]
+        ham = opterm.OpTerm (ham, ints, None)
         dt, dw = logger.process_clock () - t0, logger.perf_counter () - w0
         self.dt_1s1c, self.dw_1s1c = self.dt_1s1c + dt, self.dw_1s1c + dw
         return ham, s2, (k, j, i)
 
-    def _crunch_2c_(self, bra, ket, i, j, k, l, s2lt):
+    def _crunch_2c_(self, bra, ket, a, i, b, j, s2lt):
         '''Compute the reduced density matrix elements of a two-electron hop; i.e.,
 
-        <bra|i'(s1)k'(s2)l(s2)j(s1)|ket>
+        <bra|a'(s1)b'(s2)j(s2)i(s1)|ket>
 
         i.e.,
 
-        j ---s1---> i
-        l ---s2---> k
+        i ---s1---> a
+        j ---s2---> b
 
         with
 
@@ -374,13 +382,13 @@ class HamS2Ovlp (stdm.LSTDM):
 
         and conjugate transpose
 
-        Note that this includes i=k and/or j=l cases, but no other coincident fragment indices. Any
+        Note that this includes a=b and/or i=j cases, but no other coincident fragment indices. Any
         other coincident fragment index (that is, any coincident index between the bra and the ket)
         turns this into one of the other interactions implemented in the above _crunch_ functions:
-        s1 = s2  AND SORT (ik) = SORT (jl)                 : _crunch_1d_ and _crunch_2d_
-        s1 = s2  AND (i = j XOR i = l XOR j = k XOR k = l) : _crunch_1c_ and _crunch_1c1d_
-        s1 != s2 AND (i = l AND j = k)                     : _crunch_1s_
-        s1 != s2 AND (i = l XOR j = k)                     : _crunch_1s1c_
+        s1 = s2  AND SORT (ab) = SORT (ij)              : _crunch_1d_ and _crunch_2d_
+        s1 = s2  AND (a = i OR a = j OR i = b OR b = j) : _crunch_1c_ and _crunch_1c1d_
+        s1 != s2 AND (a = j AND i = b)                  : _crunch_1s_
+        s1 != s2 AND (a = j XOR i = b)                  : _crunch_1s1c_
         '''
         t0, w0 = logger.process_clock (), logger.perf_counter ()
         # s2lt: 0, 1, 2 -> aa, ab, bb
@@ -391,31 +399,31 @@ class HamS2Ovlp (stdm.LSTDM):
         s12 = s2 % 2
         nelec_f_bra = self.nelec_rf[bra]
         nelec_f_ket = self.nelec_rf[ket]
-        fac = (1,.5)[int ((i,j,s11)==(k,l,s12))] # 1/2 factor of h2 canceled by ijkl <-> klij
-        ham = self.get_ham_2q (l,k,j,i).transpose (0,2,3,1) # BEWARE CONJ
-        if s11==s12 and i!=k and j!=l: # exchange
-            ham -= self.get_ham_2q (l,i,j,k).transpose (0,2,1,3) # BEWARE CONJ
-        if i == k:
-            ham = np.tensordot (self.ints[i].get_pp (bra, ket, s2lt), ham, axes=((-2,-1),(-2,-1)))
+        fac = (1,.5)[int ((a,i,s11)==(b,j,s12))] # 1/2 factor of h2 cancejed by aibj <-> bjai
+        ham = self.get_ham_2q (j,b,i,a).transpose (0,2,3,1) # BEWARE CONJ
+        if s11==s12 and a!=b and i!=j: # exchange
+            ham -= self.get_ham_2q (j,a,i,b).transpose (0,2,1,3) # BEWARE CONJ
+        if a == b:
+            ham = np.tensordot (self.ints[a].get_pp (bra, ket, s2lt), ham, axes=((-2,-1),(-2,-1)))
         else:
-            ham = np.tensordot (self.ints[k].get_p (bra, ket, s12), ham, axes=((-1),(-1)))
-            ham = np.tensordot (self.ints[i].get_p (bra, ket, s11), ham, axes=((-1),(-1)))
-            fac *= (1,-1)[int (i>k)]
-            fac *= fermion_des_shuffle (nelec_f_bra, (i, j, k, l), i)
-            fac *= fermion_des_shuffle (nelec_f_bra, (i, j, k, l), k)
-        if j == l:
-            ham = np.tensordot (self.ints[j].get_hh (bra, ket, s2lt), ham, axes=((-2,-1),(-2,-1)))
+            ham = np.tensordot (self.ints[b].get_p (bra, ket, s12), ham, axes=((-1),(-1)))
+            ham = np.tensordot (self.ints[a].get_p (bra, ket, s11), ham, axes=((-1),(-1)))
+            fac *= (1,-1)[int (a>b)]
+            fac *= fermion_des_shuffle (nelec_f_bra, (a, i, b, j), a)
+            fac *= fermion_des_shuffle (nelec_f_bra, (a, i, b, j), b)
+        if i == j:
+            ham = np.tensordot (self.ints[i].get_hh (bra, ket, s2lt), ham, axes=((-2,-1),(-2,-1)))
         else:
-            ham = np.tensordot (self.ints[j].get_h (bra, ket, s11), ham, axes=((-1),(-1)))
-            ham = np.tensordot (self.ints[l].get_h (bra, ket, s12), ham, axes=((-1),(-1)))
-            fac *= (1,-1)[int (j>l)]
-            fac *= fermion_des_shuffle (nelec_f_ket, (i, j, k, l), j)
-            fac *= fermion_des_shuffle (nelec_f_ket, (i, j, k, l), l)
+            ham = np.tensordot (self.ints[i].get_h (bra, ket, s11), ham, axes=((-1),(-1)))
+            ham = np.tensordot (self.ints[j].get_h (bra, ket, s12), ham, axes=((-1),(-1)))
+            fac *= (1,-1)[int (i>j)]
+            fac *= fermion_des_shuffle (nelec_f_ket, (a, i, b, j), i)
+            fac *= fermion_des_shuffle (nelec_f_ket, (a, i, b, j), j)
         ham *= fac
         s2 = None
         dt, dw = logger.process_clock () - t0, logger.perf_counter () - w0
         self.dt_2c, self.dw_2c = self.dt_2c + dt, self.dw_2c + dw
-        return ham, s2, (l, j, i, k)
+        return ham, s2, (j, i, a, b)
 
 
 def soc_context (h1, h2, ci, nelec_frs, smult_fr, soc, nlas):
