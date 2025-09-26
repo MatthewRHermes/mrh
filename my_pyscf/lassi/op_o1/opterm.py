@@ -3,7 +3,9 @@ from pyscf import lib
 
 class OpTermBase: pass
 
-class OpTerm (OpTermBase):
+class OpTermReducible (OpTermBase): pass
+
+class OpTerm (OpTermReducible):
     def __init__(self, arr, ints, comp, _already_stacked=False):
         self.ints = ints
         self.comp = comp
@@ -67,7 +69,7 @@ def as_opterm (op):
         return op.view (OpTermContracted)
 
 def reduce_spin (op, bra, ket):
-    if isinstance (op, OpTerm):
+    if isinstance (op, OpTermReducible):
         return op.reduce_spin (bra, ket)
     else:
         return op
@@ -77,8 +79,8 @@ class OpTermContracted (np.ndarray, OpTermBase):
     def dot (self, other):
         return lib.dot (self, other)
 
-class OpTermNFragments (OpTermBase):
-    def __init__(self, op, idx, d, do_crunch=True):
+class OpTermNFragments (OpTermReducible):
+    def __init__(self, op, idx, d, ints, do_crunch=True):
         assert (len (idx) == len (d))
         isort = np.argsort (idx)
         if do_crunch and (op.ndim == len (isort)):
@@ -87,6 +89,7 @@ class OpTermNFragments (OpTermBase):
             self.op = op
         self.idx = [idx[i] for i in isort]
         self.d = [d[i] for i in isort]
+        self.ints = [ints[i] for i in isort]
         self.lroots_bra = [d.shape[0] for d in self.d]
         self.lroots_ket = [d.shape[1] for d in self.d]
         self.norb = [d.shape[2] for d in self.d]
@@ -115,6 +118,18 @@ class OpTermNFragments (OpTermBase):
         # d should not be copies, but op is
         return self.op.size
 
+    def reduce_spin (self, bra, ket, do_crunch=False):
+        fac = [inti.spin_factor_constant (bra, ket) for inti in self.ints]
+        d = [self.d[i].copy () * fac[i] for i in range (len (fac))]
+        if do_crunch:
+            op = self.op.copy ()
+        else:
+            op = self.reduce_spin_op (bra, ket, fac)
+        return self.__class__(op, idx, d, self.ints, do_crunch=do_crunch)
+
+    def reduce_spin_op (self, bra, ket, fac):
+        raise NotImplementedError
+
     @property
     def size (self): return self.get_size ()
 
@@ -137,4 +152,8 @@ class OpTerm4Fragments (OpTermNFragments):
         return ox
 
     op_transpose_axes = (0,1,4,5,2,3)
+
+    def reduce_spin_op (self, bra, ket, fac):
+        fac = fac[0] * fac[1]
+        return self.op.copy () * fac
 

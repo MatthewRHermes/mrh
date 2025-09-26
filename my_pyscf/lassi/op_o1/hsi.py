@@ -486,11 +486,14 @@ class HamS2OvlpOperators (HamS2Ovlp):
         if s11==s12: # exchange
             ham -= self.get_ham_2q (l,i,j,k).transpose (0,2,1,3) # BEWARE CONJ
         ham *= fac
-        d_k = self.ints[k].get_p (bra, ket, s12)
-        d_i = self.ints[i].get_p (bra, ket, s11)
-        d_j = self.ints[j].get_h (bra, ket, s11)
-        d_l = self.ints[l].get_h (bra, ket, s12)
-        ham = opterm.OpTerm4Fragments (ham, (l,j,i,k), (d_l, d_j, d_i, d_k), do_crunch=(not dry_run))
+        d_k = self.ints[k].get_p (bra, ket, s12, highm=True)
+        d_i = self.ints[i].get_p (bra, ket, s11, highm=True)
+        d_j = self.ints[j].get_h (bra, ket, s11, highm=True)
+        d_l = self.ints[l].get_h (bra, ket, s12, highm=True)
+        frags = (l,j,i,k)
+        d = (d_l,d_j,d_i,d_k)
+        ints = [self.ints[p] for p in frags]
+        ham = opterm.OpTerm4Fragments (ham, frags, d, ints, do_crunch=(not dry_run))
         s2 = None
         dt, dw = logger.process_clock () - t0, logger.perf_counter () - w0
         self.dt_2c, self.dw_2c = self.dt_2c + dt, self.dw_2c + dw
