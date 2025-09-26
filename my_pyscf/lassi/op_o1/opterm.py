@@ -4,10 +4,10 @@ from pyscf import lib
 class OpTermBase: pass
 
 class OpTerm (OpTermBase):
-    def __init__(self, arr, ints, comp):
+    def __init__(self, arr, ints, comp, _already_stacked=False):
         self.ints = ints
         self.comp = comp
-        if comp is None:
+        if (comp is None) or _already_stacked:
             self.arr = arr
         else:
             self.arr = np.stack (arr, axis=-1)
@@ -26,6 +26,17 @@ class OpTerm (OpTermBase):
         for inti in self.ints:
             arr *= inti.spin_factor_constant (bra, ket)
         return arr.view (OpTermContracted)
+
+    @property
+    def ndim (self):
+        ncomp = 1 - int (self.comp is None)
+        return self.arr.ndim-ncomp
+
+    def transpose (self, *idx):
+        if self.comp is not None:
+            idx += (self.arr.ndim-1,)
+        arr = self.arr.transpose (*idx)
+        return OpTerm (arr, self.ints, self.comp, _already_stacked=True)
 
 def reduce_spin (op, bra, ket):
     if isinstance (op, OpTerm):

@@ -183,8 +183,8 @@ class HamS2Ovlp (stdm.LSTDM):
         '''Compute a single-fragment density fluctuation, for both the 1- and 2-RDMs.'''
         t0, w0 = logger.process_clock (), logger.perf_counter ()
         inti = self.ints[i]
-        d1s = inti.get_dm1 (bra, ket).transpose (0,1,2,4,3)
-        d2s = inti.get_dm2 (bra, ket)
+        d1s = inti.get_dm1 (bra, ket, highm=True).transpose (0,1,2,4,3)
+        d2s = inti.get_dm2 (bra, ket, highm=True)
         d2 = d2s.sum (2).transpose (0,1,3,2,5,4)
         ham  = np.tensordot (d1s, self.get_ham_2q (i,i), axes=3)
         ham += np.tensordot (d2, self.get_ham_2q (i,i,i,i), axes=4) * .5
@@ -195,6 +195,8 @@ class HamS2Ovlp (stdm.LSTDM):
         s2 += m2[0] + m2[3] - m2[1] - m2[2]
         m2 = (d2s[1]+d2s[2]).diagonal (axis1=2, axis2=5).diagonal (axis1=2,axis2=3)
         s2 -= m2.sum ((2,3)) / 2
+        ham = opterm.OpTerm (ham, [inti], None)
+        s2 = opterm.OpTerm (s2, [inti], None)
         dt, dw = logger.process_clock () - t0, logger.perf_counter () - w0
         self.dt_1d, self.dw_1d = self.dt_1d + dt, self.dw_1d + dw
         return ham, s2, (i,)

@@ -404,14 +404,16 @@ class HamS2OvlpOperators (HamS2Ovlp):
         ham, s2, sinv = _crunch_fn (*row)
         sinv = self.inv_unique (sinv)[::-1]
         key = tuple ((row[0], row[1])) + inv
-        for bra, ket in self.nonuniq_exc[key]:
-            if bra != ket: continue
-            hdiag_nonspec = self.get_hdiag_nonspectator (ham, bra, *sinv)
-            hdiag_spec = self.hdiag_spectator_ovlp (bra, *sinv)
-            hdiag = np.multiply.outer (hdiag_nonspec, hdiag_spec)
-            hdiag = transpose_sivec_with_slow_fragments (hdiag.ravel (), self.lroots[:,bra], *sinv)
-            i, j = self.offs_lroots[bra] 
-            self.ox[i:j] += hdiag.ravel ()
+        for braket in self.spman[key]:
+            for bra, ket in self.nonuniq_exc[braket+inv]:
+                if bra != ket: continue
+                ham = opterm.reduce_spin (ham, bra, ket)
+                hdiag_nonspec = self.get_hdiag_nonspectator (ham, bra, *sinv)
+                hdiag_spec = self.hdiag_spectator_ovlp (bra, *sinv)
+                hdiag = np.multiply.outer (hdiag_nonspec, hdiag_spec)
+                hdiag = transpose_sivec_with_slow_fragments (hdiag.ravel (), self.lroots[:,bra], *sinv)
+                i, j = self.offs_lroots[bra] 
+                self.ox[i:j] += hdiag.ravel ()
 
     def get_hdiag_nonspectator (self, ham, bra, *inv):
         for i in inv:
