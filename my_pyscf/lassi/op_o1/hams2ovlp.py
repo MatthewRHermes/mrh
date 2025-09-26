@@ -245,10 +245,10 @@ class HamS2Ovlp (stdm.LSTDM):
         fac *= fermion_des_shuffle (nelec_f_bra, (i, j), i)
         fac *= fermion_des_shuffle (nelec_f_ket, (i, j), j)
         h_ = self.get_ham_2q (j,i)[s1] # BEWARE CONJ
-        p_i = self.ints[i].get_p (bra, ket, s1)
-        pph_i = self.ints[i].get_pph (bra, ket, s1).sum (2)
-        h_j = self.ints[j].get_h (bra, ket, s1)
-        phh_j = self.ints[j].get_phh (bra, ket, s1).sum (2)
+        p_i = self.ints[i].get_p (bra, ket, s1, highm=True)
+        pph_i = self.ints[i].get_pph (bra, ket, s1, highm=True).sum (2)
+        h_j = self.ints[j].get_h (bra, ket, s1, highm=True)
+        phh_j = self.ints[j].get_phh (bra, ket, s1, highm=True).sum (2)
         h_ = np.tensordot (p_i, h_, axes=((-1),(-1)))
         h_ = np.tensordot (h_j, h_, axes=((-1),(-1)))
         ham = h_
@@ -259,6 +259,7 @@ class HamS2Ovlp (stdm.LSTDM):
         h_ = np.tensordot (p_i, h_, axes=((-1),(-1)))
         ham += np.tensordot (phh_j, h_, axes=((-3,-2,-1),(-2,-3,-1)))
         ham *= fac
+        ham = opterm.OpTerm (ham, [self.ints[i], self.ints[j]], None)
         s2 = None
         dt, dw = logger.process_clock () - t0, logger.perf_counter () - w0
         self.dt_1c, self.dw_1c = self.dt_1c + dt, self.dw_1c + dw

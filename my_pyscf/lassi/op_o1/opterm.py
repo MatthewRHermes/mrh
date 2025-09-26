@@ -16,15 +16,16 @@ class OpTerm (OpTermBase):
         if any ([i.smult_r[ket] is None for i in self.ints]):
             return self.arr.view (OpTermContracted)
         if self.comp is None:
-            arr = self.arr
+            arr = self.arr.copy ()
         else:
+            assert (False)
             fac = np.ones (len (self.comp), dtype=float)
             for i, comp_i in enumerate (self.comp):
                 for intj, comp_ij in zip (self.ints, comp_i):
                     fac[i] *= intj.spin_factor_component (bra, ket, comp_ij)
             arr = np.dot (self.arr, fac)
-        for inti in self.ints:
-            arr *= inti.spin_factor_constant (bra, ket)
+        fac = np.prod ([inti.spin_factor_constant (bra, ket) for inti in self.ints])
+        arr *= fac
         return arr.view (OpTermContracted)
 
     @property
@@ -37,6 +38,31 @@ class OpTerm (OpTermBase):
             idx += (self.arr.ndim-1,)
         arr = self.arr.transpose (*idx)
         return OpTerm (arr, self.ints, self.comp, _already_stacked=True)
+
+    @property
+    def shape (self):
+        if self.comp is None:
+            return self.arr.shape
+        else:
+            return self.arr.shape[-1]
+
+    @property
+    def size (self):
+        return np.prod (self.shape)
+
+    def reshape (self, new_shape, order='C'):
+        assert (order.upper () == 'C')
+        # TODO: generalize order
+        if self.comp is not None:
+            new_shape += (self.arr.shape[-1],)
+        arr = self.arr.reshape (new_shape, order=order)
+        return OpTerm (arr, self.ints, self.comp, _already_stacked=True)
+
+def as_opterm (op):
+    if isinstance (op, OpTermBase):
+        return op
+    else:
+        return op.view (OpTermContracted)
 
 def reduce_spin (op, bra, ket):
     if isinstance (op, OpTerm):

@@ -938,7 +938,7 @@ class FragTDMInt (object):
         <bra|O(comp)|ket> = a(m(ket)) * b(m(ket),comp) * <highm(bra)|O(comp)|highm(ket)>'''
         dnelec = (self.nelec_r[bra][0] - self.nelec_r[ket][0],
                   self.nelec_r[bra][1] - self.nelec_r[ket][1])
-        if (dnelec[0] < 0 and dnelec[1] < 0) or (dnelec==(1,-1)):
+        if (dnelec[0] > 0) or ((dnelec[0] == 0) and (dnelec[1] > 0)):
             return self.spin_factor_constant (ket, bra)
         smult_bra = self.smult_r[bra]
         smult_ket = self.smult_r[ket]

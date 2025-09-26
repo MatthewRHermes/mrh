@@ -97,12 +97,12 @@ class HamS2OvlpOperators (HamS2Ovlp):
 
     def opterm_std_shape (self, bra, ket, op, inv, sinv):
         t0, w0 = logger.process_clock (), logger.perf_counter ()
-        if isinstance (op, np.ndarray):
+        if isinstance (op, (np.ndarray, opterm.OpTerm)):
             op = self.canonical_operator_order (op, sinv)
             opbralen = np.prod (self.lroots[inv,bra])
             opketlen = np.prod (self.lroots[inv,ket])
             op = op.reshape ((opbralen, opketlen), order='C')
-            op = op.view (opterm.OpTermContracted)
+            op = opterm.as_opterm (op)
         t1, w1 = logger.process_clock (), logger.perf_counter ()
         self.dt_oT += (t1-t0)
         self.dw_oT += (w1-w0)
@@ -407,8 +407,8 @@ class HamS2OvlpOperators (HamS2Ovlp):
         for braket in self.spman[key]:
             for bra, ket in self.nonuniq_exc[braket+inv]:
                 if bra != ket: continue
-                ham = opterm.reduce_spin (ham, bra, ket)
-                hdiag_nonspec = self.get_hdiag_nonspectator (ham, bra, *sinv)
+                ham1 = opterm.reduce_spin (ham, bra, ket)
+                hdiag_nonspec = self.get_hdiag_nonspectator (ham1, bra, *sinv)
                 hdiag_spec = self.hdiag_spectator_ovlp (bra, *sinv)
                 hdiag = np.multiply.outer (hdiag_nonspec, hdiag_spec)
                 hdiag = transpose_sivec_with_slow_fragments (hdiag.ravel (), self.lroots[:,bra], *sinv)
