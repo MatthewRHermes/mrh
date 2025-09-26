@@ -307,8 +307,8 @@ class HamS2Ovlp (stdm.LSTDM):
         '''
         t0, w0 = logger.process_clock (), logger.perf_counter ()
         fac = -1 # 1/2 factor of h2 canceled by i<->j
-        sp_i = self.ints[i].get_sp (bra, ket)
-        sm_j = self.ints[j].get_sm (bra, ket)
+        sp_i = self.ints[i].get_sp (bra, ket, highm=True)
+        sm_j = self.ints[j].get_sm (bra, ket, highm=True)
         ham = self.get_ham_2q (j,i,i,j).transpose (0,3,2,1)
         ham = np.tensordot (sp_i, ham, axes=((-2,-1),(-2,-1)))
         ham = np.tensordot (sm_j, ham, axes=((-2,-1),(-2,-1)))
@@ -316,6 +316,9 @@ class HamS2Ovlp (stdm.LSTDM):
         sp_i = np.trace (sp_i, axis1=-2, axis2=-1)
         sm_j = np.trace (sm_j, axis1=-2, axis2=-1)
         s2 = -fac * np.multiply.outer (sm_j, sp_i)
+        ints = [self.ints[i], self.ints[j]]
+        ham = opterm.OpTerm (ham, ints, None)
+        s2 = opterm.OpTerm (s2, ints, None)
         dt, dw = logger.process_clock () - t0, logger.perf_counter () - w0
         self.dt_1s, self.dw_1s = self.dt_1s + dt, self.dw_1s + dw
         return ham, s2, (j, i)
