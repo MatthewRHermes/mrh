@@ -394,32 +394,61 @@ class HamS2Ovlp (stdm.LSTDM):
         # s2lt: 0, 1, 2 -> aa, ab, bb
         # s2: 0, 1, 2, 3 -> aa, ab, ba, bb
         s2  = (0, 1, 3)[s2lt] # aa, ab, bb
-        s2T = (0, 2, 3)[s2lt] # aa, ba, bb -> when you populate the e1 <-> e2 permutation
         s11 = s2 // 2
         s12 = s2 % 2
         nelec_f_bra = self.nelec_rf[bra]
         nelec_f_ket = self.nelec_rf[ket]
-        fac = (1,.5)[int ((a,i,s11)==(b,j,s12))] # 1/2 factor of h2 cancejed by aibj <-> bjai
-        ham = self.get_ham_2q (j,b,i,a).transpose (0,2,3,1) # BEWARE CONJ
-        if s11==s12 and a!=b and i!=j: # exchange
-            ham -= self.get_ham_2q (j,a,i,b).transpose (0,2,1,3) # BEWARE CONJ
-        if a == b:
-            ham = np.tensordot (self.ints[a].get_pp (bra, ket, s2lt), ham, axes=((-2,-1),(-2,-1)))
-        else:
-            ham = np.tensordot (self.ints[b].get_p (bra, ket, s12), ham, axes=((-1),(-1)))
-            ham = np.tensordot (self.ints[a].get_p (bra, ket, s11), ham, axes=((-1),(-1)))
-            fac *= (1,-1)[int (a>b)]
-            fac *= fermion_des_shuffle (nelec_f_bra, (a, i, b, j), a)
-            fac *= fermion_des_shuffle (nelec_f_bra, (a, i, b, j), b)
-        if i == j:
-            ham = np.tensordot (self.ints[i].get_hh (bra, ket, s2lt), ham, axes=((-2,-1),(-2,-1)))
-        else:
-            ham = np.tensordot (self.ints[i].get_h (bra, ket, s11), ham, axes=((-1),(-1)))
-            ham = np.tensordot (self.ints[j].get_h (bra, ket, s12), ham, axes=((-1),(-1)))
+        fac = (1,.5)[int ((a,i,s11)==(b,j,s12))] # 1/2 factor of h2 canceled by aibj <-> bjai
+        ints_ij, ints_ab = [self.ints[i],], [self.ints[a],]
+        if i!=j:
+            ints_ij.append (self.ints[j])
             fac *= (1,-1)[int (i>j)]
             fac *= fermion_des_shuffle (nelec_f_ket, (a, i, b, j), i)
             fac *= fermion_des_shuffle (nelec_f_ket, (a, i, b, j), j)
-        ham *= fac
+        if a!=b:
+            ints_ab.append (self.ints[b])
+            fac *= (1,-1)[int (a>b)]
+            fac *= fermion_des_shuffle (nelec_f_bra, (a, i, b, j), a)
+            fac *= fermion_des_shuffle (nelec_f_bra, (a, i, b, j), b)
+        comp_ij = [[0 for p in range (len(ints_ij))] for q in range (2)]*2 # hh+hh.T -> factor of 1
+        comp_ab = [[0 for p in range (len(ints_ab))] for q in range (2)]*2 # pp+pp.T -> factor of 1
+        h_j = self.get_ham_2q (j,b,i,a).transpose (0,2,3,1) # BEWARE CONJ
+        h_k = self.get_ham_2q (j,a,i,b).transpose (0,2,1,3) # BEWARE CONJ
+        if s11!=s12 and (a==b or i==j):
+            # this gets weird because the mdown of pa_pb or hb_ha matrices involves a transpose
+            ham = [h_j + h_k, h_j - h_k]
+            fac *= .5 # associated with the canonical transformation 1 line above
+            if i==j: comp_ij[1][0] = 1 # hh-hh.T -> factor of m/s
+            if a==b: comp_ab[1][0] = 1 # pp-pp.T -> factor of m/s
+        elif s11==s12 and a!=b and i!=j:
+            ham = [h_j - h_k,]
+        else:
+            ham = [h_j,]
+        ints = ints_ij + ints_ab
+        comp = []
+        for c in range (len (ham)):
+            comp.append (comp_ij[c] + comp_ab[c])
+            if a == b:
+                ham[c] = np.tensordot (self.ints[a].get_pp (bra, ket, s2lt, highm=True), ham[c],
+                                       axes=((-2,-1),(-2,-1)))
+            else:
+                ham[c] = np.tensordot (self.ints[b].get_p (bra, ket, s12, highm=True), ham[c],
+                                       axes=((-1),(-1)))
+                ham[c] = np.tensordot (self.ints[a].get_p (bra, ket, s11, highm=True), ham[c],
+                                       axes=((-1),(-1)))
+            if i == j:
+                ham[c] = np.tensordot (self.ints[i].get_hh (bra, ket, s2lt, highm=True), ham[c],
+                                       axes=((-2,-1),(-2,-1)))
+            else:
+                ham[c] = np.tensordot (self.ints[i].get_h (bra, ket, s11, highm=True), ham[c],
+                                       axes=((-1),(-1)))
+                ham[c] = np.tensordot (self.ints[j].get_h (bra, ket, s12, highm=True), ham[c],
+                                       axes=((-1),(-1)))
+            ham[c] *= fac
+        if len (ham) == 1:
+            ham = opterm.OpTerm (ham[0], ints, None)
+        else:
+            ham = opterm.OpTerm (ham, ints, comp)
         s2 = None
         dt, dw = logger.process_clock () - t0, logger.perf_counter () - w0
         self.dt_2c, self.dw_2c = self.dt_2c + dt, self.dw_2c + dw
