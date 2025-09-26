@@ -104,12 +104,12 @@ class OpTermNFragments (OpTermReducible):
     def conj (self, do_crunch=False):
         d = [d.conj () for d in self.d]
         op = self.op.conj ()
-        return self.__class__(op, self.idx, d, do_crunch=do_crunch)
+        return self.__class__(op, self.idx, d, self.ints, do_crunch=do_crunch)
 
     def transpose (self, do_crunch=False):
         d = [d.transpose (1,0,2) for d in self.d]
         op = self.op.transpose (*self.op_transpose_axes)
-        return self.__class__(op, self.idx, d, do_crunch=do_crunch)
+        return self.__class__(op, self.idx, d, self.ints, do_crunch=do_crunch)
 
     @property
     def T (self): return self.transpose ()
@@ -119,13 +119,15 @@ class OpTermNFragments (OpTermReducible):
         return self.op.size
 
     def reduce_spin (self, bra, ket, do_crunch=False):
+        if any ([i.smult_r[ket] is None for i in self.ints]):
+            return self
         fac = [inti.spin_factor_constant (bra, ket) for inti in self.ints]
         d = [self.d[i].copy () * fac[i] for i in range (len (fac))]
         if do_crunch:
             op = self.op.copy ()
         else:
             op = self.reduce_spin_op (bra, ket, fac)
-        return self.__class__(op, idx, d, self.ints, do_crunch=do_crunch)
+        return self.__class__(op, self.idx, d, self.ints, do_crunch=do_crunch)
 
     def reduce_spin_op (self, bra, ket, fac):
         raise NotImplementedError
