@@ -294,6 +294,28 @@ void SCfprint (uint64_t * fprint, uint64_t * fprintLT, long * exc, long * uroots
                const int nfrags, const int exc_nrows, const int exc_ncols,
                const int urootstr_ncols)
 {
+/* Evaluate the fingerprints of several coupling terms between pairs of LASSI model states in terms
+   of the statelets of the nfrags non-spectator fragments. The Hamiltonian coupling between any
+   pair of model states factorizes as
+        <i|H|j> = H^(K_1,...,K_nfrags)_ij * prod_(L=1)^(urootstr_ncols-nfrags) S^L_ij
+   and any pair of states corresponding to the same H^(K_1,...,K_nfrags)_ij factor have the same
+   fingerprint.
+
+   Input:
+        exc : array of shape (exc_nrows, exc_ncols(>=nfrags+2))
+            Rows are [model state bra, model state ket, frag_1, ..., frag_nfrags, ...]
+            where frag_i identifies the ith non-spectator fragment of the interaction.
+        urootstr : array of shape (*(>max(exc[:,:2])), urootstr_ncols)
+            Rows identify model states in terms of the fragment statelets.
+
+    Output:
+        fprint : ndarray of shape (exc_nrows)
+            Uniquely identifies the operator part of the Hamiltonian matrix element between
+            each *unsorted* pair of states.
+        fprintLT : ndarray of shape (exc_nrows)
+            Uniquely identifies the operator part of the Hamiltonian matrix element between
+            each *sorted* pair of states.
+*/
 const long three = 3;
 #pragma omp parallel
 {
@@ -341,6 +363,4 @@ const long three = 3;
     free (fprint_row);
 }
 }
-
-
 
