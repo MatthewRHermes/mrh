@@ -35,29 +35,36 @@ class FragTDMInt (object):
         s and t are spin: a,b for 1 operator; aa, ab, bb for 2 operators
         s is a spin argument passed to the "get" function
         t is a spin index on the returned array
-        i and j are single state indices with
-            rootaddr[i] = index of the rootspace for state i
-            fragaddr[i] = index in this fragment's local rootaddr[i] basis of state i
+        i and j are rootspace indices
 
-        get_h (i,j,s): <i|s|j>
-        get_p (i,j,s): <i|s'|j> = conj (<j|s|i>)
-        get_dm1 (i,j): <i|t't|j>
-        get_hh (i,j,s): <i|s2s1|j>
-        get_pp (i,j,s): <i|s1's2'|j> = conj (<j|s2s1|i>)
-        get_sm (i,j): <i|b'a|j>
-        get_sp (i,j): <i|a'b|j> = conj (<j|b'a|i>)
-        get_phh (i,j,s): <i|t'ts|j>
-        get_pph (i,j,s): <i|s't't|j> = conj (<j|t'ts|i>)
-        get_dm2 (i,j): <i|t1't2't2t1|j>
-
+        get_h (i,j,s,**kwargs): <i|s|j>
+        get_p (i,j,s,**kwargs): <i|s'|j> = conj (<j|s|i>)
+        get_dm1 (i,j,**kwargs): <i|t't|j>
+        get_hh (i,j,s,**kwargs): <i|s2s1|j>
+        get_pp (i,j,s,**kwargs): <i|s1's2'|j> = conj (<j|s2s1|i>)
+        get_sm (i,j,**kwargs): <i|b'a|j>
+        get_sp (i,j,**kwargs): <i|a'b|j> = conj (<j|b'a|i>)
+        get_phh (i,j,s,**kwargs): <i|t'ts|j>
+        get_pph (i,j,s,**kwargs): <i|s't't|j> = conj (<j|t'ts|i>)
+        get_dm2 (i,j,**kwargs): <i|t1't2't2t1|j>
+        
         TODO: two-electron spin-broken components
             <i|a'b'bb|j> & h.c. & a<->b
             <i|a'a'bb|j> & a<->b
         Req'd for 2e- relativistic (i.e., spin-breaking) operators
 
-        NOTE: in the set_* and get_* functions, the indices i,j are rootspace indices and the major
-        axis is the lroot axis. In the get_1_* functions, on the other hand, the indices i,j are
-        single model state indices.
+        The optional kwargs of the get_* methods are
+            highm : logical (default=False)
+                If True, and if spin multiplicity information is available, returns the "high-m"
+                version of the corresponding TDM with the spin vector of either the bra or the ket
+                aligned with the laboratory axis
+            uroot_idx : logical (default=False)
+                If True, i and j are interpreted as indices into the list of *unique* rootspaces,
+                not all rootspaces (see below).
+
+        In the set_* and get_* functions, the indices i,j are rootspace indices and the major axis
+        is the lroot axis. In the get_1_* functions, on the other hand, the indices i,j are single
+        model state indices.
 
         Args:
             las : instance of :class:`LASCINoSymm`
@@ -87,6 +94,41 @@ class FragTDMInt (object):
                 rootspaces and storing the relevant unitary matrices.
             verbose : integer
                 Logger verbosity level
+
+        Some additional attributes of the class:
+            nuroots : integer
+                Number of unique rootspaces. If screen_linequiv==False, a rootspace is non-unique
+                if it corresponds to exactly the same CI vectors as another rootspace (i.e., if the
+                CI vector arrays share memory). If screen_linequiv==True, it is non-unique if its
+                CI vectors span the same vector space. The discriminator can be used to distinguish
+                between rootspaces that would otherwise be considered equivalent by fiat.
+            uroot_idx : ndarray of length nroots
+                For *all* rootspaces, indices (<nuroots) into the list of *unique* rootspaces
+            uroot_addr : ndarray of length nuroots
+                For *unique* rootspaces, indices (<nroots) into the list of *all* rootspaces
+            nspman : integer
+                Number of spin manifolds of unique rootspaces. A rootspace with good spin quantum
+                number is a part of a manifold of up to smult_r[i]=2s+1 rootspaces with different
+                m=(nelec_r[i][0]-nelec_r[i][1])//2, in which the CI vector are related by spin
+                ladder operators.
+            spman : ndarray of length nuroots
+                For *unique* rootspaces, indices (<nspman) into the list of spin manifolds
+            spman_inter : dict with key = (a,b,m) and val = (i,j)
+                a, b : indices (<nspman) of spin manifolds
+                m : (nelec_r[uroot_addr[i]][0]-nelec_r[uroot_addr[i]][1])
+                    - (nelec_r[uroot_addr[j]][0]-nelec_r[uroot_addr[j]][1])
+                i, j: indices (<nuroots) of unique rootspaces
+                Identify one pair of unique rootspaces which corresponds to a pair of spin
+                manifolds and a given delta of the spin polarization quantum number m.
+                Internally, the TDMs are still indexed in terms of (i,j), which is why this is
+                necessary.
+            spman_inter_uniq : ndarray of shape (nuroots,nroots) and dtype=bool
+                Whether the given indices (i,j) is included among the values of the spman_inter
+                dict. Up to min (smult_r[uroot_addr[i]], smult_r[uroot_addr[j]]) pairs of unique
+                rootspace might correspond to the same interaction tuple (a,b,m), but only one
+                needs to actually be computed.
+            spman_inter_keys : ndarray of shape (nuroots,nuroots,3) and dtype=int
+                Keys into the spman_inter dictionary for a given pair of unique rootspaces
     '''
 
     def __init__(self, las, ci, norb, nroots, nelec_rs,
@@ -175,13 +217,17 @@ class FragTDMInt (object):
         elif len (args) == 2: return self.try_get_dm (tag, *args, **kwargs)
         else: raise RuntimeError (str (len (args)))
 
-    def try_get_dm (self, tag, i, j, highm=False):
+    def try_get_dm (self, tag, i, j, uroot_idx=False, highm=False):
         tab = self.mats[tag]
         mdown_fn = self.mdown_tdm[tag]
+        if uroot_idx:
+            ir, jr = i, j
+            i, j = self.uroot_addr[i], self.uroot_addr[j]
+        else:
+            ir, jr = self.uroot_idx[i], self.uroot_idx[j]
         mi = self.nelec_r[i][0] - self.nelec_r[i][1]
         mj = self.nelec_r[j][0] - self.nelec_r[j][1]
         si, sj = self.smult_r[i], self.smult_r[j]
-        ir, jr = self.uroot_idx[i], self.uroot_idx[j]
         ir, jr = self.spman[ir], self.spman[jr]
         try:
             ir, jr = self.spman_inter[(ir,jr,mi-mj)]
@@ -196,13 +242,17 @@ class FragTDMInt (object):
             errstr = errstr + '\nhopping_index entry: {}'.format (self.hopping_index[:,ir,jr])
             raise RuntimeError (errstr)
 
-    def try_get_tdm (self, tag, s, i, j, highm=False):
+    def try_get_tdm (self, tag, s, i, j, uroot_idx=False, highm=False):
         tab = self.mats[tag]
         mdown_fn = self.mdown_tdm[tag]
+        if uroot_idx:
+            ir, jr = i, j
+            i, j = self.uroot_addr[i], self.uroot_addr[j]
+        else:
+            ir, jr = self.uroot_idx[i], self.uroot_idx[j]
         mi = self.nelec_r[i][0] - self.nelec_r[i][1]
         mj = self.nelec_r[j][0] - self.nelec_r[j][1]
         si, sj = self.smult_r[i], self.smult_r[j]
-        ir, jr = self.uroot_idx[i], self.uroot_idx[j]
         ir, jr = self.spman[ir], self.spman[jr]
         try:
             ir, jr = self.spman_inter[(ir,jr,mi-mj)]
@@ -225,20 +275,20 @@ class FragTDMInt (object):
     @property
     def ovlp (self): return self.mats['ovlp']
 
-    def get_ovlp (self, i, j):
-        return self.try_get ('ovlp', i, j)
+    def get_ovlp (self, i, j, **kwargs):
+        return self.try_get ('ovlp', i, j, **kwargs)
 
-    def get_ovlp_inpbasis (self, i, j):
+    def get_ovlp_inpbasis (self, i, j, **kwargs):
         ''' Apply umat if present to get the actual original-basis overlap '''
-        ovlp = self.get_ovlp (i, j)
+        ovlp = self.get_ovlp (i, j, **kwargs)
         if i in self.umat_root:
             ovlp = np.dot (self.umat_root[i].conj ().T, ovlp)
         if j in self.umat_root:
             ovlp = np.dot (ovlp, self.umat_root[j])
         return ovlp
 
-    def get_1_ovlp (self, i, j):
-        return self.try_get_1 ('ovlp', i, j)
+    def get_1_ovlp (self, i, j, **kwargs):
+        return self.try_get_1 ('ovlp', i, j, **kwargs)
 
     # 1-particle 1-operator intermediate
 
@@ -429,9 +479,9 @@ class FragTDMInt (object):
             discriminator=self.discriminator
         )
         self.nuroots = nuroots = np.count_nonzero (self.root_unique)
-        self.uroot_inv = -1 * np.ones (self.nroots, dtype=int)
-        self.uroot_inv[self.root_unique] = np.arange (nuroots, dtype=int)
-        self.uroot_idx = self.uroot_inv[self.unique_root]
+        uroot_inv = -1 * np.ones (self.nroots, dtype=int)
+        uroot_inv[self.root_unique] = np.arange (nuroots, dtype=int)
+        self.uroot_idx = uroot_inv[self.unique_root]
         self.uroot_addr = np.where (self.root_unique)[0]
         assert (np.all (self.uroot_idx >= 0))
 
@@ -441,13 +491,16 @@ class FragTDMInt (object):
             nelec_u = [self.nelec_r[i] for i in self.uroot_addr]
             smult_u = [self.smult_r[i] for i in self.uroot_addr]
             self.spman = _get_unique_roots_with_spin (ci_u, self.norb, nelec_u, smult_u)
+        self.nspman = np.amax (self.spman)+1
         self.spman_inter = {}
+        self.spman_inter_keys = np.empty ((nuroots,nuroots,3), dtype=int)
         for i,j in product (range (nuroots), repeat=2):
             k, l = self.uroot_addr[i], self.uroot_addr[j]
             mi = self.nelec_r[k][0] - self.nelec_r[k][1]
             mj = self.nelec_r[l][0] - self.nelec_r[l][1]
             a, b = self.spman[i], self.spman[j]
             key = (a, b, mi-mj)
+            self.spman_inter_keys[i,j] = key
             self.spman_inter[key] = (i,j)
         self.spman_inter_uniq = np.zeros ((nuroots,nuroots), dtype=bool)
         for key, val in self.spman_inter.items ():

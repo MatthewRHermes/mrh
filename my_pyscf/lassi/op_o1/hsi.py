@@ -352,9 +352,7 @@ class HamS2OvlpOperators (HamS2Ovlp):
             vec = vecs[tuple(s)]
             lr = vec.shape[-1]
             bra, ket = os[ifrag], s[ifrag]
-            bra = self.ints[ifrag].uroot_addr[bra]
-            ket = self.ints[ifrag].uroot_addr[ket]
-            o = self.ints[ifrag].get_ovlp (bra,ket)
+            o = self.ints[ifrag].get_ovlp (bra,ket,uroot_idx=True)
             lket = o.shape[1]
             vec = vec.reshape (-1,lket,lr)
             ovecs[tuple(os)] += lib.einsum ('pq,lqr->plr', o, vec).reshape (-1,lr)
