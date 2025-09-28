@@ -122,12 +122,16 @@ class FragTDMInt (object):
                 manifolds and a given delta of the spin polarization quantum number m.
                 Internally, the TDMs are still indexed in terms of (i,j), which is why this is
                 necessary.
-            spman_inter_uniq : ndarray of shape (nuroots,nroots) and dtype=bool
-                Whether the given indices (i,j) is included among the values of the spman_inter
-                dict. Up to min (smult_r[uroot_addr[i]], smult_r[uroot_addr[j]]) pairs of unique
-                rootspace might correspond to the same interaction tuple (a,b,m), but only one
-                needs to actually be computed.
-            spman_inter_keys : ndarray of shape (nuroots,nuroots,3) and dtype=int
+            spman_inter_uroot_map : ndarray of ints of shape (nuroots, nuroots, 2)
+                Map indices (i,j) to one single pair of unique rootspaces in the same spin
+                manifolds and with the same mi-mj, but not necessarily the same mi and mj
+                individually. Up to min (smult_r[uroot_addr[i]], smult_r[uroot_addr[j]]) pairs of
+                unique rootspace might correspond to the same interaction tuple
+                (spman[i],spman[j],mi-mj), but only one needs to actually be computed.
+            spman_inter_uniq : ndarray of bool of shape (nuroots,nroots)
+                Whether the given indices (i,j) is included among the rows of spman_inter_uroot_map
+                array.
+            spman_inter_keys : ndarray of ints of shape (nuroots,nuroots,3)
                 Keys into the spman_inter dictionary for a given pair of unique rootspaces
     '''
 
@@ -225,12 +229,10 @@ class FragTDMInt (object):
             i, j = self.uroot_addr[i], self.uroot_addr[j]
         else:
             ir, jr = self.uroot_idx[i], self.uroot_idx[j]
-        mi = self.nelec_r[i][0] - self.nelec_r[i][1]
         mj = self.nelec_r[j][0] - self.nelec_r[j][1]
         si, sj = self.smult_r[i], self.smult_r[j]
-        ir, jr = self.spman[ir], self.spman[jr]
         try:
-            ir, jr = self.spman_inter[(ir,jr,mi-mj)]
+            ir, jr = self.spman_inter_uroot_map[ir,jr]
             assert (tab[ir][jr] is not None)
             tab = tab[ir][jr]
             if si is None: return tab
@@ -250,12 +252,10 @@ class FragTDMInt (object):
             i, j = self.uroot_addr[i], self.uroot_addr[j]
         else:
             ir, jr = self.uroot_idx[i], self.uroot_idx[j]
-        mi = self.nelec_r[i][0] - self.nelec_r[i][1]
         mj = self.nelec_r[j][0] - self.nelec_r[j][1]
         si, sj = self.smult_r[i], self.smult_r[j]
-        ir, jr = self.spman[ir], self.spman[jr]
         try:
-            ir, jr = self.spman_inter[(ir,jr,mi-mj)]
+            ir, jr = self.spman_inter_uroot_map[ir,jr]
             assert (tab[s][ir][jr] is not None)
             tab = tab[s][ir][jr]
             if self.smult_r[i] is None: return tab
@@ -386,9 +386,9 @@ class FragTDMInt (object):
     # 1-density intermediate
 
     def get_dm1 (self, i, j, cs=False, **kwargs):
-        k = self.spman[self.uroot_idx[i]]
-        l = self.spman[self.uroot_idx[j]]
-        a, b = self.spman_inter[(k,l,0)]
+        k = self.uroot_idx[i]
+        l = self.uroot_idx[j]
+        a, b = self.spman_inter_uroot_map[k,l]
         if b > a:
             dm1 = self.try_get ('dm1', j, i, **kwargs).conj ().transpose (1,0,2,4,3)
         else:
@@ -408,9 +408,9 @@ class FragTDMInt (object):
         self.mats['dm1'][i][j] = x
 
     def get_1_dm1 (self, i, j, **kwargs):
-        k = self.spman[self.uroot_idx[self.rootaddr[i]]]
-        l = self.spman[self.uroot_idx[self.rootaddr[j]]]
-        a, b = self.spman_inter[(k,l,0)]
+        k = self.uroot_idx[self.rootaddr[i]]
+        l = self.uroot_idx[self.rootaddr[j]]
+        a, b = self.spman_inter_uroot_map[k,l]
         if b > a:
             return self.try_get_1 ('dm1', j, i).conj ().transpose (0, 2, 1)
         return self.try_get_1 ('dm1', i, j)
@@ -418,17 +418,17 @@ class FragTDMInt (object):
     # 2-density intermediate
 
     def get_dm2 (self, i, j, **kwargs):
-        k = self.spman[self.uroot_idx[i]]
-        l = self.spman[self.uroot_idx[j]]
-        a, b = self.spman_inter[(k,l,0)]
+        k = self.uroot_idx[i]
+        l = self.uroot_idx[j]
+        a, b = self.spman_inter_uroot_map[k,l]
         if b > a:
             return self.try_get ('dm2', j, i, **kwargs).conj ().transpose (1,0,2,4,3,6,5)
         return self.try_get ('dm2', i, j, **kwargs)
 
     def get_1_dm2 (self, i, j, **kwargs):
-        k = self.spman[self.uroot_idx[self.rootaddr[i]]]
-        l = self.spman[self.uroot_idx[self.rootaddr[j]]]
-        a, b = self.spman_inter[(k,l,0)]
+        k = self.uroot_idx[self.rootaddr[i]]
+        l = self.uroot_idx[self.rootaddr[j]]
+        a, b = self.spman_inter_uroot_map[k,l]
         if b > a:
             return self.try_get_1 ('dm2', j, i, **kwargs).conj ().transpose (0, 2, 1, 4, 3)
         return self.try_get_1 ('dm2', i, j, **kwargs)
@@ -492,20 +492,23 @@ class FragTDMInt (object):
             smult_u = [self.smult_r[i] for i in self.uroot_addr]
             self.spman = _get_unique_roots_with_spin (ci_u, self.norb, nelec_u, smult_u)
         self.nspman = np.amax (self.spman)+1
-        self.spman_inter = {}
-        self.spman_inter_keys = np.empty ((nuroots,nuroots,3), dtype=int)
+        spman_inter = {}
+        spman_inter_keys = np.empty ((nuroots,nuroots,3), dtype=int)
         for i,j in product (range (nuroots), repeat=2):
             k, l = self.uroot_addr[i], self.uroot_addr[j]
             mi = self.nelec_r[k][0] - self.nelec_r[k][1]
             mj = self.nelec_r[l][0] - self.nelec_r[l][1]
             a, b = self.spman[i], self.spman[j]
             key = (a, b, mi-mj)
-            self.spman_inter_keys[i,j] = key
-            self.spman_inter[key] = (i,j)
+            spman_inter_keys[i,j] = key
+            spman_inter[key] = (i,j)
         self.spman_inter_uniq = np.zeros ((nuroots,nuroots), dtype=bool)
-        for key, val in self.spman_inter.items ():
-            i, j = val
-            self.spman_inter_uniq[i,j] = True
+        self.spman_inter_uroot_map = np.empty ((nuroots,nuroots,2), dtype=int)
+        for i, j in product (range (nuroots), repeat=2):
+            key = tuple (spman_inter_keys[i,j])
+            p, q = spman_inter[key]
+            self.spman_inter_uroot_map[i,j,:] = [p,q]
+            self.spman_inter_uniq[p,q] = True
 
         self.mats = {}
         self.mats['ovlp'] = [[None for i in range (nuroots)] for j in range (nuroots)]
