@@ -113,15 +113,6 @@ class FragTDMInt (object):
                 ladder operators.
             spman : ndarray of length nuroots
                 For *unique* rootspaces, indices (<nspman) into the list of spin manifolds
-            spman_inter : dict with key = (a,b,m) and val = (i,j)
-                a, b : indices (<nspman) of spin manifolds
-                m : (nelec_r[uroot_addr[i]][0]-nelec_r[uroot_addr[i]][1])
-                    - (nelec_r[uroot_addr[j]][0]-nelec_r[uroot_addr[j]][1])
-                i, j: indices (<nuroots) of unique rootspaces
-                Identify one pair of unique rootspaces which corresponds to a pair of spin
-                manifolds and a given delta of the spin polarization quantum number m.
-                Internally, the TDMs are still indexed in terms of (i,j), which is why this is
-                necessary.
             spman_inter_uroot_map : ndarray of ints of shape (nuroots, nuroots, 2)
                 Map indices (i,j) to one single pair of unique rootspaces in the same spin
                 manifolds and with the same mi-mj, but not necessarily the same mi and mj
@@ -131,8 +122,6 @@ class FragTDMInt (object):
             spman_inter_uniq : ndarray of bool of shape (nuroots,nroots)
                 Whether the given indices (i,j) is included among the rows of spman_inter_uroot_map
                 array.
-            spman_inter_keys : ndarray of ints of shape (nuroots,nuroots,3)
-                Keys into the spman_inter dictionary for a given pair of unique rootspaces
     '''
 
     def __init__(self, las, ci, norb, nroots, nelec_rs,
