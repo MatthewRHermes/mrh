@@ -38,18 +38,53 @@ class HamS2Ovlp (stdm.LSTDM):
         self.h1 = np.ascontiguousarray (h1)
         self.h2 = np.ascontiguousarray (h2)
 
-    def mask_exc_table_(self, exc, lbl, mask_bra_space=None, mask_ket_space=None):
-        exc = super().mask_exc_table_(exc, lbl, mask_bra_space=mask_bra_space,
-                                      mask_ket_space=mask_ket_space)
+    def interaction_spman_fprint (self, bra, ket, frags, ltri=False):
+        frags = np.sort (frags)
+        ints = [self.ints[f] for f in frags]
+        brastr = self.urootstr[frags,bra]
+        ketstr = self.urootstr[frags,ket]
+        braketstr = np.stack ([ints[i].spman_inter_uroot_map[brastr[i],ketstr[i]]
+                               for i in range (len (frags))], axis=1)
+        brastr, ketstr = braketstr
+        if ltri: brastr, ketstr = sorted ([list(brastr),list(ketstr)])
+        fprint = hash (tuple (np.stack ([frags, brastr, ketstr], axis=0).ravel ()))
+        return fprint
+
+    def interaction_spman_fprints (self, exc, lbl):
         exc_nrows, exc_ncols = exc.shape
+        nuniq = exc_nrows
         if '_'+lbl+'_' in self.interaction_has_spin:
             nfrags = exc_ncols - 3
         else:
             nfrags = exc_ncols - 2
-        # TODO: collect sets of unique excitations into manifolds that differ only
-        # in the m quantum number (i.e., of the ket)
-        for i in range (exc_nrows):
-            self.spman[tuple(exc[i,:2+nfrags])] = [tuple(exc[i,:2]),]
+        fprint = []
+        fprintLT = []
+        for row in exc:
+            bra, ket = row[:2]
+            frags = row[2:][:nfrags]
+            fprint.append (self.interaction_spman_fprint (bra, ket, frags))
+        fprint = np.asarray (fprint)
+        return fprint, fprint
+
+    def mask_exc_table_(self, exc, lbl, mask_bra_space=None, mask_ket_space=None):
+        exc = super().mask_exc_table_(exc, lbl, mask_bra_space=mask_bra_space,
+                                      mask_ket_space=mask_ket_space)
+        if lbl=='null': return exc
+        exc = self.split_exc_table_by_spman_(exc, lbl)
+        return exc
+
+    def split_exc_table_by_spman_(self, exc, lbl):
+        t0 = (logger.process_clock (), logger.perf_counter ())
+        nuniq = exc.shape[0]
+        exc, nonuniq = self.find_unique_exc (
+            exc, lbl, fprint_fn=self.interaction_spman_fprints
+        )
+        nspman = len (exc)
+        for key, val in nonuniq.items ():
+            self.spman[key] = [tuple (pair) for pair in val]
+        self.log.timer ('split_exc_table_by_spman_ {}'.format (lbl), *t0)
+        self.log.debug ('%d/%d uniquely spin-adapted interactions of %s type',
+                        nuniq, nspman, lbl)
         return exc
 
     def _init_buffers_(self): pass
