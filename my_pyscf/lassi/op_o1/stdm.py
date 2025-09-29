@@ -414,10 +414,20 @@ class LSTDM (object):
         # interactions and populate self.nonuniq_exc with the corresponding
         # nonunique images.
         if lbl=='null': return exc
+        nexc = len (exc)
+        exc, nonuniq_exc = self.find_unique_exc (exc, lbl, fprint_fn=self.interaction_fprints)
+        self.nonuniq_exc.update (nonuniq_exc)
+        nuniq = len (exc)
+        self.log.timer ('mask_exc_table_ {}'.format (lbl), *t0)
+        self.log.debug ('%d/%d unique interactions of %s type',
+                        nuniq, nexc, lbl)
+        return exc
+
+    def find_unique_exc (self, exc, lbl, fprint_fn=None):
+        nonuniq_exc = {}
         ulblu = '_' + lbl + '_'
         excp = exc[:,:-1] if ulblu in self.interaction_has_spin else exc
-        fprint, fprintLT = self.interaction_fprints (exc, lbl)
-        nexc = len (exc)
+        fprint, fprintLT = fprint_fn (exc, lbl)
         ufp, idx, cnts = np.unique (fprintLT, axis=0, return_index=True, return_counts=True)
         # for some reason this squeeze is necessary for some versions of numpy; however...
         all_idxs = np.argsort (fprintLT)
@@ -431,13 +441,10 @@ class LSTDM (object):
             braket_images = exc_01[image_idxs]
             iT = fprint[image_idxs]!=fprint[uniq_idx]
             braket_images[iT,:] = braket_images[iT,::-1]
-            self.nonuniq_exc[tuple(excp[uniq_idx])] = braket_images
+            nonuniq_exc[tuple(excp[uniq_idx])] = braket_images
         exc = exc[idx]
         nuniq = len (exc)
-        self.log.timer ('mask_exc_table_ {}'.format (lbl), *t0)
-        self.log.debug ('%d/%d unique interactions of %s type',
-                        nuniq, nexc, lbl)
-        return exc
+        return exc, nonuniq_exc
 
     def get_range (self, i):
         '''Get the orbital range for a fragment.
