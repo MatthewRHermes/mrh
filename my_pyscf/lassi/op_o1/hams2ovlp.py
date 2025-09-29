@@ -73,11 +73,24 @@ class HamS2Ovlp (stdm.LSTDM):
         exc = self.split_exc_table_by_spman_(exc, lbl)
         return exc
 
+
+    debug_do_split_spman = {'1d': False,
+                            '2d': False,
+                            '1c': False,
+                            '1s': False,
+                            '1c1d': False,
+                            '1s1c': False,
+                            '2c': False}
+
     def split_exc_table_by_spman_(self, exc, lbl):
         t0 = (logger.process_clock (), logger.perf_counter ())
         nuniq = exc.shape[0]
+        if self.debug_do_split_spman[lbl]:
+            fprint_fn = self.interaction_spman_fprints
+        else:
+            fprint_fn = lambda x, y: (np.arange (len (x)), np.arange (len (x)))
         exc, nonuniq = self.find_unique_exc (
-            exc, lbl, fprint_fn=self.interaction_spman_fprints
+            exc, lbl, fprint_fn=fprint_fn
         )
         nspman = len (exc)
         for key, val in nonuniq.items ():
