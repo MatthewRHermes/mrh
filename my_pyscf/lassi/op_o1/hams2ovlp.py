@@ -74,13 +74,16 @@ class HamS2Ovlp (stdm.LSTDM):
         return exc
 
 
-    debug_do_split_spman = {'1d': False,
-                            '2d': False,
-                            '1c': False,
-                            '1s': False,
+    debug_do_split_spman = {'1d': False, # failed lassis, lassis_grads, lassirq, lassirqct, op_o1
+                            '2d': False, # failed lassis, lassis_grads
+                            '1c': True, # passed
+                            '1s': False, # failed lassis
                             '1c1d': False,
                             '1s1c': False,
-                            '2c': False}
+                            '2c': True} # passed ????????
+    # above comments are for 22
+    # this configuration fails energy and as_scanner of test_c2h4n4_slow, and the
+    # NON-DAVIDSON lassis calculations ONLY in test_lassis_targets_slow.py
 
     def split_exc_table_by_spman_(self, exc, lbl):
         t0 = (logger.process_clock (), logger.perf_counter ())

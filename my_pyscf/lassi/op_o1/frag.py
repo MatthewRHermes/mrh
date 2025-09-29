@@ -6,7 +6,7 @@ from pyscf.fci.direct_spin1 import contract_1e, contract_2e, absorb_h1e
 from pyscf.fci.direct_uhf import contract_1e as contract_1e_uhf
 from pyscf.fci.addons import cre_a, cre_b, des_a, des_b
 from pyscf.fci import cistring
-from itertools import product, combinations
+from itertools import product, combinations, combinations_with_replacement
 from mrh.my_pyscf.lassi.citools import get_lroots, get_rootaddr_fragaddr, get_unique_roots
 from mrh.my_pyscf.lassi.citools import _get_unique_roots_with_spin
 from mrh.my_pyscf.lassi.op_o1.utilities import *
@@ -493,11 +493,13 @@ class FragTDMInt (object):
             spman_inter[key] = (i,j)
         self.spman_inter_uniq = np.zeros ((nuroots,nuroots), dtype=bool)
         self.spman_inter_uroot_map = np.empty ((nuroots,nuroots,2), dtype=int)
-        for i, j in product (range (nuroots), repeat=2):
+        for i, j in combinations_with_replacement (range (nuroots), 2):
             key = tuple (spman_inter_keys[i,j])
             p, q = spman_inter[key]
             self.spman_inter_uroot_map[i,j,:] = [p,q]
             self.spman_inter_uniq[p,q] = True
+            self.spman_inter_uroot_map[j,i,:] = [q,p]
+            self.spman_inter_uniq[q,p] = True
 
         self.mats = {}
         self.mats['ovlp'] = [[None for i in range (nuroots)] for j in range (nuroots)]
