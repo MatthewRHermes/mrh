@@ -38,13 +38,14 @@ from mrh.tests.lassi.addons import case_lassis_fbfdm, case_contract_op_si, debug
 from mrh.tests.lassi.addons import fuzz_sivecs
 
 def setUpModule ():
-    global mol, mf, las, nroots, nelec_frs, si
+    global mol, mf, las, nroots, nelec_frs, smult_fr, si
     # State list contains a couple of different 4-frag interactions
     states  = {'charges': [[0,0,0,0],[1,1,-1,-1],[2,-1,-1,0],[1,0,0,-1],[1,1,-1,-1],[2,-1,-1,0],[1,0,0,-1]],
                'spins':   [[0,0,0,0],[1,1,-1,-1],[0,1,-1,0], [1,0,0,-1],[-1,-1,1,1],[0,-1,1,0], [-1,0,0,1]],
                'smults':  [[1,1,1,1],[2,2,2,2],  [1,2,2,1],  [2,1,1,2], [2,2,2,2],  [1,2,2,1],  [2,1,1,2]],
                'wfnsyms': [[0,0,0,0],]*7}
     weights = [1.0,] + [0.0,]*6
+    nfrags = 4
     nroots = 7
     xyz = '''6        2.215130000      3.670330000      0.000000000
     1        3.206320000      3.233120000      0.000000000
@@ -80,6 +81,10 @@ def setUpModule ():
         [[_unpack_nelec (fcibox._get_nelec (solver, nelecas)) for solver in fcibox.fcisolvers]
          for fcibox, nelecas in zip (las.fciboxes, las.nelecas_sub)]
     )
+    smult_fr = np.abs (nelec_frs[:,:,1] - nelec_frs[:,:,0]) + 1
+    for i in range (nfrags):
+        for j in range (nroots):
+            smult_fr[i,j] = getattr (las.fciboxes[i].fcisolvers[j], 'smult', smult_fr[i,j])
     ndet_frs = np.array (
         [[[cistring.num_strings (las.ncas_sub[ifrag], nelec_frs[ifrag,iroot,0]),
            cistring.num_strings (las.ncas_sub[ifrag], nelec_frs[ifrag,iroot,1])]
@@ -109,9 +114,9 @@ def setUpModule ():
     si = lib.tag_array (si, rootsym=las_symm_tuple (las)[0])
 
 def tearDownModule():
-    global mol, mf, las, nroots, nelec_frs, si
+    global mol, mf, las, nroots, nelec_frs, smult_fr, si
     mol.stdout.close ()
-    del mol, mf, las, nroots, nelec_frs, si
+    del mol, mf, las, nroots, nelec_frs, smult_fr, si
 
 class KnownValues(unittest.TestCase):
     def test_stdm12s (self):
@@ -178,7 +183,8 @@ class KnownValues(unittest.TestCase):
                 if dson:
                     lsi.prepare_states_()
                     h0, h1, h2 = ham_2q (las1, las1.mo_coeff)
-                    case_contract_op_si (self, las1, h1, h2, lsi.ci, lsi.get_nelec_frs ())
+                    case_contract_op_si (self, las1, h1, h2, lsi.ci, lsi.get_nelec_frs (),
+                                         smult_fr=lsi.get_smult_fr ())
                 lsi.kernel ()
                 self.assertTrue (lsi.converged)
                 self.assertAlmostEqual (lsi.e_roots[0], -1.867291372401379, 6)
@@ -197,7 +203,8 @@ class KnownValues(unittest.TestCase):
                 lsi.eig (davidson_only=dson)
                 if dson:
                     h0, h1, h2 = ham_2q (las0, las0.mo_coeff)
-                    case_contract_op_si (self, las, h1, h2, lsi.ci, lsi.get_nelec_frs ())
+                    case_contract_op_si (self, las, h1, h2, lsi.ci, lsi.get_nelec_frs (),
+                                         smult_fr=lsi.get_smult_fr ())
                 self.assertTrue (lsi.converged)
                 self.assertTrue (lsi.converged_si)
                 self.assertAlmostEqual (lsi.e_roots[0], -304.5372586630968, 3)
@@ -233,7 +240,7 @@ class KnownValues(unittest.TestCase):
 
     def test_contract_op_si (self):
         h0, h1, h2 = ham_2q (las, las.mo_coeff)
-        case_contract_op_si (self, las, h1, h2, las.ci, nelec_frs)        
+        case_contract_op_si (self, las, h1, h2, las.ci, nelec_frs, smult_fr=smult_fr)
 
 
 if __name__ == "__main__":

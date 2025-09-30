@@ -76,14 +76,16 @@ class HamS2Ovlp (stdm.LSTDM):
 
     debug_do_split_spman = {'1d': False, # failed lassis, lassis_grads, lassirq, lassirqct, op_o1
                             '2d': False, # failed lassis, lassis_grads
-                            '1c': True, # passed
+                            '1c': False, # passed
                             '1s': False, # failed lassis
                             '1c1d': False,
                             '1s1c': False,
-                            '2c': True} # passed ????????
+                            '2c': False} # passed ????????
     # above comments are for 22
     # this configuration fails energy and as_scanner of test_c2h4n4_slow, and the
     # NON-DAVIDSON lassis calculations ONLY in test_lassis_targets_slow.py
+    # Further analysis shows that in this configuration, the Davidson algorithm is working
+    # but the non-iterative algorithm is wrong.
 
     def split_exc_table_by_spman_(self, exc, lbl):
         t0 = (logger.process_clock (), logger.perf_counter ())
@@ -98,6 +100,11 @@ class HamS2Ovlp (stdm.LSTDM):
         nspman = len (exc)
         for key, val in nonuniq.items ():
             self.spman[key] = [tuple (pair) for pair in val]
+        if not self.debug_do_split_spman[lbl]:
+            for key in nonuniq.keys ():
+                val = self.spman[key]
+                assert (len (val) == 1), '{} {} {}'.format (lbl, key, val)
+                assert (key[:2] == val[0]), '{} {} {}'.format (lbl, key, val)
         self.log.timer ('split_exc_table_by_spman_ {}'.format (lbl), *t0)
         self.log.debug ('%d/%d uniquely spin-adapted interactions of %s type',
                         nuniq, nspman, lbl)
