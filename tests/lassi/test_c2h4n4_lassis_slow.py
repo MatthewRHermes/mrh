@@ -39,6 +39,8 @@ def setUpModule ():
     mol.spin = 8
     mol.build ()
     mf = scf.RHF (mol).run ()
+    #las = LASSCF (mf, (4,2,4), ((2,2),(1,1),(2,2)), spin_sub=(1,1,1))
+    #mo_coeff = las.localize_init_guess ([[0,1,2],[3,4,5,6],[7,8,9]])
     las = LASSCF (mf, (5,5), ((3,2),(2,3)), spin_sub=(2,2))
     mo_coeff = las.localize_init_guess ((list (range (5)), list (range (5,10))))
     las.kernel (mo_coeff)
@@ -67,12 +69,14 @@ def tearDownModule():
 
 class KnownValues(unittest.TestCase):
 
+    #@unittest.skip("debugging")
     def test_lassis_kernel_noniterative (self):
         for lsi in lsis:
             with self.subTest (opt=lsi.opt):
                 self.assertTrue (lsi.converged)
                 self.assertAlmostEqual (lsi.e_roots[0], -295.52185731568903, 7)
 
+    #@unittest.skip("debugging")
     def test_lassis_kernel_davidson (self):
         for lsi in lsis:
             with self.subTest (opt=lsi.opt):
@@ -106,16 +110,19 @@ class KnownValues(unittest.TestCase):
         case_contract_op_si (self, las, h1, h2, lsi.ci, lsi.get_nelec_frs (),
                              smult_fr=lsi.get_smult_fr ())
 
+    #@unittest.skip("debugging")
     def test_fbf_2_model_state (self):
         for lsi in lsis:
             with self.subTest (opt=lsi.opt):
                 case_lassis_fbf_2_model_state (self, lsi)
 
+    #@unittest.skip("debugging")
     def test_fbfdm (self):
         for lsi in lsis:
             with self.subTest (opt=lsi.opt):
                 case_lassis_fbfdm (self, lsi)
 
+    #@unittest.skip("debugging")
     def test_as_scanner (self):
         for dson in (False, True):
             with self.subTest (davidson_only=dson):
@@ -136,12 +143,15 @@ class KnownValues(unittest.TestCase):
                 self.assertTrue (lsi2.converged)
                 self.assertAlmostEqual (lsi_scanner.e_roots[0], lsi2.e_roots[0], 5)
 
+    #@unittest.skip("debugging")
     def test_lassis_ugg (self):
         case_lassis_ugg (self, lsis[1])
 
+    #@unittest.skip("debugging")
     def test_grads (self):
         case_lassis_grads (self, lsis[1])
 
+    #@unittest.skip("debugging")
     def test_hessian (self):
         case_lassis_hessian (self, lsis[1])
 

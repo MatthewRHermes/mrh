@@ -76,11 +76,11 @@ class HamS2Ovlp (stdm.LSTDM):
 
     debug_do_split_spman = {'1d': False, # failed lassis, lassis_grads, lassirq, lassirqct, op_o1
                             '2d': False, # failed lassis, lassis_grads
-                            '1c': False, # passed
+                            '1c': True, # passed
                             '1s': False, # failed lassis
                             '1c1d': False,
                             '1s1c': False,
-                            '2c': False} # passed ????????
+                            '2c': True} # passed ????????
     # above comments are for 22
     # this configuration fails energy and as_scanner of test_c2h4n4_slow, and the
     # NON-DAVIDSON lassis calculations ONLY in test_lassis_targets_slow.py
@@ -188,7 +188,6 @@ class HamS2Ovlp (stdm.LSTDM):
             inv = row[2:-1]
         else:
             inv = row[2:]
-        self._prepare_spec_addr_ovlp_(row[0], row[1], *inv)
         ham, s2, ninv = _crunch_fn (*row)
         ham = self.canonical_operator_order (ham, ninv)
         s2 = self.canonical_operator_order (s2, ninv)
@@ -202,6 +201,7 @@ class HamS2Ovlp (stdm.LSTDM):
 
     def _put_ham_s2_(self, bra, ket, ham, s2, *inv):
         for mybra, myket in self.spman[tuple ((bra,ket)) + inv]:
+            self._prepare_spec_addr_ovlp_(mybra, myket, *inv)
             myham = opterm.reduce_spin (ham, mybra, myket)
             mys2 = opterm.reduce_spin (s2, mybra, myket)
             self._put_ham_s2_spincase_(mybra, myket, myham, mys2, *inv)

@@ -40,6 +40,13 @@ def case_matrix_o0_o1 (ks, mat_o0, mat_o1, nelec_frs, lroots_fr, smult_fr=None):
     ks.assertEqual (mat_o0.shape, (ndim,ndim))
     ks.assertEqual (mat_o1.shape, (ndim,ndim))
     interactions, interidx = describe_interactions (nelec_frs)
+    #print ("Rootspace list:")
+    #for r in range (nroots):
+    #    nelec = nelec_frs[:,r,:].T
+    #    spin = tuple (nelec[0] - nelec[1])
+    #    nelec = tuple (nelec.sum (0))
+    #    smult = tuple (smult_fr[:,r])
+    #    print (r, nelec, spin, smult)
     for r, s in itertools.product (range (nroots), repeat=2):
         intyp = interactions[interidx[r,s]]
         dnelec = (nelec_frs[:,r,:] - nelec_frs[:,s,:]).T
@@ -148,12 +155,13 @@ def case_contract_op_si (ks, las, h1, h2, ci_fr, nelec_frs, smult_fr=None, soc=0
         ks.assertAlmostEqual (lib.fp (ovlp_op (x)), lib.fp (ovlp @ x), 7)
         ks.assertAlmostEqual (lib.fp (ovlp_op (x)), lib.fp (x.conj () @ ovlp).conj (), 7)
 
-def debug_contract_op_si (ks, las, h1, h2, ci_fr, nelec_frs, soc=0):
+def debug_contract_op_si (ks, las, h1, h2, ci_fr, nelec_frs, smult_fr=None, soc=0):
     nroots = nelec_frs.shape[1]
     interactions, interidx = describe_interactions (nelec_frs)
-    ham, s2, ovlp = op[1].ham (las, h1, h2, ci_fr, nelec_frs, soc=soc)[:3]
+    ham, s2, ovlp = op[1].ham (las, h1, h2, ci_fr, nelec_frs, soc=soc, smult_fr=smult_fr)[:3]
     np.save ('nelec_frs.npy', nelec_frs)
-    ops = op[1].gen_contract_op_si_hdiag (las, h1, h2, ci_fr, nelec_frs, soc=soc)
+    ops = op[1].gen_contract_op_si_hdiag (las, h1, h2, ci_fr, nelec_frs, soc=soc,
+                                          smult_fr=smult_fr)
     ham_op, s2_op, ovlp_op, ham_diag = ops[:4]
     lroots = get_lroots (ci_fr)
     lroots_prod = np.prod (lroots, axis=0)
@@ -165,7 +173,7 @@ def debug_contract_op_si (ks, las, h1, h2, ci_fr, nelec_frs, soc=0):
         with ks.subTest ('hdiag', root=r, nelec_fs=nelec_frs[:,r,:]):
             #print (ham.diagonal ()[i:j], ham_diag[i:j])
             ks.assertAlmostEqual (lib.fp (ham.diagonal ()[i:j]), lib.fp (ham_diag[i:j]), 7)
-    x = np.random.rand (nstates)
+    x = (2 * np.random.rand (nstates)) - 1
     if soc:
         x = x + 1j*np.random.rand (nstates)
     for myop, ref, lbl in ((ham_op, ham, 'ham'), (s2_op, s2, 's2'), (ovlp_op, ovlp, 'ovlp')):
