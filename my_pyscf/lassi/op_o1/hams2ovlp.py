@@ -74,13 +74,13 @@ class HamS2Ovlp (stdm.LSTDM):
         return exc
 
 
-    debug_do_split_spman = {'1d': False, # failed lassis, lassis_grads, lassirq, lassirqct, op_o1
-                            '2d': False, # failed lassis, lassis_grads
-                            '1c': True, # passed
-                            '1s': False, # failed lassis
+    debug_do_split_spman = {'1d': True,
+                            '2d': True,
+                            '1c': True,
+                            '1s': True,
                             '1c1d': False,
                             '1s1c': False,
-                            '2c': True} # passed ????????
+                            '2c': True}
     # above comments are for 22
 
     def split_exc_table_by_spman_(self, exc, lbl):
