@@ -120,19 +120,7 @@ class KnownValues(unittest.TestCase):
         for dson in (False, True):
             with self.subTest (davidson_only=dson):
                 # TODO: copy method for LASSIS that does all this
-                lsi_scanner = lsis[1].copy ()
-                lsi_scanner._las = lsi_scanner._las.copy ()
-                lsi_scanner._las.ci = [xij for xij in lsi_scanner._las.ci]
-                lsi_scanner.ci = [[xij for xij in xi] for xi in lsi_scanner.ci]
-                lsi_scanner.ci_spin_flips = [
-                    [xis for xis in xi]
-                    for xi in lsis[1].ci_spin_flips
-                ]
-                lsi_scanner.ci_charge_hops = [
-                    [[[xiasp for xiasp in xias] for xias in xia]
-                    for xia in xi] for xi in lsis[1].ci_charge_hops
-                ]
-                lsi_scanner = lsi_scanner.as_scanner ()
+                lsi_scanner = lsis[1].copy ().as_scanner ()
                 mol2 = struct (1.9, 1.9, '6-31g', symmetry=False)
                 mol2.verbose = 0
                 mol2.output = '/dev/null'

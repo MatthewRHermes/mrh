@@ -962,6 +962,12 @@ class LASSI(lib.StreamObject):
         self.converged_si = False
         self._keys = set((self.__dict__.keys())).union(keys)
 
+    def copy (self):
+        # semi-deep copy of nested lists
+        mycopy = super().copy ()
+        mycopy.ci = [[xij for xij in xi] for xi in self.ci]
+        return mycopy
+
     def kernel(self, mo_coeff=None, ci=None, veff_c=None, h2eff_sub=None, orbsym=None, soc=None,\
                break_symmetry=None, opt=None, davidson_only=None, level_shift_si=None,
                nroots_si=None, **kwargs):

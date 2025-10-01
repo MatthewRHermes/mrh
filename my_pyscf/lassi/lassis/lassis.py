@@ -586,6 +586,22 @@ class LASSIS (LASSI):
             logger.warn (self, ("Only the first LASSCF state is used by LASSIS! "
                                 "Other states are discarded!"))
 
+    def copy (self):
+        # semi-deep copy of nested lists
+        mycopy = super().copy ()
+        mycopy._las = self._las.copy ()
+        mycopy.ci_spin_flips = [
+            [xis for xis in xi]
+            for xi in self.ci_spin_flips
+        ]
+        mycopy.ci_charge_hops = [
+            [[[xiasp for xiasp in xias]
+              for xias in xia]
+             for xia in xi]
+            for xi in self.ci_charge_hops
+        ]
+        return mycopy
+
     def ham_2q (self, *args, **kwargs):
         if self._cached_ham_2q is not None: return self._cached_ham_2q
         return super().ham_2q (*args, **kwargs)
