@@ -31,7 +31,7 @@ def describe_interactions (nelec_frs):
                 + 5*twoc3_index.astype (int) + 6*twoc4_index.astype (int))
     return interactions, interidx
 
-def case_matrix_o0_o1 (ks, mat_o0, mat_o1, nelec_frs, lroots_fr, smult_fr=None):
+def case_matrix_o0_o1 (ks, mat_o0, mat_o1, nelec_frs, lroots_fr, smult_fr=None, tol=8):
     nfrags, nroots = lroots_fr.shape
     nprods_r = np.prod (lroots_fr, axis=0)
     nj = np.cumsum (nprods_r)
@@ -60,7 +60,7 @@ def case_matrix_o0_o1 (ks, mat_o0, mat_o1, nelec_frs, lroots_fr, smult_fr=None):
             ks.assertAlmostEqual (
                 lib.fp (mat_o0[ni[r]:nj[r],ni[s]:nj[s]]),
                 lib.fp (mat_o1[ni[r]:nj[r],ni[s]:nj[s]]),
-                8
+                tol
             )
 
 # TODO: SOC generalization!
