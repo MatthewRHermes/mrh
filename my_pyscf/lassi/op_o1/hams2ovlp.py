@@ -82,10 +82,7 @@ class HamS2Ovlp (stdm.LSTDM):
                             '1s1c': False,
                             '2c': True} # passed ????????
     # above comments are for 22
-    # this configuration fails energy and as_scanner of test_c2h4n4_slow, and the
-    # NON-DAVIDSON lassis calculations ONLY in test_lassis_targets_slow.py
-    # Further analysis shows that in this configuration, the Davidson algorithm is working
-    # but the non-iterative algorithm is wrong.
+    # this configuration fails a true lassis calculation in test_4frag
 
     def split_exc_table_by_spman_(self, exc, lbl):
         t0 = (logger.process_clock (), logger.perf_counter ())
