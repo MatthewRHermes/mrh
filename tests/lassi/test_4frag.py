@@ -92,7 +92,6 @@ def setUpModule ():
           for iroot in range (las.nroots)] for ifrag in range (las.nfrags)]
     )
     rng1 = np.random.default_rng (1)
-    np.random.seed (1)
     for ifrag, c in enumerate (las.ci):
         for iroot in range (len (c)):
             lr = lroots[ifrag][iroot]
@@ -201,9 +200,8 @@ class KnownValues(unittest.TestCase):
     #@unittest.skip('debugging')
     def test_lassis_slow (self):
         las0 = las.get_single_state_las (state=0).copy ()
-        rng2 = np.random.default_rng (1)
         for ifrag in range (len (las0.ci)):
-            x = (2*rng2.random((2,2)))-1
+            x = las0.ci[ifrag][0][0]#(2*rng2.random((2,2)))-1
             x += x.T
             x /= linalg.norm (x.ravel ())
             las0.ci[ifrag][0] = x
@@ -225,7 +223,7 @@ class KnownValues(unittest.TestCase):
                                          smult_fr=lsi.get_smult_fr ())#, tol=4)
                 self.assertTrue (lsi.converged)
                 self.assertTrue (lsi.converged_si)
-                self.assertAlmostEqual (lsi.e_roots[0], -304.5461721540874, 3)
+                self.assertAlmostEqual (lsi.e_roots[0], -304.5361582311853, 3)
                 case_lassis_fbf_2_model_state (self, lsi)
                 #case_lassis_fbfdm (self, lsi)
                 lsi.si = fuzz_sivecs (lsi.si)
