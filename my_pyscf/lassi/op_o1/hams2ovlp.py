@@ -84,7 +84,7 @@ class HamS2Ovlp (stdm.LSTDM):
             self.spman[key] = [tuple (pair) for pair in val]
         self.log.timer ('split_exc_table_by_spman_ {}'.format (lbl), *t0)
         self.log.debug ('%d/%d uniquely spin-adapted interactions of %s type',
-                        nuniq, nspman, lbl)
+                        nspman, nuniq, lbl)
         return exc
 
     def _init_buffers_(self): pass
