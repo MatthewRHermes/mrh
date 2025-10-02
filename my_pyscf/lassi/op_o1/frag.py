@@ -10,9 +10,9 @@ from itertools import product, combinations, combinations_with_replacement
 from mrh.my_pyscf.lassi.citools import get_lroots, get_rootaddr_fragaddr, get_unique_roots
 from mrh.my_pyscf.lassi.citools import _get_unique_roots_with_spin
 from mrh.my_pyscf.lassi.op_o1.utilities import *
-from mrh.my_pyscf.fci.rdm import trans_rdm1ha_des, trans_rdm1hb_des
-from mrh.my_pyscf.fci.rdm import trans_rdm13ha_des, trans_rdm13hb_des
-from mrh.my_pyscf.fci.rdm import trans_sfddm1, trans_hhdm
+from mrh.my_pyscf.fci.rdm import trans_rdm1ha_des, trans_rdm1hb_des #make_rdm1_spin1
+from mrh.my_pyscf.fci.rdm import trans_rdm13ha_des, trans_rdm13hb_des #is make_rdm12_spin1
+from mrh.my_pyscf.fci.rdm import trans_sfddm1, trans_hhdm ##trans_sfddm1 is make_rdm12_spin1, trans_hhdm is make_rdm12_spin1
 from mrh.my_pyscf.fci import rdm_smult
 from mrh.my_pyscf.fci.direct_halfelectron import contract_1he, absorb_h1he, contract_3he
 from mrh.my_pyscf.fci.direct_nosym_uhf import contract_1e as contract_1e_nosym_uhf
@@ -67,7 +67,7 @@ class FragTDMInt (object):
         model state indices.
 
         Args:
-            las : instance of :class:`LASCINoSymm`
+            las : instance of :class:`LASCINoSymm` //VA: 8/18/25: seems las object is a excitationPFSCI solver?
                 Only las.stdout and las.verbose (sometimes) are used to direct the logger output
             ci : list of ndarray of length nroots
                 Contains CI vectors for the current fragment
@@ -132,6 +132,7 @@ class FragTDMInt (object):
         # TODO: if it actually helps, cache the "linkstr" arrays
         if verbose is None: verbose = las.verbose
         if smult_r is None: smult_r = [None for n in nelec_rs]
+        t0 = (lib.logger.process_clock (), lib.logger.perf_counter ())
         self.verbose = verbose
         self.log = lib.logger.new_logger (las, self.verbose)
         self.ci = ci
@@ -149,16 +150,20 @@ class FragTDMInt (object):
         self.mask_ints = mask_ints
         self.discriminator = discriminator
 
+
         if pt_order is None: pt_order = np.zeros (nroots, dtype=int)
         self.pt_order = pt_order
         self.do_pt_order = do_pt_order
+        t0 = self.log.timer('FragTDM init setup', *t0)
 
         # Consistent array shape
         self.ndeta_r = np.array ([cistring.num_strings (norb, nelec[0]) for nelec in self.nelec_r])
         self.ndetb_r = np.array ([cistring.num_strings (norb, nelec[1]) for nelec in self.nelec_r])
         self.ci = [c.reshape (-1,na,nb) for c, na, nb in zip (self.ci, self.ndeta_r, self.ndetb_r)]
+        t0 = self.log.timer('FragTDM init array shape', *t0)
 
         self.time_crunch = self._init_crunch_(screen_linequiv)
+        t0 = self.log.timer('FragTDM init crunch', *t0)
 
     mat_keys = ('ovlp', 'h', 'hh', 'phh', 'sm', 'dm1', 'dm2')
     mdown_tdm = {'ovlp': lambda *args: args[0],
@@ -535,9 +540,9 @@ class FragTDMInt (object):
                         self.mask_ints[:,i], self.mask_ints[:,j]
                     )
 
-        self.log.timer_debug1 ('_init_crunch_ indexing', *t0)
+        self.log.timer ('_init_crunch_ indexing', *t0)
         t1 = self._make_dms_()
-        self.log.timer_debug1 ('_init_crunch_ _make_dms_', *t1)
+        self.log.timer ('_init_crunch_ _make_dms_', *t1)
         return t0
 
     def update_ci_(self, iroot, ci):
@@ -549,6 +554,7 @@ class FragTDMInt (object):
 
     def _make_dms_(self, screen=None):
         t0 = (lib.logger.process_clock (), lib.logger.perf_counter ())
+        t1 = (lib.logger.process_clock (), lib.logger.perf_counter ())
         ci = self.ci
         ndeta, ndetb = self.ndeta_r, self.ndetb_r
         hopping_index = self.hopping_index
@@ -556,7 +562,7 @@ class FragTDMInt (object):
         spman_inter_uniq = self.spman_inter_uniq
         lroots = [c.shape[0] for c in ci]
         nroots, norb, nuroots = self.nroots, self.norb, self.nuroots
-
+        t1 = self.log.timer ('_make_dms_ setup', *t1)
         # Overlap matrix
         offs = np.cumsum (lroots)
         for i, j in combinations (np.where (idx_uniq)[0], 2):
@@ -579,8 +585,11 @@ class FragTDMInt (object):
             #    errmsg = ('States w/in single Hilbert space must be orthonormal; '
             #              'eigvals (ovlp) = {}')
             #    raise RuntimeError (errmsg.format (w))
+        t1 = self.log.timer ('_make_dms_ overloop', *t1)
+
 
         # Loop over lroots functions
+        #TODO: REFACTOR TO FARM OUT ALL TYPES OF DMS TO DIFFERENT GPUs/NODES?
         def des_loop (des_fn, c, nelec, p):
             #na = cistring.num_strings (norb, nelec[0])
             #nb = cistring.num_strings (norb, nelec[1])
@@ -686,10 +695,12 @@ class FragTDMInt (object):
             if not spman_inter_uniq[i,j]: continue
             k, l = self.uroot_addr[i], self.uroot_addr[j]
             if not self.unmasked_int (k,l,screen): continue
+            #fragment is not interacting
             dm1s, dm2s = trans_rdm12s_loop (k, l, do2=True)
             self.set_dm1 (k, l, dm1s)
             self.set_dm2 (k, l, dm2s)
  
+        t1 = self.log.timer ('_make_dms_ trans_rdm12s_loop ', *t1)
         hidx_ket_a = np.where (np.any (hopping_index[0] < 0, axis=0))[0]
         hidx_ket_b = np.where (np.any (hopping_index[1] < 0, axis=0))[0]
 
@@ -709,15 +720,19 @@ class FragTDMInt (object):
                     # ^ Passing this assert proves that I have the correct index
                     # and argument ordering for the call and return of trans_rdm12s
                     self.set_phh (bra, ket, 0, phh)
+                    t1 = self.log.timer ('_make_dms_ trans_rdm13h_loop ', *t1)
                 # <j|b'_q a_p|i> = <j|s-|i>
                 elif np.all (hopping_index[:,b,k] == [-1,1]):
                     self.set_sm (bra, ket, trans_sfddm_loop (bra, ket))
+                    t1 = self.log.timer ('_make_dms_ trans_sfddm_loop ', *t1)
                 # <j|b_q a_p|i>
                 elif np.all (hopping_index[:,b,k] == [-1,-1]):
                     self.set_hh (bra, ket, 1, trans_hhdm_loop (bra, ket, spin=1))
+                    t1 = self.log.timer ('_make_dms_ trans_hhdm_loop ', *t1)
                 # <j|a_q a_p|i>
                 elif np.all (hopping_index[:,b,k] == [-2,0]):
                     self.set_hh (bra, ket, 0, trans_hhdm_loop (bra, ket, spin=0))
+                    t1 = self.log.timer ('_make_dms_ trans_hhdm_loop ', *t1)
                 
         # b_p|i>
         for k in hidx_ket_b:
@@ -735,9 +750,11 @@ class FragTDMInt (object):
                     # ^ Passing this assert proves that I have the correct index
                     # and argument ordering for the call and return of trans_rdm12s
                     self.set_phh (bra, ket, 1, phh)
+                    t1 = self.log.timer ('_make_dms_ trans_rdm13h_loop ', *t1)
                 # <j|b_q b_p|i>
                 elif np.all (hopping_index[:,b,k] == [0,-2]):
                     self.set_hh (bra, ket, 2, trans_hhdm_loop (bra, ket, spin=2))
+                    t1 = self.log.timer ('_make_dms_ trans_hhdm_loop ', *t1)
         
         return t0
 
@@ -1198,6 +1215,7 @@ def make_ints (las, ci, nelec_frs, smult_fr=None, screen_linequiv=DO_SCREEN_LINE
         lroots: ndarray of ints of shape (nfrags, nroots)
             Number of states within each fragment and rootspace
     '''
+    t0 = (lib.logger.process_clock (), lib.logger.perf_counter ())
     nfrags, nroots = nelec_frs.shape[:2]
     log = lib.logger.new_logger (las, las.verbose)
     max_memory = getattr (las, 'max_memory', las.mol.max_memory)
@@ -1206,6 +1224,8 @@ def make_ints (las, ci, nelec_frs, smult_fr=None, screen_linequiv=DO_SCREEN_LINE
     lroots = get_lroots (ci)
     rootaddr, fragaddr = get_rootaddr_fragaddr (lroots)
     ints = []
+    t0 = log.timer('make ints initialize', *t0)
+
     for ifrag in range (nfrags):
         m0 = lib.current_memory ()[0]
         tdmint = _FragTDMInt_class (las, ci[ifrag],
@@ -1224,6 +1244,7 @@ def make_ints (las, ci, nelec_frs, smult_fr=None, screen_linequiv=DO_SCREEN_LINE
         log.debug ('UNIQUE ROOTSPACES OF FRAG %d: %d/%d', ifrag,
                           np.count_nonzero (tdmint.root_unique), nroots)
         ints.append (tdmint)
+        t0 = log.timer('make ints calculate', *t0)
     return ints, lroots
 
 
