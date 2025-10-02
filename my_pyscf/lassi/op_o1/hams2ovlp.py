@@ -81,7 +81,6 @@ class HamS2Ovlp (stdm.LSTDM):
                             '1c1d': False,
                             '1s1c': False,
                             '2c': True}
-    # above comments are for 22
 
     def split_exc_table_by_spman_(self, exc, lbl):
         t0 = (logger.process_clock (), logger.perf_counter ())
