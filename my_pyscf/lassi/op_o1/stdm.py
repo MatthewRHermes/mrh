@@ -443,7 +443,6 @@ class LSTDM (object):
         cnts = cnts[ix_sort]
         image_sets = np.split (all_idxs, np.cumsum (cnts))
         exc_01 = exc[:,0:2]
-        t0 = self.log.timer ('Exc part 3 only unique interactions', *t0)
         for image_idxs, uniq_idx in zip (image_sets, idx):
             # ...numpy.where (0==0) triggers a DeprecationWarning, so I have to atleast_1d it
             braket_images = exc_01[image_idxs]
