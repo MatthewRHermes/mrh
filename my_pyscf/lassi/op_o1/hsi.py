@@ -11,8 +11,10 @@ from mrh.my_pyscf.lassi.op_o1.utilities import *
 import functools
 from itertools import product
 from pyscf import __config__
+import sys
 
 PROFVERBOSE = getattr (__config__, 'lassi_hsi_profverbose', None)
+SCREEN_THRESH = getattr (__config__, 'lassi_hsi_screen_thresh', sys.float_info.epsilon)
 
 class HamS2OvlpOperators (HamS2Ovlp):
     __doc__ = HamS2Ovlp.__doc__ + '''
@@ -29,13 +31,14 @@ class HamS2OvlpOperators (HamS2Ovlp):
     '''
     def __init__(self, ints, nlas, lroots, h1, h2, mask_bra_space=None,
                  mask_ket_space=None, pt_order=None, do_pt_order=None, log=None,
-                 max_memory=param.MAX_MEMORY, dtype=np.float64):
+                 max_memory=param.MAX_MEMORY, screen_thresh=SCREEN_THRESH, dtype=np.float64):
         t0 = (logger.process_clock (), logger.perf_counter ())
         HamS2Ovlp.__init__(self, ints, nlas, lroots, h1, h2,
                            mask_bra_space=mask_bra_space, mask_ket_space=mask_ket_space,
                            pt_order=pt_order, do_pt_order=do_pt_order,
                            log=log, max_memory=max_memory, dtype=dtype)
         self.log = logger.new_logger (self.log, verbose=PROFVERBOSE)
+        self.screen_thresh = screen_thresh
         self.x = self.si = np.zeros (self.nstates, self.dtype)
         self.ox = np.zeros (self.nstates, self.dtype)
         self.ox1 = np.zeros (self.nstates, self.dtype)
@@ -61,6 +64,11 @@ class HamS2OvlpOperators (HamS2Ovlp):
     def checkmem_1oppart (self, exc, fn):
         rm = 0
         has_s = self._fn_contributes_to_s2 (fn)
+        def maxabs (op):
+            if callable (getattr (op, 'maxabs', None)):
+                return op.maxabs ()
+            else:
+                return np.amax (np.abs (op))
         for row in exc:
             if self._fn_row_has_spin (fn):
                 inv = row[2:-1]
@@ -70,8 +78,9 @@ class HamS2OvlpOperators (HamS2Ovlp):
             inv = list (set (inv))
             if len (inv) == 4:
                 data = fn (*row, dry_run=True)
-                rm += data[0].size
-                if data[1] is not None:
+                if maxabs (data[0]) >= self.screen_thresh:
+                    rm += data[0].size
+                if data[1] is not None and (maxabs (data[1]) >= self.screen_thresh):
                     rm += data[1].size
             else:
                 opbralen = np.prod (self.lroots[inv,bra])
@@ -123,16 +132,18 @@ class HamS2OvlpOperators (HamS2Ovlp):
             inv = list (set (inv))
             op = self.opterm_std_shape (bra, ket, data[0], inv, sinv)
             key = tuple (inv)
-            val = self.excgroups_h.get (key, [])
-            for mybra, myket in self.spman[tuple((bra,ket))+tuple(row)]:
-                val.append ([op, mybra, myket, row])
-            self.excgroups_h[key] = val
-            if has_s:
-                op = self.opterm_std_shape (bra, ket, data[1], inv, sinv)
-                val = self.excgroups_s.get (key, [])
+            if op.maxabs () >= self.screen_thresh:
+                val = self.excgroups_h.get (key, [])
                 for mybra, myket in self.spman[tuple((bra,ket))+tuple(row)]:
                     val.append ([op, mybra, myket, row])
-                self.excgroups_s[key] = val
+                self.excgroups_h[key] = val
+            if has_s:
+                op = self.opterm_std_shape (bra, ket, data[1], inv, sinv)
+                if op.maxabs () >= self.screen_thresh:
+                    val = self.excgroups_s.get (key, [])
+                    for mybra, myket in self.spman[tuple((bra,ket))+tuple(row)]:
+                        val.append ([op, mybra, myket, row])
+                    self.excgroups_s[key] = val
             
 
     def _index_ovlppart (self, groups):

@@ -62,6 +62,9 @@ class OpTerm (OpTermReducible):
         arr = self.arr.reshape (new_shape, order=order)
         return OpTerm (arr, self.ints, self.comp, _already_stacked=True)
 
+    def maxabs (self):
+        return np.amax (np.abs (self.arr))
+
 def as_opterm (op):
     if isinstance (op, OpTermBase):
         return op
@@ -78,6 +81,9 @@ class OpTermContracted (np.ndarray, OpTermBase):
     ''' Just farm the dot method to pyscf.lib.dot '''
     def dot (self, other):
         return lib.dot (self, other)
+
+    def maxabs (self):
+        return np.amax (np.abs (self))
 
 class OpTermNFragments (OpTermReducible):
     def __init__(self, op, idx, d, ints, do_crunch=True):
@@ -137,6 +143,9 @@ class OpTermNFragments (OpTermReducible):
 
     @property
     def op_transpose_axes (self): return list (range (self.op.ndim))
+
+    def maxabs (self):
+        return np.amin ([np.amax (np.abs (d)) for d in self.d] + [np.amax (np.abs (self.op)),])
 
 class OpTerm4Fragments (OpTermNFragments):
     def _crunch_(self):
