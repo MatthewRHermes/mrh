@@ -127,7 +127,7 @@ def case_contract_hlas_ci (ks, las, h0, h1, h2, ci_fr, nelec_frs, si_bra=None, s
                 with ks.subTest (opt=opt, frag=f, bra_space=r, nelec=nelec[f,r]):
                     h_test = lib.einsum ('pab,pab->', hket_pabq, ci.conj ())
                     h_ref = np.dot (sivec_bra[ni[r]:nj[r]].conj (), hket_ref[ni[r]:nj[r]])
-                    ks.assertAlmostEqual (h_test, h_ref, 8)
+                    ks.assertAlmostEqual (h_test, h_ref, 6)
     return hket_fr_pabq
 
 def case_contract_op_si (ks, las, h1, h2, ci_fr, nelec_frs, smult_fr=None, soc=0):

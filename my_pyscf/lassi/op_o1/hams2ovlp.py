@@ -73,33 +73,15 @@ class HamS2Ovlp (stdm.LSTDM):
         exc = self.split_exc_table_by_spman_(exc, lbl)
         return exc
 
-
-    debug_do_split_spman = {'1d': True,
-                            '2d': True,
-                            '1c': True,
-                            '1s': True,
-                            '1c1d': False,
-                            '1s1c': False,
-                            '2c': True}
-
     def split_exc_table_by_spman_(self, exc, lbl):
         t0 = (logger.process_clock (), logger.perf_counter ())
         nuniq = exc.shape[0]
-        if self.debug_do_split_spman[lbl]:
-            fprint_fn = self.interaction_spman_fprints
-        else:
-            fprint_fn = lambda x, y: (np.arange (len (x)), np.arange (len (x)))
         exc, nonuniq = self.find_unique_exc (
-            exc, lbl, fprint_fn=fprint_fn
+            exc, lbl, fprint_fn=self.interaction_spman_fprints
         )
         nspman = len (exc)
         for key, val in nonuniq.items ():
             self.spman[key] = [tuple (pair) for pair in val]
-        if not self.debug_do_split_spman[lbl]:
-            for key in nonuniq.keys ():
-                val = self.spman[key]
-                assert (len (val) == 1), '{} {} {}'.format (lbl, key, val)
-                assert (key[:2] == val[0]), '{} {} {}'.format (lbl, key, val)
         self.log.timer ('split_exc_table_by_spman_ {}'.format (lbl), *t0)
         self.log.debug ('%d/%d uniquely spin-adapted interactions of %s type',
                         nuniq, nspman, lbl)
