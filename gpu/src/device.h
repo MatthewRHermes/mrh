@@ -29,7 +29,7 @@ using namespace MATHLIB_NS;
 //#define _DEBUG_DEVICE
 //#define _DEBUG_P2P
 #define _DEBUG_FCI
-#define _TEMP_BUFSIZING
+//#define _TEMP_BUFSIZING
 //#define _CUSTOM_FCI
 
 #define _PUMAP_2D_UNPACK 0       // generic unpacking of 1D array to 2D matrix
@@ -189,6 +189,9 @@ public :
   void compute_tdmpp_spin_v3( int , int , int , int , int , int, 
                                int , int , int , int , int ,
                                int , int , int , int , int );
+  void compute_tdmpp_spin_v4( int , int , int , int , int , int, 
+                               int , int , int , int , int ,
+                               int , int , int , int , int );
   void compute_sfudm( int , int , int , int , int,  
                       int , int , int , int , int ,
                       int , int , int , int , int );
@@ -199,6 +202,7 @@ public :
                            int , int , int , int , int ,
                            int , int , int , int , int );
 
+  void reorder_rdm(int);
   void pull_tdm1(py::array_t<double> , int );
   void pull_tdm2(py::array_t<double> , int );
   void pull_tdm3hab(py::array_t<double> ,py::array_t<double> , int );
@@ -249,6 +253,8 @@ public :
                                 int, int, int, int, int*);
   void reorder(double *, double *, double *, int);
   void reduce_buf3_to_rdm(const double *, double *, int, int);
+  void filter_sfudm(const double *, double *, int);
+  void filter_tdmpp(const double *, double *, int, int);
   // multi-gpu communication (better here or part of PM?)
 
   void mgpu_bcast(std::vector<double *>, double *, size_t);

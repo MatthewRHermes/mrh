@@ -114,13 +114,12 @@ def _reorder_rdm(rdm1, rdm2, inplace=False):
         rdm2 = rdm2.copy()
     for k in range(nmo):
         rdm2[:,k,k,:] -= rdm1.T
-
     # Employing the particle permutation symmetry, average over two particles
     # to reduce numerical round off error
     rdm2 = lib.transpose_sum(rdm2.reshape(nmo*nmo,-1), inplace=True) * .5
     return rdm1, rdm2.reshape(nmo,nmo,nmo,nmo)
 
-def _make_rdm12_spin1(fname, cibra, ciket, norb, nelec, link_index=None, symm=0):#, _use_gpu=False, _gpu=None):
+def _make_rdm12_spin1(fname, cibra, ciket, norb, nelec, link_index=None, symm=0):
     #FCItdm12_kern_a, FCItdm12kern_b, FCItdm12kern_ab 
     #add traceback
     #    traceback.print_stack(file=sys.stdout)

@@ -1092,12 +1092,13 @@ __global__ void _add_rdm1_to_2(double * dm1, double * dm2, int norb)
 {
     int i = blockIdx.x * blockDim.x + threadIdx.x;
     int j = blockIdx.y * blockDim.y + threadIdx.y;
-    int k = blockIdx.y * blockDim.y + threadIdx.y;
+    int k = blockIdx.z * blockDim.z + threadIdx.z;
     if (i>=norb) return;
     if (j>=norb) return;
     if (k>=norb) return;
     //double * tmp_rdm2 = &(dm2[((i*norb+j)*norb+j)*norb + k]);
     //double * tmp_rdm1 = &(dm1[i*norb + k]);
+    //printf("i:%i j:%i k:%i dm1loc: %i dm2loc: %i dm1: %f dm2: %f\n",i,j,k,i*norb + k, ((i*norb+j)*norb+j)*norb + k, dm1[i*norb + k], dm2[((i*norb+j)*norb+j)*norb + k]);
     dm2[((i*norb+j)*norb+j)*norb + k] -= dm1[i*norb + k];
 }
 /* ---------------------------------------------------------------------- */
@@ -1117,7 +1118,34 @@ __global__ void _build_rdm(double * buf, double * dm2, int size)
     int i = blockIdx.x * blockDim.x + threadIdx.x;
     if (i >= size) return;
     dm2[i] = buf[i]/2;
+}
+
+/* ---------------------------------------------------------------------- */
+__global__ void _filter_sfudm(const double * dm2, double * dm1, int norb)
+{
+    //already passing in the pointer to dm2[-1, :, :, :] 
+    int i = blockIdx.x * blockDim.x + threadIdx.x;
+    int j = blockIdx.y * blockDim.y + threadIdx.y;
+    if (i >= norb) return;
+    if (j >= norb) return;
+    int norb1 = norb+1;
+    int norb12 = (norb+1)*(norb+1);
+    dm1[i*norb+j] = dm2[i*norb12+j*norb1+norb];
 } 
+/* ---------------------------------------------------------------------- */
+__global__ void _filter_tdmpp(const double * dm2, double * dm1, int norb, int spin)
+{
+    //only need dm2[:-ndum,-1,:-ndum,-ndum] //ndum = 2-(spin%2)
+    //norb includes ndum
+    int ndum = (spin!=1) ? 2:1; 
+    int i = blockIdx.x * blockDim.x + threadIdx.x;
+    int j = blockIdx.y * blockDim.y + threadIdx.y;
+    if (i >= norb-ndum) return;
+    if (j >= norb-ndum) return;
+    dm1[i*(norb-ndum)+j] = dm2[i*norb*norb*norb + (norb-1)*norb*norb + j*norb+ norb-ndum];
+} 
+
+ 
 
 /* ---------------------------------------------------------------------- */
 
@@ -1857,14 +1885,17 @@ void Device::reorder(double * dm1, double * dm2, double * buf, int norb)
 {
   int norb2 = norb*norb;
   cudaStream_t s = *(pm->dev_get_queue());
+  printf("Inside reorder\n");
   //for k in range (norb): rdm2[:,k,k,:] -= rdm1.T //remember, rdm1 is returned as rdm1.T, so double transpose, hence just rdm1
-  //rdm2 = (rdm2+rdm2.transpose(2,3,0,1))/2
   {
     dim3 block_size (1,1,1);
     dim3 grid_size (_TILE(norb, block_size.x), _TILE(norb, block_size.y), _TILE(norb, block_size.z));
     _add_rdm1_to_2<<<grid_size, block_size, 0, s>>> (dm1, dm2, norb);
     _CUDA_CHECK_ERRORS();
   }
+  //rdm2 = (rdm2+rdm2.transpose(2,3,0,1))/2
+  #if 0
+  //this is for reducing numerical error ... we can implement it later
   {
     dim3 block_size(_DEFAULT_BLOCK_SIZE, 1, 1);
     dim3 grid_size(_TILE(norb2*norb2, block_size.x), 1, 1);
@@ -1883,6 +1914,7 @@ void Device::reorder(double * dm1, double * dm2, double * buf, int norb)
     _build_rdm<<<grid_size, block_size, 0>>>(buf, dm2, norb2*norb2);
     _CUDA_CHECK_ERRORS();
   }
+  #endif
   //axpy pending from buf2 to rdm2 
 }
 /* ---------------------------------------------------------------------- */
@@ -1898,7 +1930,31 @@ void Device::set_to_zero(double * array, int size)
  cudaMemSet(array,0, size*sizeof(double), s); //Is this better?
  #endif
 }
+/* ---------------------------------------------------------------------- */
+void Device::filter_sfudm( const double * dm2, double * dm1, int norb)
+{
+  //only need dm2[-1,:-1, :-1, -1]
+  cudaStream_t s = *(pm->dev_get_queue());
+  int norb_m1 = norb-1;
+  dim3 block_size(_DEFAULT_BLOCK_SIZE, _DEFAULT_BLOCK_SIZE, 1);
+  dim3 grid_size(_TILE(norb_m1, block_size.x),_TILE(norb_m1, block_size.y),1);
+  _filter_sfudm<<<grid_size, block_size, 0,s>>>(dm2,dm1,norb_m1);
+  _CUDA_CHECK_ERRORS();
+}
+/* ---------------------------------------------------------------------- */
+void Device::filter_tdmpp( const double * dm2, double * dm1, int norb, int spin)
+{
+  //only need dm2[:-ndum,-1,:-ndum,-ndum] //ndum = 2-(spin%2)
+  int ndum = (spin!=1) ? 2:1; 
+  printf("ndum %i\n",ndum);
+  cudaStream_t s = *(pm->dev_get_queue());
+  dim3 block_size(_DEFAULT_BLOCK_SIZE, _DEFAULT_BLOCK_SIZE, 1);
+  dim3 grid_size(_TILE(norb-ndum, block_size.x),_TILE(norb-ndum, block_size.y),1);
+  _filter_tdmpp<<<grid_size, block_size, 0,s>>>(dm2,dm1,norb,spin);
+  _CUDA_CHECK_ERRORS();
+}
 
+/* ---------------------------------------------------------------------- */
 
 
 #endif
