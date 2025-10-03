@@ -14,7 +14,7 @@ from pyscf import __config__
 import sys
 
 PROFVERBOSE = getattr (__config__, 'lassi_hsi_profverbose', None)
-SCREEN_THRESH = getattr (__config__, 'lassi_hsi_screen_thresh', sys.float_info.epsilon)
+SCREEN_THRESH = getattr (__config__, 'lassi_hsi_screen_thresh', 1e-12)
 
 class HamS2OvlpOperators (HamS2Ovlp):
     __doc__ = HamS2Ovlp.__doc__ + '''

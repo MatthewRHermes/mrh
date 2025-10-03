@@ -33,7 +33,7 @@ NROOTS_SI = getattr (__config__, 'lassi_nroots_si', 1)
 MAX_CYCLE_SI = getattr (__config__, 'lassi_max_cycle_si', 100)
 MAX_SPACE_SI = getattr (__config__, 'lassi_max_space_si', 12)
 TOL_SI = getattr (__config__, 'lassi_tol_si', 1e-8)
-DAVIDSON_SCREEN_THRESH_SI = getattr (__config__, 'lassi_hsi_screen_thresh', sys.float_info.epsilon)
+DAVIDSON_SCREEN_THRESH_SI = getattr (__config__, 'lassi_hsi_screen_thresh', 1e-12)
 
 op = (op_o0, op_o1)
 
