@@ -285,15 +285,16 @@ def _trans_rdm13hs_o4(cre, cibra, ciket, norb, nelec, spin=0, link_index=None, r
     libgpu.compute_tdm13h_spin_v4(gpu, na, nb, nlinka, nlinkb, norb+1, spin, reorder,
                                    ia_bra, ja_bra, ib_bra, jb_bra, sgn_bra,
                                    ia_ket, ja_ket, ib_ket, jb_ket, sgn_ket) #TODO: write a better name
+    if reorder: libgpu.reorder_rdm(gpu, norb+1)
     libgpu.pull_tdm1(gpu, tdm1h, norb+1)
-    libgpu.pull_tdm3hab(gpu, tdm3ha, tdm3hb, norb+1)
-    #reorder not working
     tdm1h = tdm1h.T
     if spin: 
-        if reorder: tdm1h, tdm3hb = rdm.reorder_rdm(tdm1h, tdm3hb, inplace=True)
+        libgpu.pull_tdm3hab(gpu, tdm3hb, tdm3ha, norb+1)
+        #if reorder: tdm1h, tdm3hb = rdm.reorder_rdm(tdm1h, tdm3hb, inplace=True)
         tdm3ha = tdm3ha.transpose(3,2,1,0)
     else:
-        if reorder: tdm1h, tdm3ha = rdm.reorder_rdm (tdm1h, tdm3ha, inplace=True)
+        libgpu.pull_tdm3hab(gpu, tdm3ha, tdm3hb, norb+1)
+        #if reorder: tdm1h, tdm3ha = rdm.reorder_rdm (tdm1h, tdm3ha, inplace=True)
     return tdm1h, tdm3ha, tdm3hb 
 
 def _trans_rdm13hs_o5(cre, cibra, ciket, norb, nelec, spin=0, link_index=None, reorder=True):

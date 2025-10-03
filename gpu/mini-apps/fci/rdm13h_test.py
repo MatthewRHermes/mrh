@@ -34,8 +34,8 @@ mf.with_df.auxbasis = pyscf.df.make_auxbasis(mol)
 mf.max_cycle=1
 mf.kernel()
 
-norb = 4
-nelec = 4
+norb = 11
+nelec = 15
 
 def run_test(cre, norb, nelec, spin, reorder):
     nelec_copy = list(_unpack_nelec(nelec))
@@ -54,9 +54,6 @@ def run_test(cre, norb, nelec, spin, reorder):
     ciket = np.arange(na_ket*nb_ket).reshape(na_ket, nb_ket)+4.5
     #cibra = np.random.random((na_bra, nb_bra))
     #ciket = np.random.random((na_ket, nb_ket))
-    #print(ciket.shape, cibra.shape)
-    #print(ciket)
-    #print(cibra) 
     if not cre: 
         cibra, ciket = ciket, cibra
 
@@ -64,34 +61,3 @@ def run_test(cre, norb, nelec, spin, reorder):
 
 
 [run_test(cre, norb, nelec, spin, reorder) for cre in range(2) for spin in range(2) for reorder in range(2)]
-
-#nelec = _unpack_nelec(nelec)
-#neleca, nelecb = _unpack_nelec(nelec)
-#na = math.comb(norb, neleca-1)
-#nb = math.comb(norb, nelecb)
-#cibra = np.arange(na*nb).reshape(na,nb)+0.0
-#cibra = np.random.random((na,nb))
-#na = math.comb(norb, neleca)
-#ciket = np.arange(na*nb).reshape(na,nb)+100.0
-#ciket = np.random.random((na,nb))
-#link_indexa = cistring.gen_linkstr_index(range(norb+1), neleca)
-#link_indexb = cistring.gen_linkstr_index(range(norb+1), nelecb)
-#link_index = (link_indexa, link_indexb)
-#link_index=None
-#_trans_rdm13hs(False, cibra, ciket, norb, nelec, spin=0, link_index = link_index, reorder=False)
-#_trans_rdm13hs(True, cibra, ciket, norb, nelec, spin=0, link_index = link_index, reorder=True)
-
-#norb = 10
-#nelec = 9
-#neleca, nelecb = _unpack_nelec(nelec)
-#na = math.comb(norb, neleca)
-#nb = math.comb(norb, nelecb-1)
-#cibra = np.random.random((na,nb))
-#nb = math.comb(norb, nelecb)
-#ciket = np.random.random((na,nb))
-#link_indexa = cistring.gen_linkstr_index(range(norb+1), neleca)
-#link_indexb = cistring.gen_linkstr_index(range(norb+1), nelecb)
-#link_index = (link_indexa, link_indexb)
-#link_index=None
-
-#_trans_rdm13hs(False, cibra, ciket, norb, nelec, spin=1, link_index = link_index, reorder=False)
