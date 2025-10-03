@@ -1,3 +1,4 @@
+import sys
 import numpy as np
 import time
 from scipy import linalg
@@ -32,6 +33,7 @@ NROOTS_SI = getattr (__config__, 'lassi_nroots_si', 1)
 MAX_CYCLE_SI = getattr (__config__, 'lassi_max_cycle_si', 100)
 MAX_SPACE_SI = getattr (__config__, 'lassi_max_space_si', 12)
 TOL_SI = getattr (__config__, 'lassi_tol_si', 1e-8)
+DAVIDSON_SCREEN_THRESH_SI = getattr (__config__, 'lassi_hsi_screen_thresh', sys.float_info.epsilon)
 
 op = (op_o0, op_o1)
 
@@ -390,8 +392,9 @@ def _eig_block_Davidson (las, e0, h1, h2, ci_blk, nelec_blk, smult_blk, soc, opt
     max_space_si = getattr (las, 'max_space_si', MAX_SPACE_SI)
     tol_si = getattr (las, 'tol_si', TOL_SI)
     get_init_guess = getattr (las, 'get_init_guess_si', get_init_guess_si)
+    screen_thresh = getattr (las, 'davidson_screen_thresh_si', DAVIDSON_SCREEN_THRESH_SI)
     h_op_raw, s2_op, ovlp_op, hdiag, _get_ovlp = op[opt].gen_contract_op_si_hdiag (
-        las, h1, h2, ci_blk, nelec_blk, smult_fr=smult_blk, soc=soc
+        las, h1, h2, ci_blk, nelec_blk, smult_fr=smult_blk, soc=soc, screen_thresh=screen_thresh
     )
     t0 = (lib.logger.process_clock (), lib.logger.perf_counter ())
     raw2orth = citools.get_orth_basis (ci_blk, las.ncas_sub, nelec_blk, _get_ovlp=_get_ovlp,
@@ -960,6 +963,7 @@ class LASSI(lib.StreamObject):
         self.level_shift_si = LEVEL_SHIFT_SI
         self.nroots_si = nroots_si
         self.converged_si = False
+        self.davidson_screen_thresh_si = DAVIDSON_SCREEN_THRESH_SI
         self._keys = set((self.__dict__.keys())).union(keys)
 
     def copy (self):

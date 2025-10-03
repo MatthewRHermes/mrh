@@ -512,7 +512,8 @@ class HamS2OvlpOperators (HamS2Ovlp):
 
 #gen_contract_op_si_hdiag = functools.partial (_fake_gen_contract_op_si_hdiag, ham)
 def gen_contract_op_si_hdiag (las, h1, h2, ci, nelec_frs, smult_fr=None, soc=0, nlas=None,
-                              _HamS2Ovlp_class=HamS2OvlpOperators, _return_int=False, **kwargs):
+                              _HamS2Ovlp_class=HamS2OvlpOperators, _return_int=False,
+                              screen_thresh=SCREEN_THRESH, **kwargs):
     ''' Build Hamiltonian, spin-squared, and overlap matrices in LAS product state basis
 
     Args:
@@ -539,6 +540,8 @@ def gen_contract_op_si_hdiag (las, h1, h2, ci, nelec_frs, smult_fr=None, soc=0, 
         _return_int : logical
             If True, return the main intermediate object instead of the
             operator matrices
+        screen_thresh : float
+            Tolerance for screening Hamiltonian and S^2 operator components
         
     Returns: 
         ham_op : LinearOperator of shape (nstates,nstates)
@@ -581,7 +584,8 @@ def gen_contract_op_si_hdiag (las, h1, h2, ci, nelec_frs, smult_fr=None, soc=0, 
     t0 = (lib.logger.process_clock (), lib.logger.perf_counter ())
     outerprod = _HamS2Ovlp_class (ints, nlas, lroots, h1, h2,
                                   pt_order=pt_order, do_pt_order=do_pt_order,
-                                  dtype=dtype, max_memory=max_memory, log=log)
+                                  dtype=dtype, max_memory=max_memory, log=log,
+                                  screen_thresh=screen_thresh)
 
     t1 = lib.logger.timer (las, 'LASSI hsi operator hams2ovlp class', *t1)
     if soc and not spin_pure:
