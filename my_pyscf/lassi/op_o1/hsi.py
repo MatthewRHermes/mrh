@@ -92,16 +92,16 @@ class HamS2OvlpOperators (HamS2Ovlp):
 
     def _cache_(self):
         t0 = (logger.process_clock (), logger.perf_counter ())
-        self.excgroups_s = {}
-        self.excgroups_h = {}
+        self.optermgroups_s = {}
+        self.optermgroups_h = {}
         for exc, fn in zip ((self.exc_1d, self.exc_2d, self.exc_1s, self.exc_1c, self.exc_1c1d,
                              self.exc_1s1c, self.exc_2c),
                             (self._crunch_1d_, self._crunch_2d_, self._crunch_1s_,
                              self._crunch_1c_, self._crunch_1c1d_, self._crunch_1s1c_,
                              self._crunch_2c_)):
             self._crunch_oppart_(exc, fn)
-        self.excgroups_s = self._index_ovlppart (self.excgroups_s)
-        self.excgroups_h = self._index_ovlppart (self.excgroups_h)
+        self.optermgroups_s = self._index_ovlppart (self.optermgroups_s)
+        self.optermgroups_h = self._index_ovlppart (self.optermgroups_h)
         self.log.debug (self.sprint_cache_profile ())
         self.log.timer ('HamS2OvlpOperators operator cacheing', *t0)
 
@@ -133,17 +133,19 @@ class HamS2OvlpOperators (HamS2Ovlp):
             op = self.opterm_std_shape (bra, ket, data[0], inv, sinv)
             key = tuple (inv)
             if op.maxabs () >= self.screen_thresh:
-                val = self.excgroups_h.get (key, [])
+                val = self.optermgroups_h.get (key, opterm.OpTermGroup (key))
                 for mybra, myket in self.spman[tuple((bra,ket))+tuple(row)]:
-                    val.append ([op, mybra, myket, row])
-                self.excgroups_h[key] = val
+                    op.spincase_keys.append (tuple ((mybra, myket)) + tuple (row))
+                val.append (op)
+                self.optermgroups_h[key] = val
             if has_s:
                 op = self.opterm_std_shape (bra, ket, data[1], inv, sinv)
                 if op.maxabs () >= self.screen_thresh:
-                    val = self.excgroups_s.get (key, [])
+                    val = self.optermgroups_s.get (key, opterm.OpTermGroup (key))
                     for mybra, myket in self.spman[tuple((bra,ket))+tuple(row)]:
-                        val.append ([op, mybra, myket, row])
-                    self.excgroups_s[key] = val
+                        op.spincase_keys.append (tuple ((mybra, myket)) + tuple (row))
+                    val.append (op)
+                    self.optermgroups_s[key] = val
             
 
     def _index_ovlppart (self, groups):
@@ -153,35 +155,34 @@ class HamS2OvlpOperators (HamS2Ovlp):
         #x0 = (logger.process_clock (), logger.perf_counter ())
         for inv, group in groups.items ():
             len_tab = 0
-            for op, bra, ket, myinv in group:
-                key = tuple ((bra, ket)) + tuple (myinv)
-                tab = self.nonuniq_exc[key]
-                len_tab += tab.shape[0]
-                len_tab += np.count_nonzero (tab[:,0] != tab[:,1])
+            for op in group.ops:
+                for key in op.spincase_keys:
+                    tab = self.nonuniq_exc[key]
+                    len_tab += tab.shape[0]
+                    len_tab += np.count_nonzero (tab[:,0] != tab[:,1])
             #x0 = self.log.timer ('tab_len', *x0)
             ovlplinkstr = np.empty ((len_tab, self.nfrags+1), dtype=int)
             seen = set ()
             i = 0
-            for op, bra, ket, myinv in group:
-                key = tuple ((bra, ket)) + tuple (myinv)
-                tab = self.nonuniq_exc[key]
-                for bra, ket in tab:
-                    ovlplinkstr[i,0] = ket
-                    ovlplinkstr[i,1:] = self.ox_ovlp_urootstr (bra, ket, inv)
-                    fp = hash (tuple (ovlplinkstr[i,:]))
-                    if fp not in seen:
-                        seen.add (fp)
-                        i += 1
-                    if bra != ket:
-                        ovlplinkstr[i,0] = bra
-                        ovlplinkstr[i,1:] = self.ox_ovlp_urootstr (ket, bra, inv)
+            for op in group.ops:
+                for key in op.spincase_keys:
+                    tab = self.nonuniq_exc[key]
+                    for bra, ket in tab:
+                        ovlplinkstr[i,0] = ket
+                        ovlplinkstr[i,1:] = self.ox_ovlp_urootstr (bra, ket, inv)
                         fp = hash (tuple (ovlplinkstr[i,:]))
                         if fp not in seen:
                             seen.add (fp)
                             i += 1
+                        if bra != ket:
+                            ovlplinkstr[i,0] = bra
+                            ovlplinkstr[i,1:] = self.ox_ovlp_urootstr (ket, bra, inv)
+                            fp = hash (tuple (ovlplinkstr[i,:]))
+                            if fp not in seen:
+                                seen.add (fp)
+                                i += 1
             ovlplinkstr = ovlplinkstr[:i]
-            #x0 = self.log.timer ('ovlplinkstr', *x0)
-            groups[inv] = (group, np.asarray (ovlplinkstr))
+            group.ovlplink = np.asarray (ovlplinkstr)
         t1, w1 = logger.process_clock (), logger.perf_counter ()
         self.dt_i += (t1-t0)
         self.dw_i += (w1-w0)
@@ -261,7 +262,7 @@ class HamS2OvlpOperators (HamS2Ovlp):
         self.x[:] = x.flat[:]
         self.ox[:] = 0
         self._umat_linequiv_loop_(0) # U.conj () @ x
-        for inv, group in self.excgroups_h.items (): self._opuniq_x_group_(inv, group)
+        for inv, group in self.optermgroups_h.items (): self._opuniq_x_group_(inv, group)
         self._umat_linequiv_loop_(1) # U.T @ ox
         self.log.info (self.sprint_profile ())
         self.log.timer ('HamS2OvlpOperators._ham_op', *t0)
@@ -273,7 +274,7 @@ class HamS2OvlpOperators (HamS2Ovlp):
         self.x[:] = x.flat[:]
         self.ox[:] = 0
         self._umat_linequiv_loop_(0) # U.conj () @ x
-        for inv, group in self.excgroups_s.items (): self._opuniq_x_group_(inv, group)
+        for inv, group in self.optermgroups_s.items (): self._opuniq_x_group_(inv, group)
         self._umat_linequiv_loop_(1) # U.T @ ox
         self.log.info (self.sprint_profile ())
         self.log.timer ('HamS2OvlpOperators._s2_op', *t0)
@@ -281,7 +282,7 @@ class HamS2OvlpOperators (HamS2Ovlp):
 
     def _opuniq_x_group_(self, inv, group):
         '''All unique operations which have a set of nonspectator fragments in common'''
-        oplink, ovlplink = group
+        ops, ovlplink = group.ops, group.ovlplink
 
         t0, w0 = logger.process_clock (), logger.perf_counter ()
         # Some rootspaces are redundant: same urootstr for different ket indices.
@@ -304,8 +305,9 @@ class HamS2OvlpOperators (HamS2Ovlp):
         self.dw_sX += (w1-w0)
 
         self.ox1[:] = 0
-        for op, bra, ket, myinv in oplink:
-            self._opuniq_x_(op, bra, ket, vecs, *myinv)
+        for op in ops:
+            for key in op.spincase_keys:
+                self._opuniq_x_(op, key[0], key[1], vecs, *key[2:])
         t2, w2 = logger.process_clock (), logger.perf_counter ()
         self.dt_oX += (t2-t1)
         self.dw_oX += (w2-w1)
@@ -509,6 +511,7 @@ class HamS2OvlpOperators (HamS2Ovlp):
         dt, dw = logger.process_clock () - t0, logger.perf_counter () - w0
         self.dt_2c, self.dw_2c = self.dt_2c + dt, self.dw_2c + dw
         return ham, s2, (j, i, a, b)
+
 
 #gen_contract_op_si_hdiag = functools.partial (_fake_gen_contract_op_si_hdiag, ham)
 def gen_contract_op_si_hdiag (las, h1, h2, ci, nelec_frs, smult_fr=None, soc=0, nlas=None,

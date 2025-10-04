@@ -1,7 +1,33 @@
 import numpy as np
 from pyscf import lib
 
-class OpTermBase: pass
+class OpTermGroup:
+    '''A set of operators which address the same set of nonspectator fragments'''
+    def __init__(self, inv):
+        self.inv = inv
+        self.ops = []
+        self.ovlplink = None
+
+    def append (self, val):
+        self.ops.append (val)
+
+class OpTermBase:
+    '''Elements of spincase_keys index nonuniq_exc to look up bras and kets addressed by this
+    operator corresponding to a particular set of ket spin polarization quantum numbers.'''
+    def __init__(self):
+        self.spincase_keys = []
+
+    def spincase_fprint (self, i):
+        bra, ket = self.spincase_keys[i][:2]
+        brastr = [inti.uroot_idx[bra] for inti in self.ints]
+        ketstr = [inti.uroot_idx[bra] for inti in self.ints]
+        return brastr, ketstr
+
+    def fprint (self):
+        brastr, ketstr = self.spincase_fprint (0)
+        brastr = [self.ints[i].spman (bra) for i, bra in enumerate (brastr)]
+        ketstr = [self.ints[i].spman (ket) for i, ket in enumerate (ketstr)]
+        return brastr, ketstr
 
 class OpTermReducible (OpTermBase): pass
 
@@ -13,6 +39,7 @@ class OpTerm (OpTermReducible):
             self.arr = arr
         else:
             self.arr = np.stack (arr, axis=-1)
+        super().__init__()
 
     def reduce_spin (self, bra, ket):
         if any ([i.smult_r[ket] is None for i in self.ints]):
@@ -100,6 +127,7 @@ class OpTermNFragments (OpTermReducible):
         self.lroots_ket = [d.shape[1] for d in self.d]
         self.norb = [d.shape[2] for d in self.d]
         if do_crunch: self._crunch_()
+        super().__init__()
 
     def reshape (self, new_shape, **kwargs):
         pass
@@ -147,6 +175,23 @@ class OpTermNFragments (OpTermReducible):
     def maxabs (self):
         return np.amin ([np.amax (np.abs (d)) for d in self.d] + [np.amax (np.abs (self.op)),])
 
+# Notes on how to factor this:
+# in the three passes, the fingerprints identifying meaningful distinct (bra,ket) tuples are
+#
+#   (inner loop over mkp, mkq and multiply by spin factor on lookup)
+#   bp bq ** ** (inv = p,q,r,s on vector lookup)
+#   kp kq kr ks (inv = r,s on vector storage)
+#
+#   (inner loop over mbr and multiply by spin factor on storage)
+#   bp bq br ** (inv = r,s on vector lookup)
+#   ** ** kr ks (inv = s on vector storage)
+#
+#   (inner loop over mbs and multiply by spin factor on storage)
+#   bp bq br bs (inv = s on vector lookup)
+#   ** ** ** ks (final pass: put into ox)
+# 
+# The "inner loops" are achieved by indexing down spincase_keys to only couplings distinct in
+# the relevant fragments (which are different in the three passes)
 class OpTerm4Fragments (OpTermNFragments):
     def _crunch_(self):
         self.op = lib.einsum ('aip,bjq,pqrs->rsbaji', self.d[0], self.d[1], self.op)
