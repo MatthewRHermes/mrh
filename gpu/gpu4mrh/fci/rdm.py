@@ -15,7 +15,7 @@ def _make_rdm1_spin1(fname, cibra, ciket, norb, nelec, link_index=None):
       gpu = param.use_gpu
     except: 
       use_gpu = None
-    if (fname in ['FCItrans_rdm1a', 'FCItrans_rdm1b', 'FCImake_rdm1a', 'FCImake_rdm1b']) and param.use_gpu is not None:
+    if (fname in ['FCItrans_rdm1a', 'FCItrans_rdm1b', 'FCImake_rdm1a', 'FCImake_rdm1b']) and (use_gpu is not None):
         use_gpu = param.use_gpu
         gpu = param.use_gpu
     else:
@@ -124,7 +124,7 @@ def _make_rdm12_spin1(fname, cibra, ciket, norb, nelec, link_index=None, symm=0)
     #add traceback
     #    traceback.print_stack(file=sys.stdout)
     from pyscf.lib import param
-    if (fname in ['FCItdm12kern_a', 'FCItdm12kern_b', 'FCItdm12kern_ab', 'FCIrdm12kern_sf']) and param.use_gpu is not None:
+    if (fname in ['FCItdm12kern_a', 'FCItdm12kern_b', 'FCItdm12kern_ab', 'FCIrdm12kern_sf']) and getattr (param, 'use_gpu', None) is not None:
        use_gpu = param.use_gpu
        gpu=param.use_gpu
     else: 
