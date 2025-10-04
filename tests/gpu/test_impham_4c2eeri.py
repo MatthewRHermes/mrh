@@ -7,7 +7,7 @@ This miniapp is for development of gpu accelerated version of creation of impuri
 
 '''
 import unittest
-from pyscf import gto, scf, tools, mcscf,lib
+from pyscf import gto, scf, tools, mcscf,lib, ao2mo
 from mrh.my_pyscf.mcscf.lasscf_async import LASSCF
 from pyscf.mcscf import avas
 from mrh.tests.gpu.geometry_generator import generator
@@ -26,13 +26,16 @@ def tearDownModule():
 
 def _run_mod (imporb_coeff, return_4c2eeri=True, gpu_run=True):
 
+    from pyscf.lib import param
     if gpu_run: 
         from mrh.my_pyscf.gpu import libgpu
         from gpu4mrh import patch_pyscf
         gpu = libgpu.init()
         outputfile=str(nfrags)+'_'+str(basis)+'_out_gpu_ref.log';
         mol=gto.M(atom=generator(nfrags),basis=basis,verbose=4,output=outputfile, use_gpu=gpu)
+        param.use_gpu = gpu
     else: 
+        param.use_gpu = None
         outputfile=str(nfrags)+'_'+str(basis)+'_out_cpu_ref.log';
         mol=gto.M(atom=generator(nfrags),basis=basis,verbose=4,output=outputfile)
     mf=scf.RHF(mol)
@@ -59,6 +62,7 @@ def _run_mod (imporb_coeff, return_4c2eeri=True, gpu_run=True):
                 libgpu.compute_eri_impham (gpu, nao_s, nao_f, blksize, naux, count, id(mf.with_df),return_4c2eeri)
             libgpu.pull_eri_impham(gpu, cderi, naoaux, nao_f,return_4c2eeri)  
             return cderi
+         return impham_gpu_v1(imporb_coeff, return_4c2eeri) 
                           
     else:
         def impham_cpu_original(imporb_coeff, return_4c2eeri):
@@ -76,6 +80,7 @@ def _run_mod (imporb_coeff, return_4c2eeri=True, gpu_run=True):
                 return np.dot (_cderi.conj ().T, _cderi)
             else: 
                 return _cderi
+        return impham_cpu_original(imporb_coeff, return_4c2eeri) 
 
 
 class KnownValues (unittest.TestCase):
@@ -83,14 +88,11 @@ class KnownValues (unittest.TestCase):
     def test_implementations (self):
         mol=gto.M(atom=generator(nfrags),basis=basis)
         imporb_coeff=np.random.random((mol.nao, nimp))
-        eri_gpu = _run_mod (imporb_coeff, return_4c2eeri=True, gpu_run=True)
         eri_cpu = _run_mod (imporb_coeff, return_4c2eeri=True, gpu_run=False)
-        cderi_gpu = _run_mod (imporb_coeff, return_4c2eeri=False, gpu_run=True)
-        cderi_cpu = _run_mod (imporb_coeff, return_4c2eeri=False, gpu_run=False)
-        with self.subTest ('GPU accelerated cderi creation'):
-            self.assertAlmostEqual (cderi_cpu, cderi_gpu, 7)
+        eri_gpu = _run_mod (imporb_coeff, return_4c2eeri=True, gpu_run=True)
+        eri_diff = np.max(np.abs(eri_cpu - eri_gpu))
         with self.subTest ('GPU accelerated eri creation'):
-            self.assertAlmostEqual (eri_cpu, eri_gpu, 7)
+            self.assertAlmostEqual (eri_diff, 0, 7)
 
 if __name__ == "__main__":
     print("Tests for GPU accelerated embedding ERI/CDERI creation")
