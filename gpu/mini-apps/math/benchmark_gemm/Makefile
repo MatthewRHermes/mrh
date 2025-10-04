@@ -1,7 +1,7 @@
 
 # Definition of MACROS
 
-BASE_LIBGPU=../../src
+BASE_LIBGPU=../../../src
 
 BINROOT=./
 EXE=a.out
@@ -67,9 +67,9 @@ $(EXE): $(C_OBJ) $(CUDA_OBJ) $(PM_OBJ) $(ML_OBJ)
 	$(LD) $(LDFLAGS) -o $@ $(C_OBJ) $(CUDA_OBJ) $(PM_OBJ) $(ML_OBJ) $(LIB)
 
 update:
-	cp -r ../../src/pm ./
+	cp -r $(BASE_LIBGPU)/pm ./
 	rm -f ./pm/device_*
-	cp -r ../../src/mathlib ./
+	cp -r $(BASE_LIBGPU)/mathlib ./
 
 ####################################################################
 

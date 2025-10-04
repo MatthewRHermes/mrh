@@ -132,10 +132,10 @@ def get_h2eff_gpu_v2 (las,mo_coeff):
     eri =np.zeros((nmo,  int(ncas*ncas*(ncas+1)/2)))
     t0 = (lib.logger.process_clock (), lib.logger.perf_counter ())
     eri1 = np.zeros((nmo, int(ncas*ncas*(ncas+1)/2)),dtype='d')
-    if DEBUG and gpu:
+    if las.verbose==lib.logger.DEBUG and gpu:
         eri_cpu = np.zeros((nmo, int(ncas*ncas*(ncas+1)/2)))
     for cderi in las.with_df.loop (blksize=blksize):
-        t1 = lib.logger.timer (las, 'Sparsedf', *t0)
+        #t1 = lib.logger.timer (las, 'Sparsedf', *t0)
         naux = cderi.shape[0]
         if las.verbose>=lib.logger.DEBUG and gpu:
             libgpu.get_h2eff_df_v2(gpu, cderi, nao, nmo, ncas, naux, ncore,eri1, count, id(las.with_df))
@@ -157,8 +157,9 @@ def get_h2eff_gpu_v2 (las,mo_coeff):
             eri1 = lib.pack_tril (eri1.reshape (nmo*ncas, ncas, ncas)).reshape (nmo, -1)
             cderi = bPmn = bmuP1 = buvP = None
         
-        t1 = lib.logger.timer (las, 'contract1 gpu', *t1)
+        #t1 = lib.logger.timer (las, 'contract1 gpu', *t1)
         count+=1
+    t0 = lib.logger.timer (las, 'las_ao2mo', *t0)
     libgpu.pull_eri_h2eff(gpu, eri, nmo, ncas)
     if las.verbose>=lib.logger.DEBUG and gpu:
         if np.allclose(eri, eri_cpu): log.debug("h2eff_v2 working")
@@ -183,7 +184,7 @@ def get_h2eff (las, mo_coeff=None):
         raise MemoryError ("{} MB of {}/{} MB av/total for ERI array".format (
             mem_eris, mem_remaining, las.max_memory))
     if getattr (las, 'with_df', None) is not None:
-        if las.use_gpu: eri = get_h2eff_gpu (las,mo_coeff)#the full version is not working yet.
+        if las.use_gpu: eri = get_h2eff_gpu_v2 (las,mo_coeff)#the full version is not working yet.
         else: eri = get_h2eff_df (las, mo_coeff)
     elif getattr (las._scf, '_eri', None) is not None:
         eri = ao2mo.incore.general (las._scf._eri, mo, compact=True)

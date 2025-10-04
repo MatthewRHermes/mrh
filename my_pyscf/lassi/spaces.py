@@ -704,7 +704,7 @@ def spin_shuffle (las, verbose=None, equal_weights=False):
         raise NotImplementedError ("Point-group symmetry for LASSI state generator")
     ref_states = [SingleLASRootspace (las, m, s, c, 0) for c,m,s,w in zip (*get_space_info (las))]
     for weight, state in zip (las.weights, ref_states): state.weight = weight
-    all_states = _spin_shuffle (ref_states, equal_weights=equal_weights)
+    all_states = _spin_shuffle (ref_states, equal_weights=equal_weights, las=las)
     weights = [state.weight for state in all_states]
     charges = [state.charges for state in all_states]
     spins = [state.spins for state in all_states]
@@ -716,16 +716,31 @@ def spin_shuffle (las, verbose=None, equal_weights=False):
         log.warn ("no spin-shuffling options found for given LAS states")
     return las.state_average (weights=weights, charges=charges, spins=spins, smults=smults)
 
-def _spin_shuffle (ref_spaces, equal_weights=False):
+def _spin_shuffle (ref_spaces, equal_weights=False, las=None):
     '''The same as spin_shuffle, but the inputs and outputs are space lists rather than LASSCF
     instances and no logging is done.'''
+    #Passing in las for doing logging because this function is blowing up in many fragment case #VA - 7/24/25
+    t0 = (logger.process_clock (), logger.perf_counter ())
+    log = logger.new_logger (las, las.verbose)
     seen = set (ref_spaces)
     all_spaces = [space for space in ref_spaces]
+    t0 = log.timer ("Spin shuffle setup", *t0)
+    t1 = (logger.process_clock (), logger.perf_counter ())
+
+    #Original
     for ref_space in ref_spaces:
         for new_space in ref_space.gen_spin_shuffles ():
             if not new_space in seen:
                 all_spaces.append (new_space)
                 seen.add (new_space)
+    t1 = log.timer ("original version to do spin shuffle", *t1)
+    
+    #new version
+    #[seen.add(new_space) for ref_space in ref_spaces for new_space in ref_space.gen_spin_shuffles()]
+    #all_spaces=list(seen)
+    #t1 = log.timer ("new version to do spin shuffle", *t1)
+    #print('Checking for truth',set(all_spaces1)==set(all_spaces2), flush=True)
+
     if equal_weights:
         w = 1.0/len(all_spaces)
         for space in all_spaces: space.weight = w
