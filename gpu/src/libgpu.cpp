@@ -441,34 +441,6 @@ void libgpu_compute_make_rdm1b(void * ptr,
 }
 
 /* ---------------------------------------------------------------------- */
-void libgpu_compute_tdm12kern_a(void * ptr, 
-                            int na, int nb, int nlinka, int nlinkb, int norb)
-{
-  Device * dev = (Device *) ptr;
-  dev->compute_tdm12kern_a(na, nb, nlinka, nlinkb, norb);
-}
-/* ---------------------------------------------------------------------- */
-void libgpu_compute_tdm12kern_b(void * ptr, 
-                            int na, int nb, int nlinka, int nlinkb, int norb)
-{
-  Device * dev = (Device *) ptr;
-  dev->compute_tdm12kern_b(na, nb, nlinka, nlinkb, norb);
-}
-/* ---------------------------------------------------------------------- */
-void libgpu_compute_tdm12kern_ab(void * ptr, 
-                            int na, int nb, int nlinka, int nlinkb, int norb)
-{
-  Device * dev = (Device *) ptr;
-  dev->compute_tdm12kern_ab(na, nb, nlinka, nlinkb, norb);
-}
-/* ---------------------------------------------------------------------- */
-void libgpu_compute_rdm12kern_sf(void * ptr, 
-                            int na, int nb, int nlinka, int nlinkb, int norb)
-{
-  Device * dev = (Device *) ptr;
-  dev->compute_rdm12kern_sf(na, nb, nlinka, nlinkb, norb);
-}
-/* ---------------------------------------------------------------------- */
 void libgpu_compute_tdm12kern_a_v2(void * ptr, 
                             int na, int nb, int nlinka, int nlinkb, int norb)
 {
@@ -535,18 +507,7 @@ void libgpu_compute_tdm13h_spin_v5(void * ptr,
 }
 
 /* ---------------------------------------------------------------------- */
-void libgpu_compute_tdmpp_spin_v2(void * ptr, 
-                            int na, int nb, int nlinka, int nlinkb, int norb, int spin,
-                            int ia_bra, int ja_bra, int ib_bra, int jb_bra, int sgn_bra, 
-                            int ia_ket, int ja_ket, int ib_ket, int jb_ket, int sgn_ket )
-{
-  Device * dev = (Device *) ptr;
-  dev->compute_tdmpp_spin_v2(na, nb, nlinka, nlinkb, norb, spin, 
-                             ia_bra, ja_bra, ib_bra, jb_bra, sgn_bra,      
-                             ia_ket, ja_ket, ib_ket, jb_ket, sgn_ket );
-}
-/* ---------------------------------------------------------------------- */
-void libgpu_compute_tdmpp_spin_v3(void * ptr, 
+void libgpu_compute_tdmpp_spin_v4(void * ptr, 
                             int na, int nb, int nlinka, int nlinkb, int norb, int spin,
                             int ia_bra, int ja_bra, int ib_bra, int jb_bra, int sgn_bra, 
                             int ia_ket, int ja_ket, int ib_ket, int jb_ket, int sgn_ket )
@@ -555,17 +516,6 @@ void libgpu_compute_tdmpp_spin_v3(void * ptr,
   dev->compute_tdmpp_spin_v4(na, nb, nlinka, nlinkb, norb, spin, 
                              ia_bra, ja_bra, ib_bra, jb_bra, sgn_bra,      
                              ia_ket, ja_ket, ib_ket, jb_ket, sgn_ket );
-}
-/* ---------------------------------------------------------------------- */
-void libgpu_compute_sfudm( void *ptr, 
-                            int na, int nb, int nlinka, int nlinkb, int norb, 
-                            int ia_bra, int ja_bra, int ib_bra, int jb_bra, int sgn_bra, 
-                            int ia_ket, int ja_ket, int ib_ket, int jb_ket, int sgn_ket )
-{
-  Device * dev = (Device *) ptr;
-  dev->compute_sfudm(na, nb, nlinka, nlinkb, norb, 
-                     ia_bra, ja_bra, ib_bra, jb_bra, sgn_bra,      
-                     ia_ket, ja_ket, ib_ket, jb_ket, sgn_ket );
 }
 /* ---------------------------------------------------------------------- */
 void libgpu_compute_sfudm_v2( void *ptr, 

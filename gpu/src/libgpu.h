@@ -133,14 +133,6 @@ extern "C"
                             int , int , int , int , int );
   void libgpu_compute_make_rdm1b(void *, 
                             int , int , int , int , int );
-  void libgpu_compute_tdm12kern_a(void *, 
-                            int , int , int , int , int );
-  void libgpu_compute_tdm12kern_b(void *, 
-                            int , int , int , int , int );
-  void libgpu_compute_tdm12kern_ab(void *, 
-                            int , int , int , int , int );
-  void libgpu_compute_rdm12kern_sf(void *, 
-                            int , int , int , int , int );
   void libgpu_compute_tdm12kern_a_v2(void *, 
                             int , int , int , int , int );
   void libgpu_compute_tdm12kern_b_v2(void *, 
@@ -157,16 +149,8 @@ extern "C"
                             int , int , int , int , int , int, int, 
                             int , int , int , int , int ,
                             int , int , int , int , int );
-  void libgpu_compute_tdmpp_spin_v2(void *, 
+  void libgpu_compute_tdmpp_spin_v4(void *, 
                             int , int , int , int , int , int,
-                            int , int , int , int , int ,
-                            int , int , int , int , int );
-  void libgpu_compute_tdmpp_spin_v3(void *, 
-                            int , int , int , int , int , int,
-                            int , int , int , int , int ,
-                            int , int , int , int , int );
-  void libgpu_compute_sfudm(void *, 
-                            int , int , int , int , int ,
                             int , int , int , int , int ,
                             int , int , int , int , int );
   void libgpu_compute_sfudm_v2(void *, 
@@ -255,19 +239,13 @@ PYBIND11_MODULE(libgpu, m) {
   m.def("compute_make_rdm1a",&libgpu_compute_make_rdm1a,"pyscf/fci/rdm.py::make_rdm1_spin1 compute FCImake_rdm1a");
   m.def("compute_make_rdm1b",&libgpu_compute_make_rdm1b,"pyscf/fci/rdm.py::make_rdm1_spin1 compute FCImake_rdm1b");
   m.def("compute_trans_rdm1b",&libgpu_compute_trans_rdm1b,"pyscf/fci/rdm.py::make_rdm1_spin1 compute FCItrans_rdm1b");
-  m.def("compute_tdm12kern_a",&libgpu_compute_tdm12kern_a,"pyscf/fci/rdm.py::make_rdm1_spin1 compute FCItdm12kern_a");
-  m.def("compute_tdm12kern_b",&libgpu_compute_tdm12kern_b,"pyscf/fci/rdm.py::make_rdm1_spin1 compute FCItdm12kern_b");
-  m.def("compute_tdm12kern_ab",&libgpu_compute_tdm12kern_ab,"pyscf/fci/rdm.py::make_rdm1_spin1 compute FCItdm12kern_ab");
-  m.def("compute_rdm12kern_sf",&libgpu_compute_rdm12kern_sf,"pyscf/fci/rdm.py::make_rdm1_spin1 compute FCIrdm12kern_sf");
   m.def("compute_tdm12kern_a_v2",&libgpu_compute_tdm12kern_a_v2,"pyscf/fci/rdm.py::make_rdm1_spin1 compute FCItdm12kern_a_v2");
   m.def("compute_tdm12kern_b_v2",&libgpu_compute_tdm12kern_b_v2,"pyscf/fci/rdm.py::make_rdm1_spin1 compute FCItdm12kern_b_v2");
   m.def("compute_tdm12kern_ab_v2",&libgpu_compute_tdm12kern_ab_v2,"pyscf/fci/rdm.py::make_rdm1_spin1 compute FCItdm12kern_ab_v2");
   m.def("compute_rdm12kern_sf_v2",&libgpu_compute_rdm12kern_sf_v2,"pyscf/fci/rdm.py::make_rdm1_spin1 compute FCIrdm12kern_sf_v2");
   m.def("compute_tdm13h_spin_v4",&libgpu_compute_tdm13h_spin_v4,"mrh/my_pyscf/fci/rdm.py::trans_rdm13hs compute_v4");
   m.def("compute_tdm13h_spin_v5",&libgpu_compute_tdm13h_spin_v5,"mrh/my_pyscf/fci/rdm.py::trans_rdm13hs compute_v5");
-  m.def("compute_tdmpp_spin_v2",&libgpu_compute_tdmpp_spin_v2,"mrh/my_pyscf/fci/rdm.py::trans_rdmhh_v2");
-  m.def("compute_tdmpp_spin_v3",&libgpu_compute_tdmpp_spin_v3,"mrh/my_pyscf/fci/rdm.py::trans_rdmhh_v3");
-  m.def("compute_sfudm",&libgpu_compute_sfudm,"mrh/my_pyscf/fci/rdm.py::trans_sfudm");
+  m.def("compute_tdmpp_spin_v4",&libgpu_compute_tdmpp_spin_v4,"mrh/my_pyscf/fci/rdm.py::trans_rdmhh_v4");
   m.def("compute_sfudm_v2",&libgpu_compute_sfudm_v2,"mrh/my_pyscf/fci/rdm.py::trans_sfudm_v2");
   m.def("compute_tdm1h_spin",&libgpu_compute_tdm1h_spin,"mrh/my_pyscf/fci/rdm.py::trans_tdm1hs");
   m.def("reorder_rdm",&libgpu_reorder_rdm,"pyscf/fci/rdm.py::reorder_rdm");        

@@ -1713,44 +1713,6 @@ void Device::compute_FCImake_rdm1b(double * cibra, double * ciket, double * rdm,
 }
 
 /* ---------------------------------------------------------------------- */
-void Device::compute_FCIrdm2_a_t1ci(double * ci, double * buf, int stra_id, int nb, int norb, int nlinka, int * link_index)
-{
-  cudaStream_t s = *(pm->dev_get_queue());
-  #if 0
-  dim3 block_size(_DEFAULT_BLOCK_SIZE,1,1);
-  dim3 grid_size(_TILE(nb, block_size.x), 1, 1);
-  _compute_FCIrdm2_a_t1ci_v2<<<grid_size, block_size, 0,s>>>(ci, buf, stra_id, nb, norb, nlinka, link_index);
-  #else
-  dim3 block_size(1, _DEFAULT_BLOCK_SIZE,1);
-  dim3 grid_size(_TILE(nb, block_size.x), 1, 1);
-  _compute_FCIrdm2_a_t1ci_v3<<<grid_size, block_size, 0,s>>>(ci, buf, stra_id, nb, norb, nlinka, link_index);
-  #endif
-#ifdef _DEBUG_DEVICE 
-  printf("LIBGPU ::  -- general::compute_FCIrdm2_a_t1ci; :: Nb= %i Norb =%i Nlinka =%i grid_size= %i %i %i  block_size= %i %i %i\n",
-	 nb, norb, nlinka, grid_size.x,grid_size.y,grid_size.z,block_size.x,block_size.y,block_size.z);
-  _CUDA_CHECK_ERRORS();
-#endif
-}  
-/* ---------------------------------------------------------------------- */
-void Device::compute_FCIrdm2_b_t1ci(double * ci, double * buf, int stra_id, int nb, int norb, int nlinkb, int * link_index)
-{
-  cudaStream_t s = *(pm->dev_get_queue());
-  #if 0
-  {dim3 block_size(_DEFAULT_BLOCK_SIZE,1,1);
-  dim3 grid_size(_TILE(nb, block_size.x), 1, 1);
-  _compute_FCIrdm2_b_t1ci_v2<<<grid_size, block_size, 0,s>>>(ci, buf, stra_id, nb, norb, nlinkb, link_index);}
-  #else
-  {dim3 block_size(1,_DEFAULT_BLOCK_SIZE,1);
-  dim3 grid_size(_TILE(nb, block_size.x), 1, 1);
-  _compute_FCIrdm2_b_t1ci_v3<<<grid_size, block_size, 0,s>>>(ci, buf, stra_id, nb, norb, nlinkb, link_index);}
-  #endif
-#ifdef _DEBUG_DEVICE 
-  printf("LIBGPU ::  -- general::compute_FCIrdm2_b_t1ci; :: Nb= %i Norb =%i Nlinkb =%i grid_size= %i %i %i  block_size= %i %i %i\n",
-	 nb, norb, nlinkb, grid_size.x,grid_size.y,grid_size.z,block_size.x,block_size.y,block_size.z);
-  _CUDA_CHECK_ERRORS();
-#endif
-} 
-/* ---------------------------------------------------------------------- */
 void Device::compute_FCIrdm2_a_t1ci_v2(double * ci, double * buf, int stra_id, int batches, int nb, int norb, int nlinka, int * link_index)
 {
   cudaStream_t s = *(pm->dev_get_queue());

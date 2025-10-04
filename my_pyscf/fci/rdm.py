@@ -194,7 +194,7 @@ def _trans_rdm13hs (cre, cibra, ciket, norb, nelec, spin=0, link_index=None, reo
       ### Old kernel
       tdm1h, tdm3ha, tdm3hb = _trans_rdm13hs_o0(cre, cibra, ciket, norb, nelec, spin=spin, link_index=link_index, reorder = reorder)
       ### New kernel
-      tdm1h_c, tdm3ha_c, tdm3hb_c = _trans_rdm13hs_o4(cre, cibra, ciket, norb, nelec, spin=spin, link_index=link_index, reorder = reorder)
+      tdm1h_c, tdm3ha_c, tdm3hb_c = _trans_rdm13hs_o5(cre, cibra, ciket, norb, nelec, spin=spin, link_index=link_index, reorder = reorder)
       tdm1_correct = np.allclose(tdm1h, tdm1h_c)
       tdm3ha_correct = np.allclose(tdm3ha, tdm3ha_c)
       tdm3hb_correct = np.allclose(tdm3hb, tdm3hb_c)
@@ -289,12 +289,10 @@ def _trans_rdm13hs_o4(cre, cibra, ciket, norb, nelec, spin=0, link_index=None, r
     libgpu.pull_tdm1(gpu, tdm1h, norb+1)
     tdm1h = tdm1h.T
     if spin: 
-        libgpu.pull_tdm3hab(gpu, tdm3hb, tdm3ha, norb+1)
-        #if reorder: tdm1h, tdm3hb = rdm.reorder_rdm(tdm1h, tdm3hb, inplace=True)
+        libgpu.pull_tdm3hab(gpu, tdm3hb, tdm3ha, norb+1) #note the switch! because I want to use the reorder function where rdm is switched
         tdm3ha = tdm3ha.transpose(3,2,1,0)
     else:
         libgpu.pull_tdm3hab(gpu, tdm3ha, tdm3hb, norb+1)
-        #if reorder: tdm1h, tdm3ha = rdm.reorder_rdm (tdm1h, tdm3ha, inplace=True)
     return tdm1h, tdm3ha, tdm3hb 
 
 def _trans_rdm13hs_o5(cre, cibra, ciket, norb, nelec, spin=0, link_index=None, reorder=True):
@@ -542,11 +540,9 @@ def trans_ppdm (cibra, ciket, norb, nelec, spin=0, link_index=None):
     return tdmhh
 
 def _trans_ppdm_o0(cibra, ciket, norb, nelec, spin = 0, link_index = None):
-    print("Using ppdm_o0")
     s1 = int (spin>1)
     s2 = int (spin>0)
     ndum = 2 - (spin%2)
-    print("ndum",ndum)
     nelec_ket = _unpack_nelec (nelec)
     nelec_bra = list (_unpack_nelec (nelec))
     nelec_bra[s1] += 1
@@ -570,7 +566,6 @@ def _trans_ppdm_o0(cibra, ciket, norb, nelec, spin = 0, link_index = None):
     return dumdm2[:-ndum,-1,:-ndum,-ndum]
 
 def _trans_ppdm_o3(cibra, ciket, norb, nelec, spin = 0, link_index = None):
-    print("Using ppdm_o3")
     from mrh.my_pyscf.gpu import libgpu
     gpu=param.use_gpu
     s1 = int (spin>1)
@@ -619,7 +614,7 @@ def _trans_ppdm_o3(cibra, ciket, norb, nelec, spin = 0, link_index = None):
     libgpu.push_link_index_ab(gpu, na, nb, nlinka, nlinkb, linkstr[0], linkstr[1])
     libgpu.push_cibra(gpu, cibra, na_bra, nb_bra)
     libgpu.push_ciket(gpu, ciket, na_ket, nb_ket)
-    libgpu.compute_tdmpp_spin_v3(gpu, na, nb, nlinka, nlinkb, norb+ndum, spin, 
+    libgpu.compute_tdmpp_spin_v4(gpu, na, nb, nlinka, nlinkb, norb+ndum, spin, 
                               ia_bra, ja_bra, ib_bra, jb_bra, sgn_bra, 
                               ia_ket, ja_ket, ib_ket, jb_ket, sgn_ket) #TODO: write a better name
     ##VA 10/2: Reorder doesn't do anything ... 

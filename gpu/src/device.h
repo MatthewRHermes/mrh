@@ -169,10 +169,6 @@ public :
   void compute_trans_rdm1b(int , int , int , int , int );
   void compute_make_rdm1a(int , int , int , int , int );
   void compute_make_rdm1b(int , int , int , int , int );
-  void compute_tdm12kern_a(int , int , int , int , int );
-  void compute_tdm12kern_b(int , int , int , int , int );
-  void compute_tdm12kern_ab(int , int , int , int , int );
-  void compute_rdm12kern_sf(int , int , int , int , int );
   void compute_tdm12kern_a_v2(int , int , int , int , int );
   void compute_tdm12kern_b_v2(int , int , int , int , int );
   void compute_tdm12kern_ab_v2(int , int , int , int , int );
@@ -183,18 +179,9 @@ public :
   void compute_tdm13h_spin_v5( int , int , int , int , int , int, int,
                                int , int , int , int , int ,
                                int , int , int , int , int );
-  void compute_tdmpp_spin_v2( int , int , int , int , int , int, 
-                               int , int , int , int , int ,
-                               int , int , int , int , int );
-  void compute_tdmpp_spin_v3( int , int , int , int , int , int, 
-                               int , int , int , int , int ,
-                               int , int , int , int , int );
   void compute_tdmpp_spin_v4( int , int , int , int , int , int, 
                                int , int , int , int , int ,
                                int , int , int , int , int );
-  void compute_sfudm( int , int , int , int , int,  
-                      int , int , int , int , int ,
-                      int , int , int , int , int );
   void compute_sfudm_v2( int , int , int , int , int,  
                       int , int , int , int , int ,
                       int , int , int , int , int );
@@ -239,8 +226,6 @@ public :
                                  int *);
   void compute_FCImake_rdm1a (double *, double *, double *, int, int, int, int, int *);
   void compute_FCImake_rdm1b (double *, double *, double *, int, int, int, int, int *);
-  void compute_FCIrdm2_a_t1ci (double *, double *, int, int, int, int, int*); 
-  void compute_FCIrdm2_b_t1ci (double *, double *, int, int, int, int, int*); 
   void compute_FCIrdm2_a_t1ci_v2 (double *, double *, int, int, int, int, int, int*); 
   void compute_FCIrdm2_b_t1ci_v2 (double *, double *, int, int, int, int, int, int*); 
   void compute_FCIrdm3h_a_t1ci_v2 (double *, double *, int, int, int, int,
