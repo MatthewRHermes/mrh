@@ -68,7 +68,7 @@ class OpTerm (OpTermReducible):
             if self.comp is not None:
                 arr = arr.sum (-1)
             return arr.view (OpTermContracted)
-    if self.comp is None:
+        if self.comp is None:
             arr = self.arr.copy ()
         else:
             fac = np.ones (len (self.comp), dtype=float)
