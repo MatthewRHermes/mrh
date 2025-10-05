@@ -32,25 +32,7 @@ class OpTermBase:
     def get_inv_frags (self):
         return [inti.idx_frag for inti in self.ints]
 
-class OpTermReducible (OpTermBase): 
-    def _is_vecreducible (self, i):
-        if getattr (self, 'comp', None) is None:
-            return True
-        else:
-            return all ([c[i]==0 for c in self.comp])
-
-    def get_vecreducible_frags (self):
-        # reduce the spin of these fragments on the vector
-        return [self.ints[i].idx_frag 
-                for i in range (len (self.ints))
-                if self._is_vecreducible (i)]
-
-    def get_opreducible_frags (self):
-        # reduce the spin of these fragments on the operator
-        return [self.ints[i].idx_frag 
-                for i in range (len (self.ints))
-                if not self._is_vecreducible (i)]
-
+class OpTermReducible (OpTermBase): pass
 
 class OpTerm (OpTermReducible):
     def __init__(self, arr, ints, comp, _already_stacked=False):
@@ -215,11 +197,9 @@ class OpTermNFragments (OpTermReducible):
 # The "inner loops" are achieved by indexing down spincase_keys to only couplings distinct in
 # the relevant fragments (which are different in the three passes)
 # There are only four m components overall (aaaa, abba, baab, and bbbb).
-# If I don't break up the loop over multiplicity manifold tuples, then for every operator without
-# an internal component I should just dot the spin factors with the vector slices on lookup.
-# For the operators with internal components, one should only do this for the single-component
-# fragments, since the m/s factors for different m correspond to interactions that can't be
-# profitably rearranged (i.e., i->j and k->l instead of i->k and j->k).
+# These components are currently different OpTerms, not just different spincases. To refactor this
+# I need to pin together OpTerms. I'm not sure whether all the bras and kets of the different
+# OpTerms are shared.
 class OpTerm4Fragments (OpTermNFragments):
     def _crunch_(self):
         self.op = lib.einsum ('aip,bjq,pqrs->rsbaji', self.d[0], self.d[1], self.op)
