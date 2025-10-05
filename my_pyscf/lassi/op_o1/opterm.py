@@ -25,8 +25,8 @@ class OpTermBase:
 
     def fprint (self):
         brastr, ketstr = self.spincase_fprint (0)
-        brastr = [self.ints[i].spman (bra) for i, bra in enumerate (brastr)]
-        ketstr = [self.ints[i].spman (ket) for i, ket in enumerate (ketstr)]
+        brastr = [self.ints[i].spman[bra] for i, bra in enumerate (brastr)]
+        ketstr = [self.ints[i].spman[ket] for i, ket in enumerate (ketstr)]
         return brastr, ketstr
 
 class OpTermReducible (OpTermBase): pass
@@ -192,6 +192,12 @@ class OpTermNFragments (OpTermReducible):
 # 
 # The "inner loops" are achieved by indexing down spincase_keys to only couplings distinct in
 # the relevant fragments (which are different in the three passes)
+# There are only four m components overall (aaaa, abba, baab, and bbbb).
+# If I don't break up the loop over multiplicity manifold tuples, then for every operator without
+# an internal component I should just dot the spin factors with the vector slices on lookup.
+# For the operators with internal components, one should only do this for the single-component
+# fragments, since the m/s factors for different m correspond to interactions that can't be
+# profitably rearranged (i.e., i->j and k->l instead of i->k and j->k).
 class OpTerm4Fragments (OpTermNFragments):
     def _crunch_(self):
         self.op = lib.einsum ('aip,bjq,pqrs->rsbaji', self.d[0], self.d[1], self.op)
