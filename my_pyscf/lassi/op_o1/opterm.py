@@ -29,7 +29,28 @@ class OpTermBase:
         ketstr = [self.ints[i].spman[ket] for i, ket in enumerate (ketstr)]
         return brastr, ketstr
 
-class OpTermReducible (OpTermBase): pass
+    def get_inv_frags (self):
+        return [inti.idx_frag for inti in self.ints]
+
+class OpTermReducible (OpTermBase): 
+    def _is_vecreducible (self, i):
+        if getattr (self, 'comp', None) is None:
+            return True
+        else:
+            return all ([c[i]==0 for c in self.comp])
+
+    def get_vecreducible_frags (self):
+        # reduce the spin of these fragments on the vector
+        return [self.ints[i].idx_frag 
+                for i in range (len (self.ints))
+                if self._is_vecreducible (i)]
+
+    def get_opreducible_frags (self):
+        # reduce the spin of these fragments on the operator
+        return [self.ints[i].idx_frag 
+                for i in range (len (self.ints))
+                if not self._is_vecreducible (i)]
+
 
 class OpTerm (OpTermReducible):
     def __init__(self, arr, ints, comp, _already_stacked=False):
@@ -47,7 +68,7 @@ class OpTerm (OpTermReducible):
             if self.comp is not None:
                 arr = arr.sum (-1)
             return arr.view (OpTermContracted)
-        if self.comp is None:
+    if self.comp is None:
             arr = self.arr.copy ()
         else:
             fac = np.ones (len (self.comp), dtype=float)
@@ -126,6 +147,7 @@ class OpTermNFragments (OpTermReducible):
         self.lroots_bra = [d.shape[0] for d in self.d]
         self.lroots_ket = [d.shape[1] for d in self.d]
         self.norb = [d.shape[2] for d in self.d]
+        self.comp = None
         if do_crunch: self._crunch_()
         super().__init__()
 
