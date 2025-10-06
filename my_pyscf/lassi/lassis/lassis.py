@@ -734,7 +734,6 @@ class LASSIS (LASSI):
     eig = LASSI.kernel
     as_scanner = as_scanner
     prepare_fbf = prepare_fbf
-    print("here after fbf", flush=True)
     prepare_model_states = prepare_model_states
 
     def get_ref_fbf_rootspaces (self, ifrag):
