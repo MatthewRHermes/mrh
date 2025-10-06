@@ -208,11 +208,24 @@ class OpTerm4Fragments (OpTermNFragments):
     def dot (self, other):
         ncol = other.shape[1]
         shape = [ncol,] + self.lroots_ket[::-1]
+        t0 = (lib.logger.process_clock (), lib.logger.perf_counter ())
         other = other.T.reshape (*shape)
+        t1 = (lib.logger.process_clock (), lib.logger.perf_counter ())
         ox = lib.einsum ('rsbaji,zlkji->rsbazlk', self.op, other)
+        t2 = (lib.logger.process_clock (), lib.logger.perf_counter ())
         ox = lib.einsum ('ckr,rsbazlk->scbazl', self.d[2], ox)
+        t3 = (lib.logger.process_clock (), lib.logger.perf_counter ())
         ox = lib.einsum ('dls,scbazl->dcbaz', self.d[3], ox)
+        t4 = (lib.logger.process_clock (), lib.logger.perf_counter ())
         ox = ox.reshape (np.prod (self.lroots_bra), ncol)
+        self.dt_2cr = t1[0] - t0[0]
+        self.dw_2cr = t1[1] - t0[1]
+        self.dt_2c1 = t2[0] - t1[0]
+        self.dw_2c1 = t2[1] - t1[1]
+        self.dt_2c2 = t3[0] - t2[0]
+        self.dw_2c2 = t3[1] - t2[1]
+        self.dt_2c3 = t4[0] - t3[0]
+        self.dw_2c3 = t4[1] - t3[1]
         return ox
 
     op_transpose_axes = (0,1,4,5,2,3)
