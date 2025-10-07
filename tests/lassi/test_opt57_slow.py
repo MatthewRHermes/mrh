@@ -36,7 +36,7 @@ from mrh.tests.lassi.addons import eri_sector_indexes
 op = (op_o0, op_o1)
 
 def setUpModule ():
-    global mol, mf, las, nstates, nelec_frs, si, orbsym, wfnsym
+    global mol, mf, las, nstates, nelec_frs, smult_fr, si, orbsym, wfnsym
     # Build crazy state list
     states  = {'charges': [[0,0,0],],
                'spins':   [[0,0,0],],
@@ -82,6 +82,7 @@ def setUpModule ():
     weights = [1.0,] + [0.0,]*56
     nroots = 57
     nstates = 91
+    nfrags = 3
     # End building crazy state list
     
     dr_nn = 2.0
@@ -100,6 +101,10 @@ def setUpModule ():
         [[_unpack_nelec (fcibox._get_nelec (solver, nelecas)) for solver in fcibox.fcisolvers]
          for fcibox, nelecas in zip (las.fciboxes, las.nelecas_sub)]
     )
+    smult_fr = np.abs (nelec_frs[:,:,1] - nelec_frs[:,:,0]) + 1
+    for i in range (nfrags):
+        for j in range (nroots):
+            smult_fr[i,j] = getattr (las.fciboxes[i].fcisolvers[j], 'smult', smult_fr[i,j])
     ndet_frs = np.array (
         [[[cistring.num_strings (las.ncas_sub[ifrag], nelec_frs[ifrag,iroot,0]),
            cistring.num_strings (las.ncas_sub[ifrag], nelec_frs[ifrag,iroot,1])]
@@ -134,9 +139,9 @@ def setUpModule ():
     e, si = linalg.eigh (rand_mat)
 
 def tearDownModule():
-    global mol, mf, las, nstates, nelec_frs, si, orbsym, wfnsym
+    global mol, mf, las, nstates, nelec_frs, smult_fr, si, orbsym, wfnsym
     mol.stdout.close ()
-    del mol, mf, las, nstates, nelec_frs, si, orbsym, wfnsym
+    del mol, mf, las, nstates, nelec_frs, smult_fr, si, orbsym, wfnsym
 
 class KnownValues(unittest.TestCase):
     def test_stdm12s (self):
@@ -194,7 +199,7 @@ class KnownValues(unittest.TestCase):
 
     def test_contract_op_si (self):
         h0, h1, h2 = ham_2q (las, las.mo_coeff)
-        case_contract_op_si (self, las, h1, h2, las.ci, nelec_frs)
+        case_contract_op_si (self, las, h1, h2, las.ci, nelec_frs, smult_fr=smult_fr)
 
 
 

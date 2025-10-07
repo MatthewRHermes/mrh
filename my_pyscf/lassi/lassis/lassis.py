@@ -598,6 +598,22 @@ class LASSIS (LASSI):
             logger.warn (self, ("Only the first LASSCF state is used by LASSIS! "
                                 "Other states are discarded!"))
 
+    def copy (self):
+        # semi-deep copy of nested lists
+        mycopy = super().copy ()
+        mycopy._las = self._las.copy ()
+        mycopy.ci_spin_flips = [
+            [xis for xis in xi]
+            for xi in self.ci_spin_flips
+        ]
+        mycopy.ci_charge_hops = [
+            [[[xiasp for xiasp in xias]
+              for xias in xia]
+             for xia in xi]
+            for xi in self.ci_charge_hops
+        ]
+        return mycopy
+
     def ham_2q (self, *args, **kwargs):
         if self._cached_ham_2q is not None: return self._cached_ham_2q
         return super().ham_2q (*args, **kwargs)
@@ -693,6 +709,7 @@ class LASSIS (LASSI):
         las = self.prepare_model_states (ci_ref, ci_sf, ci_ch)[0]
         ci = las.ci
         self.fciboxes = las.fciboxes # TODO: set this at initialization
+        self.nroots = las.nroots
         return LASSI.energy_tot (self, mo_coeff=mo_coeff, ci=ci, si=si, soc=soc)
 
     def get_lroots (self, ci=None):
@@ -717,7 +734,6 @@ class LASSIS (LASSI):
     eig = LASSI.kernel
     as_scanner = as_scanner
     prepare_fbf = prepare_fbf
-    print("here after fbf", flush=True)
     prepare_model_states = prepare_model_states
 
     def get_ref_fbf_rootspaces (self, ifrag):

@@ -187,7 +187,7 @@ class KnownValues(unittest.TestCase):
         h0, h1, h2 = lsi.ham_2q ()
         ci = [c[:4] for c in las.ci] # No SOC yet
         nelec_frs = nelec_frs[:,:4,:] # No SOC yet
-        case_contract_op_si (self, las, h1, h2, ci, nelec_frs)
+        case_contract_op_si (self, las, h1, h2, ci, nelec_frs, smult_fr=lsi.get_smult_fr ())
 
 if __name__ == "__main__":
     print("Full Tests for SA-LASSI of c2h4n4 molecule")
