@@ -215,6 +215,7 @@ class HamS2OvlpOperators (HamS2Ovlp):
         self.dt_sX, self.dw_sX = 0.0, 0.0
         self.dt_oX, self.dw_oX = 0.0, 0.0
         self.dt_pX, self.dw_pX = 0.0, 0.0
+        self.dt_2co, self.dw_2co = 0.0, 0.0
         self.dt_2cr, self.dw_2cr = 0.0, 0.0
         self.dt_2c1, self.dw_2c1 = 0.0, 0.0
         self.dt_2c2, self.dw_2c2 = 0.0, 0.0
@@ -247,6 +248,7 @@ class HamS2OvlpOperators (HamS2Ovlp):
                                               self.dt_oXn[i],
                                               self.dw_oXn[i])
         profile += '\n' + 'opX 4-fragment components:'
+        profile += '\n' + fmt_str.format ('2c_o', self.dt_2co, self.dw_2co)
         profile += '\n' + fmt_str.format ('2c_r', self.dt_2cr, self.dw_2cr)
         profile += '\n' + fmt_str.format ('2c_1', self.dt_2c1, self.dw_2c1)
         profile += '\n' + fmt_str.format ('2c_2', self.dt_2c2, self.dw_2c2)
@@ -340,7 +342,7 @@ class HamS2OvlpOperators (HamS2Ovlp):
         self.dw_pX += (w3-w2)
 
     def _profile_4frag_(self, op):
-        if not isinstance (op, opterm.OpTerm4Fragments): return
+        if not hasattr (op, 'dt_2cr'): return
         self.dt_2cr += op.dt_2cr
         self.dw_2cr += op.dw_2cr
         self.dt_2c1 += op.dt_2c1
@@ -349,11 +351,17 @@ class HamS2OvlpOperators (HamS2Ovlp):
         self.dw_2c2 += op.dw_2c2
         self.dt_2c3 += op.dt_2c3
         self.dw_2c3 += op.dw_2c3
+        return
 
     def _opuniq_x_(self, op, obra, oket, ovecs, *inv):
         '''All operations which are unique in that a given set of nonspectator fragment bra
         statelets are coupled to a given set of nonspectator fragment ket statelets'''
+        t0, w0 = logger.process_clock (), logger.perf_counter ()
         op = opterm.reduce_spin (op, obra, oket)
+        t1, w1 = logger.process_clock (), logger.perf_counter ()
+        if len (set (inv)) == 4:
+            self.dt_2co += t1-t0
+            self.dw_2co += w1-w0
         key = tuple ((obra, oket)) + inv
         inv = list (set (inv))
         brakets, bras, braHs = self.get_nonuniq_exc_square (key)
@@ -362,7 +370,12 @@ class HamS2OvlpOperators (HamS2Ovlp):
             self.put_ox1_(op.dot (vec.T).ravel (), bra, *inv)
             self._profile_4frag_(op)
         if len (braHs):
+            t0, w0 = logger.process_clock (), logger.perf_counter ()
             op = op.conj ().T
+            t1, w1 = logger.process_clock (), logger.perf_counter ()
+            if len (set (inv)) == 4:
+                self.dt_2co += t1-t0
+                self.dw_2co += w1-w0
             for bra in braHs:
                 vec = ovecs[self.ox_ovlp_urootstr (bra, obra, inv)]
                 self.put_ox1_(op.dot (vec.T).ravel (), bra, *inv)
