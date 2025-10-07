@@ -35,16 +35,18 @@ from mrh.my_pyscf.lassi.op_o1 import get_fdm1_maker
 from mrh.my_pyscf.lassi.sitools import make_sdm1
 from mrh.tests.lassi.addons import case_contract_hlas_ci, case_lassis_fbf_2_model_state
 from mrh.tests.lassi.addons import case_lassis_fbfdm, case_contract_op_si, debug_contract_op_si
-from mrh.tests.lassi.addons import fuzz_sivecs
+from mrh.tests.lassi.addons import fuzz_sivecs, case_matrix_o0_o1
+op = (op_o0, op_o1)
 
 def setUpModule ():
-    global mol, mf, las, nroots, nelec_frs, si
+    global mol, mf, las, nroots, nelec_frs, smult_fr, si, rng1
     # State list contains a couple of different 4-frag interactions
     states  = {'charges': [[0,0,0,0],[1,1,-1,-1],[2,-1,-1,0],[1,0,0,-1],[1,1,-1,-1],[2,-1,-1,0],[1,0,0,-1]],
                'spins':   [[0,0,0,0],[1,1,-1,-1],[0,1,-1,0], [1,0,0,-1],[-1,-1,1,1],[0,-1,1,0], [-1,0,0,1]],
                'smults':  [[1,1,1,1],[2,2,2,2],  [1,2,2,1],  [2,1,1,2], [2,2,2,2],  [1,2,2,1],  [2,1,1,2]],
                'wfnsyms': [[0,0,0,0],]*7}
     weights = [1.0,] + [0.0,]*6
+    nfrags = 4
     nroots = 7
     xyz = '''6        2.215130000      3.670330000      0.000000000
     1        3.206320000      3.233120000      0.000000000
@@ -80,17 +82,21 @@ def setUpModule ():
         [[_unpack_nelec (fcibox._get_nelec (solver, nelecas)) for solver in fcibox.fcisolvers]
          for fcibox, nelecas in zip (las.fciboxes, las.nelecas_sub)]
     )
+    smult_fr = np.abs (nelec_frs[:,:,1] - nelec_frs[:,:,0]) + 1
+    for i in range (nfrags):
+        for j in range (nroots):
+            smult_fr[i,j] = getattr (las.fciboxes[i].fcisolvers[j], 'smult', smult_fr[i,j])
     ndet_frs = np.array (
         [[[cistring.num_strings (las.ncas_sub[ifrag], nelec_frs[ifrag,iroot,0]),
            cistring.num_strings (las.ncas_sub[ifrag], nelec_frs[ifrag,iroot,1])]
           for iroot in range (las.nroots)] for ifrag in range (las.nfrags)]
     )
-    np.random.seed (1)
+    rng1 = np.random.default_rng (1)
     for ifrag, c in enumerate (las.ci):
         for iroot in range (len (c)):
             lr = lroots[ifrag][iroot]
             ndeta, ndetb = ndet_frs[ifrag][iroot]
-            ci = np.random.rand (lr, ndeta, ndetb)
+            ci = rng1.random ((lr, ndeta, ndetb))
             ci /= linalg.norm (ci.reshape (lr,-1), axis=1)[:,None,None]
             if lr > 1:
                 ci = ci.reshape (lr,-1)
@@ -103,17 +109,18 @@ def setUpModule ():
                 Q, R = linalg.qr (u)
                 ci = (Q.T @ x).reshape (lr, ndeta, ndetb)
             c[iroot] = ci
-    rand_mat = np.random.rand (96,96)
+    rand_mat = rng1.random ((96,96))
     rand_mat += rand_mat.T
     e, si = linalg.eigh (rand_mat)
     si = lib.tag_array (si, rootsym=las_symm_tuple (las)[0])
 
 def tearDownModule():
-    global mol, mf, las, nroots, nelec_frs, si
+    global mol, mf, las, nroots, nelec_frs, smult_fr, si, rng1
     mol.stdout.close ()
-    del mol, mf, las, nroots, nelec_frs, si
+    del mol, mf, las, nroots, nelec_frs, smult_fr, si, rng1
 
 class KnownValues(unittest.TestCase):
+    #@unittest.skip('debugging')
     def test_stdm12s (self):
         d12_o0 = make_stdm12s (las, opt=0)
         d12_o1 = make_stdm12s (las, opt=1)
@@ -123,6 +130,7 @@ class KnownValues(unittest.TestCase):
                     self.assertAlmostEqual (lib.fp (d12_o0[r][i,...,j]),
                         lib.fp (d12_o1[r][i,...,j]), 9)
 
+    #@unittest.skip('debugging')
     def test_ham_s2_ovlp (self):
         h1, h2 = ham_2q (las, las.mo_coeff, veff_c=None, h2eff_sub=None)[1:]
         lbls = ('ham','s2','ovlp')
@@ -133,6 +141,7 @@ class KnownValues(unittest.TestCase):
             with self.subTest(opt=1, matrix=lbl):
                 self.assertAlmostEqual (lib.fp (mat), fp, 9)
 
+    #@unittest.skip('debugging')
     def test_rdm12s (self):
         si_ket = si
         si_bra = np.roll (si, 1, axis=1)
@@ -152,6 +161,7 @@ class KnownValues(unittest.TestCase):
                                                      soc=False, break_symmetry=False, opt=1)[r]
                     self.assertAlmostEqual (lib.fp (d12_o1_test), lib.fp (d12_o0[r][i]), 9)
 
+    #@unittest.skip('debugging')
     def test_lassis (self):
         las0 = las.get_single_state_las (state=0)
         for ifrag in range (len (las0.ci)):
@@ -161,6 +171,7 @@ class KnownValues(unittest.TestCase):
         self.assertTrue (lsi.converged)
         case_lassis_fbf_2_model_state (self, lsi)
 
+    #@unittest.skip('debugging')
     def test_lassis_1111 (self):
         xyz='''H 0 0 0
         H 3 0 0
@@ -178,33 +189,46 @@ class KnownValues(unittest.TestCase):
                 if dson:
                     lsi.prepare_states_()
                     h0, h1, h2 = ham_2q (las1, las1.mo_coeff)
-                    case_contract_op_si (self, las1, h1, h2, lsi.ci, lsi.get_nelec_frs ())
+                    case_contract_op_si (self, las1, h1, h2, lsi.ci, lsi.get_nelec_frs (),
+                                         smult_fr=lsi.get_smult_fr ())
                 lsi.kernel ()
                 self.assertTrue (lsi.converged)
                 self.assertAlmostEqual (lsi.e_roots[0], -1.867291372401379, 6)
                 case_lassis_fbf_2_model_state (self, lsi)
                 case_lassis_fbfdm (self, lsi)
 
+    #@unittest.skip('debugging')
     def test_lassis_slow (self):
-        las0 = las.get_single_state_las (state=0)
+        las0 = las.get_single_state_las (state=0).copy ()
         for ifrag in range (len (las0.ci)):
-            las0.ci[ifrag][0] = las0.ci[ifrag][0][0]
+            x = las0.ci[ifrag][0][0]#(2*rng2.random((2,2)))-1
+            x += x.T
+            x /= linalg.norm (x.ravel ())
+            las0.ci[ifrag][0] = x
         lsi = LASSIS (las0)
         lsi.prepare_states_()
+        h0, h1, h2 = lsi.ham_2q ()
+        ham_o0 = op[0].ham (lsi, h1, h2, lsi.ci, lsi.get_nelec_frs ())[0]
+        ham_o1 = op[1].ham (lsi, h1, h2, lsi.ci, lsi.get_nelec_frs (),
+                            smult_fr=lsi.get_smult_fr ())[0]
+        case_matrix_o0_o1 (self, ham_o0, ham_o1, lsi.get_nelec_frs (), lsi.get_lroots (),
+                           lsi.get_smult_fr ())
         # Starting from converged SIvecs doesn't guarantee instant convergence for some reason
         for dson in (False,True):
             with self.subTest (davidson_only=dson):
                 lsi.eig (davidson_only=dson)
                 if dson:
                     h0, h1, h2 = ham_2q (las0, las0.mo_coeff)
-                    case_contract_op_si (self, las, h1, h2, lsi.ci, lsi.get_nelec_frs ())
+                    case_contract_op_si (self, las, h1, h2, lsi.ci, lsi.get_nelec_frs (),
+                                         smult_fr=lsi.get_smult_fr ())#, tol=4)
                 self.assertTrue (lsi.converged)
                 self.assertTrue (lsi.converged_si)
-                self.assertAlmostEqual (lsi.e_roots[0], -304.5372586630968, 3)
+                self.assertAlmostEqual (lsi.e_roots[0], -304.5361582311853, 3)
                 case_lassis_fbf_2_model_state (self, lsi)
                 #case_lassis_fbfdm (self, lsi)
                 lsi.si = fuzz_sivecs (lsi.si)
 
+    #@unittest.skip('debugging')
     def test_scallowed (self):
         las0 = las.get_single_state_las (state=0)
         for ifrag in range (len (las0.ci)):
@@ -218,6 +242,7 @@ class KnownValues(unittest.TestCase):
         exc_ref = np.asarray (np.where (nop<=4)).T
         self.assertTrue (np.all (exc_test==exc_ref))
 
+    #@unittest.skip('debugging')
     def test_fdm1 (self):
         make_fdm1 = get_fdm1_maker (las, las.ci, nelec_frs, si)
         for iroot in range (nroots):
@@ -227,13 +252,15 @@ class KnownValues(unittest.TestCase):
                     sdm1 = make_sdm1 (las, iroot, ifrag, si=si)
                     self.assertAlmostEqual (lib.fp (fdm1), lib.fp (sdm1), 7)
 
+    #@unittest.skip('debugging')
     def test_contract_hlas_ci (self):
         h0, h1, h2 = ham_2q (las, las.mo_coeff)
         case_contract_hlas_ci (self, las, h0, h1, h2, las.ci, nelec_frs)        
 
+    #@unittest.skip('debugging')
     def test_contract_op_si (self):
         h0, h1, h2 = ham_2q (las, las.mo_coeff)
-        case_contract_op_si (self, las, h1, h2, las.ci, nelec_frs)        
+        case_contract_op_si (self, las, h1, h2, las.ci, nelec_frs, smult_fr=smult_fr)
 
 
 if __name__ == "__main__":

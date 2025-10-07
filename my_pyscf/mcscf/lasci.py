@@ -945,6 +945,12 @@ class LASCINoSymm (casci.CASCI):
         self.e_states = [0.0]
         self.e_lexc = [[np.array ([0]),],]
 
+    def copy (self):
+        # semi-deep copy of nested lists
+        mycopy = super().copy ()
+        mycopy.ci = [[xij for xij in xi] for xi in self.ci]
+        return mycopy
+
     def _init_fcibox (self, smult, nel): 
         s = csf_solver (self.mol, smult=smult)
         s.spin = nel[0] - nel[1] 

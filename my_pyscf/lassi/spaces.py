@@ -220,6 +220,27 @@ class SingleLASRootspace (object):
             spins_table = spins_table[idx_valid,:]
         return spins_table
 
+    def make_smult_shuffle_table (self, smult_lsf):
+        assert ((np.sum (self.smults-1) - (smult_lsf-1)) % 2 == 0)
+        nflips = (np.sum (self.smults-1) - (smult_lsf-1)) // 2
+        spins_table = (self.smults-1).copy ()[None,:]
+        spins_gencoup = np.cumsum (spins_table, axis=1)
+        # first fragment is fixed
+        subtrahend = 2*np.eye (self.nfrag, dtype=spins_table.dtype)[None,1:,:]
+        for i in range (nflips):
+            spins_table = spins_table[:,None,:] - subtrahend
+            spins_table = spins_table.reshape (-1, self.nfrag)
+            spins_table = np.unique (spins_table, axis=0)
+            # cumulative sum must be nonnegative
+            spins_gencoup = np.cumsum (spins_table, axis=1)
+            idx_valid = np.all (spins_gencoup>=0, axis=1)
+            idx_valid &= np.all (spins_table>-self.smults[None,:], axis=1)
+            spins_table = spins_table[idx_valid,:]
+            spins_gencoup = spins_gencoup[idx_valid,:]
+            assert (np.all (spins_gencoup[:,-1] >= smult_lsf-1))
+        assert (np.all (spins_gencoup[:,-1] == smult_lsf-1))
+        return spins_table
+
     def gen_spin_shuffles (self, spins_table=None):
         if spins_table is None: spins_table = self.make_spin_shuffle_table ()
         for spins in spins_table:

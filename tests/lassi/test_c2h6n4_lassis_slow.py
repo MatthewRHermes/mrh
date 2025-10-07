@@ -71,7 +71,7 @@ class KnownValues(unittest.TestCase):
     def test_as_scanner (self):
         for dson in (False, True):
             with self.subTest (davidson_only=dson):
-                lsi_scanner = lsi.as_scanner ()
+                lsi_scanner = lsi.copy ().as_scanner ()
                 mol2 = struct (1.9, 1.9, '6-31g', symmetry=False)
                 mol2.verbose = 0
                 mol2.output = '/dev/null'

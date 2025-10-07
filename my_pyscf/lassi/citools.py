@@ -469,6 +469,7 @@ def _get_unique_roots_with_spin (ci_r, norb, nelec_r, smult_r):
         if not root_unique[i]: continue
         if not root_unique[j]: continue
         if nelec_r[i] != nelec_r[j]: continue
+        if smult_r[i] != smult_r[j]: continue
         if lroots_r[i] != lroots_r[j]: continue
         ovlp = [np.dot (ci_r[i][l], ci_r[j][l]) for l in range (lroots_r[i])]
         if np.allclose (ovlp, 1.0):

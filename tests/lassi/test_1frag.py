@@ -104,7 +104,8 @@ class KnownValues(unittest.TestCase):
     def test_contract_op_si (self):
         e_roots, si, las = lsi.e_roots, lsi.si, lsi._las
         h0, h1, h2 = lsi.ham_2q ()
-        case_contract_op_si (self, las, h1, h2, las.ci, lsi.get_nelec_frs ())
+        case_contract_op_si (self, las, h1, h2, las.ci, lsi.get_nelec_frs (),
+                             smult_fr=lsi.get_smult_fr ())
 
 if __name__ == "__main__":
     print("Full Tests for LASSI single-fragment edge case")
