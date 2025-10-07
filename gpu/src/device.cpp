@@ -3940,6 +3940,7 @@ void Device::compute_tdm12kern_a_v2(int na, int nb, int nlinka, int nlinkb, int 
   int num_buf_batches_for_gemv; 
   int num_gemm_batches; 
   int num_gemv_batches; 
+  printf("buf_batches: %i gemm_batches = %i\n",buf_batch_size, gemm_batch_size);
   grow_array(dd->d_buf1,final_size_buf, dd->size_buf1, "buf1", FLERR); 
   grow_array(dd->d_buf2,final_size_buf, dd->size_buf2, "buf2", FLERR); 
   grow_array(dd->d_buf3,final_size_buf, dd->size_buf3, "buf3", FLERR); 
@@ -4023,6 +4024,7 @@ void Device::compute_tdm12kern_b_v2(int na, int nb, int nlinka, int nlinkb, int 
   int num_buf_batches_for_gemv; 
   int num_gemm_batches; 
   int num_gemv_batches; 
+  printf("buf_batches: %i gemm_batches = %i\n",buf_batch_size, gemm_batch_size);
   grow_array(dd->d_buf1,final_size_buf, dd->size_buf1, "buf1", FLERR); 
   grow_array(dd->d_buf2,final_size_buf, dd->size_buf2, "buf2", FLERR); 
   grow_array(dd->d_buf3,final_size_buf, dd->size_buf3, "buf3", FLERR); 
@@ -4105,6 +4107,7 @@ void Device::compute_tdm12kern_ab_v2(int na, int nb, int nlinka, int nlinkb, int
   int num_buf_batches; 
   int num_gemm_batches; 
   int num_gemv_batches; 
+  printf("buf_batches: %i gemm_batches = %i\n",buf_batch_size, gemm_batch_size);
   grow_array(dd->d_buf1,final_size_buf, dd->size_buf1, "buf1", FLERR); 
   grow_array(dd->d_buf2,final_size_buf, dd->size_buf2, "buf2", FLERR); 
   grow_array(dd->d_buf3,final_size_buf, dd->size_buf3, "buf3", FLERR); 
@@ -4178,6 +4181,7 @@ void Device::compute_rdm12kern_sf_v2 (int na, int nb, int nlinka, int nlinkb, in
   int num_buf_batches; 
   int num_gemm_batches; 
   int num_gemv_batches; 
+  printf("buf_batches: %i gemm_batches = %i\n",buf_batch_size, gemm_batch_size);
   grow_array(dd->d_buf1,final_size_buf, dd->size_buf1, "buf1", FLERR); 
   grow_array(dd->d_buf3,final_size_buf, dd->size_buf3, "buf3", FLERR); 
   int bits_buf = sizeof(double)*buf_batch_size*size_buf;
@@ -4188,7 +4192,7 @@ void Device::compute_rdm12kern_sf_v2 (int na, int nb, int nlinka, int nlinkb, in
   ml->memset(dd->d_tdm2, &zero, &bits_tdm2);
  
 
-  printf("After setups gemv_batch_size = %i gemm_batch_size = %i na: %i nb: %i norb\n", gemv_batch_size, gemm_batch_size, na, nb, norb);
+  //printf("After setups gemv_batch_size = %i gemm_batch_size = %i na: %i nb: %i norb\n", gemv_batch_size, gemm_batch_size, na, nb, norb);
   for (int stra_id = 0; stra_id<na; stra_id += buf_batch_size){
     num_buf_batches = _MIN(buf_batch_size, na-stra_id);
     compute_FCIrdm2_a_t1ci_v2( dd->d_ciket, dd->d_buf1, stra_id, num_buf_batches, nb, norb, nlinka, dd->d_clinka); 
@@ -4562,7 +4566,7 @@ void Device::compute_tdm13h_spin_v5(int na, int nb,
       }
     //ia_max->ja_min
 
-    printf("In rest branch ia_max: %i ja_min: %i\n",ia_max, ja_min);
+    //printf("In rest branch ia_max: %i ja_min: %i\n",ia_max, ja_min);
     for (int stra_id = ia_max; stra_id<ja_min; stra_id+=buf_batch_size){
       num_buf_batches = _MIN(buf_batch_size, ja_min -stra_id);
       printf("num_buf_batches: %i\n", num_buf_batches);
@@ -4807,10 +4811,13 @@ void Device::compute_tdmpp_spin_v4(int na, int nb, int nlinka, int nlinkb, int n
   int gemm_batch_size = final_size_buf/(norb2*norb2); // this is integer division // number of tdm2 in a single buf
   int num_buf_batches; 
   int num_gemm_batches; 
+  printf("buf_batches: %i gemm_batches = %i\n",buf_batch_size, gemm_batch_size);
   grow_array(dd->d_buf1,final_size_buf, dd->size_buf1, "buf1", FLERR); 
   grow_array(dd->d_buf2,final_size_buf, dd->size_buf2, "buf2", FLERR); 
   grow_array(dd->d_buf3,final_size_buf, dd->size_buf3, "buf3", FLERR); 
   int bits_buf = sizeof(double)*buf_batch_size*size_buf;
+  int bits_buf1;
+  int bits_buf2;
   int bits_buf3;
   ml->memset(dd->d_buf1, &zero, &bits_buf); 
   ml->memset(dd->d_buf2, &zero, &bits_buf); 
@@ -4847,6 +4854,8 @@ void Device::compute_tdmpp_spin_v4(int na, int nb, int nlinka, int nlinkb, int n
   if (spin== 0)
       //refer to diagram in tdm3h_spin_v4
       {
+      bits_buf1 = sizeof(double)*nb_ket*norb2;//rdm3h_a fills only ib:jb
+      bits_buf2 = sizeof(double)*nb_bra*norb2;//rdm3h_a fills only ib:jb
       for (int stra_id = 0; stra_id<na; stra_id += buf_batch_size){
         num_buf_batches = _MIN(buf_batch_size, na-stra_id);
         compute_FCIrdm3h_a_t1ci_v3(dd->d_cibra, dd->d_buf2, stra_id, num_buf_batches, nb, nb_bra, norb, nlinka, ia_bra, ja_bra, ib_bra, jb_bra, dd->d_clinka);
@@ -4860,12 +4869,14 @@ void Device::compute_tdmpp_spin_v4(int na, int nb, int nlinka, int nlinkb, int n
             &beta, dd->d_buf3, &norb2, &size_tdm2, &num_gemm_batches); 
           reduce_buf3_to_rdm(dd->d_buf3, dd->d_tdm2, size_tdm2, num_gemm_batches);
           }
-
-          ml->memset(dd->d_buf1, &zero, &bits_buf);
-          ml->memset(dd->d_buf2, &zero, &bits_buf);
+        for (int i=0;i<num_buf_batches;++i){  
+          ml->memset(&(dd->d_buf1[i*size_buf+ib_ket*norb2]), &zero, &bits_buf1);
+          ml->memset(&(dd->d_buf2[i*size_buf+ib_bra*norb2]), &zero, &bits_buf2);
+          } 
         }
       }
     else if (spin==1) { 
+        bits_buf2 = sizeof(double)*nb_bra*norb2;//rdm3h_a fills only ib:jb
         for (int stra_id = ia_ket; stra_id<ja_ket; stra_id += buf_batch_size){
           num_buf_batches = _MIN(buf_batch_size, ja_ket-stra_id);
           compute_FCIrdm3h_a_t1ci_v3(dd->d_cibra, dd->d_buf2, stra_id, num_buf_batches, nb, nb_bra, norb, nlinka, ia_bra, ja_bra, ib_bra, jb_bra, dd->d_clinka);
@@ -4880,8 +4891,10 @@ void Device::compute_tdmpp_spin_v4(int na, int nb, int nlinka, int nlinkb, int n
               &beta, dd->d_buf3, &norb2, &size_tdm2, &num_gemm_batches); 
             reduce_buf3_to_rdm(dd->d_buf3, dd->d_tdm2, size_tdm2, num_gemm_batches);
             }
-            ml->memset(dd->d_buf1, &zero, &bits_buf);
-            ml->memset(dd->d_buf2, &zero, &bits_buf);
+          ml->memset(dd->d_buf1, &zero, &bits_buf);
+          for (int i=0;i<num_buf_batches;++i){
+            ml->memset(&(dd->d_buf2[i*size_buf+ib_bra*norb2]), &zero, &bits_buf2);
+            }
           }
         } 
     else if (spin==2){
@@ -4950,6 +4963,7 @@ void Device::compute_sfudm_v2(int na, int nb, int nlinka, int nlinkb, int norb,
   int gemm_batch_size = final_size_buf/(norb2*norb2); // this is integer division // number of tdm2 in a single buf
   int num_buf_batches; 
   int num_gemm_batches; 
+  printf("buf_batches: %i gemm_batches = %i\n",buf_batch_size, gemm_batch_size);
   grow_array(dd->d_buf1,final_size_buf, dd->size_buf1, "buf1", FLERR); 
   grow_array(dd->d_buf2,final_size_buf, dd->size_buf2, "buf2", FLERR); 
   grow_array(dd->d_buf3,final_size_buf, dd->size_buf3, "buf3", FLERR); 
@@ -4969,6 +4983,7 @@ void Device::compute_sfudm_v2(int na, int nb, int nlinka, int nlinkb, int norb,
     tdm2 = gemm buf1, buf2
   */
   int bra_b_len = jb_bra - ib_bra;
+  int bits_buf2 = sizeof(double)*nb_bra*norb2;
   for (int stra_id = ia_ket; stra_id<ja_ket; stra_id += buf_batch_size){
       num_buf_batches = (buf_batch_size < ja_ket - stra_id) ? buf_batch_size : ja_ket - stra_id; 
       compute_FCIrdm3h_a_t1ci_v3(dd->d_cibra, dd->d_buf2, stra_id, num_buf_batches, nb, nb_bra, norb, nlinka, ia_bra, ja_bra, ib_bra, jb_bra, dd->d_clinka);
@@ -4984,10 +4999,10 @@ void Device::compute_sfudm_v2(int na, int nb, int nlinka, int nlinkb, int norb,
           &beta, dd->d_buf3, &norb2, &size_tdm2, &num_gemm_batches); 
        reduce_buf3_to_rdm(dd->d_buf3, dd->d_tdm2, size_tdm2, num_gemm_batches);
       }
-      
-
       ml->memset(dd->d_buf1, &zero, &bits_buf);
-      ml->memset(dd->d_buf2, &zero, &bits_buf);
+      for (int i=0;i<num_buf_batches;++i){
+        ml->memset(&(dd->d_buf2[i*size_buf+ib_bra]), &zero, &bits_buf2);
+        }
     }
   transpose_jikl(dd->d_tdm2, dd->d_buf1, norb);
 
