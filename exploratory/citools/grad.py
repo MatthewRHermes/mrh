@@ -117,7 +117,6 @@ def get_grad_h1t1(a_idxs, i_idxs, las_rdm1, h1):
     i_idxes = np.asarray(i_idxs, dtype=object)
     t1i = [a for b in i_idxes if len(b)==1 for a in b]
 
-
     h = get_h1e_spin(h1)
     h1t1s = []
 
