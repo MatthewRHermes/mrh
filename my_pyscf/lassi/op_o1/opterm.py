@@ -219,16 +219,16 @@ class OpTerm4Fragments (OpTermNFragments):
         t4 = (lib.logger.process_clock (), lib.logger.perf_counter ())
         ox = ox.ravel ().reshape (np.prod (self.lroots_bra), ncol)
         t5 = (lib.logger.process_clock (), lib.logger.perf_counter ())
-        self.dt_2cr = t1[0] - t0[0]
-        self.dw_2cr = t1[1] - t0[1]
-        self.dt_2c1 = t2[0] - t1[0]
-        self.dw_2c1 = t2[1] - t1[1]
-        self.dt_2c2 = t3[0] - t2[0]
-        self.dw_2c2 = t3[1] - t2[1]
-        self.dt_2c3 = t4[0] - t3[0]
-        self.dw_2c3 = t4[1] - t3[1]
-        self.dt_2cr += t5[0] - t4[0]
-        self.dw_2cr += t5[1] - t4[1]
+        self.dt_4fr = t1[0] - t0[0]
+        self.dw_4fr = t1[1] - t0[1]
+        self.dt_4f1 = t2[0] - t1[0]
+        self.dw_4f1 = t2[1] - t1[1]
+        self.dt_4f2 = t3[0] - t2[0]
+        self.dw_4f2 = t3[1] - t2[1]
+        self.dt_4f3 = t4[0] - t3[0]
+        self.dw_4f3 = t4[1] - t3[1]
+        self.dt_4fr += t5[0] - t4[0]
+        self.dw_4fr += t5[1] - t4[1]
         return ox
 
     op_transpose_axes = (0,1,4,5,2,3)

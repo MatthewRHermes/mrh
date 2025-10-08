@@ -215,11 +215,11 @@ class HamS2OvlpOperators (HamS2Ovlp):
         self.dt_sX, self.dw_sX = 0.0, 0.0
         self.dt_oX, self.dw_oX = 0.0, 0.0
         self.dt_pX, self.dw_pX = 0.0, 0.0
-        self.dt_2co, self.dw_2co = 0.0, 0.0
-        self.dt_2cr, self.dw_2cr = 0.0, 0.0
-        self.dt_2c1, self.dw_2c1 = 0.0, 0.0
-        self.dt_2c2, self.dw_2c2 = 0.0, 0.0
-        self.dt_2c3, self.dw_2c3 = 0.0, 0.0
+        self.dt_4fo, self.dw_4fo = 0.0, 0.0
+        self.dt_4fr, self.dw_4fr = 0.0, 0.0
+        self.dt_4f1, self.dw_4f1 = 0.0, 0.0
+        self.dt_4f2, self.dw_4f2 = 0.0, 0.0
+        self.dt_4f3, self.dw_4f3 = 0.0, 0.0
         self.dt_oXn = [0.0, 0.0, 0.0, 0.0]
         self.dw_oXn = [0.0, 0.0, 0.0, 0.0]
 
@@ -248,11 +248,11 @@ class HamS2OvlpOperators (HamS2Ovlp):
                                               self.dt_oXn[i],
                                               self.dw_oXn[i])
         profile += '\n' + 'opX 4-fragment components:'
-        profile += '\n' + fmt_str.format ('2c_o', self.dt_2co, self.dw_2co)
-        profile += '\n' + fmt_str.format ('2c_r', self.dt_2cr, self.dw_2cr)
-        profile += '\n' + fmt_str.format ('2c_1', self.dt_2c1, self.dw_2c1)
-        profile += '\n' + fmt_str.format ('2c_2', self.dt_2c2, self.dw_2c2)
-        profile += '\n' + fmt_str.format ('2c_3', self.dt_2c3, self.dw_2c3)
+        profile += '\n' + fmt_str.format ('4f_o', self.dt_4fo, self.dw_4fo)
+        profile += '\n' + fmt_str.format ('4f_r', self.dt_4fr, self.dw_4fr)
+        profile += '\n' + fmt_str.format ('4f_1', self.dt_4f1, self.dw_4f1)
+        profile += '\n' + fmt_str.format ('4f_2', self.dt_4f2, self.dw_4f2)
+        profile += '\n' + fmt_str.format ('4f_3', self.dt_4f3, self.dw_4f3)
         return profile
 
     def get_xvec (self, iroot, *inv):
@@ -342,15 +342,15 @@ class HamS2OvlpOperators (HamS2Ovlp):
         self.dw_pX += (w3-w2)
 
     def _profile_4frag_(self, op):
-        if not hasattr (op, 'dt_2cr'): return
-        self.dt_2cr += op.dt_2cr
-        self.dw_2cr += op.dw_2cr
-        self.dt_2c1 += op.dt_2c1
-        self.dw_2c1 += op.dw_2c1
-        self.dt_2c2 += op.dt_2c2
-        self.dw_2c2 += op.dw_2c2
-        self.dt_2c3 += op.dt_2c3
-        self.dw_2c3 += op.dw_2c3
+        if not hasattr (op, 'dt_4fr'): return
+        self.dt_4fr += op.dt_4fr
+        self.dw_4fr += op.dw_4fr
+        self.dt_4f1 += op.dt_4f1
+        self.dw_4f1 += op.dw_4f1
+        self.dt_4f2 += op.dt_4f2
+        self.dw_4f2 += op.dw_4f2
+        self.dt_4f3 += op.dt_4f3
+        self.dw_4f3 += op.dw_4f3
         return
 
     def _opuniq_x_(self, op, obra, oket, ovecs, *inv):
@@ -360,8 +360,8 @@ class HamS2OvlpOperators (HamS2Ovlp):
         op = opterm.reduce_spin (op, obra, oket)
         t1, w1 = logger.process_clock (), logger.perf_counter ()
         if len (set (inv)) == 4:
-            self.dt_2co += t1-t0
-            self.dw_2co += w1-w0
+            self.dt_4fo += t1-t0
+            self.dw_4fo += w1-w0
         key = tuple ((obra, oket)) + inv
         inv = list (set (inv))
         brakets, bras, braHs = self.get_nonuniq_exc_square (key)
@@ -374,8 +374,8 @@ class HamS2OvlpOperators (HamS2Ovlp):
             op = op.conj ().T
             t1, w1 = logger.process_clock (), logger.perf_counter ()
             if len (set (inv)) == 4:
-                self.dt_2co += t1-t0
-                self.dw_2co += w1-w0
+                self.dt_4fo += t1-t0
+                self.dw_4fo += w1-w0
             for bra in braHs:
                 vec = ovecs[self.ox_ovlp_urootstr (bra, obra, inv)]
                 self.put_ox1_(op.dot (vec.T).ravel (), bra, *inv)
