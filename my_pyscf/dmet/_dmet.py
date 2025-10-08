@@ -108,7 +108,7 @@ class _DMET:
                 core orbital coeffcient
             lo2eo: np.array (nlo, neo)
                 transf. matrix for ao2lo->ao2eo
-            lo2eo: np.array (nlo, nlo-neo)
+            lo2co: np.array (nlo, nlo-neo)
                 transf. matrix for ao2lo->ao2co
             imp_nelec: int
                 number of electrons in embedding subspace
@@ -212,6 +212,7 @@ class _DMET:
         idx_emb = np.where(b > bath_tol)[0]
         idx_core = np.ones(u.shape[1], dtype=bool)
         idx_core[idx_emb] = False 
+
 
         # Number of bath and core orbitals
         nbath = len(idx_emb)
@@ -428,7 +429,7 @@ class _DMET:
         emb_mf.get_hcore = lambda *args: fock
         emb_mf.get_ovlp  = lambda *args: np.eye(neo)
         emb_mf.conv_tol = 1e-10
-        emb_mf.max_cycle = 100
+        emb_mf.max_cycle = 500
         emb_mf.energy_nuc = lambda *args: core_energy
         emb_mf.kernel(dm_guess)
 
@@ -536,7 +537,7 @@ class _DMET:
         mf = self.mf
         ao2co = self.ao2co
         ao2eo = self.ao2eo
-        
+
         dm = mf.make_rdm1()
         s = mf.get_ovlp()
         
@@ -559,12 +560,46 @@ class _DMET:
         ncore = core_nelec//2
         neo = ao2eo.shape[1]
 
-        # Now we can assemble the full space mo_coeffs.
+        # Now we can assemble the full space mo_coeff
         mo_coeff = np.zeros_like(mf.mo_coeff)
         mo_coeff[:, :ncore] = ao2co[:, :ncore]
         mo_coeff[:, ncore:ncore+neo] = ao2eo
         mo_coeff[:, ncore+neo:] = ao2co[:, ncore:]
         return mo_coeff
+
+    def assemble_rdm1(self, mc_rdm1):
+        '''
+        Assemble the embedded rdm1 to an ao space rdm1
+        returns:
+            rdm1_full: rdm1 for the full system
+        args:
+            mc_rdm1: make_rdm1() from dmet mc object (neo,neo)
+        '''
+        mf = self.mf
+        ao2co = self.ao2co
+        ao2eo = self.ao2eo
+
+        dm = mf.make_rdm1()
+        s = mf.get_ovlp()
+        cor2ao = ao2co.T @ s
+
+        if dm.ndim > 2:
+            dm = dm[0] + dm[1]
+
+        core_dm = get_basis_transform(dm, cor2ao.T)
+        e, eigvec = np.linalg.eigh(core_dm)
+        sorted_indices = np.argsort(e)[::-1]
+        eigvec_sorted = eigvec[:, sorted_indices]
+        ao2co = ao2co @ eigvec_sorted
+        core_nelec = int(round(np.sum(e)))
+        assert core_nelec % 2 == 0, "Core nelec should be even., Something went wrong."
+        ncore = core_nelec//2
+
+        rdm1_core = 2 * ao2co[:, :ncore] @ ao2co[:, :ncore].T
+        rdm1_emb_ao = get_basis_transform(mc_rdm1, ao2eo.T) # ao2eo @ mc_rdm1 @ ao2eo.T
+        rdm1_full = rdm1_core + rdm1_emb_ao
+
+        return rdm1_full
     
     # For pyscf like interface
     def kernel(self):
