@@ -1751,18 +1751,12 @@ class LASCINoSymm (casci.CASCI):
             casdm3[i:j, i:j, k:l, m:n, m:n, k:l] -= np.tensordot(weights, d2sigma, axes=1)
             _transpose_dm3_(i,j, i,j, k,l, m,n, m,n, k,l)
             
-#<<<<<<< HEAD
-            # Term 3- 29f
-#=======
             # Term 3- 29c
             d3sigma = (lib.einsum('r,rij,rkl,rmn->rinkjml',weights,dma1r,dma2r,dma3r)
                        +lib.einsum('r,rij,rkl,rmn->rinkjml',weights,dmb1r,dmb2r,dmb3r))
             casdm3[i:j, m:n, k:l, i:j, m:n, k:l] += np.tensordot (weights, d3sigma, axes=1)
             _transpose_dm3_(i,j, m,n, k,l, i,j, m,n, k,l)
 
-#<<<<<<< HEAD
-            # Term 4- 29c
-#=======
             # Term 4- 29d
             d4sigma = (lib.einsum('r,rij,rkl,rmn->rilkjmn',weights,dma1r,dma2r,dm3r)
                        +lib.einsum('r,rij,rkl,rmn->rilkjmn',weights,dmb1r,dmb2r,dm3r))
@@ -1775,9 +1769,6 @@ class LASCINoSymm (casci.CASCI):
             casdm3[i:j, m:n, k:l, k:l, m:n, i:j] -= np.tensordot(weights, d5sigma, axes=1)
             _transpose_dm3_(i,j, m,n, k,l, k,l, m,n, i,j)
 
-#<<<<<<< HEAD
-            # Term 6- 29d
-#=======
             # Term 6- 29f
             d6sigma = (lib.einsum('r,rij,rkl,rmn->rilknmj',weights,dma1r,dma2r,dma3r)
                        +lib.einsum('r,rij,rkl,rmn->rilknmj',weights,dmb1r,dmb2r,dmb3r))
