@@ -1,6 +1,6 @@
 import numpy as np
 from scipy import linalg
-from pyscf import gto, scf, df, mcscf, lib
+from pyscf import gto, scf, df, mcscf, lib, dft
 from pyscf.data.nist import BOHR
 from pyscf import mcpdft
 #from mrh.my_pyscf.fci import csf_solver
@@ -29,9 +29,15 @@ def diatomic (atom1, atom2, r, fnal, basis, ncas, nelecas, nstates,
     mc.kernel (mo)
     return mc.nuc_grad_method ()
 
+def setUpModule():
+    global diatomic, original_grids
+    original_grids = dft.radi.ATOM_SPECIFIC_TREUTLER_GRIDS
+    dft.radi.ATOM_SPECIFIC_TREUTLER_GRIDS = False
+
 def tearDownModule():
-    global diatomic
-    del diatomic
+    global diatomic, original_grids
+    dft.radi.ATOM_SPECIFIC_TREUTLER_GRIDS = original_grids
+    del diatomic, original_grids
 
 # The purpose of these separate test functions is to narrow down an error to specific degrees of
 # freedom. But if the lih_cms2ftpbe and _df cases pass, then almost certainly, they all pass.

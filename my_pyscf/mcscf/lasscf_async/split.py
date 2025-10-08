@@ -181,6 +181,7 @@ class LASImpurityOrbitalCallable (object):
         idx = np.ones (mo.shape[1], dtype=np.bool_)
         idx[self.ncore:self.nocc] = False
         uo = mo[:,idx]
+        if uo.size==0: return fo, uo
 
         s1 = uo.conj ().T @ self.frag_umat
         u, svals, vh = self.svd (s1, full_matrices=True)
@@ -458,7 +459,7 @@ if __name__=='__main__':
     ###########################
     from mrh.my_pyscf.mcscf.lasci import get_grad_orb
     dm1s = mc.make_rdm1s ()
-    veff = mc.get_veff (dm1s=dm1s)
+    veff = mc.get_veff (dm=dm1s)
     fock1 = get_grad_orb (mc, hermi=0)
     ###########################
     get_imporbs_0 = get_impurity_space_constructor (mc, 0, frag_atoms=frag_atom_list[0])

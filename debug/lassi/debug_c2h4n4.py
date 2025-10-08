@@ -22,8 +22,11 @@ from pyscf.tools import molden
 from mrh.tests.lasscf.c2h4n4_struct import structure as struct
 from mrh.my_pyscf.mcscf.lasscf_o0 import LASSCF
 from mrh.my_pyscf.lassi.lassi import roots_make_rdm12s, root_make_rdm12s, make_stdm12s, ham_2q
-from mrh.my_pyscf.lassi import LASSI
-topdir = os.path.abspath (os.path.join (__file__, '../../../tests/lassi/'))
+from mrh.my_pyscf.lassi import LASSI, LASSIS
+from mrh.tests.lassi.addons import case_contract_hlas_ci, case_lassis_fbf_2_model_state
+from mrh.tests.lassi.addons import case_lassis_fbfdm, case_contract_op_si
+from mrh.tests.lassi.addons import case_lassis_grads, case_lassis_hessian
+topdir = os.path.abspath (os.path.join (__file__, '..'))
 
 def setUpModule ():
     global las, lsi, rdm1s, rdm2s
@@ -122,7 +125,7 @@ class KnownValues(unittest.TestCase):
     #        self.assertAlmostEqual (e1, e0, 8)
 
     #def test_singles_constructor (self):
-    #    from mrh.my_pyscf.lassi.states import all_single_excitations
+    #    from mrh.my_pyscf.lassi.spaces import all_single_excitations
     #    las2 = all_single_excitations (lsi._las)
     #    las2.check_sanity ()
     #    # Meaning of tuple: (na+nb,smult)
@@ -135,7 +138,7 @@ class KnownValues(unittest.TestCase):
     #    self.assertEqual (las2.nroots, 33)
 
     #def test_spin_shuffle (self):
-    #    from mrh.my_pyscf.lassi.states import spin_shuffle, spin_shuffle_ci
+    #    from mrh.my_pyscf.lassi.spaces import spin_shuffle, spin_shuffle_ci
     #    mf = lsi._las._scf
     #    las3 = spin_shuffle (las)
     #    las3.check_sanity ()
@@ -158,27 +161,74 @@ class KnownValues(unittest.TestCase):
     #        self.assertLess (np.amax (np.abs (errvec)), 1e-8)
 
     #def test_lassis (self):
-    #    from mrh.my_pyscf.lassi.lassis import LASSIS
-    #    las1 = LASSCF (las._scf, (4,4), (4,4), spin_sub=(1,1))
-    #    las1.mo_coeff = las.mo_coeff
-    #    las1.lasci ()
-    #    lsis = LASSIS (las1).run (max_cycle_macro=1)
+    #    for opt in (0,1):
+    #        with self.subTest (opt=opt):
+    #            las1 = LASSCF (las._scf, (4,4), (4,4), spin_sub=(1,1))
+    #            las1.mo_coeff = las.mo_coeff
+    #            las1.lasci ()
+    #            lsis = LASSIS (las1).run (opt=opt, max_cycle_macro=1)
+    #            case_lassis_fbf_2_model_state (self, lsis)
+    #            case_lassis_fbfdm (self, lsis)
+    #    with self.subTest ('davidson_only'):
+    #        las1 = LASSCF (las._scf, (4,4), (4,4), spin_sub=(1,1))
+    #        las1.mo_coeff = las.mo_coeff
+    #        las1.lasci ()
+    #        lsis = LASSIS (las1).run (davidson_only=True, max_cycle_macro=1)
+
 
     def test_lassis_slow (self):
-        from mrh.my_pyscf.lassi.lassis import LASSIS
         # TODO: optimize implementation and eventually merge with test_lassis
         mol = struct (2.0, 2.0, '6-31g', symmetry=False)
-        mol.output = 'debug_c2h4n4.log'
-        mol.verbose = lib.logger.DEBUG
+        mol.output = '/dev/null'
+        mol.verbose = 0
         mol.spin = 8
         mol.build ()
         mf = scf.RHF (mol).run () 
         las1 = LASSCF (mf, (5,5), ((3,2),(2,3)), spin_sub=(2,2))
         mo_coeff = las1.localize_init_guess ((list (range (5)), list (range (5,10))))
         las1.kernel (mo_coeff)
-        lsis = LASSIS (las1, opt=1).run ()
-        self.assertAlmostEqual (lsis.e_roots[0], -295.52103109, 7)
-        self.assertTrue (lsis.converged)
+        for dson in (False, True):
+            if dson: continue
+            for opt in (0,1):
+                if opt: continue
+                with self.subTest (opt=opt, davidson_only=dson):
+                    lsis = LASSIS (las1).run (opt=opt, davidson_only=dson)
+                    self.assertTrue (lsis.converged)
+                    self.assertAlmostEqual (lsis.e_roots[0], -295.52185731568903, 7)
+                    #case_lassis_fbf_2_model_state (self, lsis)
+                    #case_lassis_fbfdm (self, lsis)
+            #with self.subTest ('as_scanner', davidson_only=dson):
+            #    lsis_scanner = lsis.as_scanner ()
+            #    mol2 = struct (1.9, 1.9, '6-31g', symmetry=False)
+            #    mol2.verbose = 0
+            #    mol2.output = '/dev/null'
+            #    mol2.build ()
+            #    lsis_scanner (mol2)
+            #    self.assertTrue (lsis_scanner.converged)
+            #    mf2 = scf.RHF (mol2).run ()
+            #    las2 = LASSCF (mf2, (5,5), ((3,2),(2,3)), spin_sub=(2,2))
+            #    las2.mo_coeff = lsis_scanner.mo_coeff
+            #    las2.lasci ()
+            #    lsis2 = LASSIS (las2).run (davidson_only=dson)
+            #    self.assertTrue (lsis2.converged)
+            #    self.assertAlmostEqual (lsis_scanner.e_roots[0], lsis2.e_roots[0], 5)
+            if not dson:
+                case_lassis_grads (self, lsis)    
+                case_lassis_hessian (self, lsis)    
+
+    #def test_contract_hlas_ci (self):
+    #    las, nelec_frs = lsi._las, lsi.get_nelec_frs ()
+    #    h0, h1, h2 = lsi.ham_2q ()
+    #    ci = [c[:4] for c in las.ci] # No SOC yet
+    #    nelec_frs = nelec_frs[:,:4,:] # No SOC yet
+    #    case_contract_hlas_ci (self, las, h0, h1, h2, ci, nelec_frs)
+
+    #def test_contract_op_si (self):
+    #    las, nelec_frs = lsi._las, lsi.get_nelec_frs ()
+    #    h0, h1, h2 = lsi.ham_2q ()
+    #    ci = [c[:4] for c in las.ci] # No SOC yet
+    #    nelec_frs = nelec_frs[:,:4,:] # No SOC yet
+    #    case_contract_op_si (self, las, h1, h2, ci, nelec_frs)
 
 if __name__ == "__main__":
     print("Full Tests for SA-LASSI of c2h4n4 molecule")

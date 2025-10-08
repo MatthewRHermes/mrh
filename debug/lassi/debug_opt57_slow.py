@@ -30,6 +30,10 @@ from mrh.my_pyscf.lassi.lassi import roots_make_rdm12s, make_stdm12s, ham_2q
 from mrh.my_pyscf.lassi.citools import get_lroots, get_rootaddr_fragaddr
 from mrh.my_pyscf.lassi import op_o0
 from mrh.my_pyscf.lassi import op_o1
+from mrh.tests.lassi.addons import case_contract_hlas_ci, case_contract_op_si
+from mrh.tests.lassi.addons import eri_sector_indexes
+
+op = (op_o0, op_o1)
 
 def setUpModule ():
     global mol, mf, las, nstates, nelec_frs, si, orbsym, wfnsym
@@ -82,8 +86,8 @@ def setUpModule ():
     
     dr_nn = 2.0
     mol = struct (dr_nn, dr_nn, '6-31g', symmetry='Cs')
-    mol.verbose = 0 #lib.logger.INFO 
-    mol.output = '/dev/null' #'test_lassi_op.log'
+    mol.verbose = lib.logger.INFO 
+    mol.output = 'debug_opt57_slow.log'
     mol.spin = 0 
     mol.build ()
     mf = scf.RHF (mol).run ()
@@ -108,7 +112,15 @@ def setUpModule ():
             ndet_s = ndet_frs[ifrag,iroot]
             ci = np.random.rand (lroots_r, ndet_s[0], ndet_s[1])
             ci /= linalg.norm (ci.reshape (lroots_r,-1), axis=1)[:,None,None]
-            if lroots_r==1: ci=ci[0]
+            if lroots_r==1:
+                ci=ci[0]
+            else:
+                ci = ci.reshape (lroots_r,-1)
+                w, v = linalg.eigh (ci.conj () @ ci.T)
+                idx = w > 0
+                w, v = w[idx], v[:,idx]
+                v /= np.sqrt (w)[None,:]
+                ci = np.dot (v.T, ci).reshape (lroots_r, ndet_s[0], ndet_s[1])
             las.ci[ifrag][iroot] = ci
     orbsym = getattr (las.mo_coeff, 'orbsym', None)
     if orbsym is None and callable (getattr (las, 'label_symmetry_', None)):
@@ -127,35 +139,74 @@ def tearDownModule():
     del mol, mf, las, nstates, nelec_frs, si, orbsym, wfnsym
 
 class KnownValues(unittest.TestCase):
-    def test_stdm12s (self):
-        d12_o0 = make_stdm12s (las, opt=0)
-        d12_o1 = make_stdm12s (las, opt=1)
-        rootaddr, fragaddr = get_rootaddr_fragaddr (get_lroots (las.ci))
-        for r in range (2):
-            for i, j in product (range (nstates), repeat=2):
-                with self.subTest (rank=r+1, idx=(i,j), spaces=(rootaddr[i], rootaddr[j]),
-                                   envs=(list(fragaddr[:,i]),list(fragaddr[:,j]))):
-                    self.assertAlmostEqual (lib.fp (d12_o0[r][i,...,j]),
-                        lib.fp (d12_o1[r][i,...,j]), 9)
+    #def test_stdm12s (self):
+    #    t0, w0 = lib.logger.process_clock (), lib.logger.perf_counter ()
+    #    d12_o0 = make_stdm12s (las, opt=0)
+    #    t1, w1 = lib.logger.process_clock (), lib.logger.perf_counter ()
+    #    d12_o1 = make_stdm12s (las, opt=1)
+    #    t2, w2 = lib.logger.process_clock (), lib.logger.perf_counter ()
+    #    #print (t1-t0, t2-t1)
+    #    #print (w1-w0, w2-w1)
+    #    rootaddr, fragaddr = get_rootaddr_fragaddr (get_lroots (las.ci))
+    #    for r in range (2):
+    #        for i, j in product (range (nstates), repeat=2):
+    #            with self.subTest (rank=r+1, idx=(i,j), spaces=(rootaddr[i], rootaddr[j]),
+    #                               envs=(list(fragaddr[:,i]),list(fragaddr[:,j]))):
+    #                self.assertAlmostEqual (lib.fp (d12_o0[r][i,...,j]),
+    #                    lib.fp (d12_o1[r][i,...,j]), 9)
 
-    def test_ham_s2_ovlp (self):
-        h1, h2 = ham_2q (las, las.mo_coeff, veff_c=None, h2eff_sub=None)[1:]
-        lbls = ('ham','s2','ovlp')
-        mats_o0 = op_o0.ham (las, h1, h2, las.ci, nelec_frs, orbsym=orbsym, wfnsym=wfnsym)
-        fps_o0 = [lib.fp (mat) for mat in mats_o0]
-        mats_o1 = op_o1.ham (las, h1, h2, las.ci, nelec_frs, orbsym=orbsym, wfnsym=wfnsym)
-        for lbl, mat, fp in zip (lbls, mats_o1, fps_o0):
-            with self.subTest(matrix=lbl):
-                self.assertAlmostEqual (lib.fp (mat), fp, 9)
+    #def test_ham_s2_ovlp (self):
+    #    h1, h2 = ham_2q (las, las.mo_coeff, veff_c=None, h2eff_sub=None)[1:]
+    #    lbls = ('ham','s2','ovlp')
+    #    t0, w0 = lib.logger.process_clock (), lib.logger.perf_counter ()
+    #    mats_o0 = op_o0.ham (las, h1, h2, las.ci, nelec_frs, orbsym=orbsym, wfnsym=wfnsym)[:3]
+    #    t1, w1 = lib.logger.process_clock (), lib.logger.perf_counter ()
+    #    mats_o1 = op_o1.ham (las, h1, h2, las.ci, nelec_frs, orbsym=orbsym, wfnsym=wfnsym)[:3]
+    #    t2, w2 = lib.logger.process_clock (), lib.logger.perf_counter ()
+    #    #print (t1-t0, t2-t1)
+    #    #print (w1-w0, w2-w1)
+    #    fps_o0 = [lib.fp (mat) for mat in mats_o0]
+    #    for lbl, mat, fp in zip (lbls, mats_o1, fps_o0):
+    #        with self.subTest(matrix=lbl):
+    #            self.assertAlmostEqual (lib.fp (mat), fp, 9)
 
-    def test_rdm12s (self):
-        d12_o0 = op_o0.roots_make_rdm12s (las, las.ci, nelec_frs, si, orbsym=orbsym, wfnsym=wfnsym)
-        d12_o1 = op_o1.roots_make_rdm12s (las, las.ci, nelec_frs, si, orbsym=orbsym, wfnsym=wfnsym)
-        for r in range (2):
-            for i in range (nstates):
-                with self.subTest (rank=r+1, root=i):
-                    self.assertAlmostEqual (lib.fp (d12_o0[r][i]),
-                        lib.fp (d12_o1[r][i]), 9)
+    #def test_rdm12s (self):
+    #    si_bra = si
+    #    si_ket = np.roll (si, 1, axis=1)
+    #    t0, w0 = lib.logger.process_clock (), lib.logger.perf_counter ()
+    #    d12_o0 = op_o0.roots_trans_rdm12s (las, las.ci, nelec_frs, si_bra, si_ket, orbsym=orbsym,
+    #                                       wfnsym=wfnsym)
+    #    t1, w1 = lib.logger.process_clock (), lib.logger.perf_counter ()
+    #    d12_o1 = op_o1.roots_trans_rdm12s (las, las.ci, nelec_frs, si_bra, si_ket, orbsym=orbsym,
+    #                                       wfnsym=wfnsym)
+    #    t2, w2 = lib.logger.process_clock (), lib.logger.perf_counter ()
+    #    #print (t1-t0, t2-t1, t3-t2)
+    #    #print (w1-w0, w2-w1, w3-w2)
+    #    for r in range (2):
+    #        for i in range (nstates):
+    #            with self.subTest (rank=r+1, root=i, opt=1):
+    #                self.assertAlmostEqual (lib.fp (d12_o0[r][i]),
+    #                    lib.fp (d12_o1[r][i]), 9)
+
+    def test_contract_hlas_ci (self):
+        h0, h1, h2 = ham_2q (las, las.mo_coeff)
+        nfrag, idx = eri_sector_indexes (las.ncas_sub)
+        #h0 = 0
+        #h1[:] = 0
+        #h2[nfrag==1] = 0
+        #h2[nfrag==2] = 0
+        #h2[(nfrag==3)&idx['j']] = 0
+        #h2[(nfrag==3)&idx['k']] = 1
+        #h2[(nfrag==3)&idx['pp']] = 0
+        case_contract_hlas_ci (self, las, h0, h1, h2, las.ci, nelec_frs,
+                               si_bra='flat',
+                               si_ket=0)
+
+    #def test_contract_op_si (self):
+    #    h0, h1, h2 = ham_2q (las, las.mo_coeff)
+    #    case_contract_op_si (self, las, h1, h2, las.ci, nelec_frs)
+
+
 
 if __name__ == "__main__":
     print("Full Tests for LASSI matrix elements of 57-space (91-state) manifold")

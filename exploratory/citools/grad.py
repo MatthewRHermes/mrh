@@ -1,53 +1,61 @@
 import numpy as np
-from itertools import permutations
+from pyscf import lib
+from mrh.exploratory.unitary_cc import lasuccsd
 
-def get_grad_exact(a_idxs, i_idxs, ham, las_rdm1, las_rdm2, las_rdm3, epsilon=0.0):
+def get_grad_exact(las, epsilon=0.0):
     """
     Calculates the gradients for all parameters
 
     Arguments:
-    a_idxs (list): list of singles and doubles a indices  
-    i_idxs (lsit): list of singles and doubles i indices
-    ham (list): list of h0, h1, h2
-    las_rdm1 (array): spin-separated 1-RDM in spatial basis
-    las_rdm2 (array): spin-separated 2-RDM in spatial basis
-    las_rdm3 (array): spin-separated 3-RDM in spatial basis
-    epsilon
+    las: LASSCF object
 
     Returns:
     gradients (array): all gradients
     gen_indices (list): all combinations i_idxs, a_idxs
     """
-    gen_indices = []
-
-    grad_h1t1 = get_grad_h1t1(a_idxs, i_idxs, las_rdm1, ham[1])#*0.5
-    grad_h2t1 = get_grad_h2t1(a_idxs, i_idxs, las_rdm2, ham[2])#*0.5
-    grad_h1t2 = get_grad_h1t2(a_idxs, i_idxs, las_rdm2, ham[1])#*0.5
-    grad_h2t2 = get_grad_h2t2(a_idxs, i_idxs, las_rdm2, las_rdm3, ham[2])#*0.5
-
-    gradients =  np.concatenate((grad_h1t1+grad_h2t1,grad_h1t2+grad_h2t2))
-    gen_indices = list(zip(i_idxs, a_idxs))
-    np.save('all_grads.npy', gradients)
     
-    return gradients, gen_indices
+    # Generate RDMs
+    las_rdm1 = las.make_casdm1s()
+    las_rdm2 = las.make_casdm2s()
+    las_rdm3 = las.make_casdm3s()
 
-def grad_select(all_gradients, all_gen_indices, a_idxs, i_idxs, epsilon):
-    g = []
+    # Generate OEI, TEI
+    nmo = las.mo_coeff.shape[1]
+    ncas, ncore = las.ncas, las.ncore
+    nocc = ncore + ncas
+    h2e = lib.numpy_helper.unpack_tril (las.get_h2eff().reshape (nmo*ncas,ncas*(ncas+1)//2)).reshape (nmo, ncas, ncas, ncas)[ncore:nocc,:,:,:]
+    h1las, h0las = las.h1e_for_cas(mo_coeff=las.mo_coeff)
+    h2las = h2e
+
+    # Generate indices
+    nlas = las.ncas_sub
+    uop = lasuccsd.gen_uccsd_op(ncas,nlas)
+    a_idxs = uop.a_idxs
+    i_idxs = uop.i_idxs
+
+    # Compute gradients and collect indices
     gen_indices = []
-    a_idxs_lst = []
-    i_idxs_lst = []
-    len_a_idx = len(a_idxs)
+    
+    grad_h1t1 = get_grad_h1t1(a_idxs, i_idxs, las_rdm1, h1las)
+    grad_h2t1 = get_grad_h2t1(a_idxs, i_idxs, las_rdm2, h2las)
+    grad_h1t2 = get_grad_h1t2(a_idxs, i_idxs, las_rdm2, h1las)
+    grad_h2t2 = get_grad_h2t2(a_idxs, i_idxs, las_rdm2, las_rdm3, h2las)
 
-    for i in range(len_a_idx):
-        if epsilon == 0.0 or abs(all_gradients[i]) > epsilon:
-            g.append((all_gradients[i], i))
-            a_idx = a_idxs[i]
-            i_idx = i_idxs[i]
-            gen_indices.append((a_idx, i_idx))
-            a_idxs_lst.append(a_idx)
-            i_idxs_lst.append(i_idx)
+    gradients = np.concatenate((grad_h1t1+grad_h2t1, grad_h1t2+grad_h2t2))
+    gen_indices = list(zip(i_idxs, a_idxs))
 
-    return g, gen_indices, a_idxs_lst, i_idxs_lst, len(a_idxs_lst), len(i_idxs_lst)
+    # Select gradients
+    g_selected, gen_ind_selected, a_idxs_selected, i_idxs_selected = [], [], [], []
+    
+    for idx, grad in enumerate(gradients):
+        if epsilon == 0.0 or abs(grad) > epsilon:
+            g_selected.append((grad, idx))
+            a_idx, i_idx = a_idxs[idx], i_idxs[idx]
+            gen_ind_selected.append((a_idx, i_idx))
+            a_idxs_selected.append(a_idx)
+            i_idxs_selected.append(i_idx)
+    
+    return gradients, g_selected, a_idxs_selected, i_idxs_selected
 
 def get_h1e_spin(h1):
     n = h1.shape[1]
@@ -108,13 +116,9 @@ def get_grad_h1t1(a_idxs, i_idxs, las_rdm1, h1):
     t1a = [a for b in a_idxes if len(b)==1 for a in b]
     i_idxes = np.asarray(i_idxs, dtype=object)
     t1i = [a for b in i_idxes if len(b)==1 for a in b]
-    print ("t1a, t1i = ", t1a, t1i, h1)
-    print (a_idxes, len(a_idxes))
-    print (i_idxes)
+
 
     h = get_h1e_spin(h1)
-    #print ("h1 = ", h) 
-    #print ("gamma = ", get_rdm1_spin(las_rdm1))
     h1t1s = []
 
     d = get_rdm1_spin(las_rdm1)
@@ -123,13 +127,9 @@ def get_grad_h1t1(a_idxs, i_idxs, las_rdm1, h1):
     term2 = np.einsum('xp,pu->ux', h,d)
     sum_h1t1 = 2.0*(term1-term2)
 
-    #print ("einsum matrix of ux = ", sum_h1t1)
-    
     for u,x in zip(t1a,t1i):
-        print ("indices = ",x,"->", u)
         h1t1s.append(sum_h1t1[u,x])
     
-    print ("h1t1 = ", h1t1s)
     return np.array(h1t1s)
 
 def get_grad_h2t1(a_idxs, i_idxs, las_rdm2, h2):
@@ -149,12 +149,9 @@ def get_grad_h2t1(a_idxs, i_idxs, las_rdm2, h2):
     term2 = np.einsum('prqx,prqu->ux', w, d)
     sum_h2t1 = term1 - term2
 
-    #print ("einsum matrix of ux = ", sum_h2t1)
 
     for u,x in zip(t1a,t1i):
-        print ("indices = ",x,"->", u)
         h2t1s.append(sum_h2t1[u,x])
-    print ("h2t1 = ", h2t1s)
     return np.array(h2t1s)
 
 def get_grad_h1t2(a_idxs, i_idxs, las_rdm2, h1):
@@ -175,15 +172,12 @@ def get_grad_h1t2(a_idxs, i_idxs, las_rdm2, h1):
     term4 = np.einsum('yp,puxv->uxvy',h,d)
 
     sum_h1t2 = 2*(term1-term2-term3+term4)
-    #print ("einsum matrix of uxvy = ", sum_h1t2)
 
     for b,z in zip(t2a,t2i):
         u,v = b
         x,y = z
-        print ("indices = ", x,y,"->",u,v, sum_h1t2[u,x,v,y])
         h1t2s.append(sum_h1t2[u,x,v,y])
     
-    print ("h1t2 = ", h1t2s)
     return np.array(h1t2s)
 
 def get_grad_h2t2(a_idxs, i_idxs, las_rdm2, las_rdm3, h2):
@@ -216,13 +210,10 @@ def get_grad_h2t2(a_idxs, i_idxs, las_rdm2, las_rdm3, h2):
 
     sum_h2t2 = sum_h2t2_2rdm + sum_h2t2_3rdm
 
-    #print ("einsum matrix of uxvy = ", sum_h2t2)
 
     for b,z in zip(t2a,t2i):
         u,v = b
         x,y = z
-        print ("indices = ", x,y,"->",u,v, sum_h2t2[u,x,v,y])
         h2t2s.append(sum_h2t2[u,x,v,y])
-    print ("h2t2 = ", h2t2s)
 
     return np.array(h2t2s)

@@ -1,5 +1,6 @@
 import sys
 import numpy as np
+import functools
 from scipy import linalg
 from pyscf.fci import cistring
 from pyscf import fci, lib
@@ -9,6 +10,7 @@ from pyscf.fci.spin_op import contract_ss, spin_square
 from pyscf.data import nist
 from itertools import combinations
 from mrh.my_pyscf.mcscf import soc_int as soc_int
+from mrh.my_pyscf.lassi import citools
 from mrh.my_pyscf.lassi import dms as lassi_dms
 from mrh.my_pyscf.fci.csf import unpack_h1e_cs
 
@@ -21,7 +23,7 @@ def memcheck (las, ci, soc=None):
     lroots_fr = np.array ([[1 if c.ndim<3 else c.shape[0]
                             for c in ci_r]
                            for ci_r in ci])
-    lroots_r = np.product (lroots_fr, axis=0)
+    lroots_r = np.prod (lroots_fr, axis=0)
     nelec_frs = np.array ([[list (_unpack_nelec (fcibox._get_nelec (solver, nelecas)))
                             for solver in fcibox.fcisolvers]
                            for fcibox, nelecas in zip (las.fciboxes, las.nelecas_sub)])
@@ -40,7 +42,7 @@ def memcheck (las, ci, soc=None):
     else:
         nbytes = 2*nbytes_per_sfvec
     # memory load of ci_dp vectors
-    nbytes += sum ([np.prod ([c[iroot].size for c in ci])
+    nbytes += sum ([np.prod ([float (c[iroot].size) for c in ci])
                     * np.amax ([c[iroot].dtype.itemsize for c in ci])
                     for iroot in range (nroots)])
     safety_factor = 1.2
@@ -144,6 +146,25 @@ def civec_spinless_repr_generator (ci0_r, norb, nelec_r):
     return ci1_r_gen, ss2spinless, spinless2ss
 
 def civec_spinless_repr (ci0_r, norb, nelec_r):
+    '''Put CI vectors in the spinless representation; i.e., map
+        norb -> 2 * norb
+        (neleca, nelecb) -> (neleca+nelecb, 0)
+    This permits linear combinations of CI vectors with different
+    M == neleca-nelecb at the price of higher memory cost. This function
+    does NOT change the datatype.
+
+    Args:
+        ci0_r: sequence or generator of ndarray of length nprods
+            CAS-CI vectors in the spin-pure representation
+        norb: integer
+            Number of orbitals
+        nelec_r: sequence of tuple of length (2)
+            (neleca, nelecb) for each element of ci0_r
+
+    Returns:
+        ci1_r: ndarray of shape (nprods, ndet_spinless)
+            spinless CAS-CI vectors
+    '''
     ci1_r_gen, _, _ = civec_spinless_repr_generator (ci0_r, norb, nelec_r)
     ci1_r = np.stack ([x.copy () for x in ci1_r_gen ()], axis=0)
     return ci1_r
@@ -192,8 +213,8 @@ def _ci_outer_product (ci_f, norb_f, nelec_f):
         ci_dp = ci_dp.transpose (0,3,1,4,2,5).reshape (
             lroots*shape[0], ndeta*shape[1], ndetb*shape[2]
         )
-    norm_dp = linalg.norm (ci_dp.reshape (ci_dp.shape[0],-1), axis=1)
-    ci_dp /= norm_dp[:,None,None]
+    #norm_dp = linalg.norm (ci_dp.reshape (ci_dp.shape[0],-1), axis=1)
+    #ci_dp /= norm_dp[:,None,None]
     def gen_ci_dp (buf=None):
         if buf is None:
             ci = np.empty ((ndet_a,ndet_b), dtype=ci_f[-1].dtype)
@@ -400,7 +421,77 @@ def ci_outer_product (ci_fr, norb_f, nelec_fr):
 #
 #    return hsiso
 
-def ham (las, h1, h2, ci_fr, nelec_frs, soc=0, orbsym=None, wfnsym=None):
+def get_ovlp (ci_fr, norb_f, nelec_frs, rootidx=None):
+    if rootidx is not None:
+        ci_fr = [[c[iroot] for iroot in rootidx] for c in ci_fr]
+        nelec_frs = nelec_frs[:,rootidx,:]
+    ci_r_generator, nelec_r, dotter = ci_outer_product_generator (ci_fr, norb_f, nelec_frs)
+    ndim = len (nelec_r)
+    ovlp = np.zeros ((ndim, ndim))
+    for i, ket in zip(range(ndim), ci_r_generator ()):
+        nelec_ket = nelec_r[i]
+        ovlp[i,:] = dotter (ket, nelec_ket, iket=i, oporder=0)
+    return ovlp
+
+def get_orth_basis (ci_fr, norb_f, nelec_frs, _get_ovlp=get_ovlp):
+    nfrags, nroots = nelec_frs.shape[:2]
+    unique, uniq_idx, inverse, cnts = np.unique (nelec_frs, axis=1, return_index=True,
+                                                 return_inverse=True, return_counts=True)
+    if not np.count_nonzero (cnts>1):
+        def raw2orth (rawarr):
+            return rawarr
+        def orth2raw (ortharr):
+            return ortharr
+        return raw2orth, orth2raw
+    lroots_fr = np.array ([[1 if c.ndim<3 else c.shape[0]
+                            for c in ci_r]
+                           for ci_r in ci_fr])
+    nprods_r = np.prod (lroots_fr, axis=0)
+    offs1 = np.cumsum (nprods_r)
+    offs0 = offs1 - nprods_r
+    uniq_prod_idx = []
+    for i in uniq_idx[cnts==1]: uniq_prod_idx.extend (list(range(offs0[i],offs1[i])))
+    manifolds_prod_idx = []
+    manifolds_xmat = []
+    nuniq_prod = north = len (uniq_prod_idx)
+    for manifold_idx in np.where (cnts>1)[0]:
+        manifold = np.where (inverse==manifold_idx)[0]
+        manifold_prod_idx = []
+        for i in manifold: manifold_prod_idx.extend (list(range(offs0[i],offs1[i])))
+        manifolds_prod_idx.append (manifold_prod_idx)
+        ovlp = _get_ovlp (ci_fr, norb_f, nelec_frs, rootidx=manifold)
+        xmat = canonical_orth_(ovlp, thr=LINDEP_THRESH)
+        north += xmat.shape[1]
+        manifolds_xmat.append (xmat)
+
+    nraw = offs1[-1]
+    def raw2orth (rawarr):
+        col_shape = rawarr.shape[1:]
+        orth_shape = [north,] + list (col_shape)
+        ortharr = np.zeros (orth_shape, dtype=rawarr.dtype)
+        ortharr[:nuniq_prod] = rawarr[uniq_prod_idx]
+        i = nuniq_prod
+        for prod_idx, xmat in zip (manifolds_prod_idx, manifolds_xmat):
+            j = i + xmat.shape[1]
+            ortharr[i:j] = np.tensordot (xmat.T, rawarr[prod_idx], axes=1)
+            i = j
+        return ortharr
+
+    def orth2raw (ortharr):
+        col_shape = ortharr.shape[1:]
+        raw_shape = [nraw,] + list (col_shape)
+        rawarr = np.zeros (raw_shape, dtype=ortharr.dtype)
+        rawarr[uniq_prod_idx] = ortharr[:nuniq_prod]
+        i = nuniq_prod
+        for prod_idx, xmat in zip (manifolds_prod_idx, manifolds_xmat):
+            j = i + xmat.shape[1]
+            rawarr[prod_idx] = np.tensordot (xmat.conj (), ortharr[i:j], axes=1)
+            i = j
+        return rawarr
+
+    return raw2orth, orth2raw
+
+def ham (las, h1, h2, ci_fr, nelec_frs, soc=0, orbsym=None, wfnsym=None, **kwargs):
     '''Build LAS state interaction Hamiltonian, S2, and ovlp matrices
 
     Args:
@@ -431,6 +522,9 @@ def ham (las, h1, h2, ci_fr, nelec_frs, soc=0, orbsym=None, wfnsym=None):
             S2 operator matrix in state-interaction basis
         ovlp_eff : square ndarray of length (ndim)
             Overlap matrix in state-interaction basis
+        _get_ovlp : callable with kwarg rootidx
+            Produce the overlap matrix between model states in a set of rootspaces,
+            identified by ndarray or list "rootidx"
     '''
     if soc>1:
         raise NotImplementedError ("Two-electron spin-orbit coupling")
@@ -496,10 +590,13 @@ def ham (las, h1, h2, ci_fr, nelec_frs, soc=0, orbsym=None, wfnsym=None):
         ket = None
         ham_eff[i,:] = dotter (hket, nelec_ket, spinless2ss=spinless2ss, iket=i, oporder=2)
     
-    return ham_eff, s2_eff, ovlp_eff
+    _get_ovlp = functools.partial (get_ovlp, ci_fr, norb_f, nelec_frs)
+    #raw2orth = citools.get_orth_basis (ci_fr, norb_f, nelec_frs, _get_ovlp=_get_ovlp)
+    return ham_eff, s2_eff, ovlp_eff, _get_ovlp #raw2orth
 
-def contract_ham_ci (las, h1, h2, ci_fr_ket, nelec_frs_ket, ci_fr_bra, nelec_frs_bra, 
-                     soc=0, orbsym=None, wfnsym=None):
+def contract_ham_ci (las, h1, h2, ci_fr, nelec_frs, si_bra=None, si_ket=None, ci_fr_bra=None,
+                     nelec_frs_bra=None, h0=0, soc=0, sum_bra=False, orbsym=None, wfnsym=None,
+                     add_transpose=False, accum=None, **kwargs):
     '''Evaluate the action of the state interaction Hamiltonian on a set of ket CI vectors,
     projected onto a basis of bra CI vectors, leaving one fragment of the bra uncontracted.
 
@@ -509,22 +606,30 @@ def contract_ham_ci (las, h1, h2, ci_fr_ket, nelec_frs_ket, ci_fr_bra, nelec_frs
             Spin-orbit-free one-body CAS Hamiltonian
         h2 : ndarray of shape (ncas, ncas, ncas, ncas)
             Spin-orbit-free two-body CAS Hamiltonian
-        ci_fr_ket : nested list of shape (nfrags, nroots_ket)
+        ci_fr : nested list of shape (nfrags, nroots)
             Contains CI vectors for the ket; element [i,j] is ndarray of shape
             (ndeta_ket[i,j],ndetb_ket[i,j])
-        nelec_frs_ket : ndarray of shape (nfrags, nroots_ket, 2)
+        nelec_frs : ndarray of shape (nfrags, nroots, 2)
             Number of electrons of each spin in each rootspace in each
-            fragment for the ket vectors
-        ci_fr_bra : nested list of shape (nfrags, nroots_bra)
-            Contains CI vectors for the bra; element [i,j] is ndarray of shape
-            (ndeta_bra[i,j],ndetb_bra[i,j])
-        nelec_frs_bra : ndarray of shape (nfrags, nroots_bra, 2)
-            Number of electrons of each spin in each
-            fragment for the bra vectors
+            fragment
 
     Kwargs:
+        si_bra : ndarray of shape (ndim_bra, *)
+            SI vectors for the bra. If provided, the p dimension on the return object is contracted
+        si_ket : ndarray of shape (ndim_ket, *)
+            SI vectors for the bra. If provided, the q dimension on the return object is contracted
+        ci_fr_bra : nested list of shape (nfrags, nroots_bra)
+            Contains CI vectors for the bra; element [i,j] is ndarray of shape
+            (ndeta_bra[i,j],ndetb_bra[i,j]). Defaults to ci_fr.
+        nelec_frs_bra : ndarray of shape (nfrags, nroots_bra, 2)
+            Number of electrons of each spin in each fragment for the bra vectors.
+            Defaults to nelec_frs.
         soc : integer
             Order of spin-orbit coupling included in the Hamiltonian
+        h0 : float
+            Constant term in the Hamiltonian
+        sum_bra : logical
+            Currently does nothing whatsoever (TODO)
         orbsym : list of int of length (ncas)
             Irrep ID for each orbital
         wfnsym : int
@@ -535,6 +640,23 @@ def contract_ham_ci (las, h1, h2, ci_fr_ket, nelec_frs_ket, ci_fr_bra, nelec_frs
             Element i,j is an ndarray of shape (ndim_bra//ci_fr_bra[i][j].shape[0],
             ndeta_bra[i,j],ndetb_bra[i,j],ndim_ket). 
     '''
+    if add_transpose:
+        assert (ci_fr_bra is None)
+        assert (nelec_frs_bra is None)
+        hket_fr = contract_ham_ci (las, h1, h2, ci_fr, nelec_frs, si_bra=si_bra, si_ket=si_ket,
+                                   h0=h0, soc=soc, sum_bra=sum_bra, orbsym=orbsym, wfnsym=wfnsym,
+                                   add_transpose=False, **kwargs)
+        hketT_fr = contract_ham_ci (las, h1, h2, ci_fr, nelec_frs, si_bra=si_ket, si_ket=si_bra,
+                                    h0=h0, soc=soc, sum_bra=sum_bra, orbsym=orbsym, wfnsym=wfnsym,
+                                    add_transpose=False, **kwargs)
+        for f, hketT_r in enumerate (hketT_fr):
+            for r, hketT in enumerate (hketT_r):
+                hket_fr[f][r] += hketT
+        return hket_fr
+    ci_fr_ket = ci_fr
+    nelec_frs_ket = nelec_frs
+    if ci_fr_bra is None: ci_fr_bra = ci_fr_ket
+    if nelec_frs_bra is None: nelec_frs_bra = nelec_frs_ket
     if soc>1:
         raise NotImplementedError ("Two-electron spin-orbit coupling")
     mol = las.mol
@@ -583,12 +705,13 @@ def contract_ham_ci (las, h1, h2, ci_fr_ket, nelec_frs_ket, ci_fr_bra, nelec_frs
         h1_re_c, h1_re_s = unpack_h1e_cs (h1_re)
     def contract_h_re (c, nel):
         h2eff = solver.absorb_h1e (h1_re_c, h2_re, norb, nel, 0.5)
-        return solver.contract_2e (h2eff, c, norb, nel)
+        hc = solver.contract_2e (h2eff, c, norb, nel)
+        return hc + h0*c
     if h1_im is not None:
         def contract_h (c, nel):
             hc = contract_h_re (c, nel)
             hc = hc + 1j*contract_1e_nosym (h1_im, c, norb, nel)
-            return hc
+            return hc + h0*c
     else:
         contract_h = contract_h_re
 
@@ -606,9 +729,9 @@ def contract_ham_ci (las, h1, h2, ci_fr_ket, nelec_frs_ket, ci_fr_bra, nelec_frs
     for ifrag in range (nfrags):
         for ibra in range (nroots_bra):
             hket_fr_pabq[ifrag][ibra] = np.stack (hket_fr_pabq[ifrag][ibra], axis=-1)
-    return hket_fr_pabq
+    return citools.hci_dot_sivecs (hket_fr_pabq, si_bra, si_ket, citools.get_lroots (ci_fr_bra))
 
-def make_stdm12s (las, ci_fr, nelec_frs, orbsym=None, wfnsym=None):
+def make_stdm12s (las, ci_fr, nelec_frs, orbsym=None, wfnsym=None, **kwargs):
     '''Build LAS state interaction transition density matrices
 
     Args:
@@ -700,9 +823,10 @@ def make_stdm12s (las, ci_fr, nelec_frs, orbsym=None, wfnsym=None):
 
     return stdm1s, stdm2s 
 
-def root_make_rdm12s (las, ci_fr, nelec_frs, si, ix, orbsym=None, wfnsym=None):
-    '''Build LAS state interaction reduced density matrices for 1 final
-    LASSI eigenstate.
+def root_trans_rdm12s (las, ci_fr, nelec_frs, si_bra, si_ket, ix, orbsym=None, wfnsym=None,
+                       **kwargs):
+    '''Build LAS state interaction reduced transition density matrices for 1 final pair of
+    LASSI eigenstates.
 
     Args:
         las : instance of class LASSCF
@@ -712,11 +836,14 @@ def root_make_rdm12s (las, ci_fr, nelec_frs, si, ix, orbsym=None, wfnsym=None):
         nelec_frs : ndarray of shape (nfrags,nroots,2)
             Number of electrons of each spin in each rootspace in each
             fragment
-        si : ndarray of shape (nroots, nroots)
+        si_bra : ndarray of shape (nroots, nroots)
             Unitary matrix defining final LASSI states in terms of
-            non-interacting LAS states
+            non-interacting LAS states for the bra
+        si_ket : ndarray of shape (nroots, nroots)
+            Unitary matrix defining final LASSI states in terms of
+            non-interacting LAS states for the ket
         ix : integer
-            Index of column of si to use
+            Index of columns of si_bra and si_ket to use
 
     Kwargs:
         orbsym : list of int of length (ncas)
@@ -751,43 +878,48 @@ def root_make_rdm12s (las, ci_fr, nelec_frs, si, ix, orbsym=None, wfnsym=None):
 
     ndeta = cistring.num_strings (norb, nelec_r[0])
     ndetb = cistring.num_strings (norb, nelec_r[1])
-    ci_r = np.zeros ((ndeta,ndetb), dtype=si.dtype)
-    for coeff, c in zip (si[:,ix], ci_r_gen ()):
+    cib_r = np.zeros ((ndeta,ndetb), dtype=si_bra.dtype)
+    cik_r = np.zeros ((ndeta,ndetb), dtype=si_ket.dtype)
+    for coeffb, coeffk, c in zip (si_bra[:,ix], si_ket[:,ix], ci_r_gen ()):
         try:
-            ci_r[:,:] += coeff * c
+            cib_r[:,:] += coeffb * c
+            cik_r[:,:] += coeffk * c
         except ValueError as err:
-            print (ci_r.shape, ndeta, ndetb, c.shape)
+            print (cib_r.shape, cik_r.shape, ndeta, ndetb, c.shape)
             raise (err)
-    ci_r_real = np.ascontiguousarray (ci_r.real)
-    rdm1s = np.zeros ((2, norb, norb), dtype=ci_r.dtype)
-    rdm2s = np.zeros ((2, norb, norb, 2, norb, norb), dtype=ci_r.dtype)
-    is_complex = np.iscomplexobj (ci_r)
-    if is_complex:
-        #solver = fci.fci_dhf_slow.FCISolver (mol)
-        #for ix, ci in enumerate (ci_r):
-        #    d1, d2 = solver.make_rdm12 (ci, norb, sum(nelec_r))
-        #    rdm1s[ix,0,:,:] = d1[:]
-        #    rdm2s[ix,0,:,:,0,:,:] = d2[:]
-        # ^ this is WAY too slow!
-        ci_r_imag = np.ascontiguousarray (ci_r.imag)
+    cib_r_real = np.ascontiguousarray (cib_r.real)
+    cik_r_real = np.ascontiguousarray (cik_r.real)
+    is_bra_complex = np.iscomplexobj (cib_r)
+    is_ket_complex = np.iscomplexobj (cik_r)
+    is_complex = is_bra_complex or is_ket_complex
+    dtype = cik_r.dtype
+    if is_complex and is_bra_complex: dtype = cib_r.dtype
+    rdm1s = np.zeros ((2, norb, norb), dtype=dtype)
+    rdm2s = np.zeros ((2, norb, norb, 2, norb, norb), dtype=dtype)
+    if is_bra_complex:
+        cib_r_imag = np.ascontiguousarray (cib_r.imag)
     else:
-        ci_r_imag = [0,]*nroots
+        cib_r_imag = [0,]*nroots
+    if is_ket_complex:
+        cik_r_imag = np.ascontiguousarray (cik_r.imag)
+    else:
+        cik_r_imag = [0,]*nroots
         #solver = fci.solver (mol).set (orbsym=orbsym, wfnsym=wfnsym)
+
     solver = fci.solver (mol).set (orbsym=orbsym, wfnsym=wfnsym)
-    d1s, d2s = solver.make_rdm12s (ci_r_real, norb, nelec_r)
-    d2s = (d2s[0], d2s[1], d2s[1].transpose (2,3,0,1), d2s[2])
+    d1s, d2s = solver.trans_rdm12s (cib_r_real, cik_r_real, norb, nelec_r)
     if is_complex:
         d1s = np.asarray (d1s, dtype=complex)
         d2s = np.asarray (d2s, dtype=complex)
-        d1s2, d2s2 = solver.make_rdm12s (ci_r_imag, norb, nelec_r)
-        d2s2 = (d2s2[0], d2s2[1], d2s2[1].transpose (2,3,0,1), d2s2[2])
+        d1s2, d2s2 = solver.trans_rdm12s (cib_r_imag, cik_r_imag, norb, nelec_r)
         d1s += np.asarray (d1s2)
         d2s += np.asarray (d2s2)
-        d1s2, d2s2 = solver.trans_rdm12s (ci_r_real, ci_r_imag, norb, nelec_r)
-        d1s2 -= np.asarray (d1s2).transpose (0,2,1)
-        d2s2 -= np.asarray (d2s2).transpose (0,2,1,4,3)
-        d1s -= 1j * d1s2 
-        d2s += 1j * d2s2
+        d1s2, d2s2 = solver.trans_rdm12s (cib_r_real, cik_r_imag, norb, nelec_r)
+        d1s += 1j * np.asarray (d1s2)
+        d2s -= 1j * np.asarray (d2s2)
+        d1s2, d2s2 = solver.trans_rdm12s (cib_r_imag, cik_r_real, norb, nelec_r)
+        d1s -= 1j * np.asarray (d1s2)
+        d2s += 1j * np.asarray (d2s2)
     rdm1s[0,:,:] = d1s[0]
     rdm1s[1,:,:] = d1s[1]
     rdm2s[0,:,:,0,:,:] = d2s[0]
@@ -799,7 +931,7 @@ def root_make_rdm12s (las, ci_fr, nelec_frs, si, ix, orbsym=None, wfnsym=None):
         rdm1s = rdm1s[0,:,:]
         # TODO: 2e- SOC
         n = norb // 2
-        rdm2s_ = np.zeros ((2, n, n, 2, n, n), dtype=ci_r.dtype)
+        rdm2s_ = np.zeros ((2, n, n, 2, n, n), dtype=dtype)
         rdm2s_[0,:,:,0,:,:] = rdm2s[0,:n,:n,0,:n,:n]
         rdm2s_[0,:,:,1,:,:] = rdm2s[0,:n,:n,0,n:,n:]
         rdm2s_[1,:,:,0,:,:] = rdm2s[0,n:,n:,0,:n,:n]
@@ -808,7 +940,42 @@ def root_make_rdm12s (las, ci_fr, nelec_frs, si, ix, orbsym=None, wfnsym=None):
 
     return rdm1s, rdm2s
 
-def roots_make_rdm12s (las, ci_fr, nelec_frs, si, orbsym=None, wfnsym=None):
+def root_make_rdm12s (las, ci_fr, nelec_frs, si, ix, orbsym=None, wfnsym=None, **kwargs):
+    '''Build LAS state interaction reduced density matrices for 1 final
+    LASSI eigenstate.
+
+    Args:
+        las : instance of class LASSCF
+        ci_fr : nested list of shape (nfrags, nroots)
+            Contains CI vectors; element [i,j] is ndarray of shape
+            (ndeta[i,j],ndetb[i,j])
+        nelec_frs : ndarray of shape (nfrags,nroots,2)
+            Number of electrons of each spin in each rootspace in each
+            fragment
+        si : ndarray of shape (nroots, nroots)
+            Unitary matrix defining final LASSI states in terms of
+            non-interacting LAS states
+        ix : integer
+            Index of column of si to use
+
+    Kwargs:
+        orbsym : list of int of length (ncas)
+            Irrep ID for each orbital
+        wfnsym : int
+            Irrep ID for target matrix block
+
+    Returns:
+        rdm1s : ndarray of shape (2, ncas, ncas) OR (2*ncas, 2*ncas)
+            One-body transition density matrices between LAS states
+            If states with different spin projections (i.e., neleca-nelecb) are present, the 2d
+            spinorbital array is returned. Otherwise, the 3d spatial-orbital array is returned.
+        rdm2s : ndarray of length (2, ncas, ncas, 2, ncas, ncas)
+            Two-body transition density matrices between LAS states
+    '''
+    return root_trans_rdm12s (las, ci_fr, nelec_frs, si, si, ix, orbsym=None, wfnsym=None,
+                              **kwargs)
+
+def roots_make_rdm12s (las, ci_fr, nelec_frs, si, orbsym=None, wfnsym=None, **kwargs):
     '''Build LAS state interaction reduced density matrices for final
     LASSI eigenstates.
 
@@ -841,7 +1008,51 @@ def roots_make_rdm12s (las, ci_fr, nelec_frs, si, orbsym=None, wfnsym=None):
     rdm1s = []
     rdm2s = []
     for ix in range (si.shape[1]):
-        d1, d2 = root_make_rdm12s (las, ci_fr, nelec_frs, si, ix, orbsym=orbsym, wfnsym=wfnsym)
+        d1, d2 = root_make_rdm12s (las, ci_fr, nelec_frs, si, ix, orbsym=orbsym, wfnsym=wfnsym,
+                                   **kwargs)
+        rdm1s.append (d1)
+        rdm2s.append (d2)
+    return np.stack (rdm1s, axis=0), np.stack (rdm2s, axis=0)
+
+def roots_trans_rdm12s (las, ci_fr, nelec_frs, si_bra, si_ket, orbsym=None, wfnsym=None, **kwargs):
+    '''Build LAS state interaction reduced transition density matrices for final
+    LASSI eigenstates.
+
+    Args:
+        las : instance of class LASSCF
+        ci_fr : nested list of shape (nfrags, nroots)
+            Contains CI vectors; element [i,j] is ndarray of shape
+            (ndeta[i,j],ndetb[i,j])
+        nelec_frs : ndarray of shape (nfrags,nroots,2)
+            Number of electrons of each spin in each rootspace in each
+            fragment
+        si_bra : ndarray of shape (nroots, nroots)
+            Unitary matrix defining final LASSI states in terms of
+            non-interacting LAS states for the bra
+        si_ket : ndarray of shape (nroots, nroots)
+            Unitary matrix defining final LASSI states in terms of
+            non-interacting LAS states for the ket
+
+    Kwargs:
+        orbsym : list of int of length (ncas)
+            Irrep ID for each orbital
+        wfnsym : int
+            Irrep ID for target matrix block
+
+    Returns:
+        rdm1s : ndarray of shape (nroots, 2, ncas, ncas) OR (nroots, 2*ncas, 2*ncas)
+            One-body transition density matrices between LAS states
+            If states with different spin projections (i.e., neleca-nelecb) are present, the 3d
+            spinorbital array is returned. Otherwise, the 4d spatial-orbital array is returned.
+        rdm2s : ndarray of length (nroots, 2, ncas, ncas, 2, ncas, ncas)
+            Two-body transition density matrices between LAS states
+    '''
+    rdm1s = []
+    rdm2s = []
+    assert (si_bra.shape == si_ket.shape)
+    for ix in range (si_bra.shape[1]):
+        d1, d2 = root_trans_rdm12s (las, ci_fr, nelec_frs, si_bra, si_ket, ix, orbsym=orbsym,
+                                    wfnsym=wfnsym, **kwargs)
         rdm1s.append (d1)
         rdm2s.append (d2)
     return np.stack (rdm1s, axis=0), np.stack (rdm2s, axis=0)
@@ -889,5 +1100,7 @@ if __name__ == '__main__':
         nelec_fr.append ([_unpack_nelec (fcibox._get_nelec (solver, ne)) for solver in fcibox.fcisolvers])
     ham_eff = slow_ham (las.mol, h1, h2, las.ci, las.ncas_sub, nelec_fr)[0]
     print (las.converged, e_states - (e0 + np.diag (ham_eff)))
+
+gen_contract_op_si_hdiag = functools.partial (citools._fake_gen_contract_op_si_hdiag, ham)
 
 

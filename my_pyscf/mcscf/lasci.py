@@ -68,7 +68,7 @@ def get_grad (las, mo_coeff=None, ci=None, ugg=None, h1eff_sub=None, h2eff_sub=N
     if dm1s is None: dm1s = las.make_rdm1s (mo_coeff=mo_coeff, ci=ci)
     if h2eff_sub is None: h2eff_sub = las.get_h2eff (mo_coeff)
     if veff is None:
-        veff = las.get_veff (dm1s = dm1s.sum (0))
+        veff = las.get_veff (dm = dm1s.sum (0))
         veff = las.split_veff (veff, h2eff_sub, mo_coeff=mo_coeff, ci=ci)
     if h1eff_sub is None: h1eff_sub = las.get_h1eff (mo_coeff, ci=ci, veff=veff,
                                                      h2eff_sub=h2eff_sub)
@@ -117,7 +117,7 @@ def get_grad_orb (las, mo_coeff=None, ci=None, h2eff_sub=None, veff=None, dm1s=N
     if dm1s is None: dm1s = las.make_rdm1s (mo_coeff=mo_coeff, ci=ci)
     if h2eff_sub is None: h2eff_sub = las.get_h2eff (mo_coeff)
     if veff is None:
-        veff = las.get_veff (dm1s = dm1s.sum (0))
+        veff = las.get_veff (dm = dm1s.sum (0))
         veff = las.split_veff (veff, h2eff_sub, mo_coeff=mo_coeff, ci=ci)
     nao, nmo = mo_coeff.shape
     ncore = las.ncore
@@ -260,7 +260,7 @@ def h1e_for_las (las, mo_coeff=None, ncas=None, ncore=None, nelecas=None, ci=Non
     if casdm1s_sub is None: casdm1s_sub = [np.einsum ('rsij,r->sij',dm,las.weights)
                                            for dm in casdm1frs]
     if veff is None:
-        veff = las.get_veff (dm1s = las.make_rdm1 (mo_coeff=mo_coeff, ci=ci))
+        veff = las.get_veff (dm = las.make_rdm1 (mo_coeff=mo_coeff, ci=ci))
         veff = las.split_veff (veff, h2eff_sub, mo_coeff=mo_coeff, ci=ci, casdm1s_sub=casdm1s_sub)
 
     # First pass: split by root  
@@ -510,7 +510,8 @@ def get_init_guess_ci (las, mo_coeff=None, h2eff_sub=None, ci0=None, eri_cas=Non
             nelec = fcibox._get_nelec (solver, nelecas)
             if hasattr (mo_coeff, 'orbsym'):
                 solver.orbsym = mo_coeff.orbsym[ncore+i:ncore+j]
-            hdiag_csf = solver.make_hdiag_csf (h1e, eri, norb, nelec, max_memory=las.max_memory)
+            max_memory = max (400, las.max_memory - lib.current_memory()[0])
+            hdiag_csf = solver.make_hdiag_csf (h1e, eri, norb, nelec, max_memory=max_memory)
             ci0g = solver.get_init_guess (norb, nelec, solver.nroots, hdiag_csf)
             ci0[ix][iy] = las._combine_init_guess_ci (ci0[ix][iy], ci0g, norb, nelec,
                                                       solver.nroots)
@@ -877,9 +878,28 @@ def get_nelec_frs (las):
         nelec_frs.append (nelec_rs)
     return np.asarray (nelec_frs)
 
+def get_sym_fr (las):
+    ''' Getter function for irrep IDs of all fragments in all rootspaces.
+
+    Returns:
+        sym_fr: ndarray of shape (nfrags, nroots)
+            irrep IDs in each rootspace in each fragment
+    '''
+    sym_fr = []
+    for fcibox in las.fciboxes:
+        sym_r = []
+        for solver in fcibox.fcisolvers:
+            sym = getattr (solver, 'wfnsym', 0) or 0
+            if isinstance (sym, str):
+                sym = symm.irrep_name2id (solver.mol.groupname, sym)
+            sym_r.append (sym)
+        sym_fr.append (sym_r)
+    return np.asarray (sym_fr)
+
 class LASCINoSymm (casci.CASCI):
 
     def __init__(self, mf, ncas, nelecas, ncore=None, spin_sub=None, frozen=None, frozen_ci=None, **kwargs):
+        self.use_gpu = kwargs.get('use_gpu', None)
         if isinstance(ncas,int):
             ncas = [ncas]
         ncas_tot = sum (ncas)
@@ -925,6 +945,12 @@ class LASCINoSymm (casci.CASCI):
         self.e_states = [0.0]
         self.e_lexc = [[np.array ([0]),],]
 
+    def copy (self):
+        # semi-deep copy of nested lists
+        mycopy = super().copy ()
+        mycopy.ci = [[xij for xij in xi] for xi in self.ci]
+        return mycopy
+
     def _init_fcibox (self, smult, nel): 
         s = csf_solver (self.mol, smult=smult)
         s.spin = nel[0] - nel[1] 
@@ -941,6 +967,7 @@ class LASCINoSymm (casci.CASCI):
         mo = mo[:,:self.ncas_sub[idx]]
         return mo
 
+    get_sym_fr = get_sym_fr
     get_nelec_frs = get_nelec_frs
     get_h1eff = get_h1las = h1e_for_las = h1e_for_las
     get_h2eff = ao2mo = las_ao2mo.get_h2eff
@@ -1575,7 +1602,6 @@ class LASCINoSymm (casci.CASCI):
             casdm2s[1][i:j, i:j, k:l, k:l] = lib.einsum ('r,rij,rkl->ijkl', weights, dma1r, dmb2r) # ab = ba
             casdm2s[2][i:j, i:j, k:l, k:l] = lib.einsum ('r,rij,rkl->ijkl', weights, dmb1r, dmb2r)
             for spin in [0,1,2]:
-#<<<<<<< HEAD
                 casdm2s[spin][k:l, k:l, i:j, i:j] = casdm2s[spin][i:j, i:j, k:l, k:l].transpose (2,3,0,1)
             # Exchange slice
             d2exc_aa = lib.einsum ('rij,rkl->rilkj', dma1r, dma2r)
@@ -1584,18 +1610,6 @@ class LASCINoSymm (casci.CASCI):
             casdm2s[2][i:j, k:l, k:l, i:j] -= np.tensordot (weights, d2exc_bb, axes=1)
             for spin in [0,2]:
                 casdm2s[spin][k:l, i:j, i:j, k:l] = casdm2s[spin][i:j, k:l, k:l, i:j].transpose (1,0,3,2)
-        
-#=======
-#                # Coulomb slice
-#                casdm2s[spin][i:j,i:j,k:l,k:l] = lib.einsum ('r,rij,rkl->ijkl', weights,dm1r,dm2r)
-#                casdm2s[spin][k:l,k:l,i:j,i:j] = casdm2s[spin][i:j,i:j,k:l,k:l].transpose (2,3,0,1)
-#                # Exchange slice
-#                d2exc = (lib.einsum ('rij,rkl->rilkj', dma1r, dma2r)
-#                       + lib.einsum ('rij,rkl->rilkj', dmb1r, dmb2r))
-#                casdm2s[spin][i:j,k:l,k:l,i:j] -= np.tensordot (weights, d2exc, axes=1)
-#                casdm2s[spin][k:l,i:j,i:j,k:l] = casdm2s[spin][i:j,k:l,k:l,i:j].transpose (1,0,3,2)
-#
-#>>>>>>> upstream/master
         return casdm2s
 
 
@@ -1741,7 +1755,6 @@ class LASCINoSymm (casci.CASCI):
             # Term 3- 29f
 #=======
             # Term 3- 29c
-#>>>>>>> upstream/master
             d3sigma = (lib.einsum('r,rij,rkl,rmn->rinkjml',weights,dma1r,dma2r,dma3r)
                        +lib.einsum('r,rij,rkl,rmn->rinkjml',weights,dmb1r,dmb2r,dmb3r))
             casdm3[i:j, m:n, k:l, i:j, m:n, k:l] += np.tensordot (weights, d3sigma, axes=1)
@@ -1751,7 +1764,6 @@ class LASCINoSymm (casci.CASCI):
             # Term 4- 29c
 #=======
             # Term 4- 29d
-#>>>>>>> upstream/master
             d4sigma = (lib.einsum('r,rij,rkl,rmn->rilkjmn',weights,dma1r,dma2r,dm3r)
                        +lib.einsum('r,rij,rkl,rmn->rilkjmn',weights,dmb1r,dmb2r,dm3r))
             casdm3[i:j, k:l, k:l, i:j, m:n, m:n] -= np.tensordot(weights, d4sigma, axes=1)
@@ -1767,7 +1779,6 @@ class LASCINoSymm (casci.CASCI):
             # Term 6- 29d
 #=======
             # Term 6- 29f
-#>>>>>>> upstream/master
             d6sigma = (lib.einsum('r,rij,rkl,rmn->rilknmj',weights,dma1r,dma2r,dma3r)
                        +lib.einsum('r,rij,rkl,rmn->rilknmj',weights,dmb1r,dmb2r,dmb3r))
             casdm3[i:j, k:l, k:l, m:n, m:n, i:j] += np.tensordot(weights, d6sigma, axes=1)
@@ -2056,20 +2067,25 @@ class LASCINoSymm (casci.CASCI):
         
         return casdm3s
 
-    def get_veff (self, mol=None, dm1s=None, hermi=1, spin_sep=False, **kwargs):
-        ''' Returns a spin-summed veff! If dm1s isn't provided, builds from self.mo_coeff, self.ci
+    def get_veff (self, mol=None, dm=None, hermi=1, spin_sep=False, dm1s=None, **kwargs):
+        ''' Returns a spin-summed veff! If dm isn't provided, builds from self.mo_coeff, self.ci
             etc. '''
+        if dm is None and dm1s is not None:
+            import warnings
+            kwarg_warn = "The kwarg on get_veff has been renamed from dm1s to dm"
+            warnings.warn(kwarg_warn, stacklevel=3)
+            dm = dm1s
         if mol is None: mol = self.mol
         nao = mol.nao_nr ()
-        if dm1s is None: dm1s = self.make_rdm1 (include_core=True, **kwargs).reshape (nao, nao)
-        dm1s = np.asarray (dm1s)
-        if dm1s.ndim == 2: dm1s = dm1s[None,:,:]
+        if dm is None: dm = self.make_rdm1 (include_core=True, **kwargs).reshape (nao, nao)
+        dm = np.asarray (dm)
+        if dm.ndim == 2: dm = dm[None,:,:]
         if isinstance (self, _DFLASCI):
-            vj, vk = self.with_df.get_jk(dm1s, hermi=hermi)
+            vj, vk = self.with_df.get_jk(dm, hermi=hermi)
         else:
-            vj, vk = self._scf.get_jk(mol, dm1s, hermi=hermi)
+            vj, vk = self._scf.get_jk(mol, dm, hermi=hermi)
         if spin_sep:
-            assert (dm1s.shape[0] == 2)
+            assert (dm.shape[0] == 2)
             return vj.sum (0)[None,:,:] - vk
         else:
             veff = np.stack ([j - k/2 for j, k in zip (vj, vk)], axis=0)
@@ -2136,7 +2152,7 @@ class LASCINoSymm (casci.CASCI):
         mo_cas = mo_coeff[:,ncore:nocc]
         dm_core = 2*mo_core @ mo_core.conj ().T
         if veff_core is None: veff_core = getattr (veff, 'c', None)
-        if veff_core is None: veff_core = self.get_veff (dm1s=dm_core)
+        if veff_core is None: veff_core = self.get_veff (dm=dm_core)
         h1eff = self.get_hcore () + veff_core
         e0 = 2*np.dot (((h1eff-(veff_core/2)) @ mo_core).ravel (), mo_core.conj().ravel ())
         h1eff = mo_cas.conj ().T @ h1eff @ mo_cas
@@ -2189,7 +2205,7 @@ class LASCINoSymm (casci.CASCI):
         casdm1s_sub = self.make_casdm1s_sub (ci=ci, ncas_sub=ncas_sub, nelecas_sub=nelecas_sub,
                                              casdm1frs=casdm1frs)
         if veff is None:
-            veff = self.get_veff (dm1s = self.make_rdm1(mo_coeff=mo_coeff,casdm1s_sub=casdm1s_sub))
+            veff = self.get_veff (dm = self.make_rdm1(mo_coeff=mo_coeff,casdm1s_sub=casdm1s_sub))
             veff = self.split_veff (veff, h2eff, mo_coeff=mo_coeff, casdm1s_sub=casdm1s_sub)
 
         # 1-body veff terms
@@ -2249,16 +2265,17 @@ class LASCINoSymm (casci.CASCI):
         ncas = sum (ncas_sub)
         nocc = ncore + ncas
         nao, nmo = mo_coeff.shape
-
+        gpu=self.use_gpu
         mo_cas = mo_coeff[:,ncore:nocc]
         moH_cas = mo_cas.conjugate ().T
         moH_coeff = mo_coeff.conjugate ().T
         dma = linalg.block_diag (*[dm[0] for dm in casdm1s_sub])
         dmb = linalg.block_diag (*[dm[1] for dm in casdm1s_sub])
         casdm1s = np.stack ([dma, dmb], axis=0)
-        if not (isinstance (self, _DFLASCI)):
+        if gpu or not (isinstance (self, _DFLASCI)):
             dm1s = np.dot (mo_cas, np.dot (casdm1s, moH_cas)).transpose (1,0,2)
-            return self.get_veff (dm1s = dm1s, spin_sep=True)
+            if not _full: dm1s = dm1s[0]+dm1s[1]
+            return self.get_veff (dm = dm1s, spin_sep=_full)
         casdm1 = casdm1s.sum (0)
         dm1 = np.dot (mo_cas, np.dot (casdm1, moH_cas))
         bPmn = sparsedf_array (self.with_df._cderi)

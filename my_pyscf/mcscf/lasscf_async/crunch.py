@@ -5,7 +5,7 @@ from pyscf import gto, scf, mcscf, ao2mo, lib, df
 from pyscf.lib import logger
 from pyscf.fci.direct_spin1 import _unpack_nelec
 from pyscf.mcscf.addons import _state_average_mcscf_solver
-from mrh.my_pyscf.mcscf import _DFLASCI
+from mrh.my_pyscf.mcscf import _DFLASCI, lasci_sync, lasci
 import copy, json
 
 class ImpurityMole (gto.Mole):
@@ -25,6 +25,8 @@ class ImpurityMole (gto.Mole):
         self.spin = None
         self._imporb_coeff = np.array ([0])
         self.build ()
+        add_gpu = {"use_gpu":las.use_gpu}
+        self.__dict__.update(add_gpu)
 
     def _update_space_(self, imporb_coeff, nelec_imp):
         self._imporb_coeff = imporb_coeff
@@ -38,7 +40,7 @@ class ImpurityMole (gto.Mole):
     def dumps (mol):
         '''Subclassing this to eliminate annoying warning message
         '''
-        exclude_keys = set(('output', 'stdout', '_keys',
+        exclude_keys = set(('output', 'stdout', '_keys', 'use_gpu',
                             # Constructing in function loads
                             'symm_orb', 'irrep_id', 'irrep_name',
                             # LASSCF hook to rest of molecule
@@ -66,8 +68,10 @@ class ImpurityMole (gto.Mole):
                 dic1 = {}
                 for k,v in dic.items():
                     if (v is None or
-                        isinstance(v, (str, unicode, bool, int, float))):
+                        isinstance(v, (str, bool, int, float))):
                         dic1[k] = v
+                    elif isinstance(v, np.integer):
+                        dic1[k] = int (v)
                     elif isinstance(v, (list, tuple)):
                         dic1[k] = v   # Should I recursively skip_vaule?
                     elif isinstance(v, set):
@@ -118,7 +122,7 @@ class ImpuritySCF (scf.hf.SCF):
         if e_tot is None: e_tot = self.mol._las.e_tot
         imporb_coeff = self.mol.get_imporb_coeff ()
         nimp = self.mol.nao ()
-        mf = self.mol._las._scf
+        mf = self.mol._las._scf #for full molecule, vs self object which is impurity - could be fragment or sets of fragments
         # Two-electron integrals
         log = logger.new_logger (self, self.verbose)
         t0 = (logger.process_clock(), logger.perf_counter())
@@ -127,21 +131,125 @@ class ImpuritySCF (scf.hf.SCF):
                                             "supported)"))
         df_eris_mem_error = MemoryError (("Density-fitted two-electron integrals in asynchronous "
                                           "LASSCF (outcore algorithm is not yet supported"))
+        if hasattr(self.mol, 'use_gpu'):
+            gpu = self.mol.use_gpu
+        else:
+            gpu = False
+
         if getattr (mf, 'with_df', None) is not None:
+            from mrh.my_pyscf.gpu import libgpu
             # TODO: impurity outcore cderi
-            if not self._is_mem_enough (df_naux = mf.with_df.get_naoaux ()):
-                raise df_eris_mem_error
-            self.with_df._cderi = np.empty ((mf.with_df.get_naoaux (), nimp*(nimp+1)//2),
-                                            dtype=imporb_coeff.dtype)
-            ijmosym, mij_pair, moij, ijslice = ao2mo.incore._conc_mos (imporb_coeff, imporb_coeff,
+            imporb_coeff=np.ascontiguousarray(imporb_coeff) 
+            #VA - 4/29/25
+            #you need to do this because imporb_coeff is input into the function is F-contiguous during recomb and C-contiguous during fragments 
+            #gpu code expects a c-contiguous
+            #this does not affect the cpu code because ```ao2mo.incore._conc_mos``` gives back moij which is necessarily in f-contiguous regardless of how imporb_coeff is to start with
+            if mf.mol.verbose>=lib.logger.DEBUG and gpu:
+                #do cpu
+                if not self._is_mem_enough (df_naux = mf.with_df.get_naoaux ()):
+                    raise df_eris_mem_error
+                _cderi = np.empty ((mf.with_df.get_naoaux (), nimp*(nimp+1)//2),
+                               dtype=imporb_coeff.dtype)
+                ijmosym, mij_pair, moij, ijslice = ao2mo.incore._conc_mos (imporb_coeff, imporb_coeff,
                                                                         compact=True)
-            b0 = 0
-            for eri1 in mf.with_df.loop ():
-                b1 = b0 + eri1.shape[0]
-                eri2 = self._cderi[b0:b1]
-                eri2 = ao2mo._ao2mo.nr_e2 (eri1, moij, ijslice, aosym='s2', mosym=ijmosym,
-                                           out=eri2)
-                b0 = b1
+                b0 = 0
+
+                log.debug("Doing CPU version of impham, nimp: " + str(nimp))
+                for eri1 in mf.with_df.loop ():
+                    b1 = b0 + eri1.shape[0]
+                    eri2 = _cderi[b0:b1]
+                    eri2 = ao2mo._ao2mo.nr_e2 (eri1, moij, ijslice, aosym='s2', mosym=ijmosym,out=eri2)
+                    b0 = b1
+                if getattr (self, 'with_df', None) is not None:
+                    self.with_df._cderi = _cderi
+                else:
+                    self._cderi = _cderi
+                    self._eri = np.dot (_cderi.conj ().T, _cderi)
+                #do gpu
+                naoaux = mf.with_df.get_naoaux()
+                nao_s, nao_f = imporb_coeff.shape
+                if getattr(self, 'with_df', None) is not None:
+                    _cderi_gpu = np.zeros ((mf.with_df.get_naoaux (), nao_f*(nao_f+1)//2),dtype=imporb_coeff.dtype)
+                    return_4c2eeri=False
+                else: 
+                    _eri_gpu=np.zeros((nao_f*(nao_f+1)//2,nao_f*(nao_f+1)//2), dtype = imporb_coeff.dtype)
+                    #VA -for some reason, beyond my comprehension, np.empty does not work, you must initialize it as np.zeros. 
+                    return_4c2eeri=True
+                blksize=mf.with_df.blockdim
+                libgpu.push_mo_coeff(gpu, imporb_coeff, nao_s*nao_f)
+                libgpu.init_eri_impham(gpu, naoaux, nao_f, return_4c2eeri)
+                 
+                for k, eri1 in enumerate(mf.with_df.loop(blksize)):pass;
+                for count in range(k+1): 
+                    arg = np.array([-1, -1, count, -1], dtype = np.int32)
+                    libgpu.get_dfobj_status(gpu, id(mf.with_df),arg)
+                    naux = arg[0]
+                    libgpu.compute_eri_impham (gpu, nao_s, nao_f, blksize, naux, count, id(mf.with_df), return_4c2eeri)
+                if return_4c2eeri:
+                    libgpu.pull_eri_impham(gpu, _eri_gpu, naoaux, nao_f, return_4c2eeri)
+                    #self._eri=_eri_gpu
+                else:
+                    libgpu.pull_eri_impham(gpu, _cderi_gpu, naoaux, nao_f, return_4c2eeri)
+                    #self._cderi=_cderi
+                if return_4c2eeri:
+                    if (np.allclose(_eri_gpu, self._eri)):  
+                        log.debug("Cholesky vectors updating correctly")
+                    else:
+                        log.debug("Cholesky vector issue")
+                        exit()
+                else:
+                    if (np.allclose(_cderi_gpu, _cderi)):  
+                        log.debug("Cholesky vectors updating correctly")
+                    else:
+                        log.debug("Cholesky vector issue")
+                        exit()
+
+            elif gpu and 0:
+                naoaux = mf.with_df.get_naoaux()
+                nao_s, nao_f = imporb_coeff.shape
+                if getattr(self, 'with_df', None) is not None:
+                    _cderi = np.zeros ((mf.with_df.get_naoaux (), nao_f*(nao_f+1)//2),dtype=imporb_coeff.dtype)
+                    return_4c2eeri=False
+                else: 
+                    _eri=np.zeros((nao_f*(nao_f+1)//2,nao_f*(nao_f+1)//2), dtype = imporb_coeff.dtype)
+                    return_4c2eeri=True
+                blksize=mf.with_df.blockdim
+                libgpu.push_mo_coeff(gpu, imporb_coeff, nao_s*nao_f)
+                libgpu.init_eri_impham(gpu, naoaux, nao_f, return_4c2eeri)
+                 
+                for k, eri1 in enumerate(mf.with_df.loop(blksize)):pass;
+                for count in range(k+1): 
+                    arg = np.array([-1, -1, count, -1], dtype = np.int32)
+                    libgpu.get_dfobj_status(gpu, id(mf.with_df),arg)
+                    naux = arg[0]
+                    libgpu.compute_eri_impham (gpu, nao_s, nao_f, blksize, naux, count, id(mf.with_df), return_4c2eeri)
+                if return_4c2eeri:
+                    libgpu.pull_eri_impham(gpu, _eri, naoaux, nao_f, return_4c2eeri)
+                    self._eri=_eri
+                else:
+                    libgpu.pull_eri_impham(gpu, _cderi, naoaux, nao_f, return_4c2eeri)
+                    self._cderi=_cderi
+            else:         
+                if not self._is_mem_enough (df_naux = mf.with_df.get_naoaux ()):
+                    raise df_eris_mem_error
+                _cderi = np.empty ((mf.with_df.get_naoaux (), nimp*(nimp+1)//2),
+                               dtype=imporb_coeff.dtype)
+                ijmosym, mij_pair, moij, ijslice = ao2mo.incore._conc_mos (imporb_coeff, imporb_coeff,
+                                                                        compact=True)
+                b0 = 0
+
+                log.debug("Doing CPU version of impham, nimp: " + str(nimp))
+                for eri1 in mf.with_df.loop ():
+                    b1 = b0 + eri1.shape[0]
+                    eri2 = _cderi[b0:b1]
+                    eri2 = ao2mo._ao2mo.nr_e2 (eri1, moij, ijslice, aosym='s2', mosym=ijmosym,out=eri2)
+                    b0 = b1
+                if getattr (self, 'with_df', None) is not None:
+                    self.with_df._cderi = _cderi
+                else:
+                    self._cderi = _cderi
+                    self._eri = np.dot (_cderi.conj ().T, _cderi)
+
         else:
             if getattr (mf, '_eri', None) is None:
                 if not mf._is_mem_enough ():
@@ -324,13 +432,7 @@ def casci_kernel(casci, mo_coeff=None, ci0=None, verbose=logger.NOTE, envs=None)
     return e_tot, e_cas, fcivec
 
 # This is the really tricky part
-class ImpurityCASSCF (mcscf.mc1step.CASSCF):
-
-    # make sure the fcisolver flag dump goes to the fragment output file,
-    # not the main output file
-    def dump_flags (self, verbose=None):
-        with lib.temporary_env (self.fcisolver, stdout=self.stdout):
-            mcscf.mc1step.CASSCF.dump_flags(self, verbose=verbose)
+class ImpuritySolver ():
 
     def _push_keyframe (self, kf1, mo_coeff=None, ci=None):
         '''Generate the whole-system MO and CI vectors corresponding to the current state of this
@@ -354,33 +456,37 @@ class ImpurityCASSCF (mcscf.mc1step.CASSCF):
         if ci is None: ci=self.ci
         log = logger.new_logger (self, self.verbose)
         kf2 = kf1.copy ()
+        kf2.frags = set (self._ifrags)
         imporb_coeff = self.mol.get_imporb_coeff ()
         mo_self = imporb_coeff @ mo_coeff
+        las = self.mol._las
 
         # active orbital part should be easy
-        kf2.ci[self._ifrag] = self.ci
-        las = self.mol._las
-        i = las.ncore + sum (las.ncas_sub[:self._ifrag])
-        j = i + las.ncas_sub[self._ifrag]
-        k = self.ncore
-        l = k + self.ncas
-        kf2.mo_coeff[:,i:j] = mo_self[:,k:l]
+        ci = self.ci if len (self._ifrags)>1 else [self.ci,]
+        idx = []
+        for ix, ifrag in enumerate (self._ifrags):
+            kf2.ci[ifrag] = ci[ix]
+            i = las.ncore + sum (las.ncas_sub[:ifrag])
+            j = i + las.ncas_sub[ifrag]
+            idx.extend (list (range (i,j)))
+        kf2.mo_coeff[:,idx] = mo_self[:,self.ncore:self.ncore+self.ncas]
 
         # Unentangled inactive orbitals
+        s0 = las._scf.get_ovlp ()
         ncore_unent = las.ncore - self.ncore
         assert (ncore_unent>=0), '{} {}'.format (las.ncore, self.ncore)
-        mo_full_core = kf2.mo_coeff[:,:las.ncore]
-        s0 = las._scf.get_ovlp ()
-        ovlp = mo_full_core.conj ().T @ s0 @ imporb_coeff
-        proj = ovlp @ ovlp.conj ().T
-        evals, u = linalg.eigh (-proj)
-        try:
-            assert (ncore_unent==0 or np.amax (np.abs (evals[-ncore_unent:]))<1e-4)
-        except AssertionError as err:
-            log.warn ("push_keyframe imporb problem: ncore_unent = %d but max |evals[-ncore_unent:]| = %e",
-                      ncore_unent, np.amax (np.abs (evals[-ncore_unent:])))
-        if ncore_unent>0: kf2.mo_coeff[:,:ncore_unent] = mo_full_core @ u[:,-ncore_unent:]
-        kf2.mo_coeff[:,ncore_unent:las.ncore] = mo_self[:,:self.ncore]
+        if las.ncore:
+            mo_full_core = kf2.mo_coeff[:,:las.ncore]
+            ovlp = mo_full_core.conj ().T @ s0 @ imporb_coeff
+            proj = ovlp @ ovlp.conj ().T
+            evals, u = linalg.eigh (-proj)
+            try:
+                assert (ncore_unent==0 or np.amax (np.abs (evals[-ncore_unent:]))<1e-4)
+            except AssertionError as err:
+                log.warn ("push_keyframe imporb problem: ncore_unent = %d but max |evals[-ncore_unent:]| = %e",
+                          ncore_unent, np.amax (np.abs (evals[-ncore_unent:])))
+            if ncore_unent>0: kf2.mo_coeff[:,:ncore_unent] = mo_full_core @ u[:,-ncore_unent:]
+            kf2.mo_coeff[:,ncore_unent:las.ncore] = mo_self[:,:self.ncore]
         
         # Canonicalize unentangled inactive orbitals
         # Be careful not to touch kf2.h2eff_sub or kf2.fock1 until we're done
@@ -395,26 +501,27 @@ class ImpurityCASSCF (mcscf.mc1step.CASSCF):
         nvirt_full = kf2.mo_coeff.shape[1] - las.ncore - las.ncas
         nvirt_self = mo_coeff.shape[1] - self.ncore - self.ncas
         nvirt_unent = nvirt_full - nvirt_self
-        assert (nvirt_unent>=0), '{} {}'.format (nvirt_full, nvirt_self)
-        mo_full_virt = kf2.mo_coeff[:,las.ncore+las.ncas:]
-        ovlp = mo_full_virt.conj ().T @ s0 @ imporb_coeff
-        proj = ovlp @ ovlp.conj ().T
-        evals, u = linalg.eigh (-proj)
-        try:
-            assert (nvirt_unent==0 or np.amax (np.abs (evals[-nvirt_unent:]))<1e-4)
-        except AssertionError as err:
-            log.warn ("push_keyframe imporb problem: nvirt_unent = %d but max |evals[-nvirt_unent:]| = %e",
-                      nvirt_unent, np.amax (np.abs (evals[-nvirt_unent:])))
-        if nvirt_unent>0:
-            kf2.mo_coeff[:,-nvirt_unent:] = mo_full_virt @ u[:,-nvirt_unent:]
-            kf2.mo_coeff[:,las.ncore+las.ncas:-nvirt_unent] = mo_self[:,self.ncore+self.ncas:]
-            # Canonicalize unentangled virtual orbitals
-            mo_a = kf2.mo_coeff[:,-nvirt_unent:]
-            f0_ab = mo_a.conj ().T @ f0 @ mo_a
-            w, u = linalg.eigh (f0_ab)
-            kf2.mo_coeff[:,-nvirt_unent:] = mo_a @ u
-        else:
-            kf2.mo_coeff[:,las.ncore+las.ncas:] = mo_self[:,self.ncore+self.ncas:]
+        if nvirt_full:
+            assert (nvirt_unent>=0), '{} {}'.format (nvirt_full, nvirt_self)
+            mo_full_virt = kf2.mo_coeff[:,las.ncore+las.ncas:]
+            ovlp = mo_full_virt.conj ().T @ s0 @ imporb_coeff
+            proj = ovlp @ ovlp.conj ().T
+            evals, u = linalg.eigh (-proj)
+            try:
+                assert (nvirt_unent==0 or np.amax (np.abs (evals[-nvirt_unent:]))<1e-4)
+            except AssertionError as err:
+                log.warn ("push_keyframe imporb problem: nvirt_unent = %d but max |evals[-nvirt_unent:]| = %e",
+                          nvirt_unent, np.amax (np.abs (evals[-nvirt_unent:])))
+            if nvirt_unent>0:
+                kf2.mo_coeff[:,-nvirt_unent:] = mo_full_virt @ u[:,-nvirt_unent:]
+                kf2.mo_coeff[:,las.ncore+las.ncas:-nvirt_unent] = mo_self[:,self.ncore+self.ncas:]
+                # Canonicalize unentangled virtual orbitals
+                mo_a = kf2.mo_coeff[:,-nvirt_unent:]
+                f0_ab = mo_a.conj ().T @ f0 @ mo_a
+                w, u = linalg.eigh (f0_ab)
+                kf2.mo_coeff[:,-nvirt_unent:] = mo_a @ u
+            else:
+                kf2.mo_coeff[:,las.ncore+las.ncas:] = mo_self[:,self.ncore+self.ncas:]
 
         return kf2
 
@@ -449,14 +556,16 @@ class ImpurityCASSCF (mcscf.mc1step.CASSCF):
     def _update_trial_state_(self, mo_coeff, ci, veff, dm1s):
         '''Project whole-molecule MO coefficients and CI vectors into the
         impurity space and store on self.mo_coeff; self.ci.'''
-        _ifrag = self._ifrag
         las = self.mol._las
         mf = las._scf
         log = logger.new_logger(self, self.verbose)
 
+        ci = [ci[ifrag] for ifrag in self._ifrags]
+        if len (self._ifrags)==1: ci = ci[0]
+        self.ci = ci
+
         # Project mo_coeff and ci keyframe into impurity space and cache
         imporb_coeff = self.mol.get_imporb_coeff ()
-        self.ci = ci[_ifrag]
         # Inactive orbitals
         mo_core = mo_coeff[:,:las.ncore]
         s0 = mf.get_ovlp ()
@@ -469,9 +578,12 @@ class ImpurityCASSCF (mcscf.mc1step.CASSCF):
             log.warn ("pull_keyframe imporb problem: <i|P_emb|i> = %e", evals[idx])
         # Active and virtual orbitals (note self.ncas must be set at construction)
         nocc = self.ncore + self.ncas
-        i = las.ncore + sum (las.ncas_sub[:_ifrag])
-        j = i + las.ncas_sub[_ifrag]
-        mo_las = mo_coeff[:,i:j]
+        mo_las = []
+        for ifrag in self._ifrags:
+            i = las.ncore + sum (las.ncas_sub[:ifrag])
+            j = i + las.ncas_sub[ifrag]
+            mo_las.append (mo_coeff[:,i:j])
+        mo_las = np.concatenate (mo_las, axis=1)
         ovlp = (imporb_coeff @ self.mo_coeff[:,self.ncore:]).conj ().T @ s0 @ mo_las
         u, svals, vh = linalg.svd (ovlp)
         if (self.ncas>0) and not (np.allclose (svals[:self.ncas],1)):
@@ -483,49 +595,60 @@ class ImpurityCASSCF (mcscf.mc1step.CASSCF):
         # Canonicalize core and virtual spaces
         fock = las.get_fock (veff=veff, dm1s=dm1s)
         fock = imporb_coeff.conj ().T @ fock @ imporb_coeff
-        mo_core = self.mo_coeff[:,:self.ncore]
-        fock_core = mo_core.conj ().T @ fock @ mo_core
-        w, c = linalg.eigh (fock_core)
-        self.mo_coeff[:,:self.ncore] = mo_core @ c
-        mo_virt = self.mo_coeff[:,nocc:]
-        fock_virt = mo_virt.conj ().T @ fock @ mo_virt
-        w, c = linalg.eigh (fock_virt)
-        self.mo_coeff[:,nocc:] = mo_virt @ c
+        if self.ncore:
+            mo_core = self.mo_coeff[:,:self.ncore]
+            fock_core = mo_core.conj ().T @ fock @ mo_core
+            w, c = linalg.eigh (fock_core)
+            self.mo_coeff[:,:self.ncore] = mo_core @ c
+        if (self.mo_coeff.shape[1] - nocc):
+            mo_virt = self.mo_coeff[:,nocc:]
+            fock_virt = mo_virt.conj ().T @ fock @ mo_virt
+            w, c = linalg.eigh (fock_virt)
+            self.mo_coeff[:,nocc:] = mo_virt @ c
 
-    def _update_impurity_hamiltonian_(self, mo_coeff, ci, h2eff_sub=None, e_states=None, veff=None, dm1s=None):
+    def _update_impurity_hamiltonian_(self, mo_coeff, ci, h2eff_sub=None, e_states=None, veff=None,
+                                      dm1s=None, casdm1rs=None, casdm2rs=None, weights=None):
         '''Update the Hamiltonian data contained within this impurity solver and all encapsulated
         impurity objects'''
+        from mrh.my_pyscf.gpu import libgpu
         las = self.mol._las
-        _ifrag = self._ifrag
+        gpu = las.use_gpu
         if h2eff_sub is None: h2eff_sub = las.ao2mo (mo_coeff)
         if e_states is None: e_states = las.energy_nuc () + las.states_energy_elec (
             mo_coeff=mo_coeff, ci=ci, h2eff=h2eff_sub)
         e_tot = np.dot (las.weights, e_states)
         if dm1s is None: dm1s = las.make_rdm1s (mo_coeff=mo_coeff, ci=ci)
-        if veff is None: veff = las.get_veff (dm1s=dm1s, spin_sep=True)
+        if veff is None: veff = las.get_veff (dm=dm1s, spin_sep=True)
         nocc = self.ncore + self.ncas
+
+        # Default these to the "CASSCF" way of making them
+        if weights is None: weights = self.fcisolver.weights
+        if casdm1rs is None or casdm2rs is None:
+            casdm1rs, casdm2rs = self.fcisolver.states_make_rdm12s (self.ci,self.ncas,self.nelecas)
+            casdm1rs = np.stack (casdm1rs, axis=1)
+            casdm2rs = np.stack (casdm2rs, axis=1)
 
         # Set underlying SCF object Hamiltonian to state-averaged Heff
         self._scf._update_impham_1_(veff, dm1s, e_tot=e_tot)
-        casdm1rs, casdm2rs = self.fcisolver.states_make_rdm12s (self.ci, self.ncas, self.nelecas)
-        casdm1rs = np.stack (casdm1rs, axis=1)
-        casdm2sr = np.stack (casdm2rs, axis=0)
+        casdm2sr = casdm2rs.transpose (1,0,2,3,4,5)
         casdm2r = casdm2sr[0] + casdm2sr[1] + casdm2sr[1].transpose (0,3,4,1,2) + casdm2sr[2]
-        casdm1s = np.tensordot (self.fcisolver.weights, casdm1rs, axes=1)
-        casdm2 = np.tensordot (self.fcisolver.weights, casdm2r, axes=1)
-        eri_cas = ao2mo.restore (1, self.get_h2eff (self.mo_coeff), self.ncas)
+        casdm1s = np.tensordot (weights, casdm1rs, axes=1)
+        casdm2 = np.tensordot (weights, casdm2r, axes=1)
+        eri_cas = ao2mo.restore (1, self.get_h2cas (self.mo_coeff), self.ncas)
         mo_core = self.mo_coeff[:,:self.ncore]
         mo_cas = self.mo_coeff[:,self.ncore:nocc]
+        if gpu: libgpu.set_update_dfobj_(gpu, 1)
         self._scf._update_impham_2_(mo_core, mo_cas, casdm1s, casdm2, eri_cas)
 
         # Set state-separated Hamiltonian 1-body
         mo_cas_full = mo_coeff[:,las.ncore:][:,:las.ncas]
         dm1rs_full = las.states_make_casdm1s (ci=ci)
-        dm1s_full = np.tensordot (self.fcisolver.weights, dm1rs_full, axes=1)
+        dm1s_full = np.tensordot (weights, dm1rs_full, axes=1)
         dm1rs_stateshift = dm1rs_full - dm1s_full
-        i = sum (las.ncas_sub[:_ifrag])
-        j = i + las.ncas_sub[_ifrag]
-        dm1rs_stateshift[:,:,i:j,:] = dm1rs_stateshift[:,:,:,i:j] = 0
+        for ifrag in self._ifrags:
+            i = sum (las.ncas_sub[:ifrag])
+            j = i + las.ncas_sub[ifrag]
+            dm1rs_stateshift[:,:,i:j,:] = dm1rs_stateshift[:,:,:,i:j] = 0
         bmPu = getattr (h2eff_sub, 'bmPu', None)
         vj_r = self.get_vj_ext (mo_cas_full, dm1rs_stateshift.sum(1), bmPu=bmPu)
         vk_rs = self.get_vk_ext (mo_cas_full, dm1rs_stateshift, bmPu=bmPu)
@@ -555,10 +678,13 @@ class ImpurityCASSCF (mcscf.mc1step.CASSCF):
         output_shape = list (dm1rs_ext.shape[:-2]) + [self.mol.nao (), self.mol.nao ()]
         dm1 = dm1rs_ext.reshape (-1, mo_ext.shape[1], mo_ext.shape[1])
         if bmPu is not None:
+            log = logger.new_logger (self, self.verbose)
+            t_vj = (logger.process_clock(), logger.perf_counter())
             bPuu = np.tensordot (bmPu, mo_ext, axes=((0),(0)))
             rho = np.tensordot (dm1, bPuu, axes=((1,2),(1,2)))
-            bPii = self._scf.with_df._cderi
+            bPii = self._scf._cderi
             vj = lib.unpack_tril (np.tensordot (rho, bPii, axes=((-1),(0))))
+            t_vj = log.timer("vj ext", *t_vj)    
         else: # Safety case: AO-basis SCF driver
             imporb_coeff = self.mol.get_imporb_coeff ()
             dm1 = np.dot (mo_ext, np.dot (dm1, mo_ext.conj().T)).transpose (1,0,2)
@@ -571,20 +697,32 @@ class ImpurityCASSCF (mcscf.mc1step.CASSCF):
         dm1 = dm1rs_ext.reshape (-1, mo_ext.shape[1], mo_ext.shape[1])
         imporb_coeff = self.mol.get_imporb_coeff ()
         if bmPu is not None:
+            log = logger.new_logger (self, self.verbose)
+            t_vk = (logger.process_clock(), logger.perf_counter())
             biPu = np.tensordot (imporb_coeff, bmPu, axes=((0),(0)))
             vuiP = np.tensordot (dm1, biPu, axes=((-1),(-1)))
             vk = np.tensordot (vuiP, biPu, axes=((-3,-1),(-1,-2)))
+            t_vk = log.timer("vk ext", *t_vk)    
         else: # Safety case: AO-basis SCF driver
             dm1 = np.dot (mo_ext, np.dot (dm1, mo_ext.conj().T)).transpose (1,0,2)
-            vk = self.mol._las._scf.get_k (dm=dm1)
+            #vk = self.mol._las._scf.get_k (dm=dm1) 
+            _,vk = self.mol._las._scf.get_jk (dm=dm1) #TODO: for gpu run, this has to be written as get_k (it is now written as get_jk)
             vk = np.dot (imporb_coeff.conj ().T, np.dot (vk, imporb_coeff)).transpose (1,0,2)
         return vk.reshape (*output_shape)
-
+            
     def get_hcore_rs (self):
         return self._scf.get_hcore_spinsep ()[None,:,:,:] + self._imporb_h1_stateshift
 
     def energy_nuc_r (self):
         return self._scf.energy_nuc () + self._imporb_h0_stateshift
+
+class ImpurityCASSCF (mcscf.mc1step.CASSCF, ImpuritySolver):
+
+    # make sure the fcisolver flag dump goes to the fragment output file,
+    # not the main output file
+    def dump_flags (self, verbose=None):
+        with lib.temporary_env (self.fcisolver, stdout=self.stdout):
+            mcscf.mc1step.CASSCF.dump_flags(self, verbose=verbose)
 
     def get_h1eff (self, mo_coeff=None, ncas=None, ncore=None):
         ''' must needs change the dimension of h1eff '''
@@ -791,6 +929,164 @@ class ImpurityCASSCF (mcscf.mc1step.CASSCF):
 
         return g_orb, my_gorb_update, my_h_op, h_diag
 
+class ImpurityLASCI_HessianOperator (lasci_sync.LASCI_HessianOperator):
+    def _init_dms_(self, casdm1frs, casdm2fr):
+        lasci_sync.LASCI_HessianOperator._init_dms_(self, casdm1frs, casdm2fr)
+        ncore, nocc, nroots = self.ncore, self.nocc, self.nroots
+        self.dm1rs = np.stack ([self.dm1s,]*nroots, axis=0)
+        self.dm1rs[:,:,ncore:nocc,ncore:nocc] = self.casdm1rs
+
+    def _init_ham_(self, h2eff_sub, veff):
+        lasci_sync.LASCI_HessianOperator._init_ham_(self, h2eff_sub, veff)
+        las, mo_coeff, ncore, nocc = self.las, self.mo_coeff, self.ncore, self.nocc
+        h1rs = np.dot (las.get_hcore_rs (), mo_coeff)
+        h1rs = np.tensordot (mo_coeff.conj (), h1rs, axes=((0),(2))).transpose (1,2,0,3)
+        hcore = mo_coeff.conj ().T @ las.get_hcore () @ mo_coeff
+        dh1rs = h1rs - hcore[None,None,:,:]
+        # _init_ci_ and ci_response_diag
+        for ix, h1rs in enumerate (self.h1frs):
+            i = sum (self.ncas_sub[:ix])
+            j = i + self.ncas_sub[ix]
+            h1rs[:,:,:,:] += dh1rs[:,:,i:j,i:j]
+        # _init_orb_ and orbital_response 
+        self.h1rs = self.h1s[None,:,:,:] + dh1rs
+        # ci_response_offdiag
+        self.h1rs_cas = self.h1s_cas[None,:,:,:] + dh1rs[:,:,:,ncore:nocc]
+        # Energy reportback
+        self.e_tot += np.einsum ('rspq,rspq,r->', dh1rs, self.dm1rs, self.weights)
+
+    def _init_orb_(self):
+        ncore, nocc = self.ncore, self.nocc
+        lasci_sync.LASCI_HessianOperator._init_orb_(self)
+        for w, h1s, casdm1s in zip (self.weights, self.h1rs, self.casdm1rs):
+            dh1s = h1s[:,ncore:nocc,ncore:nocc] - self.h1s[:,ncore:nocc,ncore:nocc]
+            self.fock1[:,ncore:nocc] += w * (dh1s[0] @ casdm1s[0] + dh1s[1] @ casdm1s[1])
+
+    def _get_Horb_diag (self):
+        # It's unclear that this is even necessary...
+        Hdiag = 0
+        for w, h, d in zip (self.weights, self.h1rs, self.dm1rs):
+            with lib.temporary_env (self, h1s=h, dm1s=d):
+                Hdiag += w * lasci_sync.LASCI_HessianOperator._get_Horb_diag (self)
+        return Hdiag
+
+    def ci_response_offdiag (self, kappa1, h1frs_prime):
+        ncore, nocc, ncas_sub = self.ncore, self.nocc, self.ncas_sub
+        kappa1_cas = kappa1[ncore:nocc,:]
+        dh1rs_cas = self.h1rs_cas - self.h1s_cas[None,:,:,:]
+        dh1_core = -np.tensordot (kappa1_cas, dh1rs_cas, axes=((1),(2)))
+        dh1_core = dh1_core.transpose (1,2,0,3) + dh1_core.transpose (1,2,3,0)
+        for i, h1rs in enumerate (h1frs_prime):
+            j = sum (ncas_sub[:i])
+            k = j + ncas_sub[i]
+            h1rs[:,:,:,:] += dh1_core[:,:,j:k,j:k]
+        return lasci_sync.LASCI_HessianOperator.ci_response_offdiag (
+            self, kappa1, h1frs_prime)
+
+    def orbital_response (self, kappa1, odm1s, ocm2, tdm1rs, tcm2, veff_prime):
+        kappa2 = lasci_sync.LASCI_HessianOperator.orbital_response (
+            self, kappa1, odm1s, ocm2, tdm1rs, tcm2, veff_prime
+        )
+        h1rs = self.h1rs - self.h1s[None,:,:,:]
+        odm1rs = -np.dot (self.dm1rs, kappa1)
+        odm1rs += odm1rs.transpose (0,1,3,2)
+        edm1rs = odm1rs + tdm1rs
+        for w, h, d in zip (self.weights, h1rs, edm1rs):
+            fock1 = h[0] @ d[0] + h[1] @ d[1]
+            kappa2 += w * (fock1 - fock1.T)
+        return kappa2
+
+class ImpurityLASCI (lasci.LASCINoSymm, ImpuritySolver):
+    _hop = ImpurityLASCI_HessianOperator
+
+    def _update_impurity_hamiltonian_(self, mo_coeff, ci, h2eff_sub=None, e_states=None, veff=None,
+                                      dm1s=None, casdm1rs=None, casdm2rs=None, weights=None):
+        if weights is None: weights = self.weights
+        if casdm1rs is None: casdm1rs = self.states_make_casdm1s (ci=self.ci)
+        if casdm2rs is None: 
+            casdm2frs = self.states_make_casdm2s_sub (ci=self.ci)
+            nroots = len (casdm1rs)
+            ncas = casdm1rs[0][0].shape[0]
+            casdm2rs = np.zeros ((nroots,3,ncas,ncas,ncas,ncas), dtype=casdm1rs[0][0].dtype)
+            for d2, d1 in zip (casdm2rs, casdm1rs):
+                d1d1_aa = np.multiply.outer (d1[0], d1[0])
+                d2[0] = d1d1_aa - d1d1_aa.transpose (0,3,2,1)
+                d2[1] = np.multiply.outer (d1[0], d1[1])
+                d1d1_bb = np.multiply.outer (d1[1], d1[1])
+                d2[2] = d1d1_bb - d1d1_bb.transpose (0,3,2,1)
+            for ifrag, d2f in enumerate (casdm2frs):
+                i = sum (self.ncas_sub[:ifrag])
+                j = i + self.ncas_sub[ifrag]
+                casdm2rs[:,:,i:j,i:j,i:j,i:j] = d2f[:]
+        ImpuritySolver._update_impurity_hamiltonian_(
+            self, mo_coeff, ci, h2eff_sub=h2eff_sub, e_states=e_states, veff=veff, dm1s=dm1s,
+            casdm1rs=casdm1rs, casdm2rs=casdm2rs, weights=weights
+        )
+
+    def get_grad_orb (las, **kwargs):
+        gorb = lasci.LASCINoSymm.get_grad_orb (las, **kwargs)
+        mo_coeff = kwargs.get ('mo_coeff', self.mo_coeff)
+        hermi = kwargs.get ('hermi', -1)
+        nao, nmo = las.mo_coeff.shape
+        ncore, ncas = las.ncore, las.ncas
+        nocc = ncore + ncas
+        mo_cas = mo_coeff[:,ncore:nocc]
+        dh1_rs = np.dot (self.get_hcore_rs () - self.get_hcore ()[None,None,:,:], mo_cas)
+        dh1_rs = np.tensordot (mo_coeff.conj (), dh1_rs, axes=((0),(2))).transpose (1,2,0,3)
+        casdm1rs = las.states_make_casdm1s (ci=ci)
+        f = np.zeros ((nmo,nmo), dtype=gorb.dtype)
+        for w, h, d in zip (las.weights, dh1_rs, casdm1rs):
+            f[:,ncore:nocc] += w * (h[0] @ d[0] + h[1] @ d[1])
+        if hermi == -1:
+            return gorb + f - f.T
+        elif hermi == 1:
+            return gorb + .5*(f+f.T)
+        elif hermi == 0:
+            return gorb + f
+        else:
+            raise ValueError ("kwarg 'hermi' must = -1, 0, or +1")
+
+    def h1e_for_las (las, **kwargs):
+        h1e_fr = lasci.LASCINoSymm.h1e_for_las (las, **kwargs)
+        mo_coeff = kwargs.get ('mo_coeff', self.mo_coeff)
+        ncas_sub = kwargs.get ('ncas_sub', self.ncas_sub)
+        dh1_rs = np.dot (self.get_hcore_rs () - self.get_hcore ()[None,None,:,:], mo_coeff)
+        dh1_rs = np.tensordot (mo_coeff.conj (), dh1_rs, axes=((0),(2))).transpose (1,2,0,3)
+        for ix in range (len (ncas_sub)):
+            i = sum (ncas_sub[:ix])
+            j = i + ncas_sub[ix]
+            h1e_fr[ix] += dh1_rs[:,:,i:j,i:j]
+        return h1e_fr
+
+    def states_energy_elec (self, **kwargs):
+        energy_elec = lasci.LASCINoSymm.states_energy_elec (self, **kwargs)
+        mo_coeff = kwargs.get ('mo_coeff', self.mo_coeff)
+        ci = kwargs.get ('ci', self.ci)
+        ncore = kwargs.get ('ncore', self.ncore)
+        ncas = kwargs.get ('nncas', self.ncas)
+        ncas_sub = kwargs.get ('ncas_sub', self.ncas_sub)
+        nelecas_sub = kwargs.get ('nelecas_sub', self.nelecas_sub)
+        casdm1frs = kwargs.get ('casdm1frs', self.states_make_casdm1s_sub (
+            ci=ci, ncas_sub=ncas_sub, nelecas_sub=nelecas_sub
+        ))
+        casdm1rs = self.states_make_casdm1s (ci=ci, ncas_sub=ncas_sub, nelecas_sub=nelecas_sub,
+                                             casdm1frs=casdm1frs)
+        nao, nmo = mo_coeff.shape
+        nocc = ncore + ncas
+        mo_cas = mo_coeff[:,ncore:nocc]
+        dh1_rs = np.dot (self.get_hcore_rs () - self.get_hcore ()[None,None,:,:], mo_cas)
+        dh1_rs = np.tensordot (mo_cas.conj (), dh1_rs, axes=((0),(2))).transpose (1,2,0,3)
+        enuc_r = self.energy_nuc_r ()
+        for ix, (h, d) in enumerate (zip (dh1_rs, casdm1rs)):
+            energy_elec[ix] += np.dot (h.ravel (), d.ravel ())
+            energy_elec[ix] += enuc_r[ix] - self.energy_nuc ()
+        return energy_elec
+
+    def energy_elec (self, **kwargs):
+        energy_elec = self.states_energy_elec (**kwargs)
+        return np.dot (self.weights, energy_elec)
+
+
 def get_impurity_casscf (las, ifrag, imporb_builder=None):
     output = getattr (las.mol, 'output', None)
     # MRH: checking for '/dev/null' specifically as a string is how mol.build does it
@@ -803,11 +1099,57 @@ def get_impurity_casscf (las, ifrag, imporb_builder=None):
     if isinstance (las, _DFLASCI):
         imc = df.density_fit (imc)
     imc = _state_average_mcscf_solver (imc, las.fciboxes[ifrag])
-    imc._ifrag = ifrag
+    imc._ifrags = [ifrag,]
     if imporb_builder is not None:
         imporb_builder.log = logger.new_logger (imc, imc.verbose)
     imc._imporb_builder = imporb_builder
+    params = getattr (las, 'impurity_params', {})
+    glob = {key: val for key, val in params.items () if isinstance (key, str)}
+    imc.__dict__.update (glob)
+    imc.__dict__.update (params.get (ifrag, {}))
     return imc
+
+def get_pair_lasci (las, frags, inherit_df=False):
+    stdout_dict = stdout = getattr (las, '_flas_stdout', None)
+    if stdout is not None: stdout = stdout.get (frags, None)
+    output = getattr (las.mol, 'output', None)
+    if not ((output is None) or (output=='/dev/null')):
+        output = output + '.' + '.'.join ([str (s) for s in frags])
+    imol = ImpurityMole (las, output=output, stdout=stdout)
+    if stdout is None and output is not None and stdout_dict is not None:
+        stdout_dict[frags] = imol.stdout
+    imf = ImpurityHF (imol)
+    if inherit_df and isinstance (las, _DFLASCI):
+        imf = imf.density_fit ()
+    ncas_sub = [las.ncas_sub[i] for i in frags]
+    nelecas_sub = [las.nelecas_sub[i] for i in frags]
+    ilas = ImpurityLASCI (imf, ncas_sub, nelecas_sub, use_gpu=las.use_gpu)
+    if inherit_df and isinstance (las, _DFLASCI):
+        ilas = lasci.density_fit (ilas, with_df=imf.with_df)
+    charges, spins, smults, wfnsyms = lasci.get_space_info (las)
+    ilas.state_average_(weights=las.weights, charges=charges[:,frags], spins=spins[:,frags],
+                        smults=smults[:,frags], wfnsyms=wfnsyms[:,frags])
+    def imporb_builder (mo_coeff, dm1s, veff, fock1, **kwargs):
+        idx = np.zeros (mo_coeff.shape[1], dtype=bool)
+        for ix in frags:    
+            i = las.ncore + sum (las.ncas_sub[:ix])
+            j = i + las.ncas_sub[ix]
+            idx[i:j] = True
+        fo_coeff = mo_coeff[:,idx]
+        nelec_f = sum ([sum (n) for n in nelecas_sub])
+        return fo_coeff, nelec_f
+    ilas._imporb_builder = imporb_builder
+    ilas._ifrags = frags
+    ilas.conv_tol_grad = 'DEFAULT'
+    ilas.min_cycle_macro = 1
+    params = getattr (las, 'relax_params', {})
+    glob = {key: val for key, val in params.items () if isinstance (key, str)}
+    glob = {key: val for key, val in glob.items () if key not in ('frozen', 'frozen_ci')}
+    ilas.__dict__.update (glob)
+    loc = params.get (tuple (frags), {})
+    loc = {key: val for key, val in loc.items () if key not in ('frozen', 'frozen_ci')}
+    ilas.__dict__.update (loc)
+    return ilas
 
 if __name__=='__main__':
     from mrh.tests.lasscf.c2h6n4_struct import structure as struct

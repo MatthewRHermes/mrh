@@ -1,3 +1,5 @@
+cmake_minimum_required(VERSION 3.19)
+
 # Modified from QC-DMET; see below
 #project (clib_qcdmet)
 #set (QC_DMET_VERSION      "0.1")
@@ -14,7 +16,7 @@ set (MRH_EMAIL          "MatthewRobertHermes@gmail.com")
 set (MRH_URL            "https://github.com/MatthewRHermes/mrh")
 set (MRH_LICENSE        "GNU General Public License, version 2")
 
-cmake_minimum_required (VERSION 2.8.11)
+cmake_minimum_required (VERSION 3.5)
 set (CMAKE_VERBOSE_MAKEFILE OFF)
 
 # Whether or not to compile with MKL
@@ -27,13 +29,16 @@ link_directories ($ENV{LD_LIBRARY_PATH})
 find_package (LAPACK REQUIRED)
 
 # OpenMP
-find_package (OpenMP)
+find_package (OpenMP REQUIRED)
 if (OPENMP_FOUND)
     set (CMAKE_C_FLAGS "${CMAKE_C_FLAGS} ${OpenMP_C_FLAGS}")
     set (CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} ${OpenMP_CXX_FLAGS}")
 endif (OPENMP_FOUND)
 
+enable_language(Fortran)
+
 include (CheckCXXCompilerFlag)
+include(CheckFortranCompilerFlag)
 
 # Compile to run of this machine
 check_cxx_compiler_flag (-xHost HAS_XHOST)
@@ -58,20 +63,29 @@ set (CMAKE_C_FLAGS "${CMAKE_C_FLAGS} -g -O3")
 if (PYSCFLIB)
     message (STATUS "PYSCFLIB set by user: ${PYSCFLIB}")
 else ()
-    find_package (Python)
+    if (DEFINED ENV{VIRTUAL_ENV})
+        # There is a bug in FindPython where if the system version of
+        # Python is greater than the venv version of Python, CMake chooses
+        # the system version.
+        # (e.g. System: 3.13, VENV: 3.9 CMake choses 3.13)
+        # I will be open a bug.
+        set (Python_FIND_VIRTUALENV ONLY)
+    endif ()
+    find_package(Python)
+
     execute_process(
       COMMAND "${Python_EXECUTABLE}" -c "if True:
         import os
         from pyscf import lib
-        print (os.path.dirname (lib.__file__))"
+        print(os.path.dirname(lib.__file__))"
       OUTPUT_VARIABLE PYSCFLIB
       OUTPUT_STRIP_TRAILING_WHITESPACE)
     message (STATUS "Trying to find PYSCFLIB: ${PYSCFLIB}")
 endif ()
 if (EXISTS ${PYSCFLIB})
-    message (STATUS "PYSCFLIB found!")
+    message(STATUS "PYSCFLIB found!")
 else ()
-    message (STATUS "PYSCFLIB not found!")
+    message(FATAL_ERROR "PYSCFLIB not found!")
 endif ()
 include_directories(${PYSCFLIB})
 include_directories(${PYSCFLIB}/deps/include)
@@ -80,7 +94,7 @@ link_directories(${PYSCFLIB})
 
 find_library(DFT_LIBRARY dft HINTS ${PYSCFLIB} )
 if(NOT DFT_LIBRARY)
-  message(FATAL_ERROR "PySCF dft library not found")
+  message(FATAL_ERROR  "PySCF dft library not found")
 endif()
 
 # Build the QC-DMET shared library
@@ -93,16 +107,6 @@ set_target_properties (clib_mrh_qcdmet PROPERTIES
     CLEAN_DIRECT_OUTPUT 1
     LIBRARY_OUTPUT_DIRECTORY ${PROJECT_SOURCE_DIR}
     OUTPUT_NAME "qcdmet")
-
-# Build the CSFstring shared library
-set (CSF_SOURCE_FILES "csfstring.c")
-add_library (clib_mrh_csf SHARED ${CSF_SOURCE_FILES})
-target_link_libraries (clib_mrh_csf ${LAPACK_LIBRARIES})
-set_target_properties (clib_mrh_csf PROPERTIES
-    LINKER_LANGUAGE C
-    CLEAN_DIRECT_OUTPUT 1
-    LIBRARY_OUTPUT_DIRECTORY ${PROJECT_SOURCE_DIR}
-    OUTPUT_NAME "csf")
 
 # Build the sparse density matrix stuff
 set (SINT_SOURCE_FILES "sparsedf.c")
@@ -124,4 +128,15 @@ set_target_properties (clib_mrh_fsucc PROPERTIES
     LIBRARY_OUTPUT_DIRECTORY ${PROJECT_SOURCE_DIR}
     OUTPUT_NAME "fsucc")
 
+add_subdirectory(lassi)
 
+# Build the DKH library
+set(CMAKE_Fortran_FLAGS "${CMAKE_Fortran_FLAGS}")
+set (DKH_SOURCE_FILES "dkh.f90")
+add_library (clib_mrh_dkh SHARED ${DKH_SOURCE_FILES})
+target_link_libraries (clib_mrh_dkh ${LAPACK_LIBRARIES})
+set_target_properties (clib_mrh_dkh PROPERTIES
+    LINKER_LANGUAGE Fortran
+    CLEAN_DIRECT_OUTPUT 1
+    LIBRARY_OUTPUT_DIRECTORY ${PROJECT_SOURCE_DIR}
+    OUTPUT_NAME "dkh")

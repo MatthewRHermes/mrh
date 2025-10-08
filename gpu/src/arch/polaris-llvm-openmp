@@ -1,0 +1,33 @@
+INSTALL = ../../my_pyscf/gpu
+
+PYTHON_INC=$(shell python -m pybind11 --includes)
+
+PATH_TO_NVCC = $(shell which nvcc)
+CUDA = $(shell echo ${PATH_TO_NVCC} | rev | cut -d '/' -f 3- | rev)
+
+$(info PYTHON_INC= [${PYTHON_INC}])
+$(info NVHPC= [${CUDA}])
+
+GPU_FLAGS = -fopenmp -fopenmp-targets=nvptx64-nvidia-cuda
+
+FC = ftn
+FCFLAGS = -g -fopenmp -O3
+
+CXX = mpicxx
+CXXFLAGS = -g -O3
+CXXFLAGS += $(PYTHON_INC)
+CXXFLAGS += -D_USE_GPU -D_GPU_OPENMP
+CXXFLAGS += $(GPU_FLAGS)
+#CXXFLAGS += -I$(CUDA)/include
+CXXFLAGS += -D_USE_NVTX
+
+CUDA_CXX = mpicxx
+CUDA_CXXFLAGS += -fopenmp -fopenmp-targets=nvptx64-nvidia-cuda
+CUDA_CXXFLAGS += -D_USE_GPU -D_GPU_OPENMP
+CUDA_CXXFLAGS += -D_USE_NVTX
+
+LD = $(CXX)
+LDFLAGS = $(GPU_FLAGS)
+LIB = -lstdc++
+LIB += -L$(CUDA)/lib64 -lcublas -lcudart
+LIB += -lnvToolsExt

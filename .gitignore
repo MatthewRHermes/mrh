@@ -1,6 +1,8 @@
 # Byte-compiled / optimized / DLL files
 __pycache__/
 *.py[cod]
+*.egg-info
+*.info
 
 # C extensions
 *.so
@@ -8,9 +10,11 @@ __pycache__/
 
 # Compilation
 lib/build/
+build/
 CMakeCache.txt
 CMakeFiles
 Makefile
+*.o
 
 # Example file outputs
 *.molden
@@ -22,6 +26,13 @@ Makefile
 *.err
 *.swp
 *.chk
+
+# OSX
+.DS_Store
+
+# Profiling
+profile*
+report*
 
 # assorted garbage
 test_all.sh

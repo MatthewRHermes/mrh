@@ -64,6 +64,7 @@ def contract_sladder(fcivec, norb, nelec, op=-1):
         Changes neleca - nelecb without altering <S2>
         Obtained by modifying pyscf.fci.spin_op.contract_ss
     '''
+    norm_ci0 = linalg.norm (fcivec)
     neleca, nelecb = _unpack_nelec(nelec)
     na = cistring.num_strings(norb, neleca)
     nb = cistring.num_strings(norb, nelecb)
@@ -93,6 +94,8 @@ def contract_sladder(fcivec, norb, nelec, op=-1):
 
     ci1 = np.zeros((cistring.num_strings(norb,neleca+op),
                    cistring.num_strings(norb,nelecb-op)))
+    nspin_comm = neleca-1 if op==-1 else neleca
+    spin_comm_fac = (-1) ** nspin_comm
     for i in range(norb):
         signa = aindex[:,i,1]
         signb = bindex[:,i,1]
@@ -103,14 +106,88 @@ def contract_sladder(fcivec, norb, nelec, op=-1):
         citmp = lib.take_2d(fcivec, maska, maskb)
         citmp *= signa[maska].reshape(-1,1)
         citmp *= signb[maskb]
+        citmp *= spin_comm_fac
         #: ci1[addra.reshape(-1,1),addrb] += citmp
         lib.takebak_2d(ci1, citmp, addra, addrb)
-    ci1 /= linalg.norm (ci1) # ???
+    norm_ci1 = linalg.norm (ci1) + np.finfo (float).tiny
+    ci1 *= norm_ci0 / norm_ci1 # ???
     return ci1
 
 
 def contract_sdown (ci, norb, nelec): return contract_sladder (ci, norb, nelec, op=-1)
 def contract_sup (ci, norb, nelec): return contract_sladder (ci, norb, nelec, op=1)
+
+def as_list (ci0):
+    if isinstance (ci0, np.ndarray) and ci0.ndim == 2:
+        ci1 = [ci0,]
+    else:
+        ci1 = list (ci0)
+    return ci1
+
+def like_ci0 (ci1, ci0):
+    if isinstance (ci0, np.ndarray) and ci0.ndim == 2:
+        ci1 = ci1[0]
+    else:
+        ci1 = np.stack (ci1, axis=0)
+    return ci1
+
+def mdown (ci0, norb, nelec, smult):
+    '''For a high-spin CI vector, rotate the spin axis away from the Z axis.
+
+    Args:
+        ci0 : ndarray or list of ndarrays
+            Contains one or multiple CI vectors in the Hilbert space of
+            (sum (nelec) + smult - 1) // 2 spin-up electrons and
+            (sum (nelec) - smult + 1) // 2 spin-down electrons (i.e., m=s)
+            with spin multiplicity given by smult
+        norb : integer
+            Number of orbitals
+        nelec : (integer, integer)
+            Number of spin-up and spin-down electrons in ci1
+        smult : integer
+            Spin multiplicity of ci0 and ci1
+
+    Returns:
+        ci1 : ndarray
+            Contains one or multiple CI vectors in the Hilbert space of nelec[0] spin-up electrons
+            and nelec[1] spin-down electrons occupying norb orbitals. If ci0 is spin-pure, then ci1
+            is the same state with a different Z axis (i.e., a different m microstate).
+    '''
+    ci1 = as_list (ci0)
+    neleca, nelecb = _unpack_nelec (nelec)
+    for i in range (len (ci1)):
+        for j in range (((smult-1)-(neleca-nelecb))//2,0,-1):
+            ci1[i] = contract_sdown (ci1[i], norb, (neleca+j,nelecb-j))
+    return like_ci0 (ci1, ci0)
+
+def mup (ci0, norb, nelec, smult):
+    '''For a high-spin CI vector, rotate the spin axis towards the Z axis.
+
+    Args:
+        ci0 : ndarray or list of ndarrays
+            Contains one or multiple CI vectors in the Hilbert space of nelec[0] spin-up electrons
+            and nelec[1] spin-down electrons occupying norb orbitals.
+        norb : integer
+            Number of orbitals
+        nelec : (integer, integer)
+            Number of spin-up and spin-down electrons in ci0
+        smult : integer
+            Spin multiplicity of ci0 and ci1
+
+    Returns:
+        ci1 : ndarray
+            Contains one or multiple CI vectors in the Hilbert space of
+            (sum (nelec) + smult - 1) // 2 spin-up electrons and
+            (sum (nelec) - smult + 1) // 2 spin-down electrons (i.e., m=s).
+            If ci0 is spin-pure, then ci1 is the same state with a different Z axis (i.e., a
+            different m microstate).
+    '''
+    ci1 = as_list (ci0)
+    neleca, nelecb = _unpack_nelec (nelec)
+    for i in range (len (ci1)):
+        for j in range (((smult-1)-(neleca-nelecb))//2):
+            ci1[i] = contract_sup (ci1[i], norb, (neleca+j,nelecb-j))
+    return like_ci0 (ci1, ci0)
 
 if __name__ == '__main__':
     import sys

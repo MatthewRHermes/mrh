@@ -123,7 +123,7 @@ def rdm_cycle (las, mo_coeff, casdm1frs, veff, h2eff_sub, log, max_cycle_rdmjk=3
     ''' "fcibox.kernel" should return e_cas, (casdm1rs, casdm2r) '''
     def get_veff (my_casdm1frs):
         casdm1fs = las.make_casdm1s_sub (casdm1frs=my_casdm1frs)
-        my_veff = las.get_veff (dm1s=las.make_rdm1 (mo_coeff=mo_coeff, casdm1s_sub=casdm1fs))
+        my_veff = las.get_veff (dm=las.make_rdm1 (mo_coeff=mo_coeff, casdm1s_sub=casdm1fs))
         my_veff = las.split_veff (my_veff, h2eff_sub, mo_coeff=mo_coeff, casdm1s_sub=casdm1fs)
         return my_veff
     converged = False
@@ -171,7 +171,7 @@ def kernel (las, mo_coeff=None, casdm1frs=None, casdm2fr=None, conv_tol_grad=1e-
     if casdm1frs is None: casdm1frs, casdm2fr = get_init_guess_rdm (las, mo_coeff, h2eff_sub)
     casdm1fs = las.make_casdm1s_sub (casdm1frs=casdm1frs)
     dm1 = las.make_rdm1 (casdm1s_sub=casdm1fs)
-    veff = las.get_veff (dm1s=dm1)
+    veff = las.get_veff (dm=dm1)
     veff = las.split_veff (veff, h2eff_sub, mo_coeff=mo_coeff, casdm1s_sub=casdm1fs)
     t1 = log.timer('LASSCF initial get_veff', *t1)
 
@@ -192,7 +192,7 @@ def kernel (las, mo_coeff=None, casdm1frs=None, casdm2fr=None, conv_tol_grad=1e-
         veff = veff.sum (0)/2
         if not isinstance (las, _DFLASCI) or las.verbose > lib.logger.DEBUG:
             dm1 = las.make_rdm1 (mo_coeff=mo_coeff, casdm1s_sub=casdm1fs_new)
-            veff_new = las.get_veff (dm1s=dm1)
+            veff_new = las.get_veff (dm=dm1)
             if not isinstance (las, _DFLASCI): veff = veff_new
         if isinstance (las, _DFLASCI):
             ddm = [dm_new - dm_old for dm_new, dm_old in zip (casdm1fs_new, casdm1fs)]
@@ -219,6 +219,7 @@ def kernel (las, mo_coeff=None, casdm1frs=None, casdm2fr=None, conv_tol_grad=1e-
         if ((norm_gorb < conv_tol_grad) or (norm_gorb < norm_gx/10)) and rdmjk_conv:
             converged = True
             break
+        las.dump_chk (mo_coeff=mo_coeff, ci=[casdm1frs, casdm2fr])
         H_op._init_eri_() # Take this part out of the true initialization b/c 
                           # if I'm already converged I don't want to waste the cycles
         t1 = log.timer ('LASSCF Hessian constructor', *t1)
@@ -262,7 +263,7 @@ def kernel (las, mo_coeff=None, casdm1frs=None, casdm2fr=None, conv_tol_grad=1e-
             mo_coeff, h2eff_sub = H_op.update_mo_eri (x, h2eff_sub)
             t1 = log.timer ('LASSCF Hessian update', *t1)
 
-            veff = las.get_veff (dm1s = las.make_rdm1 (mo_coeff=mo_coeff, casdm1s_sub=casdm1fs))
+            veff = las.get_veff (dm = las.make_rdm1 (mo_coeff=mo_coeff, casdm1s_sub=casdm1fs))
             veff = las.split_veff (veff, h2eff_sub, mo_coeff=mo_coeff, casdm1s_sub=casdm1fs)
             t1 = log.timer ('LASSCF get_veff after secondorder', *t1)
         except MicroIterInstabilityException as e:
@@ -272,7 +273,7 @@ def kernel (las, mo_coeff=None, casdm1frs=None, casdm2fr=None, conv_tol_grad=1e-
             for i in range (3): # Make up to 3 attempts to scale-down x if necessary
                 mo2, h2eff_sub2 = H_op.update_mo_eri (x, h2eff_sub)
                 t1 = log.timer ('LASCF Hessian update', *t1)
-                veff2 = las.get_veff (dm1s = las.make_rdm1 (mo_coeff=mo2, casdm1s_sub=casdm1fs))
+                veff2 = las.get_veff (dm = las.make_rdm1 (mo_coeff=mo2, casdm1s_sub=casdm1fs))
                 veff2 = las.split_veff (veff2, h2eff_sub2, mo_coeff=mo2, casdm1s_sub=casdm1fs)
                 t1 = log.timer ('LASSCF get_veff after secondorder', *t1)
                 e2 = las.energy_nuc () + las.energy_elec (mo_coeff=mo2, h2eff=h2eff_sub2,
@@ -361,6 +362,7 @@ class RDMSolver (lib.StreamObject):
         self.mol = mol
         self.spin = None
         self.charge = None
+        self.smult = None
         self.fci = None
         self._get_init_guess = get_init_guess
         self._kernel = kernel
@@ -370,7 +372,6 @@ class RDMSolver (lib.StreamObject):
         return (h1s, h2)
 
     def get_init_guess (self, norb, nelec, nroots, ham):
-        ''' Important: zeroth item selected in get_init_guess_ci '''
         h1s, h2 = ham
         if callable (self._get_init_guess):
             dm1s, dm2 = self._get_init_guess (norb, nelec, nroots, h1s, h2)
@@ -379,7 +380,7 @@ class RDMSolver (lib.StreamObject):
             hdiag = fci.make_hdiag_csf (h1s, h2, norb, nelec)
             ci = fci.get_init_guess (norb, nelec, nroots, hdiag)
             dm1s, dm2 = self._ci2rdm (fci, ci, norb, nelec)
-        return [dm1s, dm2], None
+        return dm1s, dm2
 
     def kernel (self, norb, nelec, h0, h1s, h2):
         h2 = ao2mo.restore (1, h2, norb)
@@ -392,11 +393,13 @@ class RDMSolver (lib.StreamObject):
         return erdm, dm1s, dm2
 
     def _get_csf_solver (self, nelec):
-        if (self.spin is None) or isinstance (nelec, (list, tuple, np.ndarray)):
-            nelec = _unpack_nelec (nelec)
-            smult = nelec[0] - nelec[1] + 1
-        else: 
-            smult = self.spin + 1
+        smult = getattr (self, 'smult', None)
+        if smult is None:
+            if (self.spin is None) or isinstance (nelec, (list, tuple, np.ndarray)):
+                nelec = _unpack_nelec (nelec)
+                smult = abs (nelec[0] - nelec[1]) + 1
+            else: 
+                smult = self.spin + 1
         return csf_solver (self.mol, smult=smult)
 
     def _ci2rdm (self, fci, ci, norb, nelec):
@@ -443,10 +446,20 @@ class FCIBox (lib.StreamObject):
             nelec = (nelec+m)//2, (nelec-m)//2
         return nelec
 
-def make_fcibox (mol, kernel=None, get_init_guess=None, spin=None):
+def make_fcibox (mol, kernel=None, get_init_guess=None, spin=None, smult=None):
     s = RDMSolver (mol, kernel=kernel, get_init_guess=get_init_guess)
     s.spin = spin
+    s.smult = smult
     return FCIBox ([s])
+
+def _combine_init_guess_ci (las, ci0i, ci0g, norb, nelec, nroots):
+    if nroots>1: raise NotImplementedError ("Multiple local roots for lasscf_rdm")
+    if getattr (ci0i, '__len__', None) is None: return ci0g
+    if len (ci0i) != 2: return ci0g
+    for n, ci0in in enumerate (ci0i):
+        if not isinstance (ci0in, np.ndarray): return ci0g
+        if ci0in.size != norb ** (2*n): return ci0g
+    return ci0i
 
 class LASSCFNoSymm (lasscf_sync_o0.LASSCFNoSymm):
 
@@ -462,9 +475,10 @@ class LASSCFNoSymm (lasscf_sync_o0.LASSCFNoSymm):
     _ugg = LASSCF_UnitaryGroupGenerators
     _hop = LASSCF_HessianOperator
     canonicalize = canonicalize
+    _combine_init_guess_ci = _combine_init_guess_ci
 
     def _init_fcibox (self, smult, nel):
-        return make_fcibox (self.mol, spin=nel[0]-nel[1])
+        return make_fcibox (self.mol, spin=nel[0]-nel[1], smult=smult)
 
     def kernel(self, mo_coeff=None, casdm1frs=None, casdm2fr=None, conv_tol_grad=None, verbose=None):
         if mo_coeff is None:
