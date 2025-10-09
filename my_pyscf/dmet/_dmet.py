@@ -567,13 +567,13 @@ class _DMET:
         mo_coeff[:, ncore+neo:] = ao2co[:, ncore:]
         return mo_coeff
 
-    def emb_rdm1(self, mc_rdm1):
+    def assemble_rdm1(self, emb_rdm1):
         '''
         Assemble the embedded rdm1 to an ao space rdm1
         returns:
             rdm1_full: rdm1 for the full system
         args:
-            mc_rdm1: make_rdm1() from dmet mc object (neo,neo)
+            emb_rdm1: make_rdm1() from dmet mc object (neo,neo)
         '''
         mf = self.mf
         ao2co = self.ao2co
@@ -596,7 +596,7 @@ class _DMET:
         ncore = core_nelec//2
 
         rdm1_core = 2 * ao2co[:, :ncore] @ ao2co[:, :ncore].T
-        rdm1_emb_ao = get_basis_transform(mc_rdm1, ao2eo.T) # ao2eo @ mc_rdm1 @ ao2eo.T
+        rdm1_emb_ao = get_basis_transform(emb_rdm1, ao2eo.T) # ao2eo @ emb_rdm1 @ ao2eo.T
         rdm1_full = rdm1_core + rdm1_emb_ao
 
         return rdm1_full
