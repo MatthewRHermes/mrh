@@ -5135,5 +5135,60 @@ void Device::pull_tdm3hab(py::array_t<double> _tdm3ha, py::array_t<double> _tdm3
   t_array[32] += t1-t0;
   count_array[22]++;
 }
+/* ---------------------------------------------------------------------- */
+void Device::pull_tdm3hab_v2(py::array_t<double> _tdm1h, py::array_t<double> _tdm3ha, py::array_t<double> _tdm3hb, int norb, int cre, int spin)
+{
+  double t0 = omp_get_wtime();
+  int id = 0;
+  pm->dev_set_device(id); 
+  my_device_data * dd = &(device_data[id]);
+  pm->dev_profile_start("tdms :: pull tdm2_v2");
+  py::buffer_info info_tdm1h = _tdm1h.request(); //1D array (norb)
+  double * tdm1h = static_cast<double*>(info_tdm1h.ptr);
+  py::buffer_info info_tdm3ha = _tdm3ha.request(); //3D array (norb, norb, norb)
+  py::buffer_info info_tdm3hb = _tdm3hb.request(); //3D array (norb, norb, norb)
+  double * tdm3ha;
+  double * tdm3hb;
+  
+  filter_tdm1h(dd->d_tdm1, dd->d_buf3, norb);
+  pm->dev_pull_async(dd->d_buf3, tdm1h, norb*sizeof(double));
+  if (spin){ //SWITCH is important
+    tdm3hb = static_cast<double*>(info_tdm3ha.ptr);
+    tdm3ha = static_cast<double*>(info_tdm3hb.ptr);
+    }
+  else{
+    tdm3ha = static_cast<double*>(info_tdm3ha.ptr);
+    tdm3hb = static_cast<double*>(info_tdm3hb.ptr);
+    }
+  int norb1 = norb+1;
+  int norb2 = norb*norb;
+  if (spin)
+    { 
+      transpose_3210(dd->d_tdm2_p, dd->d_buf2, norb+1, norb+1);//using a function from before, it was for transpose of ncas,ncas,ncas,nmo shaped
+      filter_tdm3h(dd->d_buf2, &(dd->d_buf3[norb+norb*norb2]), norb);
+    }
+  else
+    {
+      filter_tdm3h(dd->d_tdm2_p, &(dd->d_buf3[norb+norb*norb2]), norb);
+    }
+  filter_tdm3h(dd->d_tdm2, &(dd->d_buf3[norb]), norb);
+  
+  if (cre==0){
+    transpose_021(&(dd->d_buf3[norb]),dd->d_tdm2, norb);
+    transpose_021(&(dd->d_buf3[norb+norb*norb2]),dd->d_tdm2_p, norb);
+    pm->dev_pull_async(dd->d_tdm2, tdm3ha, norb*norb2*sizeof(double));
+    pm->dev_pull_async(dd->d_tdm2_p, tdm3hb, norb*norb2*sizeof(double));
+    }
+  else{
+    pm->dev_pull_async(&(dd->d_buf3[norb]), tdm3ha, norb*norb2*sizeof(double));
+    pm->dev_pull_async(&(dd->d_buf3[norb+norb*norb2]), tdm3hb, norb*norb2*sizeof(double));
+    }
+  pm->dev_barrier();
+  pm->dev_profile_stop();
+  double t1 = omp_get_wtime();
+  t_array[32] += t1-t0;
+  count_array[22]++;
+}
+
 
 /* ---------------------------------------------------------------------- */

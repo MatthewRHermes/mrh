@@ -562,3 +562,11 @@ void libgpu_pull_tdm3hab(void * ptr,
   dev->pull_tdm3hab(tdm3ha, tdm3hb, norb);
 }
 /* ---------------------------------------------------------------------- */
+void libgpu_pull_tdm3hab_v2(void * ptr, 
+                      py::array_t<double> tdm1h, py::array_t<double> tdm3ha, py::array_t<double> tdm3hb, int norb, int cre, int spin )
+{
+  Device * dev = (Device *) ptr;
+  dev->pull_tdm3hab_v2(tdm1h, tdm3ha, tdm3hb, norb, cre, spin);
+}
+
+/* ---------------------------------------------------------------------- */

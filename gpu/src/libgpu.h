@@ -169,6 +169,8 @@ extern "C"
                       py::array_t<double> , int );
   void libgpu_pull_tdm3hab(void *, 
                       py::array_t<double>, py::array_t<double> , int);
+  void libgpu_pull_tdm3hab_v2(void *, 
+                      py::array_t<double>, py::array_t<double>, py::array_t<double> , int, int, int);
 }
 
 
@@ -252,6 +254,7 @@ PYBIND11_MODULE(libgpu, m) {
   m.def("pull_tdm1",&libgpu_pull_tdm1,"pyscf/fci/rdm.py::make_rdm12_spin1 pull_tdm1");        
   m.def("pull_tdm2",&libgpu_pull_tdm2,"pyscf/fci/rdm.py::make_rdm12_spin1 pull_tdm2");        
   m.def("pull_tdm3hab",&libgpu_pull_tdm3hab,"mrh/my_pyscf/fci/rdm.py::trans_rdm13hs spin1 pull_tdm13hab");        
+  m.def("pull_tdm3hab_v2",&libgpu_pull_tdm3hab_v2,"mrh/my_pyscf/fci/rdm.py::trans_rdm13hs spin1 pull_tdm13hab v2");        
   
 }
 

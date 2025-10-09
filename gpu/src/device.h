@@ -193,6 +193,7 @@ public :
   void pull_tdm1(py::array_t<double> , int );
   void pull_tdm2(py::array_t<double> , int );
   void pull_tdm3hab(py::array_t<double> ,py::array_t<double> , int );
+  void pull_tdm3hab_v2(py::array_t<double>, py::array_t<double> ,py::array_t<double> , int, int, int );
 
   //inner functions
   void extract_mo_cas(int, int, int);//TODO: fix the difference - changed slightly
@@ -240,6 +241,9 @@ public :
   void reduce_buf3_to_rdm(const double *, double *, int, int);
   void filter_sfudm(const double *, double *, int);
   void filter_tdmpp(const double *, double *, int, int);
+  void filter_tdm1h(const double *, double *, int);
+  void filter_tdm3h(double *, double *, int);
+  void transpose_021(double *, double *, int);
   // multi-gpu communication (better here or part of PM?)
 
   void mgpu_bcast(std::vector<double *>, double *, size_t);
