@@ -429,7 +429,7 @@ class _DMET:
         emb_mf.get_hcore = lambda *args: fock
         emb_mf.get_ovlp  = lambda *args: np.eye(neo)
         emb_mf.conv_tol = 1e-10
-        emb_mf.max_cycle = 500
+        emb_mf.max_cycle = 100
         emb_mf.energy_nuc = lambda *args: core_energy
         emb_mf.kernel(dm_guess)
 
@@ -567,7 +567,7 @@ class _DMET:
         mo_coeff[:, ncore+neo:] = ao2co[:, ncore:]
         return mo_coeff
 
-    def assemble_rdm1(self, mc_rdm1):
+    def emb_rdm1(self, mc_rdm1):
         '''
         Assemble the embedded rdm1 to an ao space rdm1
         returns:
