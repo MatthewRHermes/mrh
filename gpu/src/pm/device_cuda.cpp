@@ -1952,7 +1952,6 @@ void Device::filter_tdmpp( const double * dm2, double * dm1, int norb, int spin)
 {
   //only need dm2[:-ndum,-1,:-ndum,-ndum] //ndum = 2-(spin%2)
   int ndum = (spin!=1) ? 2:1; 
-  printf("ndum %i\n",ndum);
   cudaStream_t s = *(pm->dev_get_queue());
   dim3 block_size(_DEFAULT_BLOCK_SIZE, _DEFAULT_BLOCK_SIZE, 1);
   dim3 grid_size(_TILE(norb-ndum, block_size.x),_TILE(norb-ndum, block_size.y),1);
