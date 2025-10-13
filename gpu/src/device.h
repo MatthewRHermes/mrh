@@ -159,40 +159,55 @@ public :
   void init_tdm1(int);
   void init_tdm2(int);
   void init_tdm3hab(int);
-  void push_ci(py::array_t<double>,  py::array_t<double>, 
-                      int , int);
-  void push_cibra(py::array_t<double>, int , int);
-  void push_ciket(py::array_t<double>, int , int);
+  void init_tdm1_host(int);
+  void init_tdm2_host(int);
+  void init_tdm3h_host(int);
+  void copy_bravecs_host(py::array_t<double>, int , int, int);
+  void copy_ketvecs_host(py::array_t<double>, int , int, int);
+  void push_cibra_from_host(int, int , int, int);
+  void push_ciket_from_host(int, int , int, int);
+
+  void push_cibra(py::array_t<double>, int , int, int);
+  void push_ciket(py::array_t<double>, int , int, int);
   void push_link_indexa(int, int , py::array_t<int> ); //TODO: figure out the shape? or maybe move the compressed version 
   void push_link_indexb(int, int , py::array_t<int> ); //TODO: figure out the shape? or maybe move the compressed version 
-  void compute_trans_rdm1a(int , int , int , int , int );
-  void compute_trans_rdm1b(int , int , int , int , int );
-  void compute_make_rdm1a(int , int , int , int , int );
-  void compute_make_rdm1b(int , int , int , int , int );
-  void compute_tdm12kern_a_v2(int , int , int , int , int );
-  void compute_tdm12kern_b_v2(int , int , int , int , int );
-  void compute_tdm12kern_ab_v2(int , int , int , int , int );
-  void compute_rdm12kern_sf_v2(int , int , int , int , int );
+  void compute_trans_rdm1a(int , int , int , int , int, int );
+  void compute_trans_rdm1b(int , int , int , int , int, int );
+  void compute_make_rdm1a(int , int , int , int , int, int );
+  void compute_make_rdm1b(int , int , int , int , int, int );
+  void compute_tdm12kern_a_v2(int , int , int , int , int, int );
+  void compute_tdm12kern_b_v2(int , int , int , int , int, int );
+  void compute_tdm12kern_ab_v2(int , int , int , int , int, int );
+  void compute_rdm12kern_sf_v2(int , int , int , int , int, int );
   void compute_tdm13h_spin_v4( int , int , int , int , int , int, int,
                                int , int , int , int , int ,
-                               int , int , int , int , int );
+                               int , int , int , int , int , int);
   void compute_tdm13h_spin_v5( int , int , int , int , int , int, int,
                                int , int , int , int , int ,
-                               int , int , int , int , int );
+                               int , int , int , int , int , int);
   void compute_tdmpp_spin_v4( int , int , int , int , int , int, 
                                int , int , int , int , int ,
-                               int , int , int , int , int );
+                               int , int , int , int , int , int);
   void compute_sfudm_v2( int , int , int , int , int,  
                       int , int , int , int , int ,
-                      int , int , int , int , int );
+                      int , int , int , int , int , int);
   void compute_tdm1h_spin( int , int , int , int , int , int,
                            int , int , int , int , int ,
-                           int , int , int , int , int );
+                           int , int , int , int , int , int);
 
-  void reorder_rdm(int);
-  void pull_tdm1(py::array_t<double> , int );
-  void pull_tdm2(py::array_t<double> , int );
-  void pull_tdm3hab(py::array_t<double> ,py::array_t<double> , int );
+  void reorder_rdm(int, int);
+  void pull_tdm1(py::array_t<double> , int, int );
+  void pull_tdm2(py::array_t<double> , int, int );
+
+  void pull_tdm1_host(int, int, int, int, int, int);
+  void pull_tdm2_host(int, int, int);
+  void pull_tdm3h_host(int, int, int);
+  void pull_tdm3hab(py::array_t<double> ,py::array_t<double> , int, int );
+  void pull_tdm3hab_v2(py::array_t<double>, py::array_t<double> ,py::array_t<double> , int, int, int, int );
+
+  void copy_tdm1_host_to_page(py::array_t<double> , int );
+  void copy_tdm2_host_to_page(py::array_t<double> , int );
+  void copy_tdm3h_host_to_page(py::array_t<double> , py::array_t<double>, int );
 
   //inner functions
   void extract_mo_cas(int, int, int);//TODO: fix the difference - changed slightly
@@ -240,6 +255,9 @@ public :
   void reduce_buf3_to_rdm(const double *, double *, int, int);
   void filter_sfudm(const double *, double *, int);
   void filter_tdmpp(const double *, double *, int, int);
+  void filter_tdm1h(const double *, double *, int);
+  void filter_tdm3h(double *, double *, int);
+  void transpose_021(double *, double *, int);
   // multi-gpu communication (better here or part of PM?)
 
   void mgpu_bcast(std::vector<double *>, double *, size_t);
@@ -304,6 +322,18 @@ private:
   // eri_impham
   int size_eri_impham;
   double * pin_eri_impham;
+  
+  //tdms
+  int size_bravecs;
+  int size_ketvecs;
+  int size_dm1_full;
+  int size_dm2_full;
+  double * h_bravecs;
+  double * h_ketvecs;
+  double * h_dm1_full;
+  double * h_dm2_full;
+  double * h_dm2_p_full;
+
   
   // eri caching on device
   bool use_eri_cache;

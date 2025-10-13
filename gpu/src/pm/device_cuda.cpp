@@ -1144,6 +1144,50 @@ __global__ void _filter_tdmpp(const double * dm2, double * dm1, int norb, int sp
     if (j >= norb-ndum) return;
     dm1[i*(norb-ndum)+j] = dm2[i*norb*norb*norb + (norb-1)*norb*norb + j*norb+ norb-ndum];
 } 
+/* ---------------------------------------------------------------------- */
+__global__ void _filter_tdm1h(const double * in, double * out, int norb)
+{
+
+    //tdm1h = tdm1h.T
+    //tdm1h = tdm1h[-1,:-1]
+    //in is (norb+1)^2
+    int i = blockIdx.x * blockDim.x + threadIdx.x;
+    if (i >= norb) return;
+    out[i] = in[i*(norb+1)+norb];
+}
+/* ---------------------------------------------------------------------- */
+__global__ void _filter_tdm3h(double * in, double * out, int norb)
+{
+    //tdm3h = tdm3h[:-1,-1,:-1,:-1]
+    int i = blockIdx.x * blockDim.x + threadIdx.x;
+    int j = blockIdx.y * blockDim.y + threadIdx.y;
+    int k = blockIdx.z * blockDim.z + threadIdx.z;
+    if (i >= norb) return;
+    if (j >= norb) return;
+    if (k >= norb) return;
+    int norb1 = norb+1;
+    //printf("%i %i %i %i %f\n",i, j, k, ((i*norb1+norb)*norb1+j)*norb1+k, in[((i*norb1+norb)*norb1+j)*norb1+k]);
+    out[(i*norb+j)*norb+k] = in[((i*norb1+norb)*norb1+j)*norb1+k];
+}  
+/* ---------------------------------------------------------------------- */
+__global__ void _transpose_021(double * in, double * out, int norb) {
+    // abc->acb
+    int i = blockIdx.x * blockDim.x + threadIdx.x;
+    int j = blockIdx.y * blockDim.y + threadIdx.y;
+    int k = blockIdx.z * blockDim.z + threadIdx.z;
+
+    if(i >= norb) return;
+    if(j >= norb) return;
+    if(k >= norb) return;
+
+    int inputIndex = i*norb*norb+k*norb+j;
+    int outputIndex = i*norb*norb  + j*norb + k;
+    //printf("%i %i %i %f\n",i, j, k, in[inputIndex]);
+    out[outputIndex] = in[inputIndex];
+}
+
+
+
 
  
 
@@ -1908,11 +1952,49 @@ void Device::filter_tdmpp( const double * dm2, double * dm1, int norb, int spin)
 {
   //only need dm2[:-ndum,-1,:-ndum,-ndum] //ndum = 2-(spin%2)
   int ndum = (spin!=1) ? 2:1; 
-  printf("ndum %i\n",ndum);
   cudaStream_t s = *(pm->dev_get_queue());
   dim3 block_size(_DEFAULT_BLOCK_SIZE, _DEFAULT_BLOCK_SIZE, 1);
   dim3 grid_size(_TILE(norb-ndum, block_size.x),_TILE(norb-ndum, block_size.y),1);
   _filter_tdmpp<<<grid_size, block_size, 0,s>>>(dm2,dm1,norb,spin);
+  _CUDA_CHECK_ERRORS();
+}
+/* ---------------------------------------------------------------------- */
+void Device::filter_tdm1h( const double * in, double * out, int norb)
+{
+  //tdm1h = tdm1h.T
+  //tdm1h = tdm1h[-1,:-1]
+  //in is (norb+1)^2
+  cudaStream_t s = *(pm->dev_get_queue());
+  dim3 block_size(_DEFAULT_BLOCK_SIZE, 1, 1);
+  dim3 grid_size(_TILE(norb, block_size.x),1,1);
+  _filter_tdm1h<<<grid_size, block_size, 0,s>>>(in,out,norb);
+  _CUDA_CHECK_ERRORS();
+}
+
+/* ---------------------------------------------------------------------- */
+void Device::filter_tdm3h(double * in, double * out, int norb)
+{
+  //tdm3h = tdm3h[:-1,-1,:-1,:-1]
+  //dm2 is (norb+1)^4
+  cudaStream_t s = *(pm->dev_get_queue());
+  //dim3 block_size(_DEFAULT_BLOCK_SIZE, _DEFAULT_BLOCK_SIZE, _DEFAULT_BLOCK_SIZE);
+  dim3 block_size(1,1,1);
+  dim3 grid_size(_TILE(norb, block_size.x),_TILE(norb, block_size.y),_TILE(norb, block_size.z));
+  _filter_tdm3h<<<grid_size, block_size, 0,s>>>(in, out,norb);
+  _CUDA_CHECK_ERRORS();
+}
+/* ---------------------------------------------------------------------- */
+void Device::transpose_021( double * in, double * out, int norb)
+{
+  cudaStream_t s = *(pm->dev_get_queue());
+  //dim3 block_size(_DEFAULT_BLOCK_SIZE, _DEFAULT_BLOCK_SIZE, _DEFAULT_BLOCK_SIZE);
+  dim3 block_size(1,1,1);
+  dim3 grid_size(_TILE(norb, block_size.x),_TILE(norb, block_size.y),_TILE(norb, block_size.z));
+  #if 1
+  _transpose_021<<<grid_size, block_size, 0, s>>>(in, out, norb);
+  #else
+
+  #endif
   _CUDA_CHECK_ERRORS();
 }
 
