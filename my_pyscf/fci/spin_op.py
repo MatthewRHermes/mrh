@@ -1,63 +1,9 @@
-#!/usr/bin/env python
-# Copyright 2014-2020 The PySCF Developers. All Rights Reserved.
-#
-# Licensed under the Apache License, Version 2.0 (the "License");
-# you may not use this file except in compliance with the License.
-# You may obtain a copy of the License at
-#
-#     http://www.apache.org/licenses/LICENSE-2.0
-#
-# Unless required by applicable law or agreed to in writing, software
-# distributed under the License is distributed on an "AS IS" BASIS,
-# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-# See the License for the specific language governing permissions and
-# limitations under the License.
-
-# MRH note: copied to mrh.my_pyscf on 11/04/2020
-
 from functools import reduce
 import numpy as np
 from scipy import linalg
 from pyscf import lib
 from pyscf.fci import cistring
 from pyscf.fci.addons import _unpack_nelec
-
-librdm = lib.load_library('libfci')
-
-######################################################
-# Spin squared operator
-######################################################
-# S^2 = (S+ * S- + S- * S+)/2 + Sz * Sz
-# S+ = \sum_i S_i+ ~ effective for all beta occupied orbitals.
-# S- = \sum_i S_i- ~ effective for all alpha occupied orbitals.
-# There are two cases for S+*S-
-# 1) same electron \sum_i s_i+*s_i-, <CI|s_i+*s_i-|CI> gives
-#       <p|s+s-|q> \gammalpha_qp = trace(\gammalpha) = neleca
-# 2) different electrons for \sum s_i+*s_j- (i\neq j, n*(n-1) terms)
-# As a two-particle operator S+*S-
-#       = <ij|s+s-|kl>Gamma_{ik,jl} = <iajb|s+s-|kbla>Gamma_{iakb,jbla}
-#       = <ia|s+|kb><jb|s-|la>Gamma_{iakb,jbla}
-# <CI|S+*S-|CI> = neleca + <ia|s+|kb><jb|s-|la>Gamma_{iakb,jbla}
-#
-# There are two cases for S-*S+
-# 1) same electron \sum_i s_i-*s_i+
-#       <p|s+s-|q> \gammabeta_qp = trace(\gammabeta) = nelecb
-# 2) different electrons
-#       = <ij|s-s+|kl>Gamma_{ik,jl} = <ibja|s-s+|kalb>Gamma_{ibka,jalb}
-#       = <ib|s-|ka><ja|s+|lb>Gamma_{ibka,jalb}
-# <CI|S-*S+|CI> = nelecb + <ib|s-|ka><ja|s+|lb>Gamma_{ibka,jalb}
-#
-# Sz*Sz = Msz^2 = (neleca-nelecb)^2
-# 1) same electron
-#       <p|ss|q>\gamma_qp = <p|q>\gamma_qp = (neleca+nelecb)/4
-# 2) different electrons
-#       <ij|2s1s2|kl>Gamma_{ik,jl}/2
-#       =(<ia|ka><ja|la>Gamma_{iaka,jala} - <ia|ka><jb|lb>Gamma_{iaka,jblb}
-#       - <ib|kb><ja|la>Gamma_{ibkb,jala} + <ib|kb><jb|lb>Gamma_{ibkb,jblb})/4
-
-# set aolst for local spin expectation value, which is defined as
-#       <CI|ao><ao|S^2|CI>
-# For a complete list of AOs, I = \sum |ao><ao|, it becomes <CI|S^2|CI>
 
 def contract_sladder(fcivec, norb, nelec, op=-1):
     ''' Contract spin ladder operator S+ or S- with fcivec.
@@ -112,7 +58,6 @@ def contract_sladder(fcivec, norb, nelec, op=-1):
     norm_ci1 = linalg.norm (ci1) + np.finfo (float).tiny
     ci1 *= norm_ci0 / norm_ci1 # ???
     return ci1
-
 
 def contract_sdown (ci, norb, nelec): return contract_sladder (ci, norb, nelec, op=-1)
 def contract_sup (ci, norb, nelec): return contract_sladder (ci, norb, nelec, op=1)
