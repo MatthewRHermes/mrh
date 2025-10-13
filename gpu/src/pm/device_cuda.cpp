@@ -475,6 +475,17 @@ __global__ void _vecadd_batch(const double * in, double * out, int N, int num_ba
 
 /* ---------------------------------------------------------------------- */
 
+__global__ void _memset_zero_batch_stride(double * inout, int stride, int offset, int N, int num_batches)
+{
+    int i = blockIdx.x * blockDim.x + threadIdx.x;
+
+    if(i >= N) return;
+    
+    for(int j=0; j<num_batches; ++j) inout[j*stride + offset + i] = 0.0;
+}
+
+/* ---------------------------------------------------------------------- */
+
 __global__ void _get_rho_to_Pi(double * rho, double * Pi, int ngrid)
 {
     int i = blockIdx.x * blockDim.x + threadIdx.x;
@@ -1590,6 +1601,24 @@ void Device::vecadd_batch(const double * in, double * out, int N, int num_batche
 #ifdef _DEBUG_DEVICE
   printf("LIBGPU ::  -- general::vecadd_batch :: N= %i  num_batches= %i  grid_size= %i %i %i  block_size= %i %i %i\n",
 	 N, num_batches, grid_size.x,grid_size.y,grid_size.z,block_size.x,block_size.y,block_size.z);
+  _CUDA_CHECK_ERRORS();
+#endif
+}
+
+/* ---------------------------------------------------------------------- */
+
+void Device::memset_zero_batch_stride(double * inout, int stride, int offset, int N, int num_batches)
+{
+  dim3 block_size(_DEFAULT_BLOCK_SIZE, 1, 1);
+  dim3 grid_size(_TILE(N,block_size.x));
+  
+  cudaStream_t s = *(pm->dev_get_queue());
+  
+  _memset_zero_batch_stride<<<grid_size, block_size, 0, s>>>(inout, stride, offset, N, num_batches);
+  
+#ifdef _DEBUG_DEVICE
+  printf("LIBGPU ::  -- general::memset_zero_batch_stride :: stride= %i  offset= %i  N= %i  num_batches= %i  grid_size= %i %i %i  block_size= %i %i %i\n",
+	 stride, offset, N, num_batches, grid_size.x,grid_size.y,grid_size.z,block_size.x,block_size.y,block_size.z);
   _CUDA_CHECK_ERRORS();
 #endif
 }
