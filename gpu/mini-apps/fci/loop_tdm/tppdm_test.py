@@ -68,8 +68,7 @@ def multi_gpu_loop(bravecs, ketvecs, norb, nelec, spin):
     libgpu.compute_tdmpp_spin_v4(gpu, na, nb, nlinka, nlinkb, norb+ndum, spin, 
                                  ia_bra, ja_bra, ib_bra, jb_bra, sgn_bra, 
                                  ia_ket, ja_ket, ib_ket, jb_ket, sgn_ket, count) 
-    loc_hhdm = (i*n_ket+j)*size_hhdm
-    libgpu.pull_tdm1_host(gpu, loc_hhdm, size_hhdm, count)#remember that hhdm is norb*norb, so dm1 is fine.
+    libgpu.pull_tdm1_host(gpu, i, j, n_bra, n_ket, size_hhdm, count)#remember that hhdm is norb*norb, so dm1 is fine.
   hhdm = np.zeros ((bravecs.shape[0],ketvecs.shape[0],norb,norb), dtype=bravecs.dtype)
   libgpu.copy_tdm1_host_to_page(gpu, hhdm, size_hhdm_full) 
   return hhdm
@@ -99,8 +98,10 @@ def test_hhdm_loop(n_bra, n_ket, norb, nelec, spin):
     ciket = np.random.random((na_ket, nb_ket))
     bravecs = np.empty((n_bra, na_bra, nb_bra))
     ketvecs = np.empty((n_ket, na_ket, nb_ket))
-    for _nbra in range(n_bra): bravecs[_nbra] = np.random.random((na_bra, nb_bra))
-    for _nket in range(n_ket): ketvecs[_nket] = np.random.random((na_ket, nb_ket))
+    #for _nbra in range(n_bra): bravecs[_nbra] = np.random.random((na_bra, nb_bra))
+    #for _nket in range(n_ket): ketvecs[_nket] = np.random.random((na_ket, nb_ket))
+    for _nbra in range(n_bra): bravecs[_nbra] = np.arange(na_bra* nb_bra).reshape((na_bra, nb_bra)) + 0.5
+    for _nket in range(n_ket): ketvecs[_nket] = np.arange(na_ket* nb_ket).reshape((na_ket, nb_ket)) + 0.5
     
     from pyscf.lib import param
     try: 
@@ -130,6 +131,13 @@ def test_hhdm_loop(n_bra, n_ket, norb, nelec, spin):
         print('TDMpp loop incorrect')
         #print(tdmhh_c)
         #print(tdmhh)
+        diff = tdmhh-tdmhh_c
+        diff_index = np.nonzero(diff)
+        #print(tdmhh[diff[0], diff[1], diff[2], diff[3]])
+        #print(tdmhh_c[diff[0], diff[1], diff[2], diff[3]])
+        print(len(diff[diff!=0]))
+        print(tdmhh[diff!=0])
+        print(tdmhh_c[diff!=0])
         exit()
     elif custom_fci and use_gpu and mgpu_fci: 
       print("in gpu channel")
@@ -170,7 +178,9 @@ if __name__=="__main__":
   mf.kernel()
 
   norb, nelec = 11, 15
-  n_bra, n_ket = 10,10
+  n_bra, n_ket = 10,4
+  #norb, nelec = 4, 4
+  #n_bra, n_ket = 2,2
   [test_hhdm_loop(n_bra, n_ket,norb, nelec, i) for i in range(3)]
   if gpu_run: libgpu.destroy_device(gpu)
 

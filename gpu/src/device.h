@@ -199,7 +199,7 @@ public :
   void pull_tdm1(py::array_t<double> , int, int );
   void pull_tdm2(py::array_t<double> , int, int );
 
-  void pull_tdm1_host(int, int, int);
+  void pull_tdm1_host(int, int, int, int, int, int);
   void pull_tdm2_host(int, int, int);
   void pull_tdm3h_host(int, int, int);
   void pull_tdm3hab(py::array_t<double> ,py::array_t<double> , int, int );

@@ -175,7 +175,7 @@ extern "C"
   void libgpu_reorder_rdm(void *, 
                             int, int);
   void libgpu_pull_tdm1_host(void *, 
-                      int, int, int);
+                      int, int, int, int, int, int);
   void libgpu_pull_tdm2_host(void *, 
                       int, int, int);
   void libgpu_pull_tdm3h_host(void *, 

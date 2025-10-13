@@ -594,10 +594,10 @@ void libgpu_pull_tdm2(void * ptr,
 }
 /* ---------------------------------------------------------------------- */
 void libgpu_pull_tdm1_host(void * ptr, 
-                      int loc, int size_dm, int count)
+                      int i, int j, int n_bra, int n_ket, int size_dm, int count)
 {
   Device * dev = (Device *) ptr;
-  dev->pull_tdm1_host(loc, size_dm, count);
+  dev->pull_tdm1_host(i, j, n_bra, n_ket, size_dm, count);
 }
 /* ---------------------------------------------------------------------- */
 void libgpu_pull_tdm2_host(void * ptr, 
