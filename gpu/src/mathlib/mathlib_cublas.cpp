@@ -135,6 +135,42 @@ void MATHLIB::axpy(const int * n,
 
 // ----------------------------------------------------------------
 
+void MATHLIB::gemv_batch(const char * transa,
+		   const int * m, const int * n, 
+		   const double * alpha, const double * a, const int * lda, const int * strideA,
+		   const double * b, const int * ldb, const int * strideB,
+		   const double * beta, double * c, const int * ldc, const int * strideC, 
+                   const int * batchCount)
+{
+#ifdef _DEBUG_ML
+  printf("Inside MATHLIB::gemv()\n");
+#endif
+
+  
+  cublasHandle_t * h = current_handle;
+  
+  cublasOperation_t ta;
+  
+  if(strcmp(transa, "N") == 0) ta = CUBLAS_OP_N;
+  else if(strcmp(transa, "T") == 0) ta = CUBLAS_OP_T;
+  else ta = CUBLAS_OP_C;
+
+#ifdef _SINGLE_PRECISION
+  cublasSgemvStridedBatched(*h, ta, *m, *n, 
+                            alpha, a, *lda, *strideA, b, *ldb, *strideB, beta, c, *ldc, *strideC, *batchCount);
+#else
+  cublasDgemvStridedBatched(*h, ta, *m, *n, 
+                            alpha, a, *lda, *strideA, b, *ldb, *strideB, beta, c, *ldc, *strideC, *batchCount);
+#endif
+  
+  _CUDA_CHECK_ERRORS();
+  
+#ifdef _DEBUG_ML
+  printf(" -- Leaving MATHLIB::gemv_batch()\n");
+#endif
+}
+// ----------------------------------------------------------------
+
 void MATHLIB::gemv(const char * transa,
 		   const int * m, const int * n, 
 		   const double * alpha, const double * a, const int * lda,

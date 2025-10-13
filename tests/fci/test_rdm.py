@@ -28,14 +28,14 @@ def tearDownModule ():
     del rng, cases
 
 def case_trans_rdm1hs (self, norb, nelec):
-    ciket = rng.random ((cistring.num_strings (norb,nelec[0]),
-                         cistring.num_strings (norb,nelec[1])), dtype=float)
+    ciket = 1 - 2*(rng.random ((cistring.num_strings (norb,nelec[0]),
+                                cistring.num_strings (norb,nelec[1])), dtype=float))
     ciket /= linalg.norm (ciket)
-    cibra_alpha = rng.random ((cistring.num_strings (norb,nelec[0]+1),
-                               cistring.num_strings (norb,nelec[1])), dtype=float)
+    cibra_alpha = 1 - 2*(rng.random ((cistring.num_strings (norb,nelec[0]+1),
+                                      cistring.num_strings (norb,nelec[1])), dtype=float))
     cibra_alpha /= linalg.norm (cibra_alpha)
-    cibra_beta = rng.random ((cistring.num_strings (norb,nelec[0]),
-                              cistring.num_strings (norb,nelec[1]+1)), dtype=float)
+    cibra_beta = 1 - 2*(rng.random ((cistring.num_strings (norb,nelec[0]),
+                                     cistring.num_strings (norb,nelec[1]+1)), dtype=float))
     cibra_beta /= linalg.norm (cibra_beta)
     tdm1ha_ref = [np.dot (cibra_alpha.conj ().flat, cre_a (ciket, norb, nelec, i).flat)
                   for i in range (norb)]

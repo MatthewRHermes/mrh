@@ -104,11 +104,9 @@ class LSTDM (object):
         self.nstates = offs1[-1]
         self.dtype = dtype
         self.tdm1s = self.tdm2s = None
-        t0 = log.timer ('STDM class initialize', *t0)
 
         # overlap tensor
         self.ovlp = [i.ovlp for i in ints]
-        t0 = log.timer ('STDM class overlap timer', *t0)
 
         # spin-shuffle sign vector
         nelec_frs = np.asarray ([[list (i.nelec_r[ket]) for ket in range (self.nroots)]
@@ -116,34 +114,27 @@ class LSTDM (object):
         self.spin_shuffle = [fermion_spin_shuffle (nelec_sf[0], nelec_sf[1])
                              for nelec_sf in nelec_frs.transpose (1,2,0)]
         self.nelec_rf = nelec_frs.sum (2).T
-        t0 = log.timer ('STDM class overlap timer', *t0)
 
         self.urootstr = np.asarray ([[i.uroot_idx[r] for i in self.ints]
                                      for r in range (self.nroots)]).T
 
-        t0 = log.timer ('STDM class urootstr?', *t0)
-        t1 = (lib.logger.process_clock (), lib.logger.perf_counter ())
-        exc = self.make_exc_tables (nelec_frs)
-        t1 = log.timer ('STDM class exc', *t1)
-        self.nonuniq_exc = {}
-        self.exc_null = self.mask_exc_table_(exc['null'], 'null', mask_bra_space, mask_ket_space)
-        t1 = log.timer ('STDM class exc_null', *t1)
-        self.exc_1d = self.mask_exc_table_(exc['1d'], '1d', mask_bra_space, mask_ket_space)
-        t1 = log.timer ('STDM class exc_1d', *t1)
-        self.exc_2d = self.mask_exc_table_(exc['2d'], '2d', mask_bra_space, mask_ket_space)
-        t1 = log.timer ('STDM class exc_2d', *t1)
-        self.exc_1c = self.mask_exc_table_(exc['1c'], '1c', mask_bra_space, mask_ket_space)
-        t1 = log.timer ('STDM class exc_1c', *t1)
-        self.exc_1c1d = self.mask_exc_table_(exc['1c1d'], '1c1d', mask_bra_space, mask_ket_space)
-        t1 = log.timer ('STDM class exc_1c1d', *t1)
-        self.exc_1s = self.mask_exc_table_(exc['1s'], '1s', mask_bra_space, mask_ket_space)
-        t1 = log.timer ('STDM class exc_1s', *t1)
-        self.exc_1s1c = self.mask_exc_table_(exc['1s1c'], '1s1c', mask_bra_space, mask_ket_space)
-        t1 = log.timer ('STDM class exc_1s1s', *t1)
-        self.exc_2c = self.mask_exc_table_(exc['2c'], '2c', mask_bra_space, mask_ket_space)
-        t1 = log.timer ('STDM class exc_2c', *t1)
+        smult_fr = np.asarray ([i.smult_r for i in self.ints])
+        if smult_fr.dtype == np.object_: smult_fr = None
 
-        t0 = log.timer ('STDM class making exc tables', *t0) 
+        exc = self.make_exc_tables (nelec_frs, smult_fr)
+        t1 = (lib.logger.process_clock (), lib.logger.perf_counter ())
+        self.nonuniq_exc = {}
+        self.spman = {}
+        self.exc_null = self.mask_exc_table_(exc['null'], 'null', mask_bra_space, mask_ket_space)
+        t1 = self.log.timer ('STDM class exc_null', *t1)
+        self.exc_1d = self.mask_exc_table_(exc['1d'], '1d', mask_bra_space, mask_ket_space)
+        self.exc_2d = self.mask_exc_table_(exc['2d'], '2d', mask_bra_space, mask_ket_space)
+        self.exc_1c = self.mask_exc_table_(exc['1c'], '1c', mask_bra_space, mask_ket_space)
+        self.exc_1c1d = self.mask_exc_table_(exc['1c1d'], '1c1d', mask_bra_space, mask_ket_space)
+        self.exc_1s = self.mask_exc_table_(exc['1s'], '1s', mask_bra_space, mask_ket_space)
+        self.exc_1s1c = self.mask_exc_table_(exc['1s1c'], '1s1c', mask_bra_space, mask_ket_space)
+        self.exc_2c = self.mask_exc_table_(exc['2c'], '2c', mask_bra_space, mask_ket_space)
+
         self.init_profiling ()
         self._init_buffers_()
         self.memcheck ('LSTDM init', m0)
@@ -156,17 +147,14 @@ class LSTDM (object):
         self._norb_c = c_int (self.norb)
         self._orbidx = np.ones (self.norb, dtype=bool)
 
-        t0 = log.timer ('STDM class buffers', *t0)
 
         # C fns
         if self.dtype==np.float64:
             self._put_SD1_c_fn = liblassi.LASSIRDMdputSD1
             self._put_SD2_c_fn = liblassi.LASSIRDMdputSD2
-            t0 = log.timer ('STDM class Cfns float64', *t0)
         elif self.dtype==np.complex128:
             self._put_SD1_c_fn = liblassi.LASSIRDMzputSD1
             self._put_SD2_c_fn = liblassi.LASSIRDMzputSD2
-            t0 = log.timer ('STDM class Cfns complex128', *t0)
         else:
             raise NotImplementedError (self.dtype)
 
@@ -229,7 +217,7 @@ class LSTDM (object):
     def fermion_frag_shuffle (self, iroot, frags):
         return fermion_frag_shuffle (self.nelec_rf[iroot], frags)
 
-    def make_exc_tables (self, nelec_frs):
+    def make_exc_tables (self, nelec_frs, smult_fr):
         ''' Generate excitation tables. The nth column of each array is the (n+1)th argument of the
         corresponding _crunch_*_ member function below. The first two columns are always the bra
         rootspace index and the ket rootspace index, respectively. Further columns identify
@@ -256,7 +244,8 @@ class LSTDM (object):
         exc['1s1c_T'] = np.empty ((0,5), dtype=int)
         exc['2c'] = np.empty ((0,7), dtype=int)
         nfrags = self.nfrags
-        scai = get_scallowed_interactions (nelec_frs, max_memory=self.max_memory)
+        scai = get_scallowed_interactions (nelec_frs, smult_fr=smult_fr,
+                                           max_memory=self.max_memory)
 
         if self.ltri:
             tril_index = scai[:,0] >= scai[:,1]
@@ -432,20 +421,20 @@ class LSTDM (object):
         # interactions and populate self.nonuniq_exc with the corresponding
         # nonunique images.
         if lbl=='null': return exc
+        nexc = len (exc)
+        exc, nonuniq_exc = self.find_unique_exc (exc, lbl, fprint_fn=self.interaction_fprints)
+        self.nonuniq_exc.update (nonuniq_exc)
+        nuniq = len (exc)
+        self.log.timer ('mask_exc_table_ {}'.format (lbl), *t0)
+        self.log.debug ('%d/%d unique interactions of %s type',
+                        nuniq, nexc, lbl)
+        return exc
+
+    def find_unique_exc (self, exc, lbl, fprint_fn=None):
+        nonuniq_exc = {}
         ulblu = '_' + lbl + '_'
         excp = exc[:,:-1] if ulblu in self.interaction_has_spin else exc
-        fprintLT = np.empty (len (excp), dtype=int)
-        fprint = np.empty (len (excp), dtype=int)
-        #t0 = self.log.timer ('Exc part 3 setup ', *t0)
-        # MRH 08/01/2025: this loop is a significant bottleneck in many-fragment LASSIS and is
-        # trivial to multithread in C as long as you can find a good integer-list hash function
-        for i, row in enumerate (excp):
-            bra, ket = row[:2]
-            frags = row[2:]
-            fprintLT[i] = self.interaction_fprint (bra, ket, frags, ltri=self.ltri)
-            fprint[i] = self.interaction_fprint (bra, ket, frags, ltri=False)
-        #t0 = self.log.timer ('Exc part 3 bottleneck loop', *t0)
-        nexc = len (exc)
+        fprint, fprintLT = fprint_fn (exc, lbl)
         ufp, idx, cnts = np.unique (fprintLT, axis=0, return_index=True, return_counts=True)
         # for some reason this squeeze is necessary for some versions of numpy; however...
         all_idxs = np.argsort (fprintLT)
@@ -454,20 +443,15 @@ class LSTDM (object):
         cnts = cnts[ix_sort]
         image_sets = np.split (all_idxs, np.cumsum (cnts))
         exc_01 = exc[:,0:2]
-        t0 = self.log.timer ('Exc part 3 only unique interactions', *t0)
         for image_idxs, uniq_idx in zip (image_sets, idx):
             # ...numpy.where (0==0) triggers a DeprecationWarning, so I have to atleast_1d it
             braket_images = exc_01[image_idxs]
             iT = fprint[image_idxs]!=fprint[uniq_idx]
             braket_images[iT,:] = braket_images[iT,::-1]
-            self.nonuniq_exc[tuple(excp[uniq_idx])] = braket_images
+            nonuniq_exc[tuple(excp[uniq_idx])] = braket_images
         exc = exc[idx]
         nuniq = len (exc)
-        #t0 = self.log.timer ('Exc part 3 populating non unique', *t0)
-        self.log.timer ('mask_exc_table_ {}'.format (lbl), *t0)
-        self.log.debug ('%d/%d unique interactions of %s type',
-                        nuniq, nexc, lbl)
-        return exc
+        return exc, nonuniq_exc
 
     def get_range (self, i):
         '''Get the orbital range for a fragment.
@@ -517,8 +501,7 @@ class LSTDM (object):
 
     def crunch_ovlp (self, bra, ket):
         i = self.ints[-1]
-        b, k = i.uroot_idx[bra], i.uroot_idx[ket]
-        o = i.ovlp[b][k] / (1 + int (bra==ket))
+        o = i.get_ovlp (bra, ket) / (1 + int (bra==ket))
         for i in self.ints[-2::-1]:
             o = np.multiply.outer (o, i.get_ovlp (bra, ket)).transpose (0,2,1,3)
             o = o.reshape (o.shape[0]*o.shape[1], o.shape[2]*o.shape[3])
@@ -1172,6 +1155,7 @@ def make_stdm12s (las, ci, nelec_frs, **kwargs):
     nlas = las.ncas_sub
     ncas = las.ncas
     nfrags, nroots = nelec_frs.shape[:2]
+    smult_fr = kwargs.get ('smult_fr', None)
     dtype = ci[0][0].dtype
     max_memory = getattr (las, 'max_memory', las.mol.max_memory)
 
@@ -1189,7 +1173,7 @@ def make_stdm12s (las, ci, nelec_frs, **kwargs):
         ncas = ncas * 2
 
     # First pass: single-fragment intermediates
-    ints, lroots = frag.make_ints (las, ci, nelec_frs, nlas=nlas)
+    ints, lroots = frag.make_ints (las, ci, nelec_frs, smult_fr=smult_fr, nlas=nlas)
     nstates = np.sum (np.prod (lroots, axis=0))
 
     # Memory check

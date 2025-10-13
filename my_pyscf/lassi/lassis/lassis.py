@@ -50,8 +50,10 @@ def prepare_model_states (lsi, ci_ref, ci_sf, ci_ch):
             smults1.append (smult+2)
             spins1.append (smult+1)
             ci1.append (ci_sf[i][1])
-        spin_flips.append (SpinFlips (las.mol, ci1, space0.nlas[i], space0.nelec[i], spins1, smults1))
+        spin_flip_i = SpinFlips (las.mol, ci1, space0.nlas[i], space0.nelec[i], spins1, smults1)
+        spin_flips.append (spin_flip_i)
     t1=log.timer ("LASSIS model space preparation: make spin flip objects ", *t1)
+    
     # Make charge-hop objects
     spaces = [space0]
     spaces_ch = [[[] for a in range (lsi.nfrags)] for i in range (lsi.nfrags)]
@@ -461,6 +463,7 @@ def spin_flip_products (las, spaces, spin_flips, nroots_ref=1):
     t0 = (logger.process_clock (), logger.perf_counter ())
     log = logger.new_logger (las, las.verbose)
     nspaces = len (spaces)
+    t1 = (logger.process_clock (), logger.perf_counter ())
     spaces = _spin_flip_products (spaces, spin_flips, nroots_ref=nroots_ref)
     t1 = log.timer ("LASSIS spin-flip bare injection", *t0)
     nfrags = spaces[0].nfrag
@@ -475,6 +478,7 @@ def spin_flip_products (las, spaces, spin_flips, nroots_ref=1):
         else:
             log.debug ("Spin-excitation space %d:", i+nspaces)
         space.table_printlog (tverbose=logger.DEBUG)
+    t1=log.timer ("LASSIS spin-flip table_print", *t1)
     log.timer ("LASSIS spin-flip injection", *t0)
     return spaces
 
@@ -594,6 +598,22 @@ class LASSIS (LASSI):
             logger.warn (self, ("Only the first LASSCF state is used by LASSIS! "
                                 "Other states are discarded!"))
 
+    def copy (self):
+        # semi-deep copy of nested lists
+        mycopy = super().copy ()
+        mycopy._las = self._las.copy ()
+        mycopy.ci_spin_flips = [
+            [xis for xis in xi]
+            for xi in self.ci_spin_flips
+        ]
+        mycopy.ci_charge_hops = [
+            [[[xiasp for xiasp in xias]
+              for xias in xia]
+             for xia in xi]
+            for xi in self.ci_charge_hops
+        ]
+        return mycopy
+
     def ham_2q (self, *args, **kwargs):
         if self._cached_ham_2q is not None: return self._cached_ham_2q
         return super().ham_2q (*args, **kwargs)
@@ -689,6 +709,7 @@ class LASSIS (LASSI):
         las = self.prepare_model_states (ci_ref, ci_sf, ci_ch)[0]
         ci = las.ci
         self.fciboxes = las.fciboxes # TODO: set this at initialization
+        self.nroots = las.nroots
         return LASSI.energy_tot (self, mo_coeff=mo_coeff, ci=ci, si=si, soc=soc)
 
     def get_lroots (self, ci=None):
@@ -713,7 +734,6 @@ class LASSIS (LASSI):
     eig = LASSI.kernel
     as_scanner = as_scanner
     prepare_fbf = prepare_fbf
-    print("here after fbf", flush=True)
     prepare_model_states = prepare_model_states
 
     def get_ref_fbf_rootspaces (self, ifrag):

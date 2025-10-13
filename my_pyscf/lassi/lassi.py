@@ -1,3 +1,4 @@
+import sys
 import numpy as np
 import time
 from scipy import linalg
@@ -32,6 +33,7 @@ NROOTS_SI = getattr (__config__, 'lassi_nroots_si', 1)
 MAX_CYCLE_SI = getattr (__config__, 'lassi_max_cycle_si', 100)
 MAX_SPACE_SI = getattr (__config__, 'lassi_max_space_si', 12)
 TOL_SI = getattr (__config__, 'lassi_tol_si', 1e-8)
+DAVIDSON_SCREEN_THRESH_SI = getattr (__config__, 'lassi_hsi_screen_thresh', 1e-12)
 
 op = (op_o0, op_o1)
 
@@ -390,8 +392,9 @@ def _eig_block_Davidson (las, e0, h1, h2, ci_blk, nelec_blk, smult_blk, soc, opt
     max_space_si = getattr (las, 'max_space_si', MAX_SPACE_SI)
     tol_si = getattr (las, 'tol_si', TOL_SI)
     get_init_guess = getattr (las, 'get_init_guess_si', get_init_guess_si)
+    screen_thresh = getattr (las, 'davidson_screen_thresh_si', DAVIDSON_SCREEN_THRESH_SI)
     h_op_raw, s2_op, ovlp_op, hdiag, _get_ovlp = op[opt].gen_contract_op_si_hdiag (
-        las, h1, h2, ci_blk, nelec_blk, soc=soc
+        las, h1, h2, ci_blk, nelec_blk, smult_fr=smult_blk, soc=soc, screen_thresh=screen_thresh
     )
     t0 = (lib.logger.process_clock (), lib.logger.perf_counter ())
     raw2orth = citools.get_orth_basis (ci_blk, las.ncas_sub, nelec_blk, _get_ovlp=_get_ovlp,
@@ -473,7 +476,7 @@ def _eig_block_incore (las, e0, h1, h2, ci_blk, nelec_blk, smult_blk, soc, opt):
         if (las.verbose > lib.logger.INFO): lib.logger.debug (
             las, 'Insufficient memory to test against o0 LASSI algorithm')
         ham_blk, s2_blk, ovlp_blk, _get_ovlp = op[opt].ham (
-            las, h1, h2, ci_blk, nelec_blk, soc=soc)
+            las, h1, h2, ci_blk, nelec_blk, smult_fr=smult_blk, soc=soc)
         t0 = lib.logger.timer (las, 'LASSI H build', *t0)
     log_debug = lib.logger.debug2 if las.nroots>10 else lib.logger.debug
     if np.iscomplexobj (ham_blk):
@@ -601,7 +604,7 @@ def make_stdm12s (las, ci=None, orbsym=None, soc=False, break_symmetry=False, sp
             d1s, d2s = op_o0.make_stdm12s (las1, ci_blk, nelec_blk, orbsym=orbsym, wfnsym=wfnsym)
             t0 = lib.logger.timer (las, 'LASSI make_stdm12s rootsym {} CI algorithm'.format (
                 sym), *t0)
-            d1s_test, d2s_test = op_o1.make_stdm12s (las1, ci_blk, nelec_blk)
+            d1s_test, d2s_test = op_o1.make_stdm12s (las1, ci_blk, nelec_blk, smult_fr=smult_blk)
             t0 = lib.logger.timer (las, 'LASSI make_stdm12s rootsym {} TDM algorithm'.format (
                 sym), *t0)
             lib.logger.debug (las,
@@ -619,7 +622,9 @@ def make_stdm12s (las, ci=None, orbsym=None, soc=False, break_symmetry=False, sp
         else:
             if not o0_memcheck: lib.logger.debug (
                 las, 'Insufficient memory to test against o0 LASSI algorithm')
-            d1s, d2s = op[opt].make_stdm12s (las1, ci_blk, nelec_blk, orbsym=orbsym, wfnsym=wfnsym)
+            smult_fr = None if soc else smult_blk
+            d1s, d2s = op[opt].make_stdm12s (las1, ci_blk, nelec_blk, orbsym=orbsym, wfnsym=wfnsym,
+                                             smult_fr=smult_fr)
             t0 = lib.logger.timer (las, 'LASSI make_stdm12s rootsym {}'.format (sym), *t0)
         idx_allprods.append (list(np.where(idx_prod)[0]))
         nprods += len (idx_allprods[-1])
@@ -740,7 +745,7 @@ def roots_trans_rdm12s (las, ci, si_bra, si_ket, orbsym=None, soc=None, break_sy
             t0 = lib.logger.timer (las, 'LASSI trans_rdm12s rootsym {} CI algorithm'.format (sym),
                                    *t0)
             d1s_test, d2s_test = op[opt].roots_trans_rdm12s (las1, ci_blk, nelec_blk, sib_blk,
-                                                             sik_blk, **kwargs)
+                                                             sik_blk, smult_fr=smult_blk, **kwargs)
             t0 = lib.logger.timer (las, 'LASSI trans_rdm12s rootsym {} TDM algorithm'.format (sym),
                                    *t0)
             lib.logger.debug (las,
@@ -758,8 +763,12 @@ def roots_trans_rdm12s (las, ci, si_bra, si_ket, orbsym=None, soc=None, break_sy
         else:
             if not o0_memcheck: lib.logger.debug (las,
                 'Insufficient memory to test against o0 LASSI algorithm')
+            if soc:
+                smult_fr = None
+            else:
+                smult_fr = smult_blk
             d1s, d2s = op[opt].roots_trans_rdm12s (las1, ci_blk, nelec_blk, sib_blk, sik_blk,
-                                                   orbsym=orbsym, wfnsym=wfnsym,
+                                                   smult_fr=smult_fr, orbsym=orbsym, wfnsym=wfnsym,
                                                    **kwargs)
             t0 = lib.logger.timer (las, 'LASSI trans_rdm12s rootsym {}'.format (sym), *t0)
         idx_int = np.where (idx_si)[0]
@@ -906,9 +915,10 @@ def energy_tot (lsi, mo_coeff=None, ci=None, si=None, soc=0, opt=None):
         nroots_si = si.shape[1]
     si = si.reshape (-1,nroots_si)
     nelec_frs = lsi.get_nelec_frs ()
+    smult_fr = lsi.get_smult_fr ()
     h0, h1, h2 = lsi.ham_2q (mo_coeff=mo_coeff, soc=soc)
     hop = op[opt].gen_contract_op_si_hdiag (
-        lsi, h1, h2, ci, nelec_frs, soc=soc
+        lsi, h1, h2, ci, nelec_frs, soc=soc, smult_fr=smult_fr
     )[0]
     e_tot = lib.einsum ('ip,ip->p', (hop (si) + h0*si), si.conj ())
     if nroots_si==1: e_tot=e_tot[0]
@@ -953,7 +963,14 @@ class LASSI(lib.StreamObject):
         self.level_shift_si = LEVEL_SHIFT_SI
         self.nroots_si = nroots_si
         self.converged_si = False
+        self.davidson_screen_thresh_si = DAVIDSON_SCREEN_THRESH_SI
         self._keys = set((self.__dict__.keys())).union(keys)
+
+    def copy (self):
+        # semi-deep copy of nested lists
+        mycopy = super().copy ()
+        mycopy.ci = [[xij for xij in xi] for xi in self.ci]
+        return mycopy
 
     def kernel(self, mo_coeff=None, ci=None, veff_c=None, h2eff_sub=None, orbsym=None, soc=None,\
                break_symmetry=None, opt=None, davidson_only=None, level_shift_si=None,
@@ -1138,17 +1155,19 @@ class LASSI(lib.StreamObject):
 
     energy_tot = energy_tot
 
-    def get_raw2orth (self, ci=None, nelec_frs=None, soc=None, opt=None, _get_ovlp=None):
+    def get_raw2orth (self, ci=None, nelec_frs=None, smult_fr=None, soc=None, opt=None,
+                      _get_ovlp=None):
         if ci is None: ci = self.ci
         if soc is None: soc = self.soc
         if opt is None: opt = self.opt
         if nelec_frs is None: nelec_frs = self.get_nelec_frs ()
+        if smult_fr is None: smult_fr = self.get_smult_fr ()
         n = self.ncas
         h1 = np.zeros ([n,n])
         h2 = np.zeros ([n,n,n,n])
         if _get_ovlp is None:
             _get_ovlp = op[opt].gen_contract_op_si_hdiag (
-                self, h1, h2, ci, nelec_frs, soc=soc
+                self, h1, h2, ci, nelec_frs, smult_fr=smult_fr, soc=soc
             )[4]
         return citools.get_orth_basis (ci, self.ncas_sub, nelec_frs, _get_ovlp=_get_ovlp)
 

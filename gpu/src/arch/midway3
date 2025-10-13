@@ -15,7 +15,7 @@ CXXFLAGS += -D_USE_NVTX
 
 CUDA_CXX = nvcc
 CUDA_CXXFLAGS = -x cu $(PYTHON_INC)
-CUDA_CXXFLAGS += -arch=sm_37
+CUDA_CXXFLAGS += -arch=sm_70
 CUDA_CXXFLAGS += -Xcompiler -fopenmp
 #CUDA_CXXFLAGS += -shared -Xcompiler -fPIC 
 CUDA_CXXFLAGS += -D_USE_GPU -D_GPU_CUDA -D_GPU_CUBLAS

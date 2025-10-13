@@ -19,28 +19,6 @@ def _unpack(norb, nelec, link_index, spin=None):
     else:
         return link_index
 
-def dummy_orbital_params(norb, nelec, occ_a=0, occ_b=0):
-    ia = ib = 0
-    neleca, nelecb = _unpack_nelec (nelec)
-    ndeta0 = ja = cistring.num_strings (norb, neleca) 
-    ndetb0 = jb = cistring.num_strings (norb, nelecb) 
-    ndeta1 = cistring.num_strings (norb+1, neleca+occ_a) 
-    ndetb1 = cistring.num_strings (norb+1, nelecb+occ_b) 
-    if occ_a: ia, ja = ndeta1-ndeta0, ndeta1
-    if occ_b: ib, jb = ndetb1-ndetb0, ndetb1
-    sgn = (1,-1)[occ_b * (neleca%2)]
-    return ia, ja, ib, jb, sgn
-
-def _unpack(norb, nelec, link_index, spin=None):
-    if link_index is None:  
-        neleca, nelecb = _unpack_nelec(nelec, spin)
-        link_indexa = link_indexb = cistring.gen_linkstr_index(range(norb), neleca)
-        if neleca != nelecb:
-            link_indexb = cistring.gen_linkstr_index(range(norb), nelecb)
-        return link_indexa, link_indexb
-    else:                   
-        return link_index   
-
 def _trans_rdm1hs (cre, cibra, ciket, norb, nelec, spin=0, link_index=None):
     '''Evaluate the one-half-particle transition density matrix between ci vectors in different
     Hilbert spaces: <cibra|r'|ciket>, where |cibra> has the same number of orbitals but one
@@ -68,6 +46,39 @@ def _trans_rdm1hs (cre, cibra, ciket, norb, nelec, spin=0, link_index=None):
         tdm1h: ndarray of shape (norb,)
             One-half-particle transition density matrix between cibra and ciket.
     '''
+    try: 
+      use_gpu = param.use_gpu
+      gpu = use_gpu
+    except: 
+      use_gpu = None
+    try: gpu_debug = param.gpu_debug
+    except: gpu_debug = False
+    try: custom_fci = param.custom_fci
+    except: custom_fci = False
+    try: custom_debug = param.custom_debug
+    except: custom_debug = False
+    if custom_fci and custom_debug and use_gpu:
+      ### New kernel
+      tdm1h = _trans_rdm1hs_o0(cre, cibra, ciket, norb, nelec, spin=spin, link_index=link_index)
+      tdm1h_c = _trans_rdm1hs_o1(cre, cibra, ciket, norb, nelec, spin=spin, link_index=link_index)
+      ### Old kernel
+      tdm1_correct = np.allclose(tdm1h, tdm1h_c)
+      if tdm1_correct: 
+        print('Trans RDM1hs calculated correctly')
+      else:
+        print('Trans RDM1hs calculated incorrectly')
+        exit()
+    elif custom_fci and use_gpu: 
+      tdm1h = _trans_rdm1hs_o1(cre, cibra, ciket, norb, nelec, spin=spin, link_index=link_index)
+    else:
+      tdm1h = _trans_rdm1hs_o0(cre, cibra, ciket, norb, nelec, spin=spin, link_index=link_index)
+    tdm1h = tdm1h[-1,:-1]
+    if not cre: tdm1h = tdm1h.conj ()
+    return tdm1h
+
+
+
+def _trans_rdm1hs_o0(cre, cibra, ciket, norb, nelec, spin=0, link_index=None):
     nelec = list (_unpack_nelec (nelec))
     if not cre:
         cibra, ciket = ciket, cibra
@@ -82,9 +93,42 @@ def _trans_rdm1hs (cre, cibra, ciket, norb, nelec, spin=0, link_index=None):
     ciket = dummy.add_orbital (ciket, norb, nelec_ket, occ_a=(1-spin), occ_b=spin)
     cibra = dummy.add_orbital (cibra, norb, nelec_bra, occ_a=0, occ_b=0)
     fn = ('FCItrans_rdm1a', 'FCItrans_rdm1b')[spin]
-    tdm1h = rdm.make_rdm1_spin1 (fn, cibra, ciket, norb+1, nelec_bra, linkstr)[-1,:-1]
-    if not cre: tdm1h = tdm1h.conj ()
+    tdm1h = rdm.make_rdm1_spin1 (fn, cibra, ciket, norb+1, nelec_bra, linkstr)
     return tdm1h
+
+def _trans_rdm1hs_o1(cre, cibra, ciket, norb, nelec, spin=0, link_index=None):
+    from mrh.my_pyscf.gpu import libgpu
+    gpu=param.use_gpu
+    nelec = list (_unpack_nelec (nelec))
+    if not cre:
+        cibra, ciket = ciket, cibra
+        nelec[spin] -= 1
+    nelec_ket = _unpack_nelec (nelec)
+    nelec_bra = [x for x in nelec]
+    nelec_bra[spin] += 1
+    linkstr = _unpack (norb+1, nelec_bra, link_index)
+    errmsg = ("For the half-particle transition density matrix functions, the linkstr must "
+              "be for nelec+1 electrons occupying norb+1 orbitals.")
+    for i in range (2): assert (linkstr[i].shape[1]==(nelec_bra[i]*(norb-nelec_bra[i]+2))), errmsg
+
+    ia_ket, ja_ket, ib_ket, jb_ket, sgn_ket = dummy.dummy_orbital_params(norb, nelec_ket, occ_a =(1-spin), occ_b = spin)
+    ia_bra, ja_bra, ib_bra, jb_bra, sgn_bra = dummy.dummy_orbital_params(norb, nelec_bra, occ_a = 0, occ_b = 0)
+    na, nlinka = linkstr[0].shape[:2] 
+    nb, nlinkb = linkstr[1].shape[:2] 
+    na_bra, nb_bra = cibra.shape
+    na_ket, nb_ket = ciket.shape
+    libgpu.push_cibra(gpu, cibra, na_bra, nb_bra)
+    libgpu.push_ciket(gpu, ciket, na_ket, nb_ket)
+    tdm1h = np.empty((norb+1, norb+1))
+    libgpu.init_tdm1(gpu, norb+1)
+    libgpu.push_link_index_ab(gpu, na, nb, nlinka, nlinkb, linkstr[0], linkstr[1])
+
+    libgpu.compute_tdm1h_spin(gpu, na, nb, nlinka, nlinkb, norb+1, spin, 
+                               ia_bra, ja_bra, ib_bra, jb_bra, sgn_bra,
+                               ia_ket, ja_ket, ib_ket, jb_ket, sgn_ket) #TODO: write a better name
+    libgpu.pull_tdm1(gpu, tdm1h, norb+1)
+    return tdm1h.T
+   
 
 def trans_rdm1ha_cre (cibra, ciket, norb, nelec, link_index=None):
     '''Half-electron spin-up creation case of:\n''' + _trans_rdm1hs.__doc__
@@ -138,19 +182,19 @@ def _trans_rdm13hs (cre, cibra, ciket, norb, nelec, spin=0, link_index=None, reo
     try: 
       use_gpu = param.use_gpu
       gpu = use_gpu
-      try: custom_fci = param.custom_fci
-      except: custom_fci = False
-      try: gpu_debug = param.gpu_debug
-      except: gpu_debug = False
-      try: custom_debug = param.custom_debug
-      except: custom_debug = False
     except: 
       use_gpu = None
+    try: gpu_debug = param.gpu_debug
+    except: gpu_debug = False
+    try: custom_fci = param.custom_fci
+    except: custom_fci = False
+    try: custom_debug = param.custom_debug
+    except: custom_debug = False
     if custom_fci and custom_debug and use_gpu:
       ### Old kernel
       tdm1h, tdm3ha, tdm3hb = _trans_rdm13hs_o0(cre, cibra, ciket, norb, nelec, spin=spin, link_index=link_index, reorder = reorder)
       ### New kernel
-      tdm1h_c, tdm3ha_c, tdm3hb_c = _trans_rdm13hs_o3(cre, cibra, ciket, norb, nelec, spin=spin, link_index=link_index, reorder = reorder)
+      tdm1h_c, tdm3ha_c, tdm3hb_c = _trans_rdm13hs_o4(cre, cibra, ciket, norb, nelec, spin=spin, link_index=link_index, reorder = reorder)
       tdm1_correct = np.allclose(tdm1h, tdm1h_c)
       tdm3ha_correct = np.allclose(tdm3ha, tdm3ha_c)
       tdm3hb_correct = np.allclose(tdm3hb, tdm3hb_c)
@@ -159,11 +203,16 @@ def _trans_rdm13hs (cre, cibra, ciket, norb, nelec, spin=0, link_index=None, reo
       else:
         print('TDM RDM13hs calculated incorrectly')
         print('TDM1h correct?', tdm1_correct)
+        print(tdm1h)
+        print(tdm1h_c)
+        #print(tdm3ha)
         print('TDM3ha correct?', tdm3ha_correct)
+        #if not tdm3ha_correct: print((tdm3ha - tdm3ha_c).reshape(-1, (norb+1)*(norb+1)))
         print('TDM3hb correct?', tdm3hb_correct)
+        #if not tdm3hb_correct: print(tdm3hb - tdm3hb_c)
         exit()
     elif custom_fci and use_gpu: 
-      tdm1h, tdm3ha, tdm3hb = _trans_rdm13hs_o3(cre, cibra, ciket, norb, nelec, spin=spin, link_index=link_index, reorder = reorder)
+      tdm1h, tdm3ha, tdm3hb = _trans_rdm13hs_o4(cre, cibra, ciket, norb, nelec, spin=spin, link_index=link_index, reorder = reorder)
     else:
       tdm1h, tdm3ha, tdm3hb = _trans_rdm13hs_o0(cre, cibra, ciket, norb, nelec, spin=spin, link_index=link_index, reorder = reorder)
     tdm1h = tdm1h[-1,:-1]
@@ -203,86 +252,6 @@ def _trans_rdm13hs_o0(cre, cibra, ciket, norb, nelec, spin=0, link_index=None, r
       tdm3hb = rdm.make_rdm12_spin1 (fn_ab, cibra, ciket, norb+1, nelec_bra, linkstr, 0)[1]
     return tdm1h, tdm3ha, tdm3hb 
 
-def _trans_rdm13hs_o2(cre, cibra, ciket, norb, nelec, spin=0, link_index=None, reorder=True):
-    '''GPU accelerated _trand_rdm13hs with custom FCI kernel'''
-    from mrh.my_pyscf.gpu import libgpu
-    gpu=param.use_gpu
-    nelec = list (_unpack_nelec (nelec))
-    if not cre:
-        cibra, ciket = ciket, cibra
-        nelec[spin] -= 1
-    nelec_ket = _unpack_nelec (nelec)
-    nelec_bra = [x for x in nelec]
-    nelec_bra[spin] += 1
-    linkstr = _unpack (norb+1, nelec_bra, link_index)
-    errmsg = ("For the half-particle transition density matrix functions, the linkstr must "
-              "be for nelec+1 electrons occupying norb+1 orbitals.")
-    for i in range (2): assert (linkstr[i].shape[1]==(nelec_bra[i]*(norb-nelec_bra[i]+2))), errmsg
-
-    ia_ket, ja_ket, ib_ket, jb_ket, sgn_ket = dummy_orbital_params(norb, nelec_ket, occ_a = (1-spin), occ_b = spin)
-    ia_bra, ja_bra, ib_bra, jb_bra, sgn_bra = dummy_orbital_params(norb, nelec_bra, occ_a = 0, occ_b = 0)
-    ciket = dummy.add_orbital (ciket, norb, nelec_ket, occ_a=(1-spin), occ_b=spin) ##v3 will get rid of this
-    cibra = dummy.add_orbital (cibra, norb, nelec_bra, occ_a=0, occ_b=0) ## v3 will get rid of this
-
-    tdm1h = np.empty((norb+1, norb+1))
-    tdm3ha = np.empty((norb+1, norb+1, norb+1, norb+1))
-    tdm3hb = np.empty((norb+1, norb+1, norb+1, norb+1))
-    libgpu.init_tdm1(gpu, norb+1)
-    na, nlinka = linkstr[0].shape[:2] 
-    nb, nlinkb = linkstr[1].shape[:2] 
-    libgpu.push_link_index_ab(gpu, na, nb, nlinka, nlinkb, linkstr[0], linkstr[1])
-    libgpu.init_tdm3hab(gpu, norb+1)
-    libgpu.push_ci(gpu, cibra, ciket, na, nb)
-    libgpu.compute_tdm13h_spin_v2(gpu, na, nb, nlinka, nlinkb, norb+1, spin, 
-                                   ia_bra, ja_bra, ib_bra, jb_bra, sgn_bra,
-                                   ia_ket, ja_ket, ib_ket, jb_ket, sgn_ket) #TODO: write a better name
-    libgpu.pull_tdm1(gpu, tdm1h, norb+1)
-    libgpu.pull_tdm3hab(gpu, tdm3ha, tdm3hb, norb+1)
-    tdm1h = tdm1h.T
-    if spin: 
-        if reorder: tdm1h, tdm3hb = rdm.reorder_rdm(tdm1h, tdm3hb, inplace=True)
-        tdm3ha = tdm3ha.transpose(3,2,1,0)
-    else:
-        if reorder: tdm1h, tdm3ha = rdm.reorder_rdm (tdm1h, tdm3ha, inplace=True)
-    return tdm1h, tdm3ha, tdm3hb 
-
-def _trans_rdm13hs_o3(cre, cibra, ciket, norb, nelec, spin=0, link_index=None, reorder=True):
-    '''GPU accelerated _trand_rdm13hs with custom FCI kernel'''
-    from mrh.my_pyscf.gpu import libgpu
-    gpu=param.use_gpu
-    nelec = list (_unpack_nelec (nelec))
-    if not cre:
-        cibra, ciket = ciket, cibra
-        nelec[spin] -= 1
-    nelec_ket = _unpack_nelec (nelec)
-    nelec_bra = [x for x in nelec]
-    nelec_bra[spin] += 1
-    linkstr = _unpack (norb+1, nelec_bra, link_index)
-    errmsg = ("For the half-particle transition density matrix functions, the linkstr must "
-              "be for nelec+1 electrons occupying norb+1 orbitals.")
-    for i in range (2): assert (linkstr[i].shape[1]==(nelec_bra[i]*(norb-nelec_bra[i]+2))), errmsg
-    ia_ket, ja_ket, ib_ket, jb_ket, sgn_ket = dummy_orbital_params(norb, nelec_ket, occ_a = (1-spin), occ_b = spin)
-    ia_bra, ja_bra, ib_bra, jb_bra, sgn_bra = dummy_orbital_params(norb, nelec_bra, occ_a = 0, occ_b = 0)
-    ciket = dummy.add_orbital (ciket, norb, nelec_ket, occ_a=(1-spin), occ_b=spin) ##v3 will get rid of this
-    cibra = dummy.add_orbital (cibra, norb, nelec_bra, occ_a=0, occ_b=0) ## v3 will get rid of this
-
-    tdm1h = np.empty((norb+1, norb+1))
-    tdm3ha = np.empty((norb+1, norb+1, norb+1, norb+1))
-    tdm3hb = np.empty((norb+1, norb+1, norb+1, norb+1))
-    libgpu.init_tdm1(gpu, norb+1)
-    na, nlinka = linkstr[0].shape[:2] 
-    nb, nlinkb = linkstr[1].shape[:2] 
-    libgpu.push_link_index_ab(gpu, na, nb, nlinka, nlinkb, linkstr[0], linkstr[1])
-    libgpu.init_tdm3hab(gpu, norb+1)
-    libgpu.push_ci(gpu, cibra, ciket, na, nb)
-    libgpu.compute_tdm13h_spin_v3(gpu, na, nb, nlinka, nlinkb, norb+1, spin, reorder, 
-                                   ia_bra, ja_bra, ib_bra, jb_bra, sgn_bra,
-                                   ia_ket, ja_ket, ib_ket, jb_ket, sgn_ket) #TODO: write a better name
-    libgpu.pull_tdm1(gpu, tdm1h, norb+1)
-    libgpu.pull_tdm3hab(gpu, tdm3ha, tdm3hb, norb+1)
-    if spin: 
-        tdm3ha = tdm3ha.transpose(3,2,1,0)
-    return tdm1h.T, tdm3ha, tdm3hb 
 def _trans_rdm13hs_o4(cre, cibra, ciket, norb, nelec, spin=0, link_index=None, reorder=True):
     '''GPU accelerated _trand_rdm13hs with custom FCI kernel'''
     from mrh.my_pyscf.gpu import libgpu
@@ -298,29 +267,83 @@ def _trans_rdm13hs_o4(cre, cibra, ciket, norb, nelec, spin=0, link_index=None, r
     errmsg = ("For the half-particle transition density matrix functions, the linkstr must "
               "be for nelec+1 electrons occupying norb+1 orbitals.")
     for i in range (2): assert (linkstr[i].shape[1]==(nelec_bra[i]*(norb-nelec_bra[i]+2))), errmsg
-    ia_ket, ja_ket, ib_ket, jb_ket, sgn_ket = dummy_orbital_params(norb, nelec_ket, occ_a = (1-spin), occ_b = spin)
-    ia_bra, ja_bra, ib_bra, jb_bra, sgn_bra = dummy_orbital_params(norb, nelec_bra, occ_a = 0, occ_b = 0)
+    ia_ket, ja_ket, ib_ket, jb_ket, sgn_ket = dummy.dummy_orbital_params(norb, nelec_ket, occ_a = (1-spin), occ_b = spin)
+    ia_bra, ja_bra, ib_bra, jb_bra, sgn_bra = dummy.dummy_orbital_params(norb, nelec_bra, occ_a = 0, occ_b = 0)
+    na, nlinka = linkstr[0].shape[:2] 
+    nb, nlinkb = linkstr[1].shape[:2] 
+    na_bra, nb_bra = cibra.shape
+    na_ket, nb_ket = ciket.shape
+    libgpu.push_cibra(gpu, cibra, na_bra, nb_bra)
+    libgpu.push_ciket(gpu, ciket, na_ket, nb_ket)
 
     tdm1h = np.empty((norb+1, norb+1))
     tdm3ha = np.empty((norb+1, norb+1, norb+1, norb+1))
     tdm3hb = np.empty((norb+1, norb+1, norb+1, norb+1))
     libgpu.init_tdm1(gpu, norb+1)
-    na, nlinka = linkstr[0].shape[:2] 
-    nb, nlinkb = linkstr[1].shape[:2] 
     libgpu.push_link_index_ab(gpu, na, nb, nlinka, nlinkb, linkstr[0], linkstr[1])
     libgpu.init_tdm3hab(gpu, norb+1)
+    libgpu.compute_tdm13h_spin_v4(gpu, na, nb, nlinka, nlinkb, norb+1, spin, reorder,
+                                   ia_bra, ja_bra, ib_bra, jb_bra, sgn_bra,
+                                   ia_ket, ja_ket, ib_ket, jb_ket, sgn_ket) #TODO: write a better name
+    if reorder: libgpu.reorder_rdm(gpu, norb+1)
+    libgpu.pull_tdm1(gpu, tdm1h, norb+1)
+    tdm1h = tdm1h.T
+    if spin: 
+        libgpu.pull_tdm3hab(gpu, tdm3hb, tdm3ha, norb+1) #note the switch! because I want to use the reorder function where rdm is switched
+        tdm3ha = tdm3ha.transpose(3,2,1,0)
+    else:
+        libgpu.pull_tdm3hab(gpu, tdm3ha, tdm3hb, norb+1)
+    return tdm1h, tdm3ha, tdm3hb 
+
+def _trans_rdm13hs_o5(cre, cibra, ciket, norb, nelec, spin=0, link_index=None, reorder=True):
+    '''GPU accelerated _trand_rdm13hs with custom FCI kernel'''
+    ##THIS IS NOT CURRENTLY WORKING. USE O4
+    from mrh.my_pyscf.gpu import libgpu
+    gpu=param.use_gpu
+    nelec = list (_unpack_nelec (nelec))
+    if not cre:
+        cibra, ciket = ciket, cibra
+        nelec[spin] -= 1
+    nelec_ket = _unpack_nelec (nelec)
+    nelec_bra = [x for x in nelec]
+    nelec_bra[spin] += 1
+    linkstr = _unpack (norb+1, nelec_bra, link_index)
+    errmsg = ("For the half-particle transition density matrix functions, the linkstr must "
+              "be for nelec+1 electrons occupying norb+1 orbitals.")
+    for i in range (2): assert (linkstr[i].shape[1]==(nelec_bra[i]*(norb-nelec_bra[i]+2))), errmsg
+    ia_ket, ja_ket, ib_ket, jb_ket, sgn_ket = dummy.dummy_orbital_params(norb, nelec_ket, occ_a = (1-spin), occ_b = spin)
+    ia_bra, ja_bra, ib_bra, jb_bra, sgn_bra = dummy.dummy_orbital_params(norb, nelec_bra, occ_a = 0, occ_b = 0)
+    na, nlinka = linkstr[0].shape[:2] 
+    nb, nlinkb = linkstr[1].shape[:2] 
     na_bra, nb_bra = cibra.shape
     na_ket, nb_ket = ciket.shape
     libgpu.push_cibra(gpu, cibra, na_bra, nb_bra)
     libgpu.push_ciket(gpu, ciket, na_ket, nb_ket)
-    libgpu.compute_tdm13h_spin_v4(gpu, na, nb, nlinka, nlinkb, norb+1, spin, reorder,
+
+    tdm1h = np.empty((norb+1, norb+1))
+    tdm3ha = np.empty((norb+1, norb+1, norb+1, norb+1))
+    tdm3hb = np.empty((norb+1, norb+1, norb+1, norb+1))
+    libgpu.init_tdm1(gpu, norb+1)
+    libgpu.push_link_index_ab(gpu, na, nb, nlinka, nlinkb, linkstr[0], linkstr[1])
+    libgpu.init_tdm3hab(gpu, norb+1)
+    print('ia_bra, ja_bra, ib_bra, jb_bra')
+    print(ia_bra, ja_bra, ib_bra, jb_bra)
+    print('ia_ket, ja_ket, ib_ket, jb_ket')
+    print(ia_ket, ja_ket, ib_ket, jb_ket)
+    libgpu.compute_tdm13h_spin_v5(gpu, na, nb, nlinka, nlinkb, norb+1, spin, reorder,
                                    ia_bra, ja_bra, ib_bra, jb_bra, sgn_bra,
                                    ia_ket, ja_ket, ib_ket, jb_ket, sgn_ket) #TODO: write a better name
     libgpu.pull_tdm1(gpu, tdm1h, norb+1)
     libgpu.pull_tdm3hab(gpu, tdm3ha, tdm3hb, norb+1)
+    #reorder not working
+    tdm1h = tdm1h.T
     if spin: 
+        if reorder: tdm1h, tdm3hb = rdm.reorder_rdm(tdm1h, tdm3hb, inplace=True)
         tdm3ha = tdm3ha.transpose(3,2,1,0)
-    return tdm1h.T, tdm3ha, tdm3hb 
+    else:
+        if reorder: tdm1h, tdm3ha = rdm.reorder_rdm (tdm1h, tdm3ha, inplace=True)
+    return tdm1h, tdm3ha, tdm3hb 
+
 
 
 def trans_rdm13ha_cre (cibra, ciket, norb, nelec, link_index=None):
@@ -364,19 +387,19 @@ def trans_sfudm1 (cibra, ciket, norb, nelec, link_index=None):
     try: 
       use_gpu = param.use_gpu
       gpu = use_gpu
-      try: custom_fci = param.custom_fci
-      except: custom_fci = False
-      try: gpu_debug = param.gpu_debug
-      except: gpu_debug = False
-      try: custom_debug = param.custom_debug
-      except: custom_debug = False
     except: 
       use_gpu = None
+    try: gpu_debug = param.gpu_debug
+    except: gpu_debug = False
+    try: custom_fci = param.custom_fci
+    except: custom_fci = False
+    try: custom_debug = param.custom_debug
+    except: custom_debug = False
     if custom_fci and custom_debug and use_gpu:
       ### Old kernel
       dum2dm = _trans_sfudm1_o0 (cibra, ciket, norb, nelec, link_index=link_index)
       ### New kernel
-      dum2dm_c = _trans_sfudm1_o1 (cibra, ciket, norb, nelec, link_index=link_index)
+      dum2dm_c = _trans_sfudm1_o2 (cibra, ciket, norb, nelec, link_index=link_index)
       tdm2_correct = np.allclose(dum2dm, dum2dm_c)
       if tdm2_correct: 
         print('Trans SFUDM1 calculated correctly')
@@ -384,14 +407,13 @@ def trans_sfudm1 (cibra, ciket, norb, nelec, link_index=None):
         print('Trans SFUDM1 calculated incorrectly')
         exit()
     elif custom_fci and use_gpu: 
-      dum2dm = _trans_sfudm1_o1 (cibra, ciket, norb, nelec, link_index=link_index)
+      dum2dm = _trans_sfudm1_o2 (cibra, ciket, norb, nelec, link_index=link_index)
     else:
-      dum2dm = _trans_sfudm1 (cibra, ciket, norb, nelec, link_index=link_index)
-    sfudm1 = dm2dum[-1,:-1,:-1,-1]
-    return -sfudm1
+      dum2dm = _trans_sfudm1_o0 (cibra, ciket, norb, nelec, link_index=link_index)
+    return dum2dm
 
 
-def _trans_sufdm1_o0(cibra, ciket, norb, nelec, link_index=None):
+def _trans_sfudm1_o0(cibra, ciket, norb, nelec, link_index=None):
     nelec_ket = _unpack_nelec (nelec)
     nelec_bra = list (_unpack_nelec (nelec))
     nelec_bra[0] += 1
@@ -404,10 +426,12 @@ def _trans_sufdm1_o0(cibra, ciket, norb, nelec, link_index=None):
     ciket = dummy.add_orbital (ciket, norb, nelec_ket, occ_a=1, occ_b=0)
     cibra = dummy.add_orbital (cibra, norb, nelec_bra, occ_a=0, occ_b=1)
     fn = 'FCItdm12kern_ab'
-    dm2dum = rdm.make_rdm12_spin1 (fn, ciket, cibra, norb+1, nelecd, linkstr, 0)[1]
-    return dm2dum
+    dm2dum = rdm.make_rdm12_spin1 (fn, ciket, cibra, norb+1, nelecd, linkstr, 0)[1] #### NOTE: ciket and cibra is switched!!
+    return -dm2dum[-1, :-1, :-1, -1]
 
-def _trans_sufdm1_o1(cibra,ciket,norb, nelec, link_index=None):
+def _trans_sfudm1_o2(cibra,ciket,norb, nelec, link_index=None):
+    from mrh.my_pyscf.gpu import libgpu
+    gpu=param.use_gpu
     nelec_ket = _unpack_nelec (nelec)
     nelec_bra = list (_unpack_nelec (nelec))
     nelec_bra[0] += 1
@@ -417,24 +441,23 @@ def _trans_sufdm1_o1(cibra,ciket,norb, nelec, link_index=None):
     errmsg = ("For the spin-flip transition density matrix functions, the linkstr must be for "
               "(neleca+1,nelecb) electrons occupying norb+1 orbitals.")
     for i in range (2): assert (linkstr[i].shape[1]==(nelecd[i]*(norb-nelecd[i]+2))), errmsg
-    ia_ket, ja_ket, ib_ket, jb_ket, sgn_ket = dummy_orbital_params(norb, nelec_ket, occ_a = 1, occ_b = 0)
-    ia_bra, ja_bra, ib_bra, jb_bra, sgn_bra = dummy_orbital_params(norb, nelec_bra, occ_a = 0, occ_b = 1)
+    ia_ket, ja_ket, ib_ket, jb_ket, sgn_ket = dummy.dummy_orbital_params(norb, nelec_ket, occ_a = 1, occ_b = 0)
+    ia_bra, ja_bra, ib_bra, jb_bra, sgn_bra = dummy.dummy_orbital_params(norb, nelec_bra, occ_a = 0, occ_b = 1)
     na, nlinka = linkstr[0].shape[:2] 
     nb, nlinkb = linkstr[1].shape[:2] 
     libgpu.push_link_index_ab(gpu, na, nb, nlinka, nlinkb, linkstr[0], linkstr[1])
+    dm2dum = np.zeros((norb,norb))
     na_bra, nb_bra = cibra.shape
     na_ket, nb_ket = ciket.shape
-    libgpu.push_cibra(gpu, cibra, na_bra, nb_bra)
-    libgpu.push_ciket(gpu, ciket, na_ket, nb_ket)
-    libgpu.init_tdm2(gpu, norb+1)
-    libgpu.compute_sfudm(gpu, na, nb, nlinka, nlinkb, norb+1, 
-                         ia_bra, ja_bra, ib_bra, jb_bra, sgn_bra,
-                         ia_ket, ja_ket, ib_ket, jb_ket, sgn_ket) #TODO: write a better name
-    libgpu.pull_tdm2(gpu, dum2dm, norb+1)
-    
-    return dum2dm
-
->>>>>>> cea76aa54601c0eca75b8ac1f56e9a9872dfe7ad
+    libgpu.push_cibra(gpu, ciket, na_ket, nb_ket)
+    libgpu.push_ciket(gpu, cibra, na_bra, nb_bra)
+    libgpu.init_tdm1(gpu, norb)#actually pulling
+    libgpu.init_tdm2(gpu, norb+1)#for storing result on gpu
+    libgpu.compute_sfudm_v2(gpu, na, nb, nlinka, nlinkb, norb+1, 
+                         ia_ket, ja_ket, ib_ket, jb_ket, sgn_ket,
+                         ia_bra, ja_bra, ib_bra, jb_bra, sgn_bra)
+    libgpu.pull_tdm1(gpu, dm2dum, norb)#when filtering
+    return dm2dum
 
 def trans_sfddm1 (cibra, ciket, norb, nelec, link_index=None):
     ''' Evaluate the spin-flip-down single-electron transition density matrix: <cibra|b'a|ciket>.
@@ -490,27 +513,28 @@ def trans_ppdm (cibra, ciket, norb, nelec, spin=0, link_index=None):
     try: 
       use_gpu = param.use_gpu
       gpu = use_gpu
-      try: custom_fci = param.custom_fci
-      except: custom_fci = False
-      try: gpu_debug = param.gpu_debug
-      except: gpu_debug = False
-      try: custom_debug = param.custom_debug
-      except: custom_debug = False
     except: 
       use_gpu = None
+    try: gpu_debug = param.gpu_debug
+    except: gpu_debug = False
+    try: custom_fci = param.custom_fci
+    except: custom_fci = False
+    try: custom_debug = param.custom_debug
+    except: custom_debug = False
+    ndum = 2 - (spin%2)
     if custom_fci and custom_debug and use_gpu:
-      ### Old kernel
-      tdmhh = _trans_ppdm_o0(cre, cibra, ciket, norb, nelec, spin=spin, link_index=link_index)
-      ### New kernel
-      tdmhh_c = _trans_ppdm_o1(cre, cibra, ciket, norb, nelec, spin=spin, link_index=link_index)
+      tdmhh_c = _trans_ppdm_o3(cibra, ciket, norb, nelec, spin=spin, link_index=link_index)
+      tdmhh = _trans_ppdm_o0(cibra, ciket, norb, nelec, spin=spin, link_index=link_index)
       tdmhh_correct = np.allclose(tdmhh, tdmhh_c)
       if tdmhh_correct: 
-        print('Trans RDMhh calculated correctly')
+        print('trans TDMpp calculated correctly')
       else:
-        print('Trans RDMhh incorrect')
+        print('Trans TDMpp incorrect')
+        print(tdmhh_c)
+        print(tdmhh)
         exit()
     elif custom_fci and use_gpu: 
-      tdmhh = _trans_ppdm_o1(cibra, ciket, norb, nelec, spin=spin, link_index=link_index)
+      tdmhh = _trans_ppdm_o3(cibra, ciket, norb, nelec, spin=spin, link_index=link_index)
     else:
       tdmhh = _trans_ppdm_o0(cibra, ciket, norb, nelec, spin=spin, link_index=link_index)
     return tdmhh
@@ -541,7 +565,7 @@ def _trans_ppdm_o0(cibra, ciket, norb, nelec, spin = 0, link_index = None):
     if (spin%2)==0: dumdm1, dumdm2 = rdm.reorder_rdm (dumdm1, dumdm2, inplace=True)
     return dumdm2[:-ndum,-1,:-ndum,-ndum]
 
-def _trans_ppdm_o1(cibra, ciket, norb, nelec, spin = 0, link_index = None):
+def _trans_ppdm_o3(cibra, ciket, norb, nelec, spin = 0, link_index = None):
     from mrh.my_pyscf.gpu import libgpu
     gpu=param.use_gpu
     s1 = int (spin>1)
@@ -559,101 +583,47 @@ def _trans_ppdm_o1(cibra, ciket, norb, nelec, spin = 0, link_index = None):
     assert (linkstr[1].shape[1]==(nelec_bra[1]*(norb+ndum-nelec_bra[1]+1))), errmsg
     nelecd = [nelec_ket[0], nelec_ket[1]]
     nelecd_copy = nelecd.copy()
-    ia_bra = ia_ket = ib_bra = ib_ket = 0
-    ja_bra = ja_ket = linkstr[0].shape[0]
-    jb_bra = jb_ket = linkstr[1].shape[0]
-    sgn_bra = sgn_ket = 1
-    for i in range (ndum):
-        ia_ket_new, ja_ket_new, ib_ket_new, jb_ket_new, sgn_ket = dummy_orbital_params(norb+i, nelecd_copy, occ_a=occ_a, occ_b=occ_b)
-        nelecd_copy[0] +=occ_a
-        nelecd_copy[1] +=occ_b 
-        ia_bra_new, ja_bra_new, ib_bra_new, jb_bra_new, sgn_bra = dummy_orbital_params(norb+i, nelec_bra, occ_a = 0, occ_b=0)
-        ia_bra += ia_bra_new
-        ib_bra += ib_bra_new
-        ia_ket += ia_ket_new
-        ib_ket += ib_ket_new
-        ja_bra -= ja_bra_new
-        jb_bra -= jb_bra_new
-        ja_ket -= ja_ket_new
-        jb_ket -= jb_ket_new
-        sgn_bra *= sgn_bra_new
-        sgn_ket *= sgn_ket_new
-        
-    for i in range (ndum):
-        ciket = dummy.add_orbital (ciket, norb+i, nelecd, occ_a=occ_a, occ_b=occ_b)
-        nelecd[0] += occ_a
-        nelecd[1] += occ_b
-        cibra = dummy.add_orbital (cibra, norb+i, nelec_bra, occ_a=0, occ_b=0)
-    
-    dumdm1 = np.empty((norb+ndum, norb+ndum))
-    dumdm2 = np.empty((norb+ndum, norb+ndum, norb+ndum, norb+ndum))
-    libgpu.init_tdm1(gpu, norb+ndum)
-    libgpu.init_tdm2(gpu, norb+ndum)
-    na, nlinka = linkstr[0].shape[:2] 
-    nb, nlinkb = linkstr[1].shape[:2] 
-    libgpu.push_link_index_ab(gpu, na, nb, nlinka, nlinkb, linkstr[0], linkstr[1])
-    libgpu.push_ci(gpu, cibra, ciket, na, nb)
-    libgpu.compute_tdmpp_spin(gpu, na, nb, nlinkb, nlinkb, norb+ndum, spin, 
-                              ia_bra, ja_bra, ib_bra, jb_bra, sgn_bra, 
-                              ia_ket, ja_ket, ib_ket, jb_ket, sgn_ket) #TODO: write a better name
-    libgpu.pull_tdm2(gpu, dumdm2, norb+ndum)
-    return dumdm2[:-ndum,-1,:-ndum,-ndum]
-
-def _trans_ppdm_o2(cre, cibra, ciket, norb, nelec, spin = 0, link_index = None):
-    from mrh.my_pyscf.gpu import libgpu
-    gpu=param.use_gpu
-    s1 = int (spin>1)
-    s2 = int (spin>0)
-    ndum = 2 - (spin%2)
-    nelec_ket = _unpack_nelec (nelec)
-    nelec_bra = list (_unpack_nelec (nelec))
-    nelec_bra[s1] += 1
-    nelec_bra[s2] += 1
-    occ_a, occ_b = int (spin<2), int (spin>0)
-    linkstr = _unpack (norb+ndum, nelec_bra, link_index)
-    errmsg = ("For the pair-creation transition density matrix functions, the linkstr must "
-              "be for nelec+2 electrons occupying norb+1/norb+2 (ab/other spin case) orbitals.")
-    assert (linkstr[0].shape[1]==(nelec_bra[0]*(norb+ndum-nelec_bra[0]+1))), errmsg
-    assert (linkstr[1].shape[1]==(nelec_bra[1]*(norb+ndum-nelec_bra[1]+1))), errmsg
-    nelecd = [nelec_ket[0], nelec_ket[1]]
-    nelecd_copy = nelecd.copy()
-    ia_bra = ia_ket = ib_bra = ib_ket = 0
-    ja_bra = ja_ket = linkstr[0].shape[0]
-    jb_bra = jb_ket = linkstr[1].shape[0]
-    sgn_bra = sgn_ket = 1
-    for i in range (ndum):
-        ia_ket_new, ja_ket_new, ib_ket_new, jb_ket_new, sgn_ket = dummy_orbital_params(norb+i, nelecd_copy, occ_a=occ_a, occ_b=occ_b)
-        nelecd_copy[0] +=occ_a
-        nelecd_copy[1] +=occ_b 
-        ia_bra_new, ja_bra_new, ib_bra_new, jb_bra_new, sgn_bra = dummy_orbital_params(norb+i, nelec_bra, occ_a = 0, occ_b=0)
-        ia_bra += ia_bra_new
-        ib_bra += ib_bra_new
-        ia_ket += ia_ket_new
-        ib_ket += ib_ket_new
-        ja_bra -= ja_bra_new
-        jb_bra -= jb_bra_new
-        ja_ket -= ja_ket_new
-        jb_ket -= jb_ket_new
-        sgn_bra *= sgn_bra_new
-        sgn_ket *= sgn_ket_new
-        
-    dumdm1 = np.empty((norb+ndum, norb+ndum))
-    dumdm2 = np.empty((norb+ndum, norb+ndum, norb+ndum, norb+ndum))
-    libgpu.init_tdm1(gpu, norb+ndum)
-    libgpu.init_tdm2(gpu, norb+ndum)
-    na, nlinka = linkstr[0].shape[:2] 
-    nb, nlinkb = linkstr[1].shape[:2] 
-    libgpu.push_link_index_ab(gpu, na, nb, nlinka, nlinkb, linkstr[0], linkstr[1])
     na_bra, nb_bra = cibra.shape
     na_ket, nb_ket = ciket.shape
+    ia_bra = ia_ket = ib_bra = ib_ket = 0
+    ja_bra, jb_bra, ja_ket, jb_ket = na_bra, nb_bra, na_ket, nb_ket
+    sgn_bra = sgn_ket = 1
+    for i in range (ndum):
+        ia_ket_new, ja_ket_new, ib_ket_new, jb_ket_new, sgn_ket_new = dummy.dummy_orbital_params(norb+i, nelecd_copy, occ_a=occ_a, occ_b=occ_b)
+        nelecd_copy[0] +=occ_a
+        nelecd_copy[1] +=occ_b 
+        ia_bra_new, ja_bra_new, ib_bra_new, jb_bra_new, sgn_bra_new = dummy.dummy_orbital_params(norb+i, nelec_bra, occ_a = 0, occ_b=0)
+        ia_bra += ia_bra_new
+        ib_bra += ib_bra_new
+        ia_ket += ia_ket_new
+        ib_ket += ib_ket_new
+        ja_bra = ia_bra + na_bra
+        jb_bra = ib_bra + nb_bra
+        ja_ket = ia_ket + na_ket
+        jb_ket = ib_ket + nb_ket
+        sgn_bra *= sgn_bra_new
+        sgn_ket *= sgn_ket_new
+    #if spin!= 1:
+    #  dumdm1 = np.empty((norb+ndum, norb+ndum))
+    #else: 
+    #  dumdm1 = np.zeros((norb+ndum, norb+ndum))
+    libgpu.init_tdm1(gpu, norb)
+    libgpu.init_tdm2(gpu, norb+ndum)
+    na, nlinka = linkstr[0].shape[:2] 
+    nb, nlinkb = linkstr[1].shape[:2] 
+    libgpu.push_link_index_ab(gpu, na, nb, nlinka, nlinkb, linkstr[0], linkstr[1])
     libgpu.push_cibra(gpu, cibra, na_bra, nb_bra)
     libgpu.push_ciket(gpu, ciket, na_ket, nb_ket)
-    libgpu.compute_tdmpp_spin_v2(gpu, na, nb, nlinkb, nlinkb, norb+ndum, spin, 
+    libgpu.compute_tdmpp_spin_v4(gpu, na, nb, nlinka, nlinkb, norb+ndum, spin, 
                               ia_bra, ja_bra, ib_bra, jb_bra, sgn_bra, 
                               ia_ket, ja_ket, ib_ket, jb_ket, sgn_ket) #TODO: write a better name
-    libgpu.pull_tdm2(gpu, dumdm2, norb+ndum)
-    return dumdm2[:-ndum,-1,:-ndum,-ndum]
-
+    ##VA 10/2: Reorder doesn't do anything ... 
+    #dumdm2 = np.empty((norb+ndum, norb+ndum, norb+ndum, norb+ndum))
+    #libgpu.pull_tdm2(gpu, dumdm2, norb+ndum)
+    #return dumdm2[:-ndum,-1,:-ndum,-ndum]
+    dumdm2 = np.empty((norb, norb))
+    libgpu.pull_tdm1(gpu, dumdm2, norb)
+    return dumdm2
 
 def trans_hhdm (cibra, ciket, norb, nelec, spin=0, link_index=None):
     ''' Evaluate the pair-destruction single-electron transition density matrix: <cibra|pq|ciket>.

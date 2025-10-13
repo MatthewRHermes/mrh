@@ -6,12 +6,14 @@ from pyscf.fci.direct_spin1 import contract_1e, contract_2e, absorb_h1e
 from pyscf.fci.direct_uhf import contract_1e as contract_1e_uhf
 from pyscf.fci.addons import cre_a, cre_b, des_a, des_b
 from pyscf.fci import cistring
-from itertools import product, combinations
+from itertools import product, combinations, combinations_with_replacement
 from mrh.my_pyscf.lassi.citools import get_lroots, get_rootaddr_fragaddr, get_unique_roots
+from mrh.my_pyscf.lassi.citools import _get_unique_roots_with_spin
 from mrh.my_pyscf.lassi.op_o1.utilities import *
 from mrh.my_pyscf.fci.rdm import trans_rdm1ha_des, trans_rdm1hb_des #make_rdm1_spin1
 from mrh.my_pyscf.fci.rdm import trans_rdm13ha_des, trans_rdm13hb_des #is make_rdm12_spin1
 from mrh.my_pyscf.fci.rdm import trans_sfddm1, trans_hhdm ##trans_sfddm1 is make_rdm12_spin1, trans_hhdm is make_rdm12_spin1
+from mrh.my_pyscf.fci import rdm_smult
 from mrh.my_pyscf.fci.direct_halfelectron import contract_1he, absorb_h1he, contract_3he
 from mrh.my_pyscf.fci.direct_nosym_uhf import contract_1e as contract_1e_nosym_uhf
 from mrh.my_pyscf.fci.direct_nosym_ghf import contract_1e as contract_1e_nosym_ghf
@@ -33,29 +35,36 @@ class FragTDMInt (object):
         s and t are spin: a,b for 1 operator; aa, ab, bb for 2 operators
         s is a spin argument passed to the "get" function
         t is a spin index on the returned array
-        i and j are single state indices with
-            rootaddr[i] = index of the rootspace for state i
-            fragaddr[i] = index in this fragment's local rootaddr[i] basis of state i
+        i and j are rootspace indices
 
-        get_h (i,j,s): <i|s|j>
-        get_p (i,j,s): <i|s'|j> = conj (<j|s|i>)
-        get_dm1 (i,j): <i|t't|j>
-        get_hh (i,j,s): <i|s2s1|j>
-        get_pp (i,j,s): <i|s1's2'|j> = conj (<j|s2s1|i>)
-        get_sm (i,j): <i|b'a|j>
-        get_sp (i,j): <i|a'b|j> = conj (<j|b'a|i>)
-        get_phh (i,j,s): <i|t'ts|j>
-        get_pph (i,j,s): <i|s't't|j> = conj (<j|t'ts|i>)
-        get_dm2 (i,j): <i|t1't2't2t1|j>
-
+        get_h (i,j,s,**kwargs): <i|s|j>
+        get_p (i,j,s,**kwargs): <i|s'|j> = conj (<j|s|i>)
+        get_dm1 (i,j,**kwargs): <i|t't|j>
+        get_hh (i,j,s,**kwargs): <i|s2s1|j>
+        get_pp (i,j,s,**kwargs): <i|s1's2'|j> = conj (<j|s2s1|i>)
+        get_sm (i,j,**kwargs): <i|b'a|j>
+        get_sp (i,j,**kwargs): <i|a'b|j> = conj (<j|b'a|i>)
+        get_phh (i,j,s,**kwargs): <i|t'ts|j>
+        get_pph (i,j,s,**kwargs): <i|s't't|j> = conj (<j|t'ts|i>)
+        get_dm2 (i,j,**kwargs): <i|t1't2't2t1|j>
+        
         TODO: two-electron spin-broken components
             <i|a'b'bb|j> & h.c. & a<->b
             <i|a'a'bb|j> & a<->b
         Req'd for 2e- relativistic (i.e., spin-breaking) operators
 
-        NOTE: in the set_* and get_* functions, the indices i,j are rootspace indices and the major
-        axis is the lroot axis. In the get_1_* functions, on the other hand, the indices i,j are
-        single model state indices.
+        The optional kwargs of the get_* methods are
+            highm : logical (default=False)
+                If True, and if spin multiplicity information is available, returns the "high-m"
+                version of the corresponding TDM with the spin vector of either the bra or the ket
+                aligned with the laboratory axis
+            uroot_idx : logical (default=False)
+                If True, i and j are interpreted as indices into the list of *unique* rootspaces,
+                not all rootspaces (see below).
+
+        In the set_* and get_* functions, the indices i,j are rootspace indices and the major axis
+        is the lroot axis. In the get_1_* functions, on the other hand, the indices i,j are single
+        model state indices.
 
         Args:
             las : instance of :class:`LASCINoSymm` //VA: 8/18/25: seems las object is a excitationPFSCI solver?
@@ -85,14 +94,44 @@ class FragTDMInt (object):
                 rootspaces and storing the relevant unitary matrices.
             verbose : integer
                 Logger verbosity level
+
+        Some additional attributes of the class:
+            nuroots : integer
+                Number of unique rootspaces. If screen_linequiv==False, a rootspace is non-unique
+                if it corresponds to exactly the same CI vectors as another rootspace (i.e., if the
+                CI vector arrays share memory). If screen_linequiv==True, it is non-unique if its
+                CI vectors span the same vector space. The discriminator can be used to distinguish
+                between rootspaces that would otherwise be considered equivalent by fiat.
+            uroot_idx : ndarray of length nroots
+                For *all* rootspaces, indices (<nuroots) into the list of *unique* rootspaces
+            uroot_addr : ndarray of length nuroots
+                For *unique* rootspaces, indices (<nroots) into the list of *all* rootspaces
+            nspman : integer
+                Number of spin manifolds of unique rootspaces. A rootspace with good spin quantum
+                number is a part of a manifold of up to smult_r[i]=2s+1 rootspaces with different
+                m=(nelec_r[i][0]-nelec_r[i][1])//2, in which the CI vector are related by spin
+                ladder operators.
+            spman : ndarray of length nuroots
+                For *unique* rootspaces, indices (<nspman) into the list of spin manifolds
+            spman_inter_uroot_map : ndarray of ints of shape (nuroots, nuroots, 2)
+                Map indices (i,j) to one single pair of unique rootspaces in the same spin
+                manifolds and with the same mi-mj, but not necessarily the same mi and mj
+                individually. Up to min (smult_r[uroot_addr[i]], smult_r[uroot_addr[j]]) pairs of
+                unique rootspace might correspond to the same interaction tuple
+                (spman[i],spman[j],mi-mj), but only one needs to actually be computed.
+            spman_inter_uniq : ndarray of bool of shape (nuroots,nroots)
+                Whether the given indices (i,j) is included among the rows of spman_inter_uroot_map
+                array.
     '''
 
     def __init__(self, las, ci, norb, nroots, nelec_rs,
-                 rootaddr, fragaddr, idx_frag, mask_ints, dtype=np.float64, discriminator=None,
+                 rootaddr, fragaddr, idx_frag, mask_ints, smult_r=None,
+                 dtype=np.float64, discriminator=None,
                  pt_order=None, do_pt_order=None, screen_linequiv=DO_SCREEN_LINEQUIV,
                  verbose=None):
         # TODO: if it actually helps, cache the "linkstr" arrays
         if verbose is None: verbose = las.verbose
+        if smult_r is None: smult_r = [None for n in nelec_rs]
         t0 = (lib.logger.process_clock (), lib.logger.perf_counter ())
         self.verbose = verbose
         self.log = lib.logger.new_logger (las, self.verbose)
@@ -101,6 +140,7 @@ class FragTDMInt (object):
         self.nroots = nroots
         self.dtype = dtype
         self.nelec_r = [tuple (n) for n in nelec_rs]
+        self.smult_r = smult_r
         self.linkstr_cache = {}
         self.linkstrl_cache = {}
         self.rootaddr = rootaddr
@@ -110,11 +150,6 @@ class FragTDMInt (object):
         self.mask_ints = mask_ints
         self.discriminator = discriminator
 
-        try: 
-            if getattr(las.mol, 'use_gpu') is not None:
-               self.use_gpu = las.mol.use_gpu
-        except: 
-            pass
 
         if pt_order is None: pt_order = np.zeros (nroots, dtype=int)
         self.pt_order = pt_order
@@ -129,6 +164,22 @@ class FragTDMInt (object):
 
         self.time_crunch = self._init_crunch_(screen_linequiv)
         t0 = self.log.timer('FragTDM init crunch', *t0)
+
+    mat_keys = ('ovlp', 'h', 'hh', 'phh', 'sm', 'dm1', 'dm2')
+    mdown_tdm = {'ovlp': lambda *args: args[0],
+                 'h': rdm_smult.mdown_h,
+                 'hh': rdm_smult.mdown_hh,
+                 'phh': rdm_smult.mdown_phh,
+                 'sm': rdm_smult.mdown_sm,
+                 'dm1': rdm_smult.mdown_dm1,
+                 'dm2': rdm_smult.mdown_dm2}
+    scale_dnelec = {(-1, 0): (rdm_smult.scale_h, 0),
+                    (0, -1): (rdm_smult.scale_h, 1),
+                    (-2, 0): (rdm_smult.scale_hh, 0),
+                    (-1, -1): (rdm_smult.scale_hh, 1),
+                    (0, -2): (rdm_smult.scale_hh, 2),
+                    (-1,1): (rdm_smult.scale_sm, None),
+                    (0,0): (rdm_smult.scale_dm, None)}
 
     def _check_linkstr_cache (self, no, na, nb):
         if (no, na, nb) not in self.linkstr_cache.keys ():
@@ -152,33 +203,59 @@ class FragTDMInt (object):
 
     # Exception catching
 
-    def try_get_1 (self, tab, *args):
+    def try_get_1 (self, tag, *args, **kwargs):
         i, j = args[-2:]
         ir, jr = self.rootaddr[i], self.rootaddr[j]
         ip, jp = self.fragaddr[i], self.fragaddr[j]
         rargs = [x for x in args[:-2]] + [ir,jr]
-        return self.try_get (tab, *rargs)[ip,jp]
+        return self.try_get (tag, *rargs, **kwargs)[ip,jp]
 
-    def try_get (self, tab, *args):
-        if len (args) == 3: return self.try_get_tdm (tab, *args)
-        elif len (args) == 2: return self.try_get_dm (tab, *args)
+    def try_get (self, tag, *args, **kwargs):
+        if len (args) == 3: return self.try_get_tdm (tag, *args, **kwargs)
+        elif len (args) == 2: return self.try_get_dm (tag, *args, **kwargs)
         else: raise RuntimeError (str (len (args)))
 
-    def try_get_dm (self, tab, i, j):
-        ir, jr = self.uroot_idx[i], self.uroot_idx[j]
+    def try_get_dm (self, tag, i, j, uroot_idx=False, highm=False):
+        tab = self.mats[tag]
+        mdown_fn = self.mdown_tdm[tag]
+        if uroot_idx:
+            ir, jr = i, j
+            i, j = self.uroot_addr[i], self.uroot_addr[j]
+        else:
+            ir, jr = self.uroot_idx[i], self.uroot_idx[j]
+        mj = self.nelec_r[j][0] - self.nelec_r[j][1]
+        si, sj = self.smult_r[i], self.smult_r[j]
         try:
+            ir, jr = self.spman_inter_uroot_map[ir,jr]
             assert (tab[ir][jr] is not None)
-            return tab[ir][jr]
+            tab = tab[ir][jr]
+            if si is None: return tab
+            if sj is None: return tab
+            if highm: return tab
+            return mdown_fn (tab, si, sj, mj)
         except Exception as e:
             errstr = 'frag {} failure to get element {},{}'.format (self.idx_frag, ir, jr)
             errstr = errstr + '\nhopping_index entry: {}'.format (self.hopping_index[:,ir,jr])
             raise RuntimeError (errstr)
 
-    def try_get_tdm (self, tab, s, i, j):
-        ir, jr = self.uroot_idx[i], self.uroot_idx[j]
+    def try_get_tdm (self, tag, s, i, j, uroot_idx=False, highm=False):
+        tab = self.mats[tag]
+        mdown_fn = self.mdown_tdm[tag]
+        if uroot_idx:
+            ir, jr = i, j
+            i, j = self.uroot_addr[i], self.uroot_addr[j]
+        else:
+            ir, jr = self.uroot_idx[i], self.uroot_idx[j]
+        mj = self.nelec_r[j][0] - self.nelec_r[j][1]
+        si, sj = self.smult_r[i], self.smult_r[j]
         try:
+            ir, jr = self.spman_inter_uroot_map[ir,jr]
             assert (tab[s][ir][jr] is not None)
-            return tab[s][ir][jr]
+            tab = tab[s][ir][jr]
+            if self.smult_r[i] is None: return tab
+            if self.smult_r[j] is None: return tab
+            if highm: return tab
+            return mdown_fn (tab, si, s, sj, mj)
         except Exception as e:
             errstr = 'frag {} failure to get element {},{} w spin {}'.format (
                 self.idx_frag, ir, jr, s)
@@ -189,148 +266,172 @@ class FragTDMInt (object):
 
     # 0-particle intermediate (overlap)
 
-    def get_ovlp (self, i, j):
-        return self.try_get (self.ovlp, i, j)
+    @property
+    def ovlp (self): return self.mats['ovlp']
 
-    def get_ovlp_inpbasis (self, i, j):
+    def get_ovlp (self, i, j, **kwargs):
+        return self.try_get ('ovlp', i, j, **kwargs)
+
+    def get_ovlp_inpbasis (self, i, j, **kwargs):
         ''' Apply umat if present to get the actual original-basis overlap '''
-        ovlp = self.get_ovlp (i, j)
+        ovlp = self.get_ovlp (i, j, **kwargs)
         if i in self.umat_root:
             ovlp = np.dot (self.umat_root[i].conj ().T, ovlp)
         if j in self.umat_root:
             ovlp = np.dot (ovlp, self.umat_root[j])
         return ovlp
 
-    def get_1_ovlp (self, i, j):
-        return self.try_get_1 (self.ovlp, i, j)
+    def get_1_ovlp (self, i, j, **kwargs):
+        return self.try_get_1 ('ovlp', i, j, **kwargs)
 
     # 1-particle 1-operator intermediate
 
-    def get_h (self, i, j, s):
-        return self.try_get (self._h, s, i, j)
+    def get_h (self, i, j, s, **kwargs):
+        return self.try_get ('h', s, i, j, **kwargs)
 
     def set_h (self, i, j, s, x):
         i, j = self.uroot_idx[i], self.uroot_idx[j]
         x = self.setmanip (x)
-        self._h[s][i][j] = x
+        self.mats['h'][s][i][j] = x
         return x
 
-    def get_p (self, i, j, s):
-        return self.try_get (self._h, s, j, i).conj ().transpose (1,0,2)
+    def get_p (self, i, j, s, **kwargs):
+        return self.try_get ('h', s, j, i, **kwargs).conj ().transpose (1,0,2)
 
-    def get_1_h (self, i, j, s):
-        return self.try_get_1 (self._h, s, i, j)
+    def get_1_h (self, i, j, s, **kwargs):
+        return self.try_get_1 ('h', s, i, j, **kwargs)
 
-    def get_1_p (self, i, j, s):
-        return self.try_get_1 (self._h, s, j, i).conj ()
+    def get_1_p (self, i, j, s, **kwargs):
+        return self.try_get_1 ('h', s, j, i, **kwargs).conj ()
 
     # 2-particle intermediate
 
-    def get_hh (self, i, j, s):
-        return self.try_get (self._hh, s, i, j)
-        #return self._hh[s][i][j]
+    def get_hh (self, i, j, s, **kwargs):
+        return self.try_get ('hh', s, i, j, **kwargs)
+        #return self.mats['hh'][s][i][j]
 
     def set_hh (self, i, j, s, x):
         i, j = self.uroot_idx[i], self.uroot_idx[j]
         x = self.setmanip (x)
-        self._hh[s][i][j] = x
+        self.mats['hh'][s][i][j] = x
         return x
 
-    def get_pp (self, i, j, s):
-        return self.try_get (self._hh, s, j, i).conj ().transpose (1,0,3,2)
+    def get_pp (self, i, j, s, **kwargs):
+        return self.try_get ('hh', s, j, i, **kwargs).conj ().transpose (1,0,3,2)
 
-    def get_1_hh (self, i, j, s):
-        return self.try_get_1 (self._hh, s, i, j)
-        #return self._hh[s][i][j]
+    def get_1_hh (self, i, j, s, **kwargs):
+        return self.try_get_1 ('hh', s, i, j, **kwargs)
+        #return self.mats['hh'][s][i][j]
 
-    def get_1_pp (self, i, j, s):
-        return self.try_get_1 (self._hh, s, j, i).conj ().T
+    def get_1_pp (self, i, j, s, **kwargs):
+        return self.try_get_1 ('hh', s, j, i, **kwargs).conj ().T
 
     # 1-particle 3-operator intermediate
+    # Note Mulliken -> Dirac transpose
 
-    def get_phh (self, i, j, s):
-        return self.try_get (self._phh, s, i, j)
+    def get_phh (self, i, j, s, **kwargs):
+        return self.try_get ('phh', s, i, j, **kwargs).transpose (0,1,2,4,5,3)
 
     def set_phh (self, i, j, s, x):
         i, j = self.uroot_idx[i], self.uroot_idx[j]
         x = self.setmanip (x)
-        self._phh[s][i][j] = x
+        self.mats['phh'][s][i][j] = x
         return x
 
-    def get_pph (self, i, j, s):
-        return self.try_get (self._phh, s, j, i).conj ().transpose (1,0,2,5,4,3)
+    def get_pph (self, i, j, s, **kwargs):
+        return self.try_get ('phh', s, j, i, **kwargs).conj ().transpose (1,0,2,3,5,4)
 
-    def get_1_phh (self, i, j, s):
-        return self.try_get_1 (self._phh, s, i, j)
+    def get_1_phh (self, i, j, s, **kwargs):
+        return self.try_get_1 ('phh', s, i, j, **kwargs).transpose (0,2,3,1)
 
-    def get_1_pph (self, i, j, s):
-        return self.try_get_1 (self._phh, s, j, i).conj ().transpose (0,3,2,1)
+    def get_1_pph (self, i, j, s, **kwargs):
+        return self.try_get_1 ('phh', s, j, i, **kwargs).conj ().transpose (0,1,3,2)
 
     # spin-hop intermediate
 
-    def get_sm (self, i, j):
-        return self.try_get (self._sm, i, j)
+    def get_sm (self, i, j, **kwargs):
+        return self.try_get ('sm', i, j, **kwargs)
 
     def set_sm (self, i, j, x):
         i, j = self.uroot_idx[i], self.uroot_idx[j]
         x = self.setmanip (x)
-        self._sm[i][j] = x
+        self.mats['sm'][i][j] = x
         return x
 
-    def get_sp (self, i, j):
-        return self.try_get (self._sm, j, i).conj ().transpose (1,0,3,2)
+    def get_sp (self, i, j, **kwargs):
+        return self.try_get ('sm', j, i, **kwargs).conj ().transpose (1,0,3,2)
 
-    def get_1_sm (self, i, j):
-        return self.try_get_1 (self._sm, i, j)
+    def get_1_sm (self, i, j, **kwargs):
+        return self.try_get_1 ('sm', i, j, **kwargs)
 
-    def get_1_sp (self, i, j):
-        return self.try_get_1 (self._sm, j, i).conj ().T
+    def get_1_sp (self, i, j, **kwargs):
+        return self.try_get_1 ('sm', j, i, **kwargs).conj ().T
 
-    def get_smp (self, i, j, s):
-        if s==0: return self.get_sm (i, j)
-        elif s==1: return self.get_sp (i, j)
+    def get_smp (self, i, j, s, **kwargs):
+        if s==0: return self.get_sm (i, j, **kwargs)
+        elif s==1: return self.get_sp (i, j, **kwargs)
         else: raise RuntimeError
 
-    def get_1_smp (self, i, j, s):
-        if s==0: return self.get_1_sm (i, j)
-        elif s==1: return self.get_1_sp (i, j)
+    def get_1_smp (self, i, j, s, **kwargs):
+        if s==0: return self.get_1_sm (i, j, **kwargs)
+        elif s==1: return self.get_1_sp (i, j, **kwargs)
         else: raise RuntimeError
 
     # 1-density intermediate
 
-    def get_dm1 (self, i, j):
-        if self.unique_root[j] > self.unique_root[i]:
-            return self.try_get (self.dm1, j, i).conj ().transpose (1,0,2,4,3)
-        return self.try_get (self.dm1, i, j)
+    def get_dm1 (self, i, j, cs=False, **kwargs):
+        k = self.uroot_idx[i]
+        l = self.uroot_idx[j]
+        a, b = self.spman_inter_uroot_map[k,l]
+        if b > a:
+            dm1 = self.try_get ('dm1', j, i, **kwargs).conj ().transpose (1,0,2,4,3)
+        else:
+            dm1 = self.try_get ('dm1', i, j, **kwargs)
+        if cs:
+            # Canonical transformation of spin d.o.f.: ab -> cs
+            dm1_cs = np.zeros_like (dm1)
+            dm1_cs[:,:,0] = dm1.sum (2)
+            dm1_cs[:,:,1] = dm1[:,:,0] - dm1[:,:,1]
+            dm1 = dm1_cs
+        return dm1
 
     def set_dm1 (self, i, j, x):
         assert (j <= i)
         i, j = self.uroot_idx[i], self.uroot_idx[j]
         x = self.setmanip (x)
-        self.dm1[i][j] = x
+        self.mats['dm1'][i][j] = x
 
-    def get_1_dm1 (self, i, j):
-        if self.unique_root[self.rootaddr[j]] > self.unique_root[self.rootaddr[i]]:
-            return self.try_get_1 (self.dm1, j, i).conj ().transpose (0, 2, 1)
-        return self.try_get_1 (self.dm1, i, j)
+    def get_1_dm1 (self, i, j, **kwargs):
+        k = self.uroot_idx[self.rootaddr[i]]
+        l = self.uroot_idx[self.rootaddr[j]]
+        a, b = self.spman_inter_uroot_map[k,l]
+        if b > a:
+            return self.try_get_1 ('dm1', j, i).conj ().transpose (0, 2, 1)
+        return self.try_get_1 ('dm1', i, j)
 
     # 2-density intermediate
 
-    def get_dm2 (self, i, j):
-        if self.unique_root[j] > self.unique_root[i]:
-            return self.try_get (self.dm2, j, i).conj ().transpose (1,0,2,4,3,6,5)
-        return self.try_get (self.dm2, i, j)
+    def get_dm2 (self, i, j, **kwargs):
+        k = self.uroot_idx[i]
+        l = self.uroot_idx[j]
+        a, b = self.spman_inter_uroot_map[k,l]
+        if b > a:
+            return self.try_get ('dm2', j, i, **kwargs).conj ().transpose (1,0,2,4,3,6,5)
+        return self.try_get ('dm2', i, j, **kwargs)
 
-    def get_1_dm2 (self, i, j):
-        if self.unique_root[self.rootaddr[j]] > self.unique_root[self.rootaddr[i]]:
-            return self.try_get_1 (self.dm2, j, i).conj ().transpose (0, 2, 1, 4, 3)
-        return self.try_get_1 (self.dm2, i, j)
+    def get_1_dm2 (self, i, j, **kwargs):
+        k = self.uroot_idx[self.rootaddr[i]]
+        l = self.uroot_idx[self.rootaddr[j]]
+        a, b = self.spman_inter_uroot_map[k,l]
+        if b > a:
+            return self.try_get_1 ('dm2', j, i, **kwargs).conj ().transpose (0, 2, 1, 4, 3)
+        return self.try_get_1 ('dm2', i, j, **kwargs)
 
     def set_dm2 (self, i, j, x):
         assert (j <= i)
         i, j = self.uroot_idx[i], self.uroot_idx[j]
         x = self.setmanip (x)
-        self.dm2[i][j] = x
+        self.mats['dm2'][i][j] = x
 
     def get_lroots (self, i):
         return self.ci[i].shape[0]
@@ -372,19 +473,47 @@ class FragTDMInt (object):
             discriminator=self.discriminator
         )
         self.nuroots = nuroots = np.count_nonzero (self.root_unique)
-        self.uroot_inv = -1 * np.ones (self.nroots, dtype=int)
-        self.uroot_inv[self.root_unique] = np.arange (nuroots, dtype=int)
-        self.uroot_idx = self.uroot_inv[self.unique_root]
+        uroot_inv = -1 * np.ones (self.nroots, dtype=int)
+        uroot_inv[self.root_unique] = np.arange (nuroots, dtype=int)
+        self.uroot_idx = uroot_inv[self.unique_root]
         self.uroot_addr = np.where (self.root_unique)[0]
         assert (np.all (self.uroot_idx >= 0))
 
-        self.ovlp = [[None for i in range (nuroots)] for j in range (nuroots)]
-        self._h = [[[None for i in range (nuroots)] for j in range (nuroots)] for s in (0,1)]
-        self._hh = [[[None for i in range (nuroots)] for j in range (nuroots)] for s in (-1,0,1)] 
-        self._phh = [[[None for i in range (nuroots)] for j in range (nuroots)] for s in (0,1)]
-        self._sm = [[None for i in range (nuroots)] for j in range (nuroots)]
-        self.dm1 = [[None for i in range (nuroots)] for j in range (nuroots)]
-        self.dm2 = [[None for i in range (nuroots)] for j in range (nuroots)]
+        self.spman = np.arange (nuroots)
+        if all ([smult is not None for smult in self.smult_r]):
+            ci_u = [ci[i] for i in self.uroot_addr]
+            nelec_u = [self.nelec_r[i] for i in self.uroot_addr]
+            smult_u = [self.smult_r[i] for i in self.uroot_addr]
+            self.spman = _get_unique_roots_with_spin (ci_u, self.norb, nelec_u, smult_u)
+        self.nspman = np.amax (self.spman)+1
+        spman_inter = {}
+        spman_inter_keys = np.empty ((nuroots,nuroots,3), dtype=int)
+        for i,j in product (range (nuroots), repeat=2):
+            k, l = self.uroot_addr[i], self.uroot_addr[j]
+            mi = self.nelec_r[k][0] - self.nelec_r[k][1]
+            mj = self.nelec_r[l][0] - self.nelec_r[l][1]
+            a, b = self.spman[i], self.spman[j]
+            key = (a, b, mi-mj)
+            spman_inter_keys[i,j] = key
+            spman_inter[key] = (i,j)
+        self.spman_inter_uniq = np.zeros ((nuroots,nuroots), dtype=bool)
+        self.spman_inter_uroot_map = np.empty ((nuroots,nuroots,2), dtype=int)
+        for i, j in combinations_with_replacement (range (nuroots), 2):
+            key = tuple (spman_inter_keys[i,j])
+            p, q = spman_inter[key]
+            self.spman_inter_uroot_map[i,j,:] = [p,q]
+            self.spman_inter_uniq[p,q] = True
+            self.spman_inter_uroot_map[j,i,:] = [q,p]
+            self.spman_inter_uniq[q,p] = True
+
+        self.mats = {}
+        self.mats['ovlp'] = [[None for i in range (nuroots)] for j in range (nuroots)]
+        self.mats['h'] = [[[None for i in range (nuroots)] for j in range (nuroots)] for s in (0,1)]
+        self.mats['hh'] = [[[None for i in range (nuroots)] for j in range (nuroots)] for s in (-1,0,1)] 
+        self.mats['phh'] = [[[None for i in range (nuroots)] for j in range (nuroots)] for s in (0,1)]
+        self.mats['sm'] = [[None for i in range (nuroots)] for j in range (nuroots)]
+        self.mats['dm1'] = [[None for i in range (nuroots)] for j in range (nuroots)]
+        self.mats['dm2'] = [[None for i in range (nuroots)] for j in range (nuroots)]
 
         # Characterize the matrix elements involving these fragment states
         nelec_frs = np.asarray ([list(self.nelec_r[i]) for i in self.uroot_addr])[None,:,:]
@@ -430,6 +559,7 @@ class FragTDMInt (object):
         ndeta, ndetb = self.ndeta_r, self.ndetb_r
         hopping_index = self.hopping_index
         idx_uniq = self.root_unique
+        spman_inter_uniq = self.spman_inter_uniq
         lroots = [c.shape[0] for c in ci]
         nroots, norb, nuroots = self.nroots, self.norb, self.nuroots
         t1 = self.log.timer ('_make_dms_ setup', *t1)
@@ -438,19 +568,20 @@ class FragTDMInt (object):
         for i, j in combinations (np.where (idx_uniq)[0], 2):
             if self.nelec_r[i] != self.nelec_r[j]: continue
             if not self.unmasked_int (i,j,screen): continue
+            k, l = self.uroot_idx[i], self.uroot_idx[j]
+            if not (spman_inter_uniq[k,l] or spman_inter_uniq[l,k]): continue
             ci_i = ci[i].reshape (lroots[i], -1)
             ci_j = ci[j].reshape (lroots[j], -1)
-            k, l = self.uroot_idx[i], self.uroot_idx[j]
-            self.ovlp[k][l] = np.dot (ci_i.conj (), ci_j.T)
-            self.ovlp[l][k] = self.ovlp[k][l].conj ().T
+            self.mats['ovlp'][k][l] = np.dot (ci_i.conj (), ci_j.T)
+            self.mats['ovlp'][l][k] = self.mats['ovlp'][k][l].conj ().T
         for i in np.where (idx_uniq)[0]:
             if not self.unmasked_int (i,i,screen): continue
             ci_i = ci[i].reshape (lroots[i], -1)
             j = self.uroot_idx[i]
-            self.ovlp[j][j] = np.dot (ci_i.conj (), ci_i.T)
-            #errmat = self.ovlp[i][i] - np.eye (lroots[i])
+            self.mats['ovlp'][j][j] = np.dot (ci_i.conj (), ci_i.T)
+            #errmat = self.mats['ovlp'][i][i] - np.eye (lroots[i])
             #if np.amax (np.abs (errmat)) > 1e-3:
-            #    w, v = np.linalg.eigh (self.ovlp[i][i])
+            #    w, v = np.linalg.eigh (self.mats['ovlp'][i][i])
             #    errmsg = ('States w/in single Hilbert space must be orthonormal; '
             #              'eigvals (ovlp) = {}')
             #    raise RuntimeError (errmsg.format (w))
@@ -468,40 +599,44 @@ class FragTDMInt (object):
             return np.asarray (des_c)
         def des_a_loop (c, nelec, p): return des_loop (des_a, c, nelec, p)
         def des_b_loop (c, nelec, p): return des_loop (des_b, c, nelec, p)
-        def trans_rdm12s_loop (iroot, bra, ket, do2=True, use_gpu=None, gpu=None):
-            nelec = self.nelec_r[iroot]
-            na, nb = ndeta[iroot], ndetb[iroot]
-            bra = bra.reshape (-1, na, nb)
-            ket = ket.reshape (-1, na, nb)
-            tdm1s = np.zeros ((bra.shape[0],ket.shape[0],2,norb,norb), dtype=self.dtype)
-            tdm2s = np.zeros ((bra.shape[0],ket.shape[0],4,norb,norb,norb,norb), dtype=self.dtype)
+        def trans_rdm12s_loop (bra_r, ket_r, do2=True):
+            bravecs = ci[bra_r].reshape (-1, ndeta[bra_r], ndetb[bra_r])
+            ketvecs = ci[ket_r].reshape (-1, ndeta[ket_r], ndetb[ket_r])
+            nelec = self.nelec_r[ket_r]
+            bravecs, ketvecs, nelec = rdm_smult.get_highm_civecs_dm (
+                bravecs, ketvecs, norb, nelec, smult_bra=self.smult_r[bra_r],
+                smult_ket=self.smult_r[ket_r]
+            )
+            tdm1s = np.zeros ((bravecs.shape[0],ketvecs.shape[0],2,norb,norb), dtype=self.dtype)
+            tdm2s = np.zeros ((bravecs.shape[0],ketvecs.shape[0],4,norb,norb,norb,norb),
+                              dtype=self.dtype)
             linkstr = self._check_linkstr_cache (norb, nelec[0], nelec[1])
             if do2:
-                for i, j in product (range (bra.shape[0]), range (ket.shape[0])):
-                    if use_gpu:
-                        d1s, d2s = trans_rdm12s (bra[i], ket[j], norb, nelec,
-                                             link_index=linkstr, use_gpu=use_gpu, gpu=gpu)
-                    else:
-                        d1s, d2s = trans_rdm12s (bra[i], ket[j], norb, nelec,
+                for i, j in product (range (bravecs.shape[0]), range (ketvecs.shape[0])):
+                    d1s, d2s = trans_rdm12s (bravecs[i], ketvecs[j], norb, nelec,
                                              link_index=linkstr)
                     # Transpose based on docstring of direct_spin1.trans_rdm12s
                     tdm1s[i,j] = np.stack (d1s, axis=0).transpose (0, 2, 1)
                     tdm2s[i,j] = np.stack (d2s, axis=0)
             else:
-                for i, j in product (range (bra.shape[0]), range (ket.shape[0])):
-                    d1s = trans_rdm1s (bra[i], ket[j], norb, nelec,
+                for i, j in product (range (bravecs.shape[0]), range (ketvecs.shape[0])):
+                    d1s = trans_rdm1s (bravecs[i], ketvecs[j], norb, nelec,
                                        link_index=linkstr)
                     # Transpose based on docstring of direct_spin1.trans_rdm12s
                     tdm1s[i,j] = np.stack (d1s, axis=0).transpose (0, 2, 1)
             return tdm1s, tdm2s
-        def trans_rdm1s_loop (iroot, bra, ket):
-            return trans_rdm12s_loop (iroot, bra, ket, do2=False)[0]
+        def trans_rdm1s_loop (bra_r, ket_r):
+            return trans_rdm12s_loop (bra_r, ket_r, do2=False)[0]
         def trans_rdm13h_loop (bra_r, ket_r, spin=0, do3h=True):
             trans_rdm13h = (trans_rdm13ha_des, trans_rdm13hb_des)[spin]
             trans_rdm1h = (trans_rdm1ha_des, trans_rdm1hb_des)[spin]
             nelec_ket = self.nelec_r[ket_r]
             bravecs = ci[bra_r].reshape (-1, ndeta[bra_r], ndetb[bra_r])
             ketvecs = ci[ket_r].reshape (-1, ndeta[ket_r], ndetb[ket_r])
+            bravecs, ketvecs, nelec_ket = rdm_smult.get_highm_civecs_h (
+                bravecs, ketvecs, norb, nelec_ket, spin, smult_bra=self.smult_r[bra_r],
+                smult_ket=self.smult_r[ket_r]
+            )
             tdm1h = np.zeros ((bravecs.shape[0],ketvecs.shape[0],norb), dtype=self.dtype)
             tdm3h = np.zeros ((bravecs.shape[0],ketvecs.shape[0],2,norb,norb,norb),
                               dtype=self.dtype)
@@ -511,8 +646,7 @@ class FragTDMInt (object):
                     d1s, d2s = trans_rdm13h (bravecs[i], ketvecs[j], norb, nelec_ket,
                                              link_index=linkstr)
                     tdm1h[i,j] = d1s
-                    tdm3h[i,j] = np.stack (d2s, axis=0).transpose (0,2,3,1)
-                    # Mulliken -> Dirac
+                    tdm3h[i,j] = np.stack (d2s, axis=0)
             else:
                 for i, j in product (range (bravecs.shape[0]), range (ketvecs.shape[0])):
                     d1s = trans_rdm1h (bravecs[i], ketvecs[j], norb, nelec_ket,
@@ -525,6 +659,10 @@ class FragTDMInt (object):
             bravecs = ci[bra_r].reshape (-1, ndeta[bra_r], ndetb[bra_r])
             ketvecs = ci[ket_r].reshape (-1, ndeta[ket_r], ndetb[ket_r])
             nelec_ket = self.nelec_r[ket_r]
+            bravecs, ketvecs, nelec_ket = rdm_smult.get_highm_civecs_sm (
+                bravecs, ketvecs, norb, nelec_ket, smult_bra=self.smult_r[bra_r],
+                smult_ket=self.smult_r[ket_r]
+            )
             sfddm = np.zeros ((bravecs.shape[0],ketvecs.shape[0],norb,norb), dtype=self.dtype)
             linkstr = self._check_linkstr_cache (norb+1, nelec_ket[0], nelec_ket[1]+1)
             for i, j in product (range (bravecs.shape[0]), range (ketvecs.shape[0])):
@@ -536,6 +674,10 @@ class FragTDMInt (object):
             bravecs = ci[bra_r].reshape (-1, ndeta[bra_r], ndetb[bra_r])
             ketvecs = ci[ket_r].reshape (-1, ndeta[ket_r], ndetb[ket_r])
             nelec_ket = self.nelec_r[ket_r]
+            bravecs, ketvecs, nelec_ket = rdm_smult.get_highm_civecs_hh (
+                bravecs, ketvecs, norb, nelec_ket, spin, smult_bra=self.smult_r[bra_r],
+                smult_ket=self.smult_r[ket_r]
+            )
             hhdm = np.zeros ((bravecs.shape[0],ketvecs.shape[0],norb,norb), dtype=self.dtype)
             ndum = 2 - (spin%2)
             linkstr = self._check_linkstr_cache (norb+ndum, nelec_ket[0], nelec_ket[1])
@@ -550,10 +692,11 @@ class FragTDMInt (object):
         spectator_index[np.triu_indices (nuroots, k=1)] = False
         spectator_index = np.stack (np.where (spectator_index), axis=1)
         for i, j in spectator_index:
+            if not spman_inter_uniq[i,j]: continue
             k, l = self.uroot_addr[i], self.uroot_addr[j]
             if not self.unmasked_int (k,l,screen): continue
             #fragment is not interacting
-            dm1s, dm2s = trans_rdm12s_loop (l, ci[k], ci[l], do2=True)
+            dm1s, dm2s = trans_rdm12s_loop (k, l, do2=True)
             self.set_dm1 (k, l, dm1s)
             self.set_dm2 (k, l, dm2s)
  
@@ -564,6 +707,7 @@ class FragTDMInt (object):
         # a_p|i>; shape = (norb, lroots[ket], ndeta[*], ndetb[ket])
         for k in hidx_ket_a:
             for b in np.where (hopping_index[0,:,k] < 0)[0]:
+                if not spman_inter_uniq[b,k]: continue
                 bra, ket = self.uroot_addr[b], self.uroot_addr[k]
                 if not self.unmasked_int (bra,ket,screen): continue
                 # <j|a_p|i>
@@ -571,7 +715,7 @@ class FragTDMInt (object):
                     h, phh = trans_rdm13h_loop (bra, ket, spin=0)
                     self.set_h (bra, ket, 0, h)
                     # <j|a'_q a_r a_p|i>, <j|b'_q b_r a_p|i> - how to tell if consistent sign rule?
-                    err = np.abs (phh[:,:,0] + phh[:,:,0].transpose (0,1,2,4,3))
+                    err = np.abs (phh[:,:,0] + phh[:,:,0].transpose (0,1,4,3,2))
                     assert (np.amax (err) < 1e-8), '{}'.format (np.amax (err)) 
                     # ^ Passing this assert proves that I have the correct index
                     # and argument ordering for the call and return of trans_rdm12s
@@ -593,6 +737,7 @@ class FragTDMInt (object):
         # b_p|i>
         for k in hidx_ket_b:
             for b in np.where (hopping_index[1,:,k] < 0)[0]:
+                if not spman_inter_uniq[b,k]: continue
                 bra, ket = self.uroot_addr[b], self.uroot_addr[k]
                 if not self.unmasked_int (bra,ket,screen): continue
                 # <j|b_p|i>
@@ -600,7 +745,7 @@ class FragTDMInt (object):
                     h, phh = trans_rdm13h_loop (bra, ket, spin=1)
                     self.set_h (bra, ket, 1, h)
                     # <j|a'_q a_r b_p|i>, <j|b'_q b_r b_p|i> - how to tell if consistent sign rule?
-                    err = np.abs (phh[:,:,1] + phh[:,:,1].transpose (0,1,2,4,3))
+                    err = np.abs (phh[:,:,1] + phh[:,:,1].transpose (0,1,4,3,2))
                     assert (np.amax (err) < 1e-8), '{}'.format (np.amax (err))
                     # ^ Passing this assert proves that I have the correct index
                     # and argument ordering for the call and return of trans_rdm12s
@@ -633,7 +778,7 @@ class FragTDMInt (object):
             o = (self.get_ovlp (i,j) + self.get_ovlp (k,l)) / 2
             i, j = self.uroot_idx[i], self.uroot_idx[j]
             k, l = self.uroot_idx[k], self.uroot_idx[l]
-            self.ovlp[i][j] = self.ovlp[k][l] = o
+            self.mats['ovlp'][i][j] = self.mats['ovlp'][k][l] = o
 
         # Spectator fragment contribution
         hopping_index = self.hopping_index
@@ -673,6 +818,8 @@ class FragTDMInt (object):
                     self.set_h (bet, kra, 0, h)
                     # <j|a'_q a_r a_p|i>, <j|b'_q b_r a_p|i> - how to tell if consistent sign rule?
                     phh = (self.get_phh (bra, ket, 0) + self.get_phh (bet, kra, 0)) / 2
+                    # Dirac -> Mulliken transpose
+                    phh = phh.transpose (0,1,2,5,3,4)
                     self.set_phh (bra, ket, 0, phh)
                     self.set_phh (bet, kra, 0, phh)
                 # <j|b'_q a_p|i> = <j|s-|i>
@@ -705,6 +852,8 @@ class FragTDMInt (object):
                     self.set_h (bet, kra, 1, h)
                     # <j|a'_q a_r b_p|i>, <j|b'_q b_r b_p|i> - how to tell if consistent sign rule?
                     phh = (self.get_phh (bra, ket, 1) + self.get_phh (bet, kra, 1)) / 2
+                    # Dirac -> Mulliken transpose
+                    phh = phh.transpose (0,1,2,5,3,4)
                     self.set_phh (bra, ket, 1, phh)
                     self.set_phh (bet, kra, 1, phh)
                 # <j|b_q b_p|i>
@@ -855,6 +1004,34 @@ class FragTDMInt (object):
                 if hterm.is_zero () or hterm.is_civec_zero (): continue
                 hci_r_plab[i] += hterm.op ()
         return hci_r_plab
+
+    def spin_factor_constant (self, bra, ket):
+        '''Return the constant (i.e., not depending on the operator) spin factor a(m(ket))
+        <bra|O(comp)|ket> = a(m(ket)) * b(m(ket),comp) * <highm(bra)|O(comp)|highm(ket)>'''
+        dnelec = (self.nelec_r[bra][0] - self.nelec_r[ket][0],
+                  self.nelec_r[bra][1] - self.nelec_r[ket][1])
+        if (dnelec[0] > 0) or ((dnelec[0] == 0) and (dnelec[1] > 0)):
+            return self.spin_factor_constant (ket, bra)
+        smult_bra = self.smult_r[bra]
+        smult_ket = self.smult_r[ket]
+        spin_ket = self.nelec_r[ket][0] - self.nelec_r[ket][1]
+        fn, spin_op = self.scale_dnelec[dnelec]
+        if spin_op is None:
+            return fn (smult_bra, smult_ket, spin_ket)
+        else:
+            return fn (smult_bra, spin_op, smult_ket, spin_ket)
+
+    def spin_factor_component (self, bra, ket, comp):
+        '''Return the operator-dependent spin factor b(m(ket),comp)
+        <bra|O(comp)|ket> = a(m(ket)) * b(m(ket),comp) * <highm(bra)|O(comp)|highm(ket)>
+        I can get away with this level of abstraction because for a strictly two-electron
+        Hamiltonian, the only values of b turn out to be 1 or m/s. So comp==0 -> 1,
+        and comp==1 -> m/s.
+        '''
+        if (self.smult_r[bra] != self.smult_r[ket]) or (comp == 0): return 1
+        s2 = float (self.smult_r[ket] - 1) + np.finfo (float).tiny
+        m2 = self.nelec_r[ket][0] - self.nelec_r[ket][1]
+        return m2 / s2
 
 class HamTerm:
     def __init__(self, parent, ket, ir, jr, h0, h1, h2, hermi=0, spin=None):
@@ -1007,7 +1184,7 @@ class HamTerm:
         return np.amax (np.abs (ci)) < 1e-15
 
 
-def make_ints (las, ci, nelec_frs, screen_linequiv=DO_SCREEN_LINEQUIV, nlas=None,
+def make_ints (las, ci, nelec_frs, smult_fr=None, screen_linequiv=DO_SCREEN_LINEQUIV, nlas=None,
                _FragTDMInt_class=FragTDMInt, mask_ints=None, discriminator=None,
                pt_order=None, do_pt_order=None, verbose=None):
     ''' Build fragment-local intermediates (`FragTDMInt`) for LASSI o1
@@ -1021,6 +1198,8 @@ def make_ints (las, ci, nelec_frs, screen_linequiv=DO_SCREEN_LINEQUIV, nlas=None
             fragment
 
     Kwargs:
+        smult_fr : ndarray of shape (nfrags,nroots)
+            Spin multiplicity of each root r in each fragment f.
         screen_linequiv : logical
             Whether to compress data by aggressively identifying linearly equivalent
             rootspaces and storing the relevant unitary matrices.
@@ -1041,6 +1220,7 @@ def make_ints (las, ci, nelec_frs, screen_linequiv=DO_SCREEN_LINEQUIV, nlas=None
     log = lib.logger.new_logger (las, las.verbose)
     max_memory = getattr (las, 'max_memory', las.mol.max_memory)
     if nlas is None: nlas = las.ncas_sub
+    if smult_fr is None: smult_fr = [None for i in range (nfrags)]
     lroots = get_lroots (ci)
     rootaddr, fragaddr = get_rootaddr_fragaddr (lroots)
     ints = []
@@ -1051,6 +1231,7 @@ def make_ints (las, ci, nelec_frs, screen_linequiv=DO_SCREEN_LINEQUIV, nlas=None
         tdmint = _FragTDMInt_class (las, ci[ifrag],
                                     nlas[ifrag], nroots, nelec_frs[ifrag], rootaddr,
                                     fragaddr[ifrag], ifrag, mask_ints,
+                                    smult_r=smult_fr[ifrag],
                                     discriminator=discriminator,
                                     screen_linequiv=screen_linequiv,
                                     pt_order=pt_order, do_pt_order=do_pt_order,

@@ -6,10 +6,16 @@ from pyscf.fci import cistring
 from pyscf.fci.addons import _unpack_nelec
 import traceback, sys
 librdm = cistring.libfci
+
 def _make_rdm1_spin1(fname, cibra, ciket, norb, nelec, link_index=None):
     assert (cibra is not None and ciket is not None)
     from pyscf.lib import param
-    if (fname in ['FCItrans_rdm1a', 'FCItrans_rdm1b', 'FCImake_rdm1a', 'FCImake_rdm1b']) and param.use_gpu is not None:
+    try:
+      use_gpu = param.use_gpu
+      gpu = param.use_gpu
+    except: 
+      use_gpu = None
+    if (fname in ['FCItrans_rdm1a', 'FCItrans_rdm1b', 'FCImake_rdm1a', 'FCImake_rdm1b']) and (use_gpu is not None):
         use_gpu = param.use_gpu
         gpu = param.use_gpu
     else:
@@ -65,7 +71,7 @@ def _make_rdm1_spin1(fname, cibra, ciket, norb, nelec, link_index=None):
         print(rdm_cpu)
         print("rdm_gpu")
         print(rdm_gpu)
-      return rdm_cpu.T
+      return rdm_gpu.T
     elif use_gpu:  
  
       from mrh.my_pyscf.gpu import libgpu
@@ -108,23 +114,21 @@ def _reorder_rdm(rdm1, rdm2, inplace=False):
         rdm2 = rdm2.copy()
     for k in range(nmo):
         rdm2[:,k,k,:] -= rdm1.T
-
     # Employing the particle permutation symmetry, average over two particles
     # to reduce numerical round off error
     rdm2 = lib.transpose_sum(rdm2.reshape(nmo*nmo,-1), inplace=True) * .5
     return rdm1, rdm2.reshape(nmo,nmo,nmo,nmo)
 
-def _make_rdm12_spin1(fname, cibra, ciket, norb, nelec, link_index=None, symm=0):#, _use_gpu=False, _gpu=None):
+def _make_rdm12_spin1(fname, cibra, ciket, norb, nelec, link_index=None, symm=0):
     #FCItdm12_kern_a, FCItdm12kern_b, FCItdm12kern_ab 
     #add traceback
     #    traceback.print_stack(file=sys.stdout)
     from pyscf.lib import param
-    if (fname in ['FCItdm12kern_a', 'FCItdm12kern_b', 'FCItdm12kern_ab', 'FCIrdm12kern_sf']) and param.use_gpu is not None:
+    if (fname in ['FCItdm12kern_a', 'FCItdm12kern_b', 'FCItdm12kern_ab', 'FCIrdm12kern_sf']) and getattr (param, 'use_gpu', None) is not None:
        use_gpu = param.use_gpu
        gpu=param.use_gpu
     else: 
        use_gpu = None
-       print('RDM12_spin1', fname, 'not currently offloaded')
     assert (cibra is not None and ciket is not None)
     cibra = numpy.asarray(cibra, order='C')
     ciket = numpy.asarray(ciket, order='C')
@@ -137,6 +141,8 @@ def _make_rdm12_spin1(fname, cibra, ciket, norb, nelec, link_index=None, symm=0)
       link_indexa, link_indexb = link_index
     na,nlinka = link_indexa.shape[:2]
     nb,nlinkb = link_indexb.shape[:2]
+    #print('link_indexa', link_indexa.shape)
+    #print('link_indexb', link_indexb.shape)
     assert (cibra.size == na*nb)
     assert (ciket.size == na*nb)
     try: gpu_debug = param.gpu_debug
@@ -158,68 +164,58 @@ def _make_rdm12_spin1(fname, cibra, ciket, norb, nelec, link_index=None, symm=0)
                         link_indexa.ctypes.data_as(ctypes.c_void_p),
                         link_indexb.ctypes.data_as(ctypes.c_void_p),
                         ctypes.c_int(symm))
-      #print("finished cpu version",flush=True)
       libgpu.init_tdm1(gpu, norb)
       libgpu.init_tdm2(gpu, norb)
       libgpu.push_ci(gpu, cibra, ciket, na, nb)
       libgpu.push_link_index_ab(gpu, na, nb, nlinka, nlinkb, link_indexa, link_indexb) #TODO: move this to direct_spin1 or generate on the fly
       rdm1_correct=True
       if fname == 'FCItdm12kern_a': 
-        libgpu.compute_tdm12kern_a(gpu, na, nb, nlinka, nlinkb, norb)
+        libgpu.compute_tdm12kern_a_v2(gpu, na, nb, nlinka, nlinkb, norb)
         libgpu.pull_tdm1(gpu, rdm1_gpu, norb)
         rdm1_correct = numpy.allclose(rdm1_cpu, rdm1_gpu)
       if fname == 'FCItdm12kern_b': 
-        libgpu.compute_tdm12kern_b(gpu, na, nb, nlinka, nlinkb, norb)
+        libgpu.compute_tdm12kern_b_v2(gpu, na, nb, nlinka, nlinkb, norb)
         libgpu.pull_tdm1(gpu, rdm1_gpu, norb)
         rdm1_correct = numpy.allclose(rdm1_cpu, rdm1_gpu)
       if fname == 'FCItdm12kern_ab': 
-        libgpu.compute_tdm12kern_ab(gpu, na, nb, nlinka, nlinkb, norb)
+        libgpu.compute_tdm12kern_ab_v2(gpu, na, nb, nlinka, nlinkb, norb)
       if fname == 'FCIrdm12kern_sf': 
-        libgpu.compute_rdm12kern_sf(gpu, na, nb, nlinka, nlinkb, norb)
+        libgpu.compute_rdm12kern_sf_v2(gpu, na, nb, nlinka, nlinkb, norb)
         libgpu.pull_tdm1(gpu, rdm1_gpu, norb)
         rdm1_correct = numpy.allclose(rdm1_cpu, rdm1_gpu)
       libgpu.pull_tdm2(gpu, rdm2_gpu, norb)
       rdm2_correct = numpy.allclose(rdm2_cpu, rdm2_gpu)
       if rdm1_correct and rdm2_correct:
         print('RDM12_spin1', fname, "TDM12 calculated correctly at GPU", gpu)
-        pass
       else: 
         print('RDM12_spin1', fname, use_gpu, "Problem in TDM12", flush=True)
-        exit()
         if rdm1_correct: print("TDM1 correct")
         else: 
           print("Incorrect TDM1")
-          #print("CPU TDM1")
-          #print(rdm1_cpu)
-          #print("GPU TDM1")
-          #print(rdm1_gpu)
         if rdm2_correct: print("TDM2 correct")
         else: 
           print("Incorrect TDM2")
-          #print("CPU TDM2")
-          #print(rdm2_cpu)
-          #print("GPU TDM2")
-          #print(rdm2_gpu)
-      return rdm1_cpu.T, rdm2_cpu
+        exit()
+      return rdm1_gpu.T, rdm2_gpu
     elif use_gpu: 
       from mrh.my_pyscf.gpu import libgpu
-      rdm1_gpu = numpy.empty((norb,norb))
-      rdm2_gpu = numpy.empty((norb,norb,norb,norb))
+      rdm1_gpu = numpy.zeros((norb,norb))
+      rdm2_gpu = numpy.zeros((norb,norb,norb,norb))
       libgpu.init_tdm1(gpu, norb)
       libgpu.init_tdm2(gpu, norb)
       libgpu.push_ci(gpu, cibra, ciket, na, nb)
       libgpu.push_link_index_ab(gpu, na, nb, nlinka, nlinkb, link_indexa, link_indexb) #TODO: move this to direct_spin1 because it's used with both a and b
       if fname == 'FCItdm12kern_a': 
-        libgpu.compute_tdm12kern_a(gpu, na, nb, nlinka, nlinkb, norb)
+        libgpu.compute_tdm12kern_a_v2(gpu, na, nb, nlinka, nlinkb, norb)
         libgpu.pull_tdm1(gpu, rdm1_gpu, norb)
       if fname == 'FCItdm12kern_b': 
-        libgpu.compute_tdm12kern_b(gpu, na, nb, nlinka, nlinkb, norb)
+        libgpu.compute_tdm12kern_b_v2(gpu, na, nb, nlinka, nlinkb, norb)
         libgpu.pull_tdm1(gpu, rdm1_gpu, norb)
       if fname == 'FCItdm12kern_ab': 
-        libgpu.compute_tdm12kern_ab(gpu, na, nb, nlinka, nlinkb, norb)
+        libgpu.compute_tdm12kern_ab_v2(gpu, na, nb, nlinka, nlinkb, norb)
       if fname == 'FCIrdm12kern_sf': 
+        libgpu.compute_rdm12kern_sf_v2(gpu, na, nb, nlinka, nlinkb, norb)
         libgpu.pull_tdm1(gpu, rdm1_gpu, norb)
-        libgpu.compute_rdm12kern_sf(gpu, na, nb, nlinka, nlinkb, norb)
       libgpu.pull_tdm2(gpu, rdm2_gpu, norb)
       return rdm1_gpu.T, rdm2_gpu
     else: 

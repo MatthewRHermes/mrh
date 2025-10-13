@@ -19,7 +19,7 @@ def ContractHamCI (las, ints, nlas, lroots, h0, h1, h2, si_bra=None, si_ket=None
                                   mask_bra_space=mask_bra_space,
                                   mask_ket_space=mask_ket_space,
                                   pt_order=pt_order, do_pt_order=do_pt_order,
-                                  log=log, max_memory=param.MAX_MEMORY, dtype=np.float64)
+                                  log=log, max_memory=max_memory, dtype=np.float64)
     elif (si_bra is None) or (si_ket is None):
         class ContractHamCI (ContractHamCI_CHC):
             def kernel (self):
@@ -40,9 +40,9 @@ def ContractHamCI (las, ints, nlas, lroots, h0, h1, h2, si_bra=None, si_ket=None
                                   max_memory=param.MAX_MEMORY, dtype=np.float64)
 
 def contract_ham_ci (las, h1, h2, ci_fr, nelec_frs, si_bra=None, si_ket=None, ci_fr_bra=None,
-                     nelec_frs_bra=None, h0=0, soc=0, sum_bra=False, orbsym=None, wfnsym=None,
-                     pt_order=None, do_pt_order=None, accum=None, add_transpose=False,
-                     verbose=None):
+                     nelec_frs_bra=None, smult_fr=None, smult_fr_bra=None, h0=0, soc=0,
+                     sum_bra=False, orbsym=None, wfnsym=None, pt_order=None, do_pt_order=None,
+                     accum=None, add_transpose=False, verbose=None):
     '''Evaluate the action of the state interaction Hamiltonian on a set of ket CI vectors,
     projected onto a basis of bra CI vectors, leaving one fragment of the bra uncontracted.
 
@@ -70,6 +70,10 @@ def contract_ham_ci (las, h1, h2, ci_fr, nelec_frs, si_bra=None, si_ket=None, ci
         nelec_frs_bra : ndarray of shape (nfrags, nroots_bra, 2)
             Number of electrons of each spin in each
             fragment for the bra vectors. Defaults to nelec_frs.
+        smult_fr : ndarray of shape (nfrags,nroots)
+            Spin multiplicity of each fragment in each rootspace of the ket
+        smult_fr_bra : ndarray of shape (nfrags,nroots)
+            Spin multiplicity of each fragment in each rootspace of the bra
         soc : integer
             Order of spin-orbit coupling included in the Hamiltonian
         h0 : float
@@ -111,6 +115,9 @@ def contract_ham_ci (las, h1, h2, ci_fr, nelec_frs, si_bra=None, si_ket=None, ci
         mask_ket_space = list (range (nket))
         mask_ints = np.zeros ((nroots,nroots), dtype=bool)
         mask_ints[np.ix_(mask_bra_space,mask_ket_space)] = True
+        if smult_fr is not None:
+            assert (smult_fr_bra is not None)
+            smult_fr = np.append (smult_fr, smult_fr_bra, axis=1)
     discriminator = np.zeros (nroots, dtype=int)
     si_bra_is1d = si_ket_is1d = False
     if si_bra is not None:
@@ -127,7 +134,7 @@ def contract_ham_ci (las, h1, h2, ci_fr, nelec_frs, si_bra=None, si_ket=None, ci
             discriminator[mask_bra_space] += np.arange (nbra, dtype=int)
 
     # First pass: single-fragment intermediates
-    ints, lroots = frag.make_ints (las, ci, nelec_frs, nlas=nlas,
+    ints, lroots = frag.make_ints (las, ci, nelec_frs, nlas=nlas, smult_fr=smult_fr,
                                                   screen_linequiv=False,
                                                   mask_ints=mask_ints,
                                                   discriminator=discriminator,

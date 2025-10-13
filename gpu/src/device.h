@@ -29,6 +29,7 @@ using namespace MATHLIB_NS;
 //#define _DEBUG_DEVICE
 //#define _DEBUG_P2P
 #define _DEBUG_FCI
+//#define _TEMP_BUFSIZING
 //#define _CUSTOM_FCI
 
 #define _PUMAP_2D_UNPACK 0       // generic unpacking of 1D array to 2D matrix
@@ -168,30 +169,27 @@ public :
   void compute_trans_rdm1b(int , int , int , int , int );
   void compute_make_rdm1a(int , int , int , int , int );
   void compute_make_rdm1b(int , int , int , int , int );
-  void compute_tdm12kern_a(int , int , int , int , int );
-  void compute_tdm12kern_b(int , int , int , int , int );
-  void compute_tdm12kern_ab(int , int , int , int , int );
-  void compute_rdm12kern_sf(int , int , int , int , int );
-  void compute_tdm13h_spin( int , int , int , int , int , int);
-  void compute_tdm13h_spin_v2( int , int , int , int , int , int,
-                               int , int , int , int , int ,
-                               int , int , int , int , int );
-  void compute_tdm13h_spin_v3( int , int , int , int , int , int, int,
-                               int , int , int , int , int ,
-                               int , int , int , int , int );
+  void compute_tdm12kern_a_v2(int , int , int , int , int );
+  void compute_tdm12kern_b_v2(int , int , int , int , int );
+  void compute_tdm12kern_ab_v2(int , int , int , int , int );
+  void compute_rdm12kern_sf_v2(int , int , int , int , int );
   void compute_tdm13h_spin_v4( int , int , int , int , int , int, int,
                                int , int , int , int , int ,
                                int , int , int , int , int );
-  void compute_tdmpp_spin( int , int , int , int , int , int, 
+  void compute_tdm13h_spin_v5( int , int , int , int , int , int, int,
                                int , int , int , int , int ,
                                int , int , int , int , int );
-  void compute_tdmpp_spin_v2( int , int , int , int , int , int, 
+  void compute_tdmpp_spin_v4( int , int , int , int , int , int, 
                                int , int , int , int , int ,
                                int , int , int , int , int );
-  void compute_sfudm( int , int , int , int , int,  
+  void compute_sfudm_v2( int , int , int , int , int,  
                       int , int , int , int , int ,
                       int , int , int , int , int );
+  void compute_tdm1h_spin( int , int , int , int , int , int,
+                           int , int , int , int , int ,
+                           int , int , int , int , int );
 
+  void reorder_rdm(int);
   void pull_tdm1(py::array_t<double> , int );
   void pull_tdm2(py::array_t<double> , int );
   void pull_tdm3hab(py::array_t<double> ,py::array_t<double> , int );
@@ -214,23 +212,34 @@ public :
   void set_to_zero(double *, int);
   void transpose_jikl(double *, double *, int);
   void veccopy(const double *, double *, int);
-  void gemv_fix(const double *, const double *, double *, const int, const int, const double, const double);
-  void gemm_fix(const double *, const double *, double *, const int, const int);
   void compute_FCItrans_rdm1a (double *, double *, double *, int, int, int, int, int *);
   void compute_FCItrans_rdm1b (double *, double *, double *, int, int, int, int, int *);
+  void compute_FCItrans_rdm1a_v2 (double *, double *, double *, 
+                                 int, int, 
+                                 int, int, int, int,  
+                                 int, int, int, int, int,  
+                                 int *);
+  void compute_FCItrans_rdm1b_v2 (double *, double *, double *, 
+                                 int, int, 
+                                 int, int, int, int,  
+                                 int, int, int, int, int,  
+                                 int *);
   void compute_FCImake_rdm1a (double *, double *, double *, int, int, int, int, int *);
   void compute_FCImake_rdm1b (double *, double *, double *, int, int, int, int, int *);
-  void compute_FCIrdm2_a_t1ci (double *, double *, int, int, int, int, int*); 
-  void compute_FCIrdm2_b_t1ci (double *, double *, int, int, int, int, int*); 
-  void compute_FCIrdm3h_a_t1ci (double *, double *, int, int, int, int,
-                                int, int, int, int, int*);
-  void compute_FCIrdm3h_b_t1ci (double *, double *, int, int, int, int,
-                                int, int, int, int, int*);
+  void compute_FCIrdm2_a_t1ci_v2 (double *, double *, int, int, int, int, int, int*); 
+  void compute_FCIrdm2_b_t1ci_v2 (double *, double *, int, int, int, int, int, int*); 
   void compute_FCIrdm3h_a_t1ci_v2 (double *, double *, int, int, int, int,
                                 int, int, int, int, int*);
-  void compute_FCIrdm3h_b_t1ci_v2 (double *, double *, int, int, int, int,
+  void compute_FCIrdm3h_b_t1ci_v2 (double *, double *, int, int, int, int, int,
+                                int, int, int, int, int*);
+  void compute_FCIrdm3h_a_t1ci_v3 (double *, double *, int, int, int, int, int, int,
+                                int, int, int, int, int*);
+  void compute_FCIrdm3h_b_t1ci_v3 (double *, double *, int, int, int, int, int, int,
                                 int, int, int, int, int*);
   void reorder(double *, double *, double *, int);
+  void reduce_buf3_to_rdm(const double *, double *, int, int);
+  void filter_sfudm(const double *, double *, int);
+  void filter_tdmpp(const double *, double *, int, int);
   // multi-gpu communication (better here or part of PM?)
 
   void mgpu_bcast(std::vector<double *>, double *, size_t);

@@ -594,6 +594,7 @@ def get_fdm1_maker (las, ci, nelec_frs, si, **kwargs):
                     1-fragment reduced density matrix
     ''' 
     verbose = kwargs.get ('verbose', las.verbose)
+    smult_fr = kwargs.get ('smult_fr', None)
     log = logger.new_logger (las, verbose)
     nlas = las.ncas_sub
     ncas = las.ncas 
@@ -602,7 +603,7 @@ def get_fdm1_maker (las, ci, nelec_frs, si, **kwargs):
     dtype = ci[0][0].dtype 
         
     # First pass: single-fragment intermediates
-    ints, lroots = frag.make_ints (las, ci, nelec_frs, nlas=nlas)
+    ints, lroots = frag.make_ints (las, ci, nelec_frs, smult_fr=smult_fr, nlas=nlas)
     nstates = np.sum (np.prod (lroots, axis=0))
         
     # Second pass: upper-triangle
@@ -641,6 +642,7 @@ def roots_trans_rdm12s (las, ci, nelec_frs, si_bra, si_ket, **kwargs):
             Spin-separated 2-body reduced density matrices of LASSI states
     '''
     verbose = kwargs.get ('verbose', las.verbose)
+    smult_fr = kwargs.get ('smult_fr', None)
     log = lib.logger.new_logger (las, verbose)
     nlas = las.ncas_sub
     ncas = las.ncas
@@ -669,7 +671,7 @@ def roots_trans_rdm12s (las, ci, nelec_frs, si_bra, si_ket, **kwargs):
         ncas = ncas * 2
 
     # First pass: single-fragment intermediates
-    ints, lroots = frag.make_ints (las, ci, nelec_frs, nlas=nlas,
+    ints, lroots = frag.make_ints (las, ci, nelec_frs, nlas=nlas, smult_fr=smult_fr,
                                                   _FragTDMInt_class=FragTDMInt,
                                                   pt_order=pt_order,
                                                   do_pt_order=do_pt_order)
