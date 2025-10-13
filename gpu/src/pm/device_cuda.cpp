@@ -458,7 +458,23 @@ __global__ void _vecadd(const double * in, double * out, int N)
     if(i >= N) return;
     out[i] += in[i];
 }
+
 /* ---------------------------------------------------------------------- */
+
+__global__ void _vecadd_batch(const double * in, double * out, int N, int num_batches)
+{
+    int i = blockIdx.x * blockDim.x + threadIdx.x;
+
+    if(i >= N) return;
+
+    double val = 0.0;
+    for(int j=0; j<num_batches; ++j) val += in[j*N + i];
+    
+    out[i] += val;
+}
+
+/* ---------------------------------------------------------------------- */
+
 __global__ void _get_rho_to_Pi(double * rho, double * Pi, int ngrid)
 {
     int i = blockIdx.x * blockDim.x + threadIdx.x;
@@ -1561,6 +1577,24 @@ void Device::vecadd(const double * in, double * out, int N)
 }
 
 /* ---------------------------------------------------------------------- */
+
+void Device::vecadd_batch(const double * in, double * out, int N, int num_batches)
+{
+  dim3 block_size(_DEFAULT_BLOCK_SIZE, 1, 1);
+  dim3 grid_size(_TILE(N,block_size.x));
+  
+  cudaStream_t s = *(pm->dev_get_queue());
+  
+  _vecadd_batch<<<grid_size, block_size, 0, s>>>(in, out, N, num_batches);
+  
+#ifdef _DEBUG_DEVICE
+  printf("LIBGPU ::  -- general::vecadd_batch :: N= %i  num_batches= %i  grid_size= %i %i %i  block_size= %i %i %i\n",
+	 N, num_batches, grid_size.x,grid_size.y,grid_size.z,block_size.x,block_size.y,block_size.z);
+  _CUDA_CHECK_ERRORS();
+#endif
+}
+
+/* ---------------------------------------------------------------------- */
 void Device::get_rho_to_Pi(double * rho, double * Pi, int ngrid)
 {
   dim3 block_size(_DEFAULT_BLOCK_SIZE, 1, 1);
@@ -1879,6 +1913,8 @@ void Device::reduce_buf3_to_rdm(const double * buf3, double * dm2, int size_tdm2
   cudaStream_t s = *(pm->dev_get_queue());
   dim3 block_size(_DEFAULT_BLOCK_SIZE, 1,1);
   dim3 grid_size (_TILE(size_tdm2, block_size.x),1,1);
+
+  //  printf("reduce_buf3_to_rdm : size= %i  num_batches= %i\n", size_tdm2, num_gemm_batches);
   
   for (int i=0;i<num_gemm_batches; ++i){
     _vecadd<<<grid_size, block_size, 0, s>>>( &(buf3[i*size_tdm2]), dm2, size_tdm2);

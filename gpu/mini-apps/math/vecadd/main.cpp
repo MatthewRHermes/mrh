@@ -1,5 +1,5 @@
-// A mini app to do matrix multiplication on cpu and gpu
-// This is largely used now to benchmark transforms recorded from production run
+// A mini app to do reduce several vectors to a single vector (e.g. batched daxpy-like)
+// This is largely used for benchmarking.
 
 #include <stdio.h>
 #include <stdlib.h>
@@ -20,20 +20,20 @@
 using namespace PM_NS;
 using namespace MATHLIB_NS;
 
-// A is (m, k) matrix
-// B is (k, n) matrix
-// C is (m, n) matrix
+extern void my_gpu_vecadd(const real_t *, real_t *, int);
+extern void my_gpu_vecadd_batch(const real_t *, real_t *, int, int);
 
-// -replay to rerun workloads sampled from gpu4mrh run exactly as they were executed
-// -replay [gemm|gemm_batch] [transa] [transb] [m] [n] [k] [lda] [ldb] [ldc] [alpha] [beta] [batch_size]
-// -replay gemm_batch T T 92 92 92 1 0 240
-// -replay gemm N N 92 92 22080 1 0
+// reduce_buf3_to_rdmInside mrh::mole.py adding use_gpu flag
+// reduce_buf3_to_rdm : size= 20736  num_batches= 132
+// reduce_buf3_to_rdm : size= 20736  num_batches= 33
+// reduce_buf3_to_rdm : size= 28561  num_batches= 11
+// reduce_buf3_to_rdm : size= 28561  num_batches= 30
+// reduce_buf3_to_rdm : size= 28561  num_batches= 32
+// reduce_buf3_to_rdm : size= 28561  num_batches= 77
 
-// -fortran-order : use this with by-hand testing
-// Column-ordering transposes everything
-// To compute A.B, then call Fortran APIs with B.A
+// -n [# elements in vector] -batch [# of vectors to accumulate]
 
-// Matrix Multiplication :: C(3 x 4) = A(3 x 2)^N . B(2 x 4)^N
+// vector addition (daxpy)
 // OMP_NUM_THREADS=1 ./a.out -replay gemm N N  3 4 2  2 4 4  1.0 0.0 -check_result -fortran-order
 
 // ----------------------------------------------------------------
@@ -42,19 +42,10 @@ struct input_t {
   bool check_result = false;
   bool do_batched = false;
   bool fortran = false;
-  int num_batches = 1;
+  int num_batches = 132;
   int num_iter = 100;
   int num_repeat = 1;
-  int m = 1024;
-  int n = 1024;
-  int k = 1024;
-  int lda = 1024;
-  int ldb = 1024;
-  int ldc = 1024;
-  double alpha = 1.0;
-  double beta = 0.0;
-  char * transa = (char *) "N";
-  char * transb = (char *) "N";
+  int n = 20736;
 };
 
 // ----------------------------------------------------------------
@@ -68,43 +59,15 @@ void parse_command_line(int argc, char * argv[], input_t & inp)
   while(indx < argc) {
 
     if(strcmp(argv[indx], "-check_result") == 0) inp.check_result = true;
-    else if(strcmp(argv[indx], "-mnk") == 0) {
-      inp.m = atoi(argv[++indx]);
+    else if(strcmp(argv[indx], "-n") == 0) {
       inp.n = atoi(argv[++indx]);
-      inp.k = atoi(argv[++indx]);
-    }
-    else if(strcmp(argv[indx], "-trans") == 0) {
-      inp.transa = argv[++indx];
-      inp.transb = argv[++indx];
-      
-      if(strcmp(inp.transa, "N") == 0) inp.lda = inp.k;
-      else inp.lda = inp.m;
-
-      if(strcmp(inp.transb, "N") == 0) {
-	inp.ldb = inp.n;
-	inp.ldc = inp.n;
-      } else {
-	inp.ldb = inp.k;
-	inp.ldc = inp.k;
-      }
-    }
-    else if(strcmp(argv[indx],"-replay") == 0) {
-      if(strcmp(argv[++indx], "gemm_batch") == 0) inp.do_batched = true;
-      inp.transa = argv[++indx];
-      inp.transb = argv[++indx];
-      inp.m = atoi(argv[++indx]);
-      inp.n = atoi(argv[++indx]);
-      inp.k = atoi(argv[++indx]);
-      inp.lda = atoi(argv[++indx]);
-      inp.ldb = atoi(argv[++indx]);
-      inp.ldc = atoi(argv[++indx]);
-      inp.alpha = atof(argv[++indx]);
-      inp.beta = atof(argv[++indx]);
-      if(inp.do_batched) inp.num_batches = atoi(argv[++indx]);
     }
     else if(strcmp(argv[indx], "-num_iter") == 0) inp.num_iter = atoi(argv[++indx]);
     else if(strcmp(argv[indx], "-batched") == 0) inp.do_batched = true;
-    else if(strcmp(argv[indx], "-num_batches") == 0) inp.num_batches = atoi(argv[++indx]);
+    else if(strcmp(argv[indx], "-num_batches") == 0) {
+      inp.num_batches = atoi(argv[++indx]);
+      inp.do_batched = true;
+    }
     else if(strcmp(argv[indx], "-num_repeat") == 0) inp.num_repeat = atoi(argv[++indx]);
     else if(strcmp(argv[indx], "-fortran-order") == 0) inp.fortran = true;
 
@@ -114,39 +77,59 @@ void parse_command_line(int argc, char * argv[], input_t & inp)
   printf("\ninput_params\n");
   printf("------------\n");
   printf("check_result= %i\n",inp.check_result);
-  printf("trans= %s %s\n",inp.transa, inp.transb);
-  printf("mnk= %i %i %i\n",inp.m, inp.n, inp.k);
-  printf("ld= %i %i %i\n",inp.lda, inp.ldb, inp.ldc);
+  printf("n= %i %i %i\n",inp.n);
   printf("num_iter= %i\n",inp.num_iter);
   printf("do_batched= %i\n",inp.do_batched);
   printf("num_batches= %i\n",inp.num_batches);
   printf("num_repeat= %i\n",inp.num_repeat);
-  printf("fortran= %i\n",inp.fortran);
 }
 
 // ----------------------------------------------------------------
 
-void gemm_NN0_naive_cpu(const int * m_, const int * n_, const int * k_, const real_t * alpha_,
-			real_t * a, const int * lda_, real_t * b, const int * ldb_,
-			const real_t * beta_, real_t * c, const int * ldc_)
+void vecadd_naive_cpu(real_t * in, real_t * out, const int * n_, const int * num_batches_)
 {
-  double alpha = *alpha_;
-  double beta = *beta_;
-  
-  int m = *m_;
   int n = *n_;
-  int k = *k_;
+  int num_batches = *num_batches_;
 
-  int lda = *lda_;
-  int ldb = *ldb_;
-  int ldc = *ldc_;
+  for(int i=0; i<n; ++i) out[i] = 0.0;
   
-  for(int i=0; i<m; ++i)
-    for(int j=0; j<n; ++j) {
-      double val = 0.0;
-      for(int l=0; l<k; ++l) val += a[i*lda+l] * b[l*ldb+j];
-      c[i*ldc+j] = alpha * val + beta * c[i*ldc+j];
-    }
+  for(int i=0; i<num_batches; ++i) {
+    real_t * array = in + i*n;
+    for(int j=0; j<n; ++j) out[j] += array[j];
+  }
+}
+
+// ----------------------------------------------------------------
+
+void vecadd_naive_gpu(real_t * in, real_t * out, const int * n_, const int * num_batches_)
+{
+  int n = *n_;
+  int num_batches = *num_batches_;
+
+  for (int i=0; i<num_batches; ++i) my_gpu_vecadd(&(in[i*n]), out, n);
+}
+
+// ----------------------------------------------------------------
+
+void vecadd_batch_gpu(real_t * in, real_t * out, const int * n_, const int * num_batches_)
+{
+  int n = *n_;
+  int num_batches = *num_batches_;
+
+  my_gpu_vecadd_batch(in, out, n, num_batches);
+}
+
+// ----------------------------------------------------------------
+
+void vecadd_daxpy_gpu(MATHLIB * ml, real_t * in, real_t * out, const int * n_, const int * num_batches_)
+{
+  int n = *n_;
+  int num_batches = *num_batches_;
+
+  const real_t alpha = 1.0;
+  const int inc = 1;
+  
+  for (int i=0; i<num_batches; ++i) ml->axpy(&n, &alpha, &(in[i*n]), &inc, out, &inc);
 }
 
 // ----------------------------------------------------------------
@@ -172,13 +155,10 @@ int check_result(real_t * ref, real_t * test, int n, const char * name)
 
 // ----------------------------------------------------------------
 
-void print_matrix(real_t * data, int num_rows, int num_cols, const char * name)
+void print_vector(real_t * data, int num_rows, const char * name)
 {
-  printf("\nMatrix[%s] : %i x %i \n",name, num_rows, num_cols);
-  for(int i=0; i<num_rows; ++i) {
-    for(int j=0; j<num_cols; ++j) printf(" %f", data[i*num_cols + j]);
-    printf("\n");
-  }
+  printf("\nVector[%s] : %i x 1 \n",name, num_rows);
+  for(int i=0; i<num_rows; ++i) printf(" %f", data[i]);
 }
 
 // ----------------------------------------------------------------
@@ -199,7 +179,7 @@ double print_summary(int id, double t, int num_rows_a, int num_cols_a, int num_c
 
 // ----------------------------------------------------------------
 
-void test_NN(int argc, char ** argv)
+void test(int argc, char ** argv)
 {
   int me,nranks;
   MPI_Comm_size(MPI_COMM_WORLD, &nranks);
@@ -244,103 +224,197 @@ void test_NN(int argc, char ** argv)
     MPI_Barrier(MPI_COMM_WORLD);
   }
 
-  //  input_t inp;
+  input_t inp;
 
-  //  parse_command_line(argc, argv, inp);
+  parse_command_line(argc, argv, inp);
 
-  const int num_rows_A = 4;
-  const int num_cols_A = 2;
-
-  const int num_rows_B = num_cols_A;
-  const int num_cols_B = 3;
-
-  const int num_rows_C = num_rows_A;
-  const int num_cols_C = num_cols_B;
-
-  const int size_A = num_rows_A * num_cols_A * sizeof(real_t);
-  const int size_B = num_rows_B * num_cols_B * sizeof(real_t);
-  const int size_C = num_rows_C * num_cols_C * sizeof(real_t);
+  const int size_A = inp.n * inp.num_batches * sizeof(real_t);
+  const int size_B = inp.n * sizeof(real_t);
+  const int size_C = inp.n * sizeof(real_t);
   
   real_t * a = (real_t*) malloc(size_A);
   real_t * b = (real_t*) malloc(size_B);
-  
-  real_t * c = (real_t*) malloc(size_C);
   real_t * r = (real_t*) malloc(size_C);
-
-  std::srand(time(nullptr));
   
   // Initialize host
   
-  for(int i=0; i<num_rows_A; ++i) {
-    for(int j=0; j<num_cols_A; ++j) {
-      a[i * num_cols_A + j] = std::rand() / (float(RAND_MAX) + 1.0) - 0.5;
-    }
+  for(int i=0; i<inp.num_batches; ++i) {
+    for(int j=0; j<inp.n; ++j) a[i*inp.n + j] = 1.0;
   }
 
-  for(int i=0; i<num_rows_B; ++i) {
-    for(int j=0; j<num_cols_B; ++j) {
-      b[i * num_cols_B + j] = std::rand() / (float(RAND_MAX) + 1.0) - 0.5;
-    }
-  }
+  for(int i=0; i<inp.n; ++i) r[i] = (real_t) inp.num_batches;
   
   // ----------------------------------------------------------------
-  // Naive CPU reference: Matrix Multiply
+  // Naive CPU reference: vector addition
   // ----------------------------------------------------------------
 
+  double total_time = 0.0;
+  double total_time2 = 0.0;
+  
   double t;
 
-  printf("\nMatrix Multiplication :: C(%i x %i) = A(%i x %i)^N . B(%i x %i)^N\n",
-	 num_rows_C, num_cols_C, num_rows_A, num_cols_A, num_rows_B, num_cols_B);
-  
-  printf("\n                      :: C(%i x %i) = A(%i x %i)   . B(%i x %i)\n",
-	 num_rows_C, num_cols_C, num_rows_A, num_cols_A, num_rows_B, num_cols_B);
-  
-  for(int i=0; i<num_rows_C; ++i)
-    for(int j=0; j<num_cols_C; ++j) {
-      double val = 0.0;
-      for(int l=0; l<num_rows_A; ++l) val += a[i * num_cols_A + l] * b[l * num_cols_B + j];
-      r[i * num_cols_C + j] = val;
-    }
-    
-  check_result(r, c, num_rows_C*num_cols_C, "naive_cpu");
-    
-  print_matrix(a, num_rows_A, num_rows_B, "Original a");
-    
-  print_matrix(b, num_rows_B, num_cols_B, "Original b");
-    
-  print_matrix(r, num_rows_C, num_cols_C, "Reference r");
-  
-  // ----------------------------------------------------------------
-  // Optimized math library: Matrix Multiply
-  // ----------------------------------------------------------------
+  printf("\nVector Addition :: n= %i  num_batches= %i\n", inp.n, inp.num_batches);
 
+  for(int ir=0; ir<inp.num_repeat; ++ir) {
+    double t0 = MPI_Wtime();
+    for(int i=0; i<inp.num_iter; ++i) {
+      
+      vecadd_naive_cpu(a, b, &(inp.n), &(inp.num_batches));
+
+    }
+
+    t = MPI_Wtime() - t0;
+
+    total_time += t;
+    total_time2 += t * t;
+
+  }
+  
+  check_result(r, b, inp.n, "naive_cpu");
+
+  double avg_time = total_time / double(inp.num_repeat) / double(inp.num_iter);
+  double avg_time2 = total_time2 / double(inp.num_repeat) / double(inp.num_iter);
+
+  double std_time = sqrt(avg_time2 - avg_time*avg_time + 1e-18);
+
+  printf("[CPU NAIVE] %f +/- %f [ms]\n\n", avg_time*1000.0, std_time*1000.0);
+  
+  //  print_vector(b, inp.n, "Original b");
+    
+  //  print_vector(r, inp.n, "Reference r");
+  
   // Create device buffers and transfer data to device
 
-  real_t * d_a = (real_t *) pm->dev_malloc(size_A);
-  real_t * d_b = (real_t *) pm->dev_malloc(size_B);
-  real_t * d_c = (real_t *) pm->dev_malloc(size_C);
+  real_t * d_a = (real_t *) pm->dev_malloc(size_A, "d_a", FLERR);
+  real_t * d_b = (real_t *) pm->dev_malloc(size_B, "d_b", FLERR);
 
   pm->dev_push(d_a, a, size_A);
-  pm->dev_push(d_b, b, size_B);
-
-  double alpha = 1.0;
-  double beta = 0.0;
-
-  int m = num_rows_B;  // # rows of first matrix B^T
-  int n = num_rows_A;  // # cols of second matrix A^T
-  int k = num_rows_B;  // # cols of first matrix B^T
   
-  int lda = m; // lead dimension of first matrix B^T
-  int ldb = k; // lead dimension of second matrix A^T
-  int ldc = m; // lead dimension of result matrix C
+  // ----------------------------------------------------------------
+  // GPU : vector addition w/ naive kernel + serialized
+  // ----------------------------------------------------------------
+
+  total_time = 0.0;
+  total_time2 = 0.0;
   
-  ml->gemm((char *) "N", (char *) "N", &m, &n, &k, &alpha, d_b, &ldb, d_a, &lda, &beta, d_c, &ldc);
+  for(int ir=0; ir<inp.num_repeat; ++ir) {
+
+    for(int i=0; i<inp.n; ++i) b[i] = 0.0;
+    pm->dev_push(d_b, b, size_B);
+    
+    double t0 = MPI_Wtime();
+    for(int i=0; i<inp.num_iter; ++i) {
+      
+      vecadd_naive_gpu(d_a, d_b, &(inp.n), &(inp.num_batches));
+
+    }
+
+    pm->dev_barrier();
+    t = MPI_Wtime() - t0;
+
+    total_time += t;
+    total_time2 += t * t;
+
+  }
   
   pm->dev_barrier();
 
-  pm->dev_pull(d_c, c, size_C);
+  pm->dev_pull(d_b, b, size_B);
 
-  print_matrix(c, num_rows_C, num_cols_C, "Output c");
+  for(int i=0; i<inp.n; ++i) b[i] /= (double) inp.num_iter;
+  
+  check_result(r, b, inp.n, "naive_gpu");
+  
+  avg_time = total_time / double(inp.num_repeat) / double(inp.num_iter);
+  avg_time2 = total_time2 / double(inp.num_repeat) / double(inp.num_iter);
+
+  std_time = sqrt(avg_time2 - avg_time*avg_time + 1e-18);
+
+  printf("[GPU NAIVE] %f +/- %f [ms]\n\n", avg_time*1000.0, std_time*1000.0);
+  
+  // ----------------------------------------------------------------
+  // GPU : vector addition w/ daxpy + serialized
+  // ----------------------------------------------------------------
+
+  total_time = 0.0;
+  total_time2 = 0.0;
+  
+  for(int ir=0; ir<inp.num_repeat; ++ir) {
+
+    for(int i=0; i<inp.n; ++i) b[i] = 0.0;
+    pm->dev_push(d_b, b, size_B);
+    
+    double t0 = MPI_Wtime();
+    for(int i=0; i<inp.num_iter; ++i) {
+      
+      vecadd_daxpy_gpu(ml, d_a, d_b, &(inp.n), &(inp.num_batches));
+
+    }
+
+    pm->dev_barrier();
+    t = MPI_Wtime() - t0;
+
+    total_time += t;
+    total_time2 += t * t;
+
+  }
+  
+  pm->dev_barrier();
+
+  pm->dev_pull(d_b, b, size_B);
+
+  for(int i=0; i<inp.n; ++i) b[i] /= (double) inp.num_iter;
+  
+  check_result(r, b, inp.n, "daxpy_gpu");
+  
+  avg_time = total_time / double(inp.num_repeat) / double(inp.num_iter);
+  avg_time2 = total_time2 / double(inp.num_repeat) / double(inp.num_iter);
+
+  std_time = sqrt(avg_time2 - avg_time*avg_time + 1e-18);
+
+  printf("[GPU DAXPY] %f +/- %f [ms]\n\n", avg_time*1000.0, std_time*1000.0);
+  
+  // ----------------------------------------------------------------
+  // GPU : vector addition w/ naive kernel in single offload
+  // ----------------------------------------------------------------
+
+  total_time = 0.0;
+  total_time2 = 0.0;
+  
+  for(int ir=0; ir<inp.num_repeat; ++ir) {
+
+    for(int i=0; i<inp.n; ++i) b[i] = 0.0;
+    pm->dev_push(d_b, b, size_B);
+    
+    double t0 = MPI_Wtime();
+    for(int i=0; i<inp.num_iter; ++i) {
+      
+      vecadd_batch_gpu(d_a, d_b, &(inp.n), &(inp.num_batches));
+
+    }
+
+    pm->dev_barrier();
+    t = MPI_Wtime() - t0;
+
+    total_time += t;
+    total_time2 += t * t;
+
+  }
+  
+  pm->dev_barrier();
+
+  pm->dev_pull(d_b, b, size_B);
+
+  for(int i=0; i<inp.n; ++i) b[i] /= (double) inp.num_iter;
+  
+  check_result(r, b, inp.n, "daxpy_gpu");
+  
+  avg_time = total_time / double(inp.num_repeat) / double(inp.num_iter);
+  avg_time2 = total_time2 / double(inp.num_repeat) / double(inp.num_iter);
+
+  std_time = sqrt(avg_time2 - avg_time*avg_time + 1e-18);
+
+  printf("[GPU DAXPY] %f +/- %f [ms]\n\n", avg_time*1000.0, std_time*1000.0);
   
   // Clean up
     
@@ -349,7 +423,6 @@ void test_NN(int argc, char ** argv)
 
   pm->dev_free(d_a);
   pm->dev_free(d_b);
-  pm->dev_free(d_c);
   
   delete ml;
   
@@ -357,7 +430,6 @@ void test_NN(int argc, char ** argv)
     
   free(a);
   free(b);
-  free(c);
   free(r);
 }
 
@@ -367,7 +439,7 @@ int main( int argc, char* argv[] )
 {
   MPI_Init(&argc, &argv);
 
-  test_NN(argc, argv);
+  test(argc, argv);
 
   MPI_Finalize();
 }
