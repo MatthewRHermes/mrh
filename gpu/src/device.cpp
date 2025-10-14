@@ -3990,7 +3990,7 @@ void Device::compute_tdm12kern_a_v2(int na, int nb, int nlinka, int nlinkb, int 
   int num_buf_batches_for_gemv; 
   int num_gemm_batches; 
   int num_gemv_batches; 
-  printf("buf_batches: %i gemm_batches = %i\n",buf_batch_size, gemm_batch_size);
+  //printf("buf_batches: %i gemm_batches = %i\n",buf_batch_size, gemm_batch_size);
   grow_array(dd->d_buf1,final_size_buf, dd->size_buf1, "buf1", FLERR); 
   grow_array(dd->d_buf2,final_size_buf, dd->size_buf2, "buf2", FLERR); 
   grow_array(dd->d_buf3,final_size_buf, dd->size_buf3, "buf3", FLERR); 
@@ -4073,7 +4073,7 @@ void Device::compute_tdm12kern_b_v2(int na, int nb, int nlinka, int nlinkb, int 
   int num_buf_batches_for_gemv; 
   int num_gemm_batches; 
   int num_gemv_batches; 
-  printf("buf_batches: %i gemm_batches = %i\n",buf_batch_size, gemm_batch_size);
+  //  printf("buf_batches: %i gemm_batches = %i\n",buf_batch_size, gemm_batch_size);
   grow_array(dd->d_buf1,final_size_buf, dd->size_buf1, "buf1", FLERR); 
   grow_array(dd->d_buf2,final_size_buf, dd->size_buf2, "buf2", FLERR); 
   grow_array(dd->d_buf3,final_size_buf, dd->size_buf3, "buf3", FLERR); 
@@ -4131,7 +4131,7 @@ void Device::compute_tdm12kern_ab_v2(int na, int nb, int nlinka, int nlinkb, int
   pm->dev_set_device(id);
   ml->set_handle(id);
   my_device_data * dd = &(device_data[id]);
-  pm->dev_profile_start("tdms :: compute_tdm12kern_ab");
+  pm->dev_profile_start("tdms :: compute_tdm12kern_ab_v2");
   int norb2 = norb*norb;
   int size_buf = norb2*nb;
   int size_tdm2 = norb2*norb2;
@@ -4155,7 +4155,7 @@ void Device::compute_tdm12kern_ab_v2(int na, int nb, int nlinka, int nlinkb, int
   int num_buf_batches; 
   int num_gemm_batches; 
   int num_gemv_batches; 
-  printf("buf_batches: %i gemm_batches = %i\n",buf_batch_size, gemm_batch_size);
+  //  printf("buf_batches: %i gemm_batches = %i\n",buf_batch_size, gemm_batch_size);
   grow_array(dd->d_buf1,final_size_buf, dd->size_buf1, "buf1", FLERR); 
   grow_array(dd->d_buf2,final_size_buf, dd->size_buf2, "buf2", FLERR); 
   grow_array(dd->d_buf3,final_size_buf, dd->size_buf3, "buf3", FLERR); 
@@ -4202,7 +4202,7 @@ void Device::compute_rdm12kern_sf_v2 (int na, int nb, int nlinka, int nlinkb, in
   pm->dev_set_device(id);
   ml->set_handle(id);
   my_device_data * dd = &(device_data[id]);
-  pm->dev_profile_start("tdms :: compute_tdm12kern_sf");
+  pm->dev_profile_start("tdms :: compute_tdm12kern_sf_v2");
   int norb2 = norb*norb;
   int size_buf = norb2*nb;
   int size_tdm2 = norb2*norb2;
@@ -4227,7 +4227,7 @@ void Device::compute_rdm12kern_sf_v2 (int na, int nb, int nlinka, int nlinkb, in
   int num_buf_batches; 
   int num_gemm_batches; 
   int num_gemv_batches; 
-  printf("buf_batches: %i gemm_batches = %i\n",buf_batch_size, gemm_batch_size);
+  //  printf("buf_batches: %i gemm_batches = %i\n",buf_batch_size, gemm_batch_size);
   grow_array(dd->d_buf1,final_size_buf, dd->size_buf1, "buf1", FLERR); 
   grow_array(dd->d_buf3,final_size_buf, dd->size_buf3, "buf3", FLERR); 
   int bits_buf = sizeof(double)*buf_batch_size*size_buf;
@@ -4290,6 +4290,7 @@ void Device::compute_tdm13h_spin_v4(int na, int nb,
   pm->dev_set_device(id);
   ml->set_handle(id);
   my_device_data * dd = &(device_data[id]);
+  pm->dev_profile_start("tdms :: compute_tdm13h_spin_v4");
 
   int na_bra = ja_bra - ia_bra;
   int nb_bra = jb_bra - ib_bra;
@@ -4470,6 +4471,7 @@ void Device::compute_tdm13h_spin_v5(int na, int nb,
   pm->dev_set_device(id);
   ml->set_handle(id);
   my_device_data * dd = &(device_data[id]);
+  pm->dev_profile_start("tdms :: compute_tdm13h_spin_v5");
 
   int na_bra = ja_bra - ia_bra;
   int nb_bra = jb_bra - ib_bra;
@@ -4614,7 +4616,7 @@ void Device::compute_tdm13h_spin_v5(int na, int nb,
     //printf("In rest branch ia_max: %i ja_min: %i\n",ia_max, ja_min);
     for (int stra_id = ia_max; stra_id<ja_min; stra_id+=buf_batch_size){
       num_buf_batches = _MIN(buf_batch_size, ja_min -stra_id);
-      printf("num_buf_batches: %i\n", num_buf_batches);
+      //      printf("num_buf_batches: %i\n", num_buf_batches);
       compute_FCIrdm3h_b_t1ci_v3(dd->d_cibra, dd->d_buf2, stra_id, num_buf_batches, nb, nb_bra, norb, nlinkb, ia_bra, ja_bra, ib_bra, jb_bra, dd->d_clinkb);
       compute_FCIrdm3h_b_t1ci_v3(dd->d_ciket, dd->d_buf1, stra_id, num_buf_batches, nb, nb_ket, norb, nlinka, ia_ket, ja_ket, ib_ket, jb_ket, dd->d_clinka);
       //we need to start finding a solution for this, this is getting ridiculous amount of code
@@ -4683,7 +4685,7 @@ void Device::compute_tdm13h_spin_v5(int na, int nb,
     printf("in spin == 0 branch\n");
     for (int stra_id = 0; stra_id < ia_ket; stra_id+= num_buf_batches){
       num_buf_batches = _MIN(buf_batch_size, ia_ket - stra_id);
-      printf("num_buf_batches: %i stra_id: %i ia_ket: %i\n",num_buf_batches, stra_id, ia_ket);
+      //printf("num_buf_batches: %i stra_id: %i ia_ket: %i\n",num_buf_batches, stra_id, ia_ket);
       compute_FCIrdm3h_a_t1ci_v3(dd->d_ciket, dd->d_buf1, stra_id, num_buf_batches, nb, nb_ket, norb, nlinka, ia_ket, ja_ket, ib_ket, jb_ket, dd->d_clinka);
       compute_FCIrdm3h_a_t1ci_v3(dd->d_cibra, dd->d_buf2, stra_id, num_buf_batches, nb, nb_bra, norb, nlinka, ia_bra, ja_bra, ib_bra, jb_bra, dd->d_clinka);
       for (int i=0; i<num_buf_batches; i+=gemm_batch_size) {
@@ -4718,7 +4720,7 @@ void Device::compute_tdm13h_spin_v5(int na, int nb,
     }
 
     for (int stra_id = ia_ket; stra_id<ja_ket; stra_id+=num_buf_batches){
-      printf("num_buf_batches: %i stra_id: %i ja_ket: %i\n",num_buf_batches, stra_id, ja_ket);
+      //printf("num_buf_batches: %i stra_id: %i ja_ket: %i\n",num_buf_batches, stra_id, ja_ket);
       num_buf_batches = _MIN(buf_batch_size, ja_ket - stra_id);
       compute_FCIrdm3h_a_t1ci_v3(dd->d_ciket, dd->d_buf1, stra_id, num_buf_batches, nb, nb_ket, norb, nlinka, ia_ket, ja_ket, ib_ket, jb_ket, dd->d_clinka);
       compute_FCIrdm3h_a_t1ci_v3(dd->d_cibra, dd->d_buf2, stra_id, num_buf_batches, nb, nb_bra, norb, nlinka, ia_bra, ja_bra, ib_bra, jb_bra, dd->d_clinka);
@@ -4770,7 +4772,7 @@ void Device::compute_tdm13h_spin_v5(int na, int nb,
      } 
     for (int stra_id = ja_ket; stra_id < na; stra_id+= num_buf_batches){
       num_buf_batches = _MIN(buf_batch_size, na - stra_id);
-      printf("num_buf_batches: %i stra_id: %i na: %i\n",num_buf_batches, stra_id, na);
+      //printf("num_buf_batches: %i stra_id: %i na: %i\n",num_buf_batches, stra_id, na);
       compute_FCIrdm3h_a_t1ci_v3(dd->d_ciket, dd->d_buf1, stra_id, num_buf_batches, nb, nb_ket, norb, nlinka, ia_ket, ja_ket, ib_ket, jb_ket, dd->d_clinka);
       compute_FCIrdm3h_a_t1ci_v3(dd->d_cibra, dd->d_buf2, stra_id, num_buf_batches, nb, nb_bra, norb, nlinka, ia_bra, ja_bra, ib_bra, jb_bra, dd->d_clinka);
       for (int i=0; i<num_buf_batches; i+=gemm_batch_size) {
@@ -4828,6 +4830,7 @@ void Device::compute_tdmpp_spin_v4(int na, int nb, int nlinka, int nlinkb, int n
   pm->dev_set_device(id);
   ml->set_handle(id);
   my_device_data * dd = &(device_data[id]);
+  pm->dev_profile_start("tdms :: compute_tdmpp_spin_v4");
   int norb2 = norb*norb;
   int size_buf = norb2*nb;
   int size_tdm2 = norb2*norb2;
@@ -4853,7 +4856,7 @@ void Device::compute_tdmpp_spin_v4(int na, int nb, int nlinka, int nlinkb, int n
   int gemm_batch_size = final_size_buf/(norb2*norb2); // this is integer division // number of tdm2 in a single buf
   int num_buf_batches; 
   int num_gemm_batches; 
-  printf("buf_batches: %i gemm_batches = %i\n",buf_batch_size, gemm_batch_size);
+  //printf("buf_batches: %i gemm_batches = %i\n",buf_batch_size, gemm_batch_size);
   grow_array(dd->d_buf1,final_size_buf, dd->size_buf1, "buf1", FLERR); 
   grow_array(dd->d_buf2,final_size_buf, dd->size_buf2, "buf2", FLERR); 
   grow_array(dd->d_buf3,final_size_buf, dd->size_buf3, "buf3", FLERR); 
@@ -4911,10 +4914,15 @@ void Device::compute_tdmpp_spin_v4(int na, int nb, int nlinka, int nlinkb, int n
             &beta, dd->d_buf3, &norb2, &size_tdm2, &num_gemm_batches); 
           reduce_buf3_to_rdm(dd->d_buf3, dd->d_tdm2, size_tdm2, num_gemm_batches);
           }
+#if 1
+	memset_zero_batch_stride(dd->d_buf1, size_buf, ib_ket*norb2, bits_buf1, num_buf_batches);
+	memset_zero_batch_stride(dd->d_buf2, size_buf, ib_bra*norb2, bits_buf2, num_buf_batches);
+#else
         for (int i=0;i<num_buf_batches;++i){  
           ml->memset(&(dd->d_buf1[i*size_buf+ib_ket*norb2]), &zero, &bits_buf1);
           ml->memset(&(dd->d_buf2[i*size_buf+ib_bra*norb2]), &zero, &bits_buf2);
-          } 
+          }
+#endif
         }
       }
     else if (spin==1) { 
@@ -4934,9 +4942,13 @@ void Device::compute_tdmpp_spin_v4(int na, int nb, int nlinka, int nlinkb, int n
             reduce_buf3_to_rdm(dd->d_buf3, dd->d_tdm2, size_tdm2, num_gemm_batches);
             }
           ml->memset(dd->d_buf1, &zero, &bits_buf);
+#if 1
+	  memset_zero_batch_stride(dd->d_buf2, size_buf, ib_bra+norb2, bits_buf2, num_buf_batches);
+#else
           for (int i=0;i<num_buf_batches;++i){
             ml->memset(&(dd->d_buf2[i*size_buf+ib_bra*norb2]), &zero, &bits_buf2);
             }
+#endif
           }
         } 
     else if (spin==2){
@@ -4981,6 +4993,7 @@ void Device::compute_sfudm_v2(int na, int nb, int nlinka, int nlinkb, int norb,
   pm->dev_set_device(id);
   ml->set_handle(id);
   my_device_data * dd = &(device_data[id]);
+  pm->dev_profile_start("tdms :: compute_sfudm_v2");
   int norb2 = norb*norb;
   int size_buf = norb2*nb;
   int size_tdm2 = norb2*norb2;
@@ -5005,7 +5018,7 @@ void Device::compute_sfudm_v2(int na, int nb, int nlinka, int nlinkb, int norb,
   int gemm_batch_size = final_size_buf/(norb2*norb2); // this is integer division // number of tdm2 in a single buf
   int num_buf_batches; 
   int num_gemm_batches; 
-  printf("buf_batches: %i gemm_batches = %i\n",buf_batch_size, gemm_batch_size);
+  //  printf("buf_batches: %i gemm_batches = %i\n",buf_batch_size, gemm_batch_size);
   grow_array(dd->d_buf1,final_size_buf, dd->size_buf1, "buf1", FLERR); 
   grow_array(dd->d_buf2,final_size_buf, dd->size_buf2, "buf2", FLERR); 
   grow_array(dd->d_buf3,final_size_buf, dd->size_buf3, "buf3", FLERR); 
@@ -5094,7 +5107,6 @@ void Device::compute_tdm1h_spin( int na, int nb, int nlinka, int nlinkb, int nor
                                 dd->d_clinkb);
   }
 
-  pm->dev_profile_stop();
   double t1 = omp_get_wtime();
   t_array[27] += t1 - t0;
   count_array[17]++;

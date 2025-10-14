@@ -215,6 +215,13 @@ class HamS2OvlpOperators (HamS2Ovlp):
         self.dt_sX, self.dw_sX = 0.0, 0.0
         self.dt_oX, self.dw_oX = 0.0, 0.0
         self.dt_pX, self.dw_pX = 0.0, 0.0
+        self.dt_4fo, self.dw_4fo = 0.0, 0.0
+        self.dt_4fr, self.dw_4fr = 0.0, 0.0
+        self.dt_4f1, self.dw_4f1 = 0.0, 0.0
+        self.dt_4f2, self.dw_4f2 = 0.0, 0.0
+        self.dt_4f3, self.dw_4f3 = 0.0, 0.0
+        self.dt_oXn = [0.0, 0.0, 0.0, 0.0]
+        self.dw_oXn = [0.0, 0.0, 0.0, 0.0]
 
     def sprint_cache_profile (self):
         fmt_str = '{:>5s} CPU: {:9.2f} ; wall: {:9.2f}'
@@ -235,6 +242,17 @@ class HamS2OvlpOperators (HamS2Ovlp):
         profile += '\n' + fmt_str.format ('olpX', self.dt_sX, self.dw_sX)
         profile += '\n' + fmt_str.format ('opX', self.dt_oX, self.dw_oX)
         profile += '\n' + fmt_str.format ('putX', self.dt_pX, self.dw_pX)
+        profile += '\n' + 'opX components:'
+        for i in range (4):
+            profile += '\n' + fmt_str.format ('{}f'.format (i+1),
+                                              self.dt_oXn[i],
+                                              self.dw_oXn[i])
+        profile += '\n' + 'opX 4-fragment components:'
+        profile += '\n' + fmt_str.format ('4f_o', self.dt_4fo, self.dw_4fo)
+        profile += '\n' + fmt_str.format ('4f_r', self.dt_4fr, self.dw_4fr)
+        profile += '\n' + fmt_str.format ('4f_1', self.dt_4f1, self.dw_4f1)
+        profile += '\n' + fmt_str.format ('4f_2', self.dt_4f2, self.dw_4f2)
+        profile += '\n' + fmt_str.format ('4f_3', self.dt_4f3, self.dw_4f3)
         return profile
 
     def get_xvec (self, iroot, *inv):
@@ -311,6 +329,8 @@ class HamS2OvlpOperators (HamS2Ovlp):
         t2, w2 = logger.process_clock (), logger.perf_counter ()
         self.dt_oX += (t2-t1)
         self.dw_oX += (w2-w1)
+        self.dt_oXn[len(inv)-1] += (t2-t1)
+        self.dw_oXn[len(inv)-1] += (w2-w1)
 
         for bra in range (self.nroots):
             i, j = self.offs_lroots[bra]
@@ -321,21 +341,45 @@ class HamS2OvlpOperators (HamS2Ovlp):
         self.dt_pX += (t3-t2)
         self.dw_pX += (w3-w2)
 
+    def _profile_4frag_(self, op):
+        if not hasattr (op, 'dt_4fr'): return
+        self.dt_4fr += op.dt_4fr
+        self.dw_4fr += op.dw_4fr
+        self.dt_4f1 += op.dt_4f1
+        self.dw_4f1 += op.dw_4f1
+        self.dt_4f2 += op.dt_4f2
+        self.dw_4f2 += op.dw_4f2
+        self.dt_4f3 += op.dt_4f3
+        self.dw_4f3 += op.dw_4f3
+        return
+
     def _opuniq_x_(self, op, obra, oket, ovecs, *inv):
         '''All operations which are unique in that a given set of nonspectator fragment bra
         statelets are coupled to a given set of nonspectator fragment ket statelets'''
+        t0, w0 = logger.process_clock (), logger.perf_counter ()
         op = opterm.reduce_spin (op, obra, oket)
+        t1, w1 = logger.process_clock (), logger.perf_counter ()
+        if len (set (inv)) == 4:
+            self.dt_4fo += t1-t0
+            self.dw_4fo += w1-w0
         key = tuple ((obra, oket)) + inv
         inv = list (set (inv))
         brakets, bras, braHs = self.get_nonuniq_exc_square (key)
         for bra in bras:
             vec = ovecs[self.ox_ovlp_urootstr (bra, oket, inv)]
             self.put_ox1_(op.dot (vec.T).ravel (), bra, *inv)
+            self._profile_4frag_(op)
         if len (braHs):
+            t0, w0 = logger.process_clock (), logger.perf_counter ()
             op = op.conj ().T
+            t1, w1 = logger.process_clock (), logger.perf_counter ()
+            if len (set (inv)) == 4:
+                self.dt_4fo += t1-t0
+                self.dw_4fo += w1-w0
             for bra in braHs:
                 vec = ovecs[self.ox_ovlp_urootstr (bra, obra, inv)]
                 self.put_ox1_(op.dot (vec.T).ravel (), bra, *inv)
+                self._profile_4frag_(op)
         return
 
     def ox_ovlp_urootstr (self, bra, ket, inv):
