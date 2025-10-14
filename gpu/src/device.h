@@ -218,6 +218,8 @@ public :
   void push_mo_coeff(py::array_t<double>, int);
 
   void vecadd(const double *, double *, int); // replace with ml->daxpy()
+  void vecadd_batch(const double *, double *, int, int);
+  void memset_zero_batch_stride(double *, int, int, int, int);
   void get_rho_to_Pi(double *, double * ,int); // replace with gemm or element wise multiplication
   void make_gridkern(double *, double *, int, int); //replace with ml->gemm()
   void make_buf_pdft(double *, double *, double *, int, int); //replace with ml->gemm()
