@@ -5159,8 +5159,10 @@ void Device::pull_tdm1_host(int i, int j, int n_bra, int n_ket, int size_tdm1, i
   my_device_data * dd = &(device_data[id]);
   pm->dev_profile_start("tdms :: pull tdm1");
   int loc_hhdm = (i*n_ket+j)*size_tdm1;
-  pm->dev_pull_async(dd->d_tdm1, &(h_dm1_full[loc_hhdm]), size_tdm1*sizeof(double));
+  double * h_dm1_loc = &(h_dm1_full[loc_hhdm]);
+  pm->dev_pull_async(dd->d_tdm1, h_dm1_loc, size_tdm1*sizeof(double));
   pm->dev_profile_stop();
+  
   if (count+1 == n_bra*n_ket){
   for (int device_id =0; device_id<num_devices; ++device_id){
   pm->dev_set_device(device_id); 
