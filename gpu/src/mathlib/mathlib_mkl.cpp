@@ -25,6 +25,158 @@ MATHLIB::~MATHLIB()
 
 // ----------------------------------------------------------------
 
+void MATHLIB::memset(double * array, const int * num, const int * size)
+{
+#ifdef _DEBUG_ML 
+  printf("Inside MATHLIB::memset()\n");
+#endif
+
+  sycl::queue * q = pm_->dev_get_queue();
+  
+#if 1
+  q.memset(array, *num, *size);
+#else
+  q.memset(array, *num, *size).wait();
+#endif
+
+#ifdef _DEBUG_ML 
+  printf(" -- Leaving MATHLIB::memset()\n");
+#endif
+
+}
+
+// ----------------------------------------------------------------
+
+void MATHLIB::axpy(const int * n, 
+                   const double * alpha, const double * x, const int * incx,
+                   double * y, const int * incy)
+{
+#ifdef _DEBUG_ML 
+  printf("Inside MATHLIB::axpy()\n");
+#endif
+
+  sycl::queue * q = pm_->dev_get_queue();
+
+#if defined(_GPU_SYCL_CUDA)
+  oneapi::mkl::blas::column_major::axpy(*q, *n, *alpha, x, *incx, y, *incy);
+#else
+  oneapi::mkl::blas::axpy(*q, *n, *alpha, x, *incx, y, *incy);  
+#endif
+
+#ifdef _DEBUG_ML 
+  printf(" -- Leaving MATHLIB::axpy()\n");
+#endif
+
+}
+
+// ----------------------------------------------------------------
+
+void MATHLIB::gemv_batch(const char * transa,
+		   const int * m, const int * n, 
+		   const double * alpha, const double * a, const int * lda, const int * strideA,
+		   const double * x, const int * incx, const int * strideX,
+		   const double * beta, double * y, const int * incy, const int * strideY, 
+                   const int * batchCount)
+{
+#ifdef _DEBUG_ML
+  printf("Inside MATHLIB::gemv_batch()\n");
+  printf("mnk= %i %i %i  alpha= %f  beta= %f  ld= %i %i %i  stride= %i %i %i  batchCount= %i\n",
+	 *m,*n,*k,*alpha,*beta,*lda,*ldb,*ldc,*strideA,*strideB,*strideC,*batchCount);
+#endif
+  
+#if defined(_PROFILE_ML)
+  std::ostringstream name_;
+  name_ << "gemv_batch " << transa << " " << transb << " " << *m << " " << *n << " " << *k << " "
+	<< *lda << " " << *ldb << " " << *ldc << " " << *alpha << " " << *beta << " " << *batchCount;
+  std::string name = name_.str();
+
+  auto it_ = std::find(profile_name.begin(), profile_name.end(), name);
+
+  int indx = it_ - profile_name.begin();
+
+  if(indx < profile_name.size()) profile_count[indx]++;
+  else {
+    profile_name.push_back(name);
+    profile_count.push_back(1);
+  }
+#endif
+  
+  sycl::queue * q = pm_->dev_get_queue();
+
+  using oneapi::mkl::transpose;
+  
+  transpose ta;
+  
+  if(strcmp(transa, "N") == 0) ta = transpose::nontrans;
+  else if(strcmp(transa, "T") == 0) ta = transpose::trans;
+  else ta = transpose::conjtrans;
+  
+#if defined(_GPU_SYCL_CUDA)  
+  oneapi::mkl::blas::column_major::gemv_batch(*q, ta, *m, *n, *alpha,
+					      a, *lda, *strideA, x, *incx, *strideX, *beta, y, *incy, *strideY, *batchCount);
+#else
+  oneapi::mkl::blas::gemv_batch(*q, ta, *m, *n, *alpha,
+					      a, *lda, *strideA, x, *incx, *strideX, *beta, y, *incy, *strideY, *batchCount);
+#endif
+  
+#ifdef _DEBUG_ML
+  printf(" -- Leaving MATHLIB::gemv_batch()\n");
+#endif
+}
+
+// ----------------------------------------------------------------
+
+void MATHLIB::gemv(const char * transa,
+		   const int * m, const int * n, 
+		   const double * alpha, const double * a, const int * lda,
+		   const double * x, const int * incx,
+		   const double * beta, double * y, const int * incy)
+{
+#ifdef _DEBUG_ML
+  printf("Inside MATHLIB::gemv()\n");
+#endif
+
+//#if defined(_PROFILE_ML)
+#if 0
+  std::ostringstream name_;
+  name_ << "gemv " << transa << " "  << *m << " " << *n << " "
+	<< *lda << " " << *ldb << " " << *ldc << " " << *alpha << " " << *beta;
+  std::string name = name_.str();
+
+  auto it_ = std::find(profile_name.begin(), profile_name.end(), name);
+
+  int indx = it_ - profile_name.begin();
+
+  if(indx < profile_name.size()) profile_count[indx]++;
+  else {
+    profile_name.push_back(name);
+    profile_count.push_back(1);
+  }
+#endif
+  
+  sycl::queue * q = pm_->dev_get_queue();
+
+  using oneapi::mkl::transpose;
+  
+  transpose ta, tb;
+  
+  if(strcmp(transa, "N") == 0) ta = transpose::nontrans;
+  else if(strcmp(transa, "T") == 0) ta = transpose::trans;
+  else ta = transpose::conjtrans;
+
+#if defined(_GPU_SYCL_CUDA)  
+  oneapi::mkl::blas::column_major::gemv(*q, ta, *m, *n, *alpha, a, *lda, x, *incx, *beta, y, *incy);
+#else
+  oneapi::mkl::blas::gemv(*q, ta, *m, *n, *alpha, a, *lda, x, *incx, *beta, y, *incy);
+#endif
+
+#ifdef _DEBUG_ML
+  printf(" -- Leaving MATHLIB::gemv()\n");
+#endif
+}
+
+// ----------------------------------------------------------------
+
 void MATHLIB::gemm(const char * transa, const char * transb,
 		   const int * m, const int * n, const int * k,
 		   const double * alpha, const double * a, const int * lda,
