@@ -129,15 +129,6 @@ def test_hhdm_loop(n_bra, n_ket, norb, nelec, spin):
         print('TDMpp loop calculated correctly')
       else:
         print('TDMpp loop incorrect')
-        #print(tdmhh_c)
-        #print(tdmhh)
-        diff = tdmhh-tdmhh_c
-        diff_index = np.nonzero(diff)
-        #print(tdmhh[diff[0], diff[1], diff[2], diff[3]])
-        #print(tdmhh_c[diff[0], diff[1], diff[2], diff[3]])
-        print(len(diff[diff!=0]))
-        print(tdmhh[diff!=0])
-        print(tdmhh_c[diff!=0])
         exit()
     elif custom_fci and use_gpu and mgpu_fci: 
       print("in gpu channel")

@@ -1960,7 +1960,6 @@ void Device::reorder(double * dm1, double * dm2, double * buf, int norb)
 {
   int norb2 = norb*norb;
   cudaStream_t s = *(pm->dev_get_queue());
-  printf("Inside reorder\n");
   //for k in range (norb): rdm2[:,k,k,:] -= rdm1.T //remember, rdm1 is returned as rdm1.T, so double transpose, hence just rdm1
   {
     dim3 block_size (1,1,1);
