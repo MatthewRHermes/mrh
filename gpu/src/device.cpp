@@ -4126,6 +4126,10 @@ void Device::compute_tdm12kern_b_v2(int na, int nb, int nlinka, int nlinkb, int 
 /* ---------------------------------------------------------------------- */
 void Device::compute_tdm12kern_ab_v2(int na, int nb, int nlinka, int nlinkb, int norb, int count)
 {
+#ifdef _DEBUG_DEVICE
+  printf("LIBGPU :: Inside Device::compute_tdm12kern_ab_v2()\n");
+#endif
+  
   double t0 = omp_get_wtime();
   int id = count % num_devices;
   pm->dev_set_device(id);
@@ -4193,10 +4197,18 @@ void Device::compute_tdm12kern_ab_v2(int na, int nb, int nlinka, int nlinkb, int
   double t1 = omp_get_wtime();
   t_array[24] += t1 - t0;
   count_array[14]++;
+  
+#ifdef _DEBUG_DEVICE
+  printf("LIBGPU :: -- Leaving Device::compute_tdm12kern_ab_v2()\n");
+#endif
 }
 /* ---------------------------------------------------------------------- */
-void Device::compute_rdm12kern_sf_v2 (int na, int nb, int nlinka, int nlinkb, int norb, int count)
+void Device::compute_rdm12kern_sf_v2(int na, int nb, int nlinka, int nlinkb, int norb, int count)
 {
+#ifdef _DEBUG_DEVICE
+  printf("LIBGPU :: Inside Device::compute_rdm12kern_sf_v2()\n");
+#endif
+  
   double t0 = omp_get_wtime();
   int id = count % num_devices;
   pm->dev_set_device(id);
@@ -4276,6 +4288,10 @@ void Device::compute_rdm12kern_sf_v2 (int na, int nb, int nlinka, int nlinkb, in
   double t1 = omp_get_wtime();
   t_array[25] += t1 - t0;
   count_array[15]++;
+  
+#ifdef _DEBUG_DEVICE
+  printf("LIBGPU :: Leaving Device::compute_rdm12kern_sf_v2()\n");
+#endif
 }
 /* ---------------------------------------------------------------------- */
 void Device::compute_tdm13h_spin_v4(int na, int nb, 
@@ -4284,6 +4300,10 @@ void Device::compute_tdm13h_spin_v4(int na, int nb,
                                  int ia_bra, int ja_bra, int ib_bra, int jb_bra, int sgn_bra, 
                                  int ia_ket, int ja_ket, int ib_ket, int jb_ket, int sgn_ket, int count )
 {
+#ifdef _DEBUG_DEVICE
+  printf("LIBGPU :: Inside Device::compute_tdm13h_spin_v4()\n");
+#endif
+  
   //na, nb is same for both zero-padded ci vectors, but not necessarily for non padded vectors
   double t0 = omp_get_wtime();
   int id = count % num_devices;
@@ -4457,6 +4477,10 @@ void Device::compute_tdm13h_spin_v4(int na, int nb,
   double t1 = omp_get_wtime();
   t_array[26] += t1-t0;//TODO: fix this
   count_array[16]++;//TODO: fix this
+  
+#ifdef _DEBUG_DEVICE
+  printf("LIBGPU :: Leaving Device::compute_tdm13h_spin_v4()\n");
+#endif
 } 
 /* ---------------------------------------------------------------------- */
 void Device::compute_tdm13h_spin_v5(int na, int nb, 
@@ -4465,6 +4489,10 @@ void Device::compute_tdm13h_spin_v5(int na, int nb,
                                  int ia_bra, int ja_bra, int ib_bra, int jb_bra, int sgn_bra, 
                                  int ia_ket, int ja_ket, int ib_ket, int jb_ket, int sgn_ket, int count )
 {
+#ifdef _DEBUG_DEVICE
+  printf("LIBGPU :: Inside Device::compute_tdm13h_spin_v5()\n");
+#endif
+  
   #if 1
   double t0 = omp_get_wtime();
   int id = count % num_devices;
@@ -4814,6 +4842,10 @@ void Device::compute_tdm13h_spin_v5(int na, int nb,
   t_array[26] += t1-t0;//TODO: fix this
   count_array[16]++;//TODO: fix this
   #endif
+  
+#ifdef _DEBUG_DEVICE
+  printf("LIBGPU :: Leaving Device::compute_tdm13h_spin_v5()\n");
+#endif
 } 
 
 
@@ -4822,6 +4854,10 @@ void Device::compute_tdmpp_spin_v4(int na, int nb, int nlinka, int nlinkb, int n
                                  int ia_bra, int ja_bra, int ib_bra, int jb_bra, int sgn_bra, 
                                  int ia_ket, int ja_ket, int ib_ket, int jb_ket, int sgn_ket, int count )
 {
+#ifdef _DEBUG_DEVICE
+  printf("LIBGPU :: Inside Device::compute_tdmpp_spin_v4() w/ spin= %i\n", spin);
+#endif
+  
   //even though the cpu version of tdmpp does tdm1 and tdm2, tdm1 gets "absorbed" into tdm2 by reorder function.
   //for this function specifcally, reorder does not do anything, therefore, any calculation of tdm1 is meaningless.
   //we just need to filder tdm2 to tdm1 (see sfudm)
@@ -4847,6 +4883,7 @@ void Device::compute_tdmpp_spin_v4(int na, int nb, int nlinka, int nlinkb, int n
   int bits_tdm1 = sizeof(double)*size_tdm1;
   int bits_tdm2 = sizeof(double)*size_tdm2;
   int _size_buf = _MAX(dd->size_buf1, dd->size_buf2);// (dd->size_buf1 > dd->size_buf2) ? dd->size_buf1 : dd->size_buf2;
+  _size_buf = _MAX(_size_buf, dd->size_buf3);
   #ifdef _TEMP_BUFSIZING
   _size_buf = size_buf*6;
   #endif
@@ -4857,9 +4894,9 @@ void Device::compute_tdmpp_spin_v4(int na, int nb, int nlinka, int nlinkb, int n
   int num_buf_batches; 
   int num_gemm_batches; 
   //printf("buf_batches: %i gemm_batches = %i\n",buf_batch_size, gemm_batch_size);
-  grow_array(dd->d_buf1,final_size_buf, dd->size_buf1, "buf1", FLERR); 
-  grow_array(dd->d_buf2,final_size_buf, dd->size_buf2, "buf2", FLERR); 
-  grow_array(dd->d_buf3,final_size_buf, dd->size_buf3, "buf3", FLERR); 
+  grow_array(dd->d_buf1, final_size_buf, dd->size_buf1, "buf1", FLERR); 
+  grow_array(dd->d_buf2, final_size_buf, dd->size_buf2, "buf2", FLERR); 
+  grow_array(dd->d_buf3, final_size_buf, dd->size_buf3, "buf3", FLERR); 
   int bits_buf = sizeof(double)*buf_batch_size*size_buf;
   int bits_buf1;
   int bits_buf2;
@@ -4896,6 +4933,7 @@ void Device::compute_tdmpp_spin_v4(int na, int nb, int nlinka, int nlinkb, int n
   int ia_max = _MAX(ia_bra, ia_ket);
   int ja_min = _MIN(ja_bra, ja_ket);
   int b_len  = jb_min - ib_max;
+  
   if (spin== 0)
       //refer to diagram in tdm3h_spin_v4
       {
@@ -4915,8 +4953,8 @@ void Device::compute_tdmpp_spin_v4(int na, int nb, int nlinka, int nlinkb, int n
           reduce_buf3_to_rdm(dd->d_buf3, dd->d_tdm2, size_tdm2, num_gemm_batches);
           }
 #if 1
-	memset_zero_batch_stride(dd->d_buf1, size_buf, ib_ket*norb2, bits_buf1, num_buf_batches);
-	memset_zero_batch_stride(dd->d_buf2, size_buf, ib_bra*norb2, bits_buf2, num_buf_batches);
+	memset_zero_batch_stride(dd->d_buf1, size_buf, ib_ket*norb2, nb_ket*norb2, num_buf_batches);
+	memset_zero_batch_stride(dd->d_buf2, size_buf, ib_bra*norb2, nb_bra*norb2, num_buf_batches);
 #else
         for (int i=0;i<num_buf_batches;++i){  
           ml->memset(&(dd->d_buf1[i*size_buf+ib_ket*norb2]), &zero, &bits_buf1);
@@ -4943,7 +4981,7 @@ void Device::compute_tdmpp_spin_v4(int na, int nb, int nlinka, int nlinkb, int n
             }
           ml->memset(dd->d_buf1, &zero, &bits_buf);
 #if 1
-	  memset_zero_batch_stride(dd->d_buf2, size_buf, ib_bra+norb2, bits_buf2, num_buf_batches);
+	  memset_zero_batch_stride(dd->d_buf2, size_buf, ib_bra+norb2, nb_bra*norb2, num_buf_batches);
 #else
           for (int i=0;i<num_buf_batches;++i){
             ml->memset(&(dd->d_buf2[i*size_buf+ib_bra*norb2]), &zero, &bits_buf2);
@@ -4980,6 +5018,10 @@ void Device::compute_tdmpp_spin_v4(int na, int nb, int nlinka, int nlinkb, int n
   t_array[29] += t1-t0;//TODO: fix this
   count_array[19]++;//TODO: fix this
   
+#ifdef _DEBUG_DEVICE
+  printf("LIBGPU :: Leaving Device::compute_tdmpp_spin_v4()\n");
+#endif
+  
 }
 
 
@@ -4988,6 +5030,10 @@ void Device::compute_sfudm_v2(int na, int nb, int nlinka, int nlinkb, int norb,
                              int ia_bra, int ja_bra, int ib_bra, int jb_bra, int sgn_bra, 
                              int ia_ket, int ja_ket, int ib_ket, int jb_ket, int sgn_ket, int count )
 {
+#ifdef _DEBUG_DEVICE
+  printf("LIBGPU :: Inside Device::compute_sfudm_v2()\n");
+#endif
+  
   double t0 = omp_get_wtime();
   int id = count % num_devices;
   pm->dev_set_device(id);
@@ -5067,6 +5113,10 @@ void Device::compute_sfudm_v2(int na, int nb, int nlinka, int nlinkb, int norb,
   double t1 = omp_get_wtime();
   t_array[28] += t1-t0;//TODO: fix this
   count_array[18]++;//TODO: fix this
+  
+#ifdef _DEBUG_DEVICE
+  printf("LIBGPU :: Leaving Device::compute_sfudm_v2()\n");
+#endif
 }
 
 /* ---------------------------------------------------------------------- */
