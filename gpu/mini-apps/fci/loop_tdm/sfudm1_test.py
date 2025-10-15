@@ -16,8 +16,6 @@ def multi_gpu_loop(bravecs, ketvecs, norb, nelec):
   from mrh.my_pyscf.gpu import libgpu
   from pyscf.lib import param
   gpu=param.use_gpu
-  from mrh.my_pyscf.gpu import libgpu
-  gpu=param.use_gpu
   nelec_ket = _unpack_nelec (nelec)
   nelec_bra = list (_unpack_nelec (nelec))
   nelec_bra[0] += 1

@@ -177,7 +177,7 @@ extern "C"
   void libgpu_pull_tdm1_host(void *, 
                       int, int, int, int, int, int);
   void libgpu_pull_tdm2_host(void *, 
-                      int, int, int);
+                      int, int, int, int, int, int);
   void libgpu_pull_tdm3h_host(void *, 
                       int, int, int);
   void libgpu_pull_tdm1(void *, 
@@ -188,12 +188,12 @@ extern "C"
                       py::array_t<double>, py::array_t<double> , int, int);
   void libgpu_pull_tdm3hab_v2(void *, 
                       py::array_t<double>, py::array_t<double>, py::array_t<double> , int, int, int, int);
+  void libgpu_pull_tdm3hab_v2_host(void *, 
+                      int, int, int, int, int, int, int, int);
   void libgpu_copy_tdm1_host_to_page(void *, 
                       py::array_t<double> , int );
   void libgpu_copy_tdm2_host_to_page(void *, 
                       py::array_t<double> , int );
-  void libgpu_copy_tdm3h_host_to_page(void *, 
-                      py::array_t<double> , py::array_t<double>, int );
 }
 
 
@@ -283,9 +283,9 @@ PYBIND11_MODULE(libgpu, m) {
   m.def("pull_tdm3h_host",&libgpu_pull_tdm3h_host,"my_pyscf/lassi/op_o1/frag.py::pull_tdm3h loop");        
   m.def("copy_tdm1_host_to_page",&libgpu_copy_tdm1_host_to_page,"my_pyscf/lassi/op_o1/frag.py:: copy tdm1 to pageable memory");
   m.def("copy_tdm2_host_to_page",&libgpu_copy_tdm2_host_to_page,"my_pyscf/lassi/op_o1/frag.py:: copy tdm2 to pageable memory");
-  m.def("copy_tdm3h_host_to_page",&libgpu_copy_tdm3h_host_to_page,"my_pyscf/lassi/op_o1/frag.py:: copy tdm3h to pageable memory");
   m.def("pull_tdm3hab",&libgpu_pull_tdm3hab,"mrh/my_pyscf/fci/rdm.py::trans_rdm13hs spin1 pull_tdm13hab");        
   m.def("pull_tdm3hab_v2",&libgpu_pull_tdm3hab_v2,"mrh/my_pyscf/fci/rdm.py::trans_rdm13hs spin1 pull_tdm13hab v2");        
+  m.def("pull_tdm3hab_v2_host",&libgpu_pull_tdm3hab_v2_host,"mrh/my_pyscf/fci/rdm.py::trans_rdm13hs spin1 pull_tdm13hab v2 to pinned");        
   
 }
 
