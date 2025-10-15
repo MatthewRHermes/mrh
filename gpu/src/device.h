@@ -28,7 +28,7 @@ using namespace MATHLIB_NS;
 
 //#define _DEBUG_DEVICE
 //#define _DEBUG_P2P
-#define _DEBUG_FCI
+//#define _DEBUG_FCI
 //#define _TEMP_BUFSIZING
 //#define _CUSTOM_FCI
 

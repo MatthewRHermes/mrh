@@ -28,19 +28,20 @@ MATHLIB::~MATHLIB()
 void MATHLIB::memset(double * array, const int * num, const int * size)
 {
 #ifdef _DEBUG_ML 
-  printf("Inside MATHLIB::memset()\n");
+  printf("LIBGPU :: Inside MATHLIB::memset()\n");
 #endif
 
   sycl::queue * q = pm_->dev_get_queue();
   
 #if 1
-  q.memset(array, *num, *size);
+  q->memset(array, *num, *size);
 #else
-  q.memset(array, *num, *size).wait();
+  q->memset(array, *num, *size).wait();
 #endif
 
-#ifdef _DEBUG_ML 
-  printf(" -- Leaving MATHLIB::memset()\n");
+#ifdef _DEBUG_ML
+  pm_->dev_stream_wait();
+  printf("LIBGPU ::  -- Leaving MATHLIB::memset()\n");
 #endif
 
 }
@@ -52,7 +53,7 @@ void MATHLIB::axpy(const int * n,
                    double * y, const int * incy)
 {
 #ifdef _DEBUG_ML 
-  printf("Inside MATHLIB::axpy()\n");
+  printf("LIBGPU :: Inside MATHLIB::axpy()\n");
 #endif
 
   sycl::queue * q = pm_->dev_get_queue();
@@ -63,8 +64,9 @@ void MATHLIB::axpy(const int * n,
   oneapi::mkl::blas::axpy(*q, *n, *alpha, x, *incx, y, *incy);  
 #endif
 
-#ifdef _DEBUG_ML 
-  printf(" -- Leaving MATHLIB::axpy()\n");
+#ifdef _DEBUG_ML
+  pm_->dev_stream_wait();
+  printf("LIBGPU ::  -- Leaving MATHLIB::axpy()\n");
 #endif
 
 }
@@ -79,9 +81,9 @@ void MATHLIB::gemv_batch(const char * transa,
                    const int * batchCount)
 {
 #ifdef _DEBUG_ML
-  printf("Inside MATHLIB::gemv_batch()\n");
-  printf("mnk= %i %i %i  alpha= %f  beta= %f  ld= %i %i %i  stride= %i %i %i  batchCount= %i\n",
-	 *m,*n,*k,*alpha,*beta,*lda,*ldb,*ldc,*strideA,*strideB,*strideC,*batchCount);
+  printf("LIBGPU :: Inside MATHLIB::gemv_batch()\n");
+  printf("LIBGPU :: mn= %i %i  alpha= %f  beta= %f  ld= %i inc= %i %i  stride= %i %i %i  batchCount= %i\n",
+	 *m,*n,*alpha,*beta,*lda,*incx,*incy,*strideA,*strideX,*strideY,*batchCount);
 #endif
   
 #if defined(_PROFILE_ML)
@@ -120,7 +122,8 @@ void MATHLIB::gemv_batch(const char * transa,
 #endif
   
 #ifdef _DEBUG_ML
-  printf(" -- Leaving MATHLIB::gemv_batch()\n");
+  pm_->dev_stream_wait();
+  printf("LIBGPU ::  -- Leaving MATHLIB::gemv_batch()\n");
 #endif
 }
 
@@ -133,7 +136,7 @@ void MATHLIB::gemv(const char * transa,
 		   const double * beta, double * y, const int * incy)
 {
 #ifdef _DEBUG_ML
-  printf("Inside MATHLIB::gemv()\n");
+  printf("LIBGPU :: Inside MATHLIB::gemv()\n");
 #endif
 
 //#if defined(_PROFILE_ML)
@@ -171,7 +174,7 @@ void MATHLIB::gemv(const char * transa,
 #endif
 
 #ifdef _DEBUG_ML
-  printf(" -- Leaving MATHLIB::gemv()\n");
+  printf("LIBGPU ::  -- Leaving MATHLIB::gemv()\n");
 #endif
 }
 
@@ -184,7 +187,7 @@ void MATHLIB::gemm(const char * transa, const char * transb,
 		   const double * beta, double * c, const int * ldc)
 {  
 #ifdef _DEBUG_ML
-  printf("Inside MATHLIB::gemm()\n");
+  printf("LIBGPU :: Inside MATHLIB::gemm()\n");
 #endif
 
 #if defined(_PROFILE_ML)
@@ -225,7 +228,7 @@ void MATHLIB::gemm(const char * transa, const char * transb,
 #endif
   
 #ifdef _DEBUG_ML
-  printf(" -- Leaving MATHLIB::gemm()\n");
+  printf("LIBGPU ::  -- Leaving MATHLIB::gemm()\n");
 #endif
 }
 
@@ -238,8 +241,8 @@ void MATHLIB::gemm_batch(const char * transa, const char * transb,
 			 const double * beta, double * c, const int * ldc, const int * strideC, const int * batchCount)
 {  
 #ifdef _DEBUG_ML
-  printf("Inside MATHLIB::gemm_batch()\n");
-  printf("mnk= %i %i %i  alpha= %f  beta= %f  ld= %i %i %i  stride= %i %i %i  batchCount= %i\n",
+  printf("LIBGPU :: Inside MATHLIB::gemm_batch()\n");
+  printf("LIBGPU :: mnk= %i %i %i  alpha= %f  beta= %f  ld= %i %i %i  stride= %i %i %i  batchCount= %i\n",
 	 *m,*n,*k,*alpha,*beta,*lda,*ldb,*ldc,*strideA,*strideB,*strideC,*batchCount);
 #endif
   
@@ -283,7 +286,7 @@ void MATHLIB::gemm_batch(const char * transa, const char * transb,
 #endif
 
 #ifdef _DEBUG_ML
-  printf("Leaving MATHLIB::gemm_batch()\n");
+  printf("LIBGPU :: Leaving MATHLIB::gemm_batch()\n");
 #endif
 }
 
