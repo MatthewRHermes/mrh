@@ -76,26 +76,31 @@ void _getjk_rho(double * rho, double * dmtril, double * eri1, int nset, int naux
   const int j = item_ct1.get_group(1) * item_ct1.get_local_range(1) +
                 item_ct1.get_local_id(1);
 
-  if(i >= nset) return;
-  if(j >= naux) return;
-
+  // if(i >= nset) return;
+  // if(j >= naux) return;
+  
   int k = item_ct1.get_group(0) * item_ct1.get_local_range(0) +
-          item_ct1.get_local_id(0);
+    item_ct1.get_local_id(0);
   int cache_id = item_ct1.get_local_id(0);
-
+  
   // thread-local work
-
+  
   const int indxi = i * nao_pair;
   const int indxj = j * nao_pair;
   
   double tmp = 0.0;
-  while (k < nao_pair) {
-    tmp += dmtril[indxi + k] * eri1[indxj + k];
-    k += item_ct1.get_local_range(0); // * gridDim.z; // gridDim.z is just 1
+  
+  if(i < nset && j < naux) { // only active threads do work
+    
+    while (k < nao_pair) {
+      tmp += dmtril[indxi + k] * eri1[indxj + k];
+      k += item_ct1.get_local_range(0); // * gridDim.z; // gridDim.z is just 1
+    }
+    
   }
-
+  
   cache[cache_id] = tmp;
-
+  
   // block
 
   item_ct1.barrier(sycl::access::fence_space::local_space);
@@ -680,8 +685,14 @@ void _compute_FCItrans_rdm1a(double * cibra, double * ciket, double * rdm, int n
     double * pket = &(ciket[str0*nb]);
     double * pbra = &(cibra[str1*nb]);
     for (int k=0; k<nb; ++k){
-       dpct::atomic_fetch_add<sycl::access::address_space::generic_space>(
-           &(rdm[a * norb + i]), sign * pbra[k] * pket[k]);
+      sycl::atomic_ref<double,
+		       sycl::memory_order::relaxed,
+		       sycl::memory_scope::device,
+		       sycl::access::address_space::global_space> atomic_data( rdm[a * norb + i] );
+      atomic_data.fetch_add( sign * pbra[k] * pket[k]);
+      
+       // dpct::atomic_fetch_add<sycl::access::address_space::generic_space>(
+       //     &(rdm[a * norb + i]), sign * pbra[k] * pket[k]);
     }
 }
 
@@ -707,8 +718,14 @@ void _compute_FCItrans_rdm1b(double * cibra, double * ciket, double * rdm, int n
     int i = tab[1];
     int str1 = tab[2];
     int sign = tab[3];
-    dpct::atomic_fetch_add<sycl::access::address_space::generic_space>(
-        &(rdm[a * norb + i]), sign * pbra[str1] * tmp);
+    sycl::atomic_ref<double,
+		     sycl::memory_order::relaxed,
+		     sycl::memory_scope::device,
+		     sycl::access::address_space::global_space> atomic_data( rdm[a * norb + i] );
+    atomic_data.fetch_add( sign * pbra[str1] * tmp);
+    
+    // dpct::atomic_fetch_add<sycl::access::address_space::generic_space>(
+    //     &(rdm[a * norb + i]), sign * pbra[str1] * tmp);
 }
 
 /* ---------------------------------------------------------------------- */
@@ -744,9 +761,15 @@ void _compute_FCItrans_rdm1a_v2(double * cibra, double * ciket, double * rdm, in
       //for (int k=0; k<nb; ++k){
       for (int k=0; k<b_len; ++k){ // only from  max(ib_bra, ib_ket): min(jb_bra, jb_ket)
          //atomicAdd(&(rdm[a*norb+i]), sign*pbra[k-b_bra_offset-ib_bra]*pket[k-b_ket_offset-ib_ket]);
-         dpct::atomic_fetch_add<sycl::access::address_space::generic_space>(
-             &(rdm[a * norb + i]),
-             sign * pbra[k + b_bra_offset] * pket[k + b_ket_offset]);
+	sycl::atomic_ref<double,
+			 sycl::memory_order::relaxed,
+			 sycl::memory_scope::device,
+			 sycl::access::address_space::global_space> atomic_data( rdm[a * norb + i] );
+	atomic_data.fetch_add( sign * pbra[k + b_bra_offset] * pket[k + b_ket_offset] );
+	
+         // dpct::atomic_fetch_add<sycl::access::address_space::generic_space>(
+         //     &(rdm[a * norb + i]),
+         //     sign * pbra[k + b_bra_offset] * pket[k + b_ket_offset]);
         }
       }
 }
@@ -785,8 +808,14 @@ void _compute_FCItrans_rdm1b_v2( double * cibra, double * ciket, double * rdm, i
       sign = sign*sign_dummy;
       int a = tab[0];
       int i = tab[1];
-      dpct::atomic_fetch_add<sycl::access::address_space::generic_space>(
-          &(rdm[a * norb + i]), sign * pbra[str1 - ib_bra] * tmp);
+      sycl::atomic_ref<double,
+		       sycl::memory_order::relaxed,
+		       sycl::memory_scope::device,
+		       sycl::access::address_space::global_space> atomic_data( rdm[a * norb + i] );
+      atomic_data.fetch_add( sign * pbra[str1 - ib_bra] * tmp );
+      
+      // dpct::atomic_fetch_add<sycl::access::address_space::generic_space>(
+      //     &(rdm[a * norb + i]), sign * pbra[str1 - ib_bra] * tmp);
     }
 }
 
@@ -818,8 +847,14 @@ void _compute_FCImake_rdm1a(double * cibra, double * ciket, double * rdm, int no
     double * pci1 = &(ciket[str1*nb]);
     if (a>=i && sign!=0){
       for (int k=0;k<nb; ++k){
-        dpct::atomic_fetch_add<sycl::access::address_space::generic_space>(
-            &(rdm[a * norb + i]), sign * pci0[k] * pci1[k]);
+	sycl::atomic_ref<double,
+			 sycl::memory_order::relaxed,
+			 sycl::memory_scope::device,
+			 sycl::access::address_space::global_space> atomic_data( rdm[a * norb + i] );
+	atomic_data.fetch_add( sign * pci0[k] * pci1[k] );
+	
+        // dpct::atomic_fetch_add<sycl::access::address_space::generic_space>(
+        //     &(rdm[a * norb + i]), sign * pci0[k] * pci1[k]);
         }
       }
 }
@@ -828,36 +863,47 @@ void _compute_FCImake_rdm1a(double * cibra, double * ciket, double * rdm, int no
 
 void _compute_FCImake_rdm1b(double * cibra, double * ciket, double * rdm, int norb, int na, int nb, int nlinkb, int * link_index)
 {
-    auto item_ct1 = sycl::ext::oneapi::this_work_item::get_nd_item<3>();
-    int str0 = item_ct1.get_group(2) * item_ct1.get_local_range(2) +
-               item_ct1.get_local_id(2);
-    int k = item_ct1.get_group(1) * item_ct1.get_local_range(1) +
-            item_ct1.get_local_id(1);
-    int j = item_ct1.get_group(0) * item_ct1.get_local_range(0) +
-            item_ct1.get_local_id(0);
-    if (str0>=na) return ;
-    if (k>=nb) return ;
-    if (j>=nlinkb) return ;
-    double * pci0 = &(ciket[str0*nb]);
-    #ifdef _ACCELERATE_KERNEL
-    int * tab = &(link_index[4*nlinkb*k + 4*j]); 
-    int a = tab[0];
-    int i = tab[1];
-    int sign = tab[3];
-    if (a>=i && sign!=0) { 
+  auto item_ct1 = sycl::ext::oneapi::this_work_item::get_nd_item<3>();
+  int str0 = item_ct1.get_group(2) * item_ct1.get_local_range(2) +
+    item_ct1.get_local_id(2);
+  int k = item_ct1.get_group(1) * item_ct1.get_local_range(1) +
+    item_ct1.get_local_id(1);
+  int j = item_ct1.get_group(0) * item_ct1.get_local_range(0) +
+    item_ct1.get_local_id(0);
+  if (str0>=na) return ;
+  if (k>=nb) return ;
+  if (j>=nlinkb) return ;
+  double * pci0 = &(ciket[str0*nb]);
+#ifdef _ACCELERATE_KERNEL
+  int * tab = &(link_index[4*nlinkb*k + 4*j]); 
+  int a = tab[0];
+  int i = tab[1];
+  int sign = tab[3];
+  if (a>=i && sign!=0) { 
     int str1 = tab[2];
-    dpct::atomic_fetch_add<sycl::access::address_space::generic_space>(
-        &(rdm[a * norb + i]), sign * pci0[str1] * pci0[k]);
-      }
-    #else
-    int a = link_index[4*nlinkb*k + 4*j]; 
-    int i = link_index[4*nlinkb*k + 4*j + 1]; 
-    int str1 = link_index[4*nlinkb*k + 4*j + 2]; 
-    int sign = link_index[4*nlinkb*k + 4*j + 3];
-    if (a>=i && sign!=0) { 
-    atomicAdd(&(rdm[a*norb+i]), sign*pci0[str1]*pci0[k]);
-      }
-    #endif
+    sycl::atomic_ref<double,
+		     sycl::memory_order::relaxed,
+		     sycl::memory_scope::device,
+		     sycl::access::address_space::global_space> atomic_data( rdm[a * norb + i] );
+    atomic_data.fetch_add( sign * pci0[str1] * pci0[k] );
+    
+    // dpct::atomic_fetch_add<sycl::access::address_space::generic_space>(
+    //     &(rdm[a * norb + i]), sign * pci0[str1] * pci0[k]);
+  }
+#else
+  int a = link_index[4*nlinkb*k + 4*j]; 
+  int i = link_index[4*nlinkb*k + 4*j + 1]; 
+  int str1 = link_index[4*nlinkb*k + 4*j + 2]; 
+  int sign = link_index[4*nlinkb*k + 4*j + 3];
+  if (a>=i && sign!=0) { 
+    //atomicAdd(&(rdm[a*norb+i]), sign*pci0[str1]*pci0[k]);
+    sycl::atomic_ref<double,
+		     sycl::memory_order::relaxed,
+		     sycl::memory_scope::device,
+		     sycl::access::address_space::global_space> atomic_data( rdm[a * norb + i] );
+    atomic_data.fetch_add( sign * pci0[str1] * pci0[k] );
+  }
+#endif
 }
 
 /* ---------------------------------------------------------------------- */
@@ -875,74 +921,86 @@ void _symmetrize_rdm(int norb, double * rdm)
 
 void _compute_FCIrdm2_a_t1ci(double * ci, double * buf, int stra_id, int nb, int norb, int nlinka, int * link_index)
 {
-    //this works.
-    auto item_ct1 = sycl::ext::oneapi::this_work_item::get_nd_item<3>();
-    int j = item_ct1.get_group(2) * item_ct1.get_local_range(2) +
-            item_ct1.get_local_id(2);
-    int k = item_ct1.get_group(1) * item_ct1.get_local_range(1) +
-            item_ct1.get_local_id(1);
-    if (j >= nlinka) return;
-    if (k >= nb) return;
-    int norb2 = norb*norb;
-    #ifdef _ACCELERATE_KERNEL 
-    int * tab = &(link_index[4*nlinka*stra_id + 4*j]); 
-    int sign = tab[3];
-    if (sign == 0) return;
-    int a = tab[0];
-    int i = tab[1];
-    int str1 = tab[2];
-    dpct::atomic_fetch_add<sycl::access::address_space::generic_space>(
-        &(buf[k * norb2 + i * norb + a]), sign * ci[str1 * nb + k]);
-
+  //this works.
+  auto item_ct1 = sycl::ext::oneapi::this_work_item::get_nd_item<3>();
+  int j = item_ct1.get_group(2) * item_ct1.get_local_range(2) +
+    item_ct1.get_local_id(2);
+  int k = item_ct1.get_group(1) * item_ct1.get_local_range(1) +
+    item_ct1.get_local_id(1);
+  if (j >= nlinka) return;
+  if (k >= nb) return;
+  int norb2 = norb*norb;
+#ifdef _ACCELERATE_KERNEL 
+  int * tab = &(link_index[4*nlinka*stra_id + 4*j]); 
+  int sign = tab[3];
+  if (sign == 0) return;
+  int a = tab[0];
+  int i = tab[1];
+  int str1 = tab[2];
+  sycl::atomic_ref<double,
+		   sycl::memory_order::relaxed,
+		   sycl::memory_scope::device,
+		   sycl::access::address_space::global_space> atomic_data( buf[k * norb2 + i * norb + a] );
+  atomic_data.fetch_add( sign * ci[str1 * nb + k] );
+  
+  // dpct::atomic_fetch_add<sycl::access::address_space::generic_space>(
+  //     &(buf[k * norb2 + i * norb + a]), sign * ci[str1 * nb + k]);
+  
 #else
-    #ifdef _DEBUG_ATOMICADD
-    atomicAdd(&(buf[k*norb2 + i*norb + a]), sign*ci[str1*nb + k]);
-    #else
-    buf[k*norb2 + i*norb + a] += sign*ci[str1*nb + k];
-    #endif
-    #endif
-    //TODO: implement csum 
-    // Is it necessary to? 
-    // Sure, in case when it's blocked over nb of size 100 determinants at once, 
-    // but over entire nb, do you think it will be 0 enough times to get the performance boost?
+#ifdef _DEBUG_ATOMICADD
+  atomicAdd(&(buf[k*norb2 + i*norb + a]), sign*ci[str1*nb + k]);
+#else
+  buf[k*norb2 + i*norb + a] += sign*ci[str1*nb + k];
+#endif
+#endif
+  //TODO: implement csum 
+  // Is it necessary to? 
+  // Sure, in case when it's blocked over nb of size 100 determinants at once, 
+  // but over entire nb, do you think it will be 0 enough times to get the performance boost?
 }
 
 /* ---------------------------------------------------------------------- */
 
 void _compute_FCIrdm2_b_t1ci(double * ci, double * buf, int stra_id, int nb, int norb, int nlinkb, int * link_index)
 {
-    auto item_ct1 = sycl::ext::oneapi::this_work_item::get_nd_item<3>();
-    int str0 = item_ct1.get_group(2) * item_ct1.get_local_range(2) +
-               item_ct1.get_local_id(2);
-    int j = item_ct1.get_group(1) * item_ct1.get_local_range(1) +
-            item_ct1.get_local_id(1);
-    if (str0 >= nb) return;
-    if (j >= nlinkb) return;
-    int norb2 = norb*norb;
-    //tab = clink_indexb + strb_id*nlinkb // remember strb_id = 0 since we are doing the entire b at once
-    //for (str0<nb) {for (j<nb) {t1[i*norb+a] += sign * pci[str1];} t1+=norb2; tab+=nlinkb;}
-    #ifdef _ACCELERATE_KERNEL
-    int * tab = &(link_index[4*str0*nlinkb+4*j]);
-    int sign = tab[3];
-    if (sign==0) return;
-    int a = tab[0];
-    int i = tab[1];
-    int str1 = tab[2];
-    dpct::atomic_fetch_add<sycl::access::address_space::generic_space>(
-        &(buf[str0 * norb2 + i * norb + a]), sign * ci[stra_id * nb + str1]);
+  auto item_ct1 = sycl::ext::oneapi::this_work_item::get_nd_item<3>();
+  int str0 = item_ct1.get_group(2) * item_ct1.get_local_range(2) +
+    item_ct1.get_local_id(2);
+  int j = item_ct1.get_group(1) * item_ct1.get_local_range(1) +
+    item_ct1.get_local_id(1);
+  if (str0 >= nb) return;
+  if (j >= nlinkb) return;
+  int norb2 = norb*norb;
+  //tab = clink_indexb + strb_id*nlinkb // remember strb_id = 0 since we are doing the entire b at once
+  //for (str0<nb) {for (j<nb) {t1[i*norb+a] += sign * pci[str1];} t1+=norb2; tab+=nlinkb;}
+#ifdef _ACCELERATE_KERNEL
+  int * tab = &(link_index[4*str0*nlinkb+4*j]);
+  int sign = tab[3];
+  if (sign==0) return;
+  int a = tab[0];
+  int i = tab[1];
+  int str1 = tab[2];
+  sycl::atomic_ref<double,
+		   sycl::memory_order::relaxed,
+		   sycl::memory_scope::device,
+		   sycl::access::address_space::global_space> atomic_data( buf[str0 * norb2 + i * norb + a] );
+  atomic_data.fetch_add( sign * ci[stra_id * nb + str1] );
+  
+  // dpct::atomic_fetch_add<sycl::access::address_space::generic_space>(
+  // 		    &(buf[str0 * norb2 + i * norb + a]), sign * ci[stra_id * nb + str1]);
 #else
-    int a = link_index[4*str0*nlinkb + 4*j]; 
-    int i = link_index[4*str0*nlinkb + 4*j + 1]; 
-    int str1 = link_index[4*str0*nlinkb + 4*j + 2]; 
-    int sign = link_index[4*str0*nlinkb + 4*j + 3];
-      #ifdef _DEBUG_ATOMICADD
-      atomicAdd(&(buf[str0*norb2 + i*norb + a]), sign*ci[stra_id*nb + str1]);
-      #else
-      buf[str0*norb2 + i*norb + a] += sign*ci[stra_id*nb+str1];
-      #endif
-    #endif
-    //TODO: implement csum 
-    // Refer to comment in _compute_FCIrdm2_a_t1ci 
+  int a = link_index[4*str0*nlinkb + 4*j]; 
+  int i = link_index[4*str0*nlinkb + 4*j + 1]; 
+  int str1 = link_index[4*str0*nlinkb + 4*j + 2]; 
+  int sign = link_index[4*str0*nlinkb + 4*j + 3];
+#ifdef _DEBUG_ATOMICADD
+  atomicAdd(&(buf[str0*norb2 + i*norb + a]), sign*ci[stra_id*nb + str1]);
+#else
+  buf[str0*norb2 + i*norb + a] += sign*ci[stra_id*nb+str1];
+#endif
+#endif
+  //TODO: implement csum 
+  // Refer to comment in _compute_FCIrdm2_a_t1ci 
 }
 
 /* ---------------------------------------------------------------------- */
@@ -1119,11 +1177,17 @@ void _compute_FCIrdm3h_a_t1ci_v2(double * ci, double * buf, int stra_id, int nb,
         if ((str1>=ia) && (str1<ja)){//str1 is alpha loop
           int a = tab[0];
           int i = tab[1];
-          dpct::atomic_fetch_add<sycl::access::address_space::generic_space>(
-              &(buf[(k + ib) * norb2 + i * norb + a]),
-              sign * ci[(str1 - ia) * nb +
-                        k]); // I'm not sure how this plays out in the bigger
-                             // kernel, so keeping as k+ib on the buf side
+	  sycl::atomic_ref<double,
+			   sycl::memory_order::relaxed,
+			   sycl::memory_scope::device,
+			   sycl::access::address_space::global_space> atomic_data( buf[(k + ib) * norb2 + i * norb + a] );
+	  atomic_data.fetch_add( sign * ci[(str1 - ia) * nb + k] );
+	  
+          // dpct::atomic_fetch_add<sycl::access::address_space::generic_space>(
+          //     &(buf[(k + ib) * norb2 + i * norb + a]),
+          //     sign * ci[(str1 - ia) * nb +
+          //               k]); // I'm not sure how this plays out in the bigger
+          //                    // kernel, so keeping as k+ib on the buf side
           }
         }
       }
@@ -1148,11 +1212,17 @@ void _compute_FCIrdm3h_b_t1ci_v2(double * ci, double * buf, int stra_id, int nb,
       if ((str1>=ib) && (str1<jb)){
         int a = tab[0];
         int i = tab[1];
-        dpct::atomic_fetch_add<sycl::access::address_space::generic_space>(
-            &(buf[str0 * norb2 + i * norb + a]),
-            sign * ci[(stra_id - ia) * nb_bra + str1 -
-                      ib]); // rdm3h_b_t1ci is only called when stra_id is more
-                            // than ia
+	sycl::atomic_ref<double,
+			 sycl::memory_order::relaxed,
+			 sycl::memory_scope::device,
+			 sycl::access::address_space::global_space> atomic_data( buf[str0 * norb2 + i * norb + a] );
+	atomic_data.fetch_add( sign * ci[(stra_id - ia) * nb_bra + str1 - ib] );
+	
+        // dpct::atomic_fetch_add<sycl::access::address_space::generic_space>(
+        //     &(buf[str0 * norb2 + i * norb + a]),
+        //     sign * ci[(stra_id - ia) * nb_bra + str1 -
+        //               ib]); // rdm3h_b_t1ci is only called when stra_id is more
+        //                     // than ia
         }
       }
 }
@@ -1509,8 +1579,8 @@ void _transpose_021(double * in, double * out, int norb)
 void Device::getjk_rho(double * rho, double * dmtril, double * eri, int nset, int naux, int nao_pair)
 {
 #if 1
-  sycl::range<3> grid_size(nset, naux, 1); //1, naux, nset);
-  sycl::range<3> block_size(1, 1, _RHO_BLOCK_SIZE); //, 1, 1);
+  sycl::range<3> grid_size(1, naux, nset);
+  sycl::range<3> block_size(_RHO_BLOCK_SIZE, 1, 1);
 #else
   dim3 grid_size(nset, (naux + (_RHO_BLOCK_SIZE - 1)) / _RHO_BLOCK_SIZE, 1);
   dim3 block_size(1, _RHO_BLOCK_SIZE, 1);
@@ -1553,10 +1623,8 @@ void Device::getjk_rho(double * rho, double * dmtril, double * eri, int nset, in
 
 void Device::getjk_vj(double * vj, double * rho, double * eri, int nset, int nao_pair, int naux, int init)
 {
-  //  sycl::range<3> grid_size(
-  //      1, (nao_pair + (_DOT_BLOCK_SIZE - 1)) / _DOT_BLOCK_SIZE, nset);
-  sycl::range<3> grid_size(nset,
-                       (nao_pair + (_DOT_BLOCK_SIZE - 1)) / _DOT_BLOCK_SIZE, 1);
+  sycl::range<3> grid_size(
+      1, (nao_pair + (_DOT_BLOCK_SIZE - 1)) / _DOT_BLOCK_SIZE, nset);
   sycl::range<3> block_size(1, _DOT_BLOCK_SIZE, 1);
 
 #ifdef _DEBUG_DEVICE
@@ -1587,8 +1655,7 @@ void Device::getjk_vj(double * vj, double * rho, double * eri, int nset, int nao
 void Device::getjk_unpack_buf2(double * buf2, double * eri, int * map, int naux, int nao, int nao_pair)
 {
 #if 1
-  //  sycl::range<3> grid_size(1, _TILE(nao, _UNPACK_BLOCK_SIZE), naux);
-  sycl::range<3> grid_size(naux, _TILE(nao, _UNPACK_BLOCK_SIZE), 1);
+  sycl::range<3> grid_size(1, _TILE(nao, _UNPACK_BLOCK_SIZE), naux);
   sycl::range<3> block_size(1, _UNPACK_BLOCK_SIZE, 1);
 #else
   dim3 grid_size(naux, _TILE(nao*nao, _UNPACK_BLOCK_SIZE), 1);
@@ -1624,8 +1691,7 @@ void Device::pack_eri(double * eri1, double * buf2, int * map, int naux, int nao
 #if 1
   //dim3 grid_size(naux, _TILE(nao, _UNPACK_BLOCK_SIZE), 1);
   //dim3 block_size(1, _UNPACK_BLOCK_SIZE, 1);
-  //  sycl::range<3> grid_size(1, nao, naux);
-  sycl::range<3> grid_size(naux, nao, 1);
+  sycl::range<3> grid_size(1, nao, naux);
   sycl::range<3> block_size(1, 1, 1);
 #else
   dim3 grid_size(naux, _TILE(nao*nao, _UNPACK_BLOCK_SIZE), 1);
@@ -1656,9 +1722,9 @@ void Device::transpose(double * out, double * in, int nrow, int ncol)
 #endif
             
 #if 1 
-  sycl::range<3> grid_size(_TILE(nrow, _TRANSPOSE_BLOCK_SIZE),
-                       _TILE(ncol, _TRANSPOSE_BLOCK_SIZE), 1);
-  sycl::range<3> block_size(_TRANSPOSE_BLOCK_SIZE, _TRANSPOSE_NUM_ROWS, 1);
+  sycl::range<3> grid_size(1, _TILE(ncol, _TRANSPOSE_BLOCK_SIZE),
+			   _TILE(nrow, _TRANSPOSE_BLOCK_SIZE),);
+  sycl::range<3> block_size(1, _TRANSPOSE_NUM_ROWS, _TRANSPOSE_BLOCK_SIZE);
 #else
   dim3 grid_size(nrow, 1, 1);
   dim3 block_size(1, _TRANSPOSE_BLOCK_SIZE, 1);
@@ -1712,9 +1778,8 @@ void pack_Mwuv(double *in, double *out, int * map,int nao, int ncas,int ncas_pai
 
 void Device::get_bufpa(const double* bufpp, double* bufpa, int naux, int nmo, int ncore, int ncas)
 {
-  sycl::range<3> block_size(_UNPACK_BLOCK_SIZE, _UNPACK_BLOCK_SIZE, 1);
-  sycl::range<3> grid_size(_TILE(naux, block_size.x), _TILE(nmo, block_size.y),
-                       ncas);
+  sycl::range<3> block_size(1, _UNPACK_BLOCK_SIZE, _UNPACK_BLOCK_SIZE);
+  sycl::range<3> grid_size(ncas, _TILE(nmo, block_size[1]), _TILE(naux, block_size[2]));
   
   sycl::queue * s = pm->dev_get_queue();
 
@@ -1737,8 +1802,8 @@ void Device::get_bufpa(const double* bufpp, double* bufpa, int naux, int nmo, in
 
 void Device::get_bufaa(const double* bufpp, double* bufaa, int naux, int nmo, int ncore, int ncas)
 {
-  sycl::range<3> block_size(_UNPACK_BLOCK_SIZE, 1, 1);
-  sycl::range<3> grid_size(_TILE(naux, block_size.x), ncas, ncas);
+  sycl::range<3> block_size(1, 1, _UNPACK_BLOCK_SIZE);
+  sycl::range<3> grid_size(ncas, ncas, _TILE(naux, block_size[2]));
   
   sycl::queue * s = pm->dev_get_queue();
 
@@ -1772,8 +1837,7 @@ void Device::transpose_120(double * in, double * out, int naux, int nao, int nca
   }
 
   sycl::range<3> block_size(1, 1, 1);
-  sycl::range<3> grid_size(_TILE(naux, block_size.x), na,
-                       nb); // originally nmo, nmo
+  sycl::range<3> grid_size(nb, na, _TILE(naux, block_size[2])); // originally nmo, nmo
   
   /*
   DPCT1049:2: The work-group size passed to the SYCL kernel may exceed the
@@ -1794,8 +1858,8 @@ void Device::transpose_120(double * in, double * out, int naux, int nao, int nca
 
 void Device::get_bufd( const double* bufpp, double* bufd, int naux, int nmo)
 {
-  sycl::range<3> block_size(_UNPACK_BLOCK_SIZE, _UNPACK_BLOCK_SIZE, 1);
-  sycl::range<3> grid_size(_TILE(naux, block_size.x), _TILE(nmo, block_size.y), 1);
+  sycl::range<3> block_size(1, _UNPACK_BLOCK_SIZE, _UNPACK_BLOCK_SIZE);
+  sycl::range<3> grid_size(1, _TILE(nmo, block_size[1]), _TILE(naux, block_size[2]));
   
   sycl::queue * s = pm->dev_get_queue();
 
@@ -1819,8 +1883,9 @@ void Device::get_bufd( const double* bufpp, double* bufd, int naux, int nmo)
 void Device::transpose_210(double * in, double * out, int naux, int nao, int ncas)
 {
   sycl::range<3> block_size(_UNPACK_BLOCK_SIZE, 1, _UNPACK_BLOCK_SIZE);
-  sycl::range<3> grid_size(_TILE(naux, block_size.x), _TILE(ncas, block_size.y),
-                       _TILE(nao, block_size.z));
+  sycl::range<3> grid_size(_TILE(nao, block_size[0]),
+			   _TILE(ncas, block_size[1]),
+			   _TILE(naux, block_size[2]));
   
   sycl::queue * s = pm->dev_get_queue();
 
@@ -1855,8 +1920,8 @@ void Device::transpose_210(double * in, double * out, int naux, int nao, int nca
 
 void Device::extract_submatrix(const double* big_mat, double* small_mat, int ncas, int ncore, int nmo)
 {
-  sycl::range<3> block_size(_UNPACK_BLOCK_SIZE, _UNPACK_BLOCK_SIZE);
-  sycl::range<3> grid_size(_TILE(ncas, block_size.x), _TILE(ncas, block_size.y));
+  sycl::range<3> block_size(1, _UNPACK_BLOCK_SIZE, _UNPACK_BLOCK_SIZE);
+  sycl::range<3> grid_size(1, _TILE(ncas, block_size[1]), _TILE(ncas, block_size[2]));
   
   sycl::queue * s = pm->dev_get_queue();
 
@@ -1885,9 +1950,10 @@ void Device::extract_submatrix(const double* big_mat, double* small_mat, int nca
 
 void Device::unpack_h2eff_2d(double * in, double * out, int * map, int nmo, int ncas, int ncas_pair)
 {
-  sycl::range<3> block_size(_UNPACK_BLOCK_SIZE, _UNPACK_BLOCK_SIZE, 1);
-  sycl::range<3> grid_size(_TILE(nmo * ncas, _UNPACK_BLOCK_SIZE),
-                       _TILE(ncas * ncas, _UNPACK_BLOCK_SIZE), 1);
+  sycl::range<3> block_size(1, _UNPACK_BLOCK_SIZE, _UNPACK_BLOCK_SIZE);
+  sycl::range<3> grid_size(1,
+			   _TILE(ncas * ncas, _UNPACK_BLOCK_SIZE),
+			   _TILE(nmo * ncas, _UNPACK_BLOCK_SIZE));
   
   sycl::queue * s = pm->dev_get_queue();
 
@@ -1917,9 +1983,10 @@ void Device::unpack_h2eff_2d(double * in, double * out, int * map, int nmo, int 
 
 void Device::transpose_2310(double * in, double * out, int nmo, int ncas)
 {
-  sycl::range<3> block_size(1, 1, _DEFAULT_BLOCK_SIZE);
-  sycl::range<3> grid_size(_TILE(nmo, block_size.x), _TILE(ncas, block_size.y),
-                       _TILE(ncas, block_size.z));
+  sycl::range<3> block_size(_DEFAULT_BLOCK_SIZE, 1, 1);
+  sycl::range<3> grid_size(_TILE(ncas, block_size[0]),
+			   _TILE(ncas, block_size[1]),
+			   _TILE(nmo, block_size[2]));
   
   sycl::queue * s = pm->dev_get_queue();
 
@@ -1948,9 +2015,10 @@ void Device::transpose_2310(double * in, double * out, int nmo, int ncas)
 
 void Device::transpose_3210(double* in, double* out, int nmo, int ncas)
 {
-  sycl::range<3> block_size(1, 1, _DEFAULT_BLOCK_SIZE);
-  sycl::range<3> grid_size(_TILE(ncas, block_size.x), _TILE(ncas, block_size.y),
-                       _TILE(ncas, block_size.z));
+  sycl::range<3> block_size(_DEFAULT_BLOCK_SIZE, 1, 1);
+  sycl::range<3> grid_size(_TILE(ncas, block_size[0]),
+			   _TILE(ncas, block_size[1]),
+			   _TILE(ncas, block_size[2]));
   
   sycl::queue * s = pm->dev_get_queue();
 
@@ -1979,8 +2047,8 @@ void Device::transpose_3210(double* in, double* out, int nmo, int ncas)
 
 void Device::pack_h2eff_2d(double * in, double * out, int * map, int nmo, int ncas, int ncas_pair)
 {
-  sycl::range<3> block_size(1, 1, _UNPACK_BLOCK_SIZE);
-  sycl::range<3> grid_size(nmo, ncas, _TILE(ncas_pair, _DEFAULT_BLOCK_SIZE));
+  sycl::range<3> block_size(_UNPACK_BLOCK_SIZE, 1, 1);
+  sycl::range<3> grid_size(_TILE(ncas_pair, _DEFAULT_BLOCK_SIZE), ncas, nmo);
   
   sycl::queue * s = pm->dev_get_queue();
 
@@ -2005,7 +2073,7 @@ void Device::pack_h2eff_2d(double * in, double * out, int * map, int nmo, int nc
 void Device::get_mo_cas(const double* big_mat, double* small_mat, int ncas, int ncore, int nao)
 {
   sycl::range<3> block_size(1, 1, 1);
-  sycl::range<3> grid_size(_TILE(ncas, block_size.x), _TILE(nao, block_size.y));
+  sycl::range<3> grid_size(1, _TILE(nao, block_size[1]), _TILE(ncas, block_size[2]));
   
   sycl::queue * s = pm->dev_get_queue();
 
@@ -2034,9 +2102,10 @@ void Device::get_mo_cas(const double* big_mat, double* small_mat, int ncas, int 
 
 void Device::pack_d_vuwM(const double * in, double * out, int * map, int nmo, int ncas, int ncas_pair)
 {
-  sycl::range<3> block_size(_UNPACK_BLOCK_SIZE, _UNPACK_BLOCK_SIZE, 1);
-  sycl::range<3> grid_size(_TILE(nmo * ncas, block_size.x),
-                       _TILE(ncas * ncas, block_size.y));
+  sycl::range<3> block_size(1, _UNPACK_BLOCK_SIZE, _UNPACK_BLOCK_SIZE);
+  sycl::range<3> grid_size(1,
+			   _TILE(ncas * ncas, block_size[1]),
+			   _TILE(nmo * ncas, block_size[2]));
   
   sycl::queue * s = pm->dev_get_queue();
 
@@ -2071,9 +2140,9 @@ void Device::pack_d_vuwM(const double * in, double * out, int * map, int nmo, in
 
 void Device::pack_d_vuwM_add(const double * in, double * out, int * map, int nmo, int ncas, int ncas_pair)
 {
-  sycl::range<3> block_size(_UNPACK_BLOCK_SIZE, _UNPACK_BLOCK_SIZE, 1);
-  sycl::range<3> grid_size(_TILE(nmo * ncas, block_size.x),
-                       _TILE(ncas * ncas, block_size.y));
+  sycl::range<3> block_size(1, _UNPACK_BLOCK_SIZE, _UNPACK_BLOCK_SIZE);
+  sycl::range<3> grid_size(1, _TILE(ncas * ncas, block_size[1]),
+			   _TILE(nmo * ncas, block_size[2]));
 
   sycl::queue * s = pm->dev_get_queue();
 
@@ -2101,8 +2170,8 @@ void Device::pack_d_vuwM_add(const double * in, double * out, int * map, int nmo
   
 void Device::vecadd(const double * in, double * out, int N)
 {
-  sycl::range<3> block_size(_DEFAULT_BLOCK_SIZE, 1, 1);
-  sycl::range<3> grid_size(_TILE(N, block_size.x));
+  sycl::range<3> block_size(1, 1, _DEFAULT_BLOCK_SIZE);
+  sycl::range<3> grid_size(1, 1, _TILE(N, block_size[2]));
                       
   sycl::queue * s = pm->dev_get_queue();
                     
@@ -2121,6 +2190,7 @@ void Device::vecadd(const double * in, double * out, int N)
   }
 
 #ifdef _DEBUG_DEVICE
+  pm->dev_stream_wait();
   printf("LIBGPU ::  -- general::vecadd :: N= %i  grid_size= %zu %zu %zu  block_size= %zu %zu %zu\n",
          N, grid_size[0],grid_size[1],grid_size[2],block_size[0],block_size[1],block_size[2]);
   pm->dev_check_errors();
@@ -2131,8 +2201,8 @@ void Device::vecadd(const double * in, double * out, int N)
 
 void Device::vecadd_batch(const double * in, double * out, int N, int num_batches)
 {
-  sycl::range<3> block_size(_DEFAULT_BLOCK_SIZE, 1, 1);
-  sycl::range<3> grid_size(_TILE(N, block_size.x));
+  sycl::range<3> block_size(1, 1, _DEFAULT_BLOCK_SIZE);
+  sycl::range<3> grid_size(1, 1, _TILE(N, block_size[2]));
 
   sycl::queue * s = pm->dev_get_queue();
 
@@ -2151,8 +2221,9 @@ void Device::vecadd_batch(const double * in, double * out, int N, int num_batche
   }
 
 #ifdef _DEBUG_DEVICE
-  printf("LIBGPU ::  -- general::vecadd_batch :: N= %i  num_batches= %i  grid_size= %i %i %i  block_size= %i %i %i\n",
-	 N, num_batches, grid_size.x,grid_size.y,grid_size.z,block_size.x,block_size.y,block_size.z);
+  pm->dev_stream_wait();
+  printf("LIBGPU ::  -- general::vecadd_batch :: N= %i  num_batches= %i  grid_size= %lu %lu %lu  block_size= %lu %lu %lu\n",
+	 N, num_batches, grid_size[0],grid_size[1],grid_size[2],block_size[0],block_size[1],block_size[2]);
   pm->dev_check_errors();
 #endif
 }
@@ -2161,9 +2232,17 @@ void Device::vecadd_batch(const double * in, double * out, int N, int num_batche
 
 void Device::memset_zero_batch_stride(double * inout, int stride, int offset, int N, int num_batches)
 {
-  sycl::range<3> block_size(_DEFAULT_BLOCK_SIZE, 1, 1);
-  sycl::range<3> grid_size(_TILE(N, block_size.x));
+ 
+  sycl::range<3> block_size(1, 1, _DEFAULT_BLOCK_SIZE);
+  sycl::range<3> grid_size(1, 1, _TILE(N, block_size[2]));
 
+#ifdef _DEBUG_DEVICE
+  pm->dev_stream_wait();
+  printf("LIBGPU ::  -- Inside general::memset_zero_batch_stride :: stride= %i  offset= %i  N= %i  num_batches= %i  grid_size= %lu %lu %lu  block_size= %lu %lu %lu\n",
+	 stride, offset, N, num_batches, grid_size[0],grid_size[1],grid_size[2],block_size[0],block_size[1],block_size[2]);
+  pm->dev_check_errors();
+#endif
+  
   sycl::queue * s = pm->dev_get_queue();
  
   /*
@@ -2182,8 +2261,9 @@ void Device::memset_zero_batch_stride(double * inout, int stride, int offset, in
   }
 
 #ifdef _DEBUG_DEVICE
-  printf("LIBGPU ::  -- general::memset_zero_batch_stride :: stride= %i  offset= %i  N= %i  num_batches= %i  grid_size= %i %i %i  block_size= %i %i %i\n",
-	 stride, offset, N, num_batches, grid_size.x,grid_size.y,grid_size.z,block_size.x,block_size.y,block_size.z);
+  pm->dev_stream_wait();
+  printf("LIBGPU ::  -- Leaving general::memset_zero_batch_stride :: stride= %i  offset= %i  N= %i  num_batches= %i  grid_size= %lu %lu %lu  block_size= %lu %lu %lu\n",
+	 stride, offset, N, num_batches, grid_size[0],grid_size[1],grid_size[2],block_size[0],block_size[1],block_size[2]);
   pm->dev_check_errors();
 #endif
 }
@@ -2192,8 +2272,8 @@ void Device::memset_zero_batch_stride(double * inout, int stride, int offset, in
 
 void Device::get_rho_to_Pi(double * rho, double * Pi, int ngrid)
 {
-  sycl::range<3> block_size(_DEFAULT_BLOCK_SIZE, 1, 1);
-  sycl::range<3> grid_size(_TILE(ngrid, block_size.x), 1, 1);
+  sycl::range<3> block_size(1, 1, _DEFAULT_BLOCK_SIZE);
+  sycl::range<3> grid_size(1, 1, _TILE(ngrid, block_size[2]));
 
   sycl::queue * s = pm->dev_get_queue();
 
@@ -2211,8 +2291,8 @@ void Device::get_rho_to_Pi(double * rho, double * Pi, int ngrid)
                     });
   }
 #ifdef _DEBUG_DEVICE
-  printf("LIBGPU ::  -- general::get_rho_to_Pi :: N= %i  grid_size= %i %i %i  block_size= %i %i %i\n",
-	 ngrid, grid_size.x,grid_size.y,grid_size.z,block_size.x,block_size.y,block_size.z);
+  printf("LIBGPU ::  -- general::get_rho_to_Pi :: N= %i  grid_size= %lu %lu %lu  block_size= %lu %lu %lu\n",
+	 ngrid, grid_size[0],grid_size[1],grid_size[2],block_size[0],block_size[1],block_size[2]);
   pm->dev_check_errors();
 #endif
 }
@@ -2223,8 +2303,9 @@ void Device::make_gridkern(double * d_mo_grid, double * d_gridkern, int ngrid, i
 {
   sycl::range<3> block_size(_DEFAULT_BLOCK_SIZE, _DEFAULT_BLOCK_SIZE,
               _DEFAULT_BLOCK_SIZE);
-  sycl::range<3> grid_size(_TILE(ngrid, block_size.x), _TILE(ncas, block_size.y),
-                       _TILE(ncas, block_size.z));
+  sycl::range<3> grid_size(_TILE(ncas, block_size[0]),
+			   _TILE(ncas, block_size[1]),
+			   _TILE(ngrid, block_size[2]));
 
   sycl::queue * s = pm->dev_get_queue();
   
@@ -2243,8 +2324,8 @@ void Device::make_gridkern(double * d_mo_grid, double * d_gridkern, int ngrid, i
   }
 
 #ifdef _DEBUG_DEVICE
-  printf("LIBGPU ::  -- general::make_gridkern :: N= %i  grid_size= %i %i %i  block_size= %i %i %i\n",
-	 ncas, grid_size.x,grid_size.y,grid_size.z,block_size.x,block_size.y,block_size.z);
+  printf("LIBGPU ::  -- general::make_gridkern :: N= %i  grid_size= %lu %lu %lu  block_size= %lu %lu %lu\n",
+	 ncas, grid_size[0],grid_size[1],grid_size[2],block_size[0],block_size[1],block_size[2]);
   pm->dev_check_errors();
 #endif
 }
@@ -2255,9 +2336,9 @@ void Device::make_buf_pdft(double * gridkern, double * buf, double * cascm2, int
 {
   sycl::range<3> block_size(_DEFAULT_BLOCK_SIZE, _DEFAULT_BLOCK_SIZE,
                         _DEFAULT_BLOCK_SIZE);
-  sycl::range<3> grid_size(_TILE(ngrid, block_size.x),
-                       _TILE(ncas * ncas, block_size.y),
-                       _TILE(ncas * ncas, block_size.z));
+  sycl::range<3> grid_size(_TILE(ncas * ncas, block_size[0]),
+			   _TILE(ncas * ncas, block_size[1]),
+			   _TILE(ngrid, block_size[2]));
 
   sycl::queue * s = pm->dev_get_queue();
   
@@ -2277,8 +2358,8 @@ void Device::make_buf_pdft(double * gridkern, double * buf, double * cascm2, int
   }
 
 #ifdef _DEBUG_DEVICE
-  printf("LIBGPU ::  -- general::make_gridkern :: N= %i  grid_size= %i %i %i  block_size= %i %i %i\n",
-	 ncas, grid_size.x,grid_size.y,grid_size.z,block_size.x,block_size.y,block_size.z);
+  printf("LIBGPU ::  -- general::make_gridkern :: N= %i  grid_size= %lu %lu %lu  block_size= %lu %lu %lu\n",
+	 ncas, grid_size[0],grid_size[1],grid_size[2],block_size[0],block_size[1],block_size[2]);
   pm->dev_check_errors();
 #endif
 
@@ -2286,9 +2367,9 @@ void Device::make_buf_pdft(double * gridkern, double * buf, double * cascm2, int
 /* ---------------------------------------------------------------------- */
 void Device::make_Pi_final(double * gridkern, double * buf, double * Pi, int ngrid, int ncas)
 {
-  sycl::range<3> block_size(_DEFAULT_BLOCK_SIZE, _DEFAULT_BLOCK_SIZE, 1);
-  sycl::range<3> grid_size(_TILE(ngrid, block_size.x),
-                       _TILE(ncas * ncas, block_size.y), 1);
+  sycl::range<3> block_size(1, _DEFAULT_BLOCK_SIZE, _DEFAULT_BLOCK_SIZE);
+  sycl::range<3> grid_size(1, _TILE(ncas * ncas, block_size[1]),
+			   _TILE(ngrid, block_size[2]));
 
   sycl::queue * s = pm->dev_get_queue();
   
@@ -2306,16 +2387,16 @@ void Device::make_Pi_final(double * gridkern, double * buf, double * Pi, int ngr
                     });
   }
 #ifdef _DEBUG_DEVICE
-  printf("LIBGPU ::  -- general::make_Pi_final; :: Ngrid= %i Ncas =%i  grid_size= %i %i %i  block_size= %i %i %i\n",
-	 ngrid, ncas, grid_size.x,grid_size.y,grid_size.z,block_size.x,block_size.y,block_size.z);
+  printf("LIBGPU ::  -- general::make_Pi_final; :: Ngrid= %i Ncas =%i  grid_size= %lu %lu %lu  block_size= %lu %lu %lu\n",
+	 ngrid, ncas, grid_size[0],grid_size[1],grid_size[2],block_size[0],block_size[1],block_size[2]);
   pm->dev_check_errors();
 #endif
 }
 /* ---------------------------------------------------------------------- */
 void Device::compute_FCItrans_rdm1a(double * cibra, double * ciket, double * rdm, int norb, int na, int nb, int nlinka, int * link_index)
 {
-  sycl::range<3> block_size(_DEFAULT_BLOCK_SIZE, _DEFAULT_BLOCK_SIZE, 1);
-  sycl::range<3> grid_size(_TILE(na, block_size.x), _TILE(nlinka, block_size.y), 1);
+  sycl::range<3> block_size(1, _DEFAULT_BLOCK_SIZE, _DEFAULT_BLOCK_SIZE);
+  sycl::range<3> grid_size(1, _TILE(nlinka, block_size[1]), _TILE(na, block_size[2]));
 
   sycl::queue * s = pm->dev_get_queue();
   
@@ -2334,8 +2415,8 @@ void Device::compute_FCItrans_rdm1a(double * cibra, double * ciket, double * rdm
                     });
   }
 #ifdef _DEBUG_DEVICE
-  printf("LIBGPU ::  -- general::get_rdm_from_ci; :: Na= %i Nb =%i  grid_size= %i %i %i  block_size= %i %i %i\n",
-	 na, nb, grid_size.x,grid_size.y,grid_size.z,block_size.x,block_size.y,block_size.z);
+  printf("LIBGPU ::  -- general::get_rdm_from_ci; :: Na= %i Nb =%i  grid_size= %lu %lu %lu  block_size= %lu %lu %lu\n",
+	 na, nb, grid_size[0],grid_size[1],grid_size[2],block_size[0],block_size[1],block_size[2]);
   pm->dev_check_errors();
 #endif
 }
@@ -2344,8 +2425,9 @@ void Device::compute_FCItrans_rdm1b(double * cibra, double * ciket, double * rdm
 {
   //dim3 block_size(_DEFAULT_BLOCK_SIZE, _DEFAULT_BLOCK_SIZE, _DEFAULT_BLOCK_SIZE);
   sycl::range<3> block_size(1, 1, 1);
-  sycl::range<3> grid_size(_TILE(na, block_size.x), _TILE(nb, block_size.y),
-                       _TILE(nlinkb, block_size.z));
+  sycl::range<3> grid_size(_TILE(nlinkb, block_size[0]),
+			   _TILE(nb, block_size[1]),
+			   _TILE(na, block_size[2]));
 
   sycl::queue * s = pm->dev_get_queue();
   
@@ -2364,8 +2446,8 @@ void Device::compute_FCItrans_rdm1b(double * cibra, double * ciket, double * rdm
                     });
   }
 #ifdef _DEBUG_DEVICE
-  printf("LIBGPU ::  -- general::get_rdm_from_ci; :: Na= %i Nb =%i  grid_size= %i %i %i  block_size= %i %i %i\n",
-	 na, nb, grid_size.x,grid_size.y,grid_size.z,block_size.x,block_size.y,block_size.z);
+  printf("LIBGPU ::  -- general::get_rdm_from_ci; :: Na= %i Nb =%i  grid_size= %lu %lu %lu  block_size= %lu %lu %lu\n",
+	 na, nb, grid_size[0],grid_size[1],grid_size[2],block_size[0],block_size[1],block_size[2]);
   pm->dev_check_errors();
 #endif
 }
@@ -2387,32 +2469,33 @@ void Device::compute_FCItrans_rdm1a_v2(double * cibra, double * ciket, double * 
   if (b_len>0){
     int b_bra_offset = ib_max - ib_bra;
     int b_ket_offset = ib_max - ib_ket;
-
-    sycl::range<3> block_size(_DEFAULT_BLOCK_SIZE, _DEFAULT_BLOCK_SIZE, 1);
-    sycl::range<3> grid_size(_TILE(na_ket, block_size.x),
-                         _TILE(nlinka, block_size.y), 1);
-
+    
+    sycl::range<3> block_size(1, _DEFAULT_BLOCK_SIZE, _DEFAULT_BLOCK_SIZE);
+    sycl::range<3> grid_size(1, _TILE(nlinka, block_size[1]), _TILE(na_ket, block_size[2]));
+    
     /*
-    DPCT1049:22: The work-group size passed to the SYCL kernel may exceed the
-    limit. To get the device limit, query info::device::max_work_group_size.
-    Adjust the work-group size if needed.
+      DPCT1049:22: The work-group size passed to the SYCL kernel may exceed the
+      limit. To get the device limit, query info::device::max_work_group_size.
+      Adjust the work-group size if needed.
     */
     {
       //dpct::has_capability_or_fail(s->get_device(), {sycl::aspect::fp64});
-
+      
       s->parallel_for(sycl::nd_range<3>(grid_size * block_size, block_size),
                       [=](sycl::nd_item<3> item_ct1) {
                         _compute_FCItrans_rdm1a_v2(
-                            cibra, ciket, rdm, norb, nlinka, ia_ket, ja_ket,
-                            ib_ket, jb_ket, ia_bra, ja_bra, ib_bra, jb_bra,
-                            na_bra, nb_bra, na_ket, nb_ket, b_len, b_bra_offset,
-                            b_ket_offset, sign, link_index);
+						   cibra, ciket, rdm, norb, nlinka, ia_ket, ja_ket,
+						   ib_ket, jb_ket, ia_bra, ja_bra, ib_bra, jb_bra,
+						   na_bra, nb_bra, na_ket, nb_ket, b_len, b_bra_offset,
+						   b_ket_offset, sign, link_index);
                       });
     }
-    }
+    
 #ifdef _DEBUG_DEVICE
     printf("na_ket: %i ia_ket: %i ja_ket: %i ib_ket: %i ib_bra: %i nb_bra: %i nb_ket: %i b_len: %i b_bra_offset: %i b_ket_offset: %i sign: %i\n",na_ket, ia_ket, ja_ket, ib_ket, ib_bra, nb_bra, nb_ket, b_len, b_bra_offset, b_ket_offset, sign);
 #endif
+  }
+
   pm->dev_check_errors();
 }
 
@@ -2434,10 +2517,10 @@ void Device::compute_FCItrans_rdm1b_v2( double * cibra, double * ciket, double *
   int a_len  = ja_min - ia_max;
   if (a_len>0){
     //dim3 block_size(_DEFAULT_BLOCK_SIZE, _DEFAULT_BLOCK_SIZE, _DEFAULT_BLOCK_SIZE);
-    sycl::range<3> block_size(1, _DEFAULT_BLOCK_SIZE, _DEFAULT_BLOCK_SIZE);
-    sycl::range<3> grid_size(_TILE(a_len, block_size.x),
-                         _TILE(nb_ket, block_size.y),
-                         _TILE(nlinkb, block_size.z));
+    sycl::range<3> block_size(_DEFAULT_BLOCK_SIZE, _DEFAULT_BLOCK_SIZE, 1);
+    sycl::range<3> grid_size(_TILE(nlinkb, block_size[2]),
+			     _TILE(nb_ket, block_size[1]),
+			     _TILE(a_len, block_size[0]));
 
     /*
     DPCT1049:23: The work-group size passed to the SYCL kernel may exceed the
@@ -2468,8 +2551,8 @@ void Device::compute_FCImake_rdm1a(double * cibra, double * ciket, double * rdm,
   sycl::queue * s = pm->dev_get_queue();
   
   {
-    sycl::range<3> block_size(_DEFAULT_BLOCK_SIZE, _DEFAULT_BLOCK_SIZE, 1);
-    sycl::range<3> grid_size(_TILE(na, block_size.x), _TILE(nlinka, block_size.y), 1);
+    sycl::range<3> block_size(1, _DEFAULT_BLOCK_SIZE, _DEFAULT_BLOCK_SIZE);
+    sycl::range<3> grid_size(1, _TILE(nlinka, block_size[1]), _TILE(na, block_size[2]));
     /*
       DPCT1049:24: The work-group size passed to the SYCL kernel may exceed the
       limit. To get the device limit, query info::device::max_work_group_size.
@@ -2486,11 +2569,13 @@ void Device::compute_FCImake_rdm1a(double * cibra, double * ciket, double * rdm,
     }
     
 #ifdef _DEBUG_DEVICE
-    printf("LIBGPU ::  -- general::get_rdm_from_ci; :: Na= %i Nb =%i  grid_size= %i %i %i  block_size= %i %i %i\n",
-	   na, nb, grid_size.x,grid_size.y,grid_size.z,block_size.x,block_size.y,block_size.z);
+    pm->dev_stream_wait();
+    printf("LIBGPU ::  -- compute_FCImake_rdm1a :: Na= %i Nb =%i  grid_size= %lu %lu %lu  block_size= %lu %lu %lu\n",
+	   na, nb, grid_size[0],grid_size[1],grid_size[2],block_size[0],block_size[1],block_size[2]);
     pm->dev_check_errors();
 #endif
   }
+  
   {
     sycl::range<3> block_size(1, 1, 1);
     sycl::range<3> grid_size(1, 1, 1);
@@ -2501,7 +2586,15 @@ void Device::compute_FCImake_rdm1a(double * cibra, double * ciket, double * rdm,
                       [=](sycl::nd_item<3> item_ct1) {
                         _symmetrize_rdm(norb, rdm);
                       });
-   }}
+   }
+
+#ifdef _DEBUG_DEVICE
+    pm->dev_stream_wait();
+    printf("LIBGPU ::  -- compute_FCImake_rdm1a :: _symmetrize_rdm :: Na= %i Nb =%i  grid_size= %lu %lu %lu  block_size= %lu %lu %lu\n",
+	   na, nb, grid_size[0],grid_size[1],grid_size[2],block_size[0],block_size[1],block_size[2]);
+    pm->dev_check_errors();
+#endif
+  }
 }
 
 /* ---------------------------------------------------------------------- */
@@ -2513,11 +2606,11 @@ void Device::compute_FCImake_rdm1b(double * cibra, double * ciket, double * rdm,
   {
     //dim3 block_size(_DEFAULT_BLOCK_SIZE,_DEFAULT_BLOCK_SIZE,_DEFAULT_BLOCK_SIZE); //TODO: fix this?
     sycl::range<3> block_size(1, 1, 1);
-    sycl::range<3> grid_size(_TILE(na, block_size.x), _TILE(nb, block_size.y),
-			     _TILE(nlinkb, block_size.z));
+    sycl::range<3> grid_size(_TILE(nlinkb, block_size[0]), _TILE(nb, block_size[1]),_TILE(na, block_size[2]));
+    
 #ifdef _DEBUG_DEVICE
-    printf("LIBGPU ::  -- general::make_rdm1b; :: Na= %i Nb =%i  grid_size= %i %i %i  block_size= %i %i %i\n",
-	   na, nb, grid_size.x,grid_size.y,grid_size.z,block_size.x,block_size.y,block_size.z);
+    printf("LIBGPU ::  -- general::make_rdm1b; :: Na= %i Nb =%i  grid_size= %lu %lu %lu  block_size= %lu %lu %lu\n",
+	   na, nb, grid_size[0],grid_size[1],grid_size[2],block_size[0],block_size[1],block_size[2]);
 #endif
     /*
       DPCT1049:25: The work-group size passed to the SYCL kernel may exceed the
@@ -2558,9 +2651,8 @@ void Device::compute_FCIrdm2_a_t1ci_v2(double * ci, double * buf, int stra_id, i
 {
   sycl::queue * s = pm->dev_get_queue();
   
-  sycl::range<3> block_size(1, 1, _DEFAULT_BLOCK_SIZE);
-  sycl::range<3> grid_size(_TILE(batches, block_size.x), _TILE(nb, block_size.y),
-                       1);
+  sycl::range<3> block_size(_DEFAULT_BLOCK_SIZE, 1, 1);
+  sycl::range<3> grid_size(1,  _TILE(nb, block_size[1]), _TILE(batches, block_size[2]));
   /*
   DPCT1049:26: The work-group size passed to the SYCL kernel may exceed the
   limit. To get the device limit, query info::device::max_work_group_size.
@@ -2576,9 +2668,10 @@ void Device::compute_FCIrdm2_a_t1ci_v2(double * ci, double * buf, int stra_id, i
                     });
   }
   
-#ifdef _DEBUG_DEVICE 
-  printf("LIBGPU ::  -- general::compute_FCIrdm2_a_t1ci; :: Nb= %i Norb =%i Nlinka =%i grid_size= %i %i %i  block_size= %i %i %i\n",
-	 nb, norb, nlinka, grid_size.x,grid_size.y,grid_size.z,block_size.x,block_size.y,block_size.z);
+#ifdef _DEBUG_DEVICE
+  pm->dev_stream_wait();
+  printf("LIBGPU ::  -- general::compute_FCIrdm2_a_t1ci; :: Nb= %i Norb =%i Nlinka =%i grid_size= %lu %lu %lu  block_size= %lu %lu %lu\n",
+	 nb, norb, nlinka, grid_size[0],grid_size[1],grid_size[2],block_size[0],block_size[1],block_size[2]);
   pm->dev_check_errors();
 #endif
 }  
@@ -2589,28 +2682,27 @@ void Device::compute_FCIrdm2_b_t1ci_v2(double * ci, double * buf, int stra_id, i
 {
   sycl::queue * s = pm->dev_get_queue();
   
+  sycl::range<3> block_size(_DEFAULT_BLOCK_SIZE, 1, 1);
+  sycl::range<3> grid_size(1, _TILE(nb, block_size[1]), _TILE(batches, block_size[2]));
+  /*
+    DPCT1049:27: The work-group size passed to the SYCL kernel may exceed the
+    limit. To get the device limit, query info::device::max_work_group_size.
+    Adjust the work-group size if needed.
+  */
   {
-    sycl::range<3> block_size(1, 1, _DEFAULT_BLOCK_SIZE);
-    sycl::range<3> grid_size(_TILE(batches, block_size.x), _TILE(nb, block_size.y),
-			     1);
-    /*
-      DPCT1049:27: The work-group size passed to the SYCL kernel may exceed the
-      limit. To get the device limit, query info::device::max_work_group_size.
-      Adjust the work-group size if needed.
-    */
-    {
-      //dpct::has_capability_or_fail(s->get_device(), {sycl::aspect::fp64});
-      
-      s->parallel_for(sycl::nd_range<3>(grid_size * block_size, block_size),
-                      [=](sycl::nd_item<3> item_ct1) {
-                        _compute_FCIrdm2_b_t1ci_v4(ci, buf, stra_id, batches,
-                                                   nb, norb, nlinkb,
-                                                   link_index);
-                      });
-  }}
+    //dpct::has_capability_or_fail(s->get_device(), {sycl::aspect::fp64});
+    
+    s->parallel_for(sycl::nd_range<3>(grid_size * block_size, block_size),
+		    [=](sycl::nd_item<3> item_ct1) {
+		      _compute_FCIrdm2_b_t1ci_v4(ci, buf, stra_id, batches,
+						 nb, norb, nlinkb,
+						 link_index);
+		    });
+  }
+
 #ifdef _DEBUG_DEVICE 
-  printf("LIBGPU ::  -- general::compute_FCIrdm2_b_t1ci; :: Nb= %i Norb =%i Nlinkb =%i grid_size= %i %i %i  block_size= %i %i %i\n",
-	 nb, norb, nlinkb, grid_size.x,grid_size.y,grid_size.z,block_size.x,block_size.y,block_size.z);
+  printf("LIBGPU ::  -- general::compute_FCIrdm2_b_t1ci; :: Nb= %i Norb =%i Nlinkb =%i grid_size= %lu %lu %lu  block_size= %lu %lu %lu\n",
+	 nb, norb, nlinkb, grid_size[0],grid_size[1],grid_size[2],block_size[0],block_size[1],block_size[2]);
   pm->dev_check_errors();
 #endif
 } 
@@ -2623,11 +2715,11 @@ void Device::compute_FCIrdm3h_a_t1ci_v2(double * ci, double * buf, int stra_id, 
   
 #if 0
   dim3 block_size(_DEFAULT_BLOCK_SIZE,1,1);
-  dim3 grid_size(_TILE(jb-ib, block_size.x), 1, 1);
+  dim3 grid_size(_TILE(jb-ib, block_size[0]), 1, 1);
   _compute_FCIrdm3h_a_t1ci_v3<<<grid_size, block_size, 0,s>>>(ci, buf, stra_id, nb, norb, nlinka, ia, ja, ib, jb, link_index);
 #else
   sycl::range<3> block_size(1, _DEFAULT_BLOCK_SIZE, 1);
-  sycl::range<3> grid_size(_TILE(jb - ib, block_size.x), 1, 1);
+  sycl::range<3> grid_size(1, 1, _TILE(jb - ib, block_size[2]));
   /*
   DPCT1049:28: The work-group size passed to the SYCL kernel may exceed the
   limit. To get the device limit, query info::device::max_work_group_size.
@@ -2645,8 +2737,8 @@ void Device::compute_FCIrdm3h_a_t1ci_v2(double * ci, double * buf, int stra_id, 
   }
 #endif
 #ifdef _DEBUG_DEVICE 
-  printf("LIBGPU ::  -- general::compute_FCIrdm2_a_t1ci; :: Nb= %i Norb =%i Nlinka =%i grid_size= %i %i %i  block_size= %i %i %i\n",
-	 nb, norb, nlinka, grid_size.x,grid_size.y,grid_size.z,block_size.x,block_size.y,block_size.z);
+  printf("LIBGPU ::  -- general::compute_FCIrdm2_a_t1ci; :: Nb= %i Norb =%i Nlinka =%i grid_size= %lu %lu %lu  block_size= %lu %lu %lu\n",
+	 nb, norb, nlinka, grid_size[0],grid_size[1],grid_size[2],block_size[0],block_size[1],block_size[2]);
   pm->dev_check_errors();
 #endif
 }
@@ -2659,11 +2751,11 @@ void Device::compute_FCIrdm3h_b_t1ci_v2(double * ci, double * buf, int stra_id, 
   
 #if 0
   dim3 block_size(_DEFAULT_BLOCK_SIZE,1,1);
-  dim3 grid_size(_TILE(nb, block_size.x), 1, 1);
+  dim3 grid_size(_TILE(nb, block_size[0]), 1, 1);
   _compute_FCIrdm3h_b_t1ci_v3<<<grid_size, block_size, 0,s>>>(ci, buf, stra_id, nb, nb_bra, norb, nlinkb, ia, ja, ib, jb, link_index);
 #else
   sycl::range<3> block_size(1, _DEFAULT_BLOCK_SIZE, 1);
-  sycl::range<3> grid_size(_TILE(nb, block_size.x), 1, 1);
+  sycl::range<3> grid_size(1, 1, _TILE(nb, block_size[2]));
   /*
   DPCT1049:29: The work-group size passed to the SYCL kernel may exceed the
   limit. To get the device limit, query info::device::max_work_group_size.
@@ -2681,8 +2773,8 @@ void Device::compute_FCIrdm3h_b_t1ci_v2(double * ci, double * buf, int stra_id, 
   }
 #endif
 #ifdef _DEBUG_DEVICE 
-  printf("LIBGPU ::  -- general::compute_FCIrdm2_b_t1ci; :: Nb= %i Norb =%i Nlinkb =%i grid_size= %i %i %i  block_size= %i %i %i\n",
-	 nb, norb, nlinkb, grid_size.x,grid_size.y,grid_size.z,block_size.x,block_size.y,block_size.z);
+  printf("LIBGPU ::  -- general::compute_FCIrdm2_b_t1ci; :: Nb= %i Norb =%i Nlinkb =%i grid_size= %lu %lu %lu  block_size= %lu %lu %lu\n",
+	 nb, norb, nlinkb, grid_size[0],grid_size[1],grid_size[2],block_size[0],block_size[1],block_size[2]);
   pm->dev_check_errors();
 #endif
 }
@@ -2693,9 +2785,9 @@ void Device::compute_FCIrdm3h_a_t1ci_v3(double * ci, double * buf, int stra_id, 
 {
   sycl::queue * s = pm->dev_get_queue();
   
-  sycl::range<3> block_size(1, 1, _DEFAULT_BLOCK_SIZE);
-  sycl::range<3> grid_size(_TILE(batches, block_size.x),
-                       _TILE(jb - ib, block_size.y), 1);
+  sycl::range<3> block_size(_DEFAULT_BLOCK_SIZE, 1, 1);
+  sycl::range<3> grid_size(1, _TILE(jb - ib, block_size[1]), _TILE(batches, block_size[2]));
+  
   /*
   DPCT1049:30: The work-group size passed to the SYCL kernel may exceed the
   limit. To get the device limit, query info::device::max_work_group_size.
@@ -2712,8 +2804,8 @@ void Device::compute_FCIrdm3h_a_t1ci_v3(double * ci, double * buf, int stra_id, 
                     });
   }
 #ifdef _DEBUG_DEVICE 
-  printf("LIBGPU ::  -- general::compute_FCIrdm2_a_t1ci; :: Nb= %i Norb =%i Nlinka =%i grid_size= %i %i %i  block_size= %i %i %i\n",
-	 nb, norb, nlinka, grid_size.x,grid_size.y,grid_size.z,block_size.x,block_size.y,block_size.z);
+  printf("LIBGPU ::  -- general::compute_FCIrdm2_a_t1ci; :: Nb= %i Norb =%i Nlinka =%i grid_size= %lu %lu %lu  block_size= %lu %lu %lu\n",
+	 nb, norb, nlinka, grid_size[0],grid_size[1],grid_size[2],block_size[0],block_size[1],block_size[2]);
   pm->dev_check_errors();
 #endif
 }
@@ -2724,9 +2816,8 @@ void Device::compute_FCIrdm3h_b_t1ci_v3(double * ci, double * buf, int stra_id, 
 {
   sycl::queue * s = pm->dev_get_queue();
   
-  sycl::range<3> block_size(1, 1, _DEFAULT_BLOCK_SIZE);
-  sycl::range<3> grid_size(_TILE(batches, block_size.x), _TILE(nb, block_size.y),
-                       1);
+  sycl::range<3> block_size(_DEFAULT_BLOCK_SIZE, 1, 1);
+  sycl::range<3> grid_size(1, _TILE(nb, block_size[1]), _TILE(batches, block_size[2]));
   /*
   DPCT1049:31: The work-group size passed to the SYCL kernel may exceed the
   limit. To get the device limit, query info::device::max_work_group_size.
@@ -2743,8 +2834,8 @@ void Device::compute_FCIrdm3h_b_t1ci_v3(double * ci, double * buf, int stra_id, 
                     });
   }
 #ifdef _DEBUG_DEVICE 
-  printf("LIBGPU ::  -- general::compute_FCIrdm2_b_t1ci; :: Nb= %i Norb =%i Nlinkb =%i grid_size= %i %i %i  block_size= %i %i %i\n",
-	 nb, norb, nlinkb, grid_size.x,grid_size.y,grid_size.z,block_size.x,block_size.y,block_size.z);
+  printf("LIBGPU ::  -- general::compute_FCIrdm2_b_t1ci; :: Nb= %i Norb =%i Nlinkb =%i grid_size= %lu %lu %lu  block_size= %lu %lu %lu\n",
+	 nb, norb, nlinkb, grid_size[0],grid_size[1],grid_size[2],block_size[0],block_size[1],block_size[2]);
   pm->dev_check_errors();
 #endif
 }
@@ -2755,9 +2846,10 @@ void Device::transpose_jikl(double * tdm, double * buf, int norb)
 {
   int norb2 = norb*norb;
   sycl::queue * s = pm->dev_get_queue();
+  
   {
-    sycl::range<3> block_size(_DEFAULT_BLOCK_SIZE, 1, 1);
-    sycl::range<3> grid_size(_TILE(norb2, block_size.x), 1, 1);
+    sycl::range<3> block_size(1, 1, _DEFAULT_BLOCK_SIZE);
+    sycl::range<3> grid_size(1, 1, _TILE(norb2, block_size[2]));
     /*
       DPCT1049:32: The work-group size passed to the SYCL kernel may exceed the
       limit. To get the device limit, query info::device::max_work_group_size.
@@ -2772,16 +2864,17 @@ void Device::transpose_jikl(double * tdm, double * buf, int norb)
                       });
     }
     
-#ifdef _DEBUG_DEVICE 
-  printf("LIBGPU ::  -- general::transpose_jikl; :: Norb= %i grid_size= %i %i %i  block_size= %i %i %i\n",
-	 norb, grid_size.x,grid_size.y,grid_size.z,block_size.x,block_size.y,block_size.z);
-  pm->dev_check_errors();
+#ifdef _DEBUG_DEVICE
+    pm->dev_stream_wait();
+    printf("LIBGPU ::  -- general::transpose_jikl; :: Norb= %i grid_size= %lu %lu %lu  block_size= %lu %lu %lu\n",
+	   norb, grid_size[0],grid_size[1],grid_size[2],block_size[0],block_size[1],block_size[2]);
+    pm->dev_check_errors();
 #endif  
   }
   
   {
-    sycl::range<3> block_size(_DEFAULT_BLOCK_SIZE, 1, 1);
-    sycl::range<3> grid_size(_TILE(norb2 * norb2, block_size.x), 1, 1);
+    sycl::range<3> block_size(1, 1, _DEFAULT_BLOCK_SIZE);
+    sycl::range<3> grid_size(1, 1, _TILE(norb2 * norb2, block_size[2]));
     /*
       DPCT1049:33: The work-group size passed to the SYCL kernel may exceed the
       limit. To get the device limit, query info::device::max_work_group_size.
@@ -2799,10 +2892,11 @@ void Device::transpose_jikl(double * tdm, double * buf, int norb)
                          });
       });
     }
-#ifdef _DEBUG_DEVICE 
-    printf("LIBGPU ::  -- general::copy_tdm; :: Norb= %i grid_size= %i %i %i  block_size= %i %i %i\n",
-	   norb, grid_size.x,grid_size.y,grid_size.z,block_size.x,block_size.y,block_size.z);
-  pm->dev_check_errors();
+#ifdef _DEBUG_DEVICE
+    pm->dev_stream_wait();
+    printf("LIBGPU ::  -- general::copy_tdm; :: Norb= %i grid_size= %lu %lu %lu  block_size= %lu %lu %lu\n",
+	   norb, grid_size[0],grid_size[1],grid_size[2],block_size[0],block_size[1],block_size[2]);
+    pm->dev_check_errors();
 #endif  
   }
 }
@@ -2813,8 +2907,8 @@ void Device::reduce_buf3_to_rdm(const double * buf3, double * dm2, int size_tdm2
 {
   sycl::queue * s = pm->dev_get_queue();
   
-  sycl::range<3> block_size(_DEFAULT_BLOCK_SIZE, 1, 1);
-  sycl::range<3> grid_size(_TILE(size_tdm2, block_size.x), 1, 1);
+  sycl::range<3> block_size(1, 1, _DEFAULT_BLOCK_SIZE);
+  sycl::range<3> grid_size(1, 1, _TILE(size_tdm2, block_size[2]));
 
   //  printf("reduce_buf3_to_rdm : size= %i  num_batches= %i\n", size_tdm2, num_gemm_batches);
 
@@ -2825,7 +2919,13 @@ void Device::reduce_buf3_to_rdm(const double * buf3, double * dm2, int size_tdm2
     _vecadd<<<grid_size, block_size, 0, s>>>( &(buf3[i*size_tdm2]), dm2, size_tdm2);
   }
 #endif
+  
+#ifdef _DEBUG_DEVICE
+  pm->dev_stream_wait();
+  printf("LIBGPU ::  -- reduce_buf3_to_rdm :: size_tdm2= %i  num_gemm_batches= %i  grid_size= %lu %lu %lu  block_size= %lu %lu %lu\n",
+	 size_tdm2, num_gemm_batches, grid_size[0],grid_size[1],grid_size[2],block_size[0],block_size[1],block_size[2]);
   pm->dev_check_errors();
+#endif
 }
 
 /* ---------------------------------------------------------------------- */
@@ -2837,8 +2937,8 @@ void Device::reorder(double * dm1, double * dm2, double * buf, int norb)
   //for k in range (norb): rdm2[:,k,k,:] -= rdm1.T //remember, rdm1 is returned as rdm1.T, so double transpose, hence just rdm1
   {
     sycl::range<3> block_size(1, 1, 1);
-    sycl::range<3> grid_size(_TILE(norb, block_size.x), _TILE(norb, block_size.y),
-                         _TILE(norb, block_size.z));
+    sycl::range<3> grid_size(_TILE(norb, block_size[0]), _TILE(norb, block_size[1]),
+                         _TILE(norb, block_size[2]));
     /*
     DPCT1049:34: The work-group size passed to the SYCL kernel may exceed the
     limit. To get the device limit, query info::device::max_work_group_size.
@@ -2860,20 +2960,20 @@ void Device::reorder(double * dm1, double * dm2, double * buf, int norb)
 #if 0
   //this is for reducing numerical error ... we can implement it later
   {
-    dim3 block_size(_DEFAULT_BLOCK_SIZE, 1, 1);
-    dim3 grid_size(_TILE(norb2*norb2, block_size.x), 1, 1);
+    dim3 block_size(1, 1, _DEFAULT_BLOCK_SIZE);
+    dim3 grid_size(1, 1, _TILE(norb2*norb2, block_size[2]));
     _veccopy<<<grid_size, block_size, 0,s>>>(dm2, buf, norb2*norb2); 
     pm->dev_check_errors();
   }
   { 
-    dim3 block_size(_DEFAULT_BLOCK_SIZE, _DEFAULT_BLOCK_SIZE, 1);
-    dim3 grid_size (_TILE(norb2, block_size.x), _TILE(norb2, block_size.y),1);
+    dim3 block_size(1, _DEFAULT_BLOCK_SIZE, _DEFAULT_BLOCK_SIZE);
+    dim3 grid_size (1, _TILE(norb2, block_size[1]), _TILE(norb2, block_size[2]));
     _add_rdm_transpose<<<grid_size, block_size, 0, s>>>(buf, dm2, norb); 
     pm->dev_check_errors();
   }
   {
-    dim3 block_size(_DEFAULT_BLOCK_SIZE, 1,1); 
-    dim3 grid_size(_TILE(norb2*norb2, block_size.x), 1,1);
+    dim3 block_size(1, 1, _DEFAULT_BLOCK_SIZE); 
+    dim3 grid_size(1, 1, _TILE(norb2*norb2, block_size[2]));
     _build_rdm<<<grid_size, block_size, 0>>>(buf, dm2, norb2*norb2);
     pm->dev_check_errors();
   }
@@ -2888,8 +2988,8 @@ void Device::set_to_zero(double * array, int size)
   sycl::queue * s = pm->dev_get_queue();
   
 #if 1
-  sycl::range<3> block_size(_DEFAULT_BLOCK_SIZE, 1, 1);
-  sycl::range<3> grid_size(_TILE(size, block_size.x), 1, 1);
+  sycl::range<3> block_size(1, 1, _DEFAULT_BLOCK_SIZE);
+  sycl::range<3> grid_size(1, 1, _TILE(size, block_size[2]));
   /*
     DPCT1049:35: The work-group size passed to the SYCL kernel may exceed the
     limit. To get the device limit, query info::device::max_work_group_size.
@@ -2917,9 +3017,9 @@ void Device::filter_sfudm( const double * dm2, double * dm1, int norb)
   sycl::queue * s = pm->dev_get_queue();
   
   int norb_m1 = norb-1;
-  sycl::range<3> block_size(_DEFAULT_BLOCK_SIZE, _DEFAULT_BLOCK_SIZE, 1);
-  sycl::range<3> grid_size(_TILE(norb_m1, block_size.x),
-                       _TILE(norb_m1, block_size.y), 1);
+  sycl::range<3> block_size(1, _DEFAULT_BLOCK_SIZE, _DEFAULT_BLOCK_SIZE);
+  sycl::range<3> grid_size(1, _TILE(norb_m1, block_size[1]),
+                       _TILE(norb_m1, block_size[2]));
   /*
     DPCT1049:36: The work-group size passed to the SYCL kernel may exceed the
     limit. To get the device limit, query info::device::max_work_group_size.
@@ -2944,9 +3044,10 @@ void Device::filter_tdmpp( const double * dm2, double * dm1, int norb, int spin)
   int ndum = (spin!=1) ? 2:1;
   sycl::queue * s = pm->dev_get_queue();
   
-  sycl::range<3> block_size(_DEFAULT_BLOCK_SIZE, _DEFAULT_BLOCK_SIZE, 1);
-  sycl::range<3> grid_size(_TILE(norb - ndum, block_size.x),
-                       _TILE(norb - ndum, block_size.y), 1);
+  sycl::range<3> block_size(1, _DEFAULT_BLOCK_SIZE, _DEFAULT_BLOCK_SIZE);
+  sycl::range<3> grid_size(1,
+			   _TILE(norb - ndum, block_size[1]),
+			   _TILE(norb - ndum, block_size[2]));
   /*
     DPCT1049:37: The work-group size passed to the SYCL kernel may exceed the
     limit. To get the device limit, query info::device::max_work_group_size.
@@ -2972,8 +3073,8 @@ void Device::filter_tdm1h( const double * in, double * out, int norb)
   //in is (norb+1)^2
   sycl::queue * s = pm->dev_get_queue();
 
-  sycl::range<3> block_size(_DEFAULT_BLOCK_SIZE, 1, 1);
-  sycl::range<3> grid_size(_TILE(norb, block_size.x), 1, 1);
+  sycl::range<3> block_size(1, 1, _DEFAULT_BLOCK_SIZE);
+  sycl::range<3> grid_size(1, 1, _TILE(norb, block_size[2]));
   /*
   DPCT1049:38: The work-group size passed to the SYCL kernel may exceed the
   limit. To get the device limit, query info::device::max_work_group_size.
@@ -3000,8 +3101,8 @@ void Device::filter_tdm3h(double * in, double * out, int norb)
   
   //dim3 block_size(_DEFAULT_BLOCK_SIZE, _DEFAULT_BLOCK_SIZE, _DEFAULT_BLOCK_SIZE);
   sycl::range<3> block_size(1, 1, 1);
-  sycl::range<3> grid_size(_TILE(norb, block_size.x), _TILE(norb, block_size.y),
-                       _TILE(norb, block_size.z));
+  sycl::range<3> grid_size(_TILE(norb, block_size[0]), _TILE(norb, block_size[1]),
+                       _TILE(norb, block_size[2]));
   /*
   DPCT1049:39: The work-group size passed to the SYCL kernel may exceed the
   limit. To get the device limit, query info::device::max_work_group_size.
@@ -3026,8 +3127,8 @@ void Device::transpose_021( double * in, double * out, int norb)
   
   //dim3 block_size(_DEFAULT_BLOCK_SIZE, _DEFAULT_BLOCK_SIZE, _DEFAULT_BLOCK_SIZE);
   sycl::range<3> block_size(1, 1, 1);
-  sycl::range<3> grid_size(_TILE(norb, block_size.x), _TILE(norb, block_size.y),
-                       _TILE(norb, block_size.z));
+  sycl::range<3> grid_size(_TILE(norb, block_size[0]), _TILE(norb, block_size[1]),
+                       _TILE(norb, block_size[2]));
 #if 1
   /*
   DPCT1049:40: The work-group size passed to the SYCL kernel may exceed the
