@@ -3784,7 +3784,6 @@ void Device::push_ciket(py::array_t<double> _ciket, int na, int nb, int count)
   double * ciket = static_cast<double*>(info_ciket.ptr);
   int size_ciket = na*nb;
   grow_array(dd->d_ciket, size_ciket, dd->size_ciket, "ciket", FLERR);
-
   pm->dev_push_async(dd->d_ciket, ciket, size_ciket*sizeof(double));
   pm->dev_profile_stop();
   double t1 = omp_get_wtime();
@@ -3794,7 +3793,7 @@ void Device::push_ciket(py::array_t<double> _ciket, int na, int nb, int count)
 void Device::copy_bravecs_host(py::array_t<double> _bravecs, int nvecs, int na, int nb)
 {
   double t0 = omp_get_wtime();
-  py::buffer_info info_bravecs = _bravecs.request(); //3D array (nvecs*na, nb)
+  py::buffer_info info_bravecs = _bravecs.request(); //3D array (nvecs, na, nb)
   double * bravecs = static_cast<double*>(info_bravecs.ptr);
   int _size_bravecs = nvecs*na*nb;
   grow_array_host(h_bravecs, _size_bravecs, size_bravecs, "h:bravecs");
@@ -3824,7 +3823,8 @@ void Device::push_cibra_from_host(int bra_index, int na, int nb, int count)
   my_device_data * dd = &(device_data[id]);
   int size_cibra = na*nb;
   grow_array(dd->d_cibra, size_cibra, dd->size_cibra, "cibra", FLERR);
-  pm->dev_push_async(dd->d_cibra, &(h_bravecs[bra_index*size_cibra]), size_cibra*sizeof(double));
+  double * h_bra_loc = &(h_bravecs[bra_index*size_cibra]);
+  pm->dev_push_async(dd->d_cibra, h_bra_loc, size_cibra*sizeof(double));
   double t1 = omp_get_wtime();
 }
 /* ---------------------------------------------------------------------- */
@@ -3837,7 +3837,8 @@ void Device::push_ciket_from_host(int ket_index, int na, int nb, int count)
   my_device_data * dd = &(device_data[id]);
   int size_ciket = na*nb;
   grow_array(dd->d_ciket, size_ciket, dd->size_ciket, "ciket", FLERR);
-  pm->dev_push_async(dd->d_ciket, &(h_ketvecs[ket_index*size_ciket]), size_ciket*sizeof(double));
+  double * h_ket_loc = &(h_ketvecs[ket_index*size_ciket]);
+  pm->dev_push_async(dd->d_ciket, h_ket_loc, size_ciket*sizeof(double));
   double t1 = omp_get_wtime();
 }
 
@@ -5220,29 +5221,41 @@ void Device::pull_tdm1_host(int i, int j, int n_bra, int n_ket, int size_tdm1, i
   pm->dev_set_device(id); 
   my_device_data * dd = &(device_data[id]);
   pm->dev_profile_start("tdms :: pull tdm1");
-  int loc_hhdm = (i*n_ket+j)*size_tdm1;
-  pm->dev_pull_async(dd->d_tdm1, &(h_dm1_full[loc_hhdm]), size_tdm1*sizeof(double));
+  int loc_tdm1 = (i*n_ket+j)*size_tdm1;
+  double * h_dm1_loc = &(h_dm1_full[loc_tdm1]);
+  pm->dev_pull_async(dd->d_tdm1, h_dm1_loc, size_tdm1*sizeof(double));
   pm->dev_profile_stop();
+  
   if (count+1 == n_bra*n_ket){
-  for (int device_id =0; device_id<num_devices; ++device_id){
-  pm->dev_set_device(device_id); 
-  pm->dev_barrier();
-  }
-  }
+    for (int device_id =0; device_id<num_devices; ++device_id){
+      pm->dev_set_device(device_id); 
+      pm->dev_barrier();
+      }
+    }
   double t1 = omp_get_wtime();
   t_array[30] += t1-t0;
   count_array[20]++;
 }
 /* ---------------------------------------------------------------------- */
-void Device::pull_tdm2_host(int loc, int size_tdm2, int count)
+void Device::pull_tdm2_host(int i, int j, int n_bra, int n_ket, int size_tdm2, int count)
 {
   double t0 = omp_get_wtime();
   int id = count % num_devices;
   pm->dev_set_device(id); 
   my_device_data * dd = &(device_data[id]);
   pm->dev_profile_start("tdms :: pull tdm2");
-  pm->dev_pull_async(dd->d_tdm2, &h_dm2_full[loc], size_tdm2*sizeof(double));
+  int loc_tdm2 = (i*n_ket+j)*size_tdm2;
+  double * h_dm2_loc = &(h_dm2_full[loc_tdm2]);
+  pm->dev_pull_async(dd->d_tdm2, h_dm2_loc, size_tdm2*sizeof(double));
   pm->dev_profile_stop();
+  
+  if (count+1 == n_bra*n_ket){
+    for (int device_id =0; device_id<num_devices; ++device_id){
+      pm->dev_set_device(device_id); 
+      pm->dev_barrier();
+      }
+    }
+
   double t1 = omp_get_wtime();
   t_array[31] += t1-t0;
   count_array[21]++;
@@ -5314,7 +5327,7 @@ void Device::pull_tdm3hab_v2(py::array_t<double> _tdm1h, py::array_t<double> _td
   int norb2 = norb*norb;
   if (spin)
     { 
-      transpose_3210(dd->d_tdm2_p, dd->d_buf2, norb+1, norb+1);//using a function from before, it was for transpose of ncas,ncas,ncas,nmo shaped
+      transpose_3210(dd->d_tdm2_p, dd->d_buf2, norb+1, norb+1);//using a function from before
       filter_tdm3h(dd->d_buf2, &(dd->d_buf3[norb+norb*norb2]), norb);
     }
   else
@@ -5333,11 +5346,71 @@ void Device::pull_tdm3hab_v2(py::array_t<double> _tdm1h, py::array_t<double> _td
     pm->dev_pull_async(&(dd->d_buf3[norb]), tdm3ha, norb*norb2*sizeof(double));
     pm->dev_pull_async(&(dd->d_buf3[norb+norb*norb2]), tdm3hb, norb*norb2*sizeof(double));
     }
+
+  //printf("3ha sgpu\n");
+  //for (int i=0; i<norb; ++i){for (int j=0;j<norb2;++j){printf("%f\t",tdm3hb[i*norb2+j]);}printf("\n");}
+  //printf("3hb sgpu\n");
+  //for (int i=0; i<norb; ++i){for (int j=0;j<norb2;++j){printf("%f\t",tdm3hb[i*norb2+j]);}printf("\n");}
   pm->dev_profile_stop();
   double t1 = omp_get_wtime();
   t_array[32] += t1-t0;
   count_array[22]++;
 }
+/* ---------------------------------------------------------------------- */
+void Device::pull_tdm3hab_v2_host(int i, int j, int n_bra, int n_ket, int norb, int cre, int spin, int count)
+{
+  double t0 = omp_get_wtime();
+  int id = count % num_devices;
+  pm->dev_set_device(id); 
+  my_device_data * dd = &(device_data[id]);
+  int norb1 = norb+1;
+  int norb2 = norb*norb;
+  int size_tdm1h = norb;
+  int size_tdm3h = norb*norb2;
+  int loc_tdm1h = (i*n_ket+j)*size_tdm1h;
+  int loc_tdm3h = (i*n_ket+j)*2*size_tdm3h;
+  double * h_dm1_loc = &(h_dm1_full[loc_tdm1h]);
+  double * h_dm3ha_loc;
+  double * h_dm3hb_loc;
+  
+  filter_tdm1h(dd->d_tdm1, dd->d_buf3, norb);
+  pm->dev_pull_async(dd->d_buf3, h_dm1_loc, norb*sizeof(double));
+  h_dm3hb_loc = &(h_dm2_full[loc_tdm3h+(1-spin)*size_tdm3h]);
+  h_dm3ha_loc = &(h_dm2_full[loc_tdm3h+spin*size_tdm3h]);
+
+  filter_tdm3h(dd->d_tdm2, &(dd->d_buf3[norb]), norb);
+  if (spin)
+    { 
+      transpose_3210(dd->d_tdm2_p, dd->d_buf2, norb+1, norb+1);//using a function from before, it was for transpose of ncas,ncas,ncas,nmo shaped
+      filter_tdm3h(dd->d_buf2, &(dd->d_buf3[norb+norb*norb2]), norb);
+    }
+  else
+    {
+      filter_tdm3h(dd->d_tdm2_p, &(dd->d_buf3[norb+norb*norb2]), norb);
+    }
+  
+  if (cre==0){
+    transpose_021(&(dd->d_buf3[norb]),dd->d_tdm2, norb);
+    transpose_021(&(dd->d_buf3[norb+norb*norb2]),dd->d_tdm2_p, norb);
+    pm->dev_pull_async(dd->d_tdm2, h_dm3ha_loc, norb*norb2*sizeof(double));
+    pm->dev_pull_async(dd->d_tdm2_p, h_dm3hb_loc, norb*norb2*sizeof(double));
+    }
+  else{
+    pm->dev_pull_async(&(dd->d_buf3[norb]), h_dm3ha_loc, norb*norb2*sizeof(double));
+    pm->dev_pull_async(&(dd->d_buf3[norb+norb*norb2]), h_dm3hb_loc, norb*norb2*sizeof(double));
+    }
+  pm->dev_profile_stop();
+  if (count+1 == n_bra*n_ket){
+    for (int device_id =0; device_id<num_devices; ++device_id){
+      pm->dev_set_device(device_id); 
+      pm->dev_barrier();
+      }
+    }
+  double t1 = omp_get_wtime();
+  t_array[32] += t1-t0;
+  count_array[22]++;
+}
+
 /* ---------------------------------------------------------------------- */
 void Device::copy_tdm1_host_to_page(py::array_t<double> _dm1_full, int size_dm1_full)
 {
@@ -5363,21 +5436,3 @@ void Device::copy_tdm2_host_to_page(py::array_t<double> _dm2_full, int size_dm2_
   double t1 = omp_get_wtime();
 }
 /* ---------------------------------------------------------------------- */
-void Device::copy_tdm3h_host_to_page(py::array_t<double> _dm2_full, py::array_t<double> _dm2_p_full, int size_dm2_full)
-{
-  double t0 = omp_get_wtime();
-  py::buffer_info info_dm2_full = _dm2_full.request(); // (size_dm2_full)
-  double * dm2_full = static_cast<double*>(info_dm2_full.ptr);
-  py::buffer_info info_dm2_p_full = _dm2_p_full.request(); // (size_dm2_full)
-  double * dm2_p_full = static_cast<double*>(info_dm2_p_full.ptr);
-#pragma omp parallel for
-  for (int i=0; i<size_dm2_full; ++i){
-    dm2_full[i] = h_dm2_full[i];
-  }
-#pragma omp parallel for
-  for (int i=0; i<size_dm2_full; ++i){
-    dm2_p_full[i] = h_dm2_p_full[i];
-  }
-
-  double t1 = omp_get_wtime();
-}

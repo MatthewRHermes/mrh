@@ -124,7 +124,7 @@ def trans_rdm12s_o1(cibra, ciket, norb, nelec, link_index=None, reorder=True):
     libgpu.init_tdm2(gpu, norb)
     libgpu.push_ciket(gpu, ciket, na, nb, 0)
     libgpu.push_cibra(gpu, cibra, na, nb, 0)
-    libgpu.push_link_index_ab(gpu, na, nb, nlinka, nlinkb, link_indexa, link_indexb) #TODO: move this to direct_spin1 or generate on the fly
+    libgpu.push_link_index_ab(gpu, na, nb, nlinka, nlinkb, link_indexa, link_indexb) 
     #dm1a, dm2aa = rdm.make_rdm12_spin1('FCItdm12kern_a', cibra, ciket, norb, nelec, link_index, 2)
     libgpu.compute_tdm12kern_a_v2(gpu, na, nb, nlinka, nlinkb, norb, 0)
     if reorder: libgpu.reorder_rdm(gpu, norb, 0)

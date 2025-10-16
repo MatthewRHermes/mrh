@@ -601,10 +601,10 @@ void libgpu_pull_tdm1_host(void * ptr,
 }
 /* ---------------------------------------------------------------------- */
 void libgpu_pull_tdm2_host(void * ptr, 
-                      int loc, int size_dm, int count)
+                      int i, int j, int n_bra, int n_ket, int size_dm, int count)
 {
   Device * dev = (Device *) ptr;
-  dev->pull_tdm2_host(loc, size_dm, count);
+  dev->pull_tdm2_host(i, j, n_bra, n_ket, size_dm, count);
 }
 
 /* ---------------------------------------------------------------------- */
@@ -621,6 +621,14 @@ void libgpu_pull_tdm3hab_v2(void * ptr,
   Device * dev = (Device *) ptr;
   dev->pull_tdm3hab_v2(tdm1h, tdm3ha, tdm3hb, norb, cre, spin, count);
 }
+/* ---------------------------------------------------------------------- */
+void libgpu_pull_tdm3hab_v2_host(void * ptr, 
+                      int i, int j, int n_bra, int n_ket, int norb, int cre, int spin, int count)
+{
+  Device * dev = (Device *) ptr;
+  dev->pull_tdm3hab_v2_host(i, j, n_bra, n_ket, norb, cre, spin, count);
+}
+
 /* ---------------------------------------------------------------------- */
 void libgpu_pull_tdm3h_host(void * ptr, 
                       int loc, int size_dm, int count)
@@ -641,12 +649,5 @@ void libgpu_copy_tdm2_host_to_page(void * ptr,
 {
   Device * dev = (Device *) ptr;
   dev->copy_tdm2_host_to_page(dm2_full, size_dm2_full);
-}
-/* ---------------------------------------------------------------------- */
-void libgpu_copy_tdm3h_host_to_page(void * ptr, 
-                          py::array_t<double> dm2_full,py::array_t<double> dm2_p_full, int size_dm2_full)
-{
-  Device * dev = (Device *) ptr;
-  dev->copy_tdm3h_host_to_page(dm2_full,dm2_p_full, size_dm2_full);
 }
 /* ---------------------------------------------------------------------- */
