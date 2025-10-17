@@ -512,7 +512,13 @@ void libgpu_reorder_rdm(void * ptr,
 {
   Device * dev = (Device *) ptr;
   dev->reorder_rdm(norb, count);
-} 
+}
+/* ---------------------------------------------------------------------- */
+void libgpu_transpose_tdm2(void * ptr, int norb, int count)
+{
+  Device * dev = (Device *) ptr;
+  dev->transpose_tdm2(norb, count);
+}
 /* ---------------------------------------------------------------------- */
 void libgpu_compute_tdm13h_spin_v4(void * ptr, 
                                  int na, int nb,
@@ -594,17 +600,17 @@ void libgpu_pull_tdm2(void * ptr,
 }
 /* ---------------------------------------------------------------------- */
 void libgpu_pull_tdm1_host(void * ptr, 
-                      int i, int j, int n_bra, int n_ket, int size_dm, int count)
+                      int i, int j, int n_bra, int n_ket, int size_dm, int factor, int count)
 {
   Device * dev = (Device *) ptr;
-  dev->pull_tdm1_host(i, j, n_bra, n_ket, size_dm, count);
+  dev->pull_tdm1_host(i, j, n_bra, n_ket, size_dm, factor, count);
 }
 /* ---------------------------------------------------------------------- */
 void libgpu_pull_tdm2_host(void * ptr, 
-                      int i, int j, int n_bra, int n_ket, int size_dm, int count)
+                      int i, int j, int n_bra, int n_ket, int size_dm, int factor, int count)
 {
   Device * dev = (Device *) ptr;
-  dev->pull_tdm2_host(i, j, n_bra, n_ket, size_dm, count);
+  dev->pull_tdm2_host(i, j, n_bra, n_ket, size_dm, factor, count);
 }
 
 /* ---------------------------------------------------------------------- */

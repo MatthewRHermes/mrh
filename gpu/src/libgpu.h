@@ -174,10 +174,12 @@ extern "C"
                             int , int , int , int , int , int);
   void libgpu_reorder_rdm(void *, 
                             int, int);
+  void libgpu_transpose_tdm2(void *, 
+                            int, int);
   void libgpu_pull_tdm1_host(void *, 
-                      int, int, int, int, int, int);
+                      int, int, int, int, int, int, int);
   void libgpu_pull_tdm2_host(void *, 
-                      int, int, int, int, int, int);
+                      int, int, int, int, int, int, int);
   void libgpu_pull_tdm3h_host(void *, 
                       int, int, int);
   void libgpu_pull_tdm1(void *, 
@@ -276,6 +278,7 @@ PYBIND11_MODULE(libgpu, m) {
   m.def("compute_sfudm_v2",&libgpu_compute_sfudm_v2,"mrh/my_pyscf/fci/rdm.py::trans_sfudm_v2");
   m.def("compute_tdm1h_spin",&libgpu_compute_tdm1h_spin,"mrh/my_pyscf/fci/rdm.py::trans_tdm1hs");
   m.def("reorder_rdm",&libgpu_reorder_rdm,"pyscf/fci/rdm.py::reorder_rdm");        
+  m.def("transpose_tdm2",&libgpu_transpose_tdm2,"pyscf/fci/direct_spin1.py::transpose_tdm2");        
   m.def("pull_tdm1",&libgpu_pull_tdm1,"pyscf/fci/rdm.py::make_rdm12_spin1 pull_tdm1");        
   m.def("pull_tdm2",&libgpu_pull_tdm2,"pyscf/fci/rdm.py::make_rdm12_spin1 pull_tdm2");        
   m.def("pull_tdm1_host",&libgpu_pull_tdm1_host,"my_pyscf/lassi/op_o1/frag.py::pull_tdm1 loop");        

@@ -8,29 +8,29 @@ from pyscf.lib import param
 from pyscf.fci import  cistring
 from pyscf.fci.addons import _unpack_nelec
 import math
-from mrh.my_pyscf.fci.rdm import trans_ppdm
 import time
-import tppdm_test
+import tdm13h_test
+from itertools import product
 
-def performance_checker(n_bra, n_ket, norb, nelec, spin, nruns=10):
-    s1 = int (spin>1)
-    s2 = int (spin>0)
-    ndum = 2 -(spin%2)
-    nelec_ket = _unpack_nelec (nelec)
-    nelec_bra = list (_unpack_nelec (nelec))
-    nelec_bra[s1] += 1
-    nelec_bra[s2] += 1
-    occ_a, occ_b = int (spin<2), int (spin>0)
+def performance_checker(cre, n_bra, n_ket, norb, nelec, spin, reorder, nruns=10):
+    nelec_copy = list(_unpack_nelec(nelec))
+    cre = False
+    if not cre:
+        nelec_copy[spin] -=1
+    nelec_ket = _unpack_nelec(nelec_copy)
+    nelec_bra = [x for x in nelec_copy]
+    nelec_bra[spin] += 1
+
     na_bra = math.comb(norb, nelec_bra[0])
     nb_bra = math.comb(norb, nelec_bra[1])
     na_ket = math.comb(norb, nelec_ket[0])
     nb_ket = math.comb(norb, nelec_ket[1])
-    ciket = np.random.random((na_ket, nb_ket))
+
     bravecs = np.empty((n_bra, na_bra, nb_bra))
     ketvecs = np.empty((n_ket, na_ket, nb_ket))
     for _nbra in range(n_bra): bravecs[_nbra] = np.random.random((na_bra, nb_bra))
     for _nket in range(n_ket): ketvecs[_nket] = np.random.random((na_ket, nb_ket))
-    
+ 
     from pyscf.lib import param
     try: 
       use_gpu = param.use_gpu
@@ -48,13 +48,14 @@ def performance_checker(n_bra, n_ket, norb, nelec, spin, nruns=10):
     try: mgpu_fci_debug = param.mgpu_fci_debug
     except: mgpu_fci_debug = False
 
+    print(gpu)
     t0 = time.time()
     for _ in range(nruns):
-      tppdm_test.multi_gpu_loop (bravecs, ketvecs,norb, nelec, spin) 
+      tdm1h, tdm3h = tdm13h_test.multi_gpu_loop(cre, bravecs, ketvecs,norb,nelec, spin, reorder)
     t1 = time.time()
     param.use_gpu = None
     for _ in range(nruns): 
-      tppdm_test.o0_loop (bravecs, ketvecs,norb, nelec, spin) 
+      tdm1h, tdm3h = tdm13h_test.o0_loop(cre, bravecs, ketvecs,norb,nelec, spin, reorder)
     t2 = time.time()
     param.use_gpu = gpu
     return t1-t0, t2-t1
@@ -95,9 +96,10 @@ if __name__ == "__main__":
   
   norb = 11
   nelec = 15
-  n_bra, n_ket = 10,10
+  n_bra, n_ket = 3,3
+  nruns = 2
   
-  for spin in range(2): 
-      gpu_time, cpu_time = performance_checker(n_bra, n_ket, norb, nelec, spin)
+  for cre, spin, reorder in product( range(2), range(2), range(2)): 
+      gpu_time, cpu_time = performance_checker(cre, n_bra, n_ket, norb, nelec, spin, reorder, nruns = nruns)
       print("GPU time: ", round(gpu_time,2), "CPU time: ", round(cpu_time,2))
   libgpu.destroy_device(gpu)
