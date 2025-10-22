@@ -32,6 +32,9 @@ class OpTermBase:
     def get_inv_frags (self):
         return [inti.idx_frag for inti in self.ints]
 
+    def get_formal_shape (self):
+        return self.shape
+
 class OpTermReducible (OpTermBase): pass
 
 class OpTerm (OpTermReducible):
@@ -132,6 +135,9 @@ class OpTermNFragments (OpTermReducible):
         self.comp = None
         if do_crunch: self._crunch_()
         super().__init__()
+
+    def get_formal_shape (self):
+        return np.prod (self.lroots_bra), np.prod (self.lroots_ket)
 
     def reshape (self, new_shape, **kwargs):
         pass

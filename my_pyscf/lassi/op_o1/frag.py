@@ -720,15 +720,6 @@ class FragTDMInt (object):
 
         # Loop over lroots functions
         #TODO: REFACTOR TO FARM OUT ALL TYPES OF DMS TO DIFFERENT GPUs/NODES?
-        def des_loop (des_fn, c, nelec, p):
-            #na = cistring.num_strings (norb, nelec[0])
-            #nb = cistring.num_strings (norb, nelec[1])
-            #c = c.reshape (-1, na, nb)
-            des_c = [des_fn (c_i, norb, nelec, p) for c_i in c]
-            assert (c.ndim==3)
-            return np.asarray (des_c)
-        def des_a_loop (c, nelec, p): return des_loop (des_a, c, nelec, p)
-        def des_b_loop (c, nelec, p): return des_loop (des_b, c, nelec, p)
         def trans_rdm12s_loop (bra_r, ket_r, do2=True):
             bravecs = ci[bra_r].reshape (-1, ndeta[bra_r], ndetb[bra_r])
             ketvecs = ci[ket_r].reshape (-1, ndeta[ket_r], ndetb[ket_r])

@@ -8,6 +8,7 @@ from pyscf import symm, __config__
 from mrh.my_pyscf.lib.logger import select_log_printer
 from mrh.my_pyscf.fci import csf_solver
 from mrh.my_pyscf.fci.spin_op import contract_sdown, contract_sup, mdown, mup
+from mrh.my_pyscf.fci.spin_op import norm_sdown, norm_sup
 from mrh.my_pyscf.fci.csfstring import CSFTransformer
 from mrh.my_pyscf.fci.csfstring import ImpossibleSpinError
 from mrh.my_pyscf.mcscf.productstate import ImpureProductStateFCISolver
@@ -280,14 +281,18 @@ class SingleLASRootspace (object):
             nvecs = ci1.shape[0]
             nelec1 = nelec
             for sz1 in range (sz-2, -(1+smult), -2):
-                ci1 = [contract_sdown (c, norb, nelec1) for c in ci1]
+                ci1 = [contract_sdown (c, norb, nelec1)
+                       / norm_sdown (smult, nelec1)
+                       for c in ci1]
                 nelec1 = nelec1[0]-1, nelec1[1]+1
                 if nvecs==1: ci_sz_[sz1] = ci1[0]
                 else: ci_sz_[sz1] = np.asarray (ci1)
             ci1 = np.asarray (ci).reshape (nvecs, ndeta, ndetb)
             nelec1 = nelec
             for sz1 in range (sz+2, (1+smult), 2):
-                ci1 = [contract_sup (c, norb, nelec1) for c in ci1]
+                ci1 = [contract_sup (c, norb, nelec1)
+                       / norm_sup (smult, nelec1)
+                       for c in ci1]
                 nelec1 = nelec1[0]+1, nelec1[1]-1
                 if nvecs==1: ci_sz_[sz1] = ci1[0]
                 else: ci_sz_[sz1] = np.asarray (ci1)
