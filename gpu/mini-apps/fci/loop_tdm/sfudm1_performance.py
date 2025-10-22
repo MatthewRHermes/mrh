@@ -11,7 +11,7 @@ import math
 import time
 import sfudm1_test
 
-def performance_checker(n_bra, n_ket, norb, nelec, spin, nruns=10):
+def performance_checker(n_bra, n_ket, norb, nelec, nruns=10):
     nelec_ket = _unpack_nelec(nelec)
     nelec_bra = list(_unpack_nelec(nelec))
     nelec_bra[0] +=1
@@ -95,7 +95,6 @@ if __name__ == "__main__":
   nelec = 15
   n_bra, n_ket = 10,10
   
-  for spin in range(2): 
-      gpu_time, cpu_time = performance_checker(n_bra, n_ket, norb, nelec, spin)
-      print("GPU time: ", round(gpu_time,2), "CPU time: ", round(cpu_time,2))
+  gpu_time, cpu_time = performance_checker(n_bra, n_ket, norb, nelec)
+  print("GPU time: ", round(gpu_time,2), "CPU time: ", round(cpu_time,2))
   libgpu.destroy_device(gpu)

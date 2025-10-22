@@ -104,6 +104,43 @@ class HamS2OvlpOperators (HamS2Ovlp):
         self.optermgroups_h = self._index_ovlppart (self.optermgroups_h)
         self.log.debug (self.sprint_cache_profile ())
         self.log.timer ('HamS2OvlpOperators operator cacheing', *t0)
+        if self.log.verbose >= logger.DEBUG:
+            sizes = self.get_dot_product_sizes (self.optermgroups_h)
+            self.log.debug ('Hamiltonian operator cost estimator function by # frags:')
+            self.log.debug (' %6s %8s %8s', 'nfrags', 'cost', 'nvecs')
+            for i, arr in enumerate (sizes):
+                mysize = np.prod (arr, axis=1).astype (float).sum ()
+                nvecs = arr[:,2].astype (float).sum ()
+                self.log.debug (' %6d %8.1e %8.1e', i+1, mysize, nvecs)
+
+    def get_dot_product_sizes (self, groups):
+        sizes = [{} for i in range (4)]
+        for inv, group in groups.items ():
+            sinv = list (set (inv))
+            nfrags = len (sinv)
+            for op in group.ops:
+                K, L = op.get_formal_shape ()
+                M = sizes[nfrags-1].get ((K,L), 0)
+                Mt = sizes[nfrags-1].get ((L,K), 0)
+                for key in op.spincase_keys:
+                    brakets, bras, braHs = self.get_nonuniq_exc_square (key)
+                    for bra in bras:
+                        urootstr = self.urootstr[:,bra].copy ()
+                        urootstr[sinv] = 1
+                        M += np.prod (urootstr)
+                    for bra in braHs:
+                        urootstr = self.urootstr[:,bra].copy ()
+                        urootstr[sinv] = 1
+                        Mt += np.prod (urootstr)
+                sizes[nfrags-1][(K,L)] = M
+                if Mt > 0:
+                    sizes[nfrags-1][(L,K)] = Mt
+        for i in range (4):
+            d = sizes[i]
+            sizes[i] = np.zeros ((len(d),3), dtype=int)
+            for j, ((K, L), M) in enumerate (d.items ()):
+                sizes[i][j,:] = [K, L, M]
+        return sizes
 
     def opterm_std_shape (self, bra, ket, op, inv, sinv):
         t0, w0 = logger.process_clock (), logger.perf_counter ()

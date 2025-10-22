@@ -47,7 +47,7 @@ def multi_gpu_loop(bravecs, ketvecs, norb, nelec):
     libgpu.compute_sfudm_v2(gpu, na, nb, nlinka, nlinkb, norb+1, 
                        ia_ket, ja_ket, ib_ket, jb_ket, sgn_ket,
                        ia_bra, ja_bra, ib_bra, jb_bra, sgn_bra, count)
-    libgpu.pull_tdm1_host(gpu, j, i, n_ket, n_bra, size_sfudm, count)#remember that hhdm is norb*norb, so dm1 is fine.
+    libgpu.pull_tdm1_host(gpu, j, i, n_ket, n_bra, size_sfudm, 1, count)#remember that hhdm is norb*norb, so dm1 is fine.
   sfudm = np.zeros ((bravecs.shape[0],ketvecs.shape[0],norb,norb), dtype=bravecs.dtype)
   libgpu.copy_tdm1_host_to_page(gpu, sfudm, size_sfudm_full) 
   return sfudm
@@ -104,8 +104,6 @@ def test_sfudm_loop(n_bra, n_ket, norb, nelec):
         print('SFUDM1 loop calculated correctly')
       else:
         print('SFUDM1 loop incorrect')
-        #print(tdmhh_c)
-        #print(tdmhh)
         diff = sfudm-sfudm_c
         diff_index = np.nonzero(diff)
         print(diff.size)
@@ -151,10 +149,12 @@ if __name__=="__main__":
   mf.max_cycle=1
   mf.kernel()
 
-  norb, nelec = 11, 15
+
+  norb, nelec = 6, 5
   n_bra, n_ket = 10,4
-  #norb, nelec = 6, 5
-  #n_bra, n_ket = 4,3
+  test_sfudm_loop(n_bra, n_ket,norb, nelec)
+  norb, nelec = 11, 15
+  n_bra, n_ket = 4,3
   test_sfudm_loop(n_bra, n_ket,norb, nelec)
   if gpu_run: libgpu.destroy_device(gpu)
 
