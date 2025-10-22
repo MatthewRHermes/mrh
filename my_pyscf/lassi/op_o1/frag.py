@@ -551,7 +551,137 @@ class FragTDMInt (object):
             self.ci[i] = civec.reshape (-1, self.ndeta_r[i], self.ndetb_r[i])
         t0 = self._make_dms_(screen=iroot)
         self.log.timer ('Update density matrices of fragment intermediate', *t0)
+    
 
+    def _trans_rdm12s_loop(self, bravecs, ketvecs, norb, nelec, linkstr):
+        tdm1s = np.zeros ((bravecs.shape[0],ketvecs.shape[0],2,norb,norb), dtype=self.dtype)
+        tdm2s = np.zeros ((bravecs.shape[0],ketvecs.shape[0],4,norb,norb,norb,norb),dtype=self.dtype)
+        from pyscf.lib import param
+        try: mgpu_fci = param.mgpu_fci
+        except: mgpu_fci = False
+        #try: mgpu_fci_debug = param.mgpu_fci_debug
+        #except: mgpu_fci_debug = False
+        #if mgpu_fci and mgpu_fci_debug:
+        #  tdm1s_c = np.zeros ((bravecs.shape[0],ketvecs.shape[0],2,norb,norb), dtype=self.dtype)
+        #  tdm2s_c = np.zeros ((bravecs.shape[0],ketvecs.shape[0],4,norb,norb,norb,norb),dtype=self.dtype)
+        #  from gpu4mrh.fci import rdm_loops
+        #  tdm1s_c, tdm2s_c = rdm_loops.trans_rdm12s(tdm1s_c, tdm2s_c, bravecs, ketvecs, norb, nelec, linkstr=linkstr)
+        #  for i, j in product (range (bravecs.shape[0]), range (ketvecs.shape[0])):
+        #    d1s, d2s = trans_rdm12s (bravecs[i], ketvecs[j], norb, nelec,link_index=linkstr)
+        #    # Transpose based on docstring of direct_spin1.trans_rdm12s
+        #    tdm1s[i,j] = np.stack (d1s, axis=0).transpose (0, 2, 1)
+        #    tdm2s[i,j] = np.stack (d2s, axis=0) 
+        #  tdm1s_correct = np.allclose(tdm1s, tdm1s_c)
+        #  tdm2s_correct = np.allclose(tdm2s, tdm2s_c)
+        #  if tdm1s_correct and tdm2s_correct:
+        #    print("TDM12s correct")
+        #  else: 
+        #    print("TDM12s incorrect")
+        #    exit()
+        if mgpu_fci:
+          from gpu4mrh.fci import rdm_loops
+          tdm1s, tdm2s = rdm_loops.trans_rdm12s(tdm1s, tdm2s, bravecs, ketvecs, norb, nelec, linkstr=linkstr)
+        else:
+          for i, j in product (range (bravecs.shape[0]), range (ketvecs.shape[0])):
+            d1s, d2s = trans_rdm12s (bravecs[i], ketvecs[j], norb, nelec,link_index=linkstr)
+            # Transpose based on docstring of direct_spin1.trans_rdm12s
+            tdm1s[i,j] = np.stack (d1s, axis=0).transpose (0, 2, 1)
+            tdm2s[i,j] = np.stack (d2s, axis=0) 
+        return tdm1s, tdm2s
+
+    def _trans_rdm13h_loop(self, bravecs, ketvecs, norb, nelec_ket, spin, linkstr):
+        tdm1h = np.zeros ((bravecs.shape[0],ketvecs.shape[0],norb), dtype=self.dtype)
+        tdm3h = np.zeros ((bravecs.shape[0],ketvecs.shape[0],2,norb,norb,norb),dtype=self.dtype)
+        from pyscf.lib import param
+        try: mgpu_fci = param.mgpu_fci
+        except: mgpu_fci = False
+        #try: mgpu_fci_debug = param.mgpu_fci_debug
+        #except: mgpu_fci_debug = False
+        #if mgpu_fci and mgpu_fci_debug:
+        #  tdm1h_c = np.zeros ((bravecs.shape[0],ketvecs.shape[0],norb), dtype=self.dtype)
+        #  tdm3h_c = np.zeros ((bravecs.shape[0],ketvecs.shape[0],2,norb,norb,norb),dtype=self.dtype)
+        #  from gpu4mrh.fci import rdm_loops
+        #  tdm1h_c, tdm3h_c = rdm_loops.trans_rdm13h(tdm1h_c, tdm3h_c, bravecs, ketvecs, norb, nelec_ket, spin,linkstr)
+        #  trans_rdm13h = (trans_rdm13ha_des, trans_rdm13hb_des)[spin]
+        #  for i, j in product (range (bravecs.shape[0]), range (ketvecs.shape[0])):
+        #    d1s, d2s = trans_rdm13h (bravecs[i], ketvecs[j], norb, nelec_ket, link_index=linkstr)
+        #    tdm1h[i,j] = d1s
+        #    tdm3h[i,j] = np.stack (d2s, axis=0)
+        #  tdm1h_correct = np.allclose(tdm1h, tdm1h_c)
+        #  tdm3h_correct = np.allclose(tdm3h, tdm3h_c)
+        #  if tdm1h_correct and tdm3h_correct:
+        #    print("TDM13h correct")
+        #  else: 
+        #    print("TDM13h incorrect")
+        #    exit()
+        if mgpu_fci:
+          from gpu4mrh.fci import rdm_loops
+          tdm1h, tdm3h = rdm_loops.trans_rdm13h(tdm1h, tdm3h, bravecs, ketvecs, norb, nelec_ket, spin,linkstr)
+        else:
+          trans_rdm13h = (trans_rdm13ha_des, trans_rdm13hb_des)[spin]
+          for i, j in product (range (bravecs.shape[0]), range (ketvecs.shape[0])):
+            d1s, d2s = trans_rdm13h (bravecs[i], ketvecs[j], norb, nelec_ket, link_index=linkstr)
+            tdm1h[i,j] = d1s
+            tdm3h[i,j] = np.stack (d2s, axis=0)
+        return tdm1h, tdm3h
+
+    def _trans_sfddm_loop(self, bravecs, ketvecs, norb, nelec_ket, linkstr):
+        sfddm = np.zeros ((bravecs.shape[0],ketvecs.shape[0],norb,norb), dtype=self.dtype)
+        from pyscf.lib import param
+        try: mgpu_fci = param.mgpu_fci
+        except: mgpu_fci = False
+        #try: mgpu_fci_debug = param.mgpu_fci_debug
+        #except: mgpu_fci_debug = False
+        #if mgpu_fci and mgpu_fci_debug:
+        #  from gpu4mrh.fci import rdm_loops
+        #  sfddm_c = np.zeros ((bravecs.shape[0],ketvecs.shape[0],norb,norb), dtype=self.dtype)
+        #  sfddm_c = rdm_loops.trans_sfddm1(sfddm_c, bravecs, ketvecs, norb, nelec_ket, linkstr=linkstr)
+        #  for i, j in product (range (bravecs.shape[0]), range (ketvecs.shape[0])):
+        #    d1 = trans_sfddm1 (bravecs[i], ketvecs[j], norb, nelec_ket, link_index=linkstr)
+        #    sfddm[i,j] = d1
+        #  sfddm_correct=np.allclose(sfddm, sfddm_c)
+        #  if sfddm_correct: print("sfddm correct")
+        #  else:
+        #     print("sfddm incorrect")
+        #     exit()
+        if mgpu_fci:
+          from gpu4mrh.fci import rdm_loops
+          sfddm = rdm_loops.trans_sfddm1(sfddm, bravecs, ketvecs, norb, nelec_ket, linkstr=linkstr)
+        else:
+          for i, j in product (range (bravecs.shape[0]), range (ketvecs.shape[0])):
+            d1 = trans_sfddm1 (bravecs[i], ketvecs[j], norb, nelec_ket, link_index=linkstr)
+            sfddm[i,j] = d1
+        
+        return sfddm
+    
+    def _trans_hhdm_loop(self, bravecs, ketvecs, norb, nelec_ket, spin, linkstr):
+        hhdm = np.zeros ((bravecs.shape[0],ketvecs.shape[0],norb,norb), dtype=self.dtype)
+        from pyscf.lib import param
+        try: mgpu_fci = param.mgpu_fci
+        except: mgpu_fci = False
+        #try: mgpu_fci_debug = param.mgpu_fci_debug
+        #except: mgpu_fci_debug = False
+        #if mgpu_fci and mgpu_fci_debug:
+        #  from gpu4mrh.fci import rdm_loops
+        #  hhdm_c = np.zeros ((bravecs.shape[0],ketvecs.shape[0],norb,norb), dtype=self.dtype)
+        #  hhdm_c = rdm_loops.trans_hhdm(hhdm_c, bravecs, ketvecs, norb, nelec_ket, spin, linkstr=linkstr)
+        #  for i, j in product (range (bravecs.shape[0]), range (ketvecs.shape[0])):
+        #    d1 = trans_hhdm (bravecs[i], ketvecs[j], norb, nelec_ket, spin, link_index=linkstr)
+        #    hhdm[i,j] = d1
+        #  hhdm_correct=np.allclose(hhdm, hhdm_c)
+        #  if hhdm_correct: print("hhdm correct")
+        #  else:
+        #     print("hhdm incorrect")
+        #     exit()
+        if mgpu_fci:
+          from gpu4mrh.fci import rdm_loops
+          hhdm = rdm_loops.trans_hhdm(hhdm, bravecs, ketvecs, norb, nelec_ket, spin, linkstr=linkstr)
+        else:
+          for i, j in product (range (bravecs.shape[0]), range (ketvecs.shape[0])):
+            d1 = trans_hhdm (bravecs[i], ketvecs[j], norb, nelec_ket, spin, link_index=linkstr)
+            hhdm[i,j] = d1
+        return hhdm
+    
     def _make_dms_(self, screen=None):
         t0 = (lib.logger.process_clock (), lib.logger.perf_counter ())
         t1 = (lib.logger.process_clock (), lib.logger.perf_counter ())
@@ -607,18 +737,11 @@ class FragTDMInt (object):
                 bravecs, ketvecs, norb, nelec, smult_bra=self.smult_r[bra_r],
                 smult_ket=self.smult_r[ket_r]
             )
-            tdm1s = np.zeros ((bravecs.shape[0],ketvecs.shape[0],2,norb,norb), dtype=self.dtype)
-            tdm2s = np.zeros ((bravecs.shape[0],ketvecs.shape[0],4,norb,norb,norb,norb),
-                              dtype=self.dtype)
             linkstr = self._check_linkstr_cache (norb, nelec[0], nelec[1])
             if do2:
-                for i, j in product (range (bravecs.shape[0]), range (ketvecs.shape[0])):
-                    d1s, d2s = trans_rdm12s (bravecs[i], ketvecs[j], norb, nelec,
-                                             link_index=linkstr)
-                    # Transpose based on docstring of direct_spin1.trans_rdm12s
-                    tdm1s[i,j] = np.stack (d1s, axis=0).transpose (0, 2, 1)
-                    tdm2s[i,j] = np.stack (d2s, axis=0)
+                tdm1s, tdm2s = self._trans_rdm12s_loop(bravecs, ketvecs, norb, nelec, linkstr)
             else:
+                tdm1s = np.zeros ((bravecs.shape[0],ketvecs.shape[0],2,norb,norb), dtype=self.dtype)
                 for i, j in product (range (bravecs.shape[0]), range (ketvecs.shape[0])):
                     d1s = trans_rdm1s (bravecs[i], ketvecs[j], norb, nelec,
                                        link_index=linkstr)
@@ -628,7 +751,6 @@ class FragTDMInt (object):
         def trans_rdm1s_loop (bra_r, ket_r):
             return trans_rdm12s_loop (bra_r, ket_r, do2=False)[0]
         def trans_rdm13h_loop (bra_r, ket_r, spin=0, do3h=True):
-            trans_rdm13h = (trans_rdm13ha_des, trans_rdm13hb_des)[spin]
             trans_rdm1h = (trans_rdm1ha_des, trans_rdm1hb_des)[spin]
             nelec_ket = self.nelec_r[ket_r]
             bravecs = ci[bra_r].reshape (-1, ndeta[bra_r], ndetb[bra_r])
@@ -637,17 +759,11 @@ class FragTDMInt (object):
                 bravecs, ketvecs, norb, nelec_ket, spin, smult_bra=self.smult_r[bra_r],
                 smult_ket=self.smult_r[ket_r]
             )
-            tdm1h = np.zeros ((bravecs.shape[0],ketvecs.shape[0],norb), dtype=self.dtype)
-            tdm3h = np.zeros ((bravecs.shape[0],ketvecs.shape[0],2,norb,norb,norb),
-                              dtype=self.dtype)
             linkstr = self._check_linkstr_cache (norb+1, nelec_ket[0], nelec_ket[1])
             if do3h:
-                for i, j in product (range (bravecs.shape[0]), range (ketvecs.shape[0])):
-                    d1s, d2s = trans_rdm13h (bravecs[i], ketvecs[j], norb, nelec_ket,
-                                             link_index=linkstr)
-                    tdm1h[i,j] = d1s
-                    tdm3h[i,j] = np.stack (d2s, axis=0)
+                tdm1h, tdm3h = self._trans_rdm13h_loop(bravecs, ketvecs, norb, nelec_ket, spin, linkstr)
             else:
+                tdm1h = np.zeros ((bravecs.shape[0],ketvecs.shape[0],norb), dtype=self.dtype)
                 for i, j in product (range (bravecs.shape[0]), range (ketvecs.shape[0])):
                     d1s = trans_rdm1h (bravecs[i], ketvecs[j], norb, nelec_ket,
                                        link_index=linkstr)
@@ -663,12 +779,8 @@ class FragTDMInt (object):
                 bravecs, ketvecs, norb, nelec_ket, smult_bra=self.smult_r[bra_r],
                 smult_ket=self.smult_r[ket_r]
             )
-            sfddm = np.zeros ((bravecs.shape[0],ketvecs.shape[0],norb,norb), dtype=self.dtype)
             linkstr = self._check_linkstr_cache (norb+1, nelec_ket[0], nelec_ket[1]+1)
-            for i, j in product (range (bravecs.shape[0]), range (ketvecs.shape[0])):
-                d1 = trans_sfddm1 (bravecs[i], ketvecs[j], norb, nelec_ket,
-                                   link_index=linkstr)
-                sfddm[i,j] = d1
+            sfddm = self._trans_sfddm_loop(bravecs, ketvecs, norb, nelec_ket, linkstr)
             return sfddm
         def trans_hhdm_loop (bra_r, ket_r, spin=0):
             bravecs = ci[bra_r].reshape (-1, ndeta[bra_r], ndetb[bra_r])
@@ -678,13 +790,9 @@ class FragTDMInt (object):
                 bravecs, ketvecs, norb, nelec_ket, spin, smult_bra=self.smult_r[bra_r],
                 smult_ket=self.smult_r[ket_r]
             )
-            hhdm = np.zeros ((bravecs.shape[0],ketvecs.shape[0],norb,norb), dtype=self.dtype)
             ndum = 2 - (spin%2)
             linkstr = self._check_linkstr_cache (norb+ndum, nelec_ket[0], nelec_ket[1])
-            for i, j in product (range (bravecs.shape[0]), range (ketvecs.shape[0])):
-                d1 = trans_hhdm (bravecs[i], ketvecs[j], norb, nelec_ket,
-                                 spin=spin, link_index=linkstr)
-                hhdm[i,j] = d1
+            hhdm = self._trans_hhdm_loop(bravecs, ketvecs, norb, nelec_ket, spin, linkstr)
             return hhdm
 
         # Spectator fragment contribution

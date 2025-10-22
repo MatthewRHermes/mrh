@@ -104,8 +104,6 @@ def test_sfudm_loop(n_bra, n_ket, norb, nelec):
         print('SFUDM1 loop calculated correctly')
       else:
         print('SFUDM1 loop incorrect')
-        #print(tdmhh_c)
-        #print(tdmhh)
         diff = sfudm-sfudm_c
         diff_index = np.nonzero(diff)
         print(diff.size)

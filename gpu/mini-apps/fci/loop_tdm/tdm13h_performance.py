@@ -96,7 +96,7 @@ if __name__ == "__main__":
   
   norb = 11
   nelec = 15
-  n_bra, n_ket = 3,3
+  n_bra, n_ket = 5,6
   nruns = 2
   
   for cre, spin, reorder in product( range(2), range(2), range(2)): 

@@ -57,9 +57,9 @@ def multi_gpu_loop(bravecs, ketvecs, norb, nelec, spin):
   libgpu.init_tdm1(gpu, norb)
   libgpu.init_tdm2(gpu, norb+ndum)
   libgpu.push_link_index_ab(gpu, na, nb, nlinka, nlinkb, linkstr[0], linkstr[1])
-  size_hhdm = norb*norb
-  size_hhdm_full = n_bra*n_ket*size_hhdm
-  libgpu.init_tdm1_host(gpu, size_hhdm_full)
+  size_ppdm = norb*norb
+  size_ppdm_full = n_bra*n_ket*size_ppdm
+  libgpu.init_tdm1_host(gpu, size_ppdm_full)
   libgpu.copy_bravecs_host(gpu, bravecs, n_bra, na_bra, nb_bra) 
   libgpu.copy_ketvecs_host(gpu, ketvecs, n_ket, na_ket, nb_ket) 
   for count, (i, j) in enumerate(product (range(n_bra), range(n_ket))):
@@ -68,21 +68,21 @@ def multi_gpu_loop(bravecs, ketvecs, norb, nelec, spin):
     libgpu.compute_tdmpp_spin_v4(gpu, na, nb, nlinka, nlinkb, norb+ndum, spin, 
                                  ia_bra, ja_bra, ib_bra, jb_bra, sgn_bra, 
                                  ia_ket, ja_ket, ib_ket, jb_ket, sgn_ket, count) 
-    libgpu.pull_tdm1_host(gpu, i, j, n_bra, n_ket, size_hhdm, 1, count)#remember that hhdm is norb*norb, so dm1 is fine.
-  hhdm = np.zeros ((bravecs.shape[0],ketvecs.shape[0],norb,norb), dtype=bravecs.dtype)
-  libgpu.copy_tdm1_host_to_page(gpu, hhdm, size_hhdm_full) 
-  return hhdm
+    libgpu.pull_tdm1_host(gpu, i, j, n_bra, n_ket, size_ppdm, 1, count)#remember that hhdm is norb*norb, so dm1 is fine.
+  ppdm = np.zeros ((bravecs.shape[0],ketvecs.shape[0],norb,norb), dtype=bravecs.dtype)
+  libgpu.copy_tdm1_host_to_page(gpu, ppdm, size_ppdm_full) 
+  return ppdm
   
 def o0_loop(bravecs, ketvecs, norb, nelec_ket, spin):
-  hhdm = np.zeros ((bravecs.shape[0],ketvecs.shape[0],norb,norb), dtype=bravecs.dtype)
+  ppdm = np.zeros ((bravecs.shape[0],ketvecs.shape[0],norb,norb), dtype=bravecs.dtype)
   for i, j in product (range (bravecs.shape[0]), range (ketvecs.shape[0])):
     d1 = trans_ppdm (bravecs[i], ketvecs[j], norb, nelec_ket, spin=spin, link_index=None)
-    hhdm[i,j] = d1
-  return hhdm
+    ppdm[i,j] = d1
+  return ppdm
 
 
 
-def test_hhdm_loop(n_bra, n_ket, norb, nelec, spin):
+def test_ppdm_loop(n_bra, n_ket, norb, nelec, spin):
     s1 = int (spin>1)
     s2 = int (spin>0)
     ndum = 2 -(spin%2)
@@ -122,21 +122,21 @@ def test_hhdm_loop(n_bra, n_ket, norb, nelec, spin):
 
     if mgpu_fci and mgpu_fci_debug and use_gpu:
       print("in debug channel")
-      tdmhh_c = multi_gpu_loop(bravecs, ketvecs,norb,nelec,spin)
-      tdmhh = o0_loop(bravecs, ketvecs,norb,nelec,spin)
-      tdmhh_correct = np.allclose(tdmhh, tdmhh_c)
-      if tdmhh_correct: 
+      tdmpp_c = multi_gpu_loop(bravecs, ketvecs,norb,nelec,spin)
+      tdmpp = o0_loop(bravecs, ketvecs,norb,nelec,spin)
+      tdmpp_correct = np.allclose(tdmpp, tdmpp_c)
+      if tdmpp_correct: 
         print('TDMpp loop calculated correctly')
       else:
         print('TDMpp loop incorrect')
         exit()
     elif custom_fci and use_gpu and mgpu_fci: 
       print("in gpu channel")
-      tdmhh = multi_gpu_loop(bravecs, ketvecs,norb,nelec,spin)
+      tdmpp = multi_gpu_loop(bravecs, ketvecs,norb,nelec,spin)
     else:
       print("in cpu channel")
-      tdmhh = o0_loop(bravecs, ketvecs,norb,nelec,spin)
-    return tdmhh
+      tdmpp = o0_loop(bravecs, ketvecs,norb,nelec,spin)
+    return tdmpp
 
 if __name__=="__main__":
   if gpu_run:
@@ -172,6 +172,6 @@ if __name__=="__main__":
   n_bra, n_ket = 17,1
   #norb, nelec = 4, 4
   #n_bra, n_ket = 2,2
-  [test_hhdm_loop(n_bra, n_ket,norb, nelec, i) for i in range(3)]
+  [test_ppdm_loop(n_bra, n_ket,norb, nelec, i) for i in range(3)]
   if gpu_run: libgpu.destroy_device(gpu)
 
