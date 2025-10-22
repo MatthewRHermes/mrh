@@ -2057,7 +2057,20 @@ void Device::filter_tdm3h(double * in, double * out, int norb)
   _filter_tdm3h<<<grid_size, block_size, 0,s>>>(in, out,norb);
   _HIP_CHECK_ERRORS();
 }
+
 /* ---------------------------------------------------------------------- */
+
+void Device::veccopy(const double * src, double *dest, int size)
+{
+  hipStream_t s = *(pm->dev_get_queue());
+  dim3 block_size(_DEFAULT_BLOCK_SIZE, 1, 1);
+  dim3 grid_size(_TILE(size, block_size.x), 1, 1);
+  _veccopy<<<grid_size, block_size, 0, s>>>(src, dest, size);
+  _HIP_CHECK_ERRORS();
+}
+
+/* ---------------------------------------------------------------------- */
+
 void Device::transpose_021( double * in, double * out, int norb)
 {
   hipStream_t s = *(pm->dev_get_queue());

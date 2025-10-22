@@ -1,6 +1,6 @@
 /* -*- c++ -*- */
 
-#if defined(_GPU_CUDA)
+//#if defined(_GPU_CUDA)
 
 #include "../device.h"
 
@@ -1960,7 +1960,6 @@ void Device::reorder(double * dm1, double * dm2, double * buf, int norb)
 {
   int norb2 = norb*norb;
   cudaStream_t s = *(pm->dev_get_queue());
-  printf("Inside reorder\n");
   //for k in range (norb): rdm2[:,k,k,:] -= rdm1.T //remember, rdm1 is returned as rdm1.T, so double transpose, hence just rdm1
   {
     dim3 block_size (1,1,1);
@@ -2052,6 +2051,17 @@ void Device::filter_tdm3h(double * in, double * out, int norb)
   _filter_tdm3h<<<grid_size, block_size, 0,s>>>(in, out,norb);
   _CUDA_CHECK_ERRORS();
 }
+
+/* ---------------------------------------------------------------------- */
+
+void Device::veccopy(const double * src, double *dest, int size)
+{
+  cudaStream_t s = *(pm->dev_get_queue());
+  dim3 block_size(_DEFAULT_BLOCK_SIZE, 1, 1);
+  dim3 grid_size(_TILE(size, block_size.x), 1, 1);
+  _veccopy<<<grid_size, block_size, 0, s>>>(src, dest, size);
+  _CUDA_CHECK_ERRORS();
+}
 /* ---------------------------------------------------------------------- */
 void Device::transpose_021( double * in, double * out, int norb)
 {
@@ -2070,4 +2080,4 @@ void Device::transpose_021( double * in, double * out, int norb)
 /* ---------------------------------------------------------------------- */
 
 
-#endif
+//#endif

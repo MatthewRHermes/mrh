@@ -3121,6 +3121,29 @@ void Device::filter_tdm3h(double * in, double * out, int norb)
 
 /* ---------------------------------------------------------------------- */
 
+void Device::veccopy(const double * src, double *dest, int size)
+{
+  sycl::queue * s = pm->dev_get_queue();
+  dpct::dim3 block_size(_DEFAULT_BLOCK_SIZE, 1, 1);
+  dpct::dim3 grid_size(_TILE(size, block_size[0]), 1, 1);
+  /*
+  DPCT1049:40: The work-group size passed to the SYCL kernel may exceed the
+  limit. To get the device limit, query info::device::max_work_group_size.
+  Adjust the work-group size if needed.
+  */
+  {
+    //dpct::has_capability_or_fail(s->get_device(), {sycl::aspect::fp64});
+
+    s->parallel_for(sycl::nd_range<3>(grid_size * block_size, block_size),
+                    [=](sycl::nd_item<3> item_ct1) {
+                      _veccopy(src, dest, size);
+                    });
+  }
+  _CUDA_CHECK_ERRORS();
+}
+
+/* ---------------------------------------------------------------------- */
+
 void Device::transpose_021( double * in, double * out, int norb)
 {
   sycl::queue * s = pm->dev_get_queue();

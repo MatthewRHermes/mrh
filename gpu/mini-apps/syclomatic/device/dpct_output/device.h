@@ -28,7 +28,7 @@ using namespace MATHLIB_NS;
 
 //#define _DEBUG_DEVICE
 //#define _DEBUG_P2P
-#define _DEBUG_FCI
+//#define _DEBUG_FCI
 //#define _TEMP_BUFSIZING
 //#define _CUSTOM_FCI
 
@@ -196,18 +196,19 @@ public :
                            int , int , int , int , int , int);
 
   void reorder_rdm(int, int);
+  void transpose_tdm2(int, int);
   void pull_tdm1(py::array_t<double> , int, int );
   void pull_tdm2(py::array_t<double> , int, int );
 
-  void pull_tdm1_host(int, int, int, int, int, int);
-  void pull_tdm2_host(int, int, int);
+  void pull_tdm1_host(int, int, int, int, int, int, int);
+  void pull_tdm2_host(int, int, int, int, int, int, int);
   void pull_tdm3h_host(int, int, int);
   void pull_tdm3hab(py::array_t<double> ,py::array_t<double> , int, int );
   void pull_tdm3hab_v2(py::array_t<double>, py::array_t<double> ,py::array_t<double> , int, int, int, int );
+  void pull_tdm3hab_v2_host(int, int, int, int, int, int, int, int );
 
   void copy_tdm1_host_to_page(py::array_t<double> , int );
   void copy_tdm2_host_to_page(py::array_t<double> , int );
-  void copy_tdm3h_host_to_page(py::array_t<double> , py::array_t<double>, int );
 
   //inner functions
   void extract_mo_cas(int, int, int);//TODO: fix the difference - changed slightly

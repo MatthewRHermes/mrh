@@ -1,6 +1,6 @@
 /* -*- c++ -*- */
 
-#if defined(_GPU_CUDA)
+//#if defined(_GPU_CUDA)
 
 #include <sycl/sycl.hpp>
 #include <dpct/dpct.hpp>
@@ -1446,7 +1446,7 @@ void Device::getjk_rho(double * rho, double * dmtril, double * eri, int nset, in
 
     s->submit([&](sycl::handler &cgh) {
       /*
-      DPCT1101:41: '_RHO_BLOCK_SIZE' expression was replaced with a value.
+      DPCT1101:42: '_RHO_BLOCK_SIZE' expression was replaced with a value.
       Modify the code to use the original expression, provided in comments, if
       it is correct.
       */
@@ -1582,12 +1582,12 @@ void Device::transpose(double * out, double * in, int nrow, int ncol)
 
     s->submit([&](sycl::handler &cgh) {
       /*
-      DPCT1101:42: '_TRANSPOSE_BLOCK_SIZE' expression was replaced with a
+      DPCT1101:43: '_TRANSPOSE_BLOCK_SIZE' expression was replaced with a
       value. Modify the code to use the original expression, provided in
       comments, if it is correct.
       */
       /*
-      DPCT1101:43: '_TRANSPOSE_BLOCK_SIZE+1' expression was replaced with a
+      DPCT1101:44: '_TRANSPOSE_BLOCK_SIZE+1' expression was replaced with a
       value. Modify the code to use the original expression, provided in
       comments, if it is correct.
       */
@@ -2697,7 +2697,6 @@ void Device::reorder(double * dm1, double * dm2, double * buf, int norb)
 {
   int norb2 = norb*norb;
   dpct::queue_ptr s = *(pm->dev_get_queue());
-  printf("Inside reorder\n");
   //for k in range (norb): rdm2[:,k,k,:] -= rdm1.T //remember, rdm1 is returned as rdm1.T, so double transpose, hence just rdm1
   {
     dpct::dim3 block_size(1, 1, 1);
@@ -2865,6 +2864,29 @@ void Device::filter_tdm3h(double * in, double * out, int norb)
   }
   _CUDA_CHECK_ERRORS();
 }
+
+/* ---------------------------------------------------------------------- */
+
+void Device::veccopy(const double * src, double *dest, int size)
+{
+  dpct::queue_ptr s = *(pm->dev_get_queue());
+  dpct::dim3 block_size(_DEFAULT_BLOCK_SIZE, 1, 1);
+  dpct::dim3 grid_size(_TILE(size, block_size.x), 1, 1);
+  /*
+  DPCT1049:40: The work-group size passed to the SYCL kernel may exceed the
+  limit. To get the device limit, query info::device::max_work_group_size.
+  Adjust the work-group size if needed.
+  */
+  {
+    dpct::has_capability_or_fail(s->get_device(), {sycl::aspect::fp64});
+
+    s->parallel_for(sycl::nd_range<3>(grid_size * block_size, block_size),
+                    [=](sycl::nd_item<3> item_ct1) {
+                      _veccopy(src, dest, size);
+                    });
+  }
+  _CUDA_CHECK_ERRORS();
+}
 /* ---------------------------------------------------------------------- */
 void Device::transpose_021( double * in, double * out, int norb)
 {
@@ -2875,7 +2897,7 @@ void Device::transpose_021( double * in, double * out, int norb)
                        _TILE(norb, block_size.z));
 #if 1
   /*
-  DPCT1049:40: The work-group size passed to the SYCL kernel may exceed the
+  DPCT1049:41: The work-group size passed to the SYCL kernel may exceed the
   limit. To get the device limit, query info::device::max_work_group_size.
   Adjust the work-group size if needed.
   */
@@ -2896,4 +2918,4 @@ void Device::transpose_021( double * in, double * out, int norb)
 /* ---------------------------------------------------------------------- */
 
 
-#endif
+//#endif
