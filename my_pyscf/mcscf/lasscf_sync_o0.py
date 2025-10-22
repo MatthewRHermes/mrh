@@ -100,13 +100,14 @@ class LASSCF_HessianOperator (lasci_sync.LASCI_HessianOperator):
     def orbital_response (self, kappa, odm1s, ocm2, tdm1frs, tcm2, veff_prime):
         ''' Parent class does everything except va/ac degrees of freedom
         (c: closed; a: active; v: virtual; p: any) '''
-        from mrh.my_pyscf.gpu import libgpu
+
         ncore, nocc, nmo = self.ncore, self.nocc, self.nmo
         gorb = lasci_sync.LASCI_HessianOperator.orbital_response (self, kappa, odm1s,
             ocm2, tdm1frs, tcm2, veff_prime)
         f1_prime = np.zeros ((self.nmo, self.nmo), dtype=self.dtype)
         # (H.x_va)_pp, (H.x_ac)_pp sector
         if self.las.use_gpu:
+            from mrh.my_pyscf.gpu import libgpu
             g_f1_prime = np.zeros ((self.nmo, self.nmo), dtype=self.dtype)
             libgpu.orbital_response(self.las.use_gpu,
                                            g_f1_prime, # gorb + (f1_prime - f1_prime.T)
