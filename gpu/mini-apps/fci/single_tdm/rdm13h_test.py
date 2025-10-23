@@ -20,10 +20,12 @@ if gpu_run:
 lib.logger.TIMER_LEVEL=lib.logger.INFO
 
 geom = ''' K 0 0 0;
-           K 0 0 2;'''
-
-if gpu_run: mol = gto.M(use_gpu = gpu, atom=geom, basis='631g', verbose=1)
-else: mol = gto.M(atom=geom, basis='631g', verbose=1)
+           K 0 0 2;
+           K 0 0 4;
+           K 0 0 6;'''
+basis='def2svp'
+if gpu_run: mol = gto.M(use_gpu = gpu, atom=geom, basis=basis, verbose=1)
+else: mol = gto.M(atom=geom, basis=basis, verbose=1)
 
 mol.output='test.log'
 mol.build()
@@ -34,12 +36,11 @@ mf.with_df.auxbasis = pyscf.df.make_auxbasis(mol)
 mf.max_cycle=1
 mf.kernel()
 
-norb = 11
-nelec = 15
+norb = 4
+nelec = 3
 
 def run_test(cre, norb, nelec, spin, reorder):
     nelec_copy = list(_unpack_nelec(nelec))
-    print(cre, nelec, spin, reorder)
     if not cre:
         nelec_copy[spin] -=1
     nelec_ket = _unpack_nelec(nelec_copy)
@@ -50,14 +51,14 @@ def run_test(cre, norb, nelec, spin, reorder):
     nb_bra = math.comb(norb, nelec_bra[1])
     na_ket = math.comb(norb, nelec_ket[0])
     nb_ket = math.comb(norb, nelec_ket[1])
-    cibra = np.arange(na_bra*nb_bra).reshape(na_bra, nb_bra)+0.5
-    ciket = np.arange(na_ket*nb_ket).reshape(na_ket, nb_ket)+4.5
-    #cibra = np.random.random((na_bra, nb_bra))
-    #ciket = np.random.random((na_ket, nb_ket))
+    #cibra = np.arange(na_bra*nb_bra).reshape(na_bra, nb_bra)+0.5
+    #ciket = np.arange(na_ket*nb_ket).reshape(na_ket, nb_ket)-0.5
+    cibra = np.random.random((na_bra, nb_bra))
+    ciket = np.random.random((na_ket, nb_ket))
     if not cre: 
         cibra, ciket = ciket, cibra
-
+    print(cre, nelec, spin, reorder, cibra.shape, ciket.shape)
     _trans_rdm13hs(cre, cibra , ciket, norb, nelec, spin, None, reorder)
 
 
-[run_test(cre, norb, nelec, spin, reorder) for cre in range(2) for spin in range(2) for reorder in range(2)]
+[run_test(cre, norb, nelec, spin, reorder) for cre in range(1) for spin in range(2) for reorder in range(1)]

@@ -117,16 +117,16 @@ def _trans_rdm1hs_o1(cre, cibra, ciket, norb, nelec, spin=0, link_index=None):
     nb, nlinkb = linkstr[1].shape[:2] 
     na_bra, nb_bra = cibra.shape
     na_ket, nb_ket = ciket.shape
-    libgpu.push_cibra(gpu, cibra, na_bra, nb_bra)
-    libgpu.push_ciket(gpu, ciket, na_ket, nb_ket)
+    libgpu.push_cibra(gpu, cibra, na_bra, nb_bra, 0)
+    libgpu.push_ciket(gpu, ciket, na_ket, nb_ket, 0)
     tdm1h = np.empty((norb+1, norb+1))
     libgpu.init_tdm1(gpu, norb+1)
     libgpu.push_link_index_ab(gpu, na, nb, nlinka, nlinkb, linkstr[0], linkstr[1])
 
     libgpu.compute_tdm1h_spin(gpu, na, nb, nlinka, nlinkb, norb+1, spin, 
                                ia_bra, ja_bra, ib_bra, jb_bra, sgn_bra,
-                               ia_ket, ja_ket, ib_ket, jb_ket, sgn_ket) #TODO: write a better name
-    libgpu.pull_tdm1(gpu, tdm1h, norb+1)
+                               ia_ket, ja_ket, ib_ket, jb_ket, sgn_ket, 0) #TODO: write a better name
+    libgpu.pull_tdm1(gpu, tdm1h, norb+1, 0)
     return tdm1h.T
    
 
@@ -194,7 +194,7 @@ def _trans_rdm13hs (cre, cibra, ciket, norb, nelec, spin=0, link_index=None, reo
       ### Old kernel
       tdm1h, tdm3ha, tdm3hb = _trans_rdm13hs_o0(cre, cibra, ciket, norb, nelec, spin=spin, link_index=link_index, reorder = reorder)
       ### New kernel
-      tdm1h_c, tdm3ha_c, tdm3hb_c = _trans_rdm13hs_o4(cre, cibra, ciket, norb, nelec, spin=spin, link_index=link_index, reorder = reorder)
+      tdm1h_c, tdm3ha_c, tdm3hb_c = _trans_rdm13hs_o5(cre, cibra, ciket, norb, nelec, spin=spin, link_index=link_index, reorder = reorder)
       tdm1_correct = np.allclose(tdm1h, tdm1h_c)
       tdm3ha_correct = np.allclose(tdm3ha, tdm3ha_c)
       tdm3hb_correct = np.allclose(tdm3hb, tdm3hb_c)
@@ -203,25 +203,13 @@ def _trans_rdm13hs (cre, cibra, ciket, norb, nelec, spin=0, link_index=None, reo
       else:
         print('TDM RDM13hs calculated incorrectly')
         print('TDM1h correct?', tdm1_correct)
-        print(tdm1h)
-        print(tdm1h_c)
-        #print(tdm3ha)
         print('TDM3ha correct?', tdm3ha_correct)
-        #if not tdm3ha_correct: print((tdm3ha - tdm3ha_c).reshape(-1, (norb+1)*(norb+1)))
         print('TDM3hb correct?', tdm3hb_correct)
-        #if not tdm3hb_correct: print(tdm3hb - tdm3hb_c)
         exit()
     elif custom_fci and use_gpu: 
-      tdm1h, tdm3ha, tdm3hb = _trans_rdm13hs_o4(cre, cibra, ciket, norb, nelec, spin=spin, link_index=link_index, reorder = reorder)
+      tdm1h, tdm3ha, tdm3hb = _trans_rdm13hs_o5(cre, cibra, ciket, norb, nelec, spin=spin, link_index=link_index, reorder = reorder)
     else:
       tdm1h, tdm3ha, tdm3hb = _trans_rdm13hs_o0(cre, cibra, ciket, norb, nelec, spin=spin, link_index=link_index, reorder = reorder)
-    tdm1h = tdm1h[-1,:-1]
-    tdm3ha = tdm3ha[:-1,-1,:-1,:-1]
-    tdm3hb = tdm3hb[:-1,-1,:-1,:-1]
-    if not cre: 
-        tdm1h = tdm1h.conj ()
-        tdm3ha = tdm3ha.conj ().transpose (0,2,1)
-        tdm3hb = tdm3hb.conj ().transpose (0,2,1)
     return tdm1h, (tdm3ha, tdm3hb)
 
 def _trans_rdm13hs_o0(cre, cibra, ciket, norb, nelec, spin=0, link_index=None, reorder=True):
@@ -250,9 +238,17 @@ def _trans_rdm13hs_o0(cre, cibra, ciket, norb, nelec, spin=0, link_index=None, r
     else:
       tdm3ha = tdm3h_par
       tdm3hb = rdm.make_rdm12_spin1 (fn_ab, cibra, ciket, norb+1, nelec_bra, linkstr, 0)[1]
+
+    tdm1h = tdm1h[-1,:-1]
+    tdm3ha = tdm3ha[:-1,-1,:-1,:-1]
+    tdm3hb = tdm3hb[:-1,-1,:-1,:-1]
+    if not cre: 
+        tdm1h = tdm1h.conj ()
+        tdm3ha = tdm3ha.conj ().transpose (0,2,1)
+        tdm3hb = tdm3hb.conj ().transpose (0,2,1)
     return tdm1h, tdm3ha, tdm3hb 
 
-def _trans_rdm13hs_o4(cre, cibra, ciket, norb, nelec, spin=0, link_index=None, reorder=True):
+def _trans_rdm13hs_o5(cre, cibra, ciket, norb, nelec, spin=0, link_index=None, reorder=True):
     '''GPU accelerated _trand_rdm13hs with custom FCI kernel'''
     from mrh.my_pyscf.gpu import libgpu
     gpu=param.use_gpu
@@ -273,31 +269,27 @@ def _trans_rdm13hs_o4(cre, cibra, ciket, norb, nelec, spin=0, link_index=None, r
     nb, nlinkb = linkstr[1].shape[:2] 
     na_bra, nb_bra = cibra.shape
     na_ket, nb_ket = ciket.shape
-    libgpu.push_cibra(gpu, cibra, na_bra, nb_bra)
-    libgpu.push_ciket(gpu, ciket, na_ket, nb_ket)
+    libgpu.push_cibra(gpu, cibra, na_bra, nb_bra, 0)
+    libgpu.push_ciket(gpu, ciket, na_ket, nb_ket, 0)
+    #print("cibra: size", na_bra, "x",nb_bra, "=", na_bra*nb_bra)
+    #print("ciket: size", na_ket, "x",nb_ket, "=", na_ket*nb_ket)
+    
 
-    tdm1h = np.empty((norb+1, norb+1))
-    tdm3ha = np.empty((norb+1, norb+1, norb+1, norb+1))
-    tdm3hb = np.empty((norb+1, norb+1, norb+1, norb+1))
+    tdm1h = np.empty((norb))
+    tdm3ha = np.empty((norb, norb, norb))
+    tdm3hb = np.empty((norb, norb, norb))
     libgpu.init_tdm1(gpu, norb+1)
     libgpu.push_link_index_ab(gpu, na, nb, nlinka, nlinkb, linkstr[0], linkstr[1])
     libgpu.init_tdm3hab(gpu, norb+1)
     libgpu.compute_tdm13h_spin_v4(gpu, na, nb, nlinka, nlinkb, norb+1, spin, reorder,
                                    ia_bra, ja_bra, ib_bra, jb_bra, sgn_bra,
-                                   ia_ket, ja_ket, ib_ket, jb_ket, sgn_ket) #TODO: write a better name
-    if reorder: libgpu.reorder_rdm(gpu, norb+1)
-    libgpu.pull_tdm1(gpu, tdm1h, norb+1)
-    tdm1h = tdm1h.T
-    if spin: 
-        libgpu.pull_tdm3hab(gpu, tdm3hb, tdm3ha, norb+1) #note the switch! because I want to use the reorder function where rdm is switched
-        tdm3ha = tdm3ha.transpose(3,2,1,0)
-    else:
-        libgpu.pull_tdm3hab(gpu, tdm3ha, tdm3hb, norb+1)
+                                   ia_ket, ja_ket, ib_ket, jb_ket, sgn_ket, 0) #TODO: write a better name
+    if reorder: libgpu.reorder_rdm(gpu, norb+1, 0)
+    libgpu.pull_tdm3hab_v2(gpu, tdm1h, tdm3ha, tdm3hb, norb, cre, spin, 0)
     return tdm1h, tdm3ha, tdm3hb 
 
-def _trans_rdm13hs_o5(cre, cibra, ciket, norb, nelec, spin=0, link_index=None, reorder=True):
+def _trans_rdm13hs_o6(cre, cibra, ciket, norb, nelec, spin=0, link_index=None, reorder=True):
     '''GPU accelerated _trand_rdm13hs with custom FCI kernel'''
-    ##THIS IS NOT CURRENTLY WORKING. USE O4
     from mrh.my_pyscf.gpu import libgpu
     gpu=param.use_gpu
     nelec = list (_unpack_nelec (nelec))
@@ -317,32 +309,22 @@ def _trans_rdm13hs_o5(cre, cibra, ciket, norb, nelec, spin=0, link_index=None, r
     nb, nlinkb = linkstr[1].shape[:2] 
     na_bra, nb_bra = cibra.shape
     na_ket, nb_ket = ciket.shape
-    libgpu.push_cibra(gpu, cibra, na_bra, nb_bra)
-    libgpu.push_ciket(gpu, ciket, na_ket, nb_ket)
+    libgpu.push_cibra(gpu, cibra, na_bra, nb_bra, 0)
+    libgpu.push_ciket(gpu, ciket, na_ket, nb_ket, 0)
 
-    tdm1h = np.empty((norb+1, norb+1))
-    tdm3ha = np.empty((norb+1, norb+1, norb+1, norb+1))
-    tdm3hb = np.empty((norb+1, norb+1, norb+1, norb+1))
+    tdm1h = np.empty((norb))
+    tdm3ha = np.empty((norb, norb, norb))
+    tdm3hb = np.empty((norb, norb, norb))
     libgpu.init_tdm1(gpu, norb+1)
     libgpu.push_link_index_ab(gpu, na, nb, nlinka, nlinkb, linkstr[0], linkstr[1])
     libgpu.init_tdm3hab(gpu, norb+1)
-    print('ia_bra, ja_bra, ib_bra, jb_bra')
-    print(ia_bra, ja_bra, ib_bra, jb_bra)
-    print('ia_ket, ja_ket, ib_ket, jb_ket')
-    print(ia_ket, ja_ket, ib_ket, jb_ket)
     libgpu.compute_tdm13h_spin_v5(gpu, na, nb, nlinka, nlinkb, norb+1, spin, reorder,
                                    ia_bra, ja_bra, ib_bra, jb_bra, sgn_bra,
-                                   ia_ket, ja_ket, ib_ket, jb_ket, sgn_ket) #TODO: write a better name
-    libgpu.pull_tdm1(gpu, tdm1h, norb+1)
-    libgpu.pull_tdm3hab(gpu, tdm3ha, tdm3hb, norb+1)
-    #reorder not working
-    tdm1h = tdm1h.T
-    if spin: 
-        if reorder: tdm1h, tdm3hb = rdm.reorder_rdm(tdm1h, tdm3hb, inplace=True)
-        tdm3ha = tdm3ha.transpose(3,2,1,0)
-    else:
-        if reorder: tdm1h, tdm3ha = rdm.reorder_rdm (tdm1h, tdm3ha, inplace=True)
+                                   ia_ket, ja_ket, ib_ket, jb_ket, sgn_ket, 0) #TODO: write a better name
+    if reorder: libgpu.reorder_rdm(gpu, norb+1, 0)
+    libgpu.pull_tdm3hab_v2(gpu, tdm1h, tdm3ha, tdm3hb, norb, cre, spin, 0)
     return tdm1h, tdm3ha, tdm3hb 
+
 
 
 
@@ -449,14 +431,14 @@ def _trans_sfudm1_o2(cibra,ciket,norb, nelec, link_index=None):
     dm2dum = np.zeros((norb,norb))
     na_bra, nb_bra = cibra.shape
     na_ket, nb_ket = ciket.shape
-    libgpu.push_cibra(gpu, ciket, na_ket, nb_ket)
-    libgpu.push_ciket(gpu, cibra, na_bra, nb_bra)
+    libgpu.push_cibra(gpu, ciket, na_ket, nb_ket, 0)
+    libgpu.push_ciket(gpu, cibra, na_bra, nb_bra, 0)
     libgpu.init_tdm1(gpu, norb)#actually pulling
     libgpu.init_tdm2(gpu, norb+1)#for storing result on gpu
     libgpu.compute_sfudm_v2(gpu, na, nb, nlinka, nlinkb, norb+1, 
                          ia_ket, ja_ket, ib_ket, jb_ket, sgn_ket,
-                         ia_bra, ja_bra, ib_bra, jb_bra, sgn_bra)
-    libgpu.pull_tdm1(gpu, dm2dum, norb)#when filtering
+                         ia_bra, ja_bra, ib_bra, jb_bra, sgn_bra, 0)
+    libgpu.pull_tdm1(gpu, dm2dum, norb, 0)#when filtering
     return dm2dum
 
 def trans_sfddm1 (cibra, ciket, norb, nelec, link_index=None):
@@ -612,17 +594,22 @@ def _trans_ppdm_o3(cibra, ciket, norb, nelec, spin = 0, link_index = None):
     na, nlinka = linkstr[0].shape[:2] 
     nb, nlinkb = linkstr[1].shape[:2] 
     libgpu.push_link_index_ab(gpu, na, nb, nlinka, nlinkb, linkstr[0], linkstr[1])
-    libgpu.push_cibra(gpu, cibra, na_bra, nb_bra)
-    libgpu.push_ciket(gpu, ciket, na_ket, nb_ket)
+    libgpu.push_cibra(gpu, cibra, na_bra, nb_bra, 0)
+    libgpu.push_ciket(gpu, ciket, na_ket, nb_ket, 0)
+    #print(cibra.shape, ciket.shape)
+    #print("cibra")
+    #print(cibra)
+    #print("ciket")
+    #print(ciket)
     libgpu.compute_tdmpp_spin_v4(gpu, na, nb, nlinka, nlinkb, norb+ndum, spin, 
                               ia_bra, ja_bra, ib_bra, jb_bra, sgn_bra, 
-                              ia_ket, ja_ket, ib_ket, jb_ket, sgn_ket) #TODO: write a better name
+                              ia_ket, ja_ket, ib_ket, jb_ket, sgn_ket, 0) #TODO: write a better name
     ##VA 10/2: Reorder doesn't do anything ... 
     #dumdm2 = np.empty((norb+ndum, norb+ndum, norb+ndum, norb+ndum))
     #libgpu.pull_tdm2(gpu, dumdm2, norb+ndum)
     #return dumdm2[:-ndum,-1,:-ndum,-ndum]
     dumdm2 = np.empty((norb, norb))
-    libgpu.pull_tdm1(gpu, dumdm2, norb)
+    libgpu.pull_tdm1(gpu, dumdm2, norb, 0)
     return dumdm2
 
 def trans_hhdm (cibra, ciket, norb, nelec, spin=0, link_index=None):

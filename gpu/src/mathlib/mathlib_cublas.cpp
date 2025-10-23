@@ -90,12 +90,13 @@ void MATHLIB::memset(double * array, const int * num, const int * size)
 #endif
 //TODO: add profiling lines related things
 
-  //cublasHandle_t * h = current_handle;
-  
-  //cublasOperation_t ta;
+#if 1
+  cudaStream_t * s = pm->dev_get_queue();
 
-  //cudaMemsetAsync ( array, *num, *size, *h);   
-  cudaMemset ( array, *num, *size);//, *h);   
+  cudaMemsetAsync ( array, *num, *size, *s);
+#else
+  cudaMemset ( array, *num, *size);
+#endif
   
   _CUDA_CHECK_ERRORS();
 

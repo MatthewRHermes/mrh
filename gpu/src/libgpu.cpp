@@ -367,28 +367,66 @@ void libgpu_init_tdm2(void * ptr,
   dev->init_tdm2(norb);
 }
 /* ---------------------------------------------------------------------- */
-void libgpu_push_ci(void * ptr, 
-                      py::array_t<double> cibra, py::array_t<double> ciket,
-                      int na, int nb)
-{
+void libgpu_init_tdm1_host(void * ptr, int size_dm)
+{ 
   Device * dev = (Device *) ptr;
-  dev->push_cibra(cibra, na, nb);
-  dev->push_ciket(ciket, na, nb);
+  dev->init_tdm1_host(size_dm);
+}
+/* ---------------------------------------------------------------------- */
+void libgpu_init_tdm2_host(void * ptr, int size_dm)
+{ 
+  Device * dev = (Device *) ptr;
+  dev->init_tdm2_host(size_dm);
+}
+/* ---------------------------------------------------------------------- */
+void libgpu_init_tdm3h_host(void * ptr, int size_dm)
+{ 
+  Device * dev = (Device *) ptr;
+  dev->init_tdm3h_host(size_dm);
 }
 /* ---------------------------------------------------------------------- */
 void libgpu_push_cibra(void * ptr, 
-                      py::array_t<double> cibra, int na, int nb)
+                      py::array_t<double> cibra, int na, int nb, int count)
 {
   Device * dev = (Device *) ptr;
-  dev->push_cibra(cibra, na, nb);
+  dev->push_cibra(cibra, na, nb, count);
 }
 /* ---------------------------------------------------------------------- */
 void libgpu_push_ciket(void * ptr, 
-                      py::array_t<double> ciket, int na, int nb)
+                      py::array_t<double> ciket, int na, int nb, int count)
 {
   Device * dev = (Device *) ptr;
-  dev->push_ciket(ciket, na, nb);
+  dev->push_ciket(ciket, na, nb, count);
 }
+/* ---------------------------------------------------------------------- */
+void libgpu_copy_bravecs_host(void * ptr, 
+                      py::array_t<double> bravecs, int nvecs, int na, int nb)
+{
+  Device * dev = (Device *) ptr;
+  dev->copy_bravecs_host(bravecs, nvecs, na, nb);
+}
+/* ---------------------------------------------------------------------- */
+void libgpu_copy_ketvecs_host(void * ptr, 
+                      py::array_t<double> ketvecs, int nvecs, int na, int nb)
+{
+  Device * dev = (Device *) ptr;
+  dev->copy_ketvecs_host(ketvecs, nvecs, na, nb);
+}
+/* ---------------------------------------------------------------------- */
+void libgpu_push_cibra_from_host(void *ptr, 
+                              int bra_index, int na, int nb, int count)
+{
+  Device * dev = (Device *) ptr;
+  dev->push_cibra_from_host(bra_index, na, nb, count);
+}
+/* ---------------------------------------------------------------------- */
+void libgpu_push_ciket_from_host(void *ptr, 
+                              int ket_index, int na, int nb, int count)
+{
+  Device * dev = (Device *) ptr;
+  dev->push_ciket_from_host(ket_index, na, nb, count);
+}
+
 /* ---------------------------------------------------------------------- */
 void libgpu_push_link_indexa(void * ptr, 
                               int na, int nlinka, py::array_t<int> link_indexa) //TODO: figure out the shape? or maybe move the compressed version 
@@ -413,82 +451,88 @@ void libgpu_push_link_index_ab(void * ptr,
 }
 /* ---------------------------------------------------------------------- */
 void libgpu_compute_trans_rdm1a(void * ptr, 
-                            int na, int nb, int nlinka, int nlinkb, int norb)
+                            int na, int nb, int nlinka, int nlinkb, int norb, int count)
 {
   Device * dev = (Device *) ptr;
-  dev->compute_trans_rdm1a(na, nb, nlinka, nlinkb, norb);
+  dev->compute_trans_rdm1a(na, nb, nlinka, nlinkb, norb, count);
 }
 /* ---------------------------------------------------------------------- */
 void libgpu_compute_trans_rdm1b(void * ptr, 
-                            int na, int nb, int nlinka, int nlinkb, int norb)
+                            int na, int nb, int nlinka, int nlinkb, int norb, int count)
 {
   Device * dev = (Device *) ptr;
-  dev->compute_trans_rdm1b(na, nb, nlinka, nlinkb, norb);
+  dev->compute_trans_rdm1b(na, nb, nlinka, nlinkb, norb, count);
 }
 /* ---------------------------------------------------------------------- */
 void libgpu_compute_make_rdm1a(void * ptr, 
-                            int na, int nb, int nlinka, int nlinkb, int norb)
+                            int na, int nb, int nlinka, int nlinkb, int norb, int count)
 {
   Device * dev = (Device *) ptr;
-  dev->compute_make_rdm1a(na, nb, nlinka, nlinkb, norb);
+  dev->compute_make_rdm1a(na, nb, nlinka, nlinkb, norb, count);
 }
 /* ---------------------------------------------------------------------- */
 void libgpu_compute_make_rdm1b(void * ptr, 
-                            int na, int nb, int nlinka, int nlinkb, int norb)
+                            int na, int nb, int nlinka, int nlinkb, int norb, int count)
 {
   Device * dev = (Device *) ptr;
-  dev->compute_make_rdm1b(na, nb, nlinka, nlinkb, norb);
+  dev->compute_make_rdm1b(na, nb, nlinka, nlinkb, norb, count);
 }
 
 /* ---------------------------------------------------------------------- */
 void libgpu_compute_tdm12kern_a_v2(void * ptr, 
-                            int na, int nb, int nlinka, int nlinkb, int norb)
+                            int na, int nb, int nlinka, int nlinkb, int norb, int count)
 {
   Device * dev = (Device *) ptr;
-  dev->compute_tdm12kern_a_v2(na, nb, nlinka, nlinkb, norb);
+  dev->compute_tdm12kern_a_v2(na, nb, nlinka, nlinkb, norb, count);
 }
 /* ---------------------------------------------------------------------- */
 void libgpu_compute_tdm12kern_b_v2(void * ptr, 
-                            int na, int nb, int nlinka, int nlinkb, int norb)
+                            int na, int nb, int nlinka, int nlinkb, int norb, int count)
 {
   Device * dev = (Device *) ptr;
-  dev->compute_tdm12kern_b_v2(na, nb, nlinka, nlinkb, norb);
+  dev->compute_tdm12kern_b_v2(na, nb, nlinka, nlinkb, norb, count);
 }
 /* ---------------------------------------------------------------------- */
 void libgpu_compute_tdm12kern_ab_v2(void * ptr, 
-                            int na, int nb, int nlinka, int nlinkb, int norb)
+                            int na, int nb, int nlinka, int nlinkb, int norb, int count)
 {
   Device * dev = (Device *) ptr;
-  dev->compute_tdm12kern_ab_v2(na, nb, nlinka, nlinkb, norb);
+  dev->compute_tdm12kern_ab_v2(na, nb, nlinka, nlinkb, norb, count);
 }
 /* ---------------------------------------------------------------------- */
 void libgpu_compute_rdm12kern_sf_v2(void * ptr, 
-                            int na, int nb, int nlinka, int nlinkb, int norb)
+                            int na, int nb, int nlinka, int nlinkb, int norb, int count)
 {
   Device * dev = (Device *) ptr;
-  dev->compute_rdm12kern_sf_v2(na, nb, nlinka, nlinkb, norb);
+  dev->compute_rdm12kern_sf_v2(na, nb, nlinka, nlinkb, norb, count);
 }
 /* ---------------------------------------------------------------------- */
 void libgpu_reorder_rdm(void * ptr, 
-                         int norb)
+                         int norb, int count)
 {
   Device * dev = (Device *) ptr;
-  dev->reorder_rdm(norb);
-} 
+  dev->reorder_rdm(norb, count);
+}
+/* ---------------------------------------------------------------------- */
+void libgpu_transpose_tdm2(void * ptr, int norb, int count)
+{
+  Device * dev = (Device *) ptr;
+  dev->transpose_tdm2(norb, count);
+}
 /* ---------------------------------------------------------------------- */
 void libgpu_compute_tdm13h_spin_v4(void * ptr, 
                                  int na, int nb,
                                  int nlinka, int nlinkb, 
                                  int norb, int spin, int _reorder,
                                  int ia_bra, int ja_bra, int ib_bra, int jb_bra, int sgn_bra, 
-                                 int ia_ket, int ja_ket, int ib_ket, int jb_ket, int sgn_ket )
+                                 int ia_ket, int ja_ket, int ib_ket, int jb_ket, int sgn_ket, int count )
 {
   Device * dev = (Device *) ptr;
   dev->compute_tdm13h_spin_v4(    na, nb,
                                   nlinka,  nlinkb, 
                                   norb,  spin,  _reorder,
                                   ia_bra,  ja_bra,  ib_bra,  jb_bra,  sgn_bra, 
-                                  ia_ket,  ja_ket,  ib_ket,  jb_ket,  sgn_ket );
+                                  ia_ket,  ja_ket,  ib_ket,  jb_ket,  sgn_ket, count );
 }
 /* ---------------------------------------------------------------------- */
 void libgpu_compute_tdm13h_spin_v5(void * ptr, 
@@ -496,69 +540,120 @@ void libgpu_compute_tdm13h_spin_v5(void * ptr,
                                  int nlinka, int nlinkb, 
                                  int norb, int spin, int _reorder,
                                  int ia_bra, int ja_bra, int ib_bra, int jb_bra, int sgn_bra, 
-                                 int ia_ket, int ja_ket, int ib_ket, int jb_ket, int sgn_ket )
+                                 int ia_ket, int ja_ket, int ib_ket, int jb_ket, int sgn_ket, int count )
 {
   Device * dev = (Device *) ptr;
   dev->compute_tdm13h_spin_v5( na, nb,
                                nlinka,  nlinkb, 
                                norb,  spin,  _reorder,
                                ia_bra,  ja_bra,  ib_bra,  jb_bra,  sgn_bra, 
-                               ia_ket,  ja_ket,  ib_ket,  jb_ket,  sgn_ket );
+                               ia_ket,  ja_ket,  ib_ket,  jb_ket,  sgn_ket, count );
 }
 
 /* ---------------------------------------------------------------------- */
 void libgpu_compute_tdmpp_spin_v4(void * ptr, 
                             int na, int nb, int nlinka, int nlinkb, int norb, int spin,
                             int ia_bra, int ja_bra, int ib_bra, int jb_bra, int sgn_bra, 
-                            int ia_ket, int ja_ket, int ib_ket, int jb_ket, int sgn_ket )
+                            int ia_ket, int ja_ket, int ib_ket, int jb_ket, int sgn_ket, int count )
 {
   Device * dev = (Device *) ptr;
   dev->compute_tdmpp_spin_v4(na, nb, nlinka, nlinkb, norb, spin, 
                              ia_bra, ja_bra, ib_bra, jb_bra, sgn_bra,      
-                             ia_ket, ja_ket, ib_ket, jb_ket, sgn_ket );
+                             ia_ket, ja_ket, ib_ket, jb_ket, sgn_ket, count );
 }
 /* ---------------------------------------------------------------------- */
 void libgpu_compute_sfudm_v2( void *ptr, 
                             int na, int nb, int nlinka, int nlinkb, int norb, 
                             int ia_bra, int ja_bra, int ib_bra, int jb_bra, int sgn_bra, 
-                            int ia_ket, int ja_ket, int ib_ket, int jb_ket, int sgn_ket )
+                            int ia_ket, int ja_ket, int ib_ket, int jb_ket, int sgn_ket, int count )
 {
   Device * dev = (Device *) ptr;
   dev->compute_sfudm_v2(na, nb, nlinka, nlinkb, norb, 
                      ia_bra, ja_bra, ib_bra, jb_bra, sgn_bra,      
-                     ia_ket, ja_ket, ib_ket, jb_ket, sgn_ket );
+                     ia_ket, ja_ket, ib_ket, jb_ket, sgn_ket, count );
 }
 
 /* ---------------------------------------------------------------------- */
 void libgpu_compute_tdm1h_spin( void *ptr, 
                             int na, int nb, int nlinka, int nlinkb, int norb, int spin,  
                             int ia_bra, int ja_bra, int ib_bra, int jb_bra, int sgn_bra, 
-                            int ia_ket, int ja_ket, int ib_ket, int jb_ket, int sgn_ket )
+                            int ia_ket, int ja_ket, int ib_ket, int jb_ket, int sgn_ket, int count )
 {
   Device * dev = (Device *) ptr;
   dev->compute_tdm1h_spin(na, nb, nlinka, nlinkb, norb, spin, 
                      ia_bra, ja_bra, ib_bra, jb_bra, sgn_bra,      
-                     ia_ket, ja_ket, ib_ket, jb_ket, sgn_ket );
+                     ia_ket, ja_ket, ib_ket, jb_ket, sgn_ket, count );
 }
 /* ---------------------------------------------------------------------- */
 void libgpu_pull_tdm1(void * ptr, 
-                      py::array_t<double> tdm1, int norb)
+                      py::array_t<double> tdm1, int norb, int count)
 {
   Device * dev = (Device *) ptr;
-  dev->pull_tdm1(tdm1, norb);
+  dev->pull_tdm1(tdm1, norb, count);
 }
 /* ---------------------------------------------------------------------- */
 void libgpu_pull_tdm2(void * ptr, 
-                      py::array_t<double> tdm2, int norb)
+                      py::array_t<double> tdm2, int norb, int count)
 {
   Device * dev = (Device *) ptr;
-  dev->pull_tdm2(tdm2, norb);
+  dev->pull_tdm2(tdm2, norb, count);
 }
 /* ---------------------------------------------------------------------- */
-void libgpu_pull_tdm3hab(void * ptr, 
-                      py::array_t<double> tdm3ha, py::array_t<double> tdm3hb, int norb)
+void libgpu_pull_tdm1_host(void * ptr, 
+                      int i, int j, int n_bra, int n_ket, int size_dm, int factor, int count)
 {
   Device * dev = (Device *) ptr;
-  dev->pull_tdm3hab(tdm3ha, tdm3hb, norb);
+  dev->pull_tdm1_host(i, j, n_bra, n_ket, size_dm, factor, count);
+}
+/* ---------------------------------------------------------------------- */
+void libgpu_pull_tdm2_host(void * ptr, 
+                      int i, int j, int n_bra, int n_ket, int size_dm, int factor, int count)
+{
+  Device * dev = (Device *) ptr;
+  dev->pull_tdm2_host(i, j, n_bra, n_ket, size_dm, factor, count);
+}
+
+/* ---------------------------------------------------------------------- */
+void libgpu_pull_tdm3hab(void * ptr, 
+                      py::array_t<double> tdm3ha, py::array_t<double> tdm3hb, int norb, int count)
+{
+  Device * dev = (Device *) ptr;
+  dev->pull_tdm3hab(tdm3ha, tdm3hb, norb, count);
+}
+/* ---------------------------------------------------------------------- */
+void libgpu_pull_tdm3hab_v2(void * ptr, 
+                      py::array_t<double> tdm1h, py::array_t<double> tdm3ha, py::array_t<double> tdm3hb, int norb, int cre, int spin, int count )
+{
+  Device * dev = (Device *) ptr;
+  dev->pull_tdm3hab_v2(tdm1h, tdm3ha, tdm3hb, norb, cre, spin, count);
+}
+/* ---------------------------------------------------------------------- */
+void libgpu_pull_tdm3hab_v2_host(void * ptr, 
+                      int i, int j, int n_bra, int n_ket, int norb, int cre, int spin, int count)
+{
+  Device * dev = (Device *) ptr;
+  dev->pull_tdm3hab_v2_host(i, j, n_bra, n_ket, norb, cre, spin, count);
+}
+
+/* ---------------------------------------------------------------------- */
+void libgpu_pull_tdm3h_host(void * ptr, 
+                      int loc, int size_dm, int count)
+{
+  Device * dev = (Device *) ptr;
+  dev->pull_tdm3h_host(loc, size_dm, count);
+}
+/* ---------------------------------------------------------------------- */
+void libgpu_copy_tdm1_host_to_page(void * ptr, 
+                          py::array_t<double> dm1_full, int size_dm1_full)
+{
+  Device * dev = (Device *) ptr;
+  dev->copy_tdm1_host_to_page(dm1_full, size_dm1_full);
+}
+/* ---------------------------------------------------------------------- */
+void libgpu_copy_tdm2_host_to_page(void * ptr, 
+                          py::array_t<double> dm2_full, int size_dm2_full)
+{
+  Device * dev = (Device *) ptr;
+  dev->copy_tdm2_host_to_page(dm2_full, size_dm2_full);
 }
 /* ---------------------------------------------------------------------- */

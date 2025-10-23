@@ -458,7 +458,34 @@ __global__ void _vecadd(const double * in, double * out, int N)
     if(i >= N) return;
     out[i] += in[i];
 }
+
 /* ---------------------------------------------------------------------- */
+
+__global__ void _vecadd_batch(const double * in, double * out, int N, int num_batches)
+{
+    int i = blockIdx.x * blockDim.x + threadIdx.x;
+
+    if(i >= N) return;
+
+    double val = 0.0;
+    for(int j=0; j<num_batches; ++j) val += in[j*N + i];
+    
+    out[i] += val;
+}
+
+/* ---------------------------------------------------------------------- */
+
+__global__ void _memset_zero_batch_stride(double * inout, int stride, int offset, int N, int num_batches)
+{
+    int i = blockIdx.x * blockDim.x + threadIdx.x;
+
+    if(i >= N) return;
+    
+    for(int j=0; j<num_batches; ++j) inout[j*stride + offset + i] = 0.0;
+}
+
+/* ---------------------------------------------------------------------- */
+
 __global__ void _get_rho_to_Pi(double * rho, double * Pi, int ngrid)
 {
     int i = blockIdx.x * blockDim.x + threadIdx.x;
@@ -1144,6 +1171,50 @@ __global__ void _filter_tdmpp(const double * dm2, double * dm1, int norb, int sp
     if (j >= norb-ndum) return;
     dm1[i*(norb-ndum)+j] = dm2[i*norb*norb*norb + (norb-1)*norb*norb + j*norb+ norb-ndum];
 } 
+/* ---------------------------------------------------------------------- */
+__global__ void _filter_tdm1h(const double * in, double * out, int norb)
+{
+
+    //tdm1h = tdm1h.T
+    //tdm1h = tdm1h[-1,:-1]
+    //in is (norb+1)^2
+    int i = blockIdx.x * blockDim.x + threadIdx.x;
+    if (i >= norb) return;
+    out[i] = in[i*(norb+1)+norb];
+}
+/* ---------------------------------------------------------------------- */
+__global__ void _filter_tdm3h(double * in, double * out, int norb)
+{
+    //tdm3h = tdm3h[:-1,-1,:-1,:-1]
+    int i = blockIdx.x * blockDim.x + threadIdx.x;
+    int j = blockIdx.y * blockDim.y + threadIdx.y;
+    int k = blockIdx.z * blockDim.z + threadIdx.z;
+    if (i >= norb) return;
+    if (j >= norb) return;
+    if (k >= norb) return;
+    int norb1 = norb+1;
+    //printf("%i %i %i %i %f\n",i, j, k, ((i*norb1+norb)*norb1+j)*norb1+k, in[((i*norb1+norb)*norb1+j)*norb1+k]);
+    out[(i*norb+j)*norb+k] = in[((i*norb1+norb)*norb1+j)*norb1+k];
+}  
+/* ---------------------------------------------------------------------- */
+__global__ void _transpose_021(double * in, double * out, int norb) {
+    // abc->acb
+    int i = blockIdx.x * blockDim.x + threadIdx.x;
+    int j = blockIdx.y * blockDim.y + threadIdx.y;
+    int k = blockIdx.z * blockDim.z + threadIdx.z;
+
+    if(i >= norb) return;
+    if(j >= norb) return;
+    if(k >= norb) return;
+
+    int inputIndex = i*norb*norb+k*norb+j;
+    int outputIndex = i*norb*norb  + j*norb + k;
+    //printf("%i %i %i %f\n",i, j, k, in[inputIndex]);
+    out[outputIndex] = in[inputIndex];
+}
+
+
+
 
  
 
@@ -1517,6 +1588,42 @@ void Device::vecadd(const double * in, double * out, int N)
 }
 
 /* ---------------------------------------------------------------------- */
+
+void Device::vecadd_batch(const double * in, double * out, int N, int num_batches)
+{
+  dim3 block_size(_DEFAULT_BLOCK_SIZE, 1, 1);
+  dim3 grid_size(_TILE(N,block_size.x));
+  
+  cudaStream_t s = *(pm->dev_get_queue());
+  
+  _vecadd_batch<<<grid_size, block_size, 0, s>>>(in, out, N, num_batches);
+  
+#ifdef _DEBUG_DEVICE
+  printf("LIBGPU ::  -- general::vecadd_batch :: N= %i  num_batches= %i  grid_size= %i %i %i  block_size= %i %i %i\n",
+	 N, num_batches, grid_size.x,grid_size.y,grid_size.z,block_size.x,block_size.y,block_size.z);
+  _CUDA_CHECK_ERRORS();
+#endif
+}
+
+/* ---------------------------------------------------------------------- */
+
+void Device::memset_zero_batch_stride(double * inout, int stride, int offset, int N, int num_batches)
+{
+  dim3 block_size(_DEFAULT_BLOCK_SIZE, 1, 1);
+  dim3 grid_size(_TILE(N,block_size.x));
+  
+  cudaStream_t s = *(pm->dev_get_queue());
+  
+  _memset_zero_batch_stride<<<grid_size, block_size, 0, s>>>(inout, stride, offset, N, num_batches);
+  
+#ifdef _DEBUG_DEVICE
+  printf("LIBGPU ::  -- general::memset_zero_batch_stride :: stride= %i  offset= %i  N= %i  num_batches= %i  grid_size= %i %i %i  block_size= %i %i %i\n",
+	 stride, offset, N, num_batches, grid_size.x,grid_size.y,grid_size.z,block_size.x,block_size.y,block_size.z);
+  _CUDA_CHECK_ERRORS();
+#endif
+}
+
+/* ---------------------------------------------------------------------- */
 void Device::get_rho_to_Pi(double * rho, double * Pi, int ngrid)
 {
   dim3 block_size(_DEFAULT_BLOCK_SIZE, 1, 1);
@@ -1835,10 +1942,16 @@ void Device::reduce_buf3_to_rdm(const double * buf3, double * dm2, int size_tdm2
   cudaStream_t s = *(pm->dev_get_queue());
   dim3 block_size(_DEFAULT_BLOCK_SIZE, 1,1);
   dim3 grid_size (_TILE(size_tdm2, block_size.x),1,1);
-  
+
+  //  printf("reduce_buf3_to_rdm : size= %i  num_batches= %i\n", size_tdm2, num_gemm_batches);
+
+#if 1
+  vecadd_batch(buf3, dm2, size_tdm2, num_gemm_batches);
+#else
   for (int i=0;i<num_gemm_batches; ++i){
     _vecadd<<<grid_size, block_size, 0, s>>>( &(buf3[i*size_tdm2]), dm2, size_tdm2);
   }
+#endif
   _CUDA_CHECK_ERRORS();
 }
 
@@ -1847,7 +1960,6 @@ void Device::reorder(double * dm1, double * dm2, double * buf, int norb)
 {
   int norb2 = norb*norb;
   cudaStream_t s = *(pm->dev_get_queue());
-  printf("Inside reorder\n");
   //for k in range (norb): rdm2[:,k,k,:] -= rdm1.T //remember, rdm1 is returned as rdm1.T, so double transpose, hence just rdm1
   {
     dim3 block_size (1,1,1);
@@ -1908,11 +2020,60 @@ void Device::filter_tdmpp( const double * dm2, double * dm1, int norb, int spin)
 {
   //only need dm2[:-ndum,-1,:-ndum,-ndum] //ndum = 2-(spin%2)
   int ndum = (spin!=1) ? 2:1; 
-  printf("ndum %i\n",ndum);
   cudaStream_t s = *(pm->dev_get_queue());
   dim3 block_size(_DEFAULT_BLOCK_SIZE, _DEFAULT_BLOCK_SIZE, 1);
   dim3 grid_size(_TILE(norb-ndum, block_size.x),_TILE(norb-ndum, block_size.y),1);
   _filter_tdmpp<<<grid_size, block_size, 0,s>>>(dm2,dm1,norb,spin);
+  _CUDA_CHECK_ERRORS();
+}
+/* ---------------------------------------------------------------------- */
+void Device::filter_tdm1h( const double * in, double * out, int norb)
+{
+  //tdm1h = tdm1h.T
+  //tdm1h = tdm1h[-1,:-1]
+  //in is (norb+1)^2
+  cudaStream_t s = *(pm->dev_get_queue());
+  dim3 block_size(_DEFAULT_BLOCK_SIZE, 1, 1);
+  dim3 grid_size(_TILE(norb, block_size.x),1,1);
+  _filter_tdm1h<<<grid_size, block_size, 0,s>>>(in,out,norb);
+  _CUDA_CHECK_ERRORS();
+}
+
+/* ---------------------------------------------------------------------- */
+void Device::filter_tdm3h(double * in, double * out, int norb)
+{
+  //tdm3h = tdm3h[:-1,-1,:-1,:-1]
+  //dm2 is (norb+1)^4
+  cudaStream_t s = *(pm->dev_get_queue());
+  //dim3 block_size(_DEFAULT_BLOCK_SIZE, _DEFAULT_BLOCK_SIZE, _DEFAULT_BLOCK_SIZE);
+  dim3 block_size(1,1,1);
+  dim3 grid_size(_TILE(norb, block_size.x),_TILE(norb, block_size.y),_TILE(norb, block_size.z));
+  _filter_tdm3h<<<grid_size, block_size, 0,s>>>(in, out,norb);
+  _CUDA_CHECK_ERRORS();
+}
+
+/* ---------------------------------------------------------------------- */
+
+void Device::veccopy(const double * src, double *dest, int size)
+{
+  cudaStream_t s = *(pm->dev_get_queue());
+  dim3 block_size(_DEFAULT_BLOCK_SIZE, 1, 1);
+  dim3 grid_size(_TILE(size, block_size.x), 1, 1);
+  _veccopy<<<grid_size, block_size, 0, s>>>(src, dest, size);
+  _CUDA_CHECK_ERRORS();
+}
+/* ---------------------------------------------------------------------- */
+void Device::transpose_021( double * in, double * out, int norb)
+{
+  cudaStream_t s = *(pm->dev_get_queue());
+  //dim3 block_size(_DEFAULT_BLOCK_SIZE, _DEFAULT_BLOCK_SIZE, _DEFAULT_BLOCK_SIZE);
+  dim3 block_size(1,1,1);
+  dim3 grid_size(_TILE(norb, block_size.x),_TILE(norb, block_size.y),_TILE(norb, block_size.z));
+  #if 1
+  _transpose_021<<<grid_size, block_size, 0, s>>>(in, out, norb);
+  #else
+
+  #endif
   _CUDA_CHECK_ERRORS();
 }
 
