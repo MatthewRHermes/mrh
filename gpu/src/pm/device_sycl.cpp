@@ -2518,9 +2518,9 @@ void Device::compute_FCItrans_rdm1b_v2( double * cibra, double * ciket, double *
   if (a_len>0){
     //dim3 block_size(_DEFAULT_BLOCK_SIZE, _DEFAULT_BLOCK_SIZE, _DEFAULT_BLOCK_SIZE);
     sycl::range<3> block_size(_DEFAULT_BLOCK_SIZE, _DEFAULT_BLOCK_SIZE, 1);
-    sycl::range<3> grid_size(_TILE(nlinkb, block_size[2]),
+    sycl::range<3> grid_size(_TILE(nlinkb, block_size[0]),
 			     _TILE(nb_ket, block_size[1]),
-			     _TILE(a_len, block_size[0]));
+			     _TILE(a_len, block_size[2]));
 
     /*
     DPCT1049:23: The work-group size passed to the SYCL kernel may exceed the
@@ -3124,8 +3124,8 @@ void Device::filter_tdm3h(double * in, double * out, int norb)
 void Device::veccopy(const double * src, double *dest, int size)
 {
   sycl::queue * s = pm->dev_get_queue();
-  sycl::range<3> block_size(_DEFAULT_BLOCK_SIZE, 1, 1);
-  sycl::range<3> grid_size(_TILE(size, block_size[0]), 1, 1);
+  sycl::range<3> block_size(1, 1, _DEFAULT_BLOCK_SIZE);
+  sycl::range<3> grid_size(1, 1, _TILE(size, block_size[2]));
   /*
   DPCT1049:40: The work-group size passed to the SYCL kernel may exceed the
   limit. To get the device limit, query info::device::max_work_group_size.
