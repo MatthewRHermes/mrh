@@ -659,7 +659,7 @@ def gen_contract_op_si_hdiag (las, h1, h2, ci, nelec_frs, smult_fr=None, soc=0, 
 
     # First pass: single-fragment intermediates
     ints, lroots = frag.make_ints (las, ci, nelec_frs, nlas=nlas, smult_fr=smult_fr,
-                                   pt_order=pt_order, do_pt_order=do_pt_order)
+                                   pt_order=pt_order, do_pt_order=do_pt_order, verbose=verbose)
     t1 = lib.logger.timer (las, 'LASSI hsi operator first pass make ints', *t1)
     nstates = np.sum (np.prod (lroots, axis=0))
 

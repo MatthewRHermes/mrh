@@ -692,7 +692,7 @@ class FragTDMInt (object):
         spman_inter_uniq = self.spman_inter_uniq
         lroots = [c.shape[0] for c in ci]
         nroots, norb, nuroots = self.nroots, self.norb, self.nuroots
-        t1 = self.log.timer ('_make_dms_ setup', *t1)
+        t1 = self.log.timer_debug1 ('_make_dms_ setup', *t1)
         # Overlap matrix
         offs = np.cumsum (lroots)
         for i, j in combinations (np.where (idx_uniq)[0], 2):
@@ -715,7 +715,7 @@ class FragTDMInt (object):
             #    errmsg = ('States w/in single Hilbert space must be orthonormal; '
             #              'eigvals (ovlp) = {}')
             #    raise RuntimeError (errmsg.format (w))
-        t1 = self.log.timer ('_make_dms_ overloop', *t1)
+        t1 = self.log.timer_debug1 ('_make_dms_ overloop', *t1)
 
 
         # Loop over lroots functions
@@ -799,7 +799,7 @@ class FragTDMInt (object):
             self.set_dm1 (k, l, dm1s)
             self.set_dm2 (k, l, dm2s)
  
-        t1 = self.log.timer ('_make_dms_ trans_rdm12s_loop ', *t1)
+        t1 = self.log.timer_debug1 ('_make_dms_ trans_rdm12s_loop ', *t1)
         hidx_ket_a = np.where (np.any (hopping_index[0] < 0, axis=0))[0]
         hidx_ket_b = np.where (np.any (hopping_index[1] < 0, axis=0))[0]
 
@@ -819,19 +819,19 @@ class FragTDMInt (object):
                     # ^ Passing this assert proves that I have the correct index
                     # and argument ordering for the call and return of trans_rdm12s
                     self.set_phh (bra, ket, 0, phh)
-                    t1 = self.log.timer ('_make_dms_ trans_rdm13h_loop ', *t1)
+                    t1 = self.log.timer_debug1 ('_make_dms_ trans_rdm13h_loop ', *t1)
                 # <j|b'_q a_p|i> = <j|s-|i>
                 elif np.all (hopping_index[:,b,k] == [-1,1]):
                     self.set_sm (bra, ket, trans_sfddm_loop (bra, ket))
-                    t1 = self.log.timer ('_make_dms_ trans_sfddm_loop ', *t1)
+                    t1 = self.log.timer_debug1 ('_make_dms_ trans_sfddm_loop ', *t1)
                 # <j|b_q a_p|i>
                 elif np.all (hopping_index[:,b,k] == [-1,-1]):
                     self.set_hh (bra, ket, 1, trans_hhdm_loop (bra, ket, spin=1))
-                    t1 = self.log.timer ('_make_dms_ trans_hhdm_loop ', *t1)
+                    t1 = self.log.timer_debug1 ('_make_dms_ trans_hhdm_loop ', *t1)
                 # <j|a_q a_p|i>
                 elif np.all (hopping_index[:,b,k] == [-2,0]):
                     self.set_hh (bra, ket, 0, trans_hhdm_loop (bra, ket, spin=0))
-                    t1 = self.log.timer ('_make_dms_ trans_hhdm_loop ', *t1)
+                    t1 = self.log.timer_debug1 ('_make_dms_ trans_hhdm_loop ', *t1)
                 
         # b_p|i>
         for k in hidx_ket_b:
@@ -849,11 +849,11 @@ class FragTDMInt (object):
                     # ^ Passing this assert proves that I have the correct index
                     # and argument ordering for the call and return of trans_rdm12s
                     self.set_phh (bra, ket, 1, phh)
-                    t1 = self.log.timer ('_make_dms_ trans_rdm13h_loop ', *t1)
+                    t1 = self.log.timer_debug1 ('_make_dms_ trans_rdm13h_loop ', *t1)
                 # <j|b_q b_p|i>
                 elif np.all (hopping_index[:,b,k] == [0,-2]):
                     self.set_hh (bra, ket, 2, trans_hhdm_loop (bra, ket, spin=2))
-                    t1 = self.log.timer ('_make_dms_ trans_hhdm_loop ', *t1)
+                    t1 = self.log.timer_debug1 ('_make_dms_ trans_hhdm_loop ', *t1)
         
         return t0
 
@@ -1316,7 +1316,8 @@ def make_ints (las, ci, nelec_frs, smult_fr=None, screen_linequiv=DO_SCREEN_LINE
     '''
     t0 = (lib.logger.process_clock (), lib.logger.perf_counter ())
     nfrags, nroots = nelec_frs.shape[:2]
-    log = lib.logger.new_logger (las, las.verbose)
+    if verbose is None: verbose = las.verbose
+    log = lib.logger.new_logger (las, verbose)
     max_memory = getattr (las, 'max_memory', las.mol.max_memory)
     if nlas is None: nlas = las.ncas_sub
     if smult_fr is None: smult_fr = [None for i in range (nfrags)]
