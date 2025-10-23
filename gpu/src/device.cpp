@@ -499,7 +499,7 @@ void Device::set_device(int id)
 
 /* ---------------------------------------------------------------------- */
     
-void Device::barrier()
+void Device::barrier_all()
 {
   if(verbose_level) printf("LIBGPU: barrier on all devices\n");
 

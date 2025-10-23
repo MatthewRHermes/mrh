@@ -74,7 +74,7 @@ public :
   int get_num_devices();
   void get_dev_properties(int);
   void set_device(int);
-  void barrier();
+  void barrier_all();
   void disable_eri_cache_();
   void set_verbose_(int);
 
