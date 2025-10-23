@@ -23,6 +23,8 @@ extern "C"
   void libgpu_dev_properties(void *, int);
   void libgpu_set_device(void *, int);
 
+  void libgpu_barrier(void *);
+
   void libgpu_disable_eri_cache_(void *);
   void libgpu_set_update_dfobj_(void *, int);
   void libgpu_get_dfobj_status(void *, size_t, py::array_t<int>);
@@ -210,6 +212,8 @@ PYBIND11_MODULE(libgpu, m) {
   m.def("get_num_devices", &libgpu_get_num_devices, "return number of devices present");
   m.def("dev_properties", &libgpu_dev_properties, "info on available devices");
   m.def("set_device", &libgpu_set_device, "select device");
+  m.def("barrier", &libgpu_barrier, "wait for all GPUs to complete queued work");
+  
   m.def("disable_eri_cache_", &libgpu_disable_eri_cache_, "disable caching eri blocks to reduce memory usage for get_jk");
 
   m.def("compute_get_jk", &libgpu_compute_get_jk, "pyscf/df/df_jk.py::get_jk()");

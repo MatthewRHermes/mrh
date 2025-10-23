@@ -499,6 +499,18 @@ void Device::set_device(int id)
 
 /* ---------------------------------------------------------------------- */
     
+void Device::barrier()
+{
+  if(verbose_level) printf("LIBGPU: barrier on all devices\n");
+
+  for(int i=0; i<num_devices; ++i) {
+    pm->dev_set_device(i);
+    pm->dev_barrier();
+  }
+}
+
+/* ---------------------------------------------------------------------- */
+    
 void Device::set_update_dfobj_(int _val)
 {
   update_dfobj = _val; // this is reset to zero in Device::pull_get_jk
