@@ -16,6 +16,13 @@ import sys
 PROFVERBOSE = getattr (__config__, 'lassi_hsi_profverbose', None)
 SCREEN_THRESH = getattr (__config__, 'lassi_hsi_screen_thresh', 1e-12)
 
+class CallbackLinearOperator (sparse_linalg.LinearOperator):
+    def __init__(self, parent, shape, dtype=None, matvec=None):
+        self.parent = parent
+        self.shape = shape
+        self.dtype = dtype
+        self._matvec = matvec
+
 class HamS2OvlpOperators (HamS2Ovlp):
     __doc__ = HamS2Ovlp.__doc__ + '''
 
@@ -470,16 +477,48 @@ class HamS2OvlpOperators (HamS2Ovlp):
         return self.ox.copy ()
 
     def get_ham_op (self):
-        return sparse_linalg.LinearOperator ([self.nstates,]*2, dtype=self.dtype,
+        return CallbackLinearOperator (self, [self.nstates,]*2, dtype=self.dtype,
                                              matvec=self._ham_op)
 
     def get_s2_op (self):
-        return sparse_linalg.LinearOperator ([self.nstates,]*2, dtype=self.dtype,
+        return CallbackLinearOperator (self, [self.nstates,]*2, dtype=self.dtype,
                                              matvec=self._s2_op)
 
     def get_ovlp_op (self):
-        return sparse_linalg.LinearOperator ([self.nstates,]*2, dtype=self.dtype,
+        return CallbackLinearOperator (self, [self.nstates,]*2, dtype=self.dtype,
                                              matvec=self._ovlp_op)
+
+    def get_ham_op_neutral (self):
+        # Get a Hamiltonian operator, but the 3- and 4-fragment terms are dropped
+        new_parent = self.__class__.__new__(self.__class__)
+        new_parent.__dict__.update (self.__dict__)
+        new_parent.optermgroups_h = {}
+        for inv, group in self.optermgroups_h.items ():
+            if len (inv) < 3:
+                new_group = group.neutral_only ()
+                if len (new_group.ops) > 0:
+                    new_parent.optermgroups_h[inv] = group
+        return new_parent.get_ham_op ()
+
+    def get_ham_op_subspace (self, roots):
+        # Get a Hamiltonian operator projected into a subspace of roots
+        new_parent = self.__class__.__new__(self.__class__)
+        new_parent.__dict__.update (self.__dict__)
+        new_parent.optermgroups_h = {}
+        new_parent.nonuniq_exc = {}
+        urootstr = self.urootstr[:,roots]
+        for inv, group in self.optermgroups_h.items ():
+            new_group = group.subspace (roots, urootstr)
+            if new_group is not None:
+                new_parent.optermgroups_h[inv] = group
+        for key, tab_bk in self.nonuniq_exc.items ():
+            idx = np.isin (tab_bk[:,0], roots)
+            tab_bk = tab_bk[idx]
+            idx = np.isin (tab_bk[:,1], roots)
+            tab_bk = tab_bk[idx]
+            if tab_bk.shape[0] > 0:
+                new_parent.nonuniq_exc[key] = tab_bk
+        return new_parent.get_ham_op ()
 
     def get_hdiag (self):
         t0 = (logger.process_clock (), logger.perf_counter ())

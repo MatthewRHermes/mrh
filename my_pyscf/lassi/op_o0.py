@@ -1057,6 +1057,15 @@ def roots_trans_rdm12s (las, ci_fr, nelec_frs, si_bra, si_ket, orbsym=None, wfns
         rdm2s.append (d2)
     return np.stack (rdm1s, axis=0), np.stack (rdm2s, axis=0)
 
+def get_hdiag_orth (hdiag_raw, h_op_raw, raw2orth):
+    hdiag_orth = np.empty (raw2orth.shape[0], dtype=hdiag_raw.dtype)
+    uniq_prod_idx = raw2orth.uniq_prod_idx
+    nuniq_prod = len (uniq_prod_idx)
+    hdiag_orth[:nuniq_prod] = hdiag_raw[uniq_prod_idx]
+    for i, x0 in enumerate (raw2orth.gen_mixed_state_vectors ()):
+        hdiag_orth[i+nuniq_prod] = np.dot (x0.conj (), h_op_raw (x0))
+    return hdiag_orth
+
 if __name__ == '__main__':
     from pyscf import scf, lib
     from mrh.my_pyscf.mcscf.lasscf_sync_o0 import LASSCF

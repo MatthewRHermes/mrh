@@ -393,7 +393,7 @@ def _eig_block_Davidson (las, e0, h1, h2, ci_blk, nelec_blk, smult_blk, soc, opt
     tol_si = getattr (las, 'tol_si', TOL_SI)
     get_init_guess = getattr (las, 'get_init_guess_si', get_init_guess_si)
     screen_thresh = getattr (las, 'davidson_screen_thresh_si', DAVIDSON_SCREEN_THRESH_SI)
-    h_op_raw, s2_op, ovlp_op, hdiag, _get_ovlp = op[opt].gen_contract_op_si_hdiag (
+    h_op_raw, s2_op, ovlp_op, hdiag_raw, _get_ovlp = op[opt].gen_contract_op_si_hdiag (
         las, h1, h2, ci_blk, nelec_blk, smult_fr=smult_blk, soc=soc, screen_thresh=screen_thresh
     )
     t0 = (lib.logger.process_clock (), lib.logger.perf_counter ())
@@ -401,15 +401,17 @@ def _eig_block_Davidson (las, e0, h1, h2, ci_blk, nelec_blk, smult_blk, soc, opt
                                        smult_fr=smult_blk)
     mem_orth = raw2orth.get_nbytes () / 1e6
     t0 = log.timer ('LASSI get orthogonal basis ({:.2f} MB)'.format (mem_orth), *t0)
-    precond_op_raw = lib.make_diag_precond (hdiag, level_shift=level_shift)
-    si0 = get_init_guess (hdiag, nroots_si, si0)
-    si0 = [ovlp_op (x) for x in si0]
+    hdiag_orth = op[opt].get_hdiag_orth (hdiag_raw, h_op_raw, raw2orth)
+    t0 = log.timer ('LASSI get hdiag in orthogonal basis', *t0)
+    precond_op = lib.make_diag_precond (hdiag_orth, level_shift=level_shift)
+    if si0 is not None:
+        x0 = raw2orth (ovlp_op (si0))
+    else:
+        x0 = None
+    x0 = get_init_guess (hdiag_orth, nroots_si, x0)
     orth2raw = raw2orth.H
-    def precond_op (dx, e, *args):
-        return raw2orth (precond_op_raw (orth2raw (dx), e, *args))
     def h_op (x):
         return raw2orth (h_op_raw (orth2raw (x)))
-    x0 = [raw2orth (x) for x in si0]
     conv, e, x1 = lib.davidson1 (lambda xs: [h_op (x) for x in xs],
                                  x0, precond_op, nroots=nroots_si,
                                  verbose=log, max_cycle=max_cycle_si,

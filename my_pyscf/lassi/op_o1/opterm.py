@@ -11,6 +11,60 @@ class OpTermGroup:
     def append (self, val):
         self.ops.append (val)
 
+    def neutral_only (self):
+        new_ops = []
+        for op in self.ops:
+            neutral = True
+            bra, ket = op.spincase_keys[0][:2]
+            for inti in op.ints:
+                if sum (inti.nelec_r[bra]) - sum (inti.nelec_r[ket]) > 0:
+                    neutral = False
+                    break
+            if neutral:
+                new_ops.append (op)
+        new_group = OpTermGroup (self.inv)
+        new_group.ops = new_ops
+        new_group.ovlplink = self.ovlplink
+        return new_group
+
+    def subspace (self, roots, urootstr):
+        # Project into a subspace
+        nfrags, nroots = urootstr.shape
+        ints = self.ops[0].ints
+        nroots = len (roots)
+        nfrags = len (ints)
+        new_ovlplink = self.ovlplink.copy ()
+        idx = np.isin (new_ovlplink[:,0], roots)
+        new_ovlplink = new_ovlplink[idx]
+        if new_ovlplink.shape[0] == 0: return None
+        for i in range (nfrags):
+            idx = np.isin (new_ovlplink[:,i+1], urootstr[i])
+            new_ovlplink = new_ovlplink[idx]
+            if new_ovlplink.shape[0] == 0: return None
+        new_ops = []
+        for op in self.ops:
+            new_spincase_keys = []
+            for spincase_key in op.spincase_keys:
+                bra, ket = spincase_key[:2]
+                incl = True
+                for inti in op.ints:
+                    i = inti.idx_frag
+                    if not (inti.uroot_idx[bra] in urootstr[i]):
+                        incl = False
+                        break
+                    if not (inti.uroot_idx[ket] in urootstr[i]):
+                        incl = False
+                        break
+                if incl:
+                    new_spincase_keys.append (spincase_key)
+            if len (new_spincase_keys) > 0:
+                new_ops.append (op)
+        if len (new_ops) == 0: return None
+        new_group = OpTermGroup (self.inv)
+        new_group.ops = new_ops
+        new_group.ovlplink = new_ovlplink
+            
+
 class OpTermBase:
     '''Elements of spincase_keys index nonuniq_exc to look up bras and kets addressed by this
     operator corresponding to a particular set of ket spin polarization quantum numbers.'''

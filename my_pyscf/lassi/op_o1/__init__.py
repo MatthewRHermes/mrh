@@ -14,4 +14,24 @@ from mrh.my_pyscf.lassi.op_o1.utilities import *
 # dm2[p,q,r,s] = <p'r'sq>
 # is used.
 
+def get_hdiag_orth (hdiag_raw, h_op_raw, raw2orth):
+    h_op_raw = h_op_raw.parent.get_ham_op_neutral ()
+    hdiag_orth = np.empty (raw2orth.shape[0], dtype=hdiag_raw.dtype)
+    uniq_prod_idx = raw2orth.uniq_prod_idx
+    nuniq_prod = len (uniq_prod_idx)
+    hdiag_orth[:nuniq_prod] = hdiag_raw[uniq_prod_idx]
+    old_roots = None
+    def cmp (new, old):
+        if old is None: return False
+        if len (new) != len (old): return False
+        if np.any (new!=old): return False
+        return True
+    for i, (x0, roots) in enumerate (raw2orth.gen_mixed_state_vectors (_yield_roots=True)):
+        if not cmp (roots, old_roots):
+            h_op_subspace = h_op_raw.parent.get_ham_op_subspace (roots)
+            old_roots = roots
+        hdiag_orth[i+nuniq_prod] = np.dot (x0.conj (), h_op_subspace (x0))
+    return hdiag_orth
+
+
 
