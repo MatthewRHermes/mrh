@@ -168,45 +168,36 @@ def get_orth_basis (ci_fr, norb_f, nelec_frs, _get_ovlp=None, smult_fr=None):
     if not np.count_nonzero (cnts>1): 
         _get_ovlp = None
         return NullOrthBasis (nraw, dtype)
-    uniq_prod_idx = []
-    for i in uniq_idx[cnts==1]: uniq_prod_idx.extend (list(range(offs0[i],offs1[i])))
-    manifolds_prod_idx = []
+    uniq_roots = list (uniq_idx[cnts==1])
+    north = (offs1[uniq_roots] - offs0[uniq_roots]).sum ()
     manifolds_xmat = []
     manifolds_roots = []
-    north = len (uniq_prod_idx)
     for manifold_idx in np.where (cnts>1)[0]:
         manifolds = _get_spin_split_manifolds (ci_fr, norb_f, nelec_frs, smult_fr, lroots_fr,
                                                inverse==manifold_idx)
         for manifold in manifolds:
-            manifold_prod_idx = []
-            for spin_mirror in manifold:
-                prod_idx = []
-                for i in spin_mirror:
-                    prod_idx.extend (list(range(offs0[i],offs1[i])))
-                manifold_prod_idx.append (prod_idx)
-            manifold_prod_idx = np.asarray (manifold_prod_idx, dtype=int)
-            nmirror, nprod = manifold_prod_idx.shape
+            nmirror = len (manifold)
+            nprod = np.asarray ([(offs1[spin_mirror]-offs0[spin_mirror]).sum () for spin_mirror in manifold])
+            assert (np.all (nprod==nprod[0]))
+            nprod = nprod[0]
             ovlp = _get_ovlp (rootidx=manifold[0])
             ovlp[np.diag_indices_from (ovlp)] -= 1.0
             err_from_diag = np.amax (np.abs (ovlp))
             if err_from_diag > 1e-8:
                 ovlp[np.diag_indices_from (ovlp)] += 1.0
-                manifolds_prod_idx.append (manifold_prod_idx)
                 xmat = canonical_orth_(ovlp, thr=LINDEP_THRESH)
                 north += xmat.shape[1] * nmirror
                 manifolds_xmat.append (xmat)
                 manifolds_roots.append (manifold)
             else:
                 north += ovlp.shape[0] * nmirror
-                uniq_prod_idx.extend (list (manifold_prod_idx.ravel ()))
+                for spin_mirror in manifold:
+                    uniq_roots.extend (spin_mirror)
             ovlp = None
-    assert (len (manifolds_roots) == len (manifolds_prod_idx)), '{} {}'.format (len (manifolds_roots), len (manifolds_prod_idx))
-    nuniq_prod = len (uniq_prod_idx)
-    nraw = offs1[-1]
 
     _get_ovlp = None
 
-    return OrthBasis ((north,nraw), dtype, uniq_prod_idx, manifolds_roots, manifolds_prod_idx, manifolds_xmat)
+    return OrthBasis ((north,nraw), dtype, nprods_r, uniq_roots, manifolds_roots, manifolds_xmat)
 
 def _get_spin_split_manifolds (ci_fr, norb_f, nelec_frs, smult_fr, lroots_fr, idx):
     '''The same as _get_spin_split_manifolds_idx, except that all of the arguments need to be
@@ -246,13 +237,86 @@ def _get_spin_split_manifolds_idx (ci_fr, norb_f, nelec_frs, smult_fr, lroots_fr
     return manifolds
 
 class OrthBasis (sparse_linalg.LinearOperator):
-    def __init__(self, shape, dtype, uniq_prod_idx, manifolds_roots, manifolds_prod_idx, manifolds_xmat):
+    def __init__(self, shape, dtype, nprods_r, uniq_roots, manifolds_roots, manifolds_xmat):
         self.shape = shape
         self.dtype = dtype
-        self.uniq_prod_idx = np.asarray (uniq_prod_idx, dtype=int)
+        self.uniq_roots = uniq_roots
+        nuniq_roots = len (uniq_roots)
         self.manifolds_roots = [np.asarray (x, dtype=int) for x in manifolds_roots]
-        self.manifolds_prod_idx = [np.asarray (x, dtype=int) for x in manifolds_prod_idx]
         self.manifolds_xmat = manifolds_xmat
+        self.nprods_raw = nprods_r
+        self.offs1_raw = offs1 = np.cumsum (nprods_r)
+        self.offs0_raw = offs0 = offs1 - nprods_r
+        uniq_prod_idx = []
+        for i in uniq_roots: uniq_prod_idx.extend (list(range(offs0[i],offs1[i])))
+        self.uniq_prod_idx = np.asarray (uniq_prod_idx, dtype=int)
+        manifolds_prod_idx = []
+        for mi in manifolds_roots:
+            pi = []
+            for mij in mi:
+                pij = []
+                for mijk in mij:
+                    pij.extend (list (range (offs0[mijk], offs1[mijk])))
+                pi.append (pij)
+            manifolds_prod_idx.append (pi)
+        self.manifolds_prod_idx = [np.asarray (x, dtype=int) for x in manifolds_prod_idx]
+        # lookup for diagonal blocking
+        self.root_manifold_addr = -2*np.ones ((len (nprods_r),3), dtype=int)
+        self.root_manifold_addr[uniq_roots,0] = np.arange (len (uniq_roots), dtype=int)
+        self.root_manifold_addr[uniq_roots,1] = -1
+        self.root_manifold_addr[uniq_roots,2] = -1
+        nman = len (uniq_roots)
+        self.manifolds_nprods_raw = []
+        self.manifolds_offs0_raw = []
+        self.manifolds_offs1_raw = []
+        manifolds_nprods_orth_flat = []
+        for i, mi in enumerate (manifolds_roots):
+            manifolds_nprods_raw_i = []
+            manifolds_offs0_raw_i = []
+            manifolds_offs1_raw_i = []
+            for j, mij in enumerate (mi):
+                self.root_manifold_addr[mij,:] = [nman,i,j]
+                my_nprods_raw = nprods_r[mij]
+                my_offs1_raw = np.cumsum (my_nprods_raw)
+                my_offs0_raw = my_offs1_raw - my_nprods_raw
+                manifolds_nprods_raw_i.append (my_nprods_raw)
+                manifolds_offs0_raw_i.append (my_offs0_raw)
+                manifolds_offs1_raw_i.append (my_offs1_raw)
+                xmat = manifolds_xmat[i]
+                assert (my_offs1_raw[-1] == xmat.shape[0])
+                manifolds_nprods_orth_flat.append (xmat.shape[1])
+                nman += 1
+            self.manifolds_nprods_raw.append (manifolds_nprods_raw_i)
+            self.manifolds_offs0_raw.append (manifolds_offs0_raw_i)
+            self.manifolds_offs1_raw.append (manifolds_offs1_raw_i)
+        assert (np.all (self.root_manifold_addr>-2))
+        self.nprods_orth = np.empty (nman, dtype=int)
+        self.nprods_orth[:len(uniq_roots)] = nprods_r[uniq_roots]
+        self.nprods_orth[len(uniq_roots):] = manifolds_nprods_orth_flat
+        self.offs1_orth = np.cumsum (self.nprods_orth)
+        self.offs0_orth = self.offs1_orth - self.nprods_orth
+        assert (self.offs1_orth[-1] == self.shape[0])
+
+    def roots_in_same_block (self, i, j):
+        return self.root_manifold_addr[i,0]==self.root_manifold_addr[j,0]
+
+    def get_orth_prod_range (self, iroot):
+        p = self.root_manifold_addr[i,0]
+        return self.offs0_orth[p], self.offs1_orth[p]
+
+    def get_xmat_rows (self, iroot):
+        x, i, j = self.root_manifold_addr[i]
+        if i == -1:
+            return np.eye (self.nprods_raw[iroot])
+        assert (j >= 0)
+        xmat = self.manifolds_xmat[i]
+        p = self.manifolds_offs0_raw[i][j]
+        q = self.manifolds_offs1_raw[i][j]
+        xmat = xmat[p:q,:]
+        nraw = self.manifolds_nprods_raw[i][j]
+        north = self.nprods_orth[x]
+        assert (xmat.shape == (nraw, north))
+        return xmat
 
     def _matvec (self, rawarr):
         nuniq_prod = len (self.uniq_prod_idx)
