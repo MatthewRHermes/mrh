@@ -292,6 +292,21 @@ class OrthBasis (sparse_linalg.LinearOperator):
             nbytes += x.nbytes
         return nbytes
 
+    def gen_mixed_state_vectors (self, _yield_roots=False):
+        x0 = np.zeros (self.shape[1])
+        for i in range (len (self.manifolds_xmat)):
+            prod_idx = self.manifolds_prod_idx[i]
+            roots = self.manifolds_roots[i]
+            xmat = self.manifolds_xmat[i]
+            for spincase in range (len (prod_idx)):
+                for row in xmat.T:
+                    x0[prod_idx[spincase]] = row
+                    if _yield_roots:
+                        yield x0, roots[spincase]
+                    else:
+                        yield x0
+                    x0[prod_idx[spincase]] = 0
+
 class NullOrthBasis (sparse_linalg.LinearOperator):
     def __init__(self, nraw, dtype):
         self.shape = (nraw,nraw)
@@ -302,6 +317,14 @@ class NullOrthBasis (sparse_linalg.LinearOperator):
     def _rmatvec (self, x): return x
 
     def get_nbytes (self): return 0
+
+    @property
+    def uniq_prod_idx (self): return np.arange (self.shape[0], dtype=int)
+
+    def gen_mixed_state_vectors (self, _yield_roots=False):
+        # zero-length generator
+        return
+        yield
 
 def get_unique_roots (ci, nelec_r, screen_linequiv=True, screen_thresh=SCREEN_THRESH,
                       discriminator=None):
