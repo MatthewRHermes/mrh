@@ -504,10 +504,6 @@ class HamS2OvlpOperators (HamS2Ovlp):
                 new_group = group.neutral_only ()
                 if len (new_group.ops) > 0:
                     new_parent.optermgroups_h[inv] = group
-        new_parent.exc_1c = np.empty ((0,self.exc_1c.shape[1]), dtype=int)
-        new_parent.exc_1c1d = np.empty ((0,self.exc_1c1d.shape[1]), dtype=int)
-        new_parent.exc_1s1c = np.empty ((0,self.exc_1s1c.shape[1]), dtype=int)
-        new_parent.exc_2c = np.empty ((0,self.exc_2c.shape[1]), dtype=int)
         return new_parent
 
     def get_subspace (self, roots, verbose=None):
@@ -531,40 +527,7 @@ class HamS2OvlpOperators (HamS2Ovlp):
             tab_bk = tab_bk[idx]
             if tab_bk.shape[0] > 0:
                 new_parent.nonuniq_exc[key] = tab_bk
-        # strides for dense Hamiltonian
-        new_parent.offs_lroots_for_kernel = self.offs_lroots.copy ()
-        nprods = np.prod (self.lroots[:,roots], axis=0)
-        offs1 = np.cumsum (nprods)
-        offs0 = offs1 - nprods
-        new_parent.offs_lroots_for_kernel[roots] = np.stack ([offs0, offs1], axis=1)
-        new_parent.nstates_for_kernel = offs1[-1]
-        # exc for dense Hamiltonian
-        def filter_exc (fn, tab):
-            mytab = tab
-            if self._fn_row_has_spin (fn):
-                mytab = mytab[:,:-1]
-            idx = np.ones (len (tab), dtype=bool)
-            for i, row in enumerate (mytab):
-                for j in row[2:]:
-                    my_element = self.urootstr[j][row[:2]]
-                    my_test_element = urootstr[j]
-                    isin = np.all (np.isin (my_element, my_test_element))
-                    idx[i] = idx[i] and isin
-            return tab[idx]
-        new_parent.exc_1d = filter_exc (self._crunch_1d_, self.exc_1d)
-        new_parent.exc_2d = filter_exc (self._crunch_2d_, self.exc_2d)
-        new_parent.exc_1c = filter_exc (self._crunch_1d_, self.exc_1d)
-        new_parent.exc_1c1d = filter_exc (self._crunch_1c1d_, self.exc_1c1d)
-        new_parent.exc_1s = filter_exc (self._crunch_1d_, self.exc_1d)
-        new_parent.exc_1s1c = filter_exc (self._crunch_1s1c_, self.exc_1s1c)
-        new_parent.exc_2c = filter_exc (self._crunch_1d_, self.exc_1d)
         return new_parent
-
-    def kernel (self):
-        nstates = getattr (self, 'nstates_for_kernel', self.nstates)
-        offs_lroots = getattr (self, 'offs_lroots_for_kernel', self.offs_lroots)
-        with lib.temporary_env (self, nstates=nstates, offs_lroots=offs_lroots):
-            return super().kernel ()
 
     def get_hdiag (self):
         t0 = (logger.process_clock (), logger.perf_counter ())
@@ -771,6 +734,26 @@ def gen_contract_op_si_hdiag (las, h1, h2, ci, nelec_frs, smult_fr=None, soc=0, 
     #raw2orth = citools.get_orth_basis (ci, las.ncas_sub, nelec_frs,
     #                                   _get_ovlp=outerprod.get_ovlp)
     return ham_op, s2_op, ovlp_op, hdiag, outerprod.get_ovlp
+
+def get_hdiag_orth (hdiag_raw, h_op_raw, raw2orth):
+    hobj_raw = h_op_raw.parent.get_neutral (verbose=0)
+    hdiag_orth = np.empty (raw2orth.shape[0], dtype=hdiag_raw.dtype)
+    uniq_prod_idx = raw2orth.uniq_prod_idx
+    nuniq_prod = len (uniq_prod_idx)
+    hdiag_orth[:nuniq_prod] = hdiag_raw[uniq_prod_idx]
+    old_roots = None
+    def cmp (new, old):
+        if old is None: return False
+        if len (new) != len (old): return False
+        if np.any (new!=old): return False
+        return True
+    for i, (x0, roots) in enumerate (raw2orth.gen_mixed_state_vectors (_yield_roots=True)):
+        if not cmp (roots, old_roots):
+            hobj_subspace = hobj_raw.get_subspace (roots, verbose=0)
+            h_op_subspace = hobj_subspace.get_ham_op ()
+            old_roots = roots
+        hdiag_orth[i+nuniq_prod] = np.dot (x0.conj (), h_op_subspace (x0))
+    return hdiag_orth
 
 
 
