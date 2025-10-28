@@ -21,7 +21,11 @@ class CallbackLinearOperator (sparse_linalg.LinearOperator):
         self.parent = parent
         self.shape = shape
         self.dtype = dtype
-        self._matvec = matvec
+        self._matvec_fn = matvec
+
+    def _matvec (self, x):
+        # Just to shut up the stupid warning
+        return self._matvec_fn (x)
 
 class HamS2OvlpOperators (HamS2Ovlp):
     __doc__ = HamS2Ovlp.__doc__ + '''
@@ -488,10 +492,12 @@ class HamS2OvlpOperators (HamS2Ovlp):
         return CallbackLinearOperator (self, [self.nstates,]*2, dtype=self.dtype,
                                              matvec=self._ovlp_op)
 
-    def get_ham_op_neutral (self):
+    def get_ham_op_neutral (self, verbose=None):
         # Get a Hamiltonian operator, but the 3- and 4-fragment terms are dropped
         new_parent = self.__class__.__new__(self.__class__)
         new_parent.__dict__.update (self.__dict__)
+        if verbose is not None:
+            new_parent.log = logger.new_logger (new_parent.log, verbose)
         new_parent.optermgroups_h = {}
         for inv, group in self.optermgroups_h.items ():
             if len (inv) < 3:
@@ -500,10 +506,12 @@ class HamS2OvlpOperators (HamS2Ovlp):
                     new_parent.optermgroups_h[inv] = group
         return new_parent.get_ham_op ()
 
-    def get_ham_op_subspace (self, roots):
+    def get_ham_op_subspace (self, roots, verbose=None):
         # Get a Hamiltonian operator projected into a subspace of roots
         new_parent = self.__class__.__new__(self.__class__)
         new_parent.__dict__.update (self.__dict__)
+        if verbose is not None:
+            new_parent.log = logger.new_logger (new_parent.log, verbose)
         new_parent.optermgroups_h = {}
         new_parent.nonuniq_exc = {}
         urootstr = self.urootstr[:,roots]
