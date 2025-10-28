@@ -27,6 +27,7 @@ class CallbackLinearOperator (sparse_linalg.LinearOperator):
         # Just to shut up the stupid warning
         return self._matvec_fn (x)
 
+
 class HamS2OvlpOperators (HamS2Ovlp):
     __doc__ = HamS2Ovlp.__doc__ + '''
 
@@ -492,10 +493,9 @@ class HamS2OvlpOperators (HamS2Ovlp):
         return CallbackLinearOperator (self, [self.nstates,]*2, dtype=self.dtype,
                                              matvec=self._ovlp_op)
 
-    def get_ham_op_neutral (self, verbose=None):
+    def get_neutral (self, verbose=None):
         # Get a Hamiltonian operator, but the 3- and 4-fragment terms are dropped
-        new_parent = self.__class__.__new__(self.__class__)
-        new_parent.__dict__.update (self.__dict__)
+        new_parent = lib.view (self, self.__class__)
         if verbose is not None:
             new_parent.log = logger.new_logger (new_parent.log, verbose)
         new_parent.optermgroups_h = {}
@@ -504,21 +504,26 @@ class HamS2OvlpOperators (HamS2Ovlp):
                 new_group = group.neutral_only ()
                 if len (new_group.ops) > 0:
                     new_parent.optermgroups_h[inv] = group
-        return new_parent.get_ham_op ()
+        new_parent.exc_1c = np.empty ((0,self.exc_1c.shape[1]), dtype=int)
+        new_parent.exc_1c1d = np.empty ((0,self.exc_1c1d.shape[1]), dtype=int)
+        new_parent.exc_1s1c = np.empty ((0,self.exc_1s1c.shape[1]), dtype=int)
+        new_parent.exc_2c = np.empty ((0,self.exc_2c.shape[1]), dtype=int)
+        return new_parent
 
-    def get_ham_op_subspace (self, roots, verbose=None):
+    def get_subspace (self, roots, verbose=None):
         # Get a Hamiltonian operator projected into a subspace of roots
-        new_parent = self.__class__.__new__(self.__class__)
-        new_parent.__dict__.update (self.__dict__)
+        new_parent = lib.view (self, self.__class__)
         if verbose is not None:
             new_parent.log = logger.new_logger (new_parent.log, verbose)
-        new_parent.optermgroups_h = {}
-        new_parent.nonuniq_exc = {}
         urootstr = self.urootstr[:,roots]
+        # ops for h_op product
+        new_parent.optermgroups_h = {}
         for inv, group in self.optermgroups_h.items ():
             new_group = group.subspace (roots, urootstr)
             if new_group is not None:
                 new_parent.optermgroups_h[inv] = group
+        # equivalence map
+        new_parent.nonuniq_exc = {}
         for key, tab_bk in self.nonuniq_exc.items ():
             idx = np.isin (tab_bk[:,0], roots)
             tab_bk = tab_bk[idx]
@@ -526,7 +531,40 @@ class HamS2OvlpOperators (HamS2Ovlp):
             tab_bk = tab_bk[idx]
             if tab_bk.shape[0] > 0:
                 new_parent.nonuniq_exc[key] = tab_bk
-        return new_parent.get_ham_op ()
+        # strides for dense Hamiltonian
+        new_parent.offs_lroots_for_kernel = self.offs_lroots.copy ()
+        nprods = np.prod (self.lroots[:,roots], axis=0)
+        offs1 = np.cumsum (nprods)
+        offs0 = offs1 - nprods
+        new_parent.offs_lroots_for_kernel[roots] = np.stack ([offs0, offs1], axis=1)
+        new_parent.nstates_for_kernel = offs1[-1]
+        # exc for dense Hamiltonian
+        def filter_exc (fn, tab):
+            mytab = tab
+            if self._fn_row_has_spin (fn):
+                mytab = mytab[:,:-1]
+            idx = np.ones (len (tab), dtype=bool)
+            for i, row in enumerate (mytab):
+                for j in row[2:]:
+                    my_element = self.urootstr[j][row[:2]]
+                    my_test_element = urootstr[j]
+                    isin = np.all (np.isin (my_element, my_test_element))
+                    idx[i] = idx[i] and isin
+            return tab[idx]
+        new_parent.exc_1d = filter_exc (self._crunch_1d_, self.exc_1d)
+        new_parent.exc_2d = filter_exc (self._crunch_2d_, self.exc_2d)
+        new_parent.exc_1c = filter_exc (self._crunch_1d_, self.exc_1d)
+        new_parent.exc_1c1d = filter_exc (self._crunch_1c1d_, self.exc_1c1d)
+        new_parent.exc_1s = filter_exc (self._crunch_1d_, self.exc_1d)
+        new_parent.exc_1s1c = filter_exc (self._crunch_1s1c_, self.exc_1s1c)
+        new_parent.exc_2c = filter_exc (self._crunch_1d_, self.exc_1d)
+        return new_parent
+
+    def kernel (self):
+        nstates = getattr (self, 'nstates_for_kernel', self.nstates)
+        offs_lroots = getattr (self, 'offs_lroots_for_kernel', self.offs_lroots)
+        with lib.temporary_env (self, nstates=nstates, offs_lroots=offs_lroots):
+            return super().kernel ()
 
     def get_hdiag (self):
         t0 = (logger.process_clock (), logger.perf_counter ())
@@ -733,4 +771,7 @@ def gen_contract_op_si_hdiag (las, h1, h2, ci, nelec_frs, smult_fr=None, soc=0, 
     #raw2orth = citools.get_orth_basis (ci, las.ncas_sub, nelec_frs,
     #                                   _get_ovlp=outerprod.get_ovlp)
     return ham_op, s2_op, ovlp_op, hdiag, outerprod.get_ovlp
+
+
+
 
