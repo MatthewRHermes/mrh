@@ -58,12 +58,14 @@ class OpTermGroup:
                 if incl:
                     new_spincase_keys.append (spincase_key)
             if len (new_spincase_keys) > 0:
-                new_ops.append (op)
+                new_op = op.copy ()
+                new_op.spincase_keys = new_spincase_keys
+                new_ops.append (new_op)
         if len (new_ops) == 0: return None
         new_group = OpTermGroup (self.inv)
         new_group.ops = new_ops
         new_group.ovlplink = new_ovlplink
-            
+        return new_group            
 
 class OpTermBase:
     '''Elements of spincase_keys index nonuniq_exc to look up bras and kets addressed by this
@@ -89,7 +91,9 @@ class OpTermBase:
     def get_formal_shape (self):
         return self.shape
 
-class OpTermReducible (OpTermBase): pass
+class OpTermReducible (OpTermBase):
+    def copy (self):
+        return lib.view (self, self.__class__)
 
 class OpTerm (OpTermReducible):
     def __init__(self, arr, ints, comp, _already_stacked=False):

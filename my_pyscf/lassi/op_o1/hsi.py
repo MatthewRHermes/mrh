@@ -1,4 +1,5 @@
 import numpy as np
+from scipy import linalg
 from scipy.sparse import linalg as sparse_linalg
 from pyscf import lib
 from pyscf.lib import logger, param
@@ -517,7 +518,7 @@ class HamS2OvlpOperators (HamS2Ovlp):
         for inv, group in self.optermgroups_h.items ():
             new_group = group.subspace (roots, urootstr)
             if new_group is not None:
-                new_parent.optermgroups_h[inv] = group
+                new_parent.optermgroups_h[inv] = new_group
         # equivalence map
         new_parent.nonuniq_exc = {}
         for key, tab_bk in self.nonuniq_exc.items ():
@@ -736,7 +737,8 @@ def gen_contract_op_si_hdiag (las, h1, h2, ci, nelec_frs, smult_fr=None, soc=0, 
     return ham_op, s2_op, ovlp_op, hdiag, outerprod.get_ovlp
 
 def get_hdiag_orth (hdiag_raw, h_op_raw, raw2orth):
-    hobj_raw = h_op_raw.parent.get_neutral (verbose=0)
+    hobj_neutral = h_op_raw.parent.get_neutral (verbose=0)
+    h_op_neutral = hobj_neutral.get_ham_op ()
     hdiag_orth = np.empty (raw2orth.shape[0], dtype=hdiag_raw.dtype)
     uniq_prod_idx = raw2orth.uniq_prod_idx
     nuniq_prod = len (uniq_prod_idx)
@@ -749,7 +751,7 @@ def get_hdiag_orth (hdiag_raw, h_op_raw, raw2orth):
         return True
     for i, (x0, roots) in enumerate (raw2orth.gen_mixed_state_vectors (_yield_roots=True)):
         if not cmp (roots, old_roots):
-            hobj_subspace = hobj_raw.get_subspace (roots, verbose=0)
+            hobj_subspace = hobj_neutral.get_subspace (roots, verbose=0)
             h_op_subspace = hobj_subspace.get_ham_op ()
             old_roots = roots
         hdiag_orth[i+nuniq_prod] = np.dot (x0.conj (), h_op_subspace (x0))

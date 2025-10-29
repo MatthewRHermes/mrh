@@ -2,15 +2,16 @@ import copy
 import unittest
 import numpy as np
 from scipy import linalg
+from mrh.my_pyscf.mcscf.lasscf_sync_o0 import LASSCF
 from mrh.my_pyscf.lassi import citools, op_o0, op_o1
 from mrh.my_pyscf.fci.spin_op import mdown
-from pyscf import lib
+from pyscf import lib, gto, ao2mo
 from pyscf.scf.addons import canonical_orth_
 from pyscf.csf_fci.csfstring import CSFTransformer
 import itertools
 
 def setUpModule():
-    global orth_bases, ci
+    global orth_bases, ham_raw, h_op_raw, hdiag_raw
     norb_f = np.array ([4,4])
     nelec_frs = np.array ([[[2,2],[2,2],[3,1],[3,1],[2,2],[2,2],[1,3],[1,3]],
                            [[2,2],[2,2],[1,3],[1,3],[2,2],[2,2],[3,1],[3,1]]])
@@ -44,10 +45,23 @@ def setUpModule():
     orth_bases = {'no spin': (ovlp0, raw2orth_nospin),
                   'semi-spin': (ovlp1, raw2orth_semispin),
                   'full spin': (ovlp0, raw2orth_fullspin)}
+    mol = gto.M (verbose=0, output='/dev/null')
+    las = LASSCF (mol, norb_f, norb_f)
+    rng = np.random.default_rng ()
+    h1 = 1 - (2*rng.random ((8,8)))
+    h1 += h1.T
+    h2 = 1 - (2*rng.random ((8,8,8,8)))
+    h2 += h2.transpose (1,0,2,3)
+    h2 += h2.transpose (0,1,3,2)
+    h2 += h2.transpose (2,3,0,1)
+    ham_raw = op_o1.ham (las, h1, h2, ci, nelec_frs, smult_fr=smult_fr)[0]
+    ops = op_o1.gen_contract_op_si_hdiag (las, h1, h2, ci, nelec_frs, smult_fr=smult_fr)
+    h_op_raw = ops[0]
+    hdiag_raw = ops[3]
 
 def tearDownModule():
-    global orth_bases, ci
-    del orth_bases, ci
+    global orth_bases, ham_raw, h_op_raw, hdiag_raw
+    del orth_bases, ham_raw, h_op_raw, hdiag_raw
     
 def case_umat_dot_1frag (ks, rng, nroots, nfrags, nvecs, lroots):
     nstates = np.prod (lroots, axis=0).sum ()
@@ -121,6 +135,25 @@ class KnownValues(unittest.TestCase):
                 r1 = raw2orth.H (o1)
                 self.assertAlmostEqual (r1.dot (ovlp @ r1), 1.0)
                 # TODO: understand why I can't go back and forth
+
+    def case_hdiag_orth (self, raw2orth, op):
+        ham_orth = raw2orth (ham_raw.T).T
+        ham_orth = raw2orth (ham_orth.conj ()).conj ()
+        hdiag_orth_ref = ham_orth.diagonal ()
+        hdiag_orth_test = op.get_hdiag_orth (hdiag_raw, h_op_raw, raw2orth)
+        self.assertAlmostEqual (lib.fp (hdiag_orth_ref), lib.fp (hdiag_orth_test), 8)
+
+    def test_hdiag_orth_nospin_o0 (self):
+        self.case_hdiag_orth (orth_bases['no spin'][1], op_o0)
+
+    def test_hdiag_orth_fullspin_o0 (self):
+        self.case_hdiag_orth (orth_bases['full spin'][1], op_o0)
+
+    def test_hdiag_orth_nospin_o1 (self):
+        self.case_hdiag_orth (orth_bases['no spin'][1], op_o1)
+
+    def test_hdiag_orth_fullspin_o1 (self):
+        self.case_hdiag_orth (orth_bases['full spin'][1], op_o1)
 
 if __name__ == "__main__":
     print("Full Tests for LASSI citools module functions")
