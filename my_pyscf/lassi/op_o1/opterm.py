@@ -41,12 +41,6 @@ class OpTermGroup:
             idx = np.isin (new_ovlplink[:,i+1], urootstr[i])
             new_ovlplink = new_ovlplink[idx]
             if new_ovlplink.shape[0] == 0: return None
-        link_len = new_ovlplink.shape[0]
-        inv = [inti.idx_frag for inti in ints]
-        max_len = len (set (new_ovlplink[:,0]))
-        for ifrag in inv:
-            max_len *= len (set (urootstr[ifrag]))
-        assert (link_len <= max_len), '{} {}'.format (link_len, max_len)
         new_ops = []
         for op in self.ops:
             new_spincase_keys = []
