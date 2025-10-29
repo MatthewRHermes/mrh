@@ -152,6 +152,7 @@ def get_orth_basis (ci_fr, norb_f, nelec_frs, _get_ovlp=None, smult_fr=None):
     nfrags, nroots = nelec_frs.shape[:2]
     tabulator = nelec_frs.sum (2)
     if smult_fr is not None:
+        print (tabulator.shape, smult_fr.shape)
         tabulator = np.append (tabulator, smult_fr, axis=0)
     unique, uniq_idx, inverse, cnts = np.unique (tabulator, axis=1, return_index=True,
                                                  return_inverse=True, return_counts=True)
