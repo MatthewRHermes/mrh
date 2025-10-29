@@ -28,34 +28,33 @@ class OpTermGroup:
         new_group.ovlplink = self.ovlplink
         return new_group
 
-    def subspace (self, roots, urootstr):
+    def subspace (self, roots):
         # Project into a subspace
-        nfrags, nroots = urootstr.shape
         ints = self.ops[0].ints
         nroots = len (roots)
+        # ovlplink ket filter
         new_ovlplink = self.ovlplink.copy ()
         idx = np.isin (new_ovlplink[:,0], roots)
         new_ovlplink = new_ovlplink[idx]
         if new_ovlplink.shape[0] == 0: return None
-        for i in range (nfrags):
-            idx = np.isin (new_ovlplink[:,i+1], urootstr[i])
-            new_ovlplink = new_ovlplink[idx]
-            if new_ovlplink.shape[0] == 0: return None
+        # ovlplink bra filter
+        urootstr = [inti.uroot_idx[roots] for inti in ints]
+        urootstr = np.asarray (urootstr).T
+        rootstrs = [tuple (rootstr) for rootstr in urootstr]
+        inv = [inti.idx_frag+1 for inti in ints]
+        brastrs = new_ovlplink[:,inv]
+        idx = np.asarray ([tuple (brastr) in rootstrs for brastr in brastrs])
+        new_ovlplink = new_ovlplink[idx]
+        if new_ovlplink.shape[0] == 0: return None
+        # ops filter
         new_ops = []
         for op in self.ops:
             new_spincase_keys = []
             for spincase_key in op.spincase_keys:
                 bra, ket = spincase_key[:2]
-                incl = True
-                for inti in op.ints:
-                    i = inti.idx_frag
-                    if not (inti.uroot_idx[bra] in urootstr[i]):
-                        incl = False
-                        break
-                    if not (inti.uroot_idx[ket] in urootstr[i]):
-                        incl = False
-                        break
-                if incl:
+                brastr = tuple ((inti.uroot_idx[bra] for inti in ints))
+                ketstr = tuple ((inti.uroot_idx[ket] for inti in ints))
+                if (brastr in rootstrs) and (ketstr in rootstrs):
                     new_spincase_keys.append (spincase_key)
             if len (new_spincase_keys) > 0:
                 new_op = op.copy ()

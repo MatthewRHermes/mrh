@@ -516,7 +516,7 @@ class HamS2OvlpOperators (HamS2Ovlp):
         # ops for h_op product
         new_parent.optermgroups_h = {}
         for inv, group in self.optermgroups_h.items ():
-            new_group = group.subspace (roots, urootstr)
+            new_group = group.subspace (roots)
             if new_group is not None:
                 new_parent.optermgroups_h[inv] = new_group
         # equivalence map
