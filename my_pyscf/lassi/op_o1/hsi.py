@@ -503,8 +503,8 @@ class HamS2OvlpOperators (HamS2Ovlp):
         for inv, group in self.optermgroups_h.items ():
             if len (inv) < 3:
                 new_group = group.neutral_only ()
-                if len (new_group.ops) > 0:
-                    new_parent.optermgroups_h[inv] = group
+                if new_group is not None:
+                    new_parent.optermgroups_h[inv] = new_group
         return new_parent
 
     def get_subspace (self, roots, verbose=None):

@@ -22,6 +22,7 @@ class OpTermGroup:
                     break
             if neutral:
                 new_ops.append (op)
+        if len (new_ops) == 0: return None
         new_group = OpTermGroup (self.inv)
         new_group.ops = new_ops
         new_group.ovlplink = self.ovlplink
@@ -33,6 +34,7 @@ class OpTermGroup:
         ints = self.ops[0].ints
         nroots = len (roots)
         nfrags = len (ints)
+        #assert (nfrags == urootstr.shape[0])
         new_ovlplink = self.ovlplink.copy ()
         idx = np.isin (new_ovlplink[:,0], roots)
         new_ovlplink = new_ovlplink[idx]
@@ -41,6 +43,12 @@ class OpTermGroup:
             idx = np.isin (new_ovlplink[:,i+1], urootstr[i])
             new_ovlplink = new_ovlplink[idx]
             if new_ovlplink.shape[0] == 0: return None
+        #link_len = new_ovlplink.shape[0]
+        #inv = [inti.idx_frag for inti in ints]
+        #max_len = len (set (new_ovlplink[:,0]))
+        #for i in inv:
+        #    max_len *= len (set (urootstr[ifrag]))
+        #assert (link_len <= max_len), '{} {}'.format (link_len, max_len)
         new_ops = []
         for op in self.ops:
             new_spincase_keys = []
