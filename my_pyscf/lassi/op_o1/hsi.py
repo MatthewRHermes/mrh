@@ -544,19 +544,21 @@ class HamS2OvlpOperators (HamS2Ovlp):
         for inv, group in self.optermgroups_h.items (): 
             for op in group.ops:
                 for key in op.spincase_keys:
-                    op1 = opterm.reduce_spin (op, key[0], key[1]).ravel ()
+                    op1 = opterm.reduce_spin (op, key[0], key[1])
+                    op1 = op1 + op1.conj ().T
+                    op1 = op1.ravel ()
                     self._hdiag_orth_1op_(raw2orth, op1, key)
         return self.ox[:raw2orth.shape[0]].copy ()
 
-    def _hdiag_orth_1op_(self, raw2orth, op1, key):
+    def _hdiag_orth_1op_(self, raw2orth, op, key):
         # refactor later
-        inv = key[2:]
+        inv = list (set (key[2:]))
         for bra, ket in self.nonuniq_exc[key]:
             if not raw2orth.roots_in_same_block (bra, ket): continue
             p, q = raw2orth.get_orth_prod_range (bra)
             fdm = self.get_fdm_1space (bra, ket, *inv)
-            fdm = fdm.reshape (q-p, op1.size)
-            self.ox[p:q] += np.dot (fdm, op1)
+            fdm = fdm.reshape (q-p, op.size)
+            self.ox[p:q] += np.dot (fdm, op)
         return 
 
     get_fdm_1space = LRRDM.get_fdm_1space
@@ -565,11 +567,10 @@ class HamS2OvlpOperators (HamS2Ovlp):
         # subclassed to facilitate use of LRRDM.get_fdm_1space
         # TODO: if necessary, split into a bra getter and a ket getter
         # TODO: it might be more efficient to umat the op and modify get_fdm_1space
-        vec = self._fdm_vec_getter (iroot)
+        vec = self._fdm_vec_getter (iroot).copy ()
         lroots = self.lroots[:,iroot:iroot+1]
         for i, inti in enumerate (self.ints):
-            if iroot not in inti.umat_root.keys (): continue
-            umat = inti.umat_root[iroot]
+            umat = inti.umat_root.get (iroot, np.eye (lroots[i,0]))
             vec = umat_dot_1frag_(vec, umat.conj ().T, lroots, i, 0, axis=0)
         return vec
 
@@ -772,26 +773,28 @@ def gen_contract_op_si_hdiag (las, h1, h2, ci, nelec_frs, smult_fr=None, soc=0, 
     return ham_op, s2_op, ovlp_op, hdiag, outerprod.get_ovlp
 
 def get_hdiag_orth (hdiag_raw, h_op_raw, raw2orth):
+    if isinstance (raw2orth, citools.NullOrthBasis):
+        return hdiag_raw
     hobj_neutral = h_op_raw.parent.get_neutral (verbose=0)
-    #return hobj_neutral.get_hdiag_orth (raw2orth)
-    h_op_neutral = hobj_neutral.get_ham_op ()
-    hdiag_orth = np.empty (raw2orth.shape[0], dtype=hdiag_raw.dtype)
-    uniq_prod_idx = raw2orth.uniq_prod_idx
-    nuniq_prod = len (uniq_prod_idx)
-    hdiag_orth[:nuniq_prod] = hdiag_raw[uniq_prod_idx]
-    old_roots = None
-    def cmp (new, old):
-        if old is None: return False
-        if len (new) != len (old): return False
-        if np.any (new!=old): return False
-        return True
-    for i, (x0, roots) in enumerate (raw2orth.gen_mixed_state_vectors (_yield_roots=True)):
-        if not cmp (roots, old_roots):
-            hobj_subspace = hobj_neutral.get_subspace (roots, verbose=0)
-            h_op_subspace = hobj_subspace.get_ham_op ()
-            old_roots = roots
-        hdiag_orth[i+nuniq_prod] = np.dot (x0.conj (), h_op_subspace (x0))
-    return hdiag_orth
+    return hobj_neutral.get_hdiag_orth (raw2orth)
+    #h_op_neutral = hobj_neutral.get_ham_op ()
+    #hdiag_orth = np.empty (raw2orth.shape[0], dtype=hdiag_raw.dtype)
+    #uniq_prod_idx = raw2orth.uniq_prod_idx
+    #nuniq_prod = len (uniq_prod_idx)
+    #hdiag_orth[:nuniq_prod] = hdiag_raw[uniq_prod_idx]
+    #old_roots = None
+    #def cmp (new, old):
+    #    if old is None: return False
+    #    if len (new) != len (old): return False
+    #    if np.any (new!=old): return False
+    #    return True
+    #for i, (x0, roots) in enumerate (raw2orth.gen_mixed_state_vectors (_yield_roots=True)):
+    #    if not cmp (roots, old_roots):
+    #        hobj_subspace = hobj_neutral.get_subspace (roots, verbose=0)
+    #        h_op_subspace = hobj_subspace.get_ham_op ()
+    #        old_roots = roots
+    #    hdiag_orth[i+nuniq_prod] = np.dot (x0.conj (), h_op_subspace (x0))
+    #return hdiag_orth
 
 
 

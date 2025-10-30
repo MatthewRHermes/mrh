@@ -142,6 +142,9 @@ def case_contract_op_si (ks, las, h1, h2, ci_fr, nelec_frs, smult_fr=None, soc=0
     ham_orth = raw2orth (ham.T).T
     ham_orth = raw2orth (ham_orth.conj ()).conj ()
     ham_diag_orth = op[1].get_hdiag_orth (ham_diag, ham_op, raw2orth)
+    #for i, test in enumerate (ham_diag_orth):
+    #    ref = ham_orth[i,i]
+    #    print (i, test, ref, test-ref, test/ref)
     with ks.subTest ('hdiag orth'):
         ks.assertAlmostEqual (lib.fp (ham_orth.diagonal ()), lib.fp (ham_diag_orth), 7)
     nstates = ham.shape[0]
