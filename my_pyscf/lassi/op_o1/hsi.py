@@ -538,6 +538,47 @@ class HamS2OvlpOperators (HamS2Ovlp):
         self.log.timer ('HamS2OvlpOperators.get_hdiag', *t0)
         return self.ox.copy ()
 
+    def get_hdiag_orth (self, raw2orth):
+        t0 = (logger.process_clock (), logger.perf_counter ())
+        self.init_profiling ()
+        self.x[:] = x.flat[:]
+        self.ox[:] = 0
+        #self._umat_linequiv_loop_(0) # U.conj () @ x
+        self._fdm_vec_getter = raw2orth.get_xmat_rows
+        for inv, group in self.optermgroups_h.items (): 
+            for op in group.ops:
+                for key in op.spincase_keys:
+                    op1 = opterm.reduce_spin (op, key[0], key[1]).ravel ()
+                    self._hdiag_orth_1op_(raw2orth, op1, key)
+        #self._umat_linequiv_loop_(1) # U.T @ ox
+        self.log.info (self.sprint_profile ())
+        self.log.timer ('HamS2OvlpOperators._ham_op', *t0)
+        return self.ox.copy ()
+
+    def _hdiag_orth_1op_(self, raw2orth, op1, key):
+        # refactor later
+        inv = key[2:]
+        for bra, ket in self.nonuniq_exc[key]:
+            if not raw2orth.roots_in_same_block (bra, ket): continue
+            p, q = raw2orth.get_orth_prod_range (bra)
+            fdm = self.get_fdm_1space (bra, ket, *inv)
+            fdm = fdm.reshape (q-p, op1.size)
+            self.ox[p:q] += np.dot (fdm, op1)
+        return 
+
+    get_fdm_1space = LRRDM.get_fdm_1space
+    def get_single_rootspace_sivec (self, iroot, bra=False):
+        # subclassed to facilitate use of LRRDM.get_fdm_1space
+        # TODO: if necessary, split into a bra getter and a ket getter
+        # TODO: it might be more efficient to umat the op and modify get_fdm_1space
+        vec = self._fdm_vec_getter (iroot)
+        lroots = self.lroots[:,iroot:iroot+1]
+        for i, inti in enumerate (self.ints):
+            if iroot not in inti.umat_root.keys (): continue
+            umat = inti.umat_root[iroot]
+            vec = umat_dot_1frag_(vec, umat.conj ().T, lroots, i, 0, axis=0)
+        return vec
+
     def _crunch_hdiag_env_(self, _crunch_fn, *row): 
         if row[0] != row[1]: return
         if self._fn_row_has_spin (_crunch_fn):
