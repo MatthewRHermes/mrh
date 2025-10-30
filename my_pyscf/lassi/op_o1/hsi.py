@@ -553,13 +553,21 @@ class HamS2OvlpOperators (HamS2Ovlp):
     def _hdiag_orth_1op_(self, raw2orth, op, key):
         # refactor later
         inv = list (set (key[2:]))
-        for bra, ket in self.nonuniq_exc[key]:
-            if not raw2orth.roots_in_same_block (bra, ket): continue
-            p, q = raw2orth.get_orth_prod_range (bra)
-            fdm = self.get_fdm_1space (bra, ket, *inv)
+        splittab = self.split_exctab_4_diag_orth (raw2orth, self.nonuniq_exc[key])
+        for (p, q), braket_tab in splittab:
+            fdm = 0
+            for bra, ket in braket_tab:
+                fdm += self.get_fdm_1space (bra, ket, *inv)
             fdm = fdm.reshape (q-p, op.size)
             self.ox[p:q] += np.dot (fdm, op)
         return 
+
+    def split_exctab_4_diag_orth (self, raw2orth, tab):
+        tab = [[bra, ket] for bra, ket in tab if raw2orth.roots_in_same_block (bra, ket)]
+        man = [raw2orth.root_manifold_addr[bra,0] for bra, ket in tab]
+        uniq, inv = np.unique (man, return_inverse=True)
+        tab = np.asarray (tab)
+        return [(raw2orth.offs_orth[p], tab[inv==i]) for i,p in enumerate (uniq)]
 
     get_fdm_1space = LRRDM.get_fdm_1space
     get_frag_transposed_sivec = LRRDM.get_frag_transposed_sivec
