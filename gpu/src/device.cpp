@@ -71,6 +71,12 @@ Device::Device()
   h_dm1_full = nullptr;
   h_dm2_full = nullptr;
   h_dm2_p_full = nullptr;
+
+  // matvecs;
+  size_new_sivecs=0;
+  size_old_sivecs=0;
+  h_new_sivecs = nullptr;
+  h_old_sivecs = nullptr;
 #if defined(_USE_GPU)
   use_eri_cache = true;
 #endif
@@ -125,6 +131,8 @@ Device::Device()
     device_data[i].size_tdm1=0;
     device_data[i].size_tdm2=0;
     device_data[i].size_tdm2_p=0;
+    //matvecs
+    device_data[i].size_op = 0;
     
     
     device_data[i].d_rho = nullptr;
@@ -167,11 +175,9 @@ Device::Device()
     device_data[i].d_tdm1=nullptr;
     device_data[i].d_tdm2=nullptr;
     device_data[i].d_tdm2_p=nullptr;
-    //device_data[i].d_tdm1h=nullptr;
-    //device_data[i].d_tdm3ha=nullptr;
-    //device_data[i].d_tdm3hb=nullptr;
-    //device_data[i].d_pdm1=nullptr;
-    //device_data[i].d_pdm2=nullptr;
+
+    //matvecs
+    device_data[i].d_op = nullptr;
 
 #if defined (_USE_GPU)
     device_data[i].handle = nullptr;
@@ -5383,3 +5389,119 @@ void Device::copy_tdm2_host_to_page(py::array_t<double> _dm2_full, int size_dm2_
   double t1 = omp_get_wtime();
 }
 /* ---------------------------------------------------------------------- */
+void Device::push_op(py::array_t<double> _op, int m, int k)
+{
+  double t0 = omp_get_wtime();
+  py::buffer_info info_op = _op.request(); // (2D array of m * k)
+  double * op = static_cast<double*>(info_op.ptr);
+  int _size_op = m*k;
+  for (int i=0; i<num_devices;++i){
+    pm->dev_set_device(i);
+    my_device_data * dd = &(device_data[i]);
+    grow_array(dd->d_op, _size_op, dd->size_op, "op", FLERR);
+    pm->dev_push_async(dd->d_op, op, _size_op*sizeof(double));
+  }
+  double t1 = omp_get_wtime();
+}
+/* ---------------------------------------------------------------------- */
+void Device::init_new_sivecs_host(int m, int n)
+{
+  double t0 = omp_get_wtime();
+  int _size_sivecs = m*n;
+  grow_array_host(h_new_sivecs, _size_sivecs, size_new_sivecs, "h:new_sivecs");
+  double t1 = omp_get_wtime();
+}
+/* ---------------------------------------------------------------------- */
+void Device::init_old_sivecs_host(int k, int n)
+{
+  double t0 = omp_get_wtime();
+  int _size_sivecs = k*n;
+  grow_array_host(h_old_sivecs, _size_sivecs, size_old_sivecs, "h:old_sivecs");
+  double t1 = omp_get_wtime();
+}
+/* ---------------------------------------------------------------------- */
+void Device::push_sivecs_to_host(py::array_t<double> _vec, int n_loc, int n, int k)
+{
+  double t0 = omp_get_wtime();
+  py::buffer_info info_vec = _vec.request(); // (2D array of n * k)
+  double * vec = static_cast<double*>(info_vec.ptr);
+  int _size_vec = n*k;
+  double * h_old_sivecs_loc = &(h_old_sivecs[n_loc*k]);
+#pragma omp parallel for
+  for (int i=0; i<_size_vec; ++i){h_old_sivecs_loc[i] = vec[i];}
+  double t1 = omp_get_wtime();
+}
+/* ---------------------------------------------------------------------- */
+void Device::compute_sivecs (int m, int n, int k)
+{
+  double t0 = omp_get_wtime();
+  int _max_size_buf;
+  int max_batch_n;
+  int batch_n;
+  int device_id;
+  double alpha = 1.0;
+  double beta = 0.0;
+  #ifdef _DEBUG_FCI
+  double * h_buf = nullptr;
+  int h_size_buf = 0;
+  double * h_op = nullptr;
+  int h_size_op = 0;
+  #endif
+  for (int i=0; i<num_devices; ++i){
+    device_id = i%num_devices;
+    pm->dev_set_device(device_id);
+    my_device_data * dd = &(device_data[device_id]);
+    _max_size_buf = _MAX(dd->size_buf1, dd->size_buf2);
+    _max_size_buf = _MAX(_max_size_buf, dd->size_buf3);
+    grow_array(dd->d_buf1, _max_size_buf, dd->size_buf1, "buf1", FLERR);
+    grow_array(dd->d_buf2, _max_size_buf, dd->size_buf2, "buf2", FLERR);
+    grow_array(dd->d_buf3, _max_size_buf, dd->size_buf3, "buf3", FLERR);
+    max_batch_n = _MIN(_max_size_buf/k, _max_size_buf/m);
+    }
+  int device_id_counter = 0;
+  for (int i=0; i<n; i+=max_batch_n){
+    device_id = device_id_counter%num_devices;
+    ++device_id_counter;
+    pm->dev_set_device(device_id);
+    my_device_data * dd = &(device_data[device_id]);
+    ml->set_handle(device_id);
+    batch_n = _MIN(max_batch_n, n-i);
+    double * old_sivecs = &(h_old_sivecs[i*k]);
+    double * new_sivecs = &(h_new_sivecs[i*m]);
+    pm->dev_push_async(dd->d_buf1, old_sivecs, k*batch_n*sizeof(double));
+    //this gemm and transpose can be combined together depending on what is faster ...
+    ml->gemm((char *) "T", (char *) "N", 
+             &batch_n,&m, &k, 
+             &alpha, 
+             dd->d_buf1, &k,
+             dd->d_op, &k,
+             &beta, 
+             dd->d_buf2, &batch_n);
+    transpose(dd->d_buf3, dd->d_buf2, m, batch_n);
+    pm->dev_pull_async( dd->d_buf3, new_sivecs, batch_n*m*sizeof(double));
+    }
+  for (int i=0; i<num_devices; ++i){
+    pm->dev_set_device(device_id);
+    pm->dev_barrier();}
+
+  double t1 = omp_get_wtime();
+}
+/* ---------------------------------------------------------------------- */
+void Device::pull_sivecs_from_pinned(py::array_t<double> _vec, int n_loc, int m, int n)
+{
+  double t0 = omp_get_wtime();
+  py::buffer_info info_vec = _vec.request(); // (empty 2D array of n * m)
+  double * vec = static_cast<double*>(info_vec.ptr);
+  int _size_vec = n*m;
+  double * h_new_sivecs_loc = &(h_new_sivecs[n_loc*m]);
+  #if 0 
+#pragma omp parallel for
+  for (int i=0; i<_size_vec; ++i){vec[i] = h_new_sivecs_loc[i];}
+  #else
+#pragma omp parallel for
+  for (int _m =0; _m<m; ++_m){for (int _n=0; _n<n; ++_n){vec[_m*n+_n] = h_new_sivecs_loc[_n*m+_m];}}
+  #endif
+  double t1 = omp_get_wtime();
+}
+/* ---------------------------------------------------------------------- */
+

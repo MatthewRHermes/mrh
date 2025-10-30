@@ -210,6 +210,14 @@ public :
   void copy_tdm1_host_to_page(py::array_t<double> , int );
   void copy_tdm2_host_to_page(py::array_t<double> , int );
 
+
+  void push_op(py::array_t<double>, int, int);
+  void init_new_sivecs_host(int, int); 
+  void init_old_sivecs_host(int, int); 
+  void push_sivecs_to_host(py::array_t<double>, int, int, int);
+  void compute_sivecs(int, int, int); 
+  void pull_sivecs_from_pinned(py::array_t<double>, int, int, int);
+
   //inner functions
   void extract_mo_cas(int, int, int);//TODO: fix the difference - changed slightly
   void get_mo_cas(const double *, double *, int, int, int);
@@ -337,6 +345,11 @@ private:
   double * h_dm2_full;
   double * h_dm2_p_full;
 
+  int size_new_sivecs;
+  int size_old_sivecs;
+  double * h_new_sivecs;
+  double * h_old_sivecs;
+ 
   
   // eri caching on device
   bool use_eri_cache;
@@ -467,6 +480,9 @@ private:
     double * d_tdm3hb;
     double * d_pdm2; //do we need these anymore
     double * d_pdm1; //do we need these anymore
+    
+    int size_op;
+    double * d_op;
 
     std::vector<int> type_pumap;
     std::vector<int> size_pumap;
