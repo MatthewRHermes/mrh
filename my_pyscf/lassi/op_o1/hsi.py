@@ -553,7 +553,7 @@ class HamS2OvlpOperators (HamS2Ovlp):
         #self._umat_linequiv_loop_(1) # U.T @ ox
         self.log.info (self.sprint_profile ())
         self.log.timer ('HamS2OvlpOperators._ham_op', *t0)
-        return self.ox.copy ()
+        return self.ox[:raw2orth.shape[0]].copy ()
 
     def _hdiag_orth_1op_(self, raw2orth, op1, key):
         # refactor later
