@@ -264,7 +264,7 @@ class OrthBasis (sparse_linalg.LinearOperator):
         # lookup for diagonal blocking
         self.root_manifold_addr = -2*np.ones ((len (nprods_r),3), dtype=int)
         self.root_manifold_addr[uniq_roots,0] = np.arange (len (uniq_roots), dtype=int)
-        self.root_manifold_addr[uniq_roots,1] = -1
+        self.root_manifold_addr[uniq_roots,1] = -(self.root_manifold_addr[uniq_roots,0]+1)
         self.root_manifold_addr[uniq_roots,2] = -1
         nman = len (uniq_roots)
         self.manifolds_nprods_raw = []
@@ -283,7 +283,7 @@ class OrthBasis (sparse_linalg.LinearOperator):
                     self.root_manifold_addr[mijk,:] = [nman,i,k]
                 manifolds_nprods_orth_flat.append (xmat.shape[1])
                 nman += 1
-        assert (np.all (self.root_manifold_addr>-2))
+        assert (np.all (self.root_manifold_addr[:,2]>-2))
         self.nprods_orth = np.empty (nman, dtype=int)
         self.nprods_orth[:len(uniq_roots)] = nprods_r[uniq_roots]
         self.nprods_orth[len(uniq_roots):] = manifolds_nprods_orth_flat
@@ -301,9 +301,9 @@ class OrthBasis (sparse_linalg.LinearOperator):
 
     def get_xmat_rows (self, iroot):
         x, i, j = self.root_manifold_addr[iroot]
-        if i == -1:
+        if j == -1:
             return np.eye (self.nprods_raw[iroot])
-        assert (j >= 0)
+        assert (i >= 0)
         xmat = self.manifolds_xmat[i]
         p, q = self.manifolds_offs_raw[i][j]
         xmat = xmat[p:q,:]
