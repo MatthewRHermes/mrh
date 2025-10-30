@@ -545,7 +545,7 @@ class HamS2OvlpOperators (HamS2Ovlp):
             for op in group.ops:
                 for key in op.spincase_keys:
                     op1 = opterm.reduce_spin (op, key[0], key[1])
-                    op1 = op1 + op1.conj ().T
+                    op1 = op1 + op1.conj ()
                     op1 = op1.ravel ()
                     self._hdiag_orth_1op_(raw2orth, op1, key)
         return self.ox[:raw2orth.shape[0]].copy ()
