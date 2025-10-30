@@ -539,20 +539,13 @@ class HamS2OvlpOperators (HamS2Ovlp):
         return self.ox.copy ()
 
     def get_hdiag_orth (self, raw2orth):
-        t0 = (logger.process_clock (), logger.perf_counter ())
-        self.init_profiling ()
-        self.x[:] = x.flat[:]
         self.ox[:] = 0
-        #self._umat_linequiv_loop_(0) # U.conj () @ x
         self._fdm_vec_getter = raw2orth.get_xmat_rows
         for inv, group in self.optermgroups_h.items (): 
             for op in group.ops:
                 for key in op.spincase_keys:
                     op1 = opterm.reduce_spin (op, key[0], key[1]).ravel ()
                     self._hdiag_orth_1op_(raw2orth, op1, key)
-        #self._umat_linequiv_loop_(1) # U.T @ ox
-        self.log.info (self.sprint_profile ())
-        self.log.timer ('HamS2OvlpOperators._ham_op', *t0)
         return self.ox[:raw2orth.shape[0]].copy ()
 
     def _hdiag_orth_1op_(self, raw2orth, op1, key):
@@ -567,6 +560,7 @@ class HamS2OvlpOperators (HamS2Ovlp):
         return 
 
     get_fdm_1space = LRRDM.get_fdm_1space
+    get_frag_transposed_sivec = LRRDM.get_frag_transposed_sivec
     def get_single_rootspace_sivec (self, iroot, bra=False):
         # subclassed to facilitate use of LRRDM.get_fdm_1space
         # TODO: if necessary, split into a bra getter and a ket getter
@@ -779,6 +773,7 @@ def gen_contract_op_si_hdiag (las, h1, h2, ci, nelec_frs, smult_fr=None, soc=0, 
 
 def get_hdiag_orth (hdiag_raw, h_op_raw, raw2orth):
     hobj_neutral = h_op_raw.parent.get_neutral (verbose=0)
+    #return hobj_neutral.get_hdiag_orth (raw2orth)
     h_op_neutral = hobj_neutral.get_ham_op ()
     hdiag_orth = np.empty (raw2orth.shape[0], dtype=hdiag_raw.dtype)
     uniq_prod_idx = raw2orth.uniq_prod_idx

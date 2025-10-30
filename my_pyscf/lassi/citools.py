@@ -279,7 +279,8 @@ class OrthBasis (sparse_linalg.LinearOperator):
             xmat = manifolds_xmat[i]
             assert (offs1[-1] == xmat.shape[0])
             for j, mij in enumerate (mi):
-                self.root_manifold_addr[mij,:] = [nman,i,j]
+                for k, mijk in enumerate (mij):
+                    self.root_manifold_addr[mijk,:] = [nman,i,k]
                 manifolds_nprods_orth_flat.append (xmat.shape[1])
                 nman += 1
         assert (np.all (self.root_manifold_addr>-2))
@@ -295,18 +296,18 @@ class OrthBasis (sparse_linalg.LinearOperator):
         return self.root_manifold_addr[i,0]==self.root_manifold_addr[j,0]
 
     def get_orth_prod_range (self, iroot):
-        p = self.root_manifold_addr[i,0]
-        return self.offs0_orth[p], self.offs1_orth[p]
+        p = self.root_manifold_addr[iroot,0]
+        return tuple (self.offs_orth[p])
 
     def get_xmat_rows (self, iroot):
-        x, i, j = self.root_manifold_addr[i]
+        x, i, j = self.root_manifold_addr[iroot]
         if i == -1:
             return np.eye (self.nprods_raw[iroot])
         assert (j >= 0)
         xmat = self.manifolds_xmat[i]
-        p, q = self.manifolds_offs_raw[i]
+        p, q = self.manifolds_offs_raw[i][j]
         xmat = xmat[p:q,:]
-        nraw = self.manifolds_nprods_raw[i]
+        nraw = self.manifolds_nprods_raw[i][j]
         north = self.nprods_orth[x]
         assert (xmat.shape == (nraw, north))
         return xmat
