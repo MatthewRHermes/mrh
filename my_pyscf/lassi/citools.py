@@ -245,8 +245,9 @@ class OrthBasis (sparse_linalg.LinearOperator):
         self.manifolds_roots = [np.asarray (x, dtype=int) for x in manifolds_roots]
         self.manifolds_xmat = manifolds_xmat
         self.nprods_raw = nprods_r
-        self.offs1_raw = offs1 = np.cumsum (nprods_r)
-        self.offs0_raw = offs0 = offs1 - nprods_r
+        offs1 = np.cumsum (nprods_r)
+        offs0 = offs1 - nprods_r
+        self.offs_raw = np.stack ([offs0,offs1], axis=1)
         uniq_prod_idx = []
         for i in uniq_roots: uniq_prod_idx.extend (list(range(offs0[i],offs1[i])))
         self.uniq_prod_idx = np.asarray (uniq_prod_idx, dtype=int)
@@ -267,35 +268,28 @@ class OrthBasis (sparse_linalg.LinearOperator):
         self.root_manifold_addr[uniq_roots,2] = -1
         nman = len (uniq_roots)
         self.manifolds_nprods_raw = []
-        self.manifolds_offs0_raw = []
-        self.manifolds_offs1_raw = []
+        self.manifolds_offs_raw = []
         manifolds_nprods_orth_flat = []
         for i, mi in enumerate (manifolds_roots):
-            manifolds_nprods_raw_i = []
-            manifolds_offs0_raw_i = []
-            manifolds_offs1_raw_i = []
+            my_nprods_raw = nprods_r[mi[0]]
+            self.manifolds_nprods_raw.append (my_nprods_raw)
+            offs1 = np.cumsum (my_nprods_raw)
+            offs0 = offs1 - my_nprods_raw
+            self.manifolds_offs_raw.append (np.stack ([offs0, offs1], axis=1))
+            xmat = manifolds_xmat[i]
+            assert (offs1[-1] == xmat.shape[0])
             for j, mij in enumerate (mi):
                 self.root_manifold_addr[mij,:] = [nman,i,j]
-                my_nprods_raw = nprods_r[mij]
-                my_offs1_raw = np.cumsum (my_nprods_raw)
-                my_offs0_raw = my_offs1_raw - my_nprods_raw
-                manifolds_nprods_raw_i.append (my_nprods_raw)
-                manifolds_offs0_raw_i.append (my_offs0_raw)
-                manifolds_offs1_raw_i.append (my_offs1_raw)
-                xmat = manifolds_xmat[i]
-                assert (my_offs1_raw[-1] == xmat.shape[0])
                 manifolds_nprods_orth_flat.append (xmat.shape[1])
                 nman += 1
-            self.manifolds_nprods_raw.append (manifolds_nprods_raw_i)
-            self.manifolds_offs0_raw.append (manifolds_offs0_raw_i)
-            self.manifolds_offs1_raw.append (manifolds_offs1_raw_i)
         assert (np.all (self.root_manifold_addr>-2))
         self.nprods_orth = np.empty (nman, dtype=int)
         self.nprods_orth[:len(uniq_roots)] = nprods_r[uniq_roots]
         self.nprods_orth[len(uniq_roots):] = manifolds_nprods_orth_flat
-        self.offs1_orth = np.cumsum (self.nprods_orth)
-        self.offs0_orth = self.offs1_orth - self.nprods_orth
-        assert (self.offs1_orth[-1] == self.shape[0])
+        offs1 = np.cumsum (self.nprods_orth)
+        offs0 = offs1 - self.nprods_orth
+        self.offs_orth = np.stack ([offs0, offs1], axis=1)
+        assert (self.offs_orth[-1,-1] == self.shape[0])
 
     def roots_in_same_block (self, i, j):
         return self.root_manifold_addr[i,0]==self.root_manifold_addr[j,0]
@@ -310,10 +304,9 @@ class OrthBasis (sparse_linalg.LinearOperator):
             return np.eye (self.nprods_raw[iroot])
         assert (j >= 0)
         xmat = self.manifolds_xmat[i]
-        p = self.manifolds_offs0_raw[i][j]
-        q = self.manifolds_offs1_raw[i][j]
+        p, q = self.manifolds_offs_raw[i]
         xmat = xmat[p:q,:]
-        nraw = self.manifolds_nprods_raw[i][j]
+        nraw = self.manifolds_nprods_raw[i]
         north = self.nprods_orth[x]
         assert (xmat.shape == (nraw, north))
         return xmat
