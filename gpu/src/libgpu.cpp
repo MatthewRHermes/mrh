@@ -79,6 +79,14 @@ void libgpu_set_device(void * ptr, int id)
 
 /* ---------------------------------------------------------------------- */
 
+void libgpu_barrier(void *ptr)
+{
+  Device * dev = (Device *) ptr;
+  dev->barrier_all();
+}
+
+/* ---------------------------------------------------------------------- */
+
 void libgpu_disable_eri_cache_(void * ptr)
 { 
   Device * dev = (Device *) ptr;
@@ -655,5 +663,48 @@ void libgpu_copy_tdm2_host_to_page(void * ptr,
 {
   Device * dev = (Device *) ptr;
   dev->copy_tdm2_host_to_page(dm2_full, size_dm2_full);
+}
+/* ---------------------------------------------------------------------- */
+void libgpu_push_op(void * ptr, 
+                     py::array_t<double> op, int m, int k)
+{
+  Device * dev = (Device *) ptr;
+  dev->push_op(op, m, k);
+}
+/* ---------------------------------------------------------------------- */
+void libgpu_init_new_sivecs_host(void * ptr, 
+                                 int m, int n)
+{
+  Device * dev = (Device *) ptr;
+  dev->init_new_sivecs_host(m, n);
+}
+/* ---------------------------------------------------------------------- */
+void libgpu_init_old_sivecs_host(void * ptr, 
+                                 int k, int n)
+{
+  Device * dev = (Device *) ptr;
+  dev->init_old_sivecs_host(k, n);
+}
+
+/* ---------------------------------------------------------------------- */
+void libgpu_push_sivecs_to_host(void * ptr, 
+                                  py::array_t<double> vec, int n_loc, int n, int k)
+{
+  Device * dev = (Device *) ptr;
+  dev->push_sivecs_to_host(vec, n_loc, n, k);
+}
+/* ---------------------------------------------------------------------- */
+void libgpu_compute_sivecs(void * ptr, 
+                             int m, int n, int k)
+{
+  Device * dev = (Device *) ptr;
+  dev->compute_sivecs(m, n, k);
+}
+/* ---------------------------------------------------------------------- */
+void libgpu_pull_sivecs_from_pinned(void * ptr, 
+                     py::array_t<double> vec, int n_loc, int m, int n)
+{
+  Device * dev = (Device *) ptr;
+  dev->pull_sivecs_from_pinned(vec, n_loc, m, n);
 }
 /* ---------------------------------------------------------------------- */
