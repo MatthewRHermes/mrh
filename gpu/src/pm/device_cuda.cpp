@@ -2062,7 +2062,9 @@ void Device::veccopy(const double * src, double *dest, int size)
   _veccopy<<<grid_size, block_size, 0, s>>>(src, dest, size);
   _CUDA_CHECK_ERRORS();
 }
+
 /* ---------------------------------------------------------------------- */
+
 void Device::transpose_021( double * in, double * out, int norb)
 {
   cudaStream_t s = *(pm->dev_get_queue());

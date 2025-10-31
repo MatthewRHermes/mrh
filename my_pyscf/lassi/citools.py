@@ -172,6 +172,7 @@ def get_orth_basis (ci_fr, norb_f, nelec_frs, _get_ovlp=None, smult_fr=None):
     for i in uniq_idx[cnts==1]: uniq_prod_idx.extend (list(range(offs0[i],offs1[i])))
     manifolds_prod_idx = []
     manifolds_xmat = []
+    manifolds_roots = []
     north = len (uniq_prod_idx)
     for manifold_idx in np.where (cnts>1)[0]:
         manifolds = _get_spin_split_manifolds (ci_fr, norb_f, nelec_frs, smult_fr, lroots_fr,
@@ -194,16 +195,18 @@ def get_orth_basis (ci_fr, norb_f, nelec_frs, _get_ovlp=None, smult_fr=None):
                 xmat = canonical_orth_(ovlp, thr=LINDEP_THRESH)
                 north += xmat.shape[1] * nmirror
                 manifolds_xmat.append (xmat)
+                manifolds_roots.append (manifold)
             else:
                 north += ovlp.shape[0] * nmirror
                 uniq_prod_idx.extend (list (manifold_prod_idx.ravel ()))
             ovlp = None
+    assert (len (manifolds_roots) == len (manifolds_prod_idx)), '{} {}'.format (len (manifolds_roots), len (manifolds_prod_idx))
     nuniq_prod = len (uniq_prod_idx)
     nraw = offs1[-1]
 
     _get_ovlp = None
 
-    return OrthBasis ((north,nraw), dtype, uniq_prod_idx, manifolds_prod_idx, manifolds_xmat)
+    return OrthBasis ((north,nraw), dtype, uniq_prod_idx, manifolds_roots, manifolds_prod_idx, manifolds_xmat)
 
 def _get_spin_split_manifolds (ci_fr, norb_f, nelec_frs, smult_fr, lroots_fr, idx):
     '''The same as _get_spin_split_manifolds_idx, except that all of the arguments need to be
@@ -243,10 +246,11 @@ def _get_spin_split_manifolds_idx (ci_fr, norb_f, nelec_frs, smult_fr, lroots_fr
     return manifolds
 
 class OrthBasis (sparse_linalg.LinearOperator):
-    def __init__(self, shape, dtype, uniq_prod_idx, manifolds_prod_idx, manifolds_xmat):
+    def __init__(self, shape, dtype, uniq_prod_idx, manifolds_roots, manifolds_prod_idx, manifolds_xmat):
         self.shape = shape
         self.dtype = dtype
         self.uniq_prod_idx = np.asarray (uniq_prod_idx, dtype=int)
+        self.manifolds_roots = [np.asarray (x, dtype=int) for x in manifolds_roots]
         self.manifolds_prod_idx = [np.asarray (x, dtype=int) for x in manifolds_prod_idx]
         self.manifolds_xmat = manifolds_xmat
 

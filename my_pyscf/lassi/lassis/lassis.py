@@ -477,10 +477,10 @@ def spin_flip_products (las, spaces, spin_flips, nroots_ref=1):
     log.debug ("LASSIS spin-excitation spaces: %d-%d", nspaces, len (spaces)-1)
     for i, space in enumerate (spaces[nspaces:]):
         if np.any (space.nelec != spaces[0].nelec):
-            log.debug ("Spin/charge-excitation space %d:", i+nspaces)
+            log.debug2 ("Spin/charge-excitation space %d:", i+nspaces)
         else:
-            log.debug ("Spin-excitation space %d:", i+nspaces)
-        space.table_printlog (tverbose=logger.DEBUG)
+            log.debug2 ("Spin-excitation space %d:", i+nspaces)
+        space.table_printlog (tverbose=logger.DEBUG2)
     t1=log.timer ("LASSIS spin-flip table_print", *t1)
     log.timer ("LASSIS spin-flip injection", *t0)
     return spaces
@@ -507,8 +507,8 @@ def charge_excitation_products (lsi, spaces, spaces_ch, nroots_ref=0, space0=Non
                     if r not in seen:
                         seen.add (r)
                         spaces.append (r)
-                        log.debug ("Electron hop product space %d", len (spaces) - 1)
-                        spaces[-1].table_printlog (tverbose=logger.DEBUG)
+                        log.debug2 ("Electron hop product space %d", len (spaces) - 1)
+                        spaces[-1].table_printlog (tverbose=logger.DEBUG2)
         i = j
         j = len (spaces)
         t1 = log.timer ("LASSIS charge-hop product_order {} ({} {})".format (

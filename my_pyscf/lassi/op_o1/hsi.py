@@ -727,19 +727,19 @@ def gen_contract_op_si_hdiag (las, h1, h2, ci, nelec_frs, smult_fr=None, soc=0, 
     nfrags, nroots = nelec_frs.shape[:2]
     if soc>1: raise NotImplementedError ("Spin-orbit coupling of second order")
 
-    t1 = lib.logger.timer (las, 'LASSI hsi operator setup', *t1)
+    t1 = log.timer ('LASSI hsi operator setup', *t1)
     # Handle possible SOC
     spin_pure, h1, h2, ci, nelec_frs, smult_fr, nlas, spin_shuffle_fac = soc_context (
         h1, h2, ci, nelec_frs, smult_fr, soc, nlas)
-    t1 = lib.logger.timer (las, 'LASSI hsi operator soc handling', *t1)
+    t1 = log.timer ('LASSI hsi operator soc handling', *t1)
 
     # First pass: single-fragment intermediates
     ints, lroots = frag.make_ints (las, ci, nelec_frs, nlas=nlas, smult_fr=smult_fr,
-                                   pt_order=pt_order, do_pt_order=do_pt_order)
-    t1 = lib.logger.timer (las, 'LASSI hsi operator first pass make ints', *t1)
+                                   pt_order=pt_order, do_pt_order=do_pt_order, verbose=verbose)
+    t1 = log.timer ('LASSI hsi operator first pass make ints', *t1)
     nstates = np.sum (np.prod (lroots, axis=0))
 
-    t1 = lib.logger.timer (las, 'LASSI hsi operator first pass nstates making', *t1)
+    t1 = log.timer ('LASSI hsi operator first pass nstates making', *t1)
     # Second pass: upper-triangle
     t0 = (lib.logger.process_clock (), lib.logger.perf_counter ())
     outerprod = _HamS2Ovlp_class (ints, nlas, lroots, h1, h2,
@@ -747,11 +747,11 @@ def gen_contract_op_si_hdiag (las, h1, h2, ci, nelec_frs, smult_fr=None, soc=0, 
                                   dtype=dtype, max_memory=max_memory, log=log,
                                   screen_thresh=screen_thresh)
 
-    t1 = lib.logger.timer (las, 'LASSI hsi operator hams2ovlp class', *t1)
+    t1 = log.timer ('LASSI hsi operator hams2ovlp class', *t1)
     if soc and not spin_pure:
         outerprod.spin_shuffle = spin_shuffle_fac
-    t1 = lib.logger.timer (las, 'LASSI hsi operator spin shuffle assigning?', *t1)
-    lib.logger.timer (las, 'LASSI hsi operator build', *t0)
+    t1 = log.timer ('LASSI hsi operator spin shuffle assigning?', *t1)
+    log.timer ('LASSI hsi operator build', *t0)
 
     if _return_int: return outerprod
 
