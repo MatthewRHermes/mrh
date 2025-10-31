@@ -82,7 +82,9 @@ void MATHLIB::destroy_handle()
   cublasDestroy(my_handles[id]);
   my_handles[id] = NULL;
 }
+
 // ----------------------------------------------------------------
+
 void MATHLIB::memset(double * array, const int * num, const int * size)
 {
 #ifdef _DEBUG_ML 
@@ -106,8 +108,8 @@ void MATHLIB::memset(double * array, const int * num, const int * size)
 
 }
 
-
 // ----------------------------------------------------------------
+
 void MATHLIB::axpy(const int * n, 
                    const double * alpha, const double * x, const int * incx,
                    double * y, const int * incy)
@@ -133,14 +135,13 @@ void MATHLIB::axpy(const int * n,
 
 }
 
-
 // ----------------------------------------------------------------
 
 void MATHLIB::gemv_batch(const char * transa,
 		   const int * m, const int * n, 
 		   const double * alpha, const double * a, const int * lda, const int * strideA,
-		   const double * b, const int * ldb, const int * strideB,
-		   const double * beta, double * c, const int * ldc, const int * strideC, 
+		   const double * x, const int * incx, const int * strideX,
+		   const double * beta, double * y, const int * incy, const int * strideY,
                    const int * batchCount)
 {
 #ifdef _DEBUG_ML
@@ -158,10 +159,10 @@ void MATHLIB::gemv_batch(const char * transa,
 
 #ifdef _SINGLE_PRECISION
   cublasSgemvStridedBatched(*h, ta, *m, *n, 
-                            alpha, a, *lda, *strideA, b, *ldb, *strideB, beta, c, *ldc, *strideC, *batchCount);
+                            alpha, a, *lda, *strideA, x, *incx, *strideX, beta, y, *incy, *strideY, *batchCount);
 #else
   cublasDgemvStridedBatched(*h, ta, *m, *n, 
-                            alpha, a, *lda, *strideA, b, *ldb, *strideB, beta, c, *ldc, *strideC, *batchCount);
+                            alpha, a, *lda, *strideA, x, *incx, *strideX, beta, y, *incy, *strideY, *batchCount);
 #endif
   
   _CUDA_CHECK_ERRORS();
@@ -170,13 +171,14 @@ void MATHLIB::gemv_batch(const char * transa,
   printf(" -- Leaving MATHLIB::gemv_batch()\n");
 #endif
 }
+
 // ----------------------------------------------------------------
 
 void MATHLIB::gemv(const char * transa,
 		   const int * m, const int * n, 
 		   const double * alpha, const double * a, const int * lda,
-		   const double * b, const int * ldb,
-		   const double * beta, double * c, const int * ldc)
+		   const double * x, const int * incx,
+		   const double * beta, double * y, const int * incy)
 {
 #ifdef _DEBUG_ML
   printf("Inside MATHLIB::gemv()\n");
@@ -209,9 +211,9 @@ void MATHLIB::gemv(const char * transa,
   else ta = CUBLAS_OP_C;
 
 #ifdef _SINGLE_PRECISION
-  cublasSgemv(*h, ta, *m, *n, alpha, a, *lda, b, *ldb, beta, c, *ldc);
+  cublasSgemv(*h, ta, *m, *n, alpha, a, *lda, x, *incx, beta, y, *incy);
 #else
-  cublasDgemv(*h, ta, *m, *n, alpha, a, *lda, b, *ldb, beta, c, *ldc);
+  cublasDgemv(*h, ta, *m, *n, alpha, a, *lda, x, *incx, beta, y, *incy);
 #endif
   
   _CUDA_CHECK_ERRORS();
@@ -220,7 +222,6 @@ void MATHLIB::gemv(const char * transa,
   printf(" -- Leaving MATHLIB::gemv()\n");
 #endif
 }
-
 
 // ----------------------------------------------------------------
 

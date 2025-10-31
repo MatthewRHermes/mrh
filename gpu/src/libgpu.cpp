@@ -79,6 +79,14 @@ void libgpu_set_device(void * ptr, int id)
 
 /* ---------------------------------------------------------------------- */
 
+void libgpu_barrier(void *ptr)
+{
+  Device * dev = (Device *) ptr;
+  dev->barrier_all();
+}
+
+/* ---------------------------------------------------------------------- */
+
 void libgpu_disable_eri_cache_(void * ptr)
 { 
   Device * dev = (Device *) ptr;

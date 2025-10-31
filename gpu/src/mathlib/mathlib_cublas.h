@@ -29,20 +29,23 @@ namespace MATHLIB_NS {
     void destroy_handle();
     
     void memset(double * array, const int * num, const int * size);
+    
     void axpy(const int * n,
               const double * alpha, const double * x, const int * incx, 
-              double * y, const int * incy); 
+              double * y, const int * incy);
+    
     void gemv(const char * transa,
               const int * m, const int *n, 
 	      const double * alpha, const double * a, const int * lda,
-	      const double * b, const int * ldb,
-	      const double * beta, double * c, const int * ldc);
+	      const double * x, const int * incx,
+	      const double * beta, double * y, const int * incy);
+    
     void gemv_batch(const char * transa,
-              const int * m, const int *n, 
-	      const double * alpha, const double * a, const int * lda, const int * strideA,
-	      const double * b, const int * ldb, const int * strideB,
-	      const double * beta, double * c, const int * ldc, const int * strideC, 
-              const int * batchCount);
+		    const int * m, const int *n, 
+		    const double * alpha, const double * a, const int * lda, const int * strideA,
+		    const double * x, const int * incx, const int * strideX,
+		    const double * beta, double * y, const int * incy, const int * strideY,
+		    const int * batchCount);
 
     void gemm(const char * transa, const char * transb,
 	      const int * m, const int * n, const int * k,
