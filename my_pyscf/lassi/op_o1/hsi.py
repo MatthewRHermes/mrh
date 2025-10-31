@@ -360,9 +360,7 @@ class HamS2OvlpOperators (HamS2Ovlp):
         self.dw_sX += (w1-w0)
 
         self.ox1[:] = 0
-        print(len(ops))
         for op in ops:
-            print(len(op.spincase_keys))
             for key in op.spincase_keys:
                 self._opuniq_x_(op, key[0], key[1], vecs, *key[2:])
         t2, w2 = logger.process_clock (), logger.perf_counter ()
@@ -428,10 +426,10 @@ class HamS2OvlpOperators (HamS2Ovlp):
                 self._profile_4frag_(op)
         return
     
-    def _gpu_opuniq_x (self, op, obra, oket, ovecs, *inv):
-        brakets, bras, braHs = self.get_nonuniq_exc_square (key)
+    def _gpu_opuniq_x_ (self, op, obra, oket, ovecs, *inv):
         key = tuple ((obra, oket)) + inv
         inv = list (set (inv))
+        brakets, bras, braHs = self.get_nonuniq_exc_square (key)
 
         self.gpu_matvec(op, bras, oket, ovecs, inv)
 
@@ -440,7 +438,7 @@ class HamS2OvlpOperators (HamS2Ovlp):
             self.gpu_matvec(op, braHs, obra, ovecs, inv)
         return
 
-    def gpu_matvec(op, bras, oci, ovecs, inv):
+    def gpu_matvec(self, op, bras, oci, ovecs, inv):
         '''Effectively a op*vecs 
               where op is a matrix of size of m, k and 
               vecs several small vectors each of size n_i * k. 
@@ -454,7 +452,7 @@ class HamS2OvlpOperators (HamS2Ovlp):
         gpu = param.use_gpu
 
         #Get m,n,k for gemm gemm
-        m, k = op.shape() #m,k gemm
+        m, k = op.shape #m,k gemm
         libgpu.push_op(gpu, np.ascontiguousarray(op), m, k) #inits and pushes on all devices
         #Get n for gemm
         spec = np.ones (self.nfrags, dtype=bool)
@@ -470,7 +468,7 @@ class HamS2OvlpOperators (HamS2Ovlp):
         n_loc = 0
         for bra in bras:
             vec = ovecs[self.ox_ovlp_urootstr (bra, oci, inv)]
-            n,_ = vec.shape() #n,k gemm
+            n,_ = vec.shape #n,k gemm
             n_array.append(n)
             libgpu.push_sivecs_to_host(gpu, np.ascontiguousarray(vec), n_loc, n, k) #to pinned
             n_loc += n
@@ -492,14 +490,10 @@ class HamS2OvlpOperators (HamS2Ovlp):
         for n, bra in zip(n_array, bras):
             vec = np.empty((m*n))
             libgpu.pull_sivecs_from_pinned(gpu, vec, n_loc, m, n)
-            self.put_ox1_(new_vec, bra, *inv)
+            self.put_ox1_(vec, bra, *inv)
             n_loc += n
 
         return
-
-
-       
-         
     
     def ox_ovlp_urootstr (self, bra, ket, inv):
         '''Find the urootstr corresponding to the action of the overlap part of an operator
