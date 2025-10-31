@@ -541,7 +541,8 @@ def gen_contract_ham_ci_const (ifrag, las, h1, h2, ci, nelec_frs, soc=0, h0=0, o
     # of the intermediate to keep track of the difference between the full-system indices and the
     # nfrag-1--system indices
     outerprod = hsi.gen_contract_op_si_hdiag (las, h1, h2, ci_jfrag, nelec_frs_j, nlas=nlas_j,
-                                              _HamS2Ovlp_class=HamS2Ovlp, _return_int=True)
+                                              _HamS2Ovlp_class=HamS2Ovlp, _return_int=True,
+                                              verbose=log.verbose)
     ham_op = outerprod.get_ham_op ()
     ovlp_op = outerprod.get_ovlp_op ()
 
