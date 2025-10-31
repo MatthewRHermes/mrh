@@ -619,40 +619,59 @@ class HamS2OvlpOperators (HamS2Ovlp):
         self._fdm_vec_getter = raw2orth.get_xmat_rows
         for inv, group in self.optermgroups_h.items (): 
             for op in group.ops:
-                for key in op.spincase_keys:
-                    op1 = opterm.reduce_spin (op, key[0], key[1])
-                    op1 = op1 + op1.conj ()
-                    op1 = op1.ravel ()
-                    self._hdiag_orth_1op_(raw2orth, op1, key)
+                op1 = {(key[0], key[1]): opterm.reduce_spin (op, key[0], key[1]).ravel ()
+                       for key in op.spincase_keys}
+                itertable = self.hdiag_orth_getiter (raw2orth, op.spincase_keys)
+                for braket_tab, mblock_table in itertable:
+                    fdm = self.get_hdiag_fdm (braket_tab, *inv)
+                    for (key0, key1), (p, q) in mblock_table:
+                        op2 = op1[(key0,key1)]
+                        fdm = fdm.reshape (q-p, op2.size)
+                        self.ox[p:q] += np.dot (fdm, op2 + op2.conj ())
         return self.ox[:raw2orth.shape[0]].copy ()
 
-    def _hdiag_orth_1op_(self, raw2orth, op, key):
-        # refactor later
-        inv = list (set (key[2:]))
-        splittab = self.split_exctab_4_diag_orth (raw2orth, self.nonuniq_exc[key])
-        for spman, (p, q), braket_tab in splittab:
-            fdm = 0
-            for bra, ket in braket_tab:
-                fdm += self.get_fdm_1space (bra, ket, *inv)
-            fdm = fdm.reshape (q-p, op.size)
-            self.ox[p:q] += np.dot (fdm, op)
-        return 
+    def hdiag_orth_getiter (self, raw2orth, spincase_keys):
+        braket_tabs = {}
+        mblocks = {}
+        for key in spincase_keys:
+            my_braket_tabs, my_mblocks = self.hdiag_orth_getiter_1key (raw2orth, key)
+            # overwrite braket_tab, because it should always be the same for the same sblock
+            braket_tabs.update (my_braket_tabs)
+            # append because I think the dict keys here can collide
+            for sblock, mbl1 in my_mblocks.items ():
+                mblocks[sblock] = mblocks.get (sblock, []) + mbl1
+        assert (len (braket_tabs.keys ()) == len (mblocks.keys ()))
+        itertable = []
+        for sblock in braket_tabs.keys ():
+            itertable.append ((braket_tabs[sblock], mblocks[sblock]))
+        return itertable
 
-    def split_exctab_4_diag_orth (self, raw2orth, tab):
+    def hdiag_orth_getiter_1key (self, raw2orth, key):
+        tab = self.nonuniq_exc[key]
         tab = [[bra, ket] for bra, ket in tab if raw2orth.roots_in_same_block (bra, ket)]
         tab = np.asarray (tab)
-        splittab = []
-        if tab.size == 0: return splittab
+        braket_tabs = {}
+        mblocks = {}
+        if tab.size == 0: return braket_tabs, mblocks
         bras = tab[:,0]
         man = raw2orth.root_manifold_addr[bras]
         uniq, inv = np.unique (man[:,0], return_inverse=True)
         tab = np.asarray (tab)
         for i,p in enumerate (uniq):
             idx = inv==i
-            spman = man[idx,1][0]
-            offs = raw2orth.offs_orth[p]
-            splittab.append ((spman, offs, tab[idx]))
-        return splittab
+            sblock = man[idx,1][0]
+            assert (np.all (man[idx,1]==sblock))
+            braket_tabs[sblock] = tab[idx]
+            mblock = mblocks.get (sblock, [])
+            mblock.append (((key[0], key[1]), raw2orth.offs_orth[p]))
+            mblocks[sblock] = mblock
+        return braket_tabs, mblocks
+
+    def get_hdiag_fdm (self, braket_tab, *inv):
+        fdm = 0
+        for bra, ket in braket_tab:
+            fdm += self.get_fdm_1space (bra, ket, *inv)
+        return fdm
 
     get_fdm_1space = LRRDM.get_fdm_1space
     get_frag_transposed_sivec = LRRDM.get_frag_transposed_sivec
