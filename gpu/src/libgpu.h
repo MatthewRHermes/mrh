@@ -23,6 +23,8 @@ extern "C"
   void libgpu_dev_properties(void *, int);
   void libgpu_set_device(void *, int);
 
+  void libgpu_barrier(void *);
+
   void libgpu_disable_eri_cache_(void *);
   void libgpu_set_update_dfobj_(void *, int);
   void libgpu_get_dfobj_status(void *, size_t, py::array_t<int>);
@@ -196,6 +198,14 @@ extern "C"
                       py::array_t<double> , int );
   void libgpu_copy_tdm2_host_to_page(void *, 
                       py::array_t<double> , int );
+
+  //MATVECS FOR LASSI
+  void libgpu_push_op(void *, py::array_t<double>, int, int);
+  void libgpu_init_new_sivecs_host(void * , int, int); 
+  void libgpu_init_old_sivecs_host(void *, int, int); 
+  void libgpu_push_sivecs_to_host(void * , py::array_t<double>, int, int, int);
+  void libgpu_compute_sivecs(void *, int, int, int); 
+  void libgpu_pull_sivecs_from_pinned(void *, py::array_t<double>, int, int, int);
 }
 
 
@@ -210,6 +220,8 @@ PYBIND11_MODULE(libgpu, m) {
   m.def("get_num_devices", &libgpu_get_num_devices, "return number of devices present");
   m.def("dev_properties", &libgpu_dev_properties, "info on available devices");
   m.def("set_device", &libgpu_set_device, "select device");
+  m.def("barrier", &libgpu_barrier, "wait for all GPUs to complete queued work");
+  
   m.def("disable_eri_cache_", &libgpu_disable_eri_cache_, "disable caching eri blocks to reduce memory usage for get_jk");
 
   m.def("compute_get_jk", &libgpu_compute_get_jk, "pyscf/df/df_jk.py::get_jk()");
@@ -289,7 +301,14 @@ PYBIND11_MODULE(libgpu, m) {
   m.def("pull_tdm3hab",&libgpu_pull_tdm3hab,"mrh/my_pyscf/fci/rdm.py::trans_rdm13hs spin1 pull_tdm13hab");        
   m.def("pull_tdm3hab_v2",&libgpu_pull_tdm3hab_v2,"mrh/my_pyscf/fci/rdm.py::trans_rdm13hs spin1 pull_tdm13hab v2");        
   m.def("pull_tdm3hab_v2_host",&libgpu_pull_tdm3hab_v2_host,"mrh/my_pyscf/fci/rdm.py::trans_rdm13hs spin1 pull_tdm13hab v2 to pinned");        
-  
+
+  m.def("push_op",&libgpu_push_op,"mrh/my_pyscf/lassi/op_o1/hsi.py::_opuniq_x_ push_op to gpu");        
+  m.def("init_new_sivecs_host",&libgpu_init_new_sivecs_host,"mrh/my_pyscf/lassi/op_o1/hsi.py::_opuniq_x_ init_new_sivecs_host for storing results");        
+  m.def("init_old_sivecs_host",&libgpu_init_old_sivecs_host,"mrh/my_pyscf/lassi/op_o1/hsi.py::_opuniq_x_ init_old_sivecs_host for storing inputs");        
+  m.def("push_sivecs_to_host",&libgpu_push_sivecs_to_host,"mrh/my_pyscf/lassi/op_o1/hsi.py::_opuniq_x_ push_sivecs_to_host for moving from python to pinned");        
+  m.def("compute_sivecs",&libgpu_compute_sivecs,"mrh/my_pyscf/lassi/op_o1/hsi.py::_opuniq_x_ compute_sivecs");        
+  m.def("pull_sivecs_from_pinned",&libgpu_pull_sivecs_from_pinned,"mrh/my_pyscf/lassi/op_o1/hsi.py::_opuniq_x_ pull_sivecs_from_pinned to pageable");        
+
 }
 
 #endif

@@ -13,7 +13,7 @@
 PYTHON_INC=`python -m pybind11 --includes`
 
 # cleanup #if 1 pragmas
-#../../../../hipify/dist/bin/hipify-clang device_cuda.cpp -- -D_USE_GPU -D_GPU_CUDA -D_GPU_CUBLAS ${PYTHON_INC}
+../../../../hipify/dist/bin/hipify-clang --cuda-path=${NVIDIA_PATH}/cuda device_cuda.cpp -- -D_USE_GPU -D_GPU_CUDA -D_GPU_CUBLAS ${PYTHON_INC}
 
 
 # cleanup single_precision and cublas_vs header

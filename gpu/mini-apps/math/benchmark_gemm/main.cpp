@@ -20,6 +20,13 @@
 using namespace PM_NS;
 using namespace MATHLIB_NS;
 
+extern "C" {
+  void dgemm_(const char * transa, const char * transb, const int * m, const int * n,
+              const int * k, const double * alpha, const double * a, const int * lda,
+              const double * b, const int * ldb, const double * beta, double * c,
+              const int * ldc);
+}
+
 // A is (m, k) matrix
 // B is (k, n) matrix
 // C is (m, n) matrix
@@ -140,13 +147,17 @@ void gemm_NN0_naive_cpu(const int * m_, const int * n_, const int * k_, const re
   int lda = *lda_;
   int ldb = *ldb_;
   int ldc = *ldc_;
-  
+ 
+#if 1
+  dgemm_((const char*) "N", (const char*) "N", &m, &n, &k, &alpha, a, &lda, b, &ldb, &beta, c, &ldc); 
+#else 
   for(int i=0; i<m; ++i)
     for(int j=0; j<n; ++j) {
       double val = 0.0;
       for(int l=0; l<k; ++l) val += a[i*lda+l] * b[l*ldb+j];
       c[i*ldc+j] = alpha * val + beta * c[i*ldc+j];
     }
+#endif
 }
 
 // ----------------------------------------------------------------
@@ -288,14 +299,6 @@ int main( int argc, char* argv[] )
 	 inp.m, inp.n, inp.m, inp.k, inp.transa, inp.k, inp.n, inp.transb);
 
   if(inp.check_result) {
-  
-    for(int i=0; i<inp.m; ++i)
-      for(int j=0; j<inp.n; ++j) 	{
-	double val = 0.0;
-	for(int k=0; k<inp.k; ++k) val += a[i * inp.k + k] * b[k * inp.n + j];
-	r[i * inp.n + j] = val;
-      }
-    
     {
       const double alpha = 1.0;
       const double beta = 0.0;
@@ -308,6 +311,17 @@ int main( int argc, char* argv[] )
       const int ldb = inp.ldb;
       const int ldc = inp.ldc;
       
+#if 1
+  dgemm_((const char*) "N", (const char*) "N", &m, &n, &k, &alpha, a, &lda, b, &ldb, &beta, r, &ldc);
+#else  
+    for(int i=0; i<inp.m; ++i)
+      for(int j=0; j<inp.n; ++j) 	{
+	double val = 0.0;
+	for(int k=0; k<inp.k; ++k) val += a[i * inp.k + k] * b[k * inp.n + j];
+	r[i * inp.n + j] = val;
+      }
+#endif
+
       gemm_NN0_naive_cpu(&m, &n, &k, &alpha, a, &lda, b, &ldb, &beta, c, &ldc);
       
       double t0 = MPI_Wtime();
@@ -347,9 +361,9 @@ int main( int argc, char* argv[] )
   for(int i=0; i<num_devices; ++i) {
     pm->dev_set_device(i);
     
-    d_a[i] = (real_t *) pm->dev_malloc(inp.m * inp.k * inp.num_batches * sizeof(real_t));
-    d_b[i] = (real_t *) pm->dev_malloc(inp.k * inp.n * inp.num_batches * sizeof(real_t));
-    d_c[i] = (real_t *) pm->dev_malloc(inp.m * inp.n * inp.num_batches * sizeof(real_t));
+    d_a[i] = (real_t *) pm->dev_malloc(inp.m * inp.k * inp.num_batches * sizeof(real_t), "d_a[i]", FLERR);
+    d_b[i] = (real_t *) pm->dev_malloc(inp.k * inp.n * inp.num_batches * sizeof(real_t), "d_b[i]", FLERR);
+    d_c[i] = (real_t *) pm->dev_malloc(inp.m * inp.n * inp.num_batches * sizeof(real_t), "d_c[i]", FLERR);
 
     pm->dev_push(d_a[i], a, inp.m * inp.k * inp.num_batches * sizeof(real_t));
     pm->dev_push(d_b[i], b, inp.k * inp.n * inp.num_batches * sizeof(real_t));

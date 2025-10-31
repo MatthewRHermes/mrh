@@ -3,7 +3,7 @@ INSTALL = ../../my_pyscf/gpu
 PYTHON_INC=$(shell python -m pybind11 --includes)
 
 CXX = mpicxx
-CXXFLAGS = -g -fiopenmp -O3 -ffast-math
+CXXFLAGS = -fiopenmp -O3 -ffast-math
 CXXFLAGS += -std=c++17 --intel -fsycl -fsycl-targets=spir64_gen
 CXXFLAGS += -I$(MKL_ROOT)/include
 CXXFLAGS += $(PYTHON_INC)
