@@ -5470,6 +5470,7 @@ void Device::compute_sivecs (int m, int n, int k)
     double * new_sivecs = &(h_new_sivecs[i*m]);
     pm->dev_push_async(dd->d_buf1, old_sivecs, k*batch_n*sizeof(double));
     //this gemm and transpose can be combined together depending on what is faster ...
+    #if 1
     ml->gemm((char *) "T", (char *) "N", 
              &batch_n,&m, &k, 
              &alpha, 
@@ -5478,12 +5479,23 @@ void Device::compute_sivecs (int m, int n, int k)
              &beta, 
              dd->d_buf2, &batch_n);
     transpose(dd->d_buf3, dd->d_buf2, m, batch_n);
+    #else
+    ml->gemm((char *) "N", (char *) "N", 
+             &m, &batch_n, &k, 
+             &alpha, 
+             dd->d_op, &m,
+             dd->d_buf1, &k,
+             &beta, 
+             dd->d_buf3, &m);
+   
+    #endif
     pm->dev_pull_async( dd->d_buf3, new_sivecs, batch_n*m*sizeof(double));
     }
   for (int i=0; i<num_devices; ++i){
     pm->dev_set_device(device_id);
     pm->dev_barrier();}
-
+  //printf("sivecs from pinned\n");
+  //for (int _n=0;_n<n;++_n){for (int _m=0;_m<m;++_m){printf("%f\t",h_new_sivecs[_n*m+_m]);}printf("\n");}
   double t1 = omp_get_wtime();
 }
 /* ---------------------------------------------------------------------- */
@@ -5495,6 +5507,7 @@ void Device::pull_sivecs_from_pinned(py::array_t<double> _vec, int n_loc, int m,
   int _size_vec = n*m;
   double * h_new_sivecs_loc = &(h_new_sivecs[n_loc*m]);
   #if 0 
+  //for when the results from gpu are already correctly transposed
 #pragma omp parallel for
   for (int i=0; i<_size_vec; ++i){vec[i] = h_new_sivecs_loc[i];}
   #else

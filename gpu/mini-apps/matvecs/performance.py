@@ -25,8 +25,11 @@ def test_matvecs(m, k, n_array, nruns=10):
   libgpu.push_op(gpu, op, m, k)
   libgpu.init_new_sivecs_host(gpu, m, total_n)
   libgpu.init_old_sivecs_host(gpu, k, total_n)
+  n_loc = 0
+  for n, vec in zip(n_array, vecs):
+    libgpu.push_sivecs_to_host(gpu, vec, n_loc, n, k)
+    n_loc += n
   t0 = time.time()
-
   
   for _ in range(ratio*nruns):
     tgpu0 = time.time()
@@ -40,8 +43,7 @@ def test_matvecs(m, k, n_array, nruns=10):
     setup_time0 = round(tgpu0_5-tgpu0,2)
     setup_time1 = round(tgpu1-tgpu0_5,2)
     n_loc=0
-    for vec in vecs:
-      n, _ = vec.shape
+    for n, vec in zip(n_array, vecs):
       libgpu.push_sivecs_to_host(gpu, vec, n_loc, n, k)
       n_loc += n
     tgpu2 = time.time()
@@ -63,12 +65,12 @@ def test_matvecs(m, k, n_array, nruns=10):
     pull_time = round(tgpu4-tgpu3_5,2)
     total_time = round(tgpu4-tgpu0,2)
     print("Total:",total_time)
-    print("Setup and push cost ratio:",round(setup_time0/total_time,2))
-    print("Setup and allocate cost ratio:",round(setup_time1/total_time,2))
-    print("Sending cost ratio:",round(host_sending_time/total_time,2))
-    print("Compute cost ratio:",round(compute_time/total_time,2))
-    print("Allocate cost ratio:",round(new_allocate_time/total_time,2))
-    print("Pull cost ratio:",round(pull_time/total_time,2))
+    print("Push op cost ratio:",round(setup_time0/total_time,2))
+    print("Allocate pinned cost ratio:",round(setup_time1/total_time,2))
+    print("Pageable to Pinned cost ratio:",round(host_sending_time/total_time,2))
+    print("DtoH, compute, HtoD cost ratio:",round(compute_time/total_time,2))
+    print("Allocate pageable for results ratio:",round(new_allocate_time/total_time,2))
+    print("Pinned to pageable cost ratio:",round(pull_time/total_time,2))
 
   t1=time.time()
 

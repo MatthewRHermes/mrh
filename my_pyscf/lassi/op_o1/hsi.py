@@ -360,7 +360,9 @@ class HamS2OvlpOperators (HamS2Ovlp):
         self.dw_sX += (w1-w0)
 
         self.ox1[:] = 0
+        print(len(ops))
         for op in ops:
+            print(len(op.spincase_keys))
             for key in op.spincase_keys:
                 self._opuniq_x_(op, key[0], key[1], vecs, *key[2:])
         t2, w2 = logger.process_clock (), logger.perf_counter ()
@@ -393,12 +395,19 @@ class HamS2OvlpOperators (HamS2Ovlp):
     def _opuniq_x_(self, op, obra, oket, ovecs, *inv):
         '''All operations which are unique in that a given set of nonspectator fragment bra
         statelets are coupled to a given set of nonspectator fragment ket statelets'''
+        from pyscf.lib import param
         t0, w0 = logger.process_clock (), logger.perf_counter ()
         op = opterm.reduce_spin (op, obra, oket)
         t1, w1 = logger.process_clock (), logger.perf_counter ()
         if len (set (inv)) == 4:
             self.dt_4fo += t1-t0
             self.dw_4fo += w1-w0
+        else:
+            try: use_gpu = param.use_gpu
+            except: use_gpu = False 
+            if use_gpu: 
+                self._gpu_opuniq_x_(op, obra, oket, ovecs, *inv)
+                return 
         key = tuple ((obra, oket)) + inv
         inv = list (set (inv))
         brakets, bras, braHs = self.get_nonuniq_exc_square (key)
@@ -418,7 +427,80 @@ class HamS2OvlpOperators (HamS2Ovlp):
                 self.put_ox1_(op.dot (vec.T).ravel (), bra, *inv)
                 self._profile_4frag_(op)
         return
+    
+    def _gpu_opuniq_x (self, op, obra, oket, ovecs, *inv):
+        brakets, bras, braHs = self.get_nonuniq_exc_square (key)
+        key = tuple ((obra, oket)) + inv
+        inv = list (set (inv))
 
+        self.gpu_matvec(op, bras, oket, ovecs, inv)
+
+        if len (braHs):
+            op = op.conj ().T
+            self.gpu_matvec(op, braHs, obra, ovecs, inv)
+        return
+
+    def gpu_matvec(op, bras, oci, ovecs, inv):
+        '''Effectively a op*vecs 
+              where op is a matrix of size of m, k and 
+              vecs several small vectors each of size n_i * k. 
+              total_n = \sum_i n_i
+           First run through ovecs collecting vecs in an array of size (total_n * k)
+           Multiply them in a way that is optimal for gpu code 
+           Store the result in a size of (m * total_n), and then do _put_ox1_ accordingly'''
+
+        from mrh.my_pyscf.gpu import libgpu
+        from pyscf.lib import param
+        gpu = param.use_gpu
+
+        #Get m,n,k for gemm gemm
+        m, k = op.shape() #m,k gemm
+        libgpu.push_op(gpu, np.ascontiguousarray(op), m, k) #inits and pushes on all devices
+        #Get n for gemm
+        spec = np.ones (self.nfrags, dtype=bool)
+        for i in inv: spec[i] = False
+        spec = np.where (spec)[0]
+        total_n = sum(np.prod (self.lroots[spec,bra]) for bra in bras)  #n
+
+        libgpu.init_new_sivecs_host(gpu, m, total_n) #pinned memory for results
+
+        libgpu.init_old_sivecs_host(gpu, k, total_n) #pinned memory for input
+
+        n_array = []
+        n_loc = 0
+        for bra in bras:
+            vec = ovecs[self.ox_ovlp_urootstr (bra, oci, inv)]
+            n,_ = vec.shape() #n,k gemm
+            n_array.append(n)
+            libgpu.push_sivecs_to_host(gpu, np.ascontiguousarray(vec), n_loc, n, k) #to pinned
+            n_loc += n
+
+        libgpu.compute_sivecs(gpu, m, total_n, k) # H2D, compute, D2H (pinned) 
+
+
+        #vecs = []
+        #for n in n_array:
+        #    vecs.append(np.empty((n*m)))
+        #n_loc = 0
+        #for n, bra, vec in zip(n_array, bras, vecs):
+        #    libgpu.pull_sivecs_from_pinned(gpu, vec, n_loc, m, n)
+        #    self.put_ox1_(new_vec, bra, *inv)
+        #    n_loc += n
+        #vecs=None
+
+        n_loc = 0
+        for n, bra in zip(n_array, bras):
+            vec = np.empty((m*n))
+            libgpu.pull_sivecs_from_pinned(gpu, vec, n_loc, m, n)
+            self.put_ox1_(new_vec, bra, *inv)
+            n_loc += n
+
+        return
+
+
+       
+         
+    
     def ox_ovlp_urootstr (self, bra, ket, inv):
         '''Find the urootstr corresponding to the action of the overlap part of an operator
         from ket to bra, which might or might not be a part of the model space.'''

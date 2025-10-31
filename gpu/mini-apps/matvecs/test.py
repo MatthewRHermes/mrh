@@ -11,13 +11,16 @@ def test_matvecs(m, k, n_array):
   gpu = param.use_gpu
 
   op = np.random.random((m,k))
+  op = np.arange(m*k).reshape(m,k)+0.5
+  print(op)
 
   total_n = sum(n_array)
   n_len = len(n_array)
   vecs = []
   for n in n_array:
-    vecs.append(np.random.random((n,k)))
-
+    vecs.append(np.arange(n*k).reshape(n,k)-n+0.5)
+    #vecs.append(np.random.random((n,k)))
+  print(vecs)
   #GPU kernel
   new_vecs_gpu = [] 
   libgpu.push_op(gpu, op, m, k)
@@ -45,6 +48,8 @@ def test_matvecs(m, k, n_array):
     correct=np.allclose(vec_cpu, vec_gpu)
     if not correct:
       print(n, m, correct)
+      print("CPU",vec_cpu)
+      print("GPU",vec_gpu)
     else:
       print(correct)
     
@@ -76,8 +81,9 @@ if __name__=='__main__':
   mf.kernel()
    
   m=2
-  k=4
-  n_array = np.random.randint(3, 6, size=4)
+  k=3
+  n_array = [4,5]
+  #n_array = np.random.randint(3, 6, size=4)
   
   test_matvecs(m, k, n_array)
    
