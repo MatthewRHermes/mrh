@@ -393,7 +393,6 @@ class HamS2OvlpOperators (HamS2Ovlp):
     def _opuniq_x_(self, op, obra, oket, ovecs, *inv):
         '''All operations which are unique in that a given set of nonspectator fragment bra
         statelets are coupled to a given set of nonspectator fragment ket statelets'''
-        from pyscf.lib import param
         t0, w0 = logger.process_clock (), logger.perf_counter ()
         op = opterm.reduce_spin (op, obra, oket)
         t1, w1 = logger.process_clock (), logger.perf_counter ()
@@ -401,8 +400,7 @@ class HamS2OvlpOperators (HamS2Ovlp):
             self.dt_4fo += t1-t0
             self.dw_4fo += w1-w0
         else:
-            try: use_gpu = param.use_gpu
-            except: use_gpu = False 
+            use_gpu = getattr (param, 'use_gpu', False)
             if use_gpu: 
                 self._gpu_opuniq_x_(op, obra, oket, ovecs, *inv)
                 return 

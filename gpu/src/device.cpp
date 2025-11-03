@@ -3866,14 +3866,16 @@ void Device::push_ciket_from_host(int ket_index, int na, int nb, int count)
 void Device::push_link_indexa(int na, int nlinka, py::array_t<int> _link_indexa)
 {
   double t0 = omp_get_wtime();
-  py::buffer_info info_link_indexa = _link_indexa.request(); //3D array (na, nlinka, 4)
-  int * link_indexa = static_cast<int*>(info_link_indexa.ptr);
-  int size_clinka = na*nlinka*4; //a,i,str,sign
-  for (int device_id=0;device_id<num_devices;++device_id){
-    pm->dev_set_device(device_id); 
-    my_device_data * dd = &(device_data[device_id]);
-    grow_array(dd->d_clinka, size_clinka, dd->size_clinka, "clink", FLERR);
-    pm->dev_push_async(dd->d_clinka, link_indexa, size_clinka*sizeof(int));
+  if (nlinka>0){
+    py::buffer_info info_link_indexa = _link_indexa.request(); //3D array (na, nlinka, 4)
+    int * link_indexa = static_cast<int*>(info_link_indexa.ptr);
+    int size_clinka = na*nlinka*4; //a,i,str,sign
+    for (int device_id=0;device_id<num_devices;++device_id){
+      pm->dev_set_device(device_id); 
+      my_device_data * dd = &(device_data[device_id]);
+      grow_array(dd->d_clinka, size_clinka, dd->size_clinka, "clink", FLERR);
+      pm->dev_push_async(dd->d_clinka, link_indexa, size_clinka*sizeof(int));
+    }
   }
   double t1 = omp_get_wtime();
   t_array[17] += t1 - t0;
@@ -3882,14 +3884,16 @@ void Device::push_link_indexa(int na, int nlinka, py::array_t<int> _link_indexa)
 void Device::push_link_indexb(int nb, int nlinkb, py::array_t<int> _link_indexb)
 {
   double t0 = omp_get_wtime();
-  py::buffer_info info_link_indexb = _link_indexb.request(); //3D array (nb, nlinkb, 4)
-  int * link_indexb = static_cast<int*>(info_link_indexb.ptr);
-  int size_clinkb = nb*nlinkb*4; //a,i,str,sign
-  for (int device_id=0;device_id<num_devices;++device_id){
-    pm->dev_set_device(device_id); 
-    my_device_data * dd = &(device_data[device_id]);
-    grow_array(dd->d_clinkb, size_clinkb, dd->size_clinkb, "clink", FLERR);
-    pm->dev_push_async(dd->d_clinkb, link_indexb, size_clinkb*sizeof(int));
+  if (nlinkb>0){
+    py::buffer_info info_link_indexb = _link_indexb.request(); //3D array (nb, nlinkb, 4)
+    int * link_indexb = static_cast<int*>(info_link_indexb.ptr);
+    int size_clinkb = nb*nlinkb*4; //a,i,str,sign
+    for (int device_id=0;device_id<num_devices;++device_id){
+      pm->dev_set_device(device_id); 
+      my_device_data * dd = &(device_data[device_id]);
+      grow_array(dd->d_clinkb, size_clinkb, dd->size_clinkb, "clink", FLERR);
+      pm->dev_push_async(dd->d_clinkb, link_indexb, size_clinkb*sizeof(int));
+    } 
   }
   double t1 = omp_get_wtime();
   t_array[17] += t1 - t0;
@@ -3907,9 +3911,9 @@ void Device::compute_trans_rdm1a(int na, int nb, int nlinka, int nlinkb, int nor
   int size_tdm1 = norb2;
   grow_array(dd->d_tdm1,size_tdm1, dd->size_tdm1, "tdm1", FLERR); //actual returned
   set_to_zero(dd->d_tdm1, size_tdm1);
-
-  compute_FCItrans_rdm1a(dd->d_cibra, dd->d_ciket, dd->d_tdm1, norb, na, nb, nlinka, dd->d_clinka);
-
+  if (nlinka>0){
+    compute_FCItrans_rdm1a(dd->d_cibra, dd->d_ciket, dd->d_tdm1, norb, na, nb, nlinka, dd->d_clinka);
+  }
   pm->dev_profile_stop();
   double t1 = omp_get_wtime();
   t_array[18] += t1 - t0;
@@ -3928,8 +3932,9 @@ void Device::compute_trans_rdm1b(int na, int nb, int nlinka, int nlinkb, int nor
   int size_tdm1 = norb2;
   grow_array(dd->d_tdm1,size_tdm1, dd->size_tdm1, "tdm1", FLERR); //actual returned
   set_to_zero(dd->d_tdm1, size_tdm1);
-
-  compute_FCItrans_rdm1b(dd->d_cibra, dd->d_ciket, dd->d_tdm1, norb, na, nb, nlinkb, dd->d_clinkb);
+  if (nlinkb>0){
+    compute_FCItrans_rdm1b(dd->d_cibra, dd->d_ciket, dd->d_tdm1, norb, na, nb, nlinkb, dd->d_clinkb);
+  }
   pm->dev_profile_stop();
   double t1 = omp_get_wtime();
   t_array[19] += t1 - t0;
@@ -3948,9 +3953,9 @@ void Device::compute_make_rdm1a(int na, int nb, int nlinka, int nlinkb, int norb
   int size_tdm1 = norb2;
   grow_array(dd->d_tdm1,size_tdm1, dd->size_tdm1, "tdm1", FLERR); //actual returned
   set_to_zero(dd->d_tdm1, size_tdm1);
-  
+  if (nlinka>0){
   compute_FCImake_rdm1a(dd->d_cibra, dd->d_ciket, dd->d_tdm1, norb, na, nb, nlinka, dd->d_clinka);
-
+  }
   pm->dev_profile_stop();
   double t1 = omp_get_wtime();
   t_array[20] += t1 - t0;
@@ -3969,9 +3974,9 @@ void Device::compute_make_rdm1b(int na, int nb, int nlinka, int nlinkb, int norb
   int size_tdm1 = norb2;
   grow_array(dd->d_tdm1,size_tdm1, dd->size_tdm1, "tdm1", FLERR); //actual returned
   set_to_zero(dd->d_tdm1, size_tdm1);
-
+  if (nlinkb>0){
   compute_FCImake_rdm1b(dd->d_cibra, dd->d_ciket, dd->d_tdm1, norb, na, nb, nlinkb, dd->d_clinkb);
-
+  }
   pm->dev_profile_stop();
   double t1 = omp_get_wtime();
   t_array[21] += t1 - t0;

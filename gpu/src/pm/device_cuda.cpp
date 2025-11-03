@@ -1792,8 +1792,8 @@ void Device::compute_FCImake_rdm1a(double * cibra, double * ciket, double * rdm,
   #ifdef _DEBUG_DEVICE
   printf("LIBGPU ::  -- general::get_rdm_from_ci; :: Na= %i Nb =%i  grid_size= %i %i %i  block_size= %i %i %i\n",
 	 na, nb, grid_size.x,grid_size.y,grid_size.z,block_size.x,block_size.y,block_size.z);
-  _CUDA_CHECK_ERRORS();
   #endif
+  _CUDA_CHECK_ERRORS();
   }
   {dim3 block_size (1,1,1);
    dim3 grid_size(1,1,1);
@@ -1804,7 +1804,6 @@ void Device::compute_FCImake_rdm1b(double * cibra, double * ciket, double * rdm,
 {
   cudaStream_t s = *(pm->dev_get_queue());
   {
-  //dim3 block_size(_DEFAULT_BLOCK_SIZE,_DEFAULT_BLOCK_SIZE,_DEFAULT_BLOCK_SIZE); //TODO: fix this?
   dim3 block_size(1,1,1);
   dim3 grid_size(_TILE(na, block_size.x),_TILE(nb, block_size.y),_TILE(nlinkb, block_size.z));
   #ifdef _DEBUG_DEVICE
