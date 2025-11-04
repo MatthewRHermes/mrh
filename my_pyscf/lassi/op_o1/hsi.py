@@ -344,25 +344,42 @@ class HamS2OvlpOperators (HamS2Ovlp):
         # Those vector slices must be added, so I can't use dict comprehension.
         vecs = {}
         for ket in set (ovlplink[:,0]):
-            key = tuple(self.urootstr[:,ket])
-            vecs[key] = self.get_xvec (ket, *inv).reshape (-1,1) + vecs.get (key, 0)
+            key = tuple(self.urootstr[:,ket])  #gets a number 
+            vecs[key] = self.get_xvec (ket, *inv).reshape (-1,1) + vecs.get (key, 0) #gets a vector from x, adds to it if already existing
         for ifrag in range (self.nfrags):
             if ifrag in inv:
                 # Collect the nonspectator-fragment dimensions on the minor end
                 for ket, vec in vecs.items ():
                     lket = self.ints[ifrag].get_lroots_uroot (ket[ifrag])
                     lr = vec.shape[-1]
-                    vecs[ket] = vec.reshape (-1,lr*lket)
+                    vecs[ket] = vec.reshape (-1,lr*lket) #reshape vec into 2D matrix
             else:
-                vecs = self.ox_ovlp_frag (ovlplink, vecs, ifrag)
+                vecs = self.ox_ovlp_frag (ovlplink, vecs, ifrag) #multiply with ovlp part of interactions
         t1, w1 = logger.process_clock (), logger.perf_counter ()
         self.dt_sX += (t1-t0)
         self.dw_sX += (w1-w0)
 
-        self.ox1[:] = 0
+        #Have a function that takes the vecs dict, and returns a dictionary that has the same keys and values that are slices of the pinned memory and puts the ovecs values on a pinned memory block exactly once. 
+        #ox1 is inside the loop, but it's ..
+        #accumulate on a pinned memory, get a dictionary like vecs, that gets you the location
+        '''VA: Nov 4, 2025: Thoughts on GPU acceleration
+          Input: op, vecs
+          Output: ox1
+          Several op exists, each must be of shape (m_i, k_i). Corresponding vecs are of shape (n_j, k_i).
+          ox1 = \sum_i (op_i * \sum_j (vec_ij)_)
+          Thoughts on making it GPU'able. 
+            vecs exists as a dictionary. The keys can be moved out, and the values can be moved onto a contiguous massive pinned memory. 
+            ox1 is just a big block of memory.  
+            use the various indexing functions available to get, for (ij) pair, 
+              vec: location, size of vec inside the massive vecs block of memory
+              ox1: location, size of result storage inside the massive ox1 block of memory
+           Copy back ox1 from pinned to pageable.
+          '''
+        self.ox1[:] = 0 #of shape nstates
         for op in ops:
-            for key in op.spincase_keys:
-                self._opuniq_x_(op, key[0], key[1], vecs, *key[2:])
+            for key in op.spincase_keys:  #spincase_keys is a lookup table
+                self._opuniq_x_(op, key[0], key[1], vecs, *key[2:])  #vecs exists as a whole, we are indexing into it. A way to store it on pinned would be good.
+
         t2, w2 = logger.process_clock (), logger.perf_counter ()
         self.dt_oX += (t2-t1)
         self.dw_oX += (w2-w1)
@@ -448,7 +465,6 @@ class HamS2OvlpOperators (HamS2Ovlp):
         from mrh.my_pyscf.gpu import libgpu
         from pyscf.lib import param
         gpu = param.use_gpu
-
         #Get m,n,k for gemm gemm
         m, k = op.shape #m,k gemm
         libgpu.push_op(gpu, np.ascontiguousarray(op), m, k) #inits and pushes on all devices
