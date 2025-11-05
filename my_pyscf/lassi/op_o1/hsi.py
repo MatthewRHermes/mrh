@@ -9,6 +9,7 @@ from mrh.my_pyscf.lassi.op_o1.rdm import LRRDM
 from mrh.my_pyscf.lassi.op_o1.hams2ovlp import HamS2Ovlp, ham, soc_context
 from mrh.my_pyscf.lassi.citools import _fake_gen_contract_op_si_hdiag
 from mrh.my_pyscf.lassi.op_o1.utilities import *
+from mrh.util.my_scipy import CallbackLinearOperator
 import functools
 from itertools import product
 from pyscf import __config__
@@ -16,18 +17,6 @@ import sys
 
 PROFVERBOSE = getattr (__config__, 'lassi_hsi_profverbose', None)
 SCREEN_THRESH = getattr (__config__, 'lassi_hsi_screen_thresh', 1e-12)
-
-class CallbackLinearOperator (sparse_linalg.LinearOperator):
-    def __init__(self, parent, shape, dtype=None, matvec=None):
-        self.parent = parent
-        self.shape = shape
-        self.dtype = dtype
-        self._matvec_fn = matvec
-
-    def _matvec (self, x):
-        # Just to shut up the stupid warning
-        return self._matvec_fn (x)
-
 
 class HamS2OvlpOperators (HamS2Ovlp):
     __doc__ = HamS2Ovlp.__doc__ + '''

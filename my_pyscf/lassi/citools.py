@@ -7,6 +7,7 @@ from pyscf.scf.addons import canonical_orth_
 from pyscf import __config__
 from itertools import combinations
 from mrh.my_pyscf.fci import spin_op
+from mrh.util.my_scipy import CallbackLinearOperator
 
 LINDEP_THRESH = getattr (__config__, 'lassi_lindep_thresh', 1.0e-5)
 SCREEN_THRESH = getattr (__config__, 'lassi_frag_screen_thresh', 1e-10)
@@ -467,8 +468,12 @@ def _fake_gen_contract_op_si_hdiag (matrix_builder, las, h1, h2, ci_fr, nelec_fr
         return s2 @ x
     def contract_ovlp (x):
         return ovlp @ x
+
+    h_op = CallbackLinearOperator (ham, ham.shape, dtype=ham.dtype, matvec=contract_ham_si)
+    s2_op = CallbackLinearOperator (s2, s2.shape, dtype=s2.dtype, matvec=contract_s2)
+    ovlp_op = CallbackLinearOperator (ovlp, ovlp.shape, dtype=ovlp.dtype, matvec=contract_ovlp)
     hdiag = np.diagonal (ham)
-    return contract_ham_si, contract_s2, contract_ovlp, hdiag, _get_ovlp
+    return h_op, s2_op, ovlp_op, hdiag, _get_ovlp
 
 def hci_dot_sivecs (hci_fr_pabq, si_bra, si_ket, lroots):
     nfrags, nroots = lroots.shape
