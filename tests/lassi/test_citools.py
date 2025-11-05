@@ -10,6 +10,8 @@ from pyscf.scf.addons import canonical_orth_
 from pyscf.csf_fci.csfstring import CSFTransformer
 import itertools
 
+op = (op_o0, op_o1)
+
 def setUpModule():
     global orth_bases, ham_raw, h_op_raw, hdiag_raw
     norb_f = np.array ([4,4])
@@ -54,10 +56,11 @@ def setUpModule():
     h2 += h2.transpose (1,0,2,3)
     h2 += h2.transpose (0,1,3,2)
     h2 += h2.transpose (2,3,0,1)
-    ham_raw = op_o1.ham (las, h1, h2, ci, nelec_frs, smult_fr=smult_fr)[0]
-    ops = op_o1.gen_contract_op_si_hdiag (las, h1, h2, ci, nelec_frs, smult_fr=smult_fr)
-    h_op_raw = ops[0]
-    hdiag_raw = ops[3]
+    ham_raw = op[1].ham (las, h1, h2, ci, nelec_frs, smult_fr=smult_fr)[0]
+    ops = [op[opt].gen_contract_op_si_hdiag (las, h1, h2, ci, nelec_frs, smult_fr=smult_fr)
+           for opt in (0,1)]
+    h_op_raw = [ops[0][0], ops[1][0]]
+    hdiag_raw = [ops[0][3], ops[1][3]]
 
 def tearDownModule():
     global orth_bases, ham_raw, h_op_raw, hdiag_raw
@@ -136,24 +139,24 @@ class KnownValues(unittest.TestCase):
                 self.assertAlmostEqual (r1.dot (ovlp @ r1), 1.0)
                 # TODO: understand why I can't go back and forth
 
-    def case_hdiag_orth (self, raw2orth, op):
+    def case_hdiag_orth (self, raw2orth, opt):
         ham_orth = raw2orth (ham_raw.T).T
         ham_orth = raw2orth (ham_orth.conj ()).conj ()
         hdiag_orth_ref = ham_orth.diagonal ()
-        hdiag_orth_test = op.get_hdiag_orth (hdiag_raw, h_op_raw, raw2orth)
+        hdiag_orth_test = op[opt].get_hdiag_orth (hdiag_raw[opt], h_op_raw[opt], raw2orth)
         self.assertAlmostEqual (lib.fp (hdiag_orth_ref), lib.fp (hdiag_orth_test), 8)
 
     def test_hdiag_orth_nospin_o0 (self):
-        self.case_hdiag_orth (orth_bases['no spin'][1], op_o0)
+        self.case_hdiag_orth (orth_bases['no spin'][1], 0)
 
     def test_hdiag_orth_fullspin_o0 (self):
-        self.case_hdiag_orth (orth_bases['full spin'][1], op_o0)
+        self.case_hdiag_orth (orth_bases['full spin'][1], 0)
 
     def test_hdiag_orth_nospin_o1 (self):
-        self.case_hdiag_orth (orth_bases['no spin'][1], op_o1)
+        self.case_hdiag_orth (orth_bases['no spin'][1], 1)
 
     def test_hdiag_orth_fullspin_o1 (self):
-        self.case_hdiag_orth (orth_bases['full spin'][1], op_o1)
+        self.case_hdiag_orth (orth_bases['full spin'][1], 1)
 
 if __name__ == "__main__":
     print("Full Tests for LASSI citools module functions")
