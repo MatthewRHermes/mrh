@@ -300,6 +300,19 @@ class OrthBasis (sparse_linalg.LinearOperator):
         p = self.root_manifold_addr[iroot,0]
         return tuple (self.offs_orth[p])
 
+    def prods_2_blocks (self, prods):
+        blks = [np.where (np.logical_and (self.offs_orth[:,0]<=p, self.offs_orth[:,1]>p))[0][0]
+                for p in prods]
+        return blks
+
+    def blocks_2_roots (self, blocks):
+        roots = [np.where (self.root_manifold_addr[:,0]==blk)[0] for blk in blocks]
+        return np.unique (np.concatenate (roots))
+
+    def prods_2_roots (self, prods):
+        blks = self.prods_2_blocks (prods)
+        return self.blocks_2_roots (blocks)
+
     def get_xmat_rows (self, iroot):
         x, i, j = self.root_manifold_addr[iroot]
         if j == -1:

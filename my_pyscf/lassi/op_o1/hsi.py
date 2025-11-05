@@ -878,24 +878,23 @@ def get_hdiag_orth (hdiag_raw, h_op_raw, raw2orth):
         return hdiag_raw
     hobj_neutral = h_op_raw.parent.get_neutral (verbose=0)
     return hobj_neutral.get_hdiag_orth (raw2orth)
-    #h_op_neutral = hobj_neutral.get_ham_op ()
-    #hdiag_orth = np.empty (raw2orth.shape[0], dtype=hdiag_raw.dtype)
-    #uniq_prod_idx = raw2orth.uniq_prod_idx
-    #nuniq_prod = len (uniq_prod_idx)
-    #hdiag_orth[:nuniq_prod] = hdiag_raw[uniq_prod_idx]
-    #old_roots = None
-    #def cmp (new, old):
-    #    if old is None: return False
-    #    if len (new) != len (old): return False
-    #    if np.any (new!=old): return False
-    #    return True
-    #for i, (x0, roots) in enumerate (raw2orth.gen_mixed_state_vectors (_yield_roots=True)):
-    #    if not cmp (roots, old_roots):
-    #        hobj_subspace = hobj_neutral.get_subspace (roots, verbose=0)
-    #        h_op_subspace = hobj_subspace.get_ham_op ()
-    #        old_roots = roots
-    #    hdiag_orth[i+nuniq_prod] = np.dot (x0.conj (), h_op_subspace (x0))
-    #return hdiag_orth
+
+def pspace_ham (h_op_raw, raw2orth, addrs):
+    hobj = h_op_raw.parent
+    roots = raw2orth.prods_2_roots (addrs)
+    hobj_subspace = hobj.get_subspace (roots, verbose=0)
+    h_op_subspace = hobj_subspace.get_ham_op ()
+    x_orth = np.zeros (raw2orth.shape[0], dtype=raw2orth.dtype)
+    orth2raw = raw2orth.H
+    pspace_size = len (addrs)
+    ham = np.empty ((pspace_size, pspace_size), h_op_subspace.dtype)
+    for i, addr in enumerate (addrs):
+        x_orth[addr] = 1.0
+        x_raw = orth2raw (x_orth)
+        x_orth[addr] = 0.0
+        hx_raw = h_op_subspace (x_raw)
+        ham[:,i] = raw2orth (hx_raw)[addrs]
+    return ham
 
 
 
