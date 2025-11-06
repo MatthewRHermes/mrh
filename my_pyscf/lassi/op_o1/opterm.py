@@ -28,7 +28,7 @@ class OpTermGroup:
         new_group.ovlplink = self.ovlplink
         return new_group
 
-    def subspace (self, roots):
+    def subspace (self, roots, keys):
         # Project into a subspace
         ints = self.ops[0].ints
         nroots = len (roots)
@@ -51,10 +51,7 @@ class OpTermGroup:
         for op in self.ops:
             new_spincase_keys = []
             for spincase_key in op.spincase_keys:
-                bra, ket = spincase_key[:2]
-                brastr = tuple ((inti.uroot_idx[bra] for inti in ints))
-                ketstr = tuple ((inti.uroot_idx[ket] for inti in ints))
-                if (brastr in rootstrs) and (ketstr in rootstrs):
+                if spincase_key in keys:
                     new_spincase_keys.append (spincase_key)
             if len (new_spincase_keys) > 0:
                 new_op = op.copy ()

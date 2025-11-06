@@ -578,12 +578,6 @@ class HamS2OvlpOperators (HamS2Ovlp):
         if verbose is not None:
             new_parent.log = logger.new_logger (new_parent.log, verbose)
         urootstr = self.urootstr[:,roots]
-        # ops for h_op product
-        new_parent.optermgroups_h = {}
-        for inv, group in self.optermgroups_h.items ():
-            new_group = group.subspace (roots)
-            if new_group is not None:
-                new_parent.optermgroups_h[inv] = new_group
         # equivalence map
         new_parent.nonuniq_exc = {}
         for key, tab_bk in self.nonuniq_exc.items ():
@@ -591,7 +585,15 @@ class HamS2OvlpOperators (HamS2Ovlp):
             tab_bk = tab_bk[idx]
             idx = np.isin (tab_bk[:,1], roots)
             tab_bk = tab_bk[idx]
-            new_parent.nonuniq_exc[key] = tab_bk
+            if tab_bk.shape[0] > 0:
+                new_parent.nonuniq_exc[key] = tab_bk
+        # ops for h_op product
+        new_parent.optermgroups_h = {}
+        keys = new_parent.nonuniq_exc.keys ()
+        for inv, group in self.optermgroups_h.items ():
+            new_group = group.subspace (roots, keys)
+            if new_group is not None:
+                new_parent.optermgroups_h[inv] = new_group
         return new_parent
 
     def get_hdiag (self):
