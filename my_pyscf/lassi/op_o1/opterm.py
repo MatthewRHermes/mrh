@@ -28,25 +28,8 @@ class OpTermGroup:
         new_group.ovlplink = self.ovlplink
         return new_group
 
-    def subspace (self, roots, keys):
+    def subspace (self, keys):
         # Project into a subspace
-        ints = self.ops[0].ints
-        nroots = len (roots)
-        # ovlplink ket filter
-        new_ovlplink = self.ovlplink.copy ()
-        idx = np.isin (new_ovlplink[:,0], roots)
-        new_ovlplink = new_ovlplink[idx]
-        if new_ovlplink.shape[0] == 0: return None
-        # ovlplink bra filter
-        urootstr = [inti.uroot_idx[roots] for inti in ints]
-        urootstr = np.asarray (urootstr).T
-        rootstrs = [tuple (rootstr) for rootstr in urootstr]
-        inv = [inti.idx_frag+1 for inti in ints]
-        brastrs = new_ovlplink[:,inv]
-        idx = np.asarray ([tuple (brastr) in rootstrs for brastr in brastrs])
-        new_ovlplink = new_ovlplink[idx]
-        if new_ovlplink.shape[0] == 0: return None
-        # ops filter
         new_ops = []
         for op in self.ops:
             new_spincase_keys = []
@@ -60,7 +43,6 @@ class OpTermGroup:
         if len (new_ops) == 0: return None
         new_group = OpTermGroup (self.inv)
         new_group.ops = new_ops
-        new_group.ovlplink = new_ovlplink
         return new_group            
 
 class OpTermBase:
