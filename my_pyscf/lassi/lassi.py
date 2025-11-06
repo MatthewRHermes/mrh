@@ -436,10 +436,10 @@ def _eig_block_Davidson (las, e0, h1, h2, ci_blk, nelec_blk, smult_blk, soc, opt
     return conv, e, si1, s2
 
 def pspace (hdiag_orth, h_op_raw, raw2orth, opt, pspace_size):
-    if hdiag.size <= pspace_size:
+    if hdiag_orth.size <= pspace_size:
         addr = np.arange (hdiag_orth.size)
     else:
-        try:
+        try: # this is just a fast PARTIAL sort
             addr = np.argpartition(hdiag_orth, pspace_size-1)[:pspace_size].copy()
         except AttributeError:
             addr = np.argsort(hdiag_orth)[:pspace_size].copy()

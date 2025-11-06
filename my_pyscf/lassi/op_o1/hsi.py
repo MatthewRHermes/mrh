@@ -884,16 +884,16 @@ def pspace_ham (h_op_raw, raw2orth, addrs):
     roots = raw2orth.prods_2_roots (addrs)
     hobj_subspace = hobj.get_subspace (roots, verbose=0)
     h_op_subspace = hobj_subspace.get_ham_op ()
-    x_orth = np.zeros (raw2orth.shape[0], dtype=raw2orth.dtype)
     orth2raw = raw2orth.H
     pspace_size = len (addrs)
     ham = np.empty ((pspace_size, pspace_size), h_op_subspace.dtype)
+    x_orth = np.zeros (raw2orth.shape[0], dtype=raw2orth.dtype)
     for i, addr in enumerate (addrs):
         x_orth[addr] = 1.0
         x_raw = orth2raw (x_orth)
-        x_orth[addr] = 0.0
         hx_raw = h_op_subspace (x_raw)
         ham[:,i] = raw2orth (hx_raw)[addrs]
+        x_orth[addr] = 0
     return ham
 
 

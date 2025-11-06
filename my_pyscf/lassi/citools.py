@@ -168,7 +168,7 @@ def get_orth_basis (ci_fr, norb_f, nelec_frs, _get_ovlp=None, smult_fr=None):
 
     if not np.count_nonzero (cnts>1): 
         _get_ovlp = None
-        return NullOrthBasis (nraw, dtype)
+        return NullOrthBasis (nraw, dtype, nprods_r)
     uniq_roots = list (uniq_idx[cnts==1])
     north = (offs1[uniq_roots] - offs0[uniq_roots]).sum ()
     manifolds_xmat = []
@@ -380,9 +380,13 @@ class OrthBasis (sparse_linalg.LinearOperator):
                     x0[prod_idx[spincase]] = 0
 
 class NullOrthBasis (sparse_linalg.LinearOperator):
-    def __init__(self, nraw, dtype):
+    def __init__(self, nraw, dtype, nprods_r):
         self.shape = (nraw,nraw)
         self.dtype = dtype
+        self.nprods_raw = nprods_r
+        offs1 = np.cumsum (nprods_r)
+        offs0 = offs1 - nprods_r
+        self.offs_raw = np.stack ([offs0,offs1], axis=1)
 
     def _matvec (self, x): return x
 
@@ -397,6 +401,11 @@ class NullOrthBasis (sparse_linalg.LinearOperator):
         # zero-length generator
         return
         yield
+
+    def prods_2_roots (self, prods):
+        roots = [np.where (np.logical_and (self.offs_raw[:,0]<=p, self.offs_raw[:,1]>p))[0][0]
+                 for p in prods]
+        return np.unique (roots)
 
 def get_unique_roots (ci, nelec_r, screen_linequiv=True, screen_thresh=SCREEN_THRESH,
                       discriminator=None):

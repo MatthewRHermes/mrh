@@ -8,6 +8,7 @@ from mrh.my_pyscf.lassi.spaces import SingleLASRootspace
 from mrh.my_pyscf.lassi.op_o1.utilities import lst_hopping_index
 from mrh.my_pyscf.lassi.lassis import coords, grad_orb_ci_si, hessian_orb_ci_si
 from mrh.my_pyscf.lassi import op_o0, op_o1, citools
+from mrh.my_pyscf.lassi.lassi import pspace
 from mrh.my_pyscf.fci.spin_op import mup
 from mrh.my_pyscf.lassi.lassi import LINDEP_THRESH
 from pyscf.scf.addons import canonical_orth_
@@ -142,11 +143,14 @@ def case_contract_op_si (ks, las, h1, h2, ci_fr, nelec_frs, smult_fr=None, soc=0
     ham_orth = raw2orth (ham.T).T
     ham_orth = raw2orth (ham_orth.conj ()).conj ()
     ham_diag_orth = op[1].get_hdiag_orth (ham_diag, ham_op, raw2orth)
-    #for i, test in enumerate (ham_diag_orth):
-    #    ref = ham_orth[i,i]
-    #    print (i, test, ref, test-ref, test/ref)
     with ks.subTest ('hdiag orth'):
         ks.assertAlmostEqual (lib.fp (ham_orth.diagonal ()), lib.fp (ham_diag_orth), 7)
+    pspace_size = min (400, raw2orth.shape[0]//2)
+    pw, pv, addrs = pspace (ham_diag_orth, ham_op, raw2orth, 1, pspace_size)
+    ham_test = (pv * pw[None,:]) @ pv.conj ().T
+    ham_ref = ham_orth[addrs,:][:,addrs]
+    with ks.subTest ('pspace'):
+        ks.assertAlmostEqual (lib.fp (ham_test), lib.fp (ham_ref), 7)
     nstates = ham.shape[0]
     x = (2 * np.random.rand (nstates)) - 1
     if soc:
