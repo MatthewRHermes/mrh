@@ -591,8 +591,7 @@ class HamS2OvlpOperators (HamS2Ovlp):
             tab_bk = tab_bk[idx]
             idx = np.isin (tab_bk[:,1], roots)
             tab_bk = tab_bk[idx]
-            if tab_bk.shape[0] > 0:
-                new_parent.nonuniq_exc[key] = tab_bk
+            new_parent.nonuniq_exc[key] = tab_bk
         return new_parent
 
     def get_hdiag (self):
