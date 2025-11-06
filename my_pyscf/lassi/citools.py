@@ -310,7 +310,7 @@ class OrthBasis (sparse_linalg.LinearOperator):
         return np.unique (np.concatenate (roots))
 
     def prods_2_roots (self, prods):
-        blks = self.prods_2_blocks (prods)
+        blocks = self.prods_2_blocks (prods)
         return self.blocks_2_roots (blocks)
 
     def get_xmat_rows (self, iroot):

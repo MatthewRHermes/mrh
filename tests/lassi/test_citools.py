@@ -13,7 +13,7 @@ import itertools
 op = (op_o0, op_o1)
 
 def setUpModule():
-    global orth_bases, ham_raw, h_op_raw, hdiag_raw
+    global rng, orth_bases, ham_raw, h_op_raw, hdiag_raw
     norb_f = np.array ([4,4])
     nelec_frs = np.array ([[[2,2],[2,2],[3,1],[3,1],[2,2],[2,2],[1,3],[1,3]],
                            [[2,2],[2,2],[1,3],[1,3],[2,2],[2,2],[3,1],[3,1]]])
@@ -63,8 +63,8 @@ def setUpModule():
     hdiag_raw = [ops[0][3], ops[1][3]]
 
 def tearDownModule():
-    global orth_bases, ham_raw, h_op_raw, hdiag_raw
-    del orth_bases, ham_raw, h_op_raw, hdiag_raw
+    global rng, orth_bases, ham_raw, h_op_raw, hdiag_raw
+    del rng, orth_bases, ham_raw, h_op_raw, hdiag_raw
     
 def case_umat_dot_1frag (ks, rng, nroots, nfrags, nvecs, lroots):
     nstates = np.prod (lroots, axis=0).sum ()
@@ -146,6 +146,14 @@ class KnownValues(unittest.TestCase):
         hdiag_orth_test = op[opt].get_hdiag_orth (hdiag_raw[opt], h_op_raw[opt], raw2orth)
         self.assertAlmostEqual (lib.fp (hdiag_orth_ref), lib.fp (hdiag_orth_test), 8)
 
+    def case_pspace_ham (self, raw2orth, opt):
+        ham_orth = raw2orth (ham_raw.T).T
+        ham_orth = raw2orth (ham_orth.conj ()).conj ()
+        addrs = rng.choice (raw2orth.shape[0], 5)
+        ham_ref = ham_orth[addrs,:][:,addrs]
+        ham_test = op[opt].pspace_ham (h_op_raw[opt], raw2orth, addrs)
+        self.assertAlmostEqual (lib.fp (ham_test), lib.fp (ham_ref), 8)
+
     def test_hdiag_orth_nospin_o0 (self):
         self.case_hdiag_orth (orth_bases['no spin'][1], 0)
 
@@ -157,6 +165,18 @@ class KnownValues(unittest.TestCase):
 
     def test_hdiag_orth_fullspin_o1 (self):
         self.case_hdiag_orth (orth_bases['full spin'][1], 1)
+
+    def test_pspace_ham_fullspin_o0 (self):
+        self.case_pspace_ham (orth_bases['full spin'][1], 0)
+
+    def test_pspace_ham_fullspin_o1 (self):
+        self.case_pspace_ham (orth_bases['full spin'][1], 1)
+
+    def test_pspace_ham_nospin_o0 (self):
+        self.case_pspace_ham (orth_bases['no spin'][1], 0)
+
+    def test_pspace_ham_nospin_o1 (self):
+        self.case_pspace_ham (orth_bases['no spin'][1], 1)
 
 if __name__ == "__main__":
     print("Full Tests for LASSI citools module functions")

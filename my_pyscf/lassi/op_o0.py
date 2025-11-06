@@ -1063,9 +1063,11 @@ def get_hdiag_orth (hdiag_raw, h_op_raw, raw2orth):
     ham = raw2orth (ham.conj ()).conj ()
     return ham.diagonal ()
 
-def pspace_ham (h_op_raw, raw2orth, addr):
+def pspace_ham (h_op_raw, raw2orth, addrs):
     ham = h_op_raw.parent
-    return ham[addr,:][:,addr]
+    ham = raw2orth (ham.T).T
+    ham = raw2orth (ham.conj ()).conj ()
+    return ham[addrs,:][:,addrs]
 
 if __name__ == '__main__':
     from pyscf import scf, lib
