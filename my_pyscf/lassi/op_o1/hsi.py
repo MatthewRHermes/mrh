@@ -441,7 +441,7 @@ class HamS2OvlpOperators (HamS2Ovlp):
         return
 
     def gpu_matvec(self, op, bras, oci, ovecs, inv):
-        '''Effectively a op*vecs 
+        r'''Effectively a op*vecs
               where op is a matrix of size of m, k and 
               vecs several small vectors each of size n_i * k. 
               total_n = \sum_i n_i
