@@ -624,6 +624,24 @@ class HamS2OvlpOperators (HamS2Ovlp):
         return self.ox[:raw2orth.shape[0]].copy ()
 
     def hdiag_orth_getiter (self, raw2orth, spincase_keys):
+        r'''Inverting a bunch of lookup tables, in order to help get the diagonal elements of the
+        Hamiltonian in OrthBasis.
+
+        Args:
+            raw2orth : instance of :class: OrthBasis or NullOrthBasis
+            spincase_keys : list of lists of integers
+                Keys for self.nonuniq_exc
+
+        Returns:
+            itertable : list
+                Elements are (braket_tab, mblock_table) where braket_tab is a value from
+                self.nonuniq_exc[key] truncated to a given (N,S) block of states. The FDMs
+                for various (N,S,M) blocks within this (N,S) block are all the same, so 
+                only one (N,S,M) block is represented. mblock_table is a list whose elements
+                are ((key[0],key[1]), (p,q)), where p,q are the index offsets for a given
+                (N,S,M) block and ((key[0],key[1])) identifies the M case of the corresponding
+                operator as inferred from the elements of spincase_keys
+        '''
         braket_tabs = {}
         mblocks = {}
         for key in spincase_keys:
@@ -640,6 +658,25 @@ class HamS2OvlpOperators (HamS2Ovlp):
         return itertable
 
     def hdiag_orth_getiter_1key (self, raw2orth, key):
+        r'''Inverting a bunch of lookup tables, in order to help get the diagonal elements of the
+        Hamiltonian in OrthBasis.
+
+        Args:
+            raw2orth : instance of :class: OrthBasis or NullOrthBasis
+            key : list of integers
+                A key for self.nonuniq_exc. The corresponding value is immediately truncated
+                to only those pairs that could contribute to diagonal elements
+
+        Returns:
+            braket_tabs : dict
+                The truncated value of self.nonuniq_exc[key], split up according to the
+                "sblock" in which it lives (i.e., OrthBasis states sharing N and S string)
+            mblocks : dict
+                For each "sblock" addressed by braket_tabs, the value is a list of tuples:
+                ((key[0],key[1]), (p,q))
+                where p,q is the index range of a specific "mblock" (i.e., states sharing
+                N, S, and M strings) in OrthBasis
+        '''
         tab = self.nonuniq_exc[key]
         tab = [[bra, ket] for bra, ket in tab if raw2orth.roots_in_same_block (bra, ket)]
         tab = np.asarray (tab)
