@@ -760,6 +760,27 @@ class HamS2OvlpOperators (HamS2Ovlp):
             o = o.ravel ()
         return o
 
+    def get_pspace_ham (self, raw2orth, addrs):
+        pspace_size = len (addrs)
+        ham = np.zeros ((pspace_size, pspace_size), dtype=self.dtype)
+        for inv, group in self.optermgroups_h.items (): 
+            for op in group.ops:
+                for key in op.spincase_keys:
+                    idx = self.pspace_1op_index_(raw2orth, addrs, key)
+                    fdm = self.get_fdm (key[0], key[1], *inv, keyorder=key[2:])
+                    op1 = opterm.reduce_spin (op, key[0], key[1]).ravel ()
+                    ham[idx] += np.dot (fdm, op1) # factor of 2???
+        return ham
+
+    def pspace_1op_index_(self, raw2orth, addrs, key):
+        # I have to set self._fdm_vec_getter in some highly clever way
+        pspace_blks = raw2orth.prods_2_blocks (addrs)
+        current_blks = np.unique (self.nonuniq_exc[key].ravel ())
+        idx1 = np.isin (pspace_blks, current_blks)
+        idx2 = combinations_with_replacement (np.where (idx1)[0], 2)
+        idx2 = np.asarray (list (idx2))
+        return idx2
+
     def _crunch_2c_(self, bra, ket, a, i, b, j, s2lt, dry_run=False):
         '''Compute the reduced density matrix elements of a two-electron hop; i.e.,
 
