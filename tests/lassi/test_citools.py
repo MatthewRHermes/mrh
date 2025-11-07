@@ -149,7 +149,7 @@ class KnownValues(unittest.TestCase):
     def case_pspace_ham (self, raw2orth, opt):
         ham_orth = raw2orth (ham_raw.T).T
         ham_orth = raw2orth (ham_orth.conj ()).conj ()
-        addrs = rng.choice (raw2orth.shape[0], 5)
+        addrs = rng.choice (raw2orth.shape[0], 5, replace=False)
         ham_ref = ham_orth[addrs,:][:,addrs]
         ham_test = op[opt].pspace_ham (h_op_raw[opt], raw2orth, addrs)
         self.assertAlmostEqual (lib.fp (ham_test), lib.fp (ham_ref), 8)

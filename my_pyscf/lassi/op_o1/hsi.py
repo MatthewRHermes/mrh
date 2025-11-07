@@ -882,19 +882,25 @@ def get_hdiag_orth (hdiag_raw, h_op_raw, raw2orth):
 
 def pspace_ham (h_op_raw, raw2orth, addrs):
     hobj = h_op_raw.parent
-    roots = raw2orth.prods_2_roots (addrs)
-    hobj_subspace = hobj.get_subspace (roots, verbose=0)
-    h_op_subspace = hobj_subspace.get_ham_op ()
+    rootmap = raw2orth.map_prod_subspace (addrs)
+    all_roots = np.unique (np.concatenate (
+        [np.atleast_1d (key) for key in rootmap.keys ()]
+    ))
+    hobj_subspace = hobj.get_subspace (all_roots, verbose=0)
     orth2raw = raw2orth.H
     pspace_size = len (addrs)
-    ham = np.empty ((pspace_size, pspace_size), h_op_subspace.dtype)
+    ham = np.empty ((pspace_size, pspace_size), h_op_raw.dtype)
     x_orth = np.zeros (raw2orth.shape[0], dtype=raw2orth.dtype)
-    for i, addr in enumerate (addrs):
-        x_orth[addr] = 1.0
-        x_raw = orth2raw (x_orth)
-        hx_raw = h_op_subspace (x_raw)
-        ham[:,i] = raw2orth (hx_raw)[addrs]
-        x_orth[addr] = 0
+    for ket_roots, ket_addrs in rootmap.items ():
+        h_op_subspace = hobj_subspace.get_ham_op ()
+        for addr in ket_addrs:
+            x_orth[addr] = 1.0
+            x_raw = orth2raw (x_orth)
+            hx_raw = h_op_subspace (x_raw)
+            ip = list (addrs).index (addr)
+            ham[:,ip] = raw2orth (hx_raw)[addrs]
+            x_orth[addr] = 0
+            ip += 1
     return ham
 
 

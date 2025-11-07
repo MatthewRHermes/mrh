@@ -4,7 +4,7 @@ import functools
 from scipy.sparse import linalg as sparse_linalg
 from scipy import linalg
 from pyscf.scf.addons import canonical_orth_
-from pyscf import __config__
+from pyscf import __config__, lib
 from itertools import combinations
 from mrh.my_pyscf.fci import spin_op
 from mrh.util.my_scipy import CallbackLinearOperator
@@ -306,12 +306,24 @@ class OrthBasis (sparse_linalg.LinearOperator):
         return blks
 
     def blocks_2_roots (self, blocks):
-        roots = [np.where (self.root_manifold_addr[:,0]==blk)[0] for blk in blocks]
-        return np.unique (np.concatenate (roots))
+        return [np.where (self.root_manifold_addr[:,0]==blk)[0] for blk in blocks]
 
     def prods_2_roots (self, prods):
         blocks = self.prods_2_blocks (prods)
         return self.blocks_2_roots (blocks)
+
+    def map_prod_subspace (self, prods):
+        prods = np.asarray (prods)
+        rootlist = self.prods_2_roots (prods)
+        rootmap = {}
+        for i in range (len (prods)):
+            roots = rootlist[i]
+            if lib.issequence (roots):
+                roots = tuple (set (rootlist[i]))
+            val = rootmap.get (roots, [])
+            val.append (prods[i])
+            rootmap[roots] = val
+        return rootmap
 
     def get_xmat_rows (self, iroot):
         x, i, j = self.root_manifold_addr[iroot]
@@ -403,9 +415,10 @@ class NullOrthBasis (sparse_linalg.LinearOperator):
         yield
 
     def prods_2_roots (self, prods):
-        roots = [np.where (np.logical_and (self.offs_raw[:,0]<=p, self.offs_raw[:,1]>p))[0][0]
-                 for p in prods]
-        return np.unique (roots)
+        return [np.where (np.logical_and (self.offs_raw[:,0]<=p, self.offs_raw[:,1]>p))[0][0]
+                for p in prods]
+
+    map_prod_subspace = OrthBasis.map_prod_subspace
 
 def get_unique_roots (ci, nelec_r, screen_linequiv=True, screen_thresh=SCREEN_THRESH,
                       discriminator=None):
