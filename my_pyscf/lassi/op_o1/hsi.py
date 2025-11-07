@@ -609,7 +609,9 @@ class HamS2OvlpOperators (HamS2Ovlp):
 
     def get_hdiag_orth (self, raw2orth):
         self.ox[:] = 0
-        self._fdm_vec_getter = raw2orth.get_xmat_rows
+        def getter (iroot, bra=False):
+            return raw2orth.get_xmat_rows (iroot)
+        self._fdm_vec_getter = getter
         for inv, group in self.optermgroups_h.items (): 
             for op in group.ops:
                 op1 = {(key[0], key[1]): opterm.reduce_spin (op, key[0], key[1]).ravel ()
@@ -709,7 +711,7 @@ class HamS2OvlpOperators (HamS2Ovlp):
         # subclassed to facilitate use of LRRDM.get_fdm_1space
         # TODO: if necessary, split into a bra getter and a ket getter
         # TODO: it might be more efficient to umat the op and modify get_fdm_1space
-        vec = self._fdm_vec_getter (iroot).copy ()
+        vec = self._fdm_vec_getter (iroot, bra=bra).copy ()
         lroots = self.lroots[:,iroot:iroot+1]
         for i, inti in enumerate (self.ints):
             umat = inti.umat_root.get (iroot, np.eye (lroots[i,0]))
@@ -766,20 +768,37 @@ class HamS2OvlpOperators (HamS2Ovlp):
         for inv, group in self.optermgroups_h.items (): 
             for op in group.ops:
                 for key in op.spincase_keys:
-                    idx = self.pspace_1op_index_(raw2orth, addrs, key)
-                    fdm = self.get_fdm (key[0], key[1], *inv, keyorder=key[2:])
                     op1 = opterm.reduce_spin (op, key[0], key[1]).ravel ()
-                    ham[idx] += np.dot (fdm, op1) # factor of 2???
+                    for idx, fdm in self.gen_pspace_fdm (raw2orth, addrs, key, inv):
+                        ham[idx] += np.dot (fdm, op1) # factor of 2???
         return ham
 
-    def pspace_1op_index_(self, raw2orth, addrs, key):
+    def gen_pspace_fdm (self, raw2orth, addrs, key, inv):
         # I have to set self._fdm_vec_getter in some highly clever way
-        pspace_blks = raw2orth.prods_2_blocks (addrs)
-        current_blks = np.unique (self.nonuniq_exc[key].ravel ())
-        idx1 = np.isin (pspace_blks, current_blks)
-        idx2 = combinations_with_replacement (np.where (idx1)[0], 2)
-        idx2 = np.asarray (list (idx2))
-        return idx2
+        braket_tab = self.nonuniq_exc[key]
+        blk_exc = raw2orth.root_manifold_addr[:,0][braket_tab]
+        pspace_blks = np.asarray (raw2orth.prods_2_blocks (addrs))
+        addrs_col = addrs - raw2orth.offs_orth[pspace_blks,0]
+        assert (np.all (addrs_col>=0))
+        for idim in range (2):
+            idx = np.isin (blk_exc[:,idim], pspace_blks)
+            blk_exc = blk_exc[idx]
+        uniq, inv = np.unique (blk_exc, axis=0, return_inverse=True)
+        for i, (bra_blk, ket_blk) in enumerate (uniq):
+            idx = (inv==i)
+            my_braket_tab = braket_tab[idx]
+            idx_bra = (pspace_blks==bra_blk)
+            idx_ket = (pspace_blks==ket_blk)
+            idx2 = np.ix_(idx_bra,idx_ket)
+            addrs_col_bra = addrs_col[idx_bra]
+            addrs_col_ket = addrs_col[idx_ket]
+            _col = (addrs_col_ket, addrs_col_bra)
+            def getter (root, bra=False):
+                return raw2orth.get_xmat_rows (iroot, _col=_col[int(bra)])
+            self._fdm_vec_getter = getter
+            fdm = self.get_hdiag_fdm (my_braket_tab, *inv)
+            yield idx2, fdm
+        return
 
     def _crunch_2c_(self, bra, ket, a, i, b, j, s2lt, dry_run=False):
         '''Compute the reduced density matrix elements of a two-electron hop; i.e.,

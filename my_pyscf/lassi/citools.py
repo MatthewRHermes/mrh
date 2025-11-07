@@ -325,7 +325,7 @@ class OrthBasis (sparse_linalg.LinearOperator):
             rootmap[roots] = val
         return rootmap
 
-    def get_xmat_rows (self, iroot):
+    def get_xmat_rows (self, iroot, _col=None):
         x, i, j = self.root_manifold_addr[iroot]
         if j == -1:
             return np.eye (self.nprods_raw[iroot])
@@ -336,6 +336,8 @@ class OrthBasis (sparse_linalg.LinearOperator):
         nraw = self.manifolds_nprods_raw[i][j]
         north = self.nprods_orth[x]
         assert (xmat.shape == (nraw, north))
+        if _col is not None:
+            xmat = xmat[:,_col]
         return xmat
 
     def _matvec (self, rawarr):
