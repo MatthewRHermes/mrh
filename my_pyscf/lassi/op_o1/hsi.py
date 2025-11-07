@@ -572,7 +572,7 @@ class HamS2OvlpOperators (HamS2Ovlp):
                     new_parent.optermgroups_h[inv] = new_group
         return new_parent
 
-    def get_subspace (self, roots, verbose=None):
+    def get_subspace (self, roots, verbose=None, _square=True):
         # Get a Hamiltonian operator projected into a subspace of roots
         new_parent = lib.view (self, self.__class__)
         if verbose is not None:
@@ -580,9 +580,12 @@ class HamS2OvlpOperators (HamS2Ovlp):
         # equivalence map
         new_parent.nonuniq_exc = {}
         for key, tab_bk in self.nonuniq_exc.items ():
-            idx = np.isin (tab_bk[:,0], roots)
-            tab_bk = tab_bk[idx]
-            idx = np.isin (tab_bk[:,1], roots)
+            idx0 = np.isin (tab_bk[:,0], roots)
+            idx1 = np.isin (tab_bk[:,1], roots)
+            if _square:
+                idx = idx0 & idx1
+            else:
+                idx = idx0 | idx1
             tab_bk = tab_bk[idx]
             if tab_bk.shape[0] > 0:
                 new_parent.nonuniq_exc[key] = tab_bk
@@ -881,22 +884,23 @@ def get_hdiag_orth (hdiag_raw, h_op_raw, raw2orth):
     return hobj_neutral.get_hdiag_orth (raw2orth)
 
 def pspace_ham (h_op_raw, raw2orth, addrs):
-    hobj = h_op_raw.parent
+    hobj0 = h_op_raw.parent
     rootmap = raw2orth.map_prod_subspace (addrs)
     all_roots = np.unique (np.concatenate (
         [np.atleast_1d (key) for key in rootmap.keys ()]
     ))
-    hobj_subspace = hobj.get_subspace (all_roots, verbose=0)
+    hobj1 = hobj0.get_subspace (all_roots, verbose=0)
     orth2raw = raw2orth.H
     pspace_size = len (addrs)
     ham = np.empty ((pspace_size, pspace_size), h_op_raw.dtype)
     x_orth = np.zeros (raw2orth.shape[0], dtype=raw2orth.dtype)
     for ket_roots, ket_addrs in rootmap.items ():
-        h_op_subspace = hobj_subspace.get_ham_op ()
+        hobj2 = hobj1.get_subspace (ket_roots, verbose=0, _square=False)
+        h_op = hobj2.get_ham_op ()
         for addr in ket_addrs:
             x_orth[addr] = 1.0
             x_raw = orth2raw (x_orth)
-            hx_raw = h_op_subspace (x_raw)
+            hx_raw = h_op (x_raw)
             ip = list (addrs).index (addr)
             ham[:,ip] = raw2orth (hx_raw)[addrs]
             x_orth[addr] = 0
