@@ -971,6 +971,10 @@ def pspace_ham (h_op_raw, raw2orth, addrs):
     pspace_size = len (addrs)
     ham = np.empty ((pspace_size, pspace_size), h_op_raw.dtype)
     x_orth = np.zeros (raw2orth.shape[0], dtype=raw2orth.dtype)
+    log = hobj0.log
+    log.debug ('LASSI pspace (roots) ; [addrs] :')
+    for ket_roots, ket_addrs in rootmap.items ():
+        log.debug ('%s %s', str (ket_roots), str (ket_addrs))
     for ket_roots, ket_addrs in rootmap.items ():
         hobj2 = hobj1.get_subspace (ket_roots, verbose=0, _square=False)
         h_op = hobj2.get_ham_op ()

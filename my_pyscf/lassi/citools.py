@@ -270,6 +270,7 @@ class OrthBasis (sparse_linalg.LinearOperator):
         nman = len (uniq_roots)
         self.manifolds_nprods_raw = []
         self.manifolds_offs_raw = []
+        self.snm_blocks = [(u,) for u in uniq_roots]
         manifolds_nprods_orth_flat = []
         for i, mi in enumerate (manifolds_roots):
             my_nprods_raw = nprods_r[mi[0]]
@@ -283,6 +284,7 @@ class OrthBasis (sparse_linalg.LinearOperator):
                 for k, mijk in enumerate (mij):
                     self.root_manifold_addr[mijk,:] = [nman,i,k]
                 manifolds_nprods_orth_flat.append (xmat.shape[1])
+                self.snm_blocks.append (tuple (mij))
                 nman += 1
         assert (np.all (self.root_manifold_addr[:,2]>-2))
         self.nprods_orth = np.empty (nman, dtype=int)
@@ -301,12 +303,11 @@ class OrthBasis (sparse_linalg.LinearOperator):
         return tuple (self.offs_orth[p])
 
     def prods_2_blocks (self, prods):
-        blks = [np.where (np.logical_and (self.offs_orth[:,0]<=p, self.offs_orth[:,1]>p))[0][0]
-                for p in prods]
-        return blks
+        prods = np.asarray (prods)
+        return np.searchsorted (self.offs_orth[:,0], prods, side='right')-1
 
     def blocks_2_roots (self, blocks):
-        return [np.where (self.root_manifold_addr[:,0]==blk)[0] for blk in blocks]
+        return [self.snm_blocks[b] for b in blocks]
 
     def prods_2_roots (self, prods):
         blocks = self.prods_2_blocks (prods)
@@ -318,8 +319,6 @@ class OrthBasis (sparse_linalg.LinearOperator):
         rootmap = {}
         for i in range (len (prods)):
             roots = rootlist[i]
-            if lib.issequence (roots):
-                roots = tuple (set (rootlist[i]))
             val = rootmap.get (roots, [])
             val.append (prods[i])
             rootmap[roots] = val
