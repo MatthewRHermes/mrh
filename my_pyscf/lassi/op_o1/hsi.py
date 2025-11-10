@@ -578,17 +578,52 @@ class HamS2OvlpOperators (HamS2Ovlp):
         if verbose is not None:
             new_parent.log = logger.new_logger (new_parent.log, verbose)
         # equivalence map
+        urootstr = self.urootstr[:,roots].T
+        spmanstr = [[self.ints[j].spman[urootstr[i,j]] for j in range (self.nfrags)]
+                    for i in range (urootstr.shape[0])]
+        spmanstr = np.asarray (spmanstr)
+        new_parent.spman = {}
         new_parent.nonuniq_exc = {}
-        for key, tab_bk in self.nonuniq_exc.items ():
-            idx0 = np.isin (tab_bk[:,0], roots)
-            idx1 = np.isin (tab_bk[:,1], roots)
+        for key, pairs in self.spman.items ():
+            # top: spmanstr keys
+            bra, ket = key[:2]
+            inv = key[2:]
+            bra_spman = np.asarray ([self.ints[i].spman[self.urootstr[i,bra]]
+                                     for i in inv])
+            bra_in = (bra_spman[None,:]==spmanstr[:,inv]).all(1).any()
+            ket_spman = np.asarray ([self.ints[i].spman[self.urootstr[i,ket]]
+                                     for i in inv])
+            ket_in = (ket_spman[None,:]==spmanstr[:,inv]).all(1).any()
             if _square:
-                idx = idx0 & idx1
+                is_in = bra_in and ket_in
             else:
-                idx = idx0 | idx1
-            tab_bk = tab_bk[idx]
-            if tab_bk.shape[0] > 0:
-                new_parent.nonuniq_exc[key] = tab_bk
+                is_in = bra_in or ket_in
+            if not is_in:
+                continue
+            new_pairs = []
+            for (bra, ket) in pairs:
+                # middle: nonuniq_exc keys
+                bra_in = (self.urootstr[inv,bra][None,:]==urootstr[:,inv]).all(1).any ()
+                ket_in = (self.urootstr[inv,ket][None,:]==urootstr[:,inv]).all(1).any ()
+                if _square:
+                    is_in = bra_in and ket_in
+                else:
+                    is_in = bra_in or ket_in
+                if not is_in: continue
+                # bottom: nonuniq_exc vals
+                tab_bk = self.nonuniq_exc[(bra,ket)+inv]
+                idx0 = np.isin (tab_bk[:,0], roots)
+                idx1 = np.isin (tab_bk[:,1], roots)
+                if _square:
+                    idx = idx0 & idx1
+                else:
+                    idx = idx0 | idx1
+                tab_bk = tab_bk[idx]
+                if tab_bk.shape[0] > 0:
+                    new_parent.nonuniq_exc[(bra,ket)+inv] = tab_bk
+                    new_pairs.append ([bra,ket])
+            if len (new_pairs)>0:
+                new_parent.spman[key] = new_pairs
         # ops for h_op product
         new_parent.optermgroups_h = {}
         keys = new_parent.nonuniq_exc.keys ()
