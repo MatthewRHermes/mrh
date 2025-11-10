@@ -789,7 +789,9 @@ class HamS2OvlpOperators (HamS2Ovlp):
             idx_bra = (addrs_snm==bra_snm)
             idx_ket = (addrs_snm==ket_snm)
             idx2 = np.ix_(idx_bra,idx_ket)
-            _col = (addrs_psi[idx_ket], addrs_psi[idx_bra])
+            rect_indices = np.indices ((len (idx_ket), len (idx_bra)))
+            _ik, _ib = np.concatenate (rect_indices.T, axis=0).T
+            _col = (addrs_psi[_ik], addrs_psi[_ib])
             def getter (root, bra=False):
                 return raw2orth.get_xmat_rows (iroot, _col=_col[int(bra)])
             self._fdm_vec_getter = getter
@@ -958,6 +960,7 @@ def get_hdiag_orth (hdiag_raw, h_op_raw, raw2orth):
     return hobj_neutral.get_hdiag_orth (raw2orth)
 
 def pspace_ham (h_op_raw, raw2orth, addrs):
+    t0 = (logger.process_clock (), logger.perf_counter ())
     hobj0 = h_op_raw.parent
     rootmap = raw2orth.map_prod_subspace (addrs)
     all_roots = np.unique (np.concatenate (
@@ -969,9 +972,14 @@ def pspace_ham (h_op_raw, raw2orth, addrs):
     ham = np.empty ((pspace_size, pspace_size), h_op_raw.dtype)
     x_orth = np.zeros (raw2orth.shape[0], dtype=raw2orth.dtype)
     log = hobj0.log
-    log.debug1 ('LASSI pspace (roots) ; [addrs] :')
+    t1 = log.timer ('LASSI pspace Hamiltonian indexing', *t0)
+    log.debug ('LASSI pspace (roots) ; [addrs] ; [urootstr] ; [spman]')
     for ket_roots, ket_addrs in rootmap.items ():
-        log.debug1 ('%s ; %s', str (ket_roots), str (ket_addrs))
+        urootstr = hobj0.urootstr[:,ket_roots].T
+        spman = [[hobj0.ints[j].spman[urootstr[i,j]] for j in range (hobj0.nfrags)]
+                 for i in range (len (urootstr))]
+        log.debug ('%s ; %s ; %s ; %s', str (ket_roots), str (ket_addrs), str (urootstr),
+                   str (spman))
     for ket_roots, ket_addrs in rootmap.items ():
         hobj2 = hobj1.get_subspace (ket_roots, verbose=0, _square=False)
         h_op = hobj2.get_ham_op ()
