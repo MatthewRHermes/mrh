@@ -302,16 +302,9 @@ class OrthBasis (sparse_linalg.LinearOperator):
         p = self.root_manifold_addr[iroot,0]
         return tuple (self.offs_orth[p])
 
-    def prods_2_blocks (self, prods):
-        prods = np.asarray (prods)
-        return np.searchsorted (self.offs_orth[:,0], prods, side='right')-1
-
-    def blocks_2_roots (self, blocks):
-        return [self.snm_blocks[b] for b in blocks]
-
     def prods_2_roots (self, prods):
-        blocks = self.prods_2_blocks (prods)
-        return self.blocks_2_roots (blocks)
+        blocks = np.searchsorted (self.offs_orth[:,0], prods, side='right')-1
+        return [self.snm_blocks[b] for b in blocks]
 
     def map_prod_subspace (self, prods):
         prods = np.asarray (prods)
@@ -416,8 +409,9 @@ class NullOrthBasis (sparse_linalg.LinearOperator):
         yield
 
     def prods_2_roots (self, prods):
-        return [np.where (np.logical_and (self.offs_raw[:,0]<=p, self.offs_raw[:,1]>p))[0][0]
-                for p in prods]
+        prods = np.atleast_1d (prods)
+        roots = np.searchsorted (self.offs_raw[:,0], prods, side='right')-1
+        return [tuple ((r,)) for r in np.atleast_1d (roots)]
 
     map_prod_subspace = OrthBasis.map_prod_subspace
 
