@@ -306,6 +306,9 @@ class OrthBasis (sparse_linalg.LinearOperator):
         blocks = np.searchsorted (self.offs_orth[:,0], prods, side='right')-1
         return [self.snm_blocks[b] for b in blocks]
 
+    def roots_2_snm (self, roots):
+        return self.root_manifold_addr[:,0][roots]
+
     def map_prod_subspace (self, prods):
         prods = np.asarray (prods)
         rootlist = self.prods_2_roots (prods)
@@ -316,6 +319,12 @@ class OrthBasis (sparse_linalg.LinearOperator):
             val.append (prods[i])
             rootmap[roots] = val
         return rootmap
+
+    def interpret_address (self, prods):
+        blocks = np.searchsorted (self.offs_orth[:,0], prods, side='right')-1
+        psi = np.asarray (prods) - self.offs_orth[blocks,0]
+        assert (np.all (psi>=0))
+        return blocks, psi
 
     def get_xmat_rows (self, iroot, _col=None):
         x, i, j = self.root_manifold_addr[iroot]
@@ -414,6 +423,15 @@ class NullOrthBasis (sparse_linalg.LinearOperator):
         return [tuple ((r,)) for r in np.atleast_1d (roots)]
 
     map_prod_subspace = OrthBasis.map_prod_subspace
+
+    def interpret_address (self, prods):
+        roots = np.searchsorted (self.offs_raw[:,0], prods, side='right')-1
+        psi = np.asarray (prods) - self.offs_raw[roots,0]
+        assert (np.all (psi>=0))
+        return roots, psi
+
+    def roots_2_snm (self, roots):
+        return roots
 
 def get_unique_roots (ci, nelec_r, screen_linequiv=True, screen_thresh=SCREEN_THRESH,
                       discriminator=None):

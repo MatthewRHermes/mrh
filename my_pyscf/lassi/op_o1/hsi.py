@@ -764,35 +764,32 @@ class HamS2OvlpOperators (HamS2Ovlp):
 
     def get_pspace_ham (self, raw2orth, addrs):
         pspace_size = len (addrs)
+        addrs_snm, addrs_psi = raw2orth.interpret_address (addrs)
         ham = np.zeros ((pspace_size, pspace_size), dtype=self.dtype)
         for inv, group in self.optermgroups_h.items (): 
             for op in group.ops:
                 for key in op.spincase_keys:
                     op1 = opterm.reduce_spin (op, key[0], key[1]).ravel ()
-                    for idx, fdm in self.gen_pspace_fdm (raw2orth, addrs, key, inv):
+                    for idx, fdm in self.gen_pspace_fdm (raw2orth, addrs_snm, addrs_psi, key, inv):
                         ham[idx] += np.dot (fdm, op1) # factor of 2???
         return ham
 
-    def gen_pspace_fdm (self, raw2orth, addrs, key, inv):
+    def gen_pspace_fdm (self, raw2orth, addrs_snm, addrs_psi, key, inv):
         # I have to set self._fdm_vec_getter in some highly clever way
         braket_tab = self.nonuniq_exc[key]
-        blk_exc = raw2orth.root_manifold_addr[:,0][braket_tab]
-        pspace_blks = np.asarray (raw2orth.prods_2_blocks (addrs))
-        addrs_col = addrs - raw2orth.offs_orth[pspace_blks,0]
-        assert (np.all (addrs_col>=0))
+        snm_exc = raw2orth.roots_2_snm (braket_tab)
         for idim in range (2):
-            idx = np.isin (blk_exc[:,idim], pspace_blks)
-            blk_exc = blk_exc[idx]
-        uniq, inv = np.unique (blk_exc, axis=0, return_inverse=True)
-        for i, (bra_blk, ket_blk) in enumerate (uniq):
+            idx = np.isin (snm_exc[:,idim], addrs_snm)
+            snm_exc = snm_exc[idx]
+            braket_tab = braket_tab[idx]
+        uniq, inv = np.unique (snm_exc, axis=0, return_inverse=True)
+        for i, (bra_snm, ket_snm) in enumerate (uniq):
             idx = (inv==i)
             my_braket_tab = braket_tab[idx]
-            idx_bra = (pspace_blks==bra_blk)
-            idx_ket = (pspace_blks==ket_blk)
+            idx_bra = (addrs_snm==bra_snm)
+            idx_ket = (addrs_snm==ket_snm)
             idx2 = np.ix_(idx_bra,idx_ket)
-            addrs_col_bra = addrs_col[idx_bra]
-            addrs_col_ket = addrs_col[idx_ket]
-            _col = (addrs_col_ket, addrs_col_bra)
+            _col = (addrs_psi[idx_ket], addrs_psi[idx_bra])
             def getter (root, bra=False):
                 return raw2orth.get_xmat_rows (iroot, _col=_col[int(bra)])
             self._fdm_vec_getter = getter
@@ -974,7 +971,7 @@ def pspace_ham (h_op_raw, raw2orth, addrs):
     log = hobj0.log
     log.debug1 ('LASSI pspace (roots) ; [addrs] :')
     for ket_roots, ket_addrs in rootmap.items ():
-        log.debug1 ('%s %s', str (ket_roots), str (ket_addrs))
+        log.debug1 ('%s ; %s', str (ket_roots), str (ket_addrs))
     for ket_roots, ket_addrs in rootmap.items ():
         hobj2 = hobj1.get_subspace (ket_roots, verbose=0, _square=False)
         h_op = hobj2.get_ham_op ()
