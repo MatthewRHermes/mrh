@@ -799,18 +799,20 @@ class HamS2OvlpOperators (HamS2Ovlp):
 
     def get_pspace_ham (self, raw2orth, addrs):
         pspace_size = len (addrs)
-        addrs_snm, addrs_psi = raw2orth.interpret_address (addrs)
+        addrs = raw2orth.interpret_address (addrs)
         ham = np.zeros ((pspace_size, pspace_size), dtype=self.dtype)
         for inv, group in self.optermgroups_h.items (): 
             for op in group.ops:
                 for key in op.spincase_keys:
                     op1 = opterm.reduce_spin (op, key[0], key[1]).ravel ()
-                    for idx, fdm in self.gen_pspace_fdm (raw2orth, addrs_snm, addrs_psi, key, inv):
+                    for idx, fdm in self.gen_pspace_fdm (raw2orth, addrs, key):
                         ham[idx] += np.dot (fdm, op1) # factor of 2???
         return ham
 
-    def gen_pspace_fdm (self, raw2orth, addrs_snm, addrs_psi, key, inv):
+    def gen_pspace_fdm (self, raw2orth, addrs, key):
         # I have to set self._fdm_vec_getter in some highly clever way
+        addrs_snm, addrs_psi = addrs
+        inv = tuple (set (key[2:]))
         braket_tab = self.nonuniq_exc[key]
         snm_exc = raw2orth.roots_2_snm (braket_tab)
         for idim in range (2):
