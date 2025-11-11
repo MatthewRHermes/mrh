@@ -804,10 +804,10 @@ class HamS2OvlpOperators (HamS2Ovlp):
         for inv, group in self.optermgroups_h.items (): 
             for op in group.ops:
                 for key in op.spincase_keys:
-                    op1 = opterm.reduce_spin (op, key[0], key[1]).ravel ()
+                    op1 = opterm.reduce_spin (op, key[0], key[1])
                     for idx1, idx2, fdm in self.gen_pspace_fdm (raw2orth, addrs, key):
-                        ham[idx1] += np.dot (fdm, op1)
-                        ham[idx2] += np.dot (fdm, op1.conj ()).T 
+                        ham[idx1] += opterm.fdm_dot (fdm, op1)
+                        ham[idx2] += opterm.fdm_dot (fdm, op1.conj ()).T 
         return ham
 
     def gen_pspace_fdm (self, raw2orth, addrs, key):

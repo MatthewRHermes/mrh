@@ -279,3 +279,21 @@ class OpTerm4Fragments (OpTermNFragments):
         fac = fac[0] * fac[1]
         return self.op.copy () * fac
 
+    def fdm_dot (self, fdm):
+        # TODO: needs unittest!!!!
+        output_shape = fdm.shape[:-1]
+        ncols = fdm.shape[-1]
+        nrows = np.prod (output_shape)
+        dot_shape = [nrows,] + self.lroots_bra[::-1] + self.lroots_ket[::-1]
+        arr = fdm.reshape (*dot_shape)
+        arr = lib.einsum ('zdcbalkji,ckr,dls->zrsbaji', arr, self.d[2], self.d[3])
+        arr = lib.einsum ('zrsbaji,rsbaji->z', arr, self.op)
+        return arr.reshape (*output_shape)
+
+def fdm_dot (fdm, op1):
+    if callable (getattr (op1, 'fdm_dot', None)):
+        return op1.fdm_dot (fdm)
+    else:
+        return np.dot (fdm, op1.ravel ())
+
+
