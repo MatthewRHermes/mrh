@@ -151,6 +151,12 @@ def case_contract_op_si (ks, las, h1, h2, ci_fr, nelec_frs, smult_fr=None, soc=0
     ham_ref = ham_orth[addrs,:][:,addrs]
     with ks.subTest ('pspace'):
         ks.assertAlmostEqual (lib.fp (ham_test), lib.fp (ham_ref), 7)
+    pspace_size = raw2orth.shape[0]
+    pw, pv, addrs = pspace (ham_diag_orth, ham_op, raw2orth, 1, pspace_size)
+    ham_test = (pv * pw[None,:]) @ pv.conj ().T
+    ham_ref = ham_orth[addrs,:][:,addrs]
+    with ks.subTest ('pspace full'):
+        ks.assertAlmostEqual (lib.fp (ham_test), lib.fp (ham_ref), 7)
     nstates = ham.shape[0]
     x = (2 * np.random.rand (nstates)) - 1
     if soc:

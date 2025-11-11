@@ -280,7 +280,6 @@ class OpTerm4Fragments (OpTermNFragments):
         return self.op.copy () * fac
 
     def fdm_dot (self, fdm):
-        # TODO: needs unittest!!!!
         output_shape = fdm.shape[:-1]
         ncols = fdm.shape[-1]
         nrows = np.prod (output_shape)
