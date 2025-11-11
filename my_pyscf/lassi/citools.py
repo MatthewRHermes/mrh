@@ -329,7 +329,10 @@ class OrthBasis (sparse_linalg.LinearOperator):
     def get_xmat_rows (self, iroot, _col=None):
         x, i, j = self.root_manifold_addr[iroot]
         if j == -1:
-            return np.eye (self.nprods_raw[iroot])
+            xmat = np.eye (self.nprods_raw[iroot])
+            if _col is not None:
+                xmat = xmat[:,_col]
+            return xmat
         assert (i >= 0)
         xmat = self.manifolds_xmat[i]
         p, q = self.manifolds_offs_raw[i][j]
@@ -408,6 +411,12 @@ class NullOrthBasis (sparse_linalg.LinearOperator):
     def _rmatvec (self, x): return x
 
     def get_nbytes (self): return 0
+
+    def get_xmat_rows (self, iroot, _col=None):
+        xmat = np.eye (self.nprods_raw[iroot])
+        if _col is not None:
+            xmat = xmat[:,_col]
+        return xmat
 
     @property
     def uniq_prod_idx (self): return np.arange (self.shape[0], dtype=int)

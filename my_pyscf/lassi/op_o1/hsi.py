@@ -805,8 +805,9 @@ class HamS2OvlpOperators (HamS2Ovlp):
             for op in group.ops:
                 for key in op.spincase_keys:
                     op1 = opterm.reduce_spin (op, key[0], key[1]).ravel ()
-                    for idx, fdm in self.gen_pspace_fdm (raw2orth, addrs, key):
-                        ham[idx] += np.dot (fdm, op1) # factor of 2???
+                    for idx1, idx2, fdm in self.gen_pspace_fdm (raw2orth, addrs, key):
+                        ham[idx1] += np.dot (fdm, op1)
+                        ham[idx2] += np.dot (fdm, op1.conj ()).T 
         return ham
 
     def gen_pspace_fdm (self, raw2orth, addrs, key):
@@ -819,21 +820,24 @@ class HamS2OvlpOperators (HamS2Ovlp):
             idx = np.isin (snm_exc[:,idim], addrs_snm)
             snm_exc = snm_exc[idx]
             braket_tab = braket_tab[idx]
-        uniq, inv = np.unique (snm_exc, axis=0, return_inverse=True)
+        uniq, invs = np.unique (snm_exc, axis=0, return_inverse=True)
         for i, (bra_snm, ket_snm) in enumerate (uniq):
-            idx = (inv==i)
+            idx = (invs==i)
             my_braket_tab = braket_tab[idx]
             idx_bra = (addrs_snm==bra_snm)
             idx_ket = (addrs_snm==ket_snm)
             idx2 = np.ix_(idx_bra,idx_ket)
-            rect_indices = np.indices ((len (idx_ket), len (idx_bra)))
+            idx3 = np.ix_(idx_ket,idx_bra)
+            rect_indices = np.indices ((np.count_nonzero (idx_ket),
+                                        np.count_nonzero (idx_bra)))
             _ik, _ib = np.concatenate (rect_indices.T, axis=0).T
-            _col = (addrs_psi[_ik], addrs_psi[_ib])
-            def getter (root, bra=False):
+            _col = (addrs_psi[idx_ket][_ik], addrs_psi[idx_bra][_ib])
+            def getter (iroot, bra=False):
                 return raw2orth.get_xmat_rows (iroot, _col=_col[int(bra)])
             self._fdm_vec_getter = getter
             fdm = self.get_hdiag_fdm (my_braket_tab, *inv)
-            yield idx2, fdm
+            fdm = fdm.reshape (idx2[0].shape[0], idx2[1].shape[1], -1)
+            yield idx2, idx3, fdm
         return
 
     def _crunch_2c_(self, bra, ket, a, i, b, j, s2lt, dry_run=False):
@@ -1004,6 +1008,7 @@ def pspace_ham (h_op_raw, raw2orth, addrs):
         [np.atleast_1d (key) for key in rootmap.keys ()]
     ))
     hobj1 = hobj0.get_subspace (all_roots, verbose=0)
+    return hobj1.get_pspace_ham (raw2orth, addrs)
     orth2raw = raw2orth.H
     pspace_size = len (addrs)
     ham = np.empty ((pspace_size, pspace_size), h_op_raw.dtype)
