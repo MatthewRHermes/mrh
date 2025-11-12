@@ -493,9 +493,6 @@ private:
     double * d_pdm2; //do we need these anymore
     double * d_pdm1; //do we need these anymore
     
-    int size_op;
-    double * d_op;
-
     std::vector<int> type_pumap;
     std::vector<int> size_pumap;
     std::vector<int *> pumap;

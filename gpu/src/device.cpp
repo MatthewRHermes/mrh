@@ -137,7 +137,6 @@ Device::Device()
     device_data[i].size_tdm2=0;
     device_data[i].size_tdm2_p=0;
     //matvecs
-    device_data[i].size_op = 0;
     
     
     device_data[i].d_rho = nullptr;
@@ -185,8 +184,6 @@ Device::Device()
     device_data[i].d_tdm2=nullptr;
     device_data[i].d_tdm2_p=nullptr;
 
-    //matvecs
-    device_data[i].d_op = nullptr;
 
 #if defined (_USE_GPU)
     device_data[i].handle = nullptr;
@@ -431,6 +428,7 @@ Device::~Device()
     pm->dev_free(dd->d_tdm1, "tdm1");
     pm->dev_free(dd->d_tdm2, "tdm2");
     pm->dev_free(dd->d_tdm2_p, "tdm2_p");
+
 
     for(int i=0; i<dd->size_pumap.size(); ++i) {
       pm->dev_free_host(dd->pumap[i]);
@@ -5485,8 +5483,8 @@ void Device::push_op(py::array_t<double> _op, int m, int k)
   for (int i=0; i<num_devices;++i){
     pm->dev_set_device(i);
     my_device_data * dd = &(device_data[i]);
-    grow_array(dd->d_op, _size_op, dd->size_op, "op", FLERR);
-    pm->dev_push_async(dd->d_op, op, _size_op*sizeof(double));
+    grow_array(dd->d_buf1, _size_op, dd->size_buf1, "buf1", FLERR);
+    pm->dev_push_async(dd->d_buf1, op, _size_op*sizeof(double));
   }
   double t1 = omp_get_wtime();
   t_array[33] += t1-t0;
@@ -5579,20 +5577,13 @@ void Device::compute_sivecs (int m, int n, int k)
   int device_id;
   double alpha = 1.0;
   double beta = 0.0;
-  #ifdef _DEBUG_FCI
-  double * h_buf = nullptr;
-  int h_size_buf = 0;
-  double * h_op = nullptr;
-  int h_size_op = 0;
-  #endif
   for (int i=0; i<num_devices; ++i){
     device_id = i%num_devices;
     pm->dev_set_device(device_id);
     my_device_data * dd = &(device_data[device_id]);
     _max_size_buf = _MAX(dd->size_buf1, dd->size_buf2);
     _max_size_buf = _MAX(_max_size_buf, dd->size_buf3);
-    grow_array(dd->d_buf1, _max_size_buf, dd->size_buf1, "buf1", FLERR);
-    grow_array(dd->d_buf2, _max_size_buf, dd->size_buf2, "buf2", FLERR);
+    grow_array(dd->d_buf2, _max_size_buf, dd->size_buf2, "buf2", FLERR);//not doing buf1 because it is used for op
     grow_array(dd->d_buf3, _max_size_buf, dd->size_buf3, "buf3", FLERR);
     max_batch_n = _MIN(_max_size_buf/k, _max_size_buf/m);
     max_batch_n = 6;//_MIN(_max_size_buf/k, _max_size_buf/m);
@@ -5608,15 +5599,15 @@ void Device::compute_sivecs (int m, int n, int k)
     double * old_sivecs = &(h_old_sivecs[i*k]);
     double * new_sivecs = &(h_new_sivecs[i*m]);
 
-    pm->dev_push_async(dd->d_buf1, old_sivecs, k*batch_n*sizeof(double));
+    pm->dev_push_async(dd->d_buf2, old_sivecs, k*batch_n*sizeof(double));
     ml->gemm((char *) "T", (char *) "N", 
              &m, &batch_n, &k, 
              &alpha, 
-             dd->d_op, &k,
              dd->d_buf1, &k,
+             dd->d_buf2, &k,
              &beta, 
-             dd->d_buf2, &m);
-    pm->dev_pull_async( dd->d_buf2, new_sivecs, batch_n*m*sizeof(double));
+             dd->d_buf3, &m);
+    pm->dev_pull_async( dd->d_buf3, new_sivecs, batch_n*m*sizeof(double));
     }
   for (int i=0; i<num_devices; ++i){
     pm->dev_set_device(device_id);
@@ -5655,22 +5646,22 @@ void Device::compute_sivecs_full (int m, int k, int counts)
       result = &(dd->d_buf3[ox1_loc]); }
     else {
       beta = 0.0;
-      result = dd->d_buf2; }
+      result = dd->d_buf3; }
 
     //for most calculations m*n_i and k*n_i should fit on a single gpu
       //if that is not the case, k*n_i can be split, but we need to be careful about how we update the ox1 on pinned
-      
+    
     double * old_sivecs = &(h_old_sivecs[vec_loc]);
-    pm->dev_push_async(dd->d_buf1, old_sivecs, vec_size*sizeof(double));
+    pm->dev_push_async(dd->d_buf2, old_sivecs, vec_size*sizeof(double));
     ml->gemm((char *) "T", (char *) "N", 
            &n,&m,&k, 
-           &alpha, dd->d_buf1, &k, dd->d_op, &k,
+           &alpha, dd->d_buf2, &k, dd->d_buf1, &k,
            &beta, result, &n);
  
     if (!ox1_on_gpu){
       printf("shouldn't be here!\n");
       double * new_sivecs = &(h_ox1[ox1_loc]);
-      pm->dev_pull_async( dd->d_buf2, new_sivecs, ox1_size*sizeof(double));}
+      pm->dev_pull_async( dd->d_buf3, new_sivecs, ox1_size*sizeof(double));}
     }
   if (!ox1_on_gpu){
       printf("shouldn't be here!\n");
