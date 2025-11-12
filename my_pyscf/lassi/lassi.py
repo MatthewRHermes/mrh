@@ -6,6 +6,7 @@ from mrh.my_pyscf.lassi import op_o0
 from mrh.my_pyscf.lassi import op_o1
 from mrh.my_pyscf.lassi import chkfile
 from mrh.my_pyscf.lassi import citools
+from mrh.my_pyscf.lassi import basis
 from mrh.my_pyscf.lassi.citools import get_lroots
 from pyscf import lib, symm, ao2mo
 from pyscf.lib import param
@@ -399,8 +400,8 @@ def _eig_block_Davidson (las, e0, h1, h2, ci_blk, nelec_blk, smult_blk, soc, opt
         las, h1, h2, ci_blk, nelec_blk, smult_fr=smult_blk, soc=soc, screen_thresh=screen_thresh
     )
     t0 = (lib.logger.process_clock (), lib.logger.perf_counter ())
-    raw2orth = citools.get_orth_basis (ci_blk, las.ncas_sub, nelec_blk, _get_ovlp=_get_ovlp,
-                                       smult_fr=smult_blk)
+    raw2orth = basis.get_orth_basis (ci_blk, las.ncas_sub, nelec_blk, _get_ovlp=_get_ovlp,
+                                     smult_fr=smult_blk)
     orth2raw = raw2orth.H
     mem_orth = raw2orth.get_nbytes () / 1e6
     t0 = log.timer ('LASSI get orthogonal basis ({:.2f} MB)'.format (mem_orth), *t0)
@@ -537,8 +538,8 @@ def _eig_block_incore (las, e0, h1, h2, ci_blk, nelec_blk, smult_blk, soc, opt):
             lib.logger.warn (las, 'LAS states in basis may not be converged (%s = %e)',
                              'max(|Hdiag-e_states|)', maxerr)
     # Error catch: linear dependencies in basis
-    raw2orth = citools.get_orth_basis (ci_blk, las.ncas_sub, nelec_blk, _get_ovlp=_get_ovlp,
-                                       smult_fr=smult_blk)
+    raw2orth = basis.get_orth_basis (ci_blk, las.ncas_sub, nelec_blk, _get_ovlp=_get_ovlp,
+                                     smult_fr=smult_blk)
     xhx = raw2orth (ham_blk.T).T
     lib.logger.info (las, '%d/%d linearly independent model states',
                      xhx.shape[1], xhx.shape[0])
@@ -1196,7 +1197,7 @@ class LASSI(lib.StreamObject):
             _get_ovlp = op[opt].gen_contract_op_si_hdiag (
                 self, h1, h2, ci, nelec_frs, smult_fr=smult_fr, soc=soc
             )[4]
-        return citools.get_orth_basis (ci, self.ncas_sub, nelec_frs, _get_ovlp=_get_ovlp)
+        return basis.get_orth_basis (ci, self.ncas_sub, nelec_frs, _get_ovlp=_get_ovlp)
 
     def get_casscf_eris (self, mo_coeff=None):
         if mo_coeff is None: mo_coeff=self.mo_coeff

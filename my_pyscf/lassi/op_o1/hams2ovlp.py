@@ -598,8 +598,6 @@ def ham (las, h1, h2, ci, nelec_frs, smult_fr=None, soc=0, nlas=None, _HamS2Ovlp
     if las.verbose >= lib.logger.TIMER_LEVEL:
         lib.logger.info (las, 'LASSI ham crunching profile:\n%s', outerprod.sprint_profile ())
 
-    #raw2orth = citools.get_orth_basis (ci, las.ncas_sub, nelec_frs,
-    #                                   _get_ovlp=outerprod.get_ovlp)
     return ham, s2, ovlp, outerprod.get_ovlp
 
 

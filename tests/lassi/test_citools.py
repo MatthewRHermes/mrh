@@ -3,7 +3,7 @@ import unittest
 import numpy as np
 from scipy import linalg
 from mrh.my_pyscf.mcscf.lasscf_sync_o0 import LASSCF
-from mrh.my_pyscf.lassi import citools, op_o0, op_o1
+from mrh.my_pyscf.lassi import citools, op_o0, op_o1, basis
 from mrh.my_pyscf.fci.spin_op import mdown
 from pyscf import lib, gto, ao2mo
 from pyscf.scf.addons import canonical_orth_
@@ -35,15 +35,15 @@ def setUpModule():
     ci[1][4:6] = [mdown (x, 4, (2, 2), 3) for x in ci_trip[1]]
     ci[1][6:8] = ci_trip[1]
     ovlp0 = op_o0.get_ovlp (ci, norb_f, nelec_frs)
-    raw2orth_fullspin = citools.get_orth_basis (ci, norb_f, nelec_frs, smult_fr=smult_fr)
-    raw2orth_nospin = citools.get_orth_basis (ci, norb_f, nelec_frs)
+    raw2orth_fullspin = basis.get_orth_basis (ci, norb_f, nelec_frs, smult_fr=smult_fr)
+    raw2orth_nospin = basis.get_orth_basis (ci, norb_f, nelec_frs)
     ci1 = [[ci_ij for ci_ij in ci_i] for ci_i in ci]
     for i in range (2):
         for j in range (2+4*i,4+4*i):
             ci1[i][j] = t3.vec_csf2det (random_orthrows (2, t3.ncsf))
             ci1[i][j] = ci1[i][j].reshape (-1, t3.ndeta, t3.ndetb)
     ovlp1 = op_o0.get_ovlp (ci1, norb_f, nelec_frs)
-    raw2orth_semispin = citools.get_orth_basis (ci1, norb_f, nelec_frs, smult_fr=smult_fr)
+    raw2orth_semispin = basis.get_orth_basis (ci1, norb_f, nelec_frs, smult_fr=smult_fr)
     orth_bases = {'no spin': (ovlp0, raw2orth_nospin),
                   'semi-spin': (ovlp1, raw2orth_semispin),
                   'full spin': (ovlp0, raw2orth_fullspin)}

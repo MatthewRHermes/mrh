@@ -433,64 +433,6 @@ def get_ovlp (ci_fr, norb_f, nelec_frs, rootidx=None):
         ovlp[i,:] = dotter (ket, nelec_ket, iket=i, oporder=0)
     return ovlp
 
-def get_orth_basis (ci_fr, norb_f, nelec_frs, _get_ovlp=get_ovlp):
-    nfrags, nroots = nelec_frs.shape[:2]
-    unique, uniq_idx, inverse, cnts = np.unique (nelec_frs, axis=1, return_index=True,
-                                                 return_inverse=True, return_counts=True)
-    if not np.count_nonzero (cnts>1):
-        def raw2orth (rawarr):
-            return rawarr
-        def orth2raw (ortharr):
-            return ortharr
-        return raw2orth, orth2raw
-    lroots_fr = np.array ([[1 if c.ndim<3 else c.shape[0]
-                            for c in ci_r]
-                           for ci_r in ci_fr])
-    nprods_r = np.prod (lroots_fr, axis=0)
-    offs1 = np.cumsum (nprods_r)
-    offs0 = offs1 - nprods_r
-    uniq_prod_idx = []
-    for i in uniq_idx[cnts==1]: uniq_prod_idx.extend (list(range(offs0[i],offs1[i])))
-    manifolds_prod_idx = []
-    manifolds_xmat = []
-    nuniq_prod = north = len (uniq_prod_idx)
-    for manifold_idx in np.where (cnts>1)[0]:
-        manifold = np.where (inverse==manifold_idx)[0]
-        manifold_prod_idx = []
-        for i in manifold: manifold_prod_idx.extend (list(range(offs0[i],offs1[i])))
-        manifolds_prod_idx.append (manifold_prod_idx)
-        ovlp = _get_ovlp (ci_fr, norb_f, nelec_frs, rootidx=manifold)
-        xmat = canonical_orth_(ovlp, thr=LINDEP_THRESH)
-        north += xmat.shape[1]
-        manifolds_xmat.append (xmat)
-
-    nraw = offs1[-1]
-    def raw2orth (rawarr):
-        col_shape = rawarr.shape[1:]
-        orth_shape = [north,] + list (col_shape)
-        ortharr = np.zeros (orth_shape, dtype=rawarr.dtype)
-        ortharr[:nuniq_prod] = rawarr[uniq_prod_idx]
-        i = nuniq_prod
-        for prod_idx, xmat in zip (manifolds_prod_idx, manifolds_xmat):
-            j = i + xmat.shape[1]
-            ortharr[i:j] = np.tensordot (xmat.T, rawarr[prod_idx], axes=1)
-            i = j
-        return ortharr
-
-    def orth2raw (ortharr):
-        col_shape = ortharr.shape[1:]
-        raw_shape = [nraw,] + list (col_shape)
-        rawarr = np.zeros (raw_shape, dtype=ortharr.dtype)
-        rawarr[uniq_prod_idx] = ortharr[:nuniq_prod]
-        i = nuniq_prod
-        for prod_idx, xmat in zip (manifolds_prod_idx, manifolds_xmat):
-            j = i + xmat.shape[1]
-            rawarr[prod_idx] = np.tensordot (xmat.conj (), ortharr[i:j], axes=1)
-            i = j
-        return rawarr
-
-    return raw2orth, orth2raw
-
 def ham (las, h1, h2, ci_fr, nelec_frs, soc=0, orbsym=None, wfnsym=None, **kwargs):
     '''Build LAS state interaction Hamiltonian, S2, and ovlp matrices
 
@@ -591,7 +533,6 @@ def ham (las, h1, h2, ci_fr, nelec_frs, soc=0, orbsym=None, wfnsym=None, **kwarg
         ham_eff[i,:] = dotter (hket, nelec_ket, spinless2ss=spinless2ss, iket=i, oporder=2)
     
     _get_ovlp = functools.partial (get_ovlp, ci_fr, norb_f, nelec_frs)
-    #raw2orth = citools.get_orth_basis (ci_fr, norb_f, nelec_frs, _get_ovlp=_get_ovlp)
     return ham_eff, s2_eff, ovlp_eff, _get_ovlp #raw2orth
 
 def contract_ham_ci (las, h1, h2, ci_fr, nelec_frs, si_bra=None, si_ket=None, ci_fr_bra=None,
