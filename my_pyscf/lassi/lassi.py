@@ -413,7 +413,7 @@ def _eig_block_Davidson (las, e0, h1, h2, ci_blk, nelec_blk, smult_blk, soc, opt
             pv = pv[:,:nroots_si]
             pw = pw[:nroots_si]
             si1 = orth2raw (pv)
-            s2 = lib.einsum ('ij,ij->i', si1.conj (), s2_op (si1))
+            s2 = lib.einsum ('ij,ij->j', si1.conj (), s2_op (si1))
             return True, pw, si1, s2
         precond_op = make_pspace_precond (hdiag_orth, pw, pv, addr, level_shift=level_shift)
     else:
