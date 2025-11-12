@@ -3900,7 +3900,7 @@ void Device::push_link_indexa(int na, int nlinka, py::array_t<int> _link_indexa)
     for (int device_id=0;device_id<num_devices;++device_id){
       pm->dev_set_device(device_id); 
       my_device_data * dd = &(device_data[device_id]);
-      grow_array(dd->d_clinka, size_clinka, dd->size_clinka, "clink", FLERR);
+      grow_array(dd->d_clinka, size_clinka, dd->size_clinka, "clinka", FLERR);
       pm->dev_push_async(dd->d_clinka, link_indexa, size_clinka*sizeof(int));
     }
   }
@@ -3918,7 +3918,7 @@ void Device::push_link_indexb(int nb, int nlinkb, py::array_t<int> _link_indexb)
     for (int device_id=0;device_id<num_devices;++device_id){
       pm->dev_set_device(device_id); 
       my_device_data * dd = &(device_data[device_id]);
-      grow_array(dd->d_clinkb, size_clinkb, dd->size_clinkb, "clink", FLERR);
+      grow_array(dd->d_clinkb, size_clinkb, dd->size_clinkb, "clinkb", FLERR);
       pm->dev_push_async(dd->d_clinkb, link_indexb, size_clinkb*sizeof(int));
     } 
   }
