@@ -73,12 +73,11 @@ def get_orth_basis (ci_fr, norb_f, nelec_frs, _get_ovlp=None, smult_fr=None):
                 ovlp[np.diag_indices_from (ovlp)] += 1.0
                 xmat = canonical_orth_(ovlp, thr=LINDEP_THRESH)
                 north += xmat.shape[1] * num_m_blocks
-                manifolds_xmat.append (xmat)
-                manifolds_roots.append (m_blocks)
             else:
                 north += ovlp.shape[0] * num_m_blocks
-                for m_block in m_blocks:
-                    uniq_roots.extend (m_block)
+                xmat = None
+            manifolds_xmat.append (xmat)
+            manifolds_roots.append (m_blocks)
             ovlp = None
 
     _get_ovlp = None
@@ -224,11 +223,15 @@ class OrthBasis (OrthBasisBase):
             offs0 = offs1 - my_nprods_raw
             self.manifolds_offs_raw.append (np.stack ([offs0, offs1], axis=1))
             xmat = manifolds_xmat[i]
-            assert (offs1[-1] == xmat.shape[0])
+            if xmat is None:
+                xmat_shape_1 = offs1[-1]
+            else:
+                xmat_shape_1 = xmat.shape[1]
+                assert (offs1[-1] == xmat.shape[0])
             for j, mij in enumerate (mi):
                 for k, mijk in enumerate (mij):
                     self.root_manifold_addr[mijk,:] = [nman,i,k]
-                manifolds_nprods_orth_flat.append (xmat.shape[1])
+                manifolds_nprods_orth_flat.append (xmat_shape_1)
                 self.snm_blocks.append (np.asarray (mij))
                 nman += 1
         assert (np.all (self.root_manifold_addr[:,2]>-2))
@@ -262,13 +265,15 @@ class OrthBasis (OrthBasisBase):
 
     def get_xmat_rows (self, iroot, _col=None):
         x, i, j = self.root_manifold_addr[iroot]
-        if j == -1:
+        if i < 0: # singleton block
             xmat = np.eye (self.nprods_raw[iroot])
             if _col is not None:
                 xmat = xmat[:,_col]
             return xmat
-        assert (i >= 0)
-        xmat = self.manifolds_xmat[i]
+        elif self.manifolds_xmat[i] is None:
+            xmat = np.eye (self.manifolds_nprods_raw[i].sum ())
+        else:
+            xmat = self.manifolds_xmat[i]
         p, q = self.manifolds_offs_raw[i][j]
         xmat = xmat[p:q,:]
         nraw = self.manifolds_nprods_raw[i][j]
@@ -288,10 +293,16 @@ class OrthBasis (OrthBasisBase):
         ortharr[:nuniq_prod] = rawarr[self.uniq_prod_idx]
         p = len (self.uniq_roots)
         for prod_idx, xmat in zip (self.manifolds_prod_idx, self.manifolds_xmat):
-            for mirror in prod_idx:
-                i, j = self.offs_orth[p]
-                p += 1
-                ortharr[i:j] = np.tensordot (xmat.T, rawarr[mirror], axes=1)
+            if xmat is None:
+                for mirror in prod_idx:
+                    i, j = self.offs_orth[p]
+                    p += 1
+                    ortharr[i:j] = rawarr[mirror]
+            else:
+                for mirror in prod_idx:
+                    i, j = self.offs_orth[p]
+                    p += 1
+                    ortharr[i:j] = np.tensordot (xmat.T, rawarr[mirror], axes=1)
         return ortharr
 
     def _rmatvec (self, ortharr):
@@ -304,10 +315,16 @@ class OrthBasis (OrthBasisBase):
         rawarr[self.uniq_prod_idx] = ortharr[:nuniq_prod]
         p = len (self.uniq_roots)
         for prod_idx, xmat in zip (self.manifolds_prod_idx, self.manifolds_xmat):
-            for mirror in prod_idx:
-                i, j = self.offs_orth[p]
-                p += 1
-                rawarr[mirror] = np.tensordot (xmat.conj (), ortharr[i:j], axes=1)
+            if xmat is None:
+                for mirror in prod_idx:
+                    i, j = self.offs_orth[p]
+                    p += 1
+                    rawarr[mirror] = ortharr[i:j]
+            else:
+                for mirror in prod_idx:
+                    i, j = self.offs_orth[p]
+                    p += 1
+                    rawarr[mirror] = np.tensordot (xmat.conj (), ortharr[i:j], axes=1)
         return rawarr
 
 
