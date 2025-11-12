@@ -2,7 +2,7 @@ from mrh.my_pyscf.lassi.op_o1.stdm import make_stdm12s
 from mrh.my_pyscf.lassi.op_o1.hams2ovlp import ham
 from mrh.my_pyscf.lassi.op_o1.hci import contract_ham_ci
 from mrh.my_pyscf.lassi.op_o1.rdm import roots_make_rdm12s, roots_trans_rdm12s, get_fdm1_maker
-from mrh.my_pyscf.lassi.op_o1.hsi import gen_contract_op_si_hdiag
+from mrh.my_pyscf.lassi.op_o1.hsi import gen_contract_op_si_hdiag, get_hdiag_orth, pspace_ham
 from mrh.my_pyscf.lassi.op_o1.utilities import *
 
 # NOTE: PySCF has a strange convention where
@@ -13,5 +13,4 @@ from mrh.my_pyscf.lassi.op_o1.utilities import *
 # dm1[p,q] = <p'q>,
 # dm2[p,q,r,s] = <p'r'sq>
 # is used.
-
 

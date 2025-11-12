@@ -11,7 +11,7 @@ from pyscf import lib, symm, ao2mo
 from pyscf.lib import param
 from pyscf.scf.addons import canonical_orth_
 from pyscf.lib.numpy_helper import tag_array
-from pyscf.fci.direct_spin1 import _unpack_nelec
+from pyscf.fci.direct_spin1 import _unpack_nelec, make_pspace_precond
 from itertools import combinations, product
 from mrh.my_pyscf.mcscf import soc_int as soc_int
 from pyscf import __config__
@@ -34,6 +34,7 @@ MAX_CYCLE_SI = getattr (__config__, 'lassi_max_cycle_si', 100)
 MAX_SPACE_SI = getattr (__config__, 'lassi_max_space_si', 12)
 TOL_SI = getattr (__config__, 'lassi_tol_si', 1e-8)
 DAVIDSON_SCREEN_THRESH_SI = getattr (__config__, 'lassi_hsi_screen_thresh', 1e-12)
+PSPACE_SIZE_SI = getattr (__config__, 'lassi_hsi_pspace_size', 400)
 
 op = (op_o0, op_o1)
 
@@ -393,23 +394,37 @@ def _eig_block_Davidson (las, e0, h1, h2, ci_blk, nelec_blk, smult_blk, soc, opt
     tol_si = getattr (las, 'tol_si', TOL_SI)
     get_init_guess = getattr (las, 'get_init_guess_si', get_init_guess_si)
     screen_thresh = getattr (las, 'davidson_screen_thresh_si', DAVIDSON_SCREEN_THRESH_SI)
-    h_op_raw, s2_op, ovlp_op, hdiag, _get_ovlp = op[opt].gen_contract_op_si_hdiag (
+    pspace_size = getattr (las, 'pspace_size_si', PSPACE_SIZE_SI)
+    h_op_raw, s2_op, ovlp_op, hdiag_raw, _get_ovlp = op[opt].gen_contract_op_si_hdiag (
         las, h1, h2, ci_blk, nelec_blk, smult_fr=smult_blk, soc=soc, screen_thresh=screen_thresh
     )
     t0 = (lib.logger.process_clock (), lib.logger.perf_counter ())
     raw2orth = citools.get_orth_basis (ci_blk, las.ncas_sub, nelec_blk, _get_ovlp=_get_ovlp,
                                        smult_fr=smult_blk)
+    orth2raw = raw2orth.H
     mem_orth = raw2orth.get_nbytes () / 1e6
     t0 = log.timer ('LASSI get orthogonal basis ({:.2f} MB)'.format (mem_orth), *t0)
-    precond_op_raw = lib.make_diag_precond (hdiag, level_shift=level_shift)
-    si0 = get_init_guess (hdiag, nroots_si, si0)
-    si0 = [ovlp_op (x) for x in si0]
-    orth2raw = raw2orth.H
-    def precond_op (dx, e, *args):
-        return raw2orth (precond_op_raw (orth2raw (dx), e, *args))
+    hdiag_orth = op[opt].get_hdiag_orth (hdiag_raw, h_op_raw, raw2orth)
+    t0 = log.timer ('LASSI get hdiag in orthogonal basis', *t0)
+    if pspace_size:
+        pw, pv, addr = pspace (hdiag_orth, h_op_raw, raw2orth, opt, pspace_size)
+        t0 = log.timer ('LASSI make pspace Hamiltonian', *t0)
+        if pspace_size >= hdiag_orth.size:
+            pv = pv[:,:nroots_si]
+            pw = pw[:nroots_si]
+            si1 = orth2raw (pv)
+            s2 = lib.einsum ('ij,ij->j', si1.conj (), s2_op (si1))
+            return True, pw, si1, s2
+        precond_op = make_pspace_precond (hdiag_orth, pw, pv, addr, level_shift=level_shift)
+    else:
+        precond_op = lib.make_diag_precond (hdiag_orth, level_shift=level_shift)
+    if si0 is not None:
+        x0 = raw2orth (ovlp_op (si0))
+    else:
+        x0 = None
+    x0 = get_init_guess (hdiag_orth, nroots_si, x0)
     def h_op (x):
         return raw2orth (h_op_raw (orth2raw (x)))
-    x0 = [raw2orth (x) for x in si0]
     conv, e, x1 = lib.davidson1 (lambda xs: [h_op (x) for x in xs],
                                  x0, precond_op, nroots=nroots_si,
                                  verbose=log, max_cycle=max_cycle_si,
@@ -419,6 +434,18 @@ def _eig_block_Davidson (las, e0, h1, h2, ci_blk, nelec_blk, smult_blk, soc, opt
     si1 = np.stack ([orth2raw (x) for x in x1], axis=-1)
     s2 = np.array ([np.dot (x.conj (), s2_op (x)) for x in si1.T])
     return conv, e, si1, s2
+
+def pspace (hdiag_orth, h_op_raw, raw2orth, opt, pspace_size):
+    if hdiag_orth.size <= pspace_size:
+        addr = np.arange (hdiag_orth.size)
+    else:
+        try: # this is just a fast PARTIAL sort
+            addr = np.argpartition(hdiag_orth, pspace_size-1)[:pspace_size].copy()
+        except AttributeError:
+            addr = np.argsort(hdiag_orth)[:pspace_size].copy()
+    h0 = op[opt].pspace_ham (h_op_raw, raw2orth, addr)
+    pw, pv = linalg.eigh (h0)
+    return pw, pv, addr
 
 def get_init_guess_si (hdiag, nroots, si1):
     nprod = hdiag.size

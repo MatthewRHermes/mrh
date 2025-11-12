@@ -252,7 +252,7 @@ def analyze (las, si, ci=None, state=0, print_all_but=1e-8, lbasis='primitive', 
             Von Neumann entropy of each fragment, considering each rootspace separately
             If print_all_but >= 0, some rows may be omitted (set to -1)
     '''
-    analyze_moments (las, si, ci=ci, do_natorb=do_natorb)
+    analyze_moments (las, si, ci=ci, do_natorb=do_natorb, state=state)
     if 'prim' in lbasis.lower (): lbasis = 'primitive'
     elif 'schmidt' in lbasis.lower (): lbasis = 'Schmidt'
     else:
