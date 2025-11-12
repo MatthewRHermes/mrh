@@ -119,7 +119,67 @@ def _get_spin_split_manifolds_idx (ci_fr, norb_f, nelec_frs, smult_fr, lroots_fr
                  for j in range (len (uniq))]
     return manifolds
 
-class OrthBasis (sparse_linalg.LinearOperator):
+class OrthBasisBase (sparse_linalg.LinearOperator):
+    def get_nbytes (self):
+        def _get (x):
+            if isinstance (x, np.ndarray):
+                return int (x.nbytes)
+            elif lib.issequence (x):
+                return sum ([_get (xi) for xi in x])
+            else:
+                return int (sys.getsizeof (x))
+        nbytes = sum ([_get (x) for x in self.__dict__.values ()])
+        return nbytes
+
+    def map_prod_subspace (self, prods):
+        prods = np.asarray (prods)
+        rootlist = self.prods_2_roots (prods)
+        rootmap = {}
+        for i in range (len (prods)):
+            roots = tuple (rootlist[i])
+            val = rootmap.get (roots, [])
+            val.append (prods[i])
+            rootmap[roots] = val
+        return rootmap
+
+class NullOrthBasis (OrthBasisBase):
+    def __init__(self, nraw, dtype, nprods_r):
+        self.shape = (nraw,nraw)
+        self.dtype = dtype
+        self.nprods_raw = nprods_r
+        offs1 = np.cumsum (nprods_r)
+        offs0 = offs1 - nprods_r
+        self.offs_raw = np.stack ([offs0,offs1], axis=1)
+
+    def _matvec (self, x): return x
+
+    def _rmatvec (self, x): return x
+
+    @property
+    def uniq_prod_idx (self): return np.arange (self.shape[0], dtype=int)
+
+    def get_xmat_rows (self, iroot, _col=None):
+        xmat = np.eye (self.nprods_raw[iroot])
+        if _col is not None:
+            xmat = xmat[:,_col]
+        return xmat
+
+    def prods_2_roots (self, prods):
+        prods = np.atleast_1d (prods)
+        roots = np.searchsorted (self.offs_raw[:,0], prods, side='right')-1
+        return [tuple ((r,)) for r in np.atleast_1d (roots)]
+
+    def interpret_address (self, prods):
+        roots = np.searchsorted (self.offs_raw[:,0], prods, side='right')-1
+        psi = np.asarray (prods) - self.offs_raw[roots,0]
+        assert (np.all (psi>=0))
+        return roots, psi
+
+    def roots_2_snm (self, roots):
+        return roots
+
+
+class OrthBasis (OrthBasisBase):
     def __init__(self, shape, dtype, nprods_r, uniq_roots, manifolds_roots, manifolds_xmat):
         self.shape = shape
         self.dtype = dtype
@@ -191,17 +251,6 @@ class OrthBasis (sparse_linalg.LinearOperator):
     def roots_2_snm (self, roots):
         return self.root_manifold_addr[:,0][roots]
 
-    def map_prod_subspace (self, prods):
-        prods = np.asarray (prods)
-        rootlist = self.prods_2_roots (prods)
-        rootmap = {}
-        for i in range (len (prods)):
-            roots = tuple (rootlist[i])
-            val = rootmap.get (roots, [])
-            val.append (prods[i])
-            rootmap[roots] = val
-        return rootmap
-
     def interpret_address (self, prods):
         blocks = np.searchsorted (self.offs_orth[:,0], prods, side='right')-1
         psi = np.asarray (prods) - self.offs_orth[blocks,0]
@@ -258,54 +307,6 @@ class OrthBasis (sparse_linalg.LinearOperator):
                 i = j
         return rawarr
 
-    def get_nbytes (self):
-        def _get (x):
-            if isinstance (x, np.ndarray):
-                return int (x.nbytes)
-            elif lib.issequence (x):
-                return sum ([_get (xi) for xi in x])
-            else:
-                return int (sys.getsizeof (x))
-        nbytes = sum ([_get (x) for x in self.__dict__.values ()])
-        return nbytes
 
-class NullOrthBasis (sparse_linalg.LinearOperator):
-    def __init__(self, nraw, dtype, nprods_r):
-        self.shape = (nraw,nraw)
-        self.dtype = dtype
-        self.nprods_raw = nprods_r
-        offs1 = np.cumsum (nprods_r)
-        offs0 = offs1 - nprods_r
-        self.offs_raw = np.stack ([offs0,offs1], axis=1)
 
-    def _matvec (self, x): return x
-
-    def _rmatvec (self, x): return x
-
-    get_nbytes = OrthBasis.get_nbytes
-
-    def get_xmat_rows (self, iroot, _col=None):
-        xmat = np.eye (self.nprods_raw[iroot])
-        if _col is not None:
-            xmat = xmat[:,_col]
-        return xmat
-
-    @property
-    def uniq_prod_idx (self): return np.arange (self.shape[0], dtype=int)
-
-    def prods_2_roots (self, prods):
-        prods = np.atleast_1d (prods)
-        roots = np.searchsorted (self.offs_raw[:,0], prods, side='right')-1
-        return [tuple ((r,)) for r in np.atleast_1d (roots)]
-
-    map_prod_subspace = OrthBasis.map_prod_subspace
-
-    def interpret_address (self, prods):
-        roots = np.searchsorted (self.offs_raw[:,0], prods, side='right')-1
-        psi = np.asarray (prods) - self.offs_raw[roots,0]
-        assert (np.all (psi>=0))
-        return roots, psi
-
-    def roots_2_snm (self, roots):
-        return roots
 
