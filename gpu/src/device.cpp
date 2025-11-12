@@ -3734,7 +3734,7 @@ void Device::init_tdm1(int norb)
   pm->dev_set_device(device_id);
   //pm->dev_profile_start("tdms :: init tdm1");
   my_device_data * dd = &(device_data[device_id]);
-  grow_array(dd->d_tdm1, size_tdm1, dd->size_tdm1, "TDM1", FLERR);
+  grow_array(dd->d_tdm1, size_tdm1, dd->size_tdm1, "tdm1", FLERR);
   //pm->dev_profile_stop();
   }
   double t1 = omp_get_wtime();
@@ -3749,7 +3749,7 @@ void Device::init_tdm2(int norb)
   pm->dev_set_device(device_id);
   //pm->dev_profile_start("tdms :: init tdm1");
   my_device_data * dd = &(device_data[device_id]);
-  grow_array(dd->d_tdm2, size_tdm2, dd->size_tdm2, "TDM2", FLERR);
+  grow_array(dd->d_tdm2, size_tdm2, dd->size_tdm2, "tdm2", FLERR);
   //pm->dev_profile_stop();
   }
   double t1 = omp_get_wtime();
@@ -3764,8 +3764,8 @@ void Device::init_tdm3hab(int norb)
     pm->dev_set_device(device_id);
     //pm->dev_profile_start("tdms :: init tdm1");
     my_device_data * dd = &(device_data[device_id]);
-    grow_array(dd->d_tdm2, size_tdm2, dd->size_tdm2, "TDM2", FLERR);
-    grow_array(dd->d_tdm2_p, size_tdm2, dd->size_tdm2_p, "TDM2_p", FLERR);
+    grow_array(dd->d_tdm2, size_tdm2, dd->size_tdm2, "tdm2", FLERR);
+    grow_array(dd->d_tdm2_p, size_tdm2, dd->size_tdm2_p, "tdm2_p", FLERR);
   //pm->dev_profile_stop();
   }
 
