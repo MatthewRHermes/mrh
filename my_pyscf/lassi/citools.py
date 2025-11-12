@@ -314,7 +314,7 @@ class OrthBasis (sparse_linalg.LinearOperator):
         rootlist = self.prods_2_roots (prods)
         rootmap = {}
         for i in range (len (prods)):
-            roots = rootlist[i]
+            roots = tuple (rootlist[i])
             val = rootmap.get (roots, [])
             val.append (prods[i])
             rootmap[roots] = val
@@ -378,12 +378,12 @@ class OrthBasis (sparse_linalg.LinearOperator):
 
     def get_nbytes (self):
         def _get (x):
-            if hasattr (x, 'nbytes'):
-                return x.nbytes
+            if isinstance (x, np.ndarray):
+                return int (x.nbytes)
             elif lib.issequence (x):
                 return sum ([_get (xi) for xi in x])
             else:
-                return sys.getsizeof (x)
+                return int (sys.getsizeof (x))
         nbytes = sum ([_get (x) for x in self.__dict__.values ()])
         return nbytes
 
