@@ -405,128 +405,114 @@ class HamS2OvlpOperators (HamS2Ovlp):
 
         use_gpu = getattr (param, 'use_gpu', False)
         op_debug = getattr (param, 'gpu_op_debug', False)
+
         def gpu_needed(ops):
-          gpu_op = 0
+          r'''This function can be avoided if I can guarantee that all ops have atleast one function that is 1-3 frag'''
           for op in ops:
             for key in op.spincase_keys:
-              if len(set(key[2:]))!=4:
-                gpu_op=1
-                return gpu_op
-          return gpu_op
+              if len(set(key[2:]))!=4: return True
+          return False
 
         if use_gpu and op_debug:
-            #CPU kernel
-            for op in ops:
-                for key in op.spincase_keys:  
-                    self._opuniq_x_(op, key[0], key[1], vecs, *key[2:]) 
-            #GPU kernel
-            gpu_op = gpu_needed(ops)
-            if gpu_op:
-              self.ox1_gpu[:] = 0 #of shape nstates
-              from mrh.my_pyscf.gpu import libgpu
-              gpu = param.use_gpu
-              libgpu.init_ox1_pinned(gpu, self.nstates) 
-              total_vecsize=sum([vec.size for vec in vecs.values ()])
-              libgpu.init_old_sivecs_host(gpu, total_vecsize,1) 
-              vec_table={}
-              vec_loc = 0
-              for key, vec in vecs.items():
-                vec_c = np.ascontiguousarray(vec)
-                vec_table[key]=(vec_loc, vec_c.size)
-                libgpu.push_sivecs_to_host(gpu, vec_c, vec_loc, vec_c.size)
-                vec_loc += vec_c.size
-              gpu_used=0
+          #CPU kernel
+          self._opuniq_x_full_cpu(ops, vecs)
+          #GPU kernel
+          gpu_op = gpu_needed(ops)
+          if gpu_op:
+            self._opuniq_x_full_gpu(ops, vecs)
+            if np.allclose(self.ox1, self.ox1_gpu) != True:
+              #this is all for helping guide where the error might be.
+              print("Issue in ox1 calculation",flush=True)
+              diff = self.ox1 - self.ox1_gpu
+              print(np.nonzero(diff))
               for op in ops:
                 for key in op.spincase_keys:  #spincase_keys is a lookup table
-                    if len(set(key[2:]))!=4:
-                        gpu_used=1
-                        self._gpu_opuniq_x_v2(op, key[0],key[1], vec_table, *key[2:]) 
-                    else:
-                        self._opuniq_x_debug(op, key[0], key[1], vecs, *key[2:]) #4 fragment  
-                libgpu.add_ox1_pinned(gpu, self.ox1_gpu, self.nstates)
-              if gpu_used: 
-                libgpu.finalize_ox1_pinned(gpu, self.ox1_gpu, self.nstates) 
-                gpu_used=0
-              if np.allclose(self.ox1, self.ox1_gpu) != True:
-                print(gpu_op)
-                print("Issue in ox1 calculation",flush=True)
-                diff = self.ox1 - self.ox1_gpu
-                print(np.nonzero(diff))
-                for op in ops:
-                  for key in op.spincase_keys:  #spincase_keys is a lookup table
-                    if (len(set(key[2:])))!=4:
-                      op = opterm.reduce_spin (op, key[0], key[1])
-                      key = tuple((key[0], key[1])) + key[2:]
-                      brakets, bras, braHs = self.get_nonuniq_exc_square (key)
-                      for bra in bras:
+                  if (len(set(key[2:])))!=4:
+                    op = opterm.reduce_spin (op, key[0], key[1])
+                    key = tuple((key[0], key[1])) + key[2:]
+                    brakets, bras, braHs = self.get_nonuniq_exc_square (key)
+                    for bra in bras:
+                      i,j,_ = self.get_ox1_params(bra, *key[2:])  
+                      if np.allclose(self.ox1[i:j],self.ox1_gpu[i:j]) != True:
+                        print("Error in bras",flush=True)
+                    if len(braHs):
+                      for bra in braHs:
                         i,j,_ = self.get_ox1_params(bra, *key[2:])  
                         if np.allclose(self.ox1[i:j],self.ox1_gpu[i:j]) != True:
-                          print("Error in bras",flush=True)
-                      if len(braHs):
-                        for bra in braHs:
-                          i,j,_ = self.get_ox1_params(bra, *key[2:])  
-                          if np.allclose(self.ox1[i:j],self.ox1_gpu[i:j]) != True:
-                            print("Error in braHs",flush=True)
-                exit()
+                          print("Error in braHs",flush=True)
+              exit()
            
         elif use_gpu:
-            r'''
-                Input: op, vecs
-                Output: ox1
-                Several op exists, each must be of shape (m_i, k_i). Corresponding vecs are of shape (n_j, k_i).
-                ox1_i = (op_i * \sum_j (vec_ij)_)
-                Step 1. Init ox1 as just a big block of memory of size nstates (if it can fit on gpu, do that)
-                Step 2. Vecs exists as a dictionary. The keys can be moved out, and the values can be moved onto a contiguous massive pinned memory. 
-                In nested loop
-                    Step 3. Get correct op_i shape and push to gpu
-                    Step 4. use the various indexing functions available to get, for all (ij) pair, 
-                        vec location, size of input. ox1 location, size of result, factor
-                    Step 5. Push to gpu, calculate, pull to ox1 pinned, add to ox1 pinned (or if ox1 on gpu, accumulate on gpu only)
-                Step 6. Add ox1 from pinned to ox1 from pageable 
-            '''
             #check if gpu is needed
             gpu_op = gpu_needed(ops)
             if gpu_op:
-              from mrh.my_pyscf.gpu import libgpu
-              gpu = param.use_gpu
-              #STEP 1 Init ox1 on pinned memory, also on gpu if size allows
-              libgpu.init_ox1_pinned(gpu, self.nstates) 
-
-              #STEP 2 Push for all vecs on pinned memory. 
-              total_vecsize=sum([vec.size for vec in vecs.values ()])
-              libgpu.init_old_sivecs_host(gpu, total_vecsize,1) 
-              vec_table={}
-              vec_loc = 0
-              for key, vec in vecs.items():
-                vec_c = np.ascontiguousarray(vec)
-                vec_table[key]=(vec_loc, vec_c.size)
-                libgpu.push_sivecs_to_host(gpu, vec_c, vec_loc, vec_c.size)
-                vec_loc += vec_c.size
-              #Nested loop
-              gpu_used=0
-              for op in ops:
-                for key in op.spincase_keys:  #spincase_keys is a lookup table
-                    if len(set(key[2:]))!=4:
-                        #STEP 3-5
-                        gpu_used=1
-                        self._gpu_opuniq_x_v2(op, key[0],key[1], vec_table, *key[2:]) 
-                    else:
-                        # 4-fragment case is still running on cpu
-                        self._opuniq_x_(op, key[0], key[1], vecs, *key[2:]) #4 fragment  
-
-                #if ox1 not on gpu, pull the result, else do nothing
-                #here because differnet cases of spincase_keys gives non overlapping ox
-                libgpu.add_ox1_pinned(gpu, self.ox1, self.nstates)
-            
-              #Step 6
-              if gpu_used: 
-                libgpu.finalize_ox1_pinned(gpu, self.ox1, self.nstates) #add the result from GPU (1-3 frag) to CPU (4-frag)
-                gpu_used=0
+              self._opuniq_x_full_gpu(ops, vecs)
+            else: 
+              self._opuniq_x_full_cpu(ops, vecs)
         else:
-            for op in ops:
-                for key in op.spincase_keys:  
-                    self._opuniq_x_(op, key[0], key[1], vecs, *key[2:]) 
+            self._opuniq_x_full_cpu(ops, vecs)
         
+    def _opuniq_x_full_cpu(self, ops, vecs):
+        for op in ops:
+            for key in op.spincase_keys:  
+                self._opuniq_x_(op, key[0], key[1], vecs, *key[2:]) 
+        return
+
+    def _opuniq_x_full_gpu(self, ops, vecs):
+        r'''
+            Input: op, vecs
+            Output: ox1
+            Several op exists, each must be of shape (m_i, k_i). Corresponding vecs are of shape (n_j, k_i).
+            ox1_i = (op_i * \sum_j (vec_ij)_)
+            Step 1. Init ox1 as just a big block of memory of size nstates (if it can fit on gpu, do that)
+            Step 2. Vecs exists as a dictionary. The keys can be moved out, and the values can be moved onto a contiguous massive pinned memory. 
+            In nested loop
+                Step 3. Get correct op_i shape and push to gpu
+                Step 4. use the various indexing functions available to get, for all (ij) pair, 
+                    vec location, size of input. ox1 location, size of result, factor
+                Step 5. Push to gpu, calculate, pull to ox1 pinned, add to ox1 pinned (or if ox1 on gpu, accumulate on gpu only)
+            Step 6. Add ox1 from pinned to ox1 from pageable 
+        '''
+
+        op_debug = getattr (param, 'gpu_op_debug', False)
+        if op_debug:
+          ox_final = self.ox1_gpu
+          _opuniq_x = self._opuniq_x_debug
+        else:
+          ox_final = self.ox1
+          _opuniq_x = self._opuniq_x_
+
+        ox_final[:] = 0 #of shape nstates
+        from mrh.my_pyscf.gpu import libgpu
+        gpu = param.use_gpu
+        #STEP 1 Init ox1 on pinned memory, also on gpu if size allows
+        libgpu.init_ox1_pinned(gpu, self.nstates) 
+        #STEP 2 Push for all vecs on pinned memory. 
+        total_vecsize=sum([vec.size for vec in vecs.values ()])
+        libgpu.init_old_sivecs_host(gpu, total_vecsize,1) 
+        vec_table={}
+        vec_loc = 0
+        for key, vec in vecs.items():
+          vec_c = np.ascontiguousarray(vec)
+          vec_table[key]=(vec_loc, vec_c.size)
+          libgpu.push_sivecs_to_host(gpu, vec_c, vec_loc, vec_c.size)
+          vec_loc += vec_c.size
+        #Nested loop
+        for op in ops:
+          for key in op.spincase_keys:  #spincase_keys is a lookup table
+              if len(set(key[2:]))!=4:
+                  #STEP 3-5
+                  self._gpu_opuniq_x_v2(op, key[0],key[1], vec_table, *key[2:]) 
+              else:
+                  # 4-fragment case is still running on cpu
+                  _opuniq_x(op, key[0], key[1], vecs, *key[2:]) #4 fragment  
+          #if ox1 not on gpu, pull the result, else do nothing
+          #here because different cases of spincase_keys gives non overlapping ox
+          libgpu.add_ox1_pinned(gpu, ox_final, self.nstates)
+        #STEP 6
+        libgpu.finalize_ox1_pinned(gpu, ox_final, self.nstates) 
+
+        return
     
     def _opuniq_x_(self, op, obra, oket, ovecs, *inv):
         r'''All operations which are unique in that a given set of nonspectator fragment bra
