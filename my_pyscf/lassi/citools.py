@@ -270,7 +270,7 @@ class OrthBasis (sparse_linalg.LinearOperator):
         nman = len (uniq_roots)
         self.manifolds_nprods_raw = []
         self.manifolds_offs_raw = []
-        self.snm_blocks = [(u,) for u in uniq_roots]
+        self.snm_blocks = [np.asarray ([u,]) for u in uniq_roots]
         manifolds_nprods_orth_flat = []
         for i, mi in enumerate (manifolds_roots):
             my_nprods_raw = nprods_r[mi[0]]
@@ -284,7 +284,7 @@ class OrthBasis (sparse_linalg.LinearOperator):
                 for k, mijk in enumerate (mij):
                     self.root_manifold_addr[mijk,:] = [nman,i,k]
                 manifolds_nprods_orth_flat.append (xmat.shape[1])
-                self.snm_blocks.append (tuple (mij))
+                self.snm_blocks.append (np.asarray (mij))
                 nman += 1
         assert (np.all (self.root_manifold_addr[:,2]>-2))
         self.nprods_orth = np.empty (nman, dtype=int)
@@ -377,9 +377,14 @@ class OrthBasis (sparse_linalg.LinearOperator):
         return rawarr
 
     def get_nbytes (self):
-        nbytes = self.uniq_prod_idx.nbytes
-        for x in self.manifolds_xmat + self.manifolds_prod_idx:
-            nbytes += x.nbytes
+        def _get (x):
+            if hasattr (x, 'nbytes'):
+                return x.nbytes
+            elif lib.issequence (x):
+                return sum ([_get (xi) for xi in x])
+            else:
+                return sys.getsizeof (x)
+        nbytes = sum ([_get (x) for x in self.__dict__.values ()])
         return nbytes
 
     def gen_mixed_state_vectors (self, _yield_roots=False):
@@ -410,7 +415,7 @@ class NullOrthBasis (sparse_linalg.LinearOperator):
 
     def _rmatvec (self, x): return x
 
-    def get_nbytes (self): return 0
+    get_nbytes = OrthBasis.get_nbytes
 
     def get_xmat_rows (self, iroot, _col=None):
         xmat = np.eye (self.nprods_raw[iroot])

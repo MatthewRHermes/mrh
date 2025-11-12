@@ -1009,32 +1009,4 @@ def pspace_ham (h_op_raw, raw2orth, addrs):
     ))
     hobj1 = hobj0.get_subspace (all_roots, verbose=0)
     return hobj1.get_pspace_ham (raw2orth, addrs)
-    orth2raw = raw2orth.H
-    pspace_size = len (addrs)
-    ham = np.empty ((pspace_size, pspace_size), h_op_raw.dtype)
-    x_orth = np.zeros (raw2orth.shape[0], dtype=raw2orth.dtype)
-    log = hobj0.log
-    t1 = log.timer ('LASSI pspace Hamiltonian indexing', *t0)
-    log.debug ('LASSI pspace (roots) ; [addrs] ; [urootstr] ; [spman]')
-    for ket_roots, ket_addrs in rootmap.items ():
-        urootstr = hobj0.urootstr[:,ket_roots].T
-        spman = [[hobj0.ints[j].spman[urootstr[i,j]] for j in range (hobj0.nfrags)]
-                 for i in range (len (urootstr))]
-        log.debug ('%s ; %s ; %s ; %s', str (ket_roots), str (ket_addrs), str (urootstr),
-                   str (spman))
-    for ket_roots, ket_addrs in rootmap.items ():
-        hobj2 = hobj1.get_subspace (ket_roots, verbose=0, _square=False)
-        h_op = hobj2.get_ham_op ()
-        for addr in ket_addrs:
-            x_orth[addr] = 1.0
-            x_raw = orth2raw (x_orth)
-            hx_raw = h_op (x_raw)
-            ip = list (addrs).index (addr)
-            ham[:,ip] = raw2orth (hx_raw)[addrs]
-            x_orth[addr] = 0
-            ip += 1
-    return ham
-
-
-
 
