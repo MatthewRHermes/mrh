@@ -5474,16 +5474,18 @@ void Device::copy_tdm2_host_to_page(py::array_t<double> _dm2_full, int size_dm2_
   double t1 = omp_get_wtime();
 }
 /* ---------------------------------------------------------------------- */
-void Device::push_op(py::array_t<double> _op, int m, int k)
+void Device::push_op(py::array_t<double> _op, int m, int k, int counts)
 {
   double t0 = omp_get_wtime();
   py::buffer_info info_op = _op.request(); // (2D array of m * k)
   double * op = static_cast<double*>(info_op.ptr);
   int _size_op = m*k;
   #if defined(ENABLE_P2P)
-  std::vector<double *> op_vec(num_devices); // array of device addresses 
 
-  for(int id=0; id<num_devices; ++id) {
+  counts = _MIN(counts, num_devices);
+  std::vector<double *> op_vec(counts); // array of device addresses 
+
+  for(int id=0; id<counts; ++id) {
     pm->dev_set_device(id);
     my_device_data * dd = &(device_data[id]);
     grow_array(dd->d_buf1, _size_op, dd->size_buf1, "buf1", FLERR);

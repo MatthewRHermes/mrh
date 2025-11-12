@@ -666,10 +666,10 @@ void libgpu_copy_tdm2_host_to_page(void * ptr,
 }
 /* ---------------------------------------------------------------------- */
 void libgpu_push_op(void * ptr, 
-                     py::array_t<double> op, int m, int k)
+                     py::array_t<double> op, int m, int k, int counts)
 {
   Device * dev = (Device *) ptr;
-  dev->push_op(op, m, k);
+  dev->push_op(op, m, k, counts);
 }
 /* ---------------------------------------------------------------------- */
 void libgpu_init_ox1_pinned(void * ptr, 

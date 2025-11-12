@@ -200,7 +200,7 @@ extern "C"
                       py::array_t<double> , int );
 
   //MATVECS FOR LASSI
-  void libgpu_push_op(void *, py::array_t<double>, int, int);
+  void libgpu_push_op(void *, py::array_t<double>, int, int, int);
   void libgpu_init_ox1_pinned(void *, int);
   void libgpu_init_new_sivecs_host(void * , int, int); 
   void libgpu_init_old_sivecs_host(void *, int, int); 

@@ -212,7 +212,7 @@ public :
   void copy_tdm2_host_to_page(py::array_t<double> , int );
 
 
-  void push_op(py::array_t<double>, int, int);
+  void push_op(py::array_t<double>, int, int, int);
   void init_ox1_pinned(int);
   void init_new_sivecs_host(int, int); 
   void init_old_sivecs_host(int, int); 

@@ -578,12 +578,12 @@ class HamS2OvlpOperators (HamS2Ovlp):
         gpu = param.use_gpu
         m, k = op.shape #m,k gemm
         #STEP 3 Part 2
-        libgpu.push_op(gpu, np.ascontiguousarray(op), m, k) #inits and pushes on all devices
+        libgpu.push_op(gpu, np.ascontiguousarray(op), m, k, len(bras)) #inits and pushes on all devices
 
         spec = np.ones (self.nfrags, dtype=bool)
         for i in inv: spec[i] = False
         spec = np.where (spec)[0]
-        
+
         #STEP 4 
         instruction_list = np.empty((len(bras),6))#stores n, vec_loc, vec_size, ox1_loc, ox1_size, fac
         for idx, bra in enumerate(bras):
