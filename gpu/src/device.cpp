@@ -5480,12 +5480,23 @@ void Device::push_op(py::array_t<double> _op, int m, int k)
   py::buffer_info info_op = _op.request(); // (2D array of m * k)
   double * op = static_cast<double*>(info_op.ptr);
   int _size_op = m*k;
+  #if defined(ENABLE_P2P)
+  std::vector<double *> op_vec(num_devices); // array of device addresses 
+
+  for(int id=0; id<num_devices; ++id) {
+    pm->dev_set_device(id);
+    my_device_data * dd = &(device_data[id]);
+    grow_array(dd->d_buf1, _size_op, dd->size_buf1, "buf1", FLERR);
+    op_vec[i] = dd->d_buf1;}
+  mgpu_bcast(op_vec, op, _size_op*sizeof(double));
+  #else
   for (int i=0; i<num_devices;++i){
     pm->dev_set_device(i);
     my_device_data * dd = &(device_data[i]);
     grow_array(dd->d_buf1, _size_op, dd->size_buf1, "buf1", FLERR);
     pm->dev_push_async(dd->d_buf1, op, _size_op*sizeof(double));
   }
+  #endif
   double t1 = omp_get_wtime();
   t_array[33] += t1-t0;
   count_array[23]++;
@@ -5633,9 +5644,9 @@ void Device::compute_sivecs_full (int m, int k, int counts)
     ox1_size = h_instruction_list[count*6+4];
     fac = h_instruction_list[count*6+5];
 
-    device_id = device_id_counter%num_devices;
-    ++device_id_counter;
+    device_id = count%num_devices;
     pm->dev_set_device(device_id);
+    pm->dev_profile_start("op_vec :: compute_opvec");
     my_device_data * dd = &(device_data[device_id]);
     ml->set_handle(device_id);
     dd->active = 1;
@@ -5661,7 +5672,9 @@ void Device::compute_sivecs_full (int m, int k, int counts)
     if (!ox1_on_gpu){
       printf("shouldn't be here!\n");
       double * new_sivecs = &(h_ox1[ox1_loc]);
-      pm->dev_pull_async( dd->d_buf3, new_sivecs, ox1_size*sizeof(double));}
+      pm->dev_pull_async( dd->d_buf3, new_sivecs, ox1_size*sizeof(double));
+      }
+    pm->dev_profile_stop();
     }
   if (!ox1_on_gpu){
       printf("shouldn't be here!\n");
