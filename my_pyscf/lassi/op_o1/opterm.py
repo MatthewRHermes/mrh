@@ -11,6 +11,40 @@ class OpTermGroup:
     def append (self, val):
         self.ops.append (val)
 
+    def neutral_only (self):
+        new_ops = []
+        for op in self.ops:
+            neutral = True
+            bra, ket = op.spincase_keys[0][:2]
+            for inti in op.ints:
+                if sum (inti.nelec_r[bra]) - sum (inti.nelec_r[ket]) > 0:
+                    neutral = False
+                    break
+            if neutral:
+                new_ops.append (op)
+        if len (new_ops) == 0: return None
+        new_group = OpTermGroup (self.inv)
+        new_group.ops = new_ops
+        new_group.ovlplink = self.ovlplink
+        return new_group
+
+    def subspace (self, keys):
+        # Project into a subspace
+        new_ops = []
+        for op in self.ops:
+            new_spincase_keys = []
+            for spincase_key in op.spincase_keys:
+                if spincase_key in keys:
+                    new_spincase_keys.append (spincase_key)
+            if len (new_spincase_keys) > 0:
+                new_op = op.copy ()
+                new_op.spincase_keys = new_spincase_keys
+                new_ops.append (new_op)
+        if len (new_ops) == 0: return None
+        new_group = OpTermGroup (self.inv)
+        new_group.ops = new_ops
+        return new_group            
+
 class OpTermBase:
     '''Elements of spincase_keys index nonuniq_exc to look up bras and kets addressed by this
     operator corresponding to a particular set of ket spin polarization quantum numbers.'''
@@ -35,7 +69,9 @@ class OpTermBase:
     def get_formal_shape (self):
         return self.shape
 
-class OpTermReducible (OpTermBase): pass
+class OpTermReducible (OpTermBase):
+    def copy (self):
+        return lib.view (self, self.__class__)
 
 class OpTerm (OpTermReducible):
     def __init__(self, arr, ints, comp, _already_stacked=False):
@@ -242,4 +278,21 @@ class OpTerm4Fragments (OpTermNFragments):
     def reduce_spin_op (self, bra, ket, fac):
         fac = fac[0] * fac[1]
         return self.op.copy () * fac
+
+    def fdm_dot (self, fdm):
+        output_shape = fdm.shape[:-1]
+        ncols = fdm.shape[-1]
+        nrows = np.prod (output_shape)
+        dot_shape = [nrows,] + self.lroots_bra[::-1] + self.lroots_ket[::-1]
+        arr = fdm.reshape (*dot_shape)
+        arr = lib.einsum ('zdcbalkji,ckr,dls->zrsbaji', arr, self.d[2], self.d[3])
+        arr = lib.einsum ('zrsbaji,rsbaji->z', arr, self.op)
+        return arr.reshape (*output_shape)
+
+def fdm_dot (fdm, op1):
+    if callable (getattr (op1, 'fdm_dot', None)):
+        return op1.fdm_dot (fdm)
+    else:
+        return np.dot (fdm, op1.ravel ())
+
 

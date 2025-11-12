@@ -1,4 +1,5 @@
 import numpy as np
+from scipy import linalg
 from scipy.sparse import linalg as sparse_linalg
 from pyscf import lib
 from pyscf.lib import logger, param
@@ -8,6 +9,7 @@ from mrh.my_pyscf.lassi.op_o1.rdm import LRRDM
 from mrh.my_pyscf.lassi.op_o1.hams2ovlp import HamS2Ovlp, ham, soc_context
 from mrh.my_pyscf.lassi.citools import _fake_gen_contract_op_si_hdiag
 from mrh.my_pyscf.lassi.op_o1.utilities import *
+from mrh.util.my_scipy import CallbackLinearOperator
 import functools
 from itertools import product
 from pyscf import __config__
@@ -647,16 +649,91 @@ class HamS2OvlpOperators (HamS2Ovlp):
         return self.ox.copy ()
 
     def get_ham_op (self):
-        return sparse_linalg.LinearOperator ([self.nstates,]*2, dtype=self.dtype,
+        return CallbackLinearOperator (self, [self.nstates,]*2, dtype=self.dtype,
                                              matvec=self._ham_op)
 
     def get_s2_op (self):
-        return sparse_linalg.LinearOperator ([self.nstates,]*2, dtype=self.dtype,
+        return CallbackLinearOperator (self, [self.nstates,]*2, dtype=self.dtype,
                                              matvec=self._s2_op)
 
     def get_ovlp_op (self):
-        return sparse_linalg.LinearOperator ([self.nstates,]*2, dtype=self.dtype,
+        return CallbackLinearOperator (self, [self.nstates,]*2, dtype=self.dtype,
                                              matvec=self._ovlp_op)
+
+    def get_neutral (self, verbose=None):
+        # Get a Hamiltonian operator, but the 3- and 4-fragment terms are dropped
+        new_parent = lib.view (self, self.__class__)
+        if verbose is not None:
+            new_parent.log = logger.new_logger (new_parent.log, verbose)
+        new_parent.optermgroups_h = {}
+        for inv, group in self.optermgroups_h.items ():
+            if len (inv) < 3:
+                new_group = group.neutral_only ()
+                if new_group is not None:
+                    new_parent.optermgroups_h[inv] = new_group
+        return new_parent
+
+    def get_subspace (self, roots, verbose=None, _square=True):
+        # Get a Hamiltonian operator projected into a subspace of roots
+        new_parent = lib.view (self, self.__class__)
+        if verbose is not None:
+            new_parent.log = logger.new_logger (new_parent.log, verbose)
+        # equivalence map
+        urootstr = self.urootstr[:,roots].T
+        spmanstr = [[self.ints[j].spman[urootstr[i,j]] for j in range (self.nfrags)]
+                    for i in range (urootstr.shape[0])]
+        spmanstr = np.asarray (spmanstr)
+        new_parent.spman = {}
+        new_parent.nonuniq_exc = {}
+        for key, pairs in self.spman.items ():
+            # top: spmanstr keys
+            bra, ket = key[:2]
+            inv = key[2:]
+            bra_spman = np.asarray ([self.ints[i].spman[self.urootstr[i,bra]]
+                                     for i in inv])
+            bra_in = (bra_spman[None,:]==spmanstr[:,inv]).all(1).any()
+            ket_spman = np.asarray ([self.ints[i].spman[self.urootstr[i,ket]]
+                                     for i in inv])
+            ket_in = (ket_spman[None,:]==spmanstr[:,inv]).all(1).any()
+            if _square:
+                is_in = bra_in and ket_in
+            else:
+                is_in = bra_in or ket_in
+            if not is_in:
+                continue
+            new_pairs = []
+            for (bra, ket) in pairs:
+                # middle: nonuniq_exc keys
+                bra_in = (self.urootstr[inv,bra][None,:]==urootstr[:,inv]).all(1).any ()
+                ket_in = (self.urootstr[inv,ket][None,:]==urootstr[:,inv]).all(1).any ()
+                if _square:
+                    is_in = bra_in and ket_in
+                else:
+                    is_in = bra_in or ket_in
+                if not is_in: continue
+                # bottom: nonuniq_exc vals
+                tab_bk = self.nonuniq_exc[(bra,ket)+inv]
+                idx0 = np.isin (tab_bk[:,0], roots)
+                idx1 = np.isin (tab_bk[:,1], roots)
+                if _square:
+                    idx = idx0 & idx1
+                else:
+                    idx = idx0 | idx1
+                tab_bk = tab_bk[idx]
+                if tab_bk.shape[0] > 0:
+                    new_parent.nonuniq_exc[(bra,ket)+inv] = tab_bk
+                    new_pairs.append ([bra,ket])
+            if len (new_pairs)>0:
+                new_parent.spman[key] = new_pairs
+        # ops for h_op product
+        new_parent.optermgroups_h = {}
+        keys = new_parent.nonuniq_exc.keys ()
+        for inv, group in self.optermgroups_h.items ():
+            new_group = group.subspace (keys)
+            if new_group is not None:
+                new_parent.optermgroups_h[inv] = new_group
+        new_parent.optermgroups_h = new_parent._index_ovlppart (new_parent.optermgroups_h)
+        return new_parent
 
     def get_hdiag (self):
         t0 = (logger.process_clock (), logger.perf_counter ())
@@ -665,6 +742,117 @@ class HamS2OvlpOperators (HamS2Ovlp):
         for row in self.exc_2d: self._crunch_hdiag_env_(self._crunch_2d_, *row)
         self.log.timer ('HamS2OvlpOperators.get_hdiag', *t0)
         return self.ox.copy ()
+
+    def get_hdiag_orth (self, raw2orth):
+        self.ox[:] = 0
+        def getter (iroot, bra=False):
+            return raw2orth.get_xmat_rows (iroot)
+        self._fdm_vec_getter = getter
+        for inv, group in self.optermgroups_h.items (): 
+            for op in group.ops:
+                op1 = {(key[0], key[1]): opterm.reduce_spin (op, key[0], key[1]).ravel ()
+                       for key in op.spincase_keys}
+                itertable = self.hdiag_orth_getiter (raw2orth, op.spincase_keys)
+                for braket_tab, mblock_table in itertable:
+                    fdm = self.get_hdiag_fdm (braket_tab, *inv)
+                    for (key0, key1), (p, q) in mblock_table:
+                        op2 = op1[(key0,key1)]
+                        fdm = fdm.reshape (q-p, op2.size)
+                        self.ox[p:q] += np.dot (fdm, op2 + op2.conj ())
+        return self.ox[:raw2orth.shape[0]].copy ()
+
+    def hdiag_orth_getiter (self, raw2orth, spincase_keys):
+        r'''Inverting a bunch of lookup tables, in order to help get the diagonal elements of the
+        Hamiltonian in OrthBasis.
+
+        Args:
+            raw2orth : instance of :class: OrthBasis or NullOrthBasis
+            spincase_keys : list of lists of integers
+                Keys for self.nonuniq_exc
+
+        Returns:
+            itertable : list
+                Elements are (braket_tab, mblock_table) where braket_tab is a value from
+                self.nonuniq_exc[key] truncated to a given (N,S) block of states. The FDMs
+                for various (N,S,M) blocks within this (N,S) block are all the same, so 
+                only one (N,S,M) block is represented. mblock_table is a list whose elements
+                are ((key[0],key[1]), (p,q)), where p,q are the index offsets for a given
+                (N,S,M) block and ((key[0],key[1])) identifies the M case of the corresponding
+                operator as inferred from the elements of spincase_keys
+        '''
+        braket_tabs = {}
+        mblocks = {}
+        for key in spincase_keys:
+            my_braket_tabs, my_mblocks = self.hdiag_orth_getiter_1key (raw2orth, key)
+            # overwrite braket_tab, because it should always be the same for the same sblock
+            braket_tabs.update (my_braket_tabs)
+            # append because I think the dict keys here can collide
+            for sblock, mbl1 in my_mblocks.items ():
+                mblocks[sblock] = mblocks.get (sblock, []) + mbl1
+        assert (len (braket_tabs.keys ()) == len (mblocks.keys ()))
+        itertable = []
+        for sblock in braket_tabs.keys ():
+            itertable.append ((braket_tabs[sblock], mblocks[sblock]))
+        return itertable
+
+    def hdiag_orth_getiter_1key (self, raw2orth, key):
+        r'''Inverting a bunch of lookup tables, in order to help get the diagonal elements of the
+        Hamiltonian in OrthBasis.
+
+        Args:
+            raw2orth : instance of :class: OrthBasis or NullOrthBasis
+            key : list of integers
+                A key for self.nonuniq_exc. The corresponding value is immediately truncated
+                to only those pairs that could contribute to diagonal elements
+
+        Returns:
+            braket_tabs : dict
+                The truncated value of self.nonuniq_exc[key], split up according to the
+                "sblock" in which it lives (i.e., OrthBasis states sharing N and S string)
+            mblocks : dict
+                For each "sblock" addressed by braket_tabs, the value is a list of tuples:
+                ((key[0],key[1]), (p,q))
+                where p,q is the index range of a specific "mblock" (i.e., states sharing
+                N, S, and M strings) in OrthBasis
+        '''
+        tab = self.nonuniq_exc[key]
+        tab = [[bra, ket] for bra, ket in tab if raw2orth.roots_in_same_block (bra, ket)]
+        tab = np.asarray (tab)
+        braket_tabs = {}
+        mblocks = {}
+        if tab.size == 0: return braket_tabs, mblocks
+        bras = tab[:,0]
+        man = raw2orth.root_manifold_addr[bras]
+        uniq, inv = np.unique (man[:,0], return_inverse=True)
+        tab = np.asarray (tab)
+        for i,p in enumerate (uniq):
+            idx = inv==i
+            sblock = man[idx,1][0]
+            assert (np.all (man[idx,1]==sblock))
+            braket_tabs[sblock] = tab[idx]
+            mblock = mblocks.get (sblock, [])
+            mblock.append (((key[0], key[1]), raw2orth.offs_orth[p]))
+            mblocks[sblock] = mblock
+        return braket_tabs, mblocks
+
+    def get_hdiag_fdm (self, braket_tab, *inv):
+        fdm = 0
+        for bra, ket in braket_tab:
+            fdm += self.get_fdm_1space (bra, ket, *inv)
+        return fdm
+
+    get_fdm_1space = LRRDM.get_fdm_1space
+    get_frag_transposed_sivec = LRRDM.get_frag_transposed_sivec
+    def get_single_rootspace_sivec (self, iroot, bra=False):
+        # subclassed to facilitate use of LRRDM.get_fdm_1space
+        # TODO: if necessary, split into a bra getter and a ket getter
+        # TODO: it might be more efficient to umat the op and modify get_fdm_1space
+        vec = self._fdm_vec_getter (iroot, bra=bra).copy ()
+        lroots = self.lroots[:,iroot:iroot+1]
+        for i, inti in enumerate (self.ints):
+            umat = inti.umat_root.get (iroot, np.eye (lroots[i,0]))
+            vec = umat_dot_1frag_(vec, umat.conj ().T, lroots, i, 0, axis=0)
+        return vec
 
     def _crunch_hdiag_env_(self, _crunch_fn, *row): 
         if row[0] != row[1]: return
@@ -709,6 +897,49 @@ class HamS2OvlpOperators (HamS2Ovlp):
             o = np.multiply.outer (i.get_ovlp_inpbasis (rbra, rbra).diagonal (), o)
             o = o.ravel ()
         return o
+
+    def get_pspace_ham (self, raw2orth, addrs):
+        pspace_size = len (addrs)
+        addrs = raw2orth.interpret_address (addrs)
+        ham = np.zeros ((pspace_size, pspace_size), dtype=self.dtype)
+        for inv, group in self.optermgroups_h.items (): 
+            for op in group.ops:
+                for key in op.spincase_keys:
+                    op1 = opterm.reduce_spin (op, key[0], key[1])
+                    for idx1, idx2, fdm in self.gen_pspace_fdm (raw2orth, addrs, key):
+                        ham[idx1] += opterm.fdm_dot (fdm, op1)
+                        ham[idx2] += opterm.fdm_dot (fdm, op1.conj ()).T 
+        return ham
+
+    def gen_pspace_fdm (self, raw2orth, addrs, key):
+        # I have to set self._fdm_vec_getter in some highly clever way
+        addrs_snm, addrs_psi = addrs
+        inv = tuple (set (key[2:]))
+        braket_tab = self.nonuniq_exc[key]
+        snm_exc = raw2orth.roots_2_snm (braket_tab)
+        for idim in range (2):
+            idx = np.isin (snm_exc[:,idim], addrs_snm)
+            snm_exc = snm_exc[idx]
+            braket_tab = braket_tab[idx]
+        uniq, invs = np.unique (snm_exc, axis=0, return_inverse=True)
+        for i, (bra_snm, ket_snm) in enumerate (uniq):
+            idx = (invs==i)
+            my_braket_tab = braket_tab[idx]
+            idx_bra = (addrs_snm==bra_snm)
+            idx_ket = (addrs_snm==ket_snm)
+            idx2 = np.ix_(idx_bra,idx_ket)
+            idx3 = np.ix_(idx_ket,idx_bra)
+            rect_indices = np.indices ((np.count_nonzero (idx_ket),
+                                        np.count_nonzero (idx_bra)))
+            _ik, _ib = np.concatenate (rect_indices.T, axis=0).T
+            _col = (addrs_psi[idx_ket][_ik], addrs_psi[idx_bra][_ib])
+            def getter (iroot, bra=False):
+                return raw2orth.get_xmat_rows (iroot, _col=_col[int(bra)])
+            self._fdm_vec_getter = getter
+            fdm = self.get_hdiag_fdm (my_braket_tab, *inv)
+            fdm = fdm.reshape (idx2[0].shape[0], idx2[1].shape[1], -1)
+            yield idx2, idx3, fdm
+        return
 
     def _crunch_2c_(self, bra, ket, a, i, b, j, s2lt, dry_run=False):
         '''Compute the reduced density matrix elements of a two-electron hop; i.e.,
@@ -863,4 +1094,20 @@ def gen_contract_op_si_hdiag (las, h1, h2, ci, nelec_frs, smult_fr=None, soc=0, 
     #raw2orth = citools.get_orth_basis (ci, las.ncas_sub, nelec_frs,
     #                                   _get_ovlp=outerprod.get_ovlp)
     return ham_op, s2_op, ovlp_op, hdiag, outerprod.get_ovlp
+
+def get_hdiag_orth (hdiag_raw, h_op_raw, raw2orth):
+    if isinstance (raw2orth, citools.NullOrthBasis):
+        return hdiag_raw
+    hobj_neutral = h_op_raw.parent.get_neutral (verbose=0)
+    return hobj_neutral.get_hdiag_orth (raw2orth)
+
+def pspace_ham (h_op_raw, raw2orth, addrs):
+    t0 = (logger.process_clock (), logger.perf_counter ())
+    hobj0 = h_op_raw.parent
+    rootmap = raw2orth.map_prod_subspace (addrs)
+    all_roots = np.unique (np.concatenate (
+        [np.atleast_1d (key) for key in rootmap.keys ()]
+    ))
+    hobj1 = hobj0.get_subspace (all_roots, verbose=0)
+    return hobj1.get_pspace_ham (raw2orth, addrs)
 

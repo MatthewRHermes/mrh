@@ -1057,6 +1057,18 @@ def roots_trans_rdm12s (las, ci_fr, nelec_frs, si_bra, si_ket, orbsym=None, wfns
         rdm2s.append (d2)
     return np.stack (rdm1s, axis=0), np.stack (rdm2s, axis=0)
 
+def get_hdiag_orth (hdiag_raw, h_op_raw, raw2orth):
+    ham = h_op_raw.parent
+    ham = raw2orth (ham.T).T
+    ham = raw2orth (ham.conj ()).conj ()
+    return ham.diagonal ()
+
+def pspace_ham (h_op_raw, raw2orth, addrs):
+    ham = h_op_raw.parent
+    ham = raw2orth (ham.T).T
+    ham = raw2orth (ham.conj ()).conj ()
+    return ham[addrs,:][:,addrs]
+
 if __name__ == '__main__':
     from pyscf import scf, lib
     from mrh.my_pyscf.mcscf.lasscf_sync_o0 import LASSCF
