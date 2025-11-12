@@ -512,7 +512,7 @@ class HamS2OvlpOperators (HamS2Ovlp):
                         self._gpu_opuniq_x_v2(op, key[0],key[1], vec_table, *key[2:]) 
                     else:
                         # 4-fragment case is still running on cpu
-                        self._opuniq_x_debug(op, key[0], key[1], vecs, *key[2:]) #4 fragment  
+                        self._opuniq_x_(op, key[0], key[1], vecs, *key[2:]) #4 fragment  
 
                 #if ox1 not on gpu, pull the result, else do nothing
                 #here because differnet cases of spincase_keys gives non overlapping ox
