@@ -286,7 +286,7 @@ class OrthBasis (OrthBasisBase):
         orth_shape = [self.shape[0],] + list (col_shape)
         ortharr = np.zeros (orth_shape, dtype=my_dtype)
         ortharr[:nuniq_prod] = rawarr[self.uniq_prod_idx]
-        p = nuniq_prod
+        p = len (self.uniq_roots)
         for prod_idx, xmat in zip (self.manifolds_prod_idx, self.manifolds_xmat):
             for mirror in prod_idx:
                 i, j = self.offs_orth[p]
@@ -302,7 +302,7 @@ class OrthBasis (OrthBasisBase):
         raw_shape = [self.shape[1],] + list (col_shape)
         rawarr = np.zeros (raw_shape, dtype=my_dtype)
         rawarr[self.uniq_prod_idx] = ortharr[:nuniq_prod]
-        p = nuniq_prod
+        p = len (self.uniq_roots)
         for prod_idx, xmat in zip (self.manifolds_prod_idx, self.manifolds_xmat):
             for mirror in prod_idx:
                 i, j = self.offs_orth[p]
