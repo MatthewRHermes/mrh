@@ -55,27 +55,30 @@ def get_orth_basis (ci_fr, norb_f, nelec_frs, _get_ovlp=None, smult_fr=None):
     north = (offs1[uniq_roots] - offs0[uniq_roots]).sum ()
     manifolds_xmat = []
     manifolds_roots = []
-    for manifold_idx in np.where (cnts>1)[0]:
-        manifolds = _get_spin_split_manifolds (ci_fr, norb_f, nelec_frs, smult_fr, lroots_fr,
-                                               inverse==manifold_idx)
-        for manifold in manifolds:
-            nmirror = len (manifold)
-            nprod = np.asarray ([(offs1[spin_mirror]-offs0[spin_mirror]).sum () for spin_mirror in manifold])
+    # iterate over smult & nelec strings
+    for sn_string_idx in np.where (cnts>1)[0]:
+        pm_blocks = _get_spin_split_manifolds (ci_fr, norb_f, nelec_frs, smult_fr, lroots_fr,
+                                               inverse==sn_string_idx)
+        # iterate over spatial wave functions
+        for m_blocks in pm_blocks:
+            num_m_blocks = len (m_blocks)
+            # iterate over m strings, but only to sanity check
+            nprod = np.asarray ([(offs1[m]-offs0[m]).sum () for m in m_blocks])
             assert (np.all (nprod==nprod[0]))
             nprod = nprod[0]
-            ovlp = _get_ovlp (rootidx=manifold[0])
+            ovlp = _get_ovlp (rootidx=m_blocks[0])
             ovlp[np.diag_indices_from (ovlp)] -= 1.0
             err_from_diag = np.amax (np.abs (ovlp))
             if err_from_diag > 1e-8:
                 ovlp[np.diag_indices_from (ovlp)] += 1.0
                 xmat = canonical_orth_(ovlp, thr=LINDEP_THRESH)
-                north += xmat.shape[1] * nmirror
+                north += xmat.shape[1] * num_m_blocks
                 manifolds_xmat.append (xmat)
-                manifolds_roots.append (manifold)
+                manifolds_roots.append (m_blocks)
             else:
-                north += ovlp.shape[0] * nmirror
-                for spin_mirror in manifold:
-                    uniq_roots.extend (spin_mirror)
+                north += ovlp.shape[0] * num_m_blocks
+                for m_block in m_blocks:
+                    uniq_roots.extend (m_block)
             ovlp = None
 
     _get_ovlp = None
@@ -105,16 +108,16 @@ def _get_spin_split_manifolds_idx (ci_fr, norb_f, nelec_frs, smult_fr, lroots_fr
     spins_fr = nelec_frs[:,:,0] - nelec_frs[:,:,1]
     tabulator = spins_fr.T
     uniq, inverse = np.unique (tabulator, axis=0, return_inverse=True)
-    nmanifolds = len (uniq)
-    manifolds = [np.where (inverse==i)[0] for i in range (nmanifolds)]
-    if smult_fr is None or nmanifolds<2:
-        return [manifold[None,:] for manifold in manifolds]
+    num_snm_blocks = len (uniq)
+    snm_blocks = [np.where (inverse==i)[0] for i in range (num_snm_blocks)]
+    if smult_fr is None or num_snm_blocks<2:
+        return [snm_block[None,:] for snm_block in snm_blocks]
     fprint = np.stack ([get_unique_roots_with_spin (
         ci_fr[ifrag], norb_f[ifrag], [tuple (n) for n in nelec_frs[ifrag]], smult_fr[ifrag]
     ) for ifrag in range (nfrags)], axis=1)
-    fprint = [fprint[manifold] for manifold in manifolds]
+    fprint = [fprint[snm_block] for snm_block in snm_blocks]
     uniq, inverse = np.unique (fprint, axis=0, return_inverse=True)
-    manifolds = [np.stack ([manifolds[i] for i in np.where (inverse==j)[0]],
+    manifolds = [np.stack ([snm_blocks[i] for i in np.where (inverse==j)[0]],
                            axis=0)
                  for j in range (len (uniq))]
     return manifolds
