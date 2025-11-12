@@ -34,7 +34,7 @@ MAX_CYCLE_SI = getattr (__config__, 'lassi_max_cycle_si', 100)
 MAX_SPACE_SI = getattr (__config__, 'lassi_max_space_si', 12)
 TOL_SI = getattr (__config__, 'lassi_tol_si', 1e-8)
 DAVIDSON_SCREEN_THRESH_SI = getattr (__config__, 'lassi_hsi_screen_thresh', 1e-12)
-PSPACE_SIZE_SI = getattr (__config__, 'lassi_hsi_pspace_size', 0)
+PSPACE_SIZE_SI = getattr (__config__, 'lassi_hsi_pspace_size', 400)
 
 op = (op_o0, op_o1)
 
@@ -413,7 +413,7 @@ def _eig_block_Davidson (las, e0, h1, h2, ci_blk, nelec_blk, smult_blk, soc, opt
             pv = pv[:,:nroots_si]
             pw = pw[:nroots_si]
             si1 = orth2raw (pv)
-            s2 = lib.einsum ('ij,ij->i', pv.conj (), s2_op (pv))
+            s2 = lib.einsum ('ij,ij->i', si1.conj (), s2_op (si1))
             return True, pw, si1, s2
         precond_op = make_pspace_precond (hdiag_orth, pw, pv, addr, level_shift=level_shift)
     else:
