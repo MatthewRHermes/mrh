@@ -213,11 +213,17 @@ public :
 
 
   void push_op(py::array_t<double>, int, int);
+  void init_ox1_pinned(int);
   void init_new_sivecs_host(int, int); 
   void init_old_sivecs_host(int, int); 
-  void push_sivecs_to_host(py::array_t<double>, int, int, int);
+  void push_sivecs_to_host(py::array_t<double>, int, int);
+  void push_instruction_list(py::array_t<int>, int);
   void compute_sivecs(int, int, int); 
+  void compute_sivecs_full(int, int, int); 
+  void print_sivecs(int, int);
   void pull_sivecs_from_pinned(py::array_t<double>, int, int, int);
+  void add_ox1_pinned(py::array_t<double>, int);
+  void finalize_ox1_pinned(py::array_t<double>, int);
 
   //inner functions
   void extract_mo_cas(int, int, int);//TODO: fix the difference - changed slightly
@@ -348,8 +354,13 @@ private:
 
   int size_new_sivecs;
   int size_old_sivecs;
+  int size_ox1; 
+  int size_instruction_list;
+  int ox1_on_gpu;
   double * h_new_sivecs;
   double * h_old_sivecs;
+  double * h_ox1;
+  int * h_instruction_list;
  
   
   // eri caching on device

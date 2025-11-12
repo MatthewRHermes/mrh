@@ -1941,23 +1941,13 @@ void Device::reduce_buf3_to_rdm(const double * buf3, double * dm2, int size_tdm2
   cudaStream_t s = *(pm->dev_get_queue());
   dim3 block_size(_DEFAULT_BLOCK_SIZE, 1,1);
   dim3 grid_size (_TILE(size_tdm2, block_size.x),1,1);
-
-  //  printf("reduce_buf3_to_rdm : size= %i  num_batches= %i\n", size_tdm2, num_gemm_batches);
-
-#if 1
   vecadd_batch(buf3, dm2, size_tdm2, num_gemm_batches);
-#else
-  for (int i=0;i<num_gemm_batches; ++i){
-    _vecadd<<<grid_size, block_size, 0, s>>>( &(buf3[i*size_tdm2]), dm2, size_tdm2);
-  }
-#endif
   _CUDA_CHECK_ERRORS();
 }
 
 /* ---------------------------------------------------------------------- */
 void Device::reorder(double * dm1, double * dm2, double * buf, int norb)
 {
-  int norb2 = norb*norb;
   cudaStream_t s = *(pm->dev_get_queue());
   //for k in range (norb): rdm2[:,k,k,:] -= rdm1.T //remember, rdm1 is returned as rdm1.T, so double transpose, hence just rdm1
   {
