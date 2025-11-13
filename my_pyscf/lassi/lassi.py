@@ -12,7 +12,7 @@ from pyscf import lib, symm, ao2mo
 from pyscf.lib import param
 from pyscf.scf.addons import canonical_orth_
 from pyscf.lib.numpy_helper import tag_array
-from pyscf.fci.direct_spin1 import _unpack_nelec, make_pspace_precond
+from pyscf.fci.direct_spin1 import _unpack_nelec
 from itertools import combinations, product
 from mrh.my_pyscf.mcscf import soc_int as soc_int
 from pyscf import __config__
@@ -447,6 +447,27 @@ def pspace (hdiag_orth, h_op_raw, raw2orth, opt, pspace_size):
     h0 = op[opt].pspace_ham (h_op_raw, raw2orth, addr)
     pw, pv = linalg.eigh (h0)
     return pw, pv, addr
+
+def make_pspace_precond(hdiag, pspaceig, pspaceci, addr, level_shift=0):
+    # precondition with pspace Hamiltonian, CPL, 169, 463
+    # copied and modified from PySCF d57cb6d6c722bcc28c5db8573a75bb6bc67a8583
+    def get_hinv (e0):
+        h0e0inv = np.dot(pspaceci/(pspaceig-(e0-level_shift)), pspaceci.T)
+        hdiaginv = 1/(hdiag - (e0-level_shift))
+        hdiaginv[abs(hdiaginv)>1e8] = 1e8
+        def hinv (x0):
+            x1 = hdiaginv * x0
+            x1[addr] = np.dot (h0e0inv, x0[addr])
+            return x1
+        return hinv
+    def precond(r, e0, x0, *args):
+        hinv = get_hinv (e0)
+        h0x0 = hinv (x0)
+        h0r = hinv (r)
+        e1 = np.dot(x0, h0r) / np.dot(x0, h0x0)
+        x1 = hinv (r - e1*x0)
+        return x1
+    return precond
 
 def get_init_guess_si (hdiag, nroots, si1):
     nprod = hdiag.size
