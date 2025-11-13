@@ -459,6 +459,7 @@ def make_pspace_precond(hdiag, pspaceig, pspaceci, addr, level_shift=0):
             x1 = hdiaginv * x0
             x1[addr] = np.dot (h0e0inv, x0[addr])
             return x1
+        return get_hinv
     def precond(r, e0, x0, *args):
         hinv = get_hinv (e0)
         h0x0 = hinv (x0)
