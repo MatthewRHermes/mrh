@@ -451,19 +451,20 @@ def pspace (hdiag_orth, h_op_raw, raw2orth, opt, pspace_size):
 def make_pspace_precond(hdiag, pspaceig, pspaceci, addr, level_shift=0):
     # precondition with pspace Hamiltonian, CPL, 169, 463
     # copied and modified from PySCF d57cb6d6c722bcc28c5db8573a75bb6bc67a8583
-    def precond(r, e0, x0, *args):
+    def get_hinv (e0):
         h0e0inv = np.dot(pspaceci/(pspaceig-(e0-level_shift)), pspaceci.T)
         hdiaginv = 1/(hdiag - (e0-level_shift))
         hdiaginv[abs(hdiaginv)>1e8] = 1e8
-        h0x0 = x0 * hdiaginv
-        h0x0[addr] = np.dot(h0e0inv, x0[addr])
-        h0r = r * hdiaginv
-        h0r[addr] = np.dot(h0e0inv, r[addr])
+        def hinv (x0):
+            x1 = hdiaginv * x0
+            x1[addr] = np.dot (h0e0inv, x0[addr])
+            return x1
+    def precond(r, e0, x0, *args):
+        hinv = get_hinv (e0)
+        h0x0 = hinv (x0)
+        h0r = hinv (r)
         e1 = np.dot(x0, h0r) / np.dot(x0, h0x0)
-        x1 = r - e1*x0
-        x1_pspace = x1[addr].copy ()
-        x1 *= hdiaginv
-        x1[addr] = np.dot (h0e0inv, x1_pspace)
+        x1 = hinv (r - e1*x0)
         return x1
     return precond
 
