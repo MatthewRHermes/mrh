@@ -666,10 +666,17 @@ void libgpu_copy_tdm2_host_to_page(void * ptr,
 }
 /* ---------------------------------------------------------------------- */
 void libgpu_push_op(void * ptr, 
-                     py::array_t<double> op, int m, int k)
+                     py::array_t<double> op, int m, int k, int counts)
 {
   Device * dev = (Device *) ptr;
-  dev->push_op(op, m, k);
+  dev->push_op(op, m, k, counts);
+}
+/* ---------------------------------------------------------------------- */
+void libgpu_init_ox1_pinned(void * ptr, 
+                               int size)
+{
+  Device * dev = (Device *) ptr;
+  dev->init_ox1_pinned(size);
 }
 /* ---------------------------------------------------------------------- */
 void libgpu_init_new_sivecs_host(void * ptr, 
@@ -688,11 +695,19 @@ void libgpu_init_old_sivecs_host(void * ptr,
 
 /* ---------------------------------------------------------------------- */
 void libgpu_push_sivecs_to_host(void * ptr, 
-                                  py::array_t<double> vec, int n_loc, int n, int k)
+                                  py::array_t<double> vec, int loc, int size)
 {
   Device * dev = (Device *) ptr;
-  dev->push_sivecs_to_host(vec, n_loc, n, k);
+  dev->push_sivecs_to_host(vec, loc, size);
 }
+/* ---------------------------------------------------------------------- */
+void libgpu_push_instruction_list(void * ptr, 
+                                  py::array_t<int> instruction_list, int len)
+{
+  Device * dev = (Device *) ptr;
+  dev->push_instruction_list(instruction_list, len);
+}
+
 /* ---------------------------------------------------------------------- */
 void libgpu_compute_sivecs(void * ptr, 
                              int m, int n, int k)
@@ -701,10 +716,38 @@ void libgpu_compute_sivecs(void * ptr,
   dev->compute_sivecs(m, n, k);
 }
 /* ---------------------------------------------------------------------- */
+void libgpu_compute_sivecs_full(void * ptr, 
+                             int m, int k, int counts)
+{
+  Device * dev = (Device *) ptr;
+  dev->compute_sivecs_full(m, k, counts);
+}
+/* ---------------------------------------------------------------------- */
+void libgpu_print_sivecs(void * ptr, int start, int size)
+{
+  Device * dev = (Device *) ptr;
+  dev->print_sivecs(start, size);
+}
+/* ---------------------------------------------------------------------- */
 void libgpu_pull_sivecs_from_pinned(void * ptr, 
                      py::array_t<double> vec, int n_loc, int m, int n)
 {
   Device * dev = (Device *) ptr;
   dev->pull_sivecs_from_pinned(vec, n_loc, m, n);
 }
+/* ---------------------------------------------------------------------- */
+void libgpu_add_ox1_pinned(void * ptr, 
+                     py::array_t<double> ox1, int size)
+{
+  Device * dev = (Device *) ptr;
+  dev->add_ox1_pinned(ox1, size);
+}
+/* ---------------------------------------------------------------------- */
+void libgpu_finalize_ox1_pinned(void * ptr, 
+                     py::array_t<double> ox1, int size)
+{
+  Device * dev = (Device *) ptr;
+  dev->finalize_ox1_pinned(ox1, size);
+}
+
 /* ---------------------------------------------------------------------- */

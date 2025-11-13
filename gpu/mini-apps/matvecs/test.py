@@ -22,7 +22,6 @@ def test_matvecs(m, k, n_array):
     #vecs.append(np.random.random((n,k)))
   print(vecs)
   #GPU kernel
-  new_vecs_gpu = [] 
   libgpu.push_op(gpu, op, m, k)
   libgpu.init_new_sivecs_host(gpu, m, total_n)
   libgpu.init_old_sivecs_host(gpu, k, total_n)
@@ -31,19 +30,28 @@ def test_matvecs(m, k, n_array):
     libgpu.push_sivecs_to_host(gpu, vec, n_loc, n, k)
     n_loc += n
   libgpu.compute_sivecs(gpu, m, total_n, k)
+  new_vecs_gpu = [] 
   n_loc = 0
+  #for n in n_array:
+  #  new_vecs_gpu.append(np.empty((n*m)))
+  #for n, new_vec in zip(n_array, new_vecs_gpu):
+  #  libgpu.pull_sivecs_from_pinned(gpu, new_vec, n_loc, m, n)
+  #  n_loc += n
+
+  max_n = max(n_array)
+  new_vec = np.empty((max_n*m))
   for n in n_array:
-    new_vecs_gpu.append(np.empty((n*m)))
-  for n, new_vec in zip(n_array, new_vecs_gpu):
     libgpu.pull_sivecs_from_pinned(gpu, new_vec, n_loc, m, n)
+    print(new_vec[:n*m])
     n_loc += n
-  
+    new_vecs_gpu.append(new_vec[:n*m])
   
   #CPU kernel
   new_vecs_cpu = [] 
   for vec in vecs:
     new_vecs_cpu.append(np.dot(op, vec.T).ravel()) 
   
+  print(new_vecs_gpu)
   for n, vec_cpu, vec_gpu in zip(n_array, new_vecs_cpu, new_vecs_gpu):
     correct=np.allclose(vec_cpu, vec_gpu)
     if not correct:
