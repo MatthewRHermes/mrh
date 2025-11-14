@@ -189,14 +189,15 @@ class OrthBasis (OrthBasisBase):
         self.manifolds_prod_idx = [np.asarray (x, dtype=int) for x in manifolds_prod_idx]
         # lookup for diagonal blocking
         # [snpm_idx, snp_idx, col]
-        self.root_manifold_addr = -np.ones ((len (nprods_r),3), dtype=int)
+        self.root_block_addr = -np.ones ((len (nprods_r),2), dtype=int)
+        self.block_manifold_addr = []
         nman = 0
         self.manifolds_nprods_raw = []
         self.manifolds_offs_raw = []
         self.snpm_blocks = []
         self.nprods_orth = []
         for i, mi in enumerate (manifolds_roots):
-            # common xmat
+            # common xmat: a "manifold"
             my_nprods_raw = nprods_r[mi[0]]
             self.manifolds_nprods_raw.append (my_nprods_raw)
             offs1 = np.cumsum (my_nprods_raw)
@@ -209,14 +210,16 @@ class OrthBasis (OrthBasisBase):
                 xmat_shape_1 = xmat.shape[1]
                 assert (offs1[-1] == xmat.shape[0])
             for j, mij in enumerate (mi):
-                # common m string
+                # common m string: a "block"
                 for k, mijk in enumerate (mij):
                     # an individual root
-                    self.root_manifold_addr[mijk,:] = [nman,i,k]
+                    self.root_block_addr[mijk,:] = [nman,k]
                 self.nprods_orth.append (xmat_shape_1)
                 self.snpm_blocks.append (np.asarray (mij))
+                self.block_manifold_addr.append ([i,j])
                 nman += 1
-        assert (np.all (self.root_manifold_addr>-1))
+        assert (np.all (self.root_block_addr>-1))
+        self.block_manifold_addr = np.stack (self.block_manifold_addr, axis=0)
         self.nprods_orth = np.asarray (self.nprods_orth)
         offs1 = np.cumsum (self.nprods_orth)
         offs0 = offs1 - self.nprods_orth
@@ -224,14 +227,14 @@ class OrthBasis (OrthBasisBase):
         assert (self.offs_orth[-1,-1] == self.shape[0])
 
     def roots_in_same_block (self, i, j):
-        return self.root_manifold_addr[i,0]==self.root_manifold_addr[j,0]
+        return self.root_block_addr[i,0]==self.root_block_addr[j,0]
 
     def rootspaces_covering_addrs (self, addrs):
         blocks = np.searchsorted (self.offs_orth[:,0], addrs, side='right')-1
         return np.concatenate ([self.snpm_blocks[b] for b in blocks])
 
     def snpm_idxs_of_roots (self, roots):
-        return self.root_manifold_addr[:,0][roots]
+        return self.root_block_addr[:,0][roots]
 
     def addrs2snpm (self, addrs):
         snpm_blks = np.searchsorted (self.offs_orth[:,0], addrs, side='right')-1
@@ -240,7 +243,8 @@ class OrthBasis (OrthBasisBase):
         return snpm_blks, snpm_cols
 
     def get_xmat_rows (self, iroot, _col=None):
-        x, i, j = self.root_manifold_addr[iroot]
+        x, j = self.root_block_addr[iroot]
+        i = self.block_manifold_addr[x,0]
         if self.manifolds_xmat[i] is None:
             xmat = np.eye (self.manifolds_nprods_raw[i].sum ())
         else:

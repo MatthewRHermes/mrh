@@ -822,13 +822,14 @@ class HamS2OvlpOperators (HamS2Ovlp):
         mblocks = {}
         if tab.size == 0: return braket_tabs, mblocks
         bras = tab[:,0]
-        man = raw2orth.root_manifold_addr[bras]
-        uniq, inv = np.unique (man[:,0], return_inverse=True)
+        blks = raw2orth.root_block_addr[bras][:,0]
+        mans = raw2orth.block_manifold_addr[blks]
+        uniq, inv = np.unique (blks, return_inverse=True)
         tab = np.asarray (tab)
         for i,p in enumerate (uniq):
             idx = inv==i
-            sblock = man[idx,1][0]
-            assert (np.all (man[idx,1]==sblock))
+            sblock = mans[idx,0][0]
+            assert (np.all (mans[idx,0]==sblock))
             braket_tabs[sblock] = tab[idx]
             mblock = mblocks.get (sblock, [])
             mblock.append (((key[0], key[1]), raw2orth.offs_orth[p]))
