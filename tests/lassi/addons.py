@@ -7,7 +7,7 @@ from mrh.my_pyscf.lassi.citools import get_lroots
 from mrh.my_pyscf.lassi.spaces import SingleLASRootspace
 from mrh.my_pyscf.lassi.op_o1.utilities import lst_hopping_index
 from mrh.my_pyscf.lassi.lassis import coords, grad_orb_ci_si, hessian_orb_ci_si
-from mrh.my_pyscf.lassi import op_o0, op_o1, citools
+from mrh.my_pyscf.lassi import op_o0, op_o1, citools, basis
 from mrh.my_pyscf.lassi.lassi import pspace
 from mrh.my_pyscf.fci.spin_op import mup
 from mrh.my_pyscf.lassi.lassi import LINDEP_THRESH
@@ -136,8 +136,8 @@ def case_contract_op_si (ks, las, h1, h2, ci_fr, nelec_frs, smult_fr=None, soc=0
     ops = op[1].gen_contract_op_si_hdiag (las, h1, h2, ci_fr, nelec_frs, soc=soc,
                                           smult_fr=smult_fr)
     ham_op, s2_op, ovlp_op, ham_diag, _get_ovlp = ops
-    raw2orth = citools.get_orth_basis (ci_fr, las.ncas_sub, nelec_frs, smult_fr=smult_fr,
-                                       _get_ovlp=_get_ovlp)
+    raw2orth = basis.get_orth_basis (ci_fr, las.ncas_sub, nelec_frs, smult_fr=smult_fr,
+                                     _get_ovlp=_get_ovlp)
     with ks.subTest ('hdiag'):
         ks.assertAlmostEqual (lib.fp (ham.diagonal ()), lib.fp (ham_diag), 7)
     ham_orth = raw2orth (ham.T).T

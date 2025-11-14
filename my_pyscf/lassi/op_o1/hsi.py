@@ -3,7 +3,7 @@ from scipy import linalg
 from scipy.sparse import linalg as sparse_linalg
 from pyscf import lib
 from pyscf.lib import logger, param
-from mrh.my_pyscf.lassi import citools
+from mrh.my_pyscf.lassi import citools, basis
 from mrh.my_pyscf.lassi.op_o1 import frag, opterm
 from mrh.my_pyscf.lassi.op_o1.rdm import LRRDM
 from mrh.my_pyscf.lassi.op_o1.hams2ovlp import HamS2Ovlp, ham, soc_context
@@ -1091,12 +1091,10 @@ def gen_contract_op_si_hdiag (las, h1, h2, ci, nelec_frs, smult_fr=None, soc=0, 
     s2_op = outerprod.get_s2_op ()
     ovlp_op = outerprod.get_ovlp_op ()
     hdiag = outerprod.get_hdiag ()
-    #raw2orth = citools.get_orth_basis (ci, las.ncas_sub, nelec_frs,
-    #                                   _get_ovlp=outerprod.get_ovlp)
     return ham_op, s2_op, ovlp_op, hdiag, outerprod.get_ovlp
 
 def get_hdiag_orth (hdiag_raw, h_op_raw, raw2orth):
-    if isinstance (raw2orth, citools.NullOrthBasis):
+    if isinstance (raw2orth, basis.NullOrthBasis):
         return hdiag_raw
     hobj_neutral = h_op_raw.parent.get_neutral (verbose=0)
     return hobj_neutral.get_hdiag_orth (raw2orth)

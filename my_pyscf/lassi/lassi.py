@@ -6,12 +6,13 @@ from mrh.my_pyscf.lassi import op_o0
 from mrh.my_pyscf.lassi import op_o1
 from mrh.my_pyscf.lassi import chkfile
 from mrh.my_pyscf.lassi import citools
+from mrh.my_pyscf.lassi import basis
 from mrh.my_pyscf.lassi.citools import get_lroots
 from pyscf import lib, symm, ao2mo
 from pyscf.lib import param
 from pyscf.scf.addons import canonical_orth_
 from pyscf.lib.numpy_helper import tag_array
-from pyscf.fci.direct_spin1 import _unpack_nelec, make_pspace_precond
+from pyscf.fci.direct_spin1 import _unpack_nelec
 from itertools import combinations, product
 from mrh.my_pyscf.mcscf import soc_int as soc_int
 from pyscf import __config__
@@ -399,8 +400,8 @@ def _eig_block_Davidson (las, e0, h1, h2, ci_blk, nelec_blk, smult_blk, soc, opt
         las, h1, h2, ci_blk, nelec_blk, smult_fr=smult_blk, soc=soc, screen_thresh=screen_thresh
     )
     t0 = (lib.logger.process_clock (), lib.logger.perf_counter ())
-    raw2orth = citools.get_orth_basis (ci_blk, las.ncas_sub, nelec_blk, _get_ovlp=_get_ovlp,
-                                       smult_fr=smult_blk)
+    raw2orth = basis.get_orth_basis (ci_blk, las.ncas_sub, nelec_blk, _get_ovlp=_get_ovlp,
+                                     smult_fr=smult_blk)
     orth2raw = raw2orth.H
     mem_orth = raw2orth.get_nbytes () / 1e6
     t0 = log.timer ('LASSI get orthogonal basis ({:.2f} MB)'.format (mem_orth), *t0)
@@ -446,6 +447,27 @@ def pspace (hdiag_orth, h_op_raw, raw2orth, opt, pspace_size):
     h0 = op[opt].pspace_ham (h_op_raw, raw2orth, addr)
     pw, pv = linalg.eigh (h0)
     return pw, pv, addr
+
+def make_pspace_precond(hdiag, pspaceig, pspaceci, addr, level_shift=0):
+    # precondition with pspace Hamiltonian, CPL, 169, 463
+    # copied and modified from PySCF d57cb6d6c722bcc28c5db8573a75bb6bc67a8583
+    def get_hinv (e0):
+        h0e0inv = np.dot(pspaceci/(pspaceig-(e0-level_shift)), pspaceci.T)
+        hdiaginv = 1/(hdiag - (e0-level_shift))
+        hdiaginv[abs(hdiaginv)>1e8] = 1e8
+        def hinv (x0):
+            x1 = hdiaginv * x0
+            x1[addr] = np.dot (h0e0inv, x0[addr])
+            return x1
+        return hinv
+    def precond(r, e0, x0, *args):
+        hinv = get_hinv (e0)
+        h0x0 = hinv (x0)
+        h0r = hinv (r)
+        e1 = np.dot(x0, h0r) / np.dot(x0, h0x0)
+        x1 = hinv (r - e1*x0)
+        return x1
+    return precond
 
 def get_init_guess_si (hdiag, nroots, si1):
     nprod = hdiag.size
@@ -537,8 +559,8 @@ def _eig_block_incore (las, e0, h1, h2, ci_blk, nelec_blk, smult_blk, soc, opt):
             lib.logger.warn (las, 'LAS states in basis may not be converged (%s = %e)',
                              'max(|Hdiag-e_states|)', maxerr)
     # Error catch: linear dependencies in basis
-    raw2orth = citools.get_orth_basis (ci_blk, las.ncas_sub, nelec_blk, _get_ovlp=_get_ovlp,
-                                       smult_fr=smult_blk)
+    raw2orth = basis.get_orth_basis (ci_blk, las.ncas_sub, nelec_blk, _get_ovlp=_get_ovlp,
+                                     smult_fr=smult_blk)
     xhx = raw2orth (ham_blk.T).T
     lib.logger.info (las, '%d/%d linearly independent model states',
                      xhx.shape[1], xhx.shape[0])
@@ -1196,7 +1218,7 @@ class LASSI(lib.StreamObject):
             _get_ovlp = op[opt].gen_contract_op_si_hdiag (
                 self, h1, h2, ci, nelec_frs, smult_fr=smult_fr, soc=soc
             )[4]
-        return citools.get_orth_basis (ci, self.ncas_sub, nelec_frs, _get_ovlp=_get_ovlp)
+        return basis.get_orth_basis (ci, self.ncas_sub, nelec_frs, _get_ovlp=_get_ovlp)
 
     def get_casscf_eris (self, mo_coeff=None):
         if mo_coeff is None: mo_coeff=self.mo_coeff
