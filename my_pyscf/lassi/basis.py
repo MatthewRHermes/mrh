@@ -188,7 +188,7 @@ class OrthBasis (OrthBasisBase):
             manifolds_prod_idx.append (pi)
         self.manifolds_prod_idx = [np.asarray (x, dtype=int) for x in manifolds_prod_idx]
         # lookup for diagonal blocking
-        # [snpm_idx, sn_idx, m_idx]
+        # [snpm_idx, snp_idx, col]
         self.root_manifold_addr = -np.ones ((len (nprods_r),3), dtype=int)
         nman = 0
         self.manifolds_nprods_raw = []
@@ -196,6 +196,7 @@ class OrthBasis (OrthBasisBase):
         self.snpm_blocks = []
         self.nprods_orth = []
         for i, mi in enumerate (manifolds_roots):
+            # common xmat
             my_nprods_raw = nprods_r[mi[0]]
             self.manifolds_nprods_raw.append (my_nprods_raw)
             offs1 = np.cumsum (my_nprods_raw)
@@ -208,7 +209,9 @@ class OrthBasis (OrthBasisBase):
                 xmat_shape_1 = xmat.shape[1]
                 assert (offs1[-1] == xmat.shape[0])
             for j, mij in enumerate (mi):
+                # common m string
                 for k, mijk in enumerate (mij):
+                    # an individual root
                     self.root_manifold_addr[mijk,:] = [nman,i,k]
                 self.nprods_orth.append (xmat_shape_1)
                 self.snpm_blocks.append (np.asarray (mij))
