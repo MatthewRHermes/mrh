@@ -816,7 +816,7 @@ class HamS2OvlpOperators (HamS2Ovlp):
                 N, S, and M strings) in OrthBasis
         '''
         tab = self.nonuniq_exc[key]
-        tab = [[bra, ket] for bra, ket in tab if raw2orth.roots_in_same_block (bra, ket)]
+        tab = [[bra, ket] for bra, ket in tab if raw2orth.same_block (bra, ket)]
         tab = np.asarray (tab)
         braket_tabs = {}
         mblocks = {}
@@ -901,7 +901,7 @@ class HamS2OvlpOperators (HamS2Ovlp):
 
     def get_pspace_ham (self, raw2orth, addrs):
         pspace_size = len (addrs)
-        addrs = raw2orth.addrs2snpm (addrs)
+        addrs = raw2orth.split_addrs_by_blocks (addrs)
         ham = np.zeros ((pspace_size, pspace_size), dtype=self.dtype)
         for inv, group in self.optermgroups_h.items (): 
             for op in group.ops:
@@ -914,26 +914,26 @@ class HamS2OvlpOperators (HamS2Ovlp):
 
     def gen_pspace_fdm (self, raw2orth, addrs, key):
         # I have to set self._fdm_vec_getter in some highly clever way
-        snpm_blks, snpm_cols = addrs
+        blks, cols = addrs
         inv = tuple (set (key[2:]))
         braket_tab = self.nonuniq_exc[key]
-        snm_exc = raw2orth.snpm_idxs_of_roots (braket_tab)
+        snm_exc = raw2orth.roots2blks (braket_tab)
         for idim in range (2):
-            idx = np.isin (snm_exc[:,idim], snpm_blks)
+            idx = np.isin (snm_exc[:,idim], blks)
             snm_exc = snm_exc[idx]
             braket_tab = braket_tab[idx]
         uniq, invs = np.unique (snm_exc, axis=0, return_inverse=True)
         for i, (bra_snm, ket_snm) in enumerate (uniq):
             idx = (invs==i)
             my_braket_tab = braket_tab[idx]
-            idx_bra = (snpm_blks==bra_snm)
-            idx_ket = (snpm_blks==ket_snm)
+            idx_bra = (blks==bra_snm)
+            idx_ket = (blks==ket_snm)
             idx2 = np.ix_(idx_bra,idx_ket)
             idx3 = np.ix_(idx_ket,idx_bra)
             rect_indices = np.indices ((np.count_nonzero (idx_ket),
                                         np.count_nonzero (idx_bra)))
             _ik, _ib = np.concatenate (rect_indices.T, axis=0).T
-            _col = (snpm_cols[idx_ket][_ik], snpm_cols[idx_bra][_ib])
+            _col = (cols[idx_ket][_ik], cols[idx_bra][_ib])
             def getter (iroot, bra=False):
                 return raw2orth.get_xmat_rows (iroot, _col=_col[int(bra)])
             self._fdm_vec_getter = getter
