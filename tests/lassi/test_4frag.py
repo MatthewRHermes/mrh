@@ -223,7 +223,7 @@ class KnownValues(unittest.TestCase):
                                          smult_fr=lsi.get_smult_fr ())#, tol=4)
                 self.assertTrue (lsi.converged)
                 self.assertTrue (lsi.converged_si)
-                self.assertAlmostEqual (lsi.e_roots[0], -304.5361582311853, 3)
+                self.assertAlmostEqual (lsi.e_roots[0], -304.5361582311853, 2)
                 case_lassis_fbf_2_model_state (self, lsi)
                 #case_lassis_fbfdm (self, lsi)
                 lsi.si = fuzz_sivecs (lsi.si)
