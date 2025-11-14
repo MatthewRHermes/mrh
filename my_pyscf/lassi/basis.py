@@ -51,8 +51,8 @@ def get_orth_basis (ci_fr, norb_f, nelec_frs, _get_ovlp=None, smult_fr=None):
     if not np.count_nonzero (cnts>1): 
         _get_ovlp = None
         return NullOrthBasis (nraw, dtype, nprods_r)
-    uniq_roots = list (uniq_idx[cnts==1])
-    north = (offs1[uniq_roots] - offs0[uniq_roots]).sum ()
+    singleton_roots = list (uniq_idx[cnts==1])
+    north = (offs1[singleton_roots] - offs0[singleton_roots]).sum ()
     manifolds_xmat = []
     manifolds_roots = []
     # iterate over smult & nelec strings
@@ -82,7 +82,7 @@ def get_orth_basis (ci_fr, norb_f, nelec_frs, _get_ovlp=None, smult_fr=None):
 
     _get_ovlp = None
 
-    return OrthBasis ((north,nraw), dtype, nprods_r, uniq_roots, manifolds_roots, manifolds_xmat)
+    return OrthBasis ((north,nraw), dtype, nprods_r, singleton_roots, manifolds_roots, manifolds_xmat)
 
 def _get_spin_split_manifolds (ci_fr, norb_f, nelec_frs, smult_fr, lroots_fr, idx):
     '''The same as _get_spin_split_manifolds_idx, except that all of the arguments need to be
@@ -133,17 +133,6 @@ class OrthBasisBase (sparse_linalg.LinearOperator):
         nbytes = sum ([_get (x) for x in self.__dict__.values ()])
         return nbytes
 
-    def map_prod_subspace (self, prods):
-        prods = np.asarray (prods)
-        rootlist = self.prods_2_roots (prods)
-        rootmap = {}
-        for i in range (len (prods)):
-            roots = tuple (rootlist[i])
-            val = rootmap.get (roots, [])
-            val.append (prods[i])
-            rootmap[roots] = val
-        return rootmap
-
 class NullOrthBasis (OrthBasisBase):
     def __init__(self, nraw, dtype, nprods_r):
         self.shape = (nraw,nraw)
@@ -158,7 +147,7 @@ class NullOrthBasis (OrthBasisBase):
     def _rmatvec (self, x): return x
 
     @property
-    def uniq_prod_idx (self): return np.arange (self.shape[0], dtype=int)
+    def singleton_prod_idx (self): return np.arange (self.shape[0], dtype=int)
 
     def get_xmat_rows (self, iroot, _col=None):
         xmat = np.eye (self.nprods_raw[iroot])
@@ -166,36 +155,35 @@ class NullOrthBasis (OrthBasisBase):
             xmat = xmat[:,_col]
         return xmat
 
-    def prods_2_roots (self, prods):
-        prods = np.atleast_1d (prods)
-        roots = np.searchsorted (self.offs_raw[:,0], prods, side='right')-1
-        return [tuple ((r,)) for r in np.atleast_1d (roots)]
+    def rootspaces_covering_addrs (self, addrs):
+        prods = np.atleast_1d (addrs)
+        return np.searchsorted (self.offs_raw[:,0], addrs, side='right')-1
 
-    def interpret_address (self, prods):
-        roots = np.searchsorted (self.offs_raw[:,0], prods, side='right')-1
-        psi = np.asarray (prods) - self.offs_raw[roots,0]
-        assert (np.all (psi>=0))
-        return roots, psi
+    def addrs2snpm (self, addrs):
+        snpm_blks = np.searchsorted (self.offs_raw[:,0], addrs, side='right')-1
+        snpm_cols = np.asarray (addrs) - self.offs_raw[snpm_blks,0]
+        assert (np.all (snpm_cols>=0))
+        return snpm_blks, snpm_cols
 
-    def roots_2_snm (self, roots):
+    def snpm_idxs_of_roots (self, roots):
         return roots
 
 
 class OrthBasis (OrthBasisBase):
-    def __init__(self, shape, dtype, nprods_r, uniq_roots, manifolds_roots, manifolds_xmat):
+    def __init__(self, shape, dtype, nprods_r, singleton_roots, manifolds_roots, manifolds_xmat):
         self.shape = shape
         self.dtype = dtype
-        self.uniq_roots = uniq_roots
-        nuniq_roots = len (uniq_roots)
+        self.singleton_roots = singleton_roots
+        nsingleton_roots = len (singleton_roots)
         self.manifolds_roots = [np.asarray (x, dtype=int) for x in manifolds_roots]
         self.manifolds_xmat = manifolds_xmat
         self.nprods_raw = nprods_r
         offs1 = np.cumsum (nprods_r)
         offs0 = offs1 - nprods_r
         self.offs_raw = np.stack ([offs0,offs1], axis=1)
-        uniq_prod_idx = []
-        for i in uniq_roots: uniq_prod_idx.extend (list(range(offs0[i],offs1[i])))
-        self.uniq_prod_idx = np.asarray (uniq_prod_idx, dtype=int)
+        singleton_prod_idx = []
+        for i in singleton_roots: singleton_prod_idx.extend (list(range(offs0[i],offs1[i])))
+        self.singleton_prod_idx = np.asarray (singleton_prod_idx, dtype=int)
         manifolds_prod_idx = []
         for mi in manifolds_roots:
             pi = []
@@ -207,14 +195,15 @@ class OrthBasis (OrthBasisBase):
             manifolds_prod_idx.append (pi)
         self.manifolds_prod_idx = [np.asarray (x, dtype=int) for x in manifolds_prod_idx]
         # lookup for diagonal blocking
+        # [snpm_idx, sn_idx, m_idx]
         self.root_manifold_addr = -2*np.ones ((len (nprods_r),3), dtype=int)
-        self.root_manifold_addr[uniq_roots,0] = np.arange (len (uniq_roots), dtype=int)
-        self.root_manifold_addr[uniq_roots,1] = -(self.root_manifold_addr[uniq_roots,0]+1)
-        self.root_manifold_addr[uniq_roots,2] = -1
-        nman = len (uniq_roots)
+        self.root_manifold_addr[singleton_roots,0] = np.arange (len (singleton_roots), dtype=int)
+        self.root_manifold_addr[singleton_roots,1] = -(self.root_manifold_addr[singleton_roots,0]+1)
+        self.root_manifold_addr[singleton_roots,2] = -1
+        nman = len (singleton_roots)
         self.manifolds_nprods_raw = []
         self.manifolds_offs_raw = []
-        self.snm_blocks = [np.asarray ([u,]) for u in uniq_roots]
+        self.snpm_blocks = [np.asarray ([u,]) for u in singleton_roots]
         manifolds_nprods_orth_flat = []
         for i, mi in enumerate (manifolds_roots):
             my_nprods_raw = nprods_r[mi[0]]
@@ -232,12 +221,12 @@ class OrthBasis (OrthBasisBase):
                 for k, mijk in enumerate (mij):
                     self.root_manifold_addr[mijk,:] = [nman,i,k]
                 manifolds_nprods_orth_flat.append (xmat_shape_1)
-                self.snm_blocks.append (np.asarray (mij))
+                self.snpm_blocks.append (np.asarray (mij))
                 nman += 1
         assert (np.all (self.root_manifold_addr[:,2]>-2))
         self.nprods_orth = np.empty (nman, dtype=int)
-        self.nprods_orth[:len(uniq_roots)] = nprods_r[uniq_roots]
-        self.nprods_orth[len(uniq_roots):] = manifolds_nprods_orth_flat
+        self.nprods_orth[:len(singleton_roots)] = nprods_r[singleton_roots]
+        self.nprods_orth[len(singleton_roots):] = manifolds_nprods_orth_flat
         offs1 = np.cumsum (self.nprods_orth)
         offs0 = offs1 - self.nprods_orth
         self.offs_orth = np.stack ([offs0, offs1], axis=1)
@@ -246,22 +235,18 @@ class OrthBasis (OrthBasisBase):
     def roots_in_same_block (self, i, j):
         return self.root_manifold_addr[i,0]==self.root_manifold_addr[j,0]
 
-    def get_orth_prod_range (self, iroot):
-        p = self.root_manifold_addr[iroot,0]
-        return tuple (self.offs_orth[p])
+    def rootspaces_covering_addrs (self, addrs):
+        blocks = np.searchsorted (self.offs_orth[:,0], addrs, side='right')-1
+        return np.concatenate ([self.snpm_blocks[b] for b in blocks])
 
-    def prods_2_roots (self, prods):
-        blocks = np.searchsorted (self.offs_orth[:,0], prods, side='right')-1
-        return [self.snm_blocks[b] for b in blocks]
-
-    def roots_2_snm (self, roots):
+    def snpm_idxs_of_roots (self, roots):
         return self.root_manifold_addr[:,0][roots]
 
-    def interpret_address (self, prods):
-        blocks = np.searchsorted (self.offs_orth[:,0], prods, side='right')-1
-        psi = np.asarray (prods) - self.offs_orth[blocks,0]
-        assert (np.all (psi>=0))
-        return blocks, psi
+    def addrs2snpm (self, addrs):
+        snpm_blks = np.searchsorted (self.offs_orth[:,0], addrs, side='right')-1
+        snpm_cols = np.asarray (addrs) - self.offs_orth[snpm_blks,0]
+        assert (np.all (snpm_cols>=0))
+        return snpm_blks, snpm_cols
 
     def get_xmat_rows (self, iroot, _col=None):
         x, i, j = self.root_manifold_addr[iroot]
@@ -284,14 +269,14 @@ class OrthBasis (OrthBasisBase):
         return xmat
 
     def _matvec (self, rawarr):
-        nuniq_prod = len (self.uniq_prod_idx)
+        nsingleton_prod = len (self.singleton_prod_idx)
         is_out_complex = (self.dtype==np.complex128) or np.iscomplexobj (rawarr)
         my_dtype = np.complex128 if is_out_complex else np.float64
         col_shape = rawarr.shape[1:]
         orth_shape = [self.shape[0],] + list (col_shape)
         ortharr = np.zeros (orth_shape, dtype=my_dtype)
-        ortharr[:nuniq_prod] = rawarr[self.uniq_prod_idx]
-        p = len (self.uniq_roots)
+        ortharr[:nsingleton_prod] = rawarr[self.singleton_prod_idx]
+        p = len (self.singleton_roots)
         for prod_idx, xmat in zip (self.manifolds_prod_idx, self.manifolds_xmat):
             if xmat is None:
                 for mirror in prod_idx:
@@ -306,14 +291,14 @@ class OrthBasis (OrthBasisBase):
         return ortharr
 
     def _rmatvec (self, ortharr):
-        nuniq_prod = len (self.uniq_prod_idx)
+        nsingleton_prod = len (self.singleton_prod_idx)
         is_out_complex = (self.dtype==np.complex128) or np.iscomplexobj (ortharr)
         my_dtype = np.complex128 if is_out_complex else np.float64
         col_shape = ortharr.shape[1:]
         raw_shape = [self.shape[1],] + list (col_shape)
         rawarr = np.zeros (raw_shape, dtype=my_dtype)
-        rawarr[self.uniq_prod_idx] = ortharr[:nuniq_prod]
-        p = len (self.uniq_roots)
+        rawarr[self.singleton_prod_idx] = ortharr[:nsingleton_prod]
+        p = len (self.singleton_roots)
         for prod_idx, xmat in zip (self.manifolds_prod_idx, self.manifolds_xmat):
             if xmat is None:
                 for mirror in prod_idx:

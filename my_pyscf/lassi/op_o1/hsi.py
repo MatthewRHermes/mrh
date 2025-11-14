@@ -900,7 +900,7 @@ class HamS2OvlpOperators (HamS2Ovlp):
 
     def get_pspace_ham (self, raw2orth, addrs):
         pspace_size = len (addrs)
-        addrs = raw2orth.interpret_address (addrs)
+        addrs = raw2orth.addrs2snpm (addrs)
         ham = np.zeros ((pspace_size, pspace_size), dtype=self.dtype)
         for inv, group in self.optermgroups_h.items (): 
             for op in group.ops:
@@ -913,26 +913,26 @@ class HamS2OvlpOperators (HamS2Ovlp):
 
     def gen_pspace_fdm (self, raw2orth, addrs, key):
         # I have to set self._fdm_vec_getter in some highly clever way
-        addrs_snm, addrs_psi = addrs
+        snpm_blks, snpm_cols = addrs
         inv = tuple (set (key[2:]))
         braket_tab = self.nonuniq_exc[key]
-        snm_exc = raw2orth.roots_2_snm (braket_tab)
+        snm_exc = raw2orth.snpm_idxs_of_roots (braket_tab)
         for idim in range (2):
-            idx = np.isin (snm_exc[:,idim], addrs_snm)
+            idx = np.isin (snm_exc[:,idim], snpm_blks)
             snm_exc = snm_exc[idx]
             braket_tab = braket_tab[idx]
         uniq, invs = np.unique (snm_exc, axis=0, return_inverse=True)
         for i, (bra_snm, ket_snm) in enumerate (uniq):
             idx = (invs==i)
             my_braket_tab = braket_tab[idx]
-            idx_bra = (addrs_snm==bra_snm)
-            idx_ket = (addrs_snm==ket_snm)
+            idx_bra = (snpm_blks==bra_snm)
+            idx_ket = (snpm_blks==ket_snm)
             idx2 = np.ix_(idx_bra,idx_ket)
             idx3 = np.ix_(idx_ket,idx_bra)
             rect_indices = np.indices ((np.count_nonzero (idx_ket),
                                         np.count_nonzero (idx_bra)))
             _ik, _ib = np.concatenate (rect_indices.T, axis=0).T
-            _col = (addrs_psi[idx_ket][_ik], addrs_psi[idx_bra][_ib])
+            _col = (snpm_cols[idx_ket][_ik], snpm_cols[idx_bra][_ib])
             def getter (iroot, bra=False):
                 return raw2orth.get_xmat_rows (iroot, _col=_col[int(bra)])
             self._fdm_vec_getter = getter
@@ -1102,10 +1102,7 @@ def get_hdiag_orth (hdiag_raw, h_op_raw, raw2orth):
 def pspace_ham (h_op_raw, raw2orth, addrs):
     t0 = (logger.process_clock (), logger.perf_counter ())
     hobj0 = h_op_raw.parent
-    rootmap = raw2orth.map_prod_subspace (addrs)
-    all_roots = np.unique (np.concatenate (
-        [np.atleast_1d (key) for key in rootmap.keys ()]
-    ))
+    all_roots = raw2orth.rootspaces_covering_addrs (addrs)
     hobj1 = hobj0.get_subspace (all_roots, verbose=0)
     return hobj1.get_pspace_ham (raw2orth, addrs)
 
