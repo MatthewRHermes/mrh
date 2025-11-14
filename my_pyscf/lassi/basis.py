@@ -51,12 +51,11 @@ def get_orth_basis (ci_fr, norb_f, nelec_frs, _get_ovlp=None, smult_fr=None):
     if not np.count_nonzero (cnts>1): 
         _get_ovlp = None
         return NullOrthBasis (nraw, dtype, nprods_r)
-    singleton_roots = list (uniq_idx[cnts==1])
-    north = (offs1[singleton_roots] - offs0[singleton_roots]).sum ()
+    north = 0
     manifolds_xmat = []
     manifolds_roots = []
     # iterate over smult & nelec strings
-    for sn_string_idx in np.where (cnts>1)[0]:
+    for sn_string_idx in range (len (uniq_idx)):
         pm_blocks = _get_spin_split_manifolds (ci_fr, norb_f, nelec_frs, smult_fr, lroots_fr,
                                                inverse==sn_string_idx)
         # iterate over spatial wave functions. I think that the length of this iteration
@@ -84,6 +83,7 @@ def get_orth_basis (ci_fr, norb_f, nelec_frs, _get_ovlp=None, smult_fr=None):
 
     _get_ovlp = None
 
+    singleton_roots = np.zeros (0, dtype=int)
     return OrthBasis ((north,nraw), dtype, nprods_r, singleton_roots, manifolds_roots, manifolds_xmat)
 
 def _get_spin_split_manifolds (ci_fr, norb_f, nelec_frs, smult_fr, lroots_fr, idx):
