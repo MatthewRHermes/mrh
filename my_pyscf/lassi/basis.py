@@ -59,7 +59,9 @@ def get_orth_basis (ci_fr, norb_f, nelec_frs, _get_ovlp=None, smult_fr=None):
     for sn_string_idx in np.where (cnts>1)[0]:
         pm_blocks = _get_spin_split_manifolds (ci_fr, norb_f, nelec_frs, smult_fr, lroots_fr,
                                                inverse==sn_string_idx)
-        # iterate over spatial wave functions
+        # iterate over spatial wave functions. I think that the length of this iteration
+        # should be 1 if the model space is really spin-adapted; but in this function,
+        # I don't want to require that
         for m_blocks in pm_blocks:
             num_m_blocks = len (m_blocks)
             # iterate over m strings, but only to sanity check
