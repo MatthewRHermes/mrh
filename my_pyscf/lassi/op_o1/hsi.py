@@ -534,10 +534,10 @@ class HamS2OvlpOperators (HamS2Ovlp):
         vec_table={}
         vec_loc = 0
         for key, vec in vecs.items():
-          vec_c = np.ascontiguousarray(vec)
-          vec_table[key]=(vec_loc, vec_c.size)
-          libgpu.push_sivecs_to_host(gpu, vec_c, vec_loc, vec_c.size)
-          vec_loc += vec_c.size
+          size=vec.size
+          vec_table[key]=(vec_loc, size)
+          libgpu.push_sivecs_to_host(gpu, np.ascontiguousarray(vec), vec_loc, size)
+          vec_loc += size
 
         t2, w2 = logger.process_clock (), logger.perf_counter ()
         self.dt_gpu_push_vec += (t2-t1)
