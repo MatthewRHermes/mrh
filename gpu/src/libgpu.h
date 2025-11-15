@@ -207,7 +207,7 @@ extern "C"
   void libgpu_push_sivecs_to_host(void * , py::array_t<double>, int, int);
   void libgpu_push_instruction_list(void * , py::array_t<int>, int);
   void libgpu_compute_sivecs(void *, int, int, int); 
-  void libgpu_compute_sivecs_full(void *, int, int, int); 
+  void libgpu_compute_sivecs_full(void *, int, int, int, int); 
   void libgpu_print_sivecs(void *, int, int); 
   void libgpu_add_ox1_pinned(void *, py::array_t<double>, int);
   void libgpu_finalize_ox1_pinned(void *, py::array_t<double>, int);

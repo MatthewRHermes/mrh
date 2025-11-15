@@ -717,10 +717,10 @@ void libgpu_compute_sivecs(void * ptr,
 }
 /* ---------------------------------------------------------------------- */
 void libgpu_compute_sivecs_full(void * ptr, 
-                             int m, int k, int counts)
+                             int m, int k, int counts, int op_t)
 {
   Device * dev = (Device *) ptr;
-  dev->compute_sivecs_full(m, k, counts);
+  dev->compute_sivecs_full(m, k, counts, op_t);
 }
 /* ---------------------------------------------------------------------- */
 void libgpu_print_sivecs(void * ptr, int start, int size)

@@ -625,20 +625,25 @@ class HamS2OvlpOperators (HamS2Ovlp):
         self.dt_gpu_matvec_setup += (t1-t0)
         self.dw_gpu_matvec_setup += (w1-w0)
 
-        self.gpu_matvec_v2(op, bras, oket, vec_table, inv)
-
-        if len (braHs):
-            op = op.conj ().T
-            self.gpu_matvec_v2(op, braHs, obra, vec_table, inv)
-        return
-
-    def gpu_matvec_v2(self, op, bras, oci, vec_table, inv):
-        t0, w0 = logger.process_clock (), logger.perf_counter ()
+        #STEP 3 Part 2
         from mrh.my_pyscf.gpu import libgpu
         gpu = param.use_gpu
         m, k = op.shape #m,k gemm
+        libgpu.push_op(gpu, np.ascontiguousarray(op), m, k, len_instruction_list) #inits and pushes on all devices
+
+        self.gpu_matvec_v2( m, k, bras, oket, vec_table, inv, op_t = False)
+
+        if len (braHs):
+            self.gpu_matvec_v2( m, k, braHs, obra, vec_table, inv, op_t = True)
+        return
+
+    def gpu_matvec_v2(self, m, k, bras, oci, vec_table, inv, op_t = False):
+        t0, w0 = logger.process_clock (), logger.perf_counter ()
+        from mrh.my_pyscf.gpu import libgpu
+        gpu = param.use_gpu
+        #m, k = op.shape #m,k gemm
         #STEP 3 Part 2
-        libgpu.push_op(gpu, np.ascontiguousarray(op), m, k, len(bras)) #inits and pushes on all devices
+        #libgpu.push_op(gpu, np.ascontiguousarray(op), m, k, len(bras)) #inits and pushes on all devices
 
         t1, w1 = logger.process_clock (), logger.perf_counter ()
         self.dt_gpu_push_op += (t1-t0)
@@ -659,7 +664,7 @@ class HamS2OvlpOperators (HamS2Ovlp):
         self.dw_gpu_make_list += (w2-w1)
         libgpu.push_instruction_list(gpu, self.instruction_list, len(bras))
         #STEP 5
-        libgpu.compute_sivecs_full(gpu, m, k, len(bras))
+        libgpu.compute_sivecs_full(gpu, m, k, len(bras), op_t)
         t3, w3 = logger.process_clock (), logger.perf_counter ()
         self.dt_gpu_push_compute += (t3-t2)
         self.dw_gpu_push_compute += (w3-w2)

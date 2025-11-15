@@ -5627,14 +5627,20 @@ void Device::compute_sivecs (int m, int n, int k)
   double t1 = omp_get_wtime();
 }
 /* ---------------------------------------------------------------------- */
-void Device::compute_sivecs_full (int m, int k, int counts)
+void Device::compute_sivecs_full (int _m, int _k, int counts, int op_t)
 {
   double t0 = omp_get_wtime();
   int device_id = 0, device_id_counter = 0;
   double alpha, beta;
-  int n, vec_loc, vec_size, ox1_loc, ox1_size, fac;
+  
+  int m, k, n, vec_loc, vec_size, ox1_loc, ox1_size, fac;
   double * result;
-
+  if (op_t){
+    m = _k;
+    k = _m;}
+  else{
+    m = _m;
+    k = _k;}
   for (int count=0; count<counts; ++count){
     vec_loc = h_instruction_list[count*4];
     vec_size = h_instruction_list[count*4+1];
@@ -5663,10 +5669,17 @@ void Device::compute_sivecs_full (int m, int k, int counts)
     
     double * old_sivecs = &(h_old_sivecs[vec_loc]);
     pm->dev_push_async(dd->d_buf2, old_sivecs, vec_size*sizeof(double));
-    ml->gemm((char *) "T", (char *) "N", 
+    if (op_t){
+      ml->gemm((char *) "T", (char *) "T", 
+           &n,&m,&k, 
+           &alpha, dd->d_buf2, &k, dd->d_buf1, &m,
+           &beta, result, &n); }
+      
+    else {
+      ml->gemm((char *) "T", (char *) "N", 
            &n,&m,&k, 
            &alpha, dd->d_buf2, &k, dd->d_buf1, &k,
-           &beta, result, &n);
+           &beta, result, &n); }
  
     if (!ox1_on_gpu){
       printf("shouldn't be here!\n");
