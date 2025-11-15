@@ -44,6 +44,10 @@ class HamS2OvlpOperators (HamS2Ovlp):
         self.x = self.si = np.zeros (self.nstates, self.dtype)
         self.ox = np.zeros (self.nstates, self.dtype)
         self.ox1 = np.zeros (self.nstates, self.dtype)
+        gpu_op = getattr (param, 'use_gpu', False)
+        if gpu_op: 
+            self.len_instruction_list=0
+            self.instruction_list = np.empty((self.len_instruction_list,4),dtype=int)
         op_debug = getattr (param, 'gpu_op_debug', False)
         if op_debug: self.ox1_gpu = np.zeros(self.nstates, self.dtype)
 
@@ -610,7 +614,10 @@ class HamS2OvlpOperators (HamS2Ovlp):
         key = tuple ((obra, oket)) + inv
         inv = list (set (inv))
         brakets, bras, braHs = self.get_nonuniq_exc_square (key)
-
+        len_instruction_list = max(len(bras), len(braHs))
+        if self.len_instruction_list<len_instruction_list:
+          self.len_instruction_list=len_instruction_list
+          self.instruction_list = np.empty((self.len_instruction_list,4),dtype=int)
         #STEP 3 PART 1
         op = opterm.reduce_spin (op, obra, oket)
 
@@ -642,17 +649,15 @@ class HamS2OvlpOperators (HamS2Ovlp):
         #spec = np.where (spec)[0]
 
         #STEP 4 
-        #instruction_list = np.empty((len(bras),6))#stores n, vec_loc, vec_size, ox1_loc, ox1_size, fac
-        instruction_list = np.empty((len(bras),4),dtype=int)#stores vec_loc, vec_size, ox1_loc, fac
         for idx, bra in enumerate(bras):
             #n = np.prod(self.lroots[spec, bra])
             vec_loc, vec_size = vec_table[self.ox_ovlp_urootstr(bra, oci, inv)]
             ox1_loc, _, fac = self.get_ox1_params(bra, *inv)
-            instruction_list[idx] = vec_loc, vec_size, ox1_loc, fac
+            self.instruction_list[idx] = vec_loc, vec_size, ox1_loc, fac
         t2, w2 = logger.process_clock (), logger.perf_counter ()
         self.dt_gpu_make_list += (t2-t1)
         self.dw_gpu_make_list += (w2-w1)
-        libgpu.push_instruction_list(gpu, instruction_list, len(bras))
+        libgpu.push_instruction_list(gpu, self.instruction_list, len(bras))
         #STEP 5
         libgpu.compute_sivecs_full(gpu, m, k, len(bras))
         t3, w3 = logger.process_clock (), logger.perf_counter ()
