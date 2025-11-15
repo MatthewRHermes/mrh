@@ -637,17 +637,18 @@ class HamS2OvlpOperators (HamS2Ovlp):
         self.dt_gpu_push_op += (t1-t0)
         self.dw_gpu_push_op += (w1-w0)
 
-        spec = np.ones (self.nfrags, dtype=bool)
-        for i in inv: spec[i] = False
-        spec = np.where (spec)[0]
+        #spec = np.ones (self.nfrags, dtype=bool)
+        #for i in inv: spec[i] = False
+        #spec = np.where (spec)[0]
 
         #STEP 4 
-        instruction_list = np.empty((len(bras),6))#stores n, vec_loc, vec_size, ox1_loc, ox1_size, fac
+        #instruction_list = np.empty((len(bras),6))#stores n, vec_loc, vec_size, ox1_loc, ox1_size, fac
+        instruction_list = np.empty((len(bras),4),dtype=int)#stores vec_loc, vec_size, ox1_loc, fac
         for idx, bra in enumerate(bras):
-            n = np.prod(self.lroots[spec, bra])
+            #n = np.prod(self.lroots[spec, bra])
             vec_loc, vec_size = vec_table[self.ox_ovlp_urootstr(bra, oci, inv)]
             ox1_loc, _, fac = self.get_ox1_params(bra, *inv)
-            instruction_list[idx] = n, vec_loc, vec_size, ox1_loc, m*n, fac
+            instruction_list[idx] = vec_loc, vec_size, ox1_loc, fac
         t2, w2 = logger.process_clock (), logger.perf_counter ()
         self.dt_gpu_make_list += (t2-t1)
         self.dw_gpu_make_list += (w2-w1)

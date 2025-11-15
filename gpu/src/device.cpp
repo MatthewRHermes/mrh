@@ -5480,8 +5480,7 @@ void Device::push_op(py::array_t<double> _op, int m, int k, int counts)
   py::buffer_info info_op = _op.request(); // (2D array of m * k)
   double * op = static_cast<double*>(info_op.ptr);
   int _size_op = m*k;
-  #if defined(ENABLE_P2P)
-
+  #if defined(_ENABLE_P2P)
   counts = _MIN(counts, num_devices);
   std::vector<double *> op_vec(counts); // array of device addresses 
 
@@ -5489,7 +5488,7 @@ void Device::push_op(py::array_t<double> _op, int m, int k, int counts)
     pm->dev_set_device(id);
     my_device_data * dd = &(device_data[id]);
     grow_array(dd->d_buf1, _size_op, dd->size_buf1, "buf1", FLERR);
-    op_vec[i] = dd->d_buf1;}
+    op_vec[id] = dd->d_buf1;}
   mgpu_bcast(op_vec, op, _size_op*sizeof(double));
   #else
   for (int i=0; i<num_devices;++i){
@@ -5536,7 +5535,7 @@ void Device::init_ox1_pinned(int size)
     grow_array(dd->d_buf1, overall_max_size_buf, dd->size_buf1, "buf1", FLERR);
     grow_array(dd->d_buf2, overall_max_size_buf, dd->size_buf2, "buf2", FLERR);
     grow_array(dd->d_buf3, overall_max_size_buf, dd->size_buf3, "buf3", FLERR);
-    if (ox1_on_gpu){ set_to_zero(dd->d_buf3, overall_max_size_buf); } 
+    if (ox1_on_gpu){ set_to_zero(dd->d_buf3, size); } 
     } 
   double t1 = omp_get_wtime();
   t_array[34] += t1-t0;
@@ -5572,7 +5571,7 @@ void Device::push_instruction_list(py::array_t<int> _instruction_list, int len)
   double t0 = omp_get_wtime();
   py::buffer_info info_instruction_list = _instruction_list.request();
   int * instruction_list = static_cast<int*>(info_instruction_list.ptr);
-  int _size_list = 6*len;
+  int _size_list = 4*len;
   grow_array_host(h_instruction_list, _size_list, size_instruction_list, "h:instruction_list");
 #pragma omp parallel for
   for (int i=0;i<_size_list; ++i){h_instruction_list[i] = instruction_list[i];}
@@ -5635,16 +5634,14 @@ void Device::compute_sivecs_full (int m, int k, int counts)
   double alpha, beta;
   int n, vec_loc, vec_size, ox1_loc, ox1_size, fac;
   double * result;
-  for (int i=0;i<num_devices;++i){
-    my_device_data * dd = &(device_data[i]);
-    }
+
   for (int count=0; count<counts; ++count){
-    n = h_instruction_list[count*6+0];
-    vec_loc = h_instruction_list[count*6+1];
-    vec_size = h_instruction_list[count*6+2];
-    ox1_loc = h_instruction_list[count*6+3];
-    ox1_size = h_instruction_list[count*6+4];
-    fac = h_instruction_list[count*6+5];
+    vec_loc = h_instruction_list[count*4];
+    vec_size = h_instruction_list[count*4+1];
+    ox1_loc = h_instruction_list[count*4+2];
+    fac = h_instruction_list[count*4+3];
+    n = vec_size/k;
+    ox1_size=n*m;
 
     device_id = count%num_devices;
     pm->dev_set_device(device_id);
