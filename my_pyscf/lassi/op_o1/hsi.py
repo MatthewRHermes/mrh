@@ -630,6 +630,10 @@ class HamS2OvlpOperators (HamS2Ovlp):
         gpu = param.use_gpu
         m, k = op.shape #m,k gemm
         libgpu.push_op(gpu, np.ascontiguousarray(op), m, k, len_instruction_list) #inits and pushes on all devices
+        t2, w2 = logger.process_clock (), logger.perf_counter ()
+        self.dt_gpu_push_op += (t2-t1)
+        self.dw_gpu_push_op += (w2-w1)
+
 
         self.gpu_matvec_v2( m, k, bras, oket, vec_table, inv, op_t = False)
 
@@ -638,16 +642,13 @@ class HamS2OvlpOperators (HamS2Ovlp):
         return
 
     def gpu_matvec_v2(self, m, k, bras, oci, vec_table, inv, op_t = False):
-        t0, w0 = logger.process_clock (), logger.perf_counter ()
-        from mrh.my_pyscf.gpu import libgpu
-        gpu = param.use_gpu
         #m, k = op.shape #m,k gemm
         #STEP 3 Part 2
         #libgpu.push_op(gpu, np.ascontiguousarray(op), m, k, len(bras)) #inits and pushes on all devices
 
-        t1, w1 = logger.process_clock (), logger.perf_counter ()
-        self.dt_gpu_push_op += (t1-t0)
-        self.dw_gpu_push_op += (w1-w0)
+        t0, w0 = logger.process_clock (), logger.perf_counter ()
+        from mrh.my_pyscf.gpu import libgpu
+        gpu = param.use_gpu
 
         #spec = np.ones (self.nfrags, dtype=bool)
         #for i in inv: spec[i] = False
@@ -659,15 +660,15 @@ class HamS2OvlpOperators (HamS2Ovlp):
             vec_loc, vec_size = vec_table[self.ox_ovlp_urootstr(bra, oci, inv)]
             ox1_loc, _, fac = self.get_ox1_params(bra, *inv)
             self.instruction_list[idx] = vec_loc, vec_size, ox1_loc, fac
-        t2, w2 = logger.process_clock (), logger.perf_counter ()
-        self.dt_gpu_make_list += (t2-t1)
-        self.dw_gpu_make_list += (w2-w1)
+        t1, w1 = logger.process_clock (), logger.perf_counter ()
+        self.dt_gpu_make_list += (t1-t0)
+        self.dw_gpu_make_list += (w1-w0)
         libgpu.push_instruction_list(gpu, self.instruction_list, len(bras))
         #STEP 5
         libgpu.compute_sivecs_full(gpu, m, k, len(bras), op_t)
-        t3, w3 = logger.process_clock (), logger.perf_counter ()
-        self.dt_gpu_push_compute += (t3-t2)
-        self.dw_gpu_push_compute += (w3-w2)
+        t2, w2 = logger.process_clock (), logger.perf_counter ()
+        self.dt_gpu_push_compute += (t2-t1)
+        self.dw_gpu_push_compute += (w2-w1)
         return 
     
     def ox_ovlp_urootstr (self, bra, ket, inv):
