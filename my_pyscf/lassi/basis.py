@@ -117,6 +117,17 @@ class RootspaceManifold:
                 pij.extend (list (range (offs0[iroot], offs1[iroot])))
             self.prod_idx.append (pij)
         self.prod_idx = np.asarray (self.prod_idx, dtype=int)
+        self.nprods_raw = nprods_r[self.m_blocks[0]]
+        offs1 = np.cumsum (self.nprods_raw)
+        offs0 = offs1 - self.nprods_raw
+        self.offs_raw = np.stack ([offs0, offs1], axis=1)
+        if xmat is None:
+            xmat_shape_1 = offs1[-1]
+        else:
+            xmat_shape_1 = xmat.shape[1]
+            assert (offs1[-1] == xmat.shape[0])
+        self.raw_shape = self.m_blocks.shape
+        self.orth_shape = (self.raw_shape[0], xmat_shape_1)
 
 def _get_spin_split_manifolds (ci_fr, norb_f, nelec_frs, smult_fr, lroots_fr, idx):
     '''The same as _get_spin_split_manifolds_idx, except that all of the arguments need to be
@@ -149,6 +160,11 @@ def _get_spin_split_manifolds_idx (ci_fr, norb_f, nelec_frs, smult_fr, lroots_fr
         ci_fr[ifrag], norb_f[ifrag], [tuple (n) for n in nelec_frs[ifrag]], smult_fr[ifrag]
     ) for ifrag in range (nfrags)], axis=1)
     fprint = [fprint[m_block] for m_block in m_blocks]
+    #for iblk in range (len (m_blocks)):
+    #    for ifrag in range (nfrags):
+    #        idx = np.argsort (fprint[iblk][:,ifrag], kind='mergesort')
+    #        fprint[iblk] = fprint[iblk][idx]
+    #        m_blocks[iblk] = m_blocks[iblk][idx]
     uniq, inverse = np.unique (fprint, axis=0, return_inverse=True)
     manifolds = [np.stack ([m_blocks[i] for i in np.where (inverse==j)[0]],
                            axis=0)
@@ -156,6 +172,11 @@ def _get_spin_split_manifolds_idx (ci_fr, norb_f, nelec_frs, smult_fr, lroots_fr
     m_strs = [np.stack ([m_strs[i] for i in np.where (inverse==j)[0]],
                         axis=0)
               for j in range (len (uniq))]
+    #for iblk in range (len (uniq)):
+    #    for ifrag in range (nfrags):
+    #        idx = np.argsort (m_strs[iblk][:,ifrag], kind='mergesort')
+    #        m_strs[iblk] = m_strs[iblk][idx]
+    #        manifolds[iblk] = manifolds[iblk][idx]
     return manifolds, m_strs
 
 class OrthBasisBase (sparse_linalg.LinearOperator):
@@ -201,7 +222,6 @@ class OrthBasis (OrthBasisBase):
         self.shape = shape
         self.dtype = dtype
         self.manifolds = manifolds
-        manifolds_roots = [manifold.m_blocks for manifold in manifolds]
         self.nprods_raw = nprods_r
         offs1 = np.cumsum (nprods_r)
         offs0 = offs1 - nprods_r
@@ -215,29 +235,16 @@ class OrthBasis (OrthBasisBase):
         # [snp_idx, m_idx]
         self.block_manifold_addr = []
         nman = 0
-        self.manifolds_nprods_raw = []
-        self.manifolds_offs_raw = []
         self.nprods_orth = []
-        for i, mi in enumerate (manifolds_roots):
-            # common xmat: a "manifold"
-            my_nprods_raw = nprods_r[mi[0]]
-            self.manifolds_nprods_raw.append (my_nprods_raw)
-            offs1 = np.cumsum (my_nprods_raw)
-            offs0 = offs1 - my_nprods_raw
-            self.manifolds_offs_raw.append (np.stack ([offs0, offs1], axis=1))
-            xmat = self.manifolds[i].xmat
-            if xmat is None:
-                xmat_shape_1 = offs1[-1]
-            else:
-                xmat_shape_1 = xmat.shape[1]
-                assert (offs1[-1] == xmat.shape[0])
-            for j, mij in enumerate (mi):
-                # common m string: a "block"
-                for k, mijk in enumerate (mij):
-                    # an individual root
-                    self.root_block_addr[mijk,:] = [nman,k]
-                self.nprods_orth.append (xmat_shape_1)
+        for i, manifold in enumerate (manifolds):
+            for j in range (manifold.orth_shape[0]):
+                self.nprods_orth.append (manifold.orth_shape[1])
                 self.block_manifold_addr.append ([i,j])
+            for j, m_block in enumerate (manifold.m_blocks):
+                # common m string: a "block"
+                for k, iroot in enumerate (m_block):
+                    # an individual root
+                    self.root_block_addr[iroot,:] = [nman,k]
                 nman += 1
         assert (np.all (self.root_block_addr>-1))
         self.block_manifold_addr = np.stack (self.block_manifold_addr, axis=0)
@@ -265,12 +272,12 @@ class OrthBasis (OrthBasisBase):
         x, j = self.root_block_addr[iroot]
         i = self.block_manifold_addr[x,0]
         if self.manifolds[i].xmat is None:
-            xmat = np.eye (self.manifolds_nprods_raw[i].sum ())
+            xmat = np.eye (self.manifolds[i].nprods_raw.sum ())
         else:
             xmat = self.manifolds[i].xmat
-        p, q = self.manifolds_offs_raw[i][j]
+        p, q = self.manifolds[i].offs_raw[j]
         xmat = xmat[p:q,:]
-        nraw = self.manifolds_nprods_raw[i][j]
+        nraw = self.manifolds[i].nprods_raw[j]
         north = self.nprods_orth[x]
         assert (xmat.shape == (nraw, north))
         if _col is not None:
