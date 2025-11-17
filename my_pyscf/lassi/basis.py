@@ -160,11 +160,11 @@ def _get_spin_split_manifolds_idx (ci_fr, norb_f, nelec_frs, smult_fr, lroots_fr
         ci_fr[ifrag], norb_f[ifrag], [tuple (n) for n in nelec_frs[ifrag]], smult_fr[ifrag]
     ) for ifrag in range (nfrags)], axis=1)
     fprint = [fprint[m_block] for m_block in m_blocks]
-    #for iblk in range (len (m_blocks)):
-    #    for ifrag in range (nfrags):
-    #        idx = np.argsort (fprint[iblk][:,ifrag], kind='mergesort')
-    #        fprint[iblk] = fprint[iblk][idx]
-    #        m_blocks[iblk] = m_blocks[iblk][idx]
+    for iblk in range (len (m_blocks)):
+        for ifrag in range (nfrags):
+            idx = np.argsort (fprint[iblk][:,ifrag], kind='mergesort')
+            fprint[iblk] = fprint[iblk][idx]
+            m_blocks[iblk] = m_blocks[iblk][idx]
     uniq, inverse = np.unique (fprint, axis=0, return_inverse=True)
     manifolds = [np.stack ([m_blocks[i] for i in np.where (inverse==j)[0]],
                            axis=0)
@@ -172,11 +172,11 @@ def _get_spin_split_manifolds_idx (ci_fr, norb_f, nelec_frs, smult_fr, lroots_fr
     m_strs = [np.stack ([m_strs[i] for i in np.where (inverse==j)[0]],
                         axis=0)
               for j in range (len (uniq))]
-    #for iblk in range (len (uniq)):
-    #    for ifrag in range (nfrags):
-    #        idx = np.argsort (m_strs[iblk][:,ifrag], kind='mergesort')
-    #        m_strs[iblk] = m_strs[iblk][idx]
-    #        manifolds[iblk] = manifolds[iblk][idx]
+    for iblk in range (len (uniq)):
+        for ifrag in range (nfrags):
+            idx = np.argsort (m_strs[iblk][:,ifrag], kind='mergesort')
+            m_strs[iblk] = m_strs[iblk][idx]
+            manifolds[iblk] = manifolds[iblk][idx]
     return manifolds, m_strs
 
 class OrthBasisBase (sparse_linalg.LinearOperator):
