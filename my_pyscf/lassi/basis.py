@@ -53,8 +53,6 @@ def get_orth_basis (ci_fr, norb_f, nelec_frs, _get_ovlp=None, smult_fr=None):
         return NullOrthBasis (nraw, dtype, nprods_r)
     north = 0
     manifolds = []
-    manifolds_xmat = []
-    manifolds_roots = []
     # iterate over smult & nelec strings
     for sn_string_idx, sn_str in enumerate (unique.T):
         n_str = sn_str[:nfrags]
@@ -87,7 +85,21 @@ def get_orth_basis (ci_fr, norb_f, nelec_frs, _get_ovlp=None, smult_fr=None):
 
     return OrthBasis ((north,nraw), dtype, nprods_r, manifolds)
 
+def get_nbytes (obj):
+    def _get (x):
+        if isinstance (x, np.ndarray):
+            return int (x.nbytes)
+        elif callable (getattr (x, 'get_nbytes', None)):
+            return x.get_nbytes ()
+        elif lib.issequence (x):
+            return sum ([_get (xi) for xi in x])
+        else:
+            return int (sys.getsizeof (x))
+    nbytes = sum ([_get (x) for x in obj.__dict__.values ()])
+    return nbytes
+
 class RootspaceManifold:
+    get_nbytes = get_nbytes
     def __init__(self, n_str, s_str, m_strs, m_blocks, xmat):
         self.n_str = n_str
         self.s_str = s_str
@@ -136,17 +148,7 @@ def _get_spin_split_manifolds_idx (ci_fr, norb_f, nelec_frs, smult_fr, lroots_fr
     return manifolds, m_strs
 
 class OrthBasisBase (sparse_linalg.LinearOperator):
-    def get_nbytes (self):
-        def _get (x):
-            if isinstance (x, np.ndarray):
-                return int (x.nbytes)
-            elif lib.issequence (x):
-                return sum ([_get (xi) for xi in x])
-            else:
-                return int (sys.getsizeof (x))
-        nbytes = sum ([_get (x) for x in self.__dict__.values ()])
-        return nbytes
-
+    get_nbytes = get_nbytes
     def same_block (self, i, j):
         return self.roots2blks (i) == self.roots2blks (j)
 
@@ -187,14 +189,14 @@ class OrthBasis (OrthBasisBase):
     def __init__(self, shape, dtype, nprods_r, manifolds):
         self.shape = shape
         self.dtype = dtype
-        self.manifolds_roots = [manifold.m_blocks for manifold in manifolds]
-        self.manifolds_xmat = [manifold.xmat for manifold in manifolds]
+        self.manifolds = manifolds
+        manifolds_roots = [manifold.m_blocks for manifold in manifolds]
         self.nprods_raw = nprods_r
         offs1 = np.cumsum (nprods_r)
         offs0 = offs1 - nprods_r
         self.offs_raw = np.stack ([offs0,offs1], axis=1)
         manifolds_prod_idx = []
-        for mi in self.manifolds_roots:
+        for mi in manifolds_roots:
             pi = []
             for mij in mi:
                 pij = []
@@ -215,14 +217,14 @@ class OrthBasis (OrthBasisBase):
         self.manifolds_nprods_raw = []
         self.manifolds_offs_raw = []
         self.nprods_orth = []
-        for i, mi in enumerate (self.manifolds_roots):
+        for i, mi in enumerate (manifolds_roots):
             # common xmat: a "manifold"
             my_nprods_raw = nprods_r[mi[0]]
             self.manifolds_nprods_raw.append (my_nprods_raw)
             offs1 = np.cumsum (my_nprods_raw)
             offs0 = offs1 - my_nprods_raw
             self.manifolds_offs_raw.append (np.stack ([offs0, offs1], axis=1))
-            xmat = self.manifolds_xmat[i]
+            xmat = self.manifolds[i].xmat
             if xmat is None:
                 xmat_shape_1 = offs1[-1]
             else:
@@ -247,7 +249,7 @@ class OrthBasis (OrthBasisBase):
     def rootspaces_covering_addrs (self, addrs):
         blocks = np.searchsorted (self.offs_orth[:,0], addrs, side='right')-1
         manaddrs = self.block_manifold_addr[blocks]
-        return np.concatenate ([self.manifolds_roots[i][j] for i,j in manaddrs])
+        return np.concatenate ([self.manifolds[i].m_blocks[j] for i,j in manaddrs])
 
     def roots2blks (self, roots):
         return self.root_block_addr[:,0][roots]
@@ -261,10 +263,10 @@ class OrthBasis (OrthBasisBase):
     def get_xmat_rows (self, iroot, _col=None):
         x, j = self.root_block_addr[iroot]
         i = self.block_manifold_addr[x,0]
-        if self.manifolds_xmat[i] is None:
+        if self.manifolds[i].xmat is None:
             xmat = np.eye (self.manifolds_nprods_raw[i].sum ())
         else:
-            xmat = self.manifolds_xmat[i]
+            xmat = self.manifolds[i].xmat
         p, q = self.manifolds_offs_raw[i][j]
         xmat = xmat[p:q,:]
         nraw = self.manifolds_nprods_raw[i][j]
@@ -281,7 +283,8 @@ class OrthBasis (OrthBasisBase):
         orth_shape = [self.shape[0],] + list (col_shape)
         ortharr = np.zeros (orth_shape, dtype=my_dtype)
         p = 0
-        for prod_idx, xmat in zip (self.manifolds_prod_idx, self.manifolds_xmat):
+        for prod_idx, manifold in zip (self.manifolds_prod_idx, self.manifolds):
+            xmat = manifold.xmat
             if xmat is None:
                 for mirror in prod_idx:
                     i, j = self.offs_orth[p]
@@ -301,7 +304,8 @@ class OrthBasis (OrthBasisBase):
         raw_shape = [self.shape[1],] + list (col_shape)
         rawarr = np.zeros (raw_shape, dtype=my_dtype)
         p = 0
-        for prod_idx, xmat in zip (self.manifolds_prod_idx, self.manifolds_xmat):
+        for prod_idx, manifold in zip (self.manifolds_prod_idx, self.manifolds):
+            xmat = manifold.xmat
             if xmat is None:
                 for mirror in prod_idx:
                     i, j = self.offs_orth[p]
