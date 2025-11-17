@@ -52,16 +52,19 @@ def get_orth_basis (ci_fr, norb_f, nelec_frs, _get_ovlp=None, smult_fr=None):
         _get_ovlp = None
         return NullOrthBasis (nraw, dtype, nprods_r)
     north = 0
+    manifolds = []
     manifolds_xmat = []
     manifolds_roots = []
     # iterate over smult & nelec strings
-    for sn_string_idx in range (len (uniq_idx)):
-        pm_blocks = _get_spin_split_manifolds (ci_fr, norb_f, nelec_frs, smult_fr, lroots_fr,
-                                               inverse==sn_string_idx)
+    for sn_string_idx, sn_str in enumerate (unique.T):
+        n_str = sn_str[:nfrags]
+        s_str = sn_str[nfrags:]
+        pm_blocks, pm_strs = _get_spin_split_manifolds (ci_fr, norb_f, nelec_frs, smult_fr,
+                                                        lroots_fr, inverse==sn_string_idx)
         # iterate over spatial wave functions. I think that the length of this iteration
         # should be 1 if the model space is really spin-adapted; but in this function,
         # I don't want to require that
-        for m_blocks in pm_blocks:
+        for m_blocks, m_strs in zip (pm_blocks, pm_strs):
             num_m_blocks = len (m_blocks)
             # iterate over m strings, but only to sanity check
             nprod = np.asarray ([(offs1[m]-offs0[m]).sum () for m in m_blocks])
@@ -77,13 +80,20 @@ def get_orth_basis (ci_fr, norb_f, nelec_frs, _get_ovlp=None, smult_fr=None):
             else:
                 north += ovlp.shape[0] * num_m_blocks
                 xmat = None
-            manifolds_xmat.append (xmat)
-            manifolds_roots.append (m_blocks)
+            manifolds.append (RootspaceManifold (n_str, s_str, m_strs, m_blocks, xmat))
             ovlp = None
 
     _get_ovlp = None
 
-    return OrthBasis ((north,nraw), dtype, nprods_r, manifolds_roots, manifolds_xmat)
+    return OrthBasis ((north,nraw), dtype, nprods_r, manifolds)
+
+class RootspaceManifold:
+    def __init__(self, n_str, s_str, m_strs, m_blocks, xmat):
+        self.n_str = n_str
+        self.s_str = s_str
+        self.m_strs = m_strs
+        self.m_blocks = np.asarray (m_blocks, dtype=int)
+        self.xmat = xmat
 
 def _get_spin_split_manifolds (ci_fr, norb_f, nelec_frs, smult_fr, lroots_fr, idx):
     '''The same as _get_spin_split_manifolds_idx, except that all of the arguments need to be
@@ -94,10 +104,10 @@ def _get_spin_split_manifolds (ci_fr, norb_f, nelec_frs, smult_fr, lroots_fr, id
     lroots_fr = lroots_fr[:,idx]
     idx = np.where (idx)[0]
     ci1_fr = [[ci_r[i] for i in idx] for ci_r in ci_fr]
-    manifolds = _get_spin_split_manifolds_idx (ci1_fr, norb_f, nelec_frs, smult_fr, lroots_fr)
+    manifolds, m_strs = _get_spin_split_manifolds_idx (ci1_fr, norb_f, nelec_frs, smult_fr, lroots_fr)
     for i in range (len (manifolds)):
         manifolds[i] = [idx[j] for j in manifolds[i]]
-    return manifolds
+    return manifolds, m_strs
 
 def _get_spin_split_manifolds_idx (ci_fr, norb_f, nelec_frs, smult_fr, lroots_fr):
     '''Split a manifold of model state rootspaces which have same numbers of electrons and spin
@@ -107,11 +117,11 @@ def _get_spin_split_manifolds_idx (ci_fr, norb_f, nelec_frs, smult_fr, lroots_fr
     nfrags = len (norb_f)
     spins_fr = nelec_frs[:,:,0] - nelec_frs[:,:,1]
     tabulator = spins_fr.T
-    uniq, inverse = np.unique (tabulator, axis=0, return_inverse=True)
-    num_m_blocks = len (uniq)
+    m_strs, inverse = np.unique (tabulator, axis=0, return_inverse=True)
+    num_m_blocks = len (m_strs)
     m_blocks = [np.where (inverse==i)[0] for i in range (num_m_blocks)]
     if smult_fr is None or num_m_blocks<2:
-        return [m_block[None,:] for m_block in m_blocks]
+        return [m_block[None,:] for m_block in m_blocks], [m_str[None,:] for m_str in m_strs]
     fprint = np.stack ([get_unique_roots_with_spin (
         ci_fr[ifrag], norb_f[ifrag], [tuple (n) for n in nelec_frs[ifrag]], smult_fr[ifrag]
     ) for ifrag in range (nfrags)], axis=1)
@@ -120,7 +130,10 @@ def _get_spin_split_manifolds_idx (ci_fr, norb_f, nelec_frs, smult_fr, lroots_fr
     manifolds = [np.stack ([m_blocks[i] for i in np.where (inverse==j)[0]],
                            axis=0)
                  for j in range (len (uniq))]
-    return manifolds
+    m_strs = [np.stack ([m_strs[i] for i in np.where (inverse==j)[0]],
+                        axis=0)
+              for j in range (len (uniq))]
+    return manifolds, m_strs
 
 class OrthBasisBase (sparse_linalg.LinearOperator):
     def get_nbytes (self):
@@ -171,17 +184,17 @@ class NullOrthBasis (OrthBasisBase):
 
 
 class OrthBasis (OrthBasisBase):
-    def __init__(self, shape, dtype, nprods_r, manifolds_roots, manifolds_xmat):
+    def __init__(self, shape, dtype, nprods_r, manifolds):
         self.shape = shape
         self.dtype = dtype
-        self.manifolds_roots = [np.asarray (x, dtype=int) for x in manifolds_roots]
-        self.manifolds_xmat = manifolds_xmat
+        self.manifolds_roots = [manifold.m_blocks for manifold in manifolds]
+        self.manifolds_xmat = [manifold.xmat for manifold in manifolds]
         self.nprods_raw = nprods_r
         offs1 = np.cumsum (nprods_r)
         offs0 = offs1 - nprods_r
         self.offs_raw = np.stack ([offs0,offs1], axis=1)
         manifolds_prod_idx = []
-        for mi in manifolds_roots:
+        for mi in self.manifolds_roots:
             pi = []
             for mij in mi:
                 pij = []
@@ -202,14 +215,14 @@ class OrthBasis (OrthBasisBase):
         self.manifolds_nprods_raw = []
         self.manifolds_offs_raw = []
         self.nprods_orth = []
-        for i, mi in enumerate (manifolds_roots):
+        for i, mi in enumerate (self.manifolds_roots):
             # common xmat: a "manifold"
             my_nprods_raw = nprods_r[mi[0]]
             self.manifolds_nprods_raw.append (my_nprods_raw)
             offs1 = np.cumsum (my_nprods_raw)
             offs0 = offs1 - my_nprods_raw
             self.manifolds_offs_raw.append (np.stack ([offs0, offs1], axis=1))
-            xmat = manifolds_xmat[i]
+            xmat = self.manifolds_xmat[i]
             if xmat is None:
                 xmat_shape_1 = offs1[-1]
             else:
