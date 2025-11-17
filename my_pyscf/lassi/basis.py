@@ -78,7 +78,7 @@ def get_orth_basis (ci_fr, norb_f, nelec_frs, _get_ovlp=None, smult_fr=None):
             else:
                 north += ovlp.shape[0] * num_m_blocks
                 xmat = None
-            manifolds.append (RootspaceManifold (n_str, s_str, m_strs, m_blocks, xmat))
+            manifolds.append (RootspaceManifold (nprods_r, n_str, s_str, m_strs, m_blocks, xmat))
             ovlp = None
 
     _get_ovlp = None
@@ -100,12 +100,23 @@ def get_nbytes (obj):
 
 class RootspaceManifold:
     get_nbytes = get_nbytes
-    def __init__(self, n_str, s_str, m_strs, m_blocks, xmat):
+    def __init__(self, nprods_r, n_str, s_str, m_strs, m_blocks, xmat):
         self.n_str = n_str
         self.s_str = s_str
         self.m_strs = m_strs
         self.m_blocks = np.asarray (m_blocks, dtype=int)
         self.xmat = xmat
+
+        offs1 = np.cumsum (nprods_r)
+        offs0 = offs1 - nprods_r
+        offs_raw = np.stack ([offs0,offs1], axis=1)
+        self.prod_idx = []
+        for m_block in self.m_blocks:
+            pij = []
+            for iroot in m_block:
+                pij.extend (list (range (offs0[iroot], offs1[iroot])))
+            self.prod_idx.append (pij)
+        self.prod_idx = np.asarray (self.prod_idx, dtype=int)
 
 def _get_spin_split_manifolds (ci_fr, norb_f, nelec_frs, smult_fr, lroots_fr, idx):
     '''The same as _get_spin_split_manifolds_idx, except that all of the arguments need to be
@@ -195,16 +206,6 @@ class OrthBasis (OrthBasisBase):
         offs1 = np.cumsum (nprods_r)
         offs0 = offs1 - nprods_r
         self.offs_raw = np.stack ([offs0,offs1], axis=1)
-        manifolds_prod_idx = []
-        for mi in manifolds_roots:
-            pi = []
-            for mij in mi:
-                pij = []
-                for mijk in mij:
-                    pij.extend (list (range (offs0[mijk], offs1[mijk])))
-                pi.append (pij)
-            manifolds_prod_idx.append (pi)
-        self.manifolds_prod_idx = [np.asarray (x, dtype=int) for x in manifolds_prod_idx]
         # lookup for diagonal blocking
         # rows are rootspaces
         # [blk_idx, rootspace_idx]
@@ -283,7 +284,8 @@ class OrthBasis (OrthBasisBase):
         orth_shape = [self.shape[0],] + list (col_shape)
         ortharr = np.zeros (orth_shape, dtype=my_dtype)
         p = 0
-        for prod_idx, manifold in zip (self.manifolds_prod_idx, self.manifolds):
+        for manifold in self.manifolds:
+            prod_idx = manifold.prod_idx
             xmat = manifold.xmat
             if xmat is None:
                 for mirror in prod_idx:
@@ -304,7 +306,8 @@ class OrthBasis (OrthBasisBase):
         raw_shape = [self.shape[1],] + list (col_shape)
         rawarr = np.zeros (raw_shape, dtype=my_dtype)
         p = 0
-        for prod_idx, manifold in zip (self.manifolds_prod_idx, self.manifolds):
+        for manifold in self.manifolds:
+            prod_idx = manifold.prod_idx
             xmat = manifold.xmat
             if xmat is None:
                 for mirror in prod_idx:
