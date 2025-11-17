@@ -410,7 +410,6 @@ class HamS2OvlpOperators (HamS2Ovlp):
         t1, w1 = logger.process_clock (), logger.perf_counter ()
         self.dt_sX += (t1-t0)
         self.dw_sX += (w1-w0)
-        print("updating", len(inv),"fragment")
         self._opuniq_x_full(ops, vecs)
 
         t2, w2 = logger.process_clock (), logger.perf_counter ()
@@ -459,7 +458,7 @@ class HamS2OvlpOperators (HamS2Ovlp):
           #GPU kernel
           gpu_op = gpu_needed(ops)
           if gpu_op:
-            self._opuniq_x_full_gpu(ops, vecs)
+            self._opuniq_x_full_gpu_v2(ops, vecs)
             if np.allclose(self.ox1, self.ox1_gpu) != True:
               #this is all for helping guide here the error might be.
               print("Issue in ox1 calculation",flush=True)
@@ -493,10 +492,9 @@ class HamS2OvlpOperators (HamS2Ovlp):
             self.dw_gpu_need += (w1-w0)
 
             if gpu_op:
-              self._opuniq_x_full_gpu(ops, vecs)
+              self._opuniq_x_full_gpu_v2(ops, vecs)
             else: 
               self._opuniq_x_full_cpu(ops, vecs)
-            print("Inside use_gpu branch with gpu needed?", gpu_op)
             t2, w2 = logger.process_clock (), logger.perf_counter ()
             self.dt_gpu_calc += (t2-t1)
             self.dw_gpu_calc += (w2-w1)
@@ -584,6 +582,65 @@ class HamS2OvlpOperators (HamS2Ovlp):
 
         return
     
+    def _opuniq_x_full_gpu_v2(self, ops, vecs):
+
+        t0, w0 = logger.process_clock (), logger.perf_counter ()
+        op_debug = getattr (param, 'gpu_op_debug', False)
+        if op_debug:
+          ox_final = self.ox1_gpu
+          _opuniq_x = self._opuniq_x_debug
+        else:
+          ox_final = self.ox1
+          _opuniq_x = self._opuniq_x_
+
+        ox_final[:] = 0 #of shape nstates
+        from mrh.my_pyscf.gpu import libgpu
+        gpu = param.use_gpu
+        total_vecsize=sum([vec.size for vec in vecs.values ()])
+        #STEP 1 Init ox1 on pinned memory, also on gpu if size allows
+        libgpu.init_ox1_pinned(gpu, self.nstates) 
+        #STEP 2 Push for all vecs on pinned memory. 
+        t1, w1 = logger.process_clock (), logger.perf_counter ()
+        self.dt_gpu_setup += (t1-t0)
+        self.dw_gpu_setup += (w1-w0)
+
+        vec_table={}
+        vec_loc = 0
+        for count, (key, vec) in enumerate(vecs.items()):
+          size=vec.size
+          vec_table[key]=(vec_loc, size)
+          libgpu.push_sivecs_to_device(gpu, np.ascontiguousarray(vec), vec_loc, size, count)
+          vec_loc += size
+
+        t2, w2 = logger.process_clock (), logger.perf_counter ()
+        self.dt_gpu_push_vec += (t2-t1)
+        self.dw_gpu_push_vec += (w2-w1)
+
+        #Nested loop
+        for op in ops:
+          for key in op.spincase_keys:  #spincase_keys is a lookup table
+              if len(set(key[2:]))!=4:
+                  #STEP 3-5
+                  self._gpu_opuniq_x_v2(op, key[0],key[1], vec_table, *key[2:]) 
+              else:
+                  # 4-fragment case is still running on cpu
+                  _opuniq_x(op, key[0], key[1], vecs, *key[2:]) #4 fragment  
+          #if ox1 not on gpu, pull the result, else do nothing
+          #here because different cases of spincase_keys gives non overlapping ox
+          t0, w0 = logger.process_clock (), logger.perf_counter ()
+          libgpu.add_ox1_pinned(gpu, ox_final, self.nstates)
+          t1, w1 = logger.process_clock (), logger.perf_counter ()
+          self.dt_gpu_add_result += (t1-t0)
+          self.dw_gpu_add_result += (w1-w0)
+        #STEP 6
+        t0, w0 = logger.process_clock (), logger.perf_counter ()
+        libgpu.finalize_ox1_pinned(gpu, ox_final, self.nstates) 
+        t1, w1 = logger.process_clock (), logger.perf_counter ()
+        self.dt_gpu_pull_final += (t1-t0)
+        self.dw_gpu_pull_final += (w1-w0)
+
+        return
+
     def _opuniq_x_(self, op, obra, oket, ovecs, *inv):
         r'''All operations which are unique in that a given set of nonspectator fragment bra
         statelets are coupled to a given set of nonspectator fragment ket statelets'''
@@ -670,6 +727,7 @@ class HamS2OvlpOperators (HamS2Ovlp):
             self.gpu_matvec_v2( m, k, braHs, obra, vec_table, inv, op_t = True)
         return
 
+
     def gpu_matvec_v2(self, m, k, bras, oci, vec_table, inv, op_t = False):
         #m, k = op.shape #m,k gemm
         #STEP 3 Part 2
@@ -697,7 +755,7 @@ class HamS2OvlpOperators (HamS2Ovlp):
         self.dt_gpu_push_list += (t2-t1)
         self.dw_gpu_push_list += (w2-w1)
         #STEP 5
-        libgpu.compute_sivecs_full(gpu, m, k, len(bras), op_t)
+        libgpu.compute_sivecs_full_v2(gpu, m, k, len(bras), op_t)
         t3, w3 = logger.process_clock (), logger.perf_counter ()
         self.dt_gpu_compute += (t3-t2)
         self.dw_gpu_compute += (w3-w2)
