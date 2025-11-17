@@ -210,6 +210,7 @@ extern "C"
   void libgpu_compute_sivecs(void *, int, int, int); 
   void libgpu_compute_sivecs_full(void *, int, int, int, int); 
   void libgpu_compute_sivecs_full_v2(void *, int, int, int, int); 
+  void libgpu_compute_sivecs_full_v3(void *, int, int, int, int, int, int, int); 
   void libgpu_print_sivecs(void *, int, int); 
   void libgpu_add_ox1_pinned(void *, py::array_t<double>, int);
   void libgpu_finalize_ox1_pinned(void *, py::array_t<double>, int);
@@ -320,6 +321,7 @@ PYBIND11_MODULE(libgpu, m) {
   m.def("compute_sivecs",&libgpu_compute_sivecs,"mrh/my_pyscf/lassi/op_o1/hsi.py::_opuniq_x_ compute_sivecs");  
   m.def("compute_sivecs_full",&libgpu_compute_sivecs_full,"mrh/my_pyscf/lassi/op_o1/hsi.py::_opuniq_x_ compute_sivecs");  
   m.def("compute_sivecs_full_v2",&libgpu_compute_sivecs_full_v2,"mrh/my_pyscf/lassi/op_o1/hsi.py::_opuniq_x_ compute_sivecs_v2");  
+  m.def("compute_sivecs_full_v3",&libgpu_compute_sivecs_full_v3,"mrh/my_pyscf/lassi/op_o1/hsi.py::_opuniq_x_ compute_sivecs_v3");  
   m.def("print_sivecs",&libgpu_print_sivecs,"mrh/my_pyscf/lassi/op_o1/hsi.py::print_sivecs");  
   m.def("pull_sivecs_from_pinned",&libgpu_pull_sivecs_from_pinned,"mrh/my_pyscf/lassi/op_o1/hsi.py::_opuniq_x_ pull_sivecs_from_pinned to pageable");        
   m.def("add_ox1_pinned",&libgpu_add_ox1_pinned,"mrh/my_pyscf/lassi/op_o1/hsi.py::_opuniq_x_ add_ox1_from_pinned to pageable");        

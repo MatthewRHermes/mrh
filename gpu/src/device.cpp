@@ -5791,6 +5791,50 @@ void Device::compute_sivecs_full_v2 (int _m, int _k, int counts, int op_t)
   t_array[37] += t1-t0;
   count_array[27]++;
 }
+/* ---------------------------------------------------------------------- */
+void Device::compute_sivecs_full_v3 (int _m, int _k, int n, int vec_loc, int ox1_loc, int fac, int op_t)
+{
+  double t0 = omp_get_wtime();
+  int device_id = 0, device_id_counter = 0;
+  double alpha, beta;
+  
+  int m, k, vec_size, ox1_size; 
+  double * result;
+  if (op_t){
+    m = _k;
+    k = _m;}
+  else{
+    m = _m;
+    k = _k;}
+  ox1_size=n*m;
+  pm->dev_set_device(device_id);
+  pm->dev_profile_start("op_vec :: compute_opvec");
+  my_device_data * dd = &(device_data[device_id]);
+  ml->set_handle(device_id);
+  dd->active = 1;
+
+  alpha = fac*1.0;
+  beta = 1.0;
+  result = &(dd->d_buf3[ox1_loc]);
+  
+  double * vec = &(dd->d_buf2[vec_loc]);
+  if (op_t){
+    ml->gemm((char *) "T", (char *) "T", 
+         &n,&m,&k, 
+         &alpha, vec, &k, dd->d_buf1, &m,
+         &beta, result, &n); }
+  else {
+    ml->gemm((char *) "T", (char *) "N", 
+         &n,&m,&k, 
+         &alpha, vec, &k, dd->d_buf1, &k,
+         &beta, result, &n); }
+ 
+  pm->dev_profile_stop();
+  double t1 = omp_get_wtime();
+  t_array[37] += t1-t0;
+  count_array[27]++;
+}
+
 
 /* ---------------------------------------------------------------------- */
 void Device::print_sivecs(int start, int size)

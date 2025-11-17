@@ -277,9 +277,6 @@ class HamS2OvlpOperators (HamS2Ovlp):
           self.dt_gpu_non_uniq_exc, self.dw_gpu_non_uniq_exc = 0.0, 0.0
           self.dt_gpu_op_reduce, self.dw_gpu_op_reduce = 0.0, 0.0
           self.dt_gpu_push_op, self.dw_gpu_push_op = 0.0, 0.0
-          self.dt_gpu_grow_list, self.dw_gpu_grow_list = 0.0, 0.0
-          self.dt_gpu_make_list, self.dw_gpu_make_list = 0.0, 0.0
-          self.dt_gpu_push_list, self.dw_gpu_push_list = 0.0, 0.0
           self.dt_gpu_compute, self.dw_gpu_compute = 0.0, 0.0
           self.dt_gpu_add_result, self.dw_gpu_add_result = 0.0, 0.0
           self.dt_gpu_pull_final, self.dw_gpu_pull_final = 0.0, 0.0
@@ -319,19 +316,16 @@ class HamS2OvlpOperators (HamS2Ovlp):
         use_gpu = getattr (param, 'use_gpu', False)
         if use_gpu:
           profile += '\n' + 'GPU accelerated:'
+          profile += '\n' + fmt_str.format ('calc',self.dt_gpu_calc, self.dw_gpu_calc )
           profile += '\n' + fmt_str.format ('gpu need?', self.dt_gpu_need, self.dw_gpu_need)
           profile += '\n' + fmt_str.format ('host ox,v', self.dt_gpu_setup, self.dw_gpu_setup) 
           profile += '\n' + fmt_str.format ('push vec',self.dt_gpu_push_vec, self.dw_gpu_push_vec )
           profile += '\n' + fmt_str.format ('~uniq_exc',self.dt_gpu_non_uniq_exc, self.dw_gpu_non_uniq_exc )
           profile += '\n' + fmt_str.format ('op_reduce',self.dt_gpu_op_reduce, self.dw_gpu_op_reduce )
           profile += '\n' + fmt_str.format ('push op',self.dt_gpu_push_op, self.dw_gpu_push_op )
-          profile += '\n' + fmt_str.format ('grow list',self.dt_gpu_grow_list, self.dw_gpu_grow_list )
-          profile += '\n' + fmt_str.format ('make list',self.dt_gpu_make_list, self.dw_gpu_make_list) 
-          profile += '\n' + fmt_str.format ('push list',self.dt_gpu_push_list, self.dw_gpu_push_list )
           profile += '\n' + fmt_str.format ('compute',self.dt_gpu_compute, self.dw_gpu_compute )
           profile += '\n' + fmt_str.format ('add result',self.dt_gpu_add_result, self.dw_gpu_add_result )
           profile += '\n' + fmt_str.format ('pull final',self.dt_gpu_pull_final, self.dw_gpu_pull_final )
-          profile += '\n' + fmt_str.format ('calc',self.dt_gpu_calc, self.dw_gpu_calc )
 
         return profile
 
@@ -608,7 +602,7 @@ class HamS2OvlpOperators (HamS2Ovlp):
         vec_loc = 0
         for count, (key, vec) in enumerate(vecs.items()):
           size=vec.size
-          vec_table[key]=(vec_loc, size)
+          vec_table[key]=vec_loc
           libgpu.push_sivecs_to_device(gpu, np.ascontiguousarray(vec), vec_loc, size, count)
           vec_loc += size
 
@@ -625,8 +619,6 @@ class HamS2OvlpOperators (HamS2Ovlp):
               else:
                   # 4-fragment case is still running on cpu
                   _opuniq_x(op, key[0], key[1], vecs, *key[2:]) #4 fragment  
-          #if ox1 not on gpu, pull the result, else do nothing
-          #here because different cases of spincase_keys gives non overlapping ox
           t0, w0 = logger.process_clock (), logger.perf_counter ()
           libgpu.add_ox1_pinned(gpu, ox_final, self.nstates)
           t1, w1 = logger.process_clock (), logger.perf_counter ()
@@ -702,23 +694,15 @@ class HamS2OvlpOperators (HamS2Ovlp):
         self.dw_gpu_op_reduce += (w2-w1)
 
 
-        len_instruction_list = max(len(bras), len(braHs))
-        if self.len_instruction_list<len_instruction_list:
-          self.len_instruction_list=len_instruction_list
-          self.instruction_list = np.empty((self.len_instruction_list,4),dtype=int)
-
-        t3, w3 = logger.process_clock (), logger.perf_counter ()
-        self.dt_gpu_grow_list += (t3-t2)
-        self.dw_gpu_grow_list += (w3-w2)
-
+        n_dots = max(len(bras), len(braHs))
         #STEP 3 Part 2
         from mrh.my_pyscf.gpu import libgpu
         gpu = param.use_gpu
         m, k = op.shape #m,k gemm
-        libgpu.push_op(gpu, np.ascontiguousarray(op), m, k, len_instruction_list) #inits and pushes on all devices
-        t4, w4 = logger.process_clock (), logger.perf_counter ()
-        self.dt_gpu_push_op += (t4-t3)
-        self.dw_gpu_push_op += (w4-w3)
+        libgpu.push_op(gpu, np.ascontiguousarray(op), m, k, n_dots) #inits and pushes on all devices
+        t3, w3 = logger.process_clock (), logger.perf_counter ()
+        self.dt_gpu_push_op += (t3-t2) 
+        self.dw_gpu_push_op += (w3-w2) 
 
 
         self.gpu_matvec_v2( m, k, bras, oket, vec_table, inv, op_t = False)
@@ -727,39 +711,27 @@ class HamS2OvlpOperators (HamS2Ovlp):
             self.gpu_matvec_v2( m, k, braHs, obra, vec_table, inv, op_t = True)
         return
 
-
     def gpu_matvec_v2(self, m, k, bras, oci, vec_table, inv, op_t = False):
-        #m, k = op.shape #m,k gemm
-        #STEP 3 Part 2
-        #libgpu.push_op(gpu, np.ascontiguousarray(op), m, k, len(bras)) #inits and pushes on all devices
 
         t0, w0 = logger.process_clock (), logger.perf_counter ()
         from mrh.my_pyscf.gpu import libgpu
         gpu = param.use_gpu
 
-        #spec = np.ones (self.nfrags, dtype=bool)
-        #for i in inv: spec[i] = False
-        #spec = np.where (spec)[0]
+        spec = np.ones (self.nfrags, dtype=bool)
+        for i in inv: spec[i] = False
+        spec = np.where (spec)[0]
 
         #STEP 4 
-        for idx, bra in enumerate(bras):
-            #n = np.prod(self.lroots[spec, bra])
-            vec_loc, vec_size = vec_table[self.ox_ovlp_urootstr(bra, oci, inv)]
+        for bra in bras:
+            n = np.prod(self.lroots[spec, bra])
+            vec_loc = vec_table[self.ox_ovlp_urootstr(bra, oci, inv)]
             ox1_loc, _, fac = self.get_ox1_params(bra, *inv)
-            self.instruction_list[idx] = vec_loc, vec_size, ox1_loc, fac
+            libgpu.compute_sivecs_full_v3(gpu, m, k, n, vec_loc, ox1_loc, fac, op_t)
         t1, w1 = logger.process_clock (), logger.perf_counter ()
-        self.dt_gpu_make_list += (t1-t0)
-        self.dw_gpu_make_list += (w1-w0)
-        libgpu.push_instruction_list(gpu, self.instruction_list, len(bras))
-        t2, w2 = logger.process_clock (), logger.perf_counter ()
-        self.dt_gpu_push_list += (t2-t1)
-        self.dw_gpu_push_list += (w2-w1)
-        #STEP 5
-        libgpu.compute_sivecs_full_v2(gpu, m, k, len(bras), op_t)
-        t3, w3 = logger.process_clock (), logger.perf_counter ()
-        self.dt_gpu_compute += (t3-t2)
-        self.dw_gpu_compute += (w3-w2)
+        self.dt_gpu_compute += (t1-t0)
+        self.dw_gpu_compute += (w1-w0)
         return 
+
     
     def ox_ovlp_urootstr (self, bra, ket, inv):
         '''Find the urootstr corresponding to the action of the overlap part of an operator

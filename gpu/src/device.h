@@ -222,6 +222,7 @@ public :
   void compute_sivecs(int, int, int); 
   void compute_sivecs_full(int, int, int, int); 
   void compute_sivecs_full_v2(int, int, int, int); 
+  void compute_sivecs_full_v3(int, int, int, int, int, int, int); 
   void print_sivecs(int, int);
   void pull_sivecs_from_pinned(py::array_t<double>, int, int, int);
   void add_ox1_pinned(py::array_t<double>, int);
