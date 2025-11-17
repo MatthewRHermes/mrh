@@ -1,6 +1,7 @@
 import sys
 import numpy as np
 import functools
+import itertools
 from scipy.sparse import linalg as sparse_linalg
 from scipy import linalg
 from pyscf.scf.addons import canonical_orth_
@@ -78,7 +79,7 @@ def get_orth_basis (ci_fr, norb_f, nelec_frs, _get_ovlp=None, smult_fr=None):
             else:
                 north += ovlp.shape[0] * num_m_blocks
                 xmat = None
-            manifolds.append (RootspaceManifold (nprods_r, n_str, s_str, m_strs, m_blocks, xmat))
+            manifolds.append (RootspaceManifold (norb_f, nprods_r, n_str, s_str, m_strs, m_blocks, xmat))
             ovlp = None
 
     _get_ovlp = None
@@ -100,7 +101,8 @@ def get_nbytes (obj):
 
 class RootspaceManifold:
     get_nbytes = get_nbytes
-    def __init__(self, nprods_r, n_str, s_str, m_strs, m_blocks, xmat):
+    def __init__(self, norb_f, nprods_r, n_str, s_str, m_strs, m_blocks, xmat):
+        self.norb_f = norb_f
         self.n_str = n_str
         self.s_str = s_str
         self.m_strs = m_strs
@@ -328,6 +330,53 @@ class OrthBasis (OrthBasisBase):
                     rawarr[mirror] = np.tensordot (xmat.conj (), ortharr[i:j], axes=1)
         return rawarr
 
+def get_spincoup_bases (norb_f, nelec_f, spins_f, smults_f, smult_lsf):
+    from mrh.my_pyscf.lassi.spaces import SingleLASRootspace
+    spins_f = nelec_fs[:,0] - nelec_fs[:,1]
+    space = SingleLASRootspace (None, spins_f, smults_f, np.zeros_like (smults_f), None,
+                                nlas=norb_f, nelelas=nelec_f, verbose=0, stdout=0)
+    spins_table = space.make_spin_shuffle_table ()
+    smult_table = space.make_smult_shuffle_table (smult_lsf)
+    return spins_table, smult_table
 
+def make_s2mat (smults_f, spins_table):
+    nfrags, nbas = spins_table.shape
+    s = (smults_f - 1) / 2
+    s2mat = (s * (s + 1)).sum () * np.eye (nbas, dtype=float)
+    for i, m2 in enumerate (spins_table.T):
+        s2mat[i,i] += 0.25 * ((m2[None,:] * m2[:,None]).sum () - np.dot (m2, m2))
+    m2 = spins_table.T
+    m = m2 * .5
+    s = s[None,:]
+    cg = np.sqrt ((s-m+1)*(s+m))
+    for i, j in itertools.combinations (range (nbas), 2):
+        dm2 = m2[i] - m2[j]
+        if np.count_nonzero (dm2) > 2: continue
+        if dm2.sum () != 0: continue
+        ifrag = np.where (dm2==2)[0][0]
+        jfrag = np.where (dm2==-2)[0][0]
+        s2mat[i,j] += 0.5 * cg[i,ifrag] * cg[j,jfrag]
+        s2mat[j,i] += 0.5 * cg[i,ifrag] * cg[j,jfrag]
+    return s2mat
 
+def get_spincoup_umat (smults_f, spins_table, smult_table):
+    from sympy import S
+    from sympy.physics.quantum.cg import CG
+    gencoup_table = np.cumsum (smult_table, axis=1)
+    spinsum_table = np.cumsum (spins_table, axis=1)
+    nfrags = len (smults_f)
+    nunc = spins_table.shape[1]
+    nlsf = smults_table.shape[1]
+    umat = np.ones ((nunc, nlsf), dtype=float)
+    for i in range (1,nfrags):
+        si = S(int(smults_f[i])-1)/2
+        for j in range (nlsf):
+            s0 = S(int(gencoup_table[i-1,j]))/2
+            m0 = S(int(spinsum_table[i-1,j]))/2
+            s1 = S(int(gencoup_table[i,j]))/2
+            m1 = S(int(spinsum_table[i,j]))/2
+            for k in range (nlsf):
+                mi = S(int(spins_table[i,k]))/2
+                umat[j,k] *= float (CG (s0,m0,si,mi,s1,m1).doit ())
+    return umat
 
