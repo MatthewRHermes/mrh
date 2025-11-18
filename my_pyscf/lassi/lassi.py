@@ -386,7 +386,7 @@ def _eig_block_Davidson (las, e0, h1, h2, ci_blk, nelec_blk, smult_blk, soc, opt
     # si0
     # nroots_si
     # level_shift
-    log = lib.logger.new_logger (las, las.verbose)
+    log = lib.logger.new_logger (las, lib.logger.DEBUG)
     si0 = getattr (las, 'si', None)
     level_shift = getattr (las, 'level_shift_si', LEVEL_SHIFT_SI)
     nroots_si = getattr (las, 'nroots_si', NROOTS_SI)
