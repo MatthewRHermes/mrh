@@ -270,6 +270,8 @@ class HamS2OvlpOperators (HamS2Ovlp):
         self.dw_oXn = [0.0, 0.0, 0.0, 0.0]
         self.dt_non_uniq_exc, self.dw_non_uniq_exc = 0.0, 0.0
         self.dt_op_reduce, self.dw_op_reduce = 0.0, 0.0
+        self.dt_compute_4frag, self.dw_compute_4frag = 0.0, 0.0
+        self.dt_compute_3frag, self.dw_compute_3frag = 0.0, 0.0
 
         use_gpu = getattr (param, 'use_gpu', False)
         if use_gpu:
@@ -308,6 +310,9 @@ class HamS2OvlpOperators (HamS2Ovlp):
         profile += '\n' + 'opX setup'
         profile += '\n' + fmt_str.format ('~uniq_exc',self.dt_non_uniq_exc, self.dw_non_uniq_exc )
         profile += '\n' + fmt_str.format ('op_reduce',self.dt_op_reduce, self.dw_op_reduce )
+        profile += '\n' + 'opX compute'
+        profile += '\n' + fmt_str.format ('comp_3fr',self.dt_compute_3frag, self.dw_compute_3frag )
+        profile += '\n' + fmt_str.format ('comp_4fr',self.dt_compute_4frag, self.dw_compute_4frag )
         profile += '\n' + 'opX 4-fragment components:'
         profile += '\n' + fmt_str.format ('4f_o', self.dt_4fo, self.dw_4fo)
         profile += '\n' + fmt_str.format ('4f_r', self.dt_4fr, self.dw_4fr)
@@ -564,11 +569,11 @@ class HamS2OvlpOperators (HamS2Ovlp):
                   # 4-fragment case is still running on cpu
                   _opuniq_x(op, key[0], key[1], vecs, *key[2:]) #4 fragment  
         #STEP 6
-        t0, w0 = logger.process_clock (), logger.perf_counter ()
+        t3, w3 = logger.process_clock (), logger.perf_counter ()
         libgpu.finalize_ox1_pinned(gpu, ox_final, self.nstates) 
-        t1, w1 = logger.process_clock (), logger.perf_counter ()
-        self.dt_gpu_pull_final += (t1-t0)
-        self.dw_gpu_pull_final += (w1-w0)
+        t4, w4 = logger.process_clock (), logger.perf_counter ()
+        self.dt_gpu_pull_final += (t4-t3)
+        self.dw_gpu_pull_final += (w4-w3)
 
         return
 
@@ -593,6 +598,13 @@ class HamS2OvlpOperators (HamS2Ovlp):
             vec = ovecs[self.ox_ovlp_urootstr (bra, oket, inv)]
             self.put_ox1_(op.dot (vec.T).ravel (), bra, *inv)
             self._profile_4frag_(op)
+        t3, w3 = logger.process_clock (), logger.perf_counter ()
+        if len (set (inv)) == 4:
+            self.dt_compute_4frag += (t3-t2)
+            self.dw_compute_4frag += (w3-w2)
+        else:
+            self.dt_compute_3frag += (t3-t2)
+            self.dw_compute_3frag += (w3-w2)
         if len (braHs):
             t0, w0 = logger.process_clock (), logger.perf_counter ()
             op = op.conj ().T
@@ -606,6 +618,13 @@ class HamS2OvlpOperators (HamS2Ovlp):
                 vec = ovecs[self.ox_ovlp_urootstr (bra, obra, inv)]
                 self.put_ox1_(op.dot (vec.T).ravel (), bra, *inv)
                 self._profile_4frag_(op)
+            t2, w2 = logger.process_clock (), logger.perf_counter ()
+            if len (set (inv)) == 4:
+                self.dt_compute_4frag += (t2-t1)
+                self.dw_compute_4frag += (w2-w1)
+            else:
+                self.dt_compute_3frag += (t2-t1)
+                self.dw_compute_3frag += (w2-w1)
         return
     def _opuniq_x_debug(self, op, obra, oket, ovecs, *inv):
         '''Same as the above, except I need to update in another ox1 array in case I want to debug''' 
@@ -655,6 +674,9 @@ class HamS2OvlpOperators (HamS2Ovlp):
 
         if len (braHs):
             self.gpu_matvec_v2( m, k, braHs, obra, vec_table, inv, op_t = True)
+        t4, w4 = logger.process_clock (), logger.perf_counter ()
+        self.dt_compute_3frag += (t4-t2)
+        self.dw_compute_3frag += (w4-w2)
         return
 
     def gpu_matvec_v2(self, m, k, bras, oci, vec_table, inv, op_t = False):
