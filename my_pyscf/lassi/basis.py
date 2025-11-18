@@ -10,7 +10,7 @@ from mrh.my_pyscf.lassi.citools import get_unique_roots_with_spin
 
 LINDEP_THRESH = getattr (__config__, 'lassi_lindep_thresh', 1.0e-5)
 
-def get_orth_basis (ci_fr, norb_f, nelec_frs, _get_ovlp=None, smult_fr=None):
+def get_orth_basis (ci_fr, norb_f, nelec_frs, _get_ovlp=None, smult_fr=None, smult_si=None):
     '''Unitary matrix for an orthonormal product-state basis from a set of CI vectors.
 
     Args:
@@ -22,13 +22,18 @@ def get_orth_basis (ci_fr, norb_f, nelec_frs, _get_ovlp=None, smult_fr=None):
             Number of electrons in each fragment in each rootspace
 
     Kwargs:
+        smult_fr: ndarray of shape (nfrags,nroots) of int
+            Spin multiplicity in each fragment in each rootspace
+        smult_si: integer
+            Target spin multiplicity. If included, smult_fr is also required
         _get_ovlp: callable with kwarg rootidx
             Produce the overlap matrix between model states in a set of rootspaces,
             identified by ndarray or list "rootidx"
 
     Returns:
         raw2orth: LinearOperator of shape (north, nraw)
-            Apply to SI vector to transform from the primitive to the orthonormal basis
+            Apply to SI vector to transform from the primitive to the orthonormal basis.
+            The orthonormal basis is also spin-coupled if smult_si is provided.
     '''
     if _get_ovlp is None:
         from mrh.my_pyscf.lassi.op_o0 import get_ovlp
@@ -37,6 +42,8 @@ def get_orth_basis (ci_fr, norb_f, nelec_frs, _get_ovlp=None, smult_fr=None):
     tabulator = nelec_frs.sum (2)
     if smult_fr is not None:
         tabulator = np.append (tabulator, smult_fr, axis=0)
+    else:
+        assert (smult_si is None)
     unique, uniq_idx, inverse, cnts = np.unique (tabulator, axis=1, return_index=True,
                                                  return_inverse=True, return_counts=True)
     lroots_fr = np.array ([[1 if c.ndim<3 else c.shape[0]
@@ -63,6 +70,7 @@ def get_orth_basis (ci_fr, norb_f, nelec_frs, _get_ovlp=None, smult_fr=None):
         # iterate over spatial wave functions. I think that the length of this iteration
         # should be 1 if the model space is really spin-adapted; but in this function,
         # I don't want to require that
+        assert ((smult_si is None) or len (pm_strs) == 1)
         for m_blocks, m_strs in zip (pm_blocks, pm_strs):
             num_m_blocks = len (m_blocks)
             # iterate over m strings, but only to sanity check
@@ -79,12 +87,16 @@ def get_orth_basis (ci_fr, norb_f, nelec_frs, _get_ovlp=None, smult_fr=None):
             else:
                 north += ovlp.shape[0] * num_m_blocks
                 xmat = None
-            manifolds.append (RootspaceManifold (norb_f, nprods_r, n_str, s_str, m_strs, m_blocks, xmat))
+            manifolds.append (get_rootspace_manifold (norb_f, nprods_r, n_str, s_str, m_strs,
+                                                      m_blocks, xmat, smult_si=smult_si))
             ovlp = None
 
     _get_ovlp = None
 
-    return OrthBasis ((north,nraw), dtype, nprods_r, manifolds)
+    if smult_si is None:
+        return OrthBasis ((north,nraw), dtype, nprods_r, manifolds)
+    else:
+        return SpinCoupledOrthBasis ((north,nraw), dtype, nprods_r, manifolds)
 
 def get_nbytes (obj):
     def _get (x):
@@ -98,6 +110,12 @@ def get_nbytes (obj):
             return int (sys.getsizeof (x))
     nbytes = sum ([_get (x) for x in obj.__dict__.values ()])
     return nbytes
+
+def get_rootspace_manifold (norb_f, nprods_r, n_str, s_str, m_strs, m_blocks, xmat, smult_si=None):
+    if smult_si is None:
+        return RootspaceManifold (norb_f, nprods_r, n_str, s_str, m_strs, m_blocks, xmat)
+    else:
+        return SpinCoupledRootspaceManifold (norb_f, nprods_r, n_str, s_str, m_strs, m_blocks, xmat, smult_si)
 
 class RootspaceManifold:
     get_nbytes = get_nbytes
@@ -130,6 +148,17 @@ class RootspaceManifold:
             assert (offs1[-1] == xmat.shape[0])
         self.raw_shape = self.m_blocks.shape
         self.orth_shape = (self.raw_shape[0], xmat_shape_1)
+
+class SpinCoupledRootspaceManifold (RootspaceManifold):
+    def __init__(self, norb_f, nprods_r, n_str, s_str, m_strs, m_blocks, xmat, smult_si):
+        super().__init__(norb_f, nprods_r, n_str, s_str, m_strs, m_blocks, xmat)
+        spin_si = np.sum (self.m_strs[0])
+        spins_table, smult_table = get_spincoup_bases (self.s_str, spin_lsf=spin_si,
+                                                       smult_lsf=smult_si)
+        spins_table = [tuple (row) for row in spins_table]
+        idx = np.asarray ([spins_table.index (tuple (row)) for row in self.m_strs])
+        self.umat = get_spincoup_umat (self.s_str, spin_si, smult_si)[idx,:]
+        self.orth_shape = (self.umat.shape[1], self.orth_shape[1])
 
 def _get_spin_split_manifolds (ci_fr, norb_f, nelec_frs, smult_fr, lroots_fr, idx):
     '''The same as _get_spin_split_manifolds_idx, except that all of the arguments need to be
@@ -241,6 +270,7 @@ class OrthBasis (OrthBasisBase):
         for i, manifold in enumerate (manifolds):
             for j in range (manifold.orth_shape[0]):
                 self.nprods_orth.append (manifold.orth_shape[1])
+            for j in range (manifold.raw_shape[0]):
                 self.block_manifold_addr.append ([i,j])
             for j, m_block in enumerate (manifold.m_blocks):
                 # common m string: a "block"
@@ -328,6 +358,53 @@ class OrthBasis (OrthBasisBase):
                     i, j = self.offs_orth[p]
                     p += 1
                     rawarr[mirror] = np.tensordot (xmat.conj (), ortharr[i:j], axes=1)
+        return rawarr
+
+class SpinCoupledOrthBasis (OrthBasis):
+    def _matvec (self, rawarr):
+        is_out_complex = (self.dtype==np.complex128) or np.iscomplexobj (rawarr)
+        my_dtype = np.complex128 if is_out_complex else np.float64
+        col_shape = rawarr.shape[1:]
+        orth_shape = [self.shape[0],] + list (col_shape)
+        ortharr = np.zeros (orth_shape, dtype=my_dtype)
+        i = 0
+        for manifold in self.manifolds:
+            prod_idx = manifold.prod_idx
+            xmat = manifold.xmat
+            umat = manifold.xmat
+            uxarr = np.stack ([rawarr[mirror] for mirror in prod_idx], axis=0)
+            if xmat is not None:
+                uxarr = np.tensordot (xmat, uxarr, axes=((0),(1)))
+                uxarr = np.moveaxis (uxarr, 0, 1)
+            uxarr = np.tensordot (umat.T, xarr, axes=1)
+            ux_rows = np.prod (manifold.orth_shape)
+            uxarr = uxarr.reshape ([ux_rows,] + list (col_shape))
+            j = i + ux_rows
+            ortharr[i:j] = uxarr[:]
+            i = j
+        return ortharr
+
+    def _rmatvec (self, ortharr):
+        is_out_complex = (self.dtype==np.complex128) or np.iscomplexobj (ortharr)
+        my_dtype = np.complex128 if is_out_complex else np.float64
+        col_shape = ortharr.shape[1:]
+        raw_shape = [self.shape[1],] + list (col_shape)
+        rawarr = np.zeros (raw_shape, dtype=my_dtype)
+        i = 0
+        for manifold in self.manifolds:
+            prod_idx = manifold.prod_idx
+            xmat = manifold.xmat
+            umat = manifold.umat
+            ux_rows = np.prod (manifold.orth_shape)
+            j = i + ux_rows
+            uxarr = ortharr[i:j].reshape (list (manifold.orth_shape) + list (col_shape))
+            i = j
+            uxarr = np.tensordot (umat, uxarr, axes=1)
+            if xmat is not None:
+                uxarr = np.tensordot (xmat.conj (), uxarr, axes=((1),(1)))
+                uxarr = np.moveaxis (uxarr, 0, 1)
+            for mirror, xarr in zip (prod_idx, uxarr):
+                rawarr[mirror] = xarr
         return rawarr
 
 def get_spincoup_bases (smults_f, spin_lsf=None, smult_lsf=None):
