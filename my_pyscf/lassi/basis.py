@@ -83,12 +83,11 @@ def get_orth_basis (ci_fr, norb_f, nelec_frs, _get_ovlp=None, smult_fr=None, smu
             if err_from_diag > 1e-8:
                 ovlp[np.diag_indices_from (ovlp)] += 1.0
                 xmat = canonical_orth_(ovlp, thr=LINDEP_THRESH)
-                north += xmat.shape[1] * num_m_blocks
             else:
-                north += ovlp.shape[0] * num_m_blocks
                 xmat = None
             manifolds.append (get_rootspace_manifold (norb_f, nprods_r, n_str, s_str, m_strs,
                                                       m_blocks, xmat, smult_si=smult_si))
+            north += np.prod (manifolds[-1].orth_shape)
             ovlp = None
 
     _get_ovlp = None
@@ -371,12 +370,12 @@ class SpinCoupledOrthBasis (OrthBasis):
         for manifold in self.manifolds:
             prod_idx = manifold.prod_idx
             xmat = manifold.xmat
-            umat = manifold.xmat
+            umat = manifold.umat
             uxarr = np.stack ([rawarr[mirror] for mirror in prod_idx], axis=0)
             if xmat is not None:
                 uxarr = np.tensordot (xmat, uxarr, axes=((0),(1)))
                 uxarr = np.moveaxis (uxarr, 0, 1)
-            uxarr = np.tensordot (umat.T, xarr, axes=1)
+            uxarr = np.tensordot (umat.T, uxarr, axes=1)
             ux_rows = np.prod (manifold.orth_shape)
             uxarr = uxarr.reshape ([ux_rows,] + list (col_shape))
             j = i + ux_rows

@@ -35,6 +35,7 @@ def setUpModule():
     ovlp0 = op_o0.get_ovlp (ci, norb_f, nelec_frs)
     raw2orth_fullspin = basis.get_orth_basis (ci, norb_f, nelec_frs, smult_fr=smult_fr)
     raw2orth_nospin = basis.get_orth_basis (ci, norb_f, nelec_frs)
+    raw2orth_singlet = basis.get_orth_basis (ci, norb_f, nelec_frs, smult_fr=smult_fr, smult_si=1)
     ci1 = [[ci_ij for ci_ij in ci_i] for ci_i in ci]
     for i in range (2):
         for j in range (2+4*i,4+4*i):
@@ -44,7 +45,8 @@ def setUpModule():
     raw2orth_semispin = basis.get_orth_basis (ci1, norb_f, nelec_frs, smult_fr=smult_fr)
     orth_bases = {'no spin': (ovlp0, raw2orth_nospin),
                   'semi-spin': (ovlp1, raw2orth_semispin),
-                  'full spin': (ovlp0, raw2orth_fullspin)}
+                  'full spin': (ovlp0, raw2orth_fullspin),
+                  'singlet': (ovlp0, raw2orth_singlet)}
     mol = gto.M (verbose=0, output='/dev/null')
     las = LASSCF (mol, norb_f, norb_f)
     rng = np.random.default_rng ()
