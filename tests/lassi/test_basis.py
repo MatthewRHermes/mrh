@@ -1,14 +1,11 @@
-import copy
 import unittest
 import numpy as np
 from scipy import linalg
 from mrh.my_pyscf.mcscf.lasscf_sync_o0 import LASSCF
-from mrh.my_pyscf.lassi import citools, op_o0, op_o1, basis
+from mrh.my_pyscf.lassi import op_o0, op_o1, basis
 from mrh.my_pyscf.fci.spin_op import mdown
-from pyscf import lib, gto, ao2mo
-from pyscf.scf.addons import canonical_orth_
+from pyscf import lib, gto
 from pyscf.csf_fci.csfstring import CSFTransformer
-import itertools
 
 op = (op_o0, op_o1)
 
