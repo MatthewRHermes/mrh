@@ -240,6 +240,12 @@ class SingleLASRootspace (object):
             spins_gencoup = spins_gencoup[idx_valid,:]
             assert (np.all (spins_gencoup[:,-1] >= smult_lsf-1))
         assert (np.all (spins_gencoup[:,-1] == smult_lsf-1))
+        # Minimum goes in both directions
+        for i in range (self.nfrag-1):
+            s2min = ((self.smults[i+1]-1)-spins_gencoup[:,i])
+            idx = spins_gencoup[:,i+1]>=s2min
+            spins_table = spins_table[idx]
+            spins_gencoup = spins_gencoup[idx]
         return spins_table
 
     def gen_spin_shuffles (self, spins_table=None):

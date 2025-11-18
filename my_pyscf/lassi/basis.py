@@ -347,7 +347,7 @@ def get_spincoup_bases (smults_f, spin_lsf=None, smult_lsf=None):
         assert (dspin >= 0)
         dspin = (dspin // 2) * 2
         spins_f[ifrag] -= dspin
-    assert (spins_f.sum () + 1 == smult_lsf)
+    assert (spins_f.sum () == spin_lsf)
     assert (np.all (np.abs (spins_f)<smults_f))
     assert (np.all (np.divmod (spins_f, 2)[1] == np.divmod (smults_f-1, 2)[1]))
     space = SingleLASRootspace (None, spins_f, smults_f, np.zeros_like (smults_f), None,
@@ -385,18 +385,21 @@ def get_spincoup_umat (smults_f, spin_lsf, smult_lsf):
     gencoup_table = np.cumsum (smult_table, axis=1)
     spinsum_table = np.cumsum (spins_table, axis=1)
     nfrags = len (smults_f)
-    nunc = spins_table.shape[1]
-    nlsf = smults_table.shape[1]
+    nunc = spins_table.shape[0]
+    nlsf = smult_table.shape[0]
     umat = np.ones ((nunc, nlsf), dtype=float)
     for i in range (1,nfrags):
         si = S(int(smults_f[i])-1)/2
-        for j in range (nlsf):
-            s0 = S(int(gencoup_table[i-1,j]))/2
-            m0 = S(int(spinsum_table[i-1,j]))/2
-            s1 = S(int(gencoup_table[i,j]))/2
-            m1 = S(int(spinsum_table[i,j]))/2
+        for j in range (nunc):
+            m0 = S(int(spinsum_table[j,i-1]))/2
+            m1 = S(int(spinsum_table[j,i]))/2
+            mi = S(int(spins_table[j,i]))/2
+            assert (abs (mi) <= si)
             for k in range (nlsf):
-                mi = S(int(spins_table[i,k]))/2
+                s0 = S(int(gencoup_table[k,i-1]))/2
+                s1 = S(int(gencoup_table[k,i]))/2
+                assert ((s0 + si) >= s1)
+                assert ((m0 + mi) == m1)
                 umat[j,k] *= float (CG (s0,m0,si,mi,s1,m1).doit ())
     return umat
 
