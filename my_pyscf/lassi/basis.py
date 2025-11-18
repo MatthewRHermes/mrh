@@ -374,8 +374,8 @@ def make_s2mat (smults_f, spin_lsf):
         if np.abs (dm2).sum () != 4: continue
         ifrag = np.where (dm2==2)[0][0]
         jfrag = np.where (dm2==-2)[0][0]
-        s2mat[i,j] += 0.5 * cg[i,ifrag] * cg[j,jfrag]
-        s2mat[j,i] += 0.5 * cg[i,ifrag] * cg[j,jfrag]
+        s2mat[i,j] += cg[i,ifrag] * cg[j,jfrag]
+        s2mat[j,i] += cg[i,ifrag] * cg[j,jfrag]
     return s2mat
 
 def get_spincoup_umat (smults_f, spin_lsf, smult_lsf):
