@@ -11,7 +11,7 @@ import itertools
 op = (op_o0, op_o1)
 
 def setUpModule():
-    global rng, orth_bases, ham_raw, h_op_raw, hdiag_raw
+    global rng, orth_bases, ham_raw, h_op_raw, s2_op_raw, hdiag_raw
     norb_f = np.array ([4,4])
     nelec_frs = np.array ([[[2,2],[2,2],[3,1],[3,1],[2,2],[2,2],[1,3],[1,3]],
                            [[2,2],[2,2],[1,3],[1,3],[2,2],[2,2],[3,1],[3,1]]])
@@ -60,11 +60,12 @@ def setUpModule():
     ops = [op[opt].gen_contract_op_si_hdiag (las, h1, h2, ci, nelec_frs, smult_fr=smult_fr)
            for opt in (0,1)]
     h_op_raw = [ops[0][0], ops[1][0]]
+    s2_op_raw = [ops[0][1], ops[1][1]]
     hdiag_raw = [ops[0][3], ops[1][3]]
 
 def tearDownModule():
-    global rng, orth_bases, ham_raw, h_op_raw, hdiag_raw
-    del rng, orth_bases, ham_raw, h_op_raw, hdiag_raw
+    global rng, orth_bases, ham_raw, h_op_raw, s2_op_raw, hdiag_raw
+    del rng, orth_bases, ham_raw, h_op_raw, s2_op_raw, hdiag_raw
 
 def random_orthrows (nrows, ncols):
     x = 2 * np.random.rand (nrows, ncols) - 1
@@ -104,6 +105,13 @@ class KnownValues(unittest.TestCase):
                 r1 = raw2orth.H (o1)
                 self.assertAlmostEqual (r1.dot (ovlp @ r1), 1.0)
                 # TODO: understand why I can't go back and forth
+
+    def test_singlet_basis (self):
+        raw2orth = orth_bases['singlet'][1]
+        si = raw2orth.H (random_orthrows (2, raw2orth.shape[0]).T)
+        for s2_op in s2_op_raw:
+            mat = si.conj ().T @ s2_op (si)
+            self.assertLess (np.amax (np.abs (mat)), 1e-6)
 
     def case_hdiag_orth (self, raw2orth, opt):
         ham_orth = raw2orth (ham_raw.T).T
