@@ -330,22 +330,40 @@ class OrthBasis (OrthBasisBase):
                     rawarr[mirror] = np.tensordot (xmat.conj (), ortharr[i:j], axes=1)
         return rawarr
 
-def get_spincoup_bases (norb_f, nelec_f, spins_f, smults_f, smult_lsf):
+def get_spincoup_bases (smults_f, spin_lsf=None, smult_lsf=None):
     from mrh.my_pyscf.lassi.spaces import SingleLASRootspace
-    spins_f = nelec_fs[:,0] - nelec_fs[:,1]
+    norb_f = np.zeros_like (smults_f)
+    nelec_f = np.zeros_like (smults_f)
+    spins_f = smults_f-1
+    if (spin_lsf is None) and (smult_lsf is None):
+        smult_lsf = spins_f.sum () + 1
+        spin_lsf = smult_lsf - 1
+    elif spin_lsf is None:
+        spin_lsf = smult_lsf - 1
+    elif smult_lsf is None:
+        smult_lsf = spin_lsf + 1
+    for ifrag in range (len (smults_f)):
+        dspin = min (spins_f.sum()-spin_lsf, 2*(smults_f[ifrag]-1))
+        assert (dspin >= 0)
+        dspin = (dspin // 2) * 2
+        spins_f[ifrag] -= dspin
+    assert (spins_f.sum () + 1 == smult_lsf)
+    assert (np.all (np.abs (spins_f)<smults_f))
+    assert (np.all (np.divmod (spins_f, 2)[1] == np.divmod (smults_f-1, 2)[1]))
     space = SingleLASRootspace (None, spins_f, smults_f, np.zeros_like (smults_f), None,
-                                nlas=norb_f, nelelas=nelec_f, verbose=0, stdout=0)
+                                nlas=norb_f, nelelas=nelec_f, verbose=0, stdout=0, fragsym=0)
     spins_table = space.make_spin_shuffle_table ()
     smult_table = space.make_smult_shuffle_table (smult_lsf)
     return spins_table, smult_table
 
-def make_s2mat (smults_f, spins_table):
-    nfrags, nbas = spins_table.shape
+def make_s2mat (smults_f, spin_lsf):
+    spins_table = get_spincoup_bases (smults_f, spin_lsf=spin_lsf)[0]
+    nbas, nfrags = spins_table.shape
     s = (smults_f - 1) / 2
     s2mat = (s * (s + 1)).sum () * np.eye (nbas, dtype=float)
-    for i, m2 in enumerate (spins_table.T):
+    for i, m2 in enumerate (spins_table):
         s2mat[i,i] += 0.25 * ((m2[None,:] * m2[:,None]).sum () - np.dot (m2, m2))
-    m2 = spins_table.T
+    m2 = spins_table
     m = m2 * .5
     s = s[None,:]
     cg = np.sqrt ((s-m+1)*(s+m))
@@ -353,13 +371,15 @@ def make_s2mat (smults_f, spins_table):
         dm2 = m2[i] - m2[j]
         if np.count_nonzero (dm2) > 2: continue
         if dm2.sum () != 0: continue
+        if np.abs (dm2).sum () != 4: continue
         ifrag = np.where (dm2==2)[0][0]
         jfrag = np.where (dm2==-2)[0][0]
         s2mat[i,j] += 0.5 * cg[i,ifrag] * cg[j,jfrag]
         s2mat[j,i] += 0.5 * cg[i,ifrag] * cg[j,jfrag]
     return s2mat
 
-def get_spincoup_umat (smults_f, spins_table, smult_table):
+def get_spincoup_umat (smults_f, spin_lsf, smult_lsf):
+    spins_table, smult_table = get_spincoup_bases (smults_f, spin_lsf=spin_lsf, smult_lsf=smult_lsf)
     from sympy import S
     from sympy.physics.quantum.cg import CG
     gencoup_table = np.cumsum (smult_table, axis=1)
