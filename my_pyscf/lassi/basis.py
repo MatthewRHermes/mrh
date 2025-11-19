@@ -7,6 +7,7 @@ from scipy import linalg
 from pyscf.scf.addons import canonical_orth_
 from pyscf import __config__, lib
 from mrh.my_pyscf.lassi.citools import get_unique_roots_with_spin
+from mrh.my_pyscf.lassi.op_o1.utilities import fermion_spin_shuffle
 
 LINDEP_THRESH = getattr (__config__, 'lassi_lindep_thresh', 1.0e-5)
 
@@ -157,6 +158,10 @@ class SpinCoupledRootspaceManifold (RootspaceManifold):
         spins_table = [tuple (row) for row in spins_table]
         idx = np.asarray ([spins_table.index (tuple (row)) for row in self.m_strs])
         self.umat = get_spincoup_umat (self.s_str, spin_si, smult_si)[idx,:]
+        for i, m_str in enumerate (self.m_strs):
+            na = (self.n_str + m_str) // 2
+            nb = (self.n_str - m_str) // 2
+            self.umat[i,:] *= fermion_spin_shuffle (na, nb)
         self.orth_shape = (self.umat.shape[1], self.orth_shape[1])
 
 def _get_spin_split_manifolds (ci_fr, norb_f, nelec_frs, smult_fr, lroots_fr, idx):
