@@ -216,7 +216,7 @@ def _get_spin_split_manifolds_idx (ci_fr, norb_f, nelec_frs, smult_fr, lroots_fr
 
 class OrthBasisBase (sparse_linalg.LinearOperator):
     get_nbytes = get_nbytes
-    def same_block (self, i, j):
+    def roots_coupled_in_hdiag (self, i, j):
         return self.roots2blks (i) == self.roots2blks (j)
 
 class NullOrthBasis (OrthBasisBase):
@@ -251,6 +251,8 @@ class NullOrthBasis (OrthBasisBase):
     def roots2blks (self, roots):
         return roots
 
+    def roots2mans (self, roots):
+        return roots
 
 class OrthBasis (OrthBasisBase):
     def __init__(self, shape, dtype, nprods_r, manifolds):
@@ -297,6 +299,9 @@ class OrthBasis (OrthBasisBase):
 
     def roots2blks (self, roots):
         return self.root_block_addr[:,0][roots]
+
+    def roots2mans (self, roots):
+        return self.block_manifold_addr[:,0][self.roots2blks (roots)]
 
     def split_addrs_by_blocks (self, addrs):
         blks = np.searchsorted (self.offs_orth[:,0], addrs, side='right')-1
@@ -365,6 +370,9 @@ class OrthBasis (OrthBasisBase):
         return rawarr
 
 class SpinCoupledOrthBasis (OrthBasis):
+    def roots_coupled_in_hdiag (self, i, j):
+        return self.roots2mans (i) == self.roots2mans (j)
+
     def _matvec (self, rawarr):
         is_out_complex = (self.dtype==np.complex128) or np.iscomplexobj (rawarr)
         my_dtype = np.complex128 if is_out_complex else np.float64

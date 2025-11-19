@@ -54,7 +54,13 @@ class OpTermBase:
     def spincase_fprint (self, i):
         bra, ket = self.spincase_keys[i][:2]
         brastr = [inti.uroot_idx[bra] for inti in self.ints]
-        ketstr = [inti.uroot_idx[bra] for inti in self.ints]
+        ketstr = [inti.uroot_idx[ket] for inti in self.ints]
+        return brastr, ketstr
+
+    def spincase_mstrs (self, key):
+        bra, ket = key[:2]
+        brastr = tuple ([inti.spins_r[bra] for inti in self.ints])
+        ketstr = tuple ([inti.spins_r[ket] for inti in self.ints])
         return brastr, ketstr
 
     def fprint (self):

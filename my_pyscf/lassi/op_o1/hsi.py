@@ -750,25 +750,24 @@ class HamS2OvlpOperators (HamS2Ovlp):
         self._fdm_vec_getter = getter
         for inv, group in self.optermgroups_h.items (): 
             for op in group.ops:
-                op1 = {(key[0], key[1]): opterm.reduce_spin (op, key[0], key[1]).ravel ()
+                op1 = {op.spincase_mstrs (key)[1]: opterm.reduce_spin (op, key[0], key[1]).ravel ()
                        for key in op.spincase_keys}
-                itertable = self.hdiag_orth_getiter (raw2orth, op.spincase_keys)
+                itertable = self.hdiag_orth_getiter (raw2orth, op)
                 for braket_tab, mblock_table in itertable:
                     fdm = self.get_hdiag_fdm (braket_tab, *inv)
-                    for (key0, key1), (p, q) in mblock_table:
-                        op2 = op1[(key0,key1)]
+                    for mstr, (p, q) in mblock_table:
+                        op2 = op1[mstr]
                         fdm = fdm.reshape (q-p, op2.size)
                         self.ox[p:q] += np.dot (fdm, op2 + op2.conj ())
         return self.ox[:raw2orth.shape[0]].copy ()
 
-    def hdiag_orth_getiter (self, raw2orth, spincase_keys):
+    def hdiag_orth_getiter (self, raw2orth, op):
         r'''Inverting a bunch of lookup tables, in order to help get the diagonal elements of the
         Hamiltonian in OrthBasis.
 
         Args:
             raw2orth : instance of :class: OrthBasis or NullOrthBasis
-            spincase_keys : list of lists of integers
-                Keys for self.nonuniq_exc
+            op : instance of :class: OpTerm
 
         Returns:
             itertable : list
@@ -776,14 +775,16 @@ class HamS2OvlpOperators (HamS2Ovlp):
                 self.nonuniq_exc[key] truncated to a given (N,S) block of states. The FDMs
                 for various (N,S,M) blocks within this (N,S) block are all the same, so 
                 only one (N,S,M) block is represented. mblock_table is a list whose elements
-                are ((key[0],key[1]), (p,q)), where p,q are the index offsets for a given
-                (N,S,M) block and ((key[0],key[1])) identifies the M case of the corresponding
-                operator as inferred from the elements of spincase_keys
+                are (mstr, (p,q)), where p,q are the index offsets for a given
+                (N,S,M) block and mstr identifies the M case of the corresponding
+                operator in the inv block
         '''
+        spincase_keys = op.spincase_keys
         braket_tabs = {}
         mblocks = {}
         for key in spincase_keys:
-            my_braket_tabs, my_mblocks = self.hdiag_orth_getiter_1key (raw2orth, key)
+            mstr = op.spincase_mstrs (key)[1]
+            my_braket_tabs, my_mblocks = self.hdiag_orth_getiter_1key (raw2orth, key, mstr)
             # overwrite braket_tab, because it should always be the same for the same sblock
             braket_tabs.update (my_braket_tabs)
             # append because I think the dict keys here can collide
@@ -795,7 +796,7 @@ class HamS2OvlpOperators (HamS2Ovlp):
             itertable.append ((braket_tabs[sblock], mblocks[sblock]))
         return itertable
 
-    def hdiag_orth_getiter_1key (self, raw2orth, key):
+    def hdiag_orth_getiter_1key (self, raw2orth, key, mstr):
         r'''Inverting a bunch of lookup tables, in order to help get the diagonal elements of the
         Hamiltonian in OrthBasis.
 
@@ -811,12 +812,12 @@ class HamS2OvlpOperators (HamS2Ovlp):
                 "sblock" in which it lives (i.e., OrthBasis states sharing N and S string)
             mblocks : dict
                 For each "sblock" addressed by braket_tabs, the value is a list of tuples:
-                ((key[0],key[1]), (p,q))
+                (mstr, (p,q))
                 where p,q is the index range of a specific "mblock" (i.e., states sharing
                 N, S, and M strings) in OrthBasis
         '''
         tab = self.nonuniq_exc[key]
-        tab = [[bra, ket] for bra, ket in tab if raw2orth.same_block (bra, ket)]
+        tab = [[bra, ket] for bra, ket in tab if raw2orth.roots_coupled_in_hdiag (bra, ket)]
         tab = np.asarray (tab)
         braket_tabs = {}
         mblocks = {}
@@ -832,7 +833,7 @@ class HamS2OvlpOperators (HamS2Ovlp):
             assert (np.all (mans[idx,0]==sblock))
             braket_tabs[sblock] = tab[idx]
             mblock = mblocks.get (sblock, [])
-            mblock.append (((key[0], key[1]), raw2orth.offs_orth[p]))
+            mblock.append ((mstr, raw2orth.offs_orth[p]))
             mblocks[sblock] = mblock
         return braket_tabs, mblocks
 
