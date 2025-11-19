@@ -784,19 +784,20 @@ class HamS2OvlpOperators (HamS2Ovlp):
         mblocks = {}
         for key in spincase_keys:
             mstr = op.spincase_mstrs (key)[1]
-            my_braket_tabs, my_mblocks = self.hdiag_orth_getiter_1key (raw2orth, key, mstr)
+            my_braket_tabs, my_mblocks = self.hdiag_orth_getiter_1key (raw2orth, key)
             # overwrite braket_tab, because it should always be the same for the same sblock
             braket_tabs.update (my_braket_tabs)
             # append because I think the dict keys here can collide
             for sblock, mbl1 in my_mblocks.items ():
-                mblocks[sblock] = mblocks.get (sblock, []) + mbl1
+                mbl2 = [(mstr, offs) for offs in mbl1]
+                mblocks[sblock] = mblocks.get (sblock, []) + mbl2
         assert (len (braket_tabs.keys ()) == len (mblocks.keys ()))
         itertable = []
         for sblock in braket_tabs.keys ():
             itertable.append ((braket_tabs[sblock], mblocks[sblock]))
         return itertable
 
-    def hdiag_orth_getiter_1key (self, raw2orth, key, mstr):
+    def hdiag_orth_getiter_1key (self, raw2orth, key):
         r'''Inverting a bunch of lookup tables, in order to help get the diagonal elements of the
         Hamiltonian in OrthBasis.
 
@@ -812,8 +813,7 @@ class HamS2OvlpOperators (HamS2Ovlp):
                 "sblock" in which it lives (i.e., OrthBasis states sharing N and S string)
             mblocks : dict
                 For each "sblock" addressed by braket_tabs, the value is a list of tuples:
-                (mstr, (p,q))
-                where p,q is the index range of a specific "mblock" (i.e., states sharing
+                (p,q), the index range of a specific "mblock" (i.e., states sharing
                 N, S, and M strings) in OrthBasis
         '''
         tab = self.nonuniq_exc[key]
@@ -833,7 +833,7 @@ class HamS2OvlpOperators (HamS2Ovlp):
             assert (np.all (mans[idx,0]==sblock))
             braket_tabs[sblock] = tab[idx]
             mblock = mblocks.get (sblock, [])
-            mblock.append ((mstr, raw2orth.offs_orth[p]))
+            mblock.append (raw2orth.offs_orth[p])
             mblocks[sblock] = mblock
         return braket_tabs, mblocks
 
