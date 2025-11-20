@@ -34,6 +34,8 @@ def describe_orbitals(mol, mo, with_recommendation = False, avas_strings = None,
   assert mo.shape[0] == mol.nao, "size incorrect"
   if mo.shape[1] == mol.nao: ncore = 0
   else: ncore = 'ncore'
+
+  print(f"In:{mo.shape[1]} orbitals")
   print(f"This starts indexing from {ncore}")
   if with_recommendation: 
     if avas_strings is None: 
@@ -59,7 +61,7 @@ def describe_orbitals(mol, mo, with_recommendation = False, avas_strings = None,
      
     #TODO: 2. Make it a while loop with "popping" logic that removes orbitals that have the strings, but need a lot more work on that
     for m_orb, m_coeff in zip(major_orbs, major_coeffs):
-      line+=f'{m_orb} {round(m_coeff,3)}'
+      line+=f'{m_orb} {round(m_coeff,3)} '
     if with_recommendation:
       orb_to_be_added = 0
       for target_orbital in avas_strings:
@@ -67,7 +69,8 @@ def describe_orbitals(mol, mo, with_recommendation = False, avas_strings = None,
       if orb_to_be_added: recommendations.append(line)
       list_of_orbs.append(idx)
       
-    if with_recommendation is None: print(line)
+    #if with_recommendation is None: print(line)
+    #print(line)
   if with_recommendation:
     print(f"Total recommendations needed: {total_recommended_orbitals}, actual: {len(recommendations)}")
     print("This is my recommendation")
