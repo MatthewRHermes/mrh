@@ -218,11 +218,12 @@ public :
   void init_old_sivecs_host(int, int); 
   void push_sivecs_to_host(py::array_t<double>, int, int);
   void push_sivecs_to_device(py::array_t<double>, int, int, int);
+  void bcast_vec(int, int);
   void push_instruction_list(py::array_t<int>, int);
   void compute_sivecs(int, int, int); 
   void compute_sivecs_full(int, int, int, int); 
   void compute_sivecs_full_v2(int, int, int, int); 
-  void compute_sivecs_full_v3(int, int, int, int, int, int, int); 
+  void compute_sivecs_full_v3(int, int, int, int, int, int, int, int); 
   void print_sivecs(int, int);
   void pull_sivecs_from_pinned(py::array_t<double>, int, int, int);
   void add_ox1_pinned(py::array_t<double>, int);

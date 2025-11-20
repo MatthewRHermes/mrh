@@ -5484,7 +5484,6 @@ void Device::push_op(py::array_t<double> _op, int m, int k, int counts)
   #if defined(_ENABLE_P2P)
   counts = _MIN(counts, num_devices);
   std::vector<double *> op_vec(counts); // array of device addresses 
-
   for(int id=0; id<counts; ++id) {
     pm->dev_set_device(id);
     my_device_data * dd = &(device_data[id]);
@@ -5586,6 +5585,30 @@ void Device::push_sivecs_to_device(py::array_t<double> _vec, int loc, int size, 
   double t1 = omp_get_wtime();
   t_array[36] += t1-t0;
   count_array[26]++;
+}
+/* ---------------------------------------------------------------------- */
+void Device::bcast_vec(int size, int counts)
+{
+  double t0 = omp_get_wtime();
+  counts = _MIN(counts, num_devices);
+  std::vector<double *> vec_vec(counts); // array of device addresses 
+  for(int id=0; id<counts; ++id) {
+    pm->dev_set_device(id);
+    my_device_data * dd = &(device_data[id]);
+    vec_vec[id] = dd->d_buf2;}
+  //mgpu_bcast(vec_vec, op, _size_op*sizeof(double));
+  //not doing bcast directly because it copies from host to devices
+  for(int i=1; i<vec_vec.size(); ++i){
+    pm->dev_memcpy_peer(vec_vec[i], i, vec_vec[0], 0, size*sizeof(double));
+    }
+
+  for(int id=0; id<counts; ++id) {
+    pm->dev_set_device(id);
+    pm->dev_barrier();}
+  double t1 = omp_get_wtime();
+  t_array[33] += t1-t0;
+  count_array[23]++;
+
 }
 /* ---------------------------------------------------------------------- */
 void Device::push_instruction_list(py::array_t<int> _instruction_list, int len)
@@ -5792,10 +5815,10 @@ void Device::compute_sivecs_full_v2 (int _m, int _k, int counts, int op_t)
   count_array[27]++;
 }
 /* ---------------------------------------------------------------------- */
-void Device::compute_sivecs_full_v3 (int _m, int _k, int n, int vec_loc, int ox1_loc, int fac, int op_t)
+void Device::compute_sivecs_full_v3 (int _m, int _k, int n, int vec_loc, int ox1_loc, int fac, int op_t, int count)
 {
   double t0 = omp_get_wtime();
-  int device_id = 0, device_id_counter = 0;
+  int device_id = count%num_devices;
   double alpha, beta;
   
   int m, k, vec_size, ox1_size; 
@@ -5818,6 +5841,23 @@ void Device::compute_sivecs_full_v3 (int _m, int _k, int n, int vec_loc, int ox1
   result = &(dd->d_buf3[ox1_loc]);
   
   double * vec = &(dd->d_buf2[vec_loc]);
+
+  double * h_vec;
+  double * h_res;
+  #if 0
+  if (ox1_loc == 209){
+    printf("m: %i k: %i n: %i vec_loc: %i ox1_loc: %i device_id: %i\n",m,k,n,vec_loc, ox1_loc, device_id);
+    h_vec = (double*) pm->dev_malloc_host(k*n*sizeof(double));
+    h_res = (double*) pm->dev_malloc_host(m*n*sizeof(double));
+    pm->dev_pull_async(vec, h_vec, k*n*sizeof(double));
+    pm->dev_pull_async(result, h_res, m*n*sizeof(double));
+    pm->dev_barrier();
+    printf("vec\n");
+    for (int i=0;i<k*n;++i){printf("%f\t",h_vec[i]);}printf("\n");
+    printf("res\n");
+    for (int i=0;i<m*n;++i){printf("%f\t",h_res[i]);}printf("\n");
+    }
+  #endif
   if (op_t){
     ml->gemm((char *) "T", (char *) "T", 
          &n,&m,&k, 
@@ -5828,7 +5868,14 @@ void Device::compute_sivecs_full_v3 (int _m, int _k, int n, int vec_loc, int ox1
          &n,&m,&k, 
          &alpha, vec, &k, dd->d_buf1, &k,
          &beta, result, &n); }
- 
+  #if 0
+  if (ox1_loc == 209){
+    pm->dev_pull_async(result, h_res, m*n*sizeof(double));
+    pm->dev_barrier();
+    printf("res\n");
+    for (int i=0;i<m*n;++i){printf("%f\t",h_res[i]*100000);}printf("\n");
+    }
+  #endif
   pm->dev_profile_stop();
   double t1 = omp_get_wtime();
   t_array[37] += t1-t0;
@@ -5886,7 +5933,7 @@ void Device::finalize_ox1_pinned(py::array_t<double> _ox1, int size)
     ox1_vec[i] = dd->d_buf3;//results
     buf_vec[i] = dd->d_buf2;//buffer
     active[i] = dd->active;
-    ++count_active;
+    if (dd->active) ++count_active;
     }
   if (count_active){
     mgpu_reduce(ox1_vec, h_ox1, size, true, buf_vec, active);

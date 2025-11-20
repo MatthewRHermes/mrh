@@ -708,6 +708,12 @@ void libgpu_push_sivecs_to_device(void * ptr,
   dev->push_sivecs_to_device(vec, loc, size, count);
 }
 /* ---------------------------------------------------------------------- */
+void libgpu_bcast_vec(void * ptr, int size, int counts)
+{ 
+  Device * dev = (Device *) ptr;
+  dev->bcast_vec(size, counts);
+}
+/* ---------------------------------------------------------------------- */
 void libgpu_push_instruction_list(void * ptr, 
                                   py::array_t<int> instruction_list, int len)
 {
@@ -738,10 +744,10 @@ void libgpu_compute_sivecs_full_v2(void * ptr,
 }
 /* ---------------------------------------------------------------------- */
 void libgpu_compute_sivecs_full_v3(void * ptr, 
-                             int m, int k, int n, int vec_loc, int ox1_loc, int fac, int op_t)
+                             int m, int k, int n, int vec_loc, int ox1_loc, int fac, int op_t, int count)
 {
   Device * dev = (Device *) ptr;
-  dev->compute_sivecs_full_v3(m, k, n, vec_loc, ox1_loc, fac, op_t);
+  dev->compute_sivecs_full_v3(m, k, n, vec_loc, ox1_loc, fac, op_t, count);
 }
 /* ---------------------------------------------------------------------- */
 void libgpu_print_sivecs(void * ptr, int start, int size)
