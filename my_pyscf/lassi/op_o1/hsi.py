@@ -729,8 +729,7 @@ class HamS2OvlpOperators (HamS2Ovlp):
             vec_loc = vec_table[self.ox_ovlp_urootstr(bra, oci, inv)]
             ox1_loc, _, fac = self.get_ox1_params(bra, *inv)
             instruction_list[idx] = (n, vec_loc, ox1_loc, fac)
-        #for idx, (n, vec_loc, ox1_loc, fac) in enumerate(instruction_list):
-            #print(idx,n, vec_loc, ox1_loc, fac)
+        for idx, (n, vec_loc, ox1_loc, fac) in enumerate(instruction_list):
             libgpu.compute_sivecs_full_v3(gpu, m, k, n, vec_loc, ox1_loc, fac, op_t, idx)
         t1, w1 = logger.process_clock (), logger.perf_counter ()
         self.dt_gpu_compute += (t1-t0)
