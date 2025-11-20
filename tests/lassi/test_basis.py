@@ -134,11 +134,17 @@ class KnownValues(unittest.TestCase):
     def test_hdiag_orth_fullspin_o0 (self):
         self.case_hdiag_orth (orth_bases['full spin'][1], 0)
 
+    def test_hdiag_orth_singlet_o0 (self):
+        self.case_hdiag_orth (orth_bases['singlet'][1], 0)
+
     def test_hdiag_orth_nospin_o1 (self):
         self.case_hdiag_orth (orth_bases['no spin'][1], 1)
 
     def test_hdiag_orth_fullspin_o1 (self):
         self.case_hdiag_orth (orth_bases['full spin'][1], 1)
+
+    def test_hdiag_orth_singlet_o1 (self):
+        self.case_hdiag_orth (orth_bases['singlet'][1], 1)
 
     def test_pspace_ham_fullspin_o0 (self):
         self.case_pspace_ham (orth_bases['full spin'][1], 0)

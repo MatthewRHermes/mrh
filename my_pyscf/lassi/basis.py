@@ -349,8 +349,6 @@ class OrthBasis (OrthBasisBase):
         p, q = self.manifolds[i].offs_raw[j]
         xmat = xmat[p:q,:]
         nraw = self.manifolds[i].nprods_raw[j]
-        north = self.nprods_orth[x]
-        assert (xmat.shape == (nraw, north))
         if _col is not None:
             xmat = xmat[:,_col]
         return xmat
@@ -402,6 +400,26 @@ class OrthBasis (OrthBasisBase):
 class SpinCoupledOrthBasis (OrthBasis):
     def roots_coupled_in_hdiag (self, i, j):
         return self.roots2mans (i) == self.roots2mans (j)
+
+    def hdiag_spincoup_loop (self, iman, mstr_bra, mstr_ket, inv):
+        offs0 = 0
+        for man in self.manifolds[:iman]:
+            offs0 += np.prod (man.orth_shape)
+        man = self.manifolds[iman]
+        # This indexing should be properly sorted for the dot product below
+        # I explicitly sorted the mstrs above
+        iblks_bra = man.idx_m_str (mstr_bra, inv)
+        iblks_ket = man.idx_m_str (mstr_ket, inv)
+        nlsf = man.umat.shape[1]
+        ubra = man.umat[iblks_bra,:].reshape (-1, nlsf)
+        uket = man.umat[iblks_ket,:].reshape (-1, nlsf)
+        ncols = man.orth_shape[1]
+        for ilsf in range (nlsf):
+            p = offs0 + ilsf*ncols
+            q = p + ncols
+            spin_fac = np.dot (ubra[:,ilsf], uket[:,ilsf])
+            yield spin_fac, (p,q)
+        return
 
     def _matvec (self, rawarr):
         is_out_complex = (self.dtype==np.complex128) or np.iscomplexobj (rawarr)
