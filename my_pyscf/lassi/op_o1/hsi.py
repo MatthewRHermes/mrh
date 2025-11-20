@@ -750,9 +750,10 @@ class HamS2OvlpOperators (HamS2Ovlp):
         self._fdm_vec_getter = getter
         for inv, group in self.optermgroups_h.items (): 
             for op in group.ops:
-                op1 = {op.spincase_mstrs (key)[1]: opterm.reduce_spin (op, key[0], key[1]).ravel ()
-                       for key in op.spincase_keys}
                 sinv = op.get_inv_frags ()
+                op1 = {raw2orth.spincase_mstrs (key[:2], sinv)[1]:
+                       opterm.reduce_spin (op, key[0], key[1]).ravel ()
+                       for key in op.spincase_keys}
                 for iman, braket_tab, mblocks in self.hdiag_orth_gen (raw2orth, op):
                     fdm = self.get_hdiag_fdm (braket_tab, *inv)
                     nx = raw2orth.get_manifold_orth_shape (iman)[1]
@@ -784,10 +785,11 @@ class HamS2OvlpOperators (HamS2Ovlp):
                 operator in the inv block
         '''
         spincase_keys = op.spincase_keys
+        sinv = op.get_inv_frags ()
         braket_tabs = {}
         mblocks = {}
         for key in spincase_keys:
-            mstrs = op.spincase_mstrs (key)
+            mstrs = raw2orth.spincase_mstrs (key[:2], sinv)
             my_braket_tabs = self.hdiag_orth_split_braket_tabs (raw2orth, key)
             # overwrite braket_tab, because it should always be the same for the same manifold
             braket_tabs.update (my_braket_tabs)

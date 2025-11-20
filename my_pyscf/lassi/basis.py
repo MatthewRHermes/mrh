@@ -263,9 +263,11 @@ class NullOrthBasis (OrthBasisBase):
         return (1, self.nprods_raw[iroot])
 
     def hdiag_spincoup_loop (self, iroot, mstr_bra, mstr_ket):
-        assert (mstr_bra == mstr_ket)
         yield 1, self.offs_raw[iroot]
         return
+
+    def spincase_mstrs (self, roots, inv):
+        return tuple (roots)
 
 class OrthBasis (OrthBasisBase):
     def __init__(self, shape, dtype, nprods_r, manifolds):
@@ -332,6 +334,14 @@ class OrthBasis (OrthBasisBase):
             q = p + ncols
             yield 1, (p,q)
         return
+
+    def spincase_mstrs (self, roots, inv):
+        mstrs = []
+        for iroot in roots:
+            iblk = self.root_block_addr[iroot,0]
+            iman, imstr = self.block_manifold_addr[iblk]
+            mstrs.append (tuple (self.manifolds[iman].m_strs[imstr][inv]))
+        return tuple (mstrs)
 
     def split_addrs_by_blocks (self, addrs):
         blks = np.searchsorted (self.offs_orth[:,0], addrs, side='right')-1
