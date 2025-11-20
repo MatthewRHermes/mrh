@@ -1,6 +1,6 @@
 # GPU-enabled LASSCF
 
-The following is a short summary documenting how to run LASSCF (and similar) calculations using the `mrh` code accelerated by `gpu4mrh`, which supports multiple backends targeting GPUs from different vendors. 
+The following is a short summary documenting how to run LASSCF calculations using the `mrh` code accelerated by `gpu4mrh`, which supports multiple backends targeting GPUs from different vendors. Similar calculations like HF, DFT and CASSCF ran with density fitting can also be accelerated transparently. For HF and DFT, only the construction of J and K matrices is accelerated. For CASSCF, JK and AO2MO kernels are accelerated. 
 
 ## Compiling gpu-enabled LASSCF
 
