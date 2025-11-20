@@ -149,6 +149,11 @@ class RootspaceManifold:
         self.raw_shape = self.m_blocks.shape
         self.orth_shape = (self.raw_shape[0], xmat_shape_1)
 
+    def idx_m_str (self, m_str, inv):
+        m_str = np.asarray (m_str)[None,:]
+        m_strs = self.m_strs[:,inv]
+        return np.where (np.all (m_str==m_strs, axis=1))[0]
+
 class SpinCoupledRootspaceManifold (RootspaceManifold):
     def __init__(self, norb_f, nprods_r, n_str, s_str, m_strs, m_blocks, xmat, smult_si):
         super().__init__(norb_f, nprods_r, n_str, s_str, m_strs, m_blocks, xmat)
@@ -257,6 +262,11 @@ class NullOrthBasis (OrthBasisBase):
     def get_manifold_orth_shape (self, iroot):
         return (1, self.nprods_raw[iroot])
 
+    def hdiag_spincoup_loop (self, iroot, mstr_bra, mstr_ket):
+        assert (mstr_bra == mstr_ket)
+        yield 1, self.offs_raw[iroot]
+        return
+
 class OrthBasis (OrthBasisBase):
     def __init__(self, shape, dtype, nprods_r, manifolds):
         self.shape = shape
@@ -308,6 +318,27 @@ class OrthBasis (OrthBasisBase):
 
     def get_manifold_orth_shape (self, iman):
         return self.manifolds[iman].orth_shape
+
+    def hdiag_spincoup_loop (self, iman, mstr_bra, mstr_ket, inv):
+        assert (mstr_bra == mstr_ket)
+        offs0 = 0
+        for man in self.manifolds[:iman]:
+            offs0 += np.prod (man.orth_shape)
+        man = self.manifolds[iman]
+        iblks = man.idx_m_str (mstr_ket, inv)
+        try:
+            assert (len (iblks))
+        except AssertionError as err:
+            print ("Hello??")
+            print (mstr_ket, inv)
+            print (man.n_str, man.m_strs)
+            raise (err)
+        ncols = man.orth_shape[1]
+        for iblk in iblks:
+            p = offs0 + iblk*ncols
+            q = p + ncols
+            yield 1, (p,q)
+        return
 
     def split_addrs_by_blocks (self, addrs):
         blks = np.searchsorted (self.offs_orth[:,0], addrs, side='right')-1

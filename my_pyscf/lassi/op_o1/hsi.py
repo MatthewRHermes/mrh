@@ -752,14 +752,17 @@ class HamS2OvlpOperators (HamS2Ovlp):
             for op in group.ops:
                 op1 = {op.spincase_mstrs (key)[1]: opterm.reduce_spin (op, key[0], key[1]).ravel ()
                        for key in op.spincase_keys}
-                for iman, braket_tab, mblock_table in self.hdiag_orth_gen (raw2orth, op):
+                sinv = op.get_inv_frags ()
+                for iman, braket_tab, mblocks in self.hdiag_orth_gen (raw2orth, op):
                     fdm = self.get_hdiag_fdm (braket_tab, *inv)
                     nx = raw2orth.get_manifold_orth_shape (iman)[1]
                     ny = np.prod (op.shape)
                     fdm = fdm.reshape (nx, ny)
-                    for (mstr_bra, mstr_ket), (p, q) in mblock_table:
+                    for mstr_bra, mstr_ket in mblocks:
                         op2 = op1[mstr_ket]
-                        self.ox[p:q] += np.dot (fdm, op2 + op2.conj ())
+                        op2 = np.dot (fdm, op2 + op2.conj ())
+                        for fac,(p,q) in raw2orth.hdiag_spincoup_loop (iman,mstr_bra,mstr_ket,sinv):
+                            self.ox[p:q] += fac * op2
         return self.ox[:raw2orth.shape[0]].copy ()
 
     def hdiag_orth_gen (self, raw2orth, op):
@@ -775,9 +778,9 @@ class HamS2OvlpOperators (HamS2Ovlp):
                 Index of an OrthBasis Manifold
             braket_tab : ndarray of ints
                 argument to get_hdiag_fdm
-            mblock_table : list
-                elements are (mstr_bra, mstr_ket, (p,q)), where p,q are the index offsets for a
-                given (N,S,M) block and mstr identifies the M case of the corresponding
+            mblocks : list
+                elements are (mstr_bra, mstr_ket)
+                identifying the M case of the corresponding
                 operator in the inv block
         '''
         spincase_keys = op.spincase_keys
@@ -785,20 +788,20 @@ class HamS2OvlpOperators (HamS2Ovlp):
         mblocks = {}
         for key in spincase_keys:
             mstrs = op.spincase_mstrs (key)
-            my_braket_tabs, my_mblocks = self.hdiag_orth_getiter_1key (raw2orth, key)
+            my_braket_tabs = self.hdiag_orth_split_braket_tabs (raw2orth, key)
             # overwrite braket_tab, because it should always be the same for the same manifold
             braket_tabs.update (my_braket_tabs)
             # append because I think the dict keys here can collide
-            for iman, mbl1 in my_mblocks.items ():
-                mbl2 = [(mstrs, offs) for offs in mbl1]
-                mblocks[iman] = mblocks.get (iman, []) + mbl2
+            for iman in my_braket_tabs.keys ():
+                mblocks[iman] = mblocks.get (iman, []) + [mstrs,]
         assert (len (braket_tabs.keys ()) == len (mblocks.keys ()))
         for iman in braket_tabs.keys ():
             yield iman, braket_tabs[iman], mblocks[iman]
 
-    def hdiag_orth_getiter_1key (self, raw2orth, key):
-        r'''Inverting a bunch of lookup tables, in order to help get the diagonal elements of the
-        Hamiltonian in OrthBasis.
+    def hdiag_orth_split_braket_tabs (self, raw2orth, key):
+        r'''Split the tables in self.nonuniq_exc[key] along the "manifold" index
+        of an OrthBasis, in order to help get the diagonal elements of the
+        Hamiltonian.
 
         Args:
             raw2orth : instance of :class: OrthBasis or NullOrthBasis
@@ -810,17 +813,13 @@ class HamS2OvlpOperators (HamS2Ovlp):
             braket_tabs : dict
                 The truncated value of self.nonuniq_exc[key], split up according to the
                 "manifold" in which it lives (i.e., OrthBasis states sharing N and S string)
-            mblocks : dict
-                For each "manifold" addressed by braket_tabs, the value is a list of tuples:
-                (p,q), the index range of a specific "mblock" (i.e., states sharing
-                N, S, and M strings) in OrthBasis
         '''
         tab = self.nonuniq_exc[key]
         tab = [[bra, ket] for bra, ket in tab if raw2orth.roots_coupled_in_hdiag (bra, ket)]
         tab = np.asarray (tab)
         braket_tabs = {}
-        mblocks = {}
-        if tab.size == 0: return braket_tabs, mblocks
+        mblocks = set ()
+        if tab.size == 0: return braket_tabs
         bras = tab[:,0]
         blks = raw2orth.root_block_addr[bras][:,0]
         mans = raw2orth.block_manifold_addr[blks]
@@ -831,10 +830,7 @@ class HamS2OvlpOperators (HamS2Ovlp):
             iman = mans[idx,0][0]
             assert (np.all (mans[idx,0]==iman))
             braket_tabs[iman] = tab[idx]
-            mblock = mblocks.get (iman, [])
-            mblock.append (raw2orth.offs_orth[p])
-            mblocks[iman] = mblock
-        return braket_tabs, mblocks
+        return braket_tabs
 
     def get_hdiag_fdm (self, braket_tab, *inv):
         fdm = 0
