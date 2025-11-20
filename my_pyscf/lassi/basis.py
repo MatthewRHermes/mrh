@@ -326,13 +326,6 @@ class OrthBasis (OrthBasisBase):
             offs0 += np.prod (man.orth_shape)
         man = self.manifolds[iman]
         iblks = man.idx_m_str (mstr_ket, inv)
-        try:
-            assert (len (iblks))
-        except AssertionError as err:
-            print ("Hello??")
-            print (mstr_ket, inv)
-            print (man.n_str, man.m_strs)
-            raise (err)
         ncols = man.orth_shape[1]
         for iblk in iblks:
             p = offs0 + iblk*ncols
