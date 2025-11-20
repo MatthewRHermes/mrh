@@ -254,6 +254,9 @@ class NullOrthBasis (OrthBasisBase):
     def roots2mans (self, roots):
         return roots
 
+    def get_manifold_orth_shape (self, iroot):
+        return (1, self.nprods_raw[iroot])
+
 class OrthBasis (OrthBasisBase):
     def __init__(self, shape, dtype, nprods_r, manifolds):
         self.shape = shape
@@ -302,6 +305,9 @@ class OrthBasis (OrthBasisBase):
 
     def roots2mans (self, roots):
         return self.block_manifold_addr[:,0][self.roots2blks (roots)]
+
+    def get_manifold_orth_shape (self, iman):
+        return self.manifolds[iman].orth_shape
 
     def split_addrs_by_blocks (self, addrs):
         blks = np.searchsorted (self.offs_orth[:,0], addrs, side='right')-1
