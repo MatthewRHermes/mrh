@@ -158,6 +158,13 @@ class KnownValues(unittest.TestCase):
     def test_pspace_ham_nospin_o1 (self):
         self.case_pspace_ham (orth_bases['no spin'][1], 1)
 
+    def test_pspace_ham_singlet_o0 (self):
+        self.case_pspace_ham (orth_bases['singlet'][1], 0)
+
+    @unittest.skip ("Not yet implemented")
+    def test_pspace_ham_singlet_o1 (self):
+        self.case_pspace_ham (orth_bases['singlet'][1], 1)
+
     def iterate_spins (self, max_nfrag, max_smult_f, max_smult=None):
         for nfrag in range (1,max_nfrag+1):
             for smults in itertools.product (range (1,max_smult_f+1), repeat=nfrag):
