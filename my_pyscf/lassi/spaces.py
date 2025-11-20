@@ -224,7 +224,13 @@ class SingleLASRootspace (object):
     def make_smult_shuffle_table (self, smult_lsf):
         assert ((np.sum (self.smults-1) - (smult_lsf-1)) % 2 == 0)
         nflips = (np.sum (self.smults-1) - (smult_lsf-1)) // 2
-        spins_table = (self.smults-1).copy ()[None,:]
+        spins_table = (self.smults-1).copy ()
+        s2 = np.sort (spins_table)[::-1]
+        smult_max = s2.sum () + 1
+        smult_min = 2*(s2[0]+1)-smult_max
+        if (smult_lsf<smult_min) or (smult_lsf>smult_max):
+            return np.zeros ((0,self.nfrag),dtype=int)
+        spins_table = spins_table[None,:]
         spins_gencoup = np.cumsum (spins_table, axis=1)
         # first fragment is fixed
         subtrahend = 2*np.eye (self.nfrag, dtype=spins_table.dtype)[None,1:,:]

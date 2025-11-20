@@ -745,6 +745,9 @@ class HamS2OvlpOperators (HamS2Ovlp):
 
     def get_hdiag_orth (self, raw2orth):
         self.ox[:] = 0
+        hdiag = self.ox
+        if raw2orth.shape[0] > hdiag.size:
+            hdiag = np.zeros (raw2orth.shape[0], dtype=self.ox.dtype)
         def getter (iroot, bra=False):
             return raw2orth.get_xmat_rows (iroot)
         self._fdm_vec_getter = getter
@@ -763,8 +766,8 @@ class HamS2OvlpOperators (HamS2Ovlp):
                         op2 = op1[mstr_ket]
                         op2 = np.dot (fdm, op2 + op2.conj ())
                         for fac,(p,q) in raw2orth.hdiag_spincoup_loop (iman,mstr_bra,mstr_ket,sinv):
-                            self.ox[p:q] += fac * op2
-        return self.ox[:raw2orth.shape[0]].copy ()
+                            hdiag[p:q] += fac * op2
+        return hdiag[:raw2orth.shape[0]].copy ()
 
     def hdiag_orth_gen (self, raw2orth, op):
         r'''Inverting a bunch of lookup tables, in order to help get the diagonal elements of the

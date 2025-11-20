@@ -71,7 +71,6 @@ def get_orth_basis (ci_fr, norb_f, nelec_frs, _get_ovlp=None, smult_fr=None, smu
         # iterate over spatial wave functions. I think that the length of this iteration
         # should be 1 if the model space is really spin-adapted; but in this function,
         # I don't want to require that
-        assert ((smult_si is None) or len (pm_strs) == 1)
         for m_blocks, m_strs in zip (pm_blocks, pm_strs):
             num_m_blocks = len (m_blocks)
             # iterate over m strings, but only to sanity check
@@ -421,8 +420,8 @@ class SpinCoupledOrthBasis (OrthBasis):
         iblks_bra = man.idx_m_str (mstr_bra, inv)
         iblks_ket = man.idx_m_str (mstr_ket, inv)
         nlsf = man.umat.shape[1]
-        ubra = man.umat[iblks_bra,:].reshape (-1, nlsf)
-        uket = man.umat[iblks_ket,:].reshape (-1, nlsf)
+        ubra = man.umat[iblks_bra,:]
+        uket = man.umat[iblks_ket,:]
         ncols = man.orth_shape[1]
         for ilsf in range (nlsf):
             p = offs0 + ilsf*ncols
