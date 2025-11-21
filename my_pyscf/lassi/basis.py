@@ -141,12 +141,12 @@ class RootspaceManifold:
         offs0 = offs1 - self.nprods_raw
         self.offs_raw = np.stack ([offs0, offs1], axis=1)
         if xmat is None:
-            xmat_shape_1 = offs1[-1]
+            xmat_shape = (offs1[-1], offs1[-1])
         else:
-            xmat_shape_1 = xmat.shape[1]
+            xmat_shape = xmat.shape
             assert (offs1[-1] == xmat.shape[0])
-        self.raw_shape = self.m_blocks.shape
-        self.orth_shape = (self.raw_shape[0], xmat_shape_1)
+        self.raw_shape = (self.m_blocks.shape[0], xmat_shape[0])
+        self.orth_shape = (self.raw_shape[0], xmat_shape[1])
 
     def idx_m_str (self, m_str, inv):
         m_str = np.asarray (m_str)[None,:]
@@ -343,6 +343,7 @@ class OrthBasis (OrthBasisBase):
         return tuple (mstrs)
 
     def split_addrs_by_blocks (self, addrs):
+        # This usage implies "orth" blocks
         blks = np.searchsorted (self.offs_orth[:,0], addrs, side='right')-1
         cols = np.asarray (addrs) - self.offs_orth[blks,0]
         assert (np.all (cols>=0))

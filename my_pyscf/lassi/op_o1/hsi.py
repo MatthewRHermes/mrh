@@ -929,14 +929,17 @@ class HamS2OvlpOperators (HamS2Ovlp):
         mblocks = set ()
         if tab.size == 0: return braket_tabs
         bras = tab[:,0]
-        blks = raw2orth.root_block_addr[bras][:,0]
-        mans = raw2orth.block_manifold_addr[blks]
+        blks = raw2orth.roots2blks (bras)
+        mans = raw2orth.roots2mans (bras)
         uniq, inv = np.unique (blks, return_inverse=True)
         tab = np.asarray (tab)
+        # This overwrites the entry for different spectator-fragment m strings.
+        # THIS IS INTENTIONAL
+        # The summation over spectator-fragment m strings occurs in hdiag_spincoup_loop
         for i,p in enumerate (uniq):
             idx = inv==i
-            iman = mans[idx,0][0]
-            assert (np.all (mans[idx,0]==iman))
+            iman = mans[idx][0]
+            assert (np.all (mans[idx]==iman))
             braket_tabs[iman] = tab[idx]
         return braket_tabs
 
