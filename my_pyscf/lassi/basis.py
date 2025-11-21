@@ -337,6 +337,13 @@ class OrthBasis (OrthBasisBase):
             yield 1, (p,q)
         return
 
+    def pspace_ham_spincoup_loop (self, blks_snt, bra_snm, ket_snm):
+        idx_bra = blks_snt==bra_snm
+        idx_ket = blks_snt==ket_snm
+        if (np.count_nonzero (idx_bra)>0) and (np.count_nonzero (idx_ket)>0):
+            yield 1, idx_bra, idx_ket
+        return
+
     def spincase_mstrs (self, roots, inv):
         mstrs = []
         for iroot in roots:
@@ -441,6 +448,27 @@ class SpinCoupledOrthBasis (OrthBasis):
             q = p + ncols
             spin_fac = np.dot (ubra[:,ilsf], uket[:,ilsf])
             yield spin_fac, (p,q)
+        return
+
+    def pspace_ham_spincoup_loop (self, blks_snt, bra_snm, ket_snm):
+        bra_sn, bra_m = self.rblock_manifold_addr (bra_snm)
+        ket_sn, ket_m = self.rblock_manifold_addr (ket_snm)
+        umat_bra = self.manifolds[bra_sn].umat
+        umat_ket = self.manifolds[ket_sn].umat
+        blks_sn, blks_t = list (self.oblock_manifold_addr[blks_snt].T)
+        idx_bra_sn = blks_sn==bra_sn 
+        idx_ket_sn = blks_sn==bra_sn
+        if (0 in (np.count_nonzero (idx_bra_sn), np.count_nonzero (idx_ket_sn))):
+            return
+        bra_t_cases = set (list (blks_t[idx_bra_sn]))
+        ket_t_cases = set (list (blks_t[idx_ket_sn]))
+        for bra_t, ket_t in itertools.product (bra_t_cases, ket_t_cases):
+            idx_bra_t = blks_t==bra_t
+            idx_ket_t = blks_t==ket_t
+            idx_bra = idx_bra_sn & idx_bra_t
+            idx_ket = idx_ket_sn & idx_ket_t
+            fac = umat_bra[bra_m,bra_t] * umat_ket[ket_m,ket_t]
+            yield fac, idx_bra, idx_ket
         return
 
     def _matvec (self, rawarr):

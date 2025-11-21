@@ -1021,32 +1021,28 @@ class HamS2OvlpOperators (HamS2Ovlp):
 
     def gen_pspace_fdm (self, raw2orth, addrs, key):
         # I have to set self._fdm_vec_getter in some highly clever way
-        blks, cols = addrs
+        blks_snt, cols = addrs
         inv = tuple (set (key[2:]))
         braket_tab = self.nonuniq_exc[key]
         snm_exc = raw2orth.roots2blks (braket_tab)
-        for idim in range (2):
-            idx = np.isin (snm_exc[:,idim], blks)
-            snm_exc = snm_exc[idx]
-            braket_tab = braket_tab[idx]
         uniq, invs = np.unique (snm_exc, axis=0, return_inverse=True)
         for i, (bra_snm, ket_snm) in enumerate (uniq):
             idx = (invs==i)
             my_braket_tab = braket_tab[idx]
-            idx_bra = (blks==bra_snm)
-            idx_ket = (blks==ket_snm)
-            idx2 = np.ix_(idx_bra,idx_ket)
-            idx3 = np.ix_(idx_ket,idx_bra)
-            rect_indices = np.indices ((np.count_nonzero (idx_ket),
-                                        np.count_nonzero (idx_bra)))
-            _ik, _ib = np.concatenate (rect_indices.T, axis=0).T
-            _col = (cols[idx_ket][_ik], cols[idx_bra][_ib])
-            def getter (iroot, bra=False):
-                return raw2orth.get_xmat_rows (iroot, _col=_col[int(bra)])
-            self._fdm_vec_getter = getter
-            fdm = self.get_hdiag_fdm (my_braket_tab, *inv)
-            fdm = fdm.reshape (idx2[0].shape[0], idx2[1].shape[1], -1)
-            yield idx2, idx3, fdm
+            for fac, idx_bra, idx_ket in raw2orth.pspace_ham_spincoup_loop (
+                    blks_snt, bra_snm, ket_snm):
+                idx2 = np.ix_(idx_bra,idx_ket)
+                idx3 = np.ix_(idx_ket,idx_bra)
+                rect_indices = np.indices ((np.count_nonzero (idx_ket),
+                                            np.count_nonzero (idx_bra)))
+                _ik, _ib = np.concatenate (rect_indices.T, axis=0).T
+                _col = (cols[idx_ket][_ik], cols[idx_bra][_ib])
+                def getter (iroot, bra=False):
+                    return fac * raw2orth.get_xmat_rows (iroot, _col=_col[int(bra)])
+                self._fdm_vec_getter = getter
+                fdm = self.get_hdiag_fdm (my_braket_tab, *inv)
+                fdm = fdm.reshape (idx2[0].shape[0], idx2[1].shape[1], -1)
+                yield idx2, idx3, fdm
         return
 
     def _crunch_2c_(self, bra, ket, a, i, b, j, s2lt, dry_run=False):
