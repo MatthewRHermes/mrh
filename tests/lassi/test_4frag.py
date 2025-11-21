@@ -185,9 +185,7 @@ class KnownValues(unittest.TestCase):
         las1.lasci_(mo_coeff)
         for dson, smult_si in zip((False,True,True),(None,None,1)):
             with self.subTest (davidson_only=dson, smult_si=smult_si):
-                pspace_size_si = 400 if smult_si is None else 0
-                lsi = LASSIS (las1).set (davidson_only=dson, smult_si=smult_si,
-                                         pspace_size_si=pspace_size_si)
+                lsi = LASSIS (las1).set (davidson_only=dson, smult_si=smult_si)
                 if dson and (smult_si is None):
                     lsi.prepare_states_()
                     h0, h1, h2 = ham_2q (las1, las1.mo_coeff)
@@ -222,8 +220,7 @@ class KnownValues(unittest.TestCase):
         # Starting from converged SIvecs doesn't guarantee instant convergence for some reason
         for dson, smult_si in zip((False,True,True),(None,None,1)):
             with self.subTest (davidson_only=dson, smult_si=smult_si):
-                pspace_size_si = 400 if smult_si is None else 0
-                lsi.eig (davidson_only=dson, smult_si=smult_si, pspace_size_si=pspace_size_si)
+                lsi.eig (davidson_only=dson, smult_si=smult_si)
                 if dson and (smult_si is None):
                     h0, h1, h2 = ham_2q (las0, las0.mo_coeff)
                     case_contract_op_si (self, las, h1, h2, lsi.ci, lsi.get_nelec_frs (),

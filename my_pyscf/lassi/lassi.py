@@ -401,8 +401,6 @@ def _eig_block_Davidson (las, e0, h1, h2, ci_blk, nelec_blk, smult_blk, soc, opt
     screen_thresh = getattr (las, 'davidson_screen_thresh_si', DAVIDSON_SCREEN_THRESH_SI)
     pspace_size = getattr (las, 'pspace_size_si', PSPACE_SIZE_SI)
     smult_si = getattr (las, 'smult_si', None)
-    if (smult_si is not None) and (pspace_size > 0):
-        raise NotImplementedError ('pspace Hamiltonian for spin-adapted LASSI basis')
     h_op_raw, s2_op, ovlp_op, hdiag_raw, _get_ovlp = op[opt].gen_contract_op_si_hdiag (
         las, h1, h2, ci_blk, nelec_blk, smult_fr=smult_blk, soc=soc, screen_thresh=screen_thresh
     )

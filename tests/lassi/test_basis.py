@@ -161,7 +161,6 @@ class KnownValues(unittest.TestCase):
     def test_pspace_ham_singlet_o0 (self):
         self.case_pspace_ham (orth_bases['singlet'][1], 0)
 
-    @unittest.skip ("Not yet implemented")
     def test_pspace_ham_singlet_o1 (self):
         self.case_pspace_ham (orth_bases['singlet'][1], 1)
 

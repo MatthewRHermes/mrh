@@ -89,7 +89,7 @@ class KnownValues(unittest.TestCase):
         for lsi in lsis:
             with self.subTest (opt=lsi.opt):
                 lsi1 = lsi.copy ()
-                e_roots, si = lsi1.eig (davidson_only=True, smult_si=1, pspace_size_si=0)
+                e_roots, si = lsi1.eig (davidson_only=True, smult_si=1)
                 self.assertTrue (lsi1.converged)
                 self.assertAlmostEqual (e_roots[0], -295.52185731568903, 7)
                 self.assertAlmostEqual (lsi1.s2[0], 0.0, 7)

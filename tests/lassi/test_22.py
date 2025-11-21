@@ -231,7 +231,6 @@ class KnownValues(unittest.TestCase):
         s2_ref = lsis[1].s2.copy ()
         mylsis.nroots_si=1
         mylsis.davidson_only = True
-        mylsis.pspace_size_si = 0
         for smult in (1, 3, 5):
             s = (smult-1) * .5
             idx = np.where (np.isclose (s2_ref, s*(s+1)))[0][0]

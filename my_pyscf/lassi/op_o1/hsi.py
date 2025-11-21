@@ -1038,7 +1038,8 @@ class HamS2OvlpOperators (HamS2Ovlp):
                 _ik, _ib = np.concatenate (rect_indices.T, axis=0).T
                 _col = (cols[idx_ket][_ik], cols[idx_bra][_ib])
                 def getter (iroot, bra=False):
-                    return fac * raw2orth.get_xmat_rows (iroot, _col=_col[int(bra)])
+                    bra = int (bra)
+                    return fac[bra] * raw2orth.get_xmat_rows (iroot, _col=_col[bra])
                 self._fdm_vec_getter = getter
                 fdm = self.get_hdiag_fdm (my_braket_tab, *inv)
                 fdm = fdm.reshape (idx2[0].shape[0], idx2[1].shape[1], -1)

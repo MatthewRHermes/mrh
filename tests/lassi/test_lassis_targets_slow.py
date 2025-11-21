@@ -132,7 +132,7 @@ class KnownValues(unittest.TestCase):
         las = LASSCF (mf, (4,2,4), ((2,2),(1,1),(2,2)), spin_sub=(1,1,1))
         mo_coeff = las.localize_init_guess ([[0,1,2],[3,4,5,6],[7,8,9]])
         las.kernel (mo_coeff)
-        lsi = lassi.LASSIS (las).run (davidson_only=True, smult_si=1, pspace_size_si=0)
+        lsi = lassi.LASSIS (las).run (davidson_only=True, smult_si=1)
         e_str = lsi.e_roots[0]
         with self.subTest ('str converged'):
             self.assertTrue (lsi.converged)
@@ -148,7 +148,7 @@ class KnownValues(unittest.TestCase):
         mo_coeff = las.sort_mo ([7,8,16,18,22,23,24,26,33,34])
         mo_coeff = las.localize_init_guess ([[0,1,2],[3,4,5,6],[7,8,9]], mo_coeff=mo_coeff)
         las.kernel (mo_coeff)
-        lsi = lassi.LASSIS (las).run (davidson_only=True, smult_si=1, pspace_size_si=0)
+        lsi = lassi.LASSIS (las).run (davidson_only=True, smult_si=1)
         e_equil = lsi.e_roots[0]
         with self.subTest ('equil converged'):
             self.assertTrue (lsi.converged)
@@ -321,7 +321,6 @@ class KnownValues(unittest.TestCase):
         s2 = []
         e = []
         with self.subTest ('lsf solver'):
-            lsi.pspace_size_si = 0
             lsi.smult_si = 1
             lsi.si = None
             e_roots, si = lsi.eig ()
@@ -398,7 +397,6 @@ class KnownValues(unittest.TestCase):
         s2 = []
         e = []
         with self.subTest ('lsf solver'):
-            lsi.pspace_size_si = 0
             lsi.smult_si = 2
             lsi.si = None
             e_roots, si = lsi.eig ()

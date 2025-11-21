@@ -227,7 +227,7 @@ class OrthBasisBase (sparse_linalg.LinearOperator):
         idx_bra = blks_snt==bra_snm
         idx_ket = blks_snt==ket_snm
         if (np.count_nonzero (idx_bra)>0) and (np.count_nonzero (idx_ket)>0):
-            yield 1, idx_bra, idx_ket
+            yield (1,1), idx_bra, idx_ket
         return
 
 class NullOrthBasis (OrthBasisBase):
@@ -451,13 +451,13 @@ class SpinCoupledOrthBasis (OrthBasis):
         return
 
     def pspace_ham_spincoup_loop (self, blks_snt, bra_snm, ket_snm):
-        bra_sn, bra_m = self.rblock_manifold_addr (bra_snm)
-        ket_sn, ket_m = self.rblock_manifold_addr (ket_snm)
+        bra_sn, bra_m = self.rblock_manifold_addr[bra_snm]
+        ket_sn, ket_m = self.rblock_manifold_addr[ket_snm]
         umat_bra = self.manifolds[bra_sn].umat
         umat_ket = self.manifolds[ket_sn].umat
         blks_sn, blks_t = list (self.oblock_manifold_addr[blks_snt].T)
         idx_bra_sn = blks_sn==bra_sn 
-        idx_ket_sn = blks_sn==bra_sn
+        idx_ket_sn = blks_sn==ket_sn
         if (0 in (np.count_nonzero (idx_bra_sn), np.count_nonzero (idx_ket_sn))):
             return
         bra_t_cases = set (list (blks_t[idx_bra_sn]))
@@ -467,7 +467,7 @@ class SpinCoupledOrthBasis (OrthBasis):
             idx_ket_t = blks_t==ket_t
             idx_bra = idx_bra_sn & idx_bra_t
             idx_ket = idx_ket_sn & idx_ket_t
-            fac = umat_bra[bra_m,bra_t] * umat_ket[ket_m,ket_t]
+            fac = (umat_ket[ket_m,ket_t], umat_bra[bra_m,bra_t])
             yield fac, idx_bra, idx_ket
         return
 
