@@ -85,6 +85,15 @@ class KnownValues(unittest.TestCase):
                 self.assertTrue (lsi1.converged)
                 self.assertAlmostEqual (e_roots[0], -295.52185731568903, 7)
 
+    def test_lassis_kernel_lsf (self):
+        for lsi in lsis:
+            with self.subTest (opt=lsi.opt):
+                lsi1 = lsi.copy ()
+                e_roots, si = lsi1.eig (davidson_only=True, smult_si=1, pspace_size_si=0)
+                self.assertTrue (lsi1.converged)
+                self.assertAlmostEqual (e_roots[0], -295.52185731568903, 7)
+                self.assertAlmostEqual (lsi1.s2[0], 0.0, 7)
+
     def test_o1_ham (self):
         case_matrix_o0_o1 (self, ham[0], ham[1],
                            lsis[0].get_nelec_frs (),
