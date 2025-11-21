@@ -386,7 +386,11 @@ def _eig_block_Davidson (las, e0, h1, h2, ci_blk, nelec_blk, smult_blk, soc, opt
     # si0
     # nroots_si
     # level_shift
-    log = lib.logger.new_logger (las, lib.logger.DEBUG)
+    verbose = las.verbose
+    # We want this Davidson diagonalizer to be louder than usual
+    if verbose >= lib.logger.NOTE:
+        verbose += 1
+    log = lib.logger.new_logger (las, verbose)
     si0 = getattr (las, 'si', None)
     level_shift = getattr (las, 'level_shift_si', LEVEL_SHIFT_SI)
     nroots_si = getattr (las, 'nroots_si', NROOTS_SI)
