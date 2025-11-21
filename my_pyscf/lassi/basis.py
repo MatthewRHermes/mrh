@@ -223,6 +223,13 @@ class OrthBasisBase (sparse_linalg.LinearOperator):
     def roots_coupled_in_hdiag (self, i, j):
         return self.roots2blks (i) == self.roots2blks (j)
 
+    def pspace_ham_spincoup_loop (self, blks_snt, bra_snm, ket_snm):
+        idx_bra = blks_snt==bra_snm
+        idx_ket = blks_snt==ket_snm
+        if (np.count_nonzero (idx_bra)>0) and (np.count_nonzero (idx_ket)>0):
+            yield 1, idx_bra, idx_ket
+        return
+
 class NullOrthBasis (OrthBasisBase):
     def __init__(self, nraw, dtype, nprods_r):
         self.shape = (nraw,nraw)
@@ -335,13 +342,6 @@ class OrthBasis (OrthBasisBase):
             p = offs0 + iblk*ncols
             q = p + ncols
             yield 1, (p,q)
-        return
-
-    def pspace_ham_spincoup_loop (self, blks_snt, bra_snm, ket_snm):
-        idx_bra = blks_snt==bra_snm
-        idx_ket = blks_snt==ket_snm
-        if (np.count_nonzero (idx_bra)>0) and (np.count_nonzero (idx_ket)>0):
-            yield 1, idx_bra, idx_ket
         return
 
     def spincase_mstrs (self, roots, inv):
