@@ -284,14 +284,16 @@ class OrthBasis (OrthBasisBase):
         # lookup for diagonal blocking
         # rows are blocks
         # [snp_idx, m_idx]
-        self.block_manifold_addr = []
+        self.rblock_manifold_addr = []
+        self.oblock_manifold_addr = []
         nman = 0
         self.nprods_orth = []
         for i, manifold in enumerate (manifolds):
             for j in range (manifold.orth_shape[0]):
+                self.oblock_manifold_addr.append ([i,j])
                 self.nprods_orth.append (manifold.orth_shape[1])
             for j in range (manifold.raw_shape[0]):
-                self.block_manifold_addr.append ([i,j])
+                self.rblock_manifold_addr.append ([i,j])
             for j, m_block in enumerate (manifold.m_blocks):
                 # common m string: a "block"
                 for k, iroot in enumerate (m_block):
@@ -299,7 +301,8 @@ class OrthBasis (OrthBasisBase):
                     self.root_block_addr[iroot,:] = [nman,k]
                 nman += 1
         assert (np.all (self.root_block_addr>-1))
-        self.block_manifold_addr = np.stack (self.block_manifold_addr, axis=0)
+        self.rblock_manifold_addr = np.stack (self.rblock_manifold_addr, axis=0)
+        self.oblock_manifold_addr = np.stack (self.oblock_manifold_addr, axis=0)
         self.nprods_orth = np.asarray (self.nprods_orth)
         offs1 = np.cumsum (self.nprods_orth)
         offs0 = offs1 - self.nprods_orth
@@ -308,14 +311,14 @@ class OrthBasis (OrthBasisBase):
 
     def rootspaces_covering_addrs (self, addrs):
         blocks = np.searchsorted (self.offs_orth[:,0], addrs, side='right')-1
-        manaddrs = self.block_manifold_addr[blocks]
+        manaddrs = self.rblock_manifold_addr[blocks]
         return np.concatenate ([self.manifolds[i].m_blocks[j] for i,j in manaddrs])
 
     def roots2blks (self, roots):
         return self.root_block_addr[:,0][roots]
 
     def roots2mans (self, roots):
-        return self.block_manifold_addr[:,0][self.roots2blks (roots)]
+        return self.rblock_manifold_addr[:,0][self.roots2blks (roots)]
 
     def get_manifold_orth_shape (self, iman):
         return self.manifolds[iman].orth_shape
@@ -338,7 +341,7 @@ class OrthBasis (OrthBasisBase):
         mstrs = []
         for iroot in roots:
             iblk = self.root_block_addr[iroot,0]
-            iman, imstr = self.block_manifold_addr[iblk]
+            iman, imstr = self.rblock_manifold_addr[iblk]
             mstrs.append (tuple (self.manifolds[iman].m_strs[imstr][inv]))
         return tuple (mstrs)
 
@@ -351,7 +354,7 @@ class OrthBasis (OrthBasisBase):
 
     def get_xmat_rows (self, iroot, _col=None):
         x, j = self.root_block_addr[iroot]
-        i = self.block_manifold_addr[x,0]
+        i = self.rblock_manifold_addr[x,0]
         if self.manifolds[i].xmat is None:
             xmat = np.eye (self.manifolds[i].nprods_raw.sum ())
         else:
@@ -410,6 +413,15 @@ class OrthBasis (OrthBasisBase):
 class SpinCoupledOrthBasis (OrthBasis):
     def roots_coupled_in_hdiag (self, i, j):
         return self.roots2mans (i) == self.roots2mans (j)
+
+    def rootspaces_covering_addrs (self, addrs):
+        blocks = np.searchsorted (self.offs_orth[:,0], addrs, side='right')-1
+        manaddrs = self.oblock_manifold_addr[blocks]
+        roots = []
+        for i in manaddrs[:,0]:
+            for m_block in self.manifolds[i].m_blocks:
+                roots.extend (m_block)
+        return np.asarray (roots)
 
     def hdiag_spincoup_loop (self, iman, mstr_bra, mstr_ket, inv):
         offs0 = 0
