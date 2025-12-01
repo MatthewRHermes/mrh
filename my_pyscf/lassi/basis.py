@@ -251,7 +251,8 @@ class NullOrthBasis (OrthBasisBase):
 
     def rootspaces_covering_addrs (self, addrs):
         prods = np.atleast_1d (addrs)
-        return np.searchsorted (self.offs_raw[:,0], addrs, side='right')-1
+        roots = np.searchsorted (self.offs_raw[:,0], addrs, side='right')-1
+        return np.atleast_1d (roots).astype (int)
 
     def split_addrs_by_blocks (self, addrs):
         blks = np.searchsorted (self.offs_raw[:,0], addrs, side='right')-1
@@ -319,7 +320,7 @@ class OrthBasis (OrthBasisBase):
     def rootspaces_covering_addrs (self, addrs):
         blocks = np.searchsorted (self.offs_orth[:,0], addrs, side='right')-1
         manaddrs = self.rblock_manifold_addr[blocks]
-        return np.concatenate ([self.manifolds[i].m_blocks[j] for i,j in manaddrs])
+        return np.concatenate ([self.manifolds[i].m_blocks[j] for i,j in manaddrs]).astype (int)
 
     def roots2blks (self, roots):
         return self.root_block_addr[:,0][roots]
@@ -428,7 +429,7 @@ class SpinCoupledOrthBasis (OrthBasis):
         for i in manaddrs[:,0]:
             for m_block in self.manifolds[i].m_blocks:
                 roots.extend (m_block)
-        return np.asarray (roots)
+        return np.atleast_1d (roots).astype (int)
 
     def hdiag_spincoup_loop (self, iman, mstr_bra, mstr_ket, inv):
         offs0 = 0
