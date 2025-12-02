@@ -1008,21 +1008,42 @@ class HamS2OvlpOperators (HamS2Ovlp):
 
     def get_pspace_ham (self, raw2orth, addrs):
         pspace_size = len (addrs)
-        addrs = raw2orth.split_addrs_by_blocks (addrs)
+        addrs_snt, addrs_col = raw2orth.split_addrs_by_blocks (addrs)
+        addrs_sn, addrs_t = raw2orth.split_blocks_by_manifolds (addrs_snt)
         ham = np.zeros ((pspace_size, pspace_size), dtype=self.dtype)
         for inv, group in self.optermgroups_h.items (): 
             for op in group.ops:
                 dots = {}
                 for key in op.spincase_keys:
                     op1 = opterm.reduce_spin (op, key[0], key[1])
-                    for idx, fac, fdm in self.gen_pspace_fdm (raw2orth, addrs, key):
+                    for idx, fac, fdm in self.gen_pspace_fdm (raw2orth, (addrs_snt, addrs_col), key):
+                        if fac == 0: continue
                         mydot = dots.get (idx, [[] for i in range (3)])
-                        mydot[0].append (fdm)
+                        if isinstance (mydot[0], np.ndarray):
+                            assert (mydot[0].shape == fdm.shape), '{}\n{}'.format (
+                                mydot[0].shape, fdm.shape)
+                            i = p = np.where (idx[0])[0]
+                            i = []
+                            for ip in p:
+                                man = raw2orth.manifolds[addrs_sn[ip]]
+                                t_strs = man.get_t_strs ()
+                                t_str = t_strs[addrs_t[ip]]
+                                i.append ((man.s_str, man.n_str, t_str))
+                            j = p = np.where (idx[1])[0]
+                            j = []
+                            for jp in p:
+                                man = raw2orth.manifolds[addrs_sn[jp]]
+                                t_strs = man.get_t_strs ()
+                                t_str = t_strs[addrs_t[jp]]
+                                j.append ((man.s_str, man.n_str, t_str))
+                            assert (np.amax (np.abs (mydot[0]-fdm)) < 1e-8), '\n{}\n{}\n{}\n{}\n{} {}\n{}\n{}'.format (
+                                i, j, mydot[0], fdm, mydot[1], fac, mydot[2], op1)
+                        mydot[0] = fdm
                         mydot[1].append (fac)
                         mydot[2].append (op1)
                         dots[idx] = mydot
-                for idx, (fdms, facs, op1s) in dots.items ():
-                    for fdm, fac, op1 in zip (fdms, facs, op1s):
+                for idx, (fdm, facs, op1s) in dots.items ():
+                    for fac, op1 in zip (facs, op1s):
                         fdm1 = fac * fdm
                         ham[np.ix_(idx[0],idx[1])] += opterm.fdm_dot (fdm1, op1)
                         ham[np.ix_(idx[1],idx[0])] += opterm.fdm_dot (fdm1, op1.conj ()).T 
@@ -1044,13 +1065,18 @@ class HamS2OvlpOperators (HamS2Ovlp):
                                             np.count_nonzero (idx_bra)))
                 _ik, _ib = np.concatenate (rect_indices.T, axis=0).T
                 _col = (cols[idx_ket][_ik], cols[idx_bra][_ib])
+                # This sign differs between different m blocks
+                sgn = self.spin_shuffle[my_braket_tab[0,0]]
+                sgn *= self.spin_shuffle[my_braket_tab[0,1]]
+                sgn *= self.fermion_frag_shuffle (my_braket_tab[0,0], inv)
+                sgn *= self.fermion_frag_shuffle (my_braket_tab[0,1], inv)
                 def getter (iroot, bra=False):
                     bra = int (bra)
                     return raw2orth.get_xmat_rows (iroot, _col=_col[bra])
                 self._fdm_vec_getter = getter
                 fdm = self.get_hdiag_fdm (my_braket_tab, *inv)
                 fdm = fdm.reshape (np.count_nonzero (idx_bra), np.count_nonzero (idx_ket), -1)
-                yield (tuple (idx_bra), tuple (idx_ket)), fac[0]*fac[1], fdm
+                yield (tuple (idx_bra), tuple (idx_ket)), fac[0]*fac[1]*sgn, fdm*sgn
         return
 
     def _crunch_2c_(self, bra, ket, a, i, b, j, s2lt, dry_run=False):

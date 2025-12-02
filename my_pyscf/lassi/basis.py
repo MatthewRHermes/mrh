@@ -153,12 +153,15 @@ class RootspaceManifold:
         m_strs = self.m_strs[:,inv]
         return np.where (np.all (m_str==m_strs, axis=1))[0]
 
+    def get_t_strs (self): return self.m_strs
+
 class SpinCoupledRootspaceManifold (RootspaceManifold):
     def __init__(self, norb_f, nprods_r, n_str, s_str, m_strs, m_blocks, xmat, smult_si):
         super().__init__(norb_f, nprods_r, n_str, s_str, m_strs, m_blocks, xmat)
         spin_si = np.sum (self.m_strs[0])
         spins_table, smult_table = get_spincoup_bases (self.s_str, spin_lsf=spin_si,
                                                        smult_lsf=smult_si)
+        self.t_strs = smult_table
         spins_table = [tuple (row) for row in spins_table]
         idx = np.asarray ([spins_table.index (tuple (row)) for row in self.m_strs])
         self.umat = get_spincoup_umat (self.s_str, spin_si, smult_si)[idx,:]
@@ -167,6 +170,8 @@ class SpinCoupledRootspaceManifold (RootspaceManifold):
             nb = (self.n_str - m_str) // 2
             self.umat[i,:] *= fermion_spin_shuffle (na, nb)
         self.orth_shape = (self.umat.shape[1], self.orth_shape[1])
+
+    def get_t_strs (self): return self.t_strs
 
 def _get_spin_split_manifolds (ci_fr, norb_f, nelec_frs, smult_fr, lroots_fr, idx):
     '''The same as _get_spin_split_manifolds_idx, except that all of the arguments need to be
@@ -259,6 +264,9 @@ class NullOrthBasis (OrthBasisBase):
         cols = np.asarray (addrs) - self.offs_raw[blks,0]
         assert (np.all (cols>=0))
         return blks, cols
+
+    def split_blocks_by_manifolds (self, blocks):
+        return blocks, np.zeros (len (blocks), dtype=int)
 
     def roots2blks (self, roots):
         return roots
@@ -359,6 +367,10 @@ class OrthBasis (OrthBasisBase):
         cols = np.asarray (addrs) - self.offs_orth[blks,0]
         assert (np.all (cols>=0))
         return blks, cols
+
+    def split_blocks_by_manifolds (self, blocks):
+        mans, sps = list (self.oblock_manifold_addr[blocks].T)
+        return mans, sps
 
     def get_xmat_rows (self, iroot, _col=None):
         x, j = self.root_block_addr[iroot]
