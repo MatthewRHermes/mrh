@@ -1012,11 +1012,20 @@ class HamS2OvlpOperators (HamS2Ovlp):
         ham = np.zeros ((pspace_size, pspace_size), dtype=self.dtype)
         for inv, group in self.optermgroups_h.items (): 
             for op in group.ops:
+                dots = {}
                 for key in op.spincase_keys:
                     op1 = opterm.reduce_spin (op, key[0], key[1])
-                    for idx1, idx2, fdm in self.gen_pspace_fdm (raw2orth, addrs, key):
-                        ham[idx1] += opterm.fdm_dot (fdm, op1)
-                        ham[idx2] += opterm.fdm_dot (fdm, op1.conj ()).T 
+                    for idx, fac, fdm in self.gen_pspace_fdm (raw2orth, addrs, key):
+                        mydot = dots.get (idx, [[] for i in range (3)])
+                        mydot[0].append (fdm)
+                        mydot[1].append (fac)
+                        mydot[2].append (op1)
+                        dots[idx] = mydot
+                for idx, (fdms, facs, op1s) in dots.items ():
+                    for fdm, fac, op1 in zip (fdms, facs, op1s):
+                        fdm1 = fac * fdm
+                        ham[np.ix_(idx[0],idx[1])] += opterm.fdm_dot (fdm1, op1)
+                        ham[np.ix_(idx[1],idx[0])] += opterm.fdm_dot (fdm1, op1.conj ()).T 
         return ham
 
     def gen_pspace_fdm (self, raw2orth, addrs, key):
@@ -1031,19 +1040,17 @@ class HamS2OvlpOperators (HamS2Ovlp):
             my_braket_tab = braket_tab[idx]
             for fac, idx_bra, idx_ket in raw2orth.pspace_ham_spincoup_loop (
                     blks_snt, bra_snm, ket_snm):
-                idx2 = np.ix_(idx_bra,idx_ket)
-                idx3 = np.ix_(idx_ket,idx_bra)
                 rect_indices = np.indices ((np.count_nonzero (idx_ket),
                                             np.count_nonzero (idx_bra)))
                 _ik, _ib = np.concatenate (rect_indices.T, axis=0).T
                 _col = (cols[idx_ket][_ik], cols[idx_bra][_ib])
                 def getter (iroot, bra=False):
                     bra = int (bra)
-                    return fac[bra] * raw2orth.get_xmat_rows (iroot, _col=_col[bra])
+                    return raw2orth.get_xmat_rows (iroot, _col=_col[bra])
                 self._fdm_vec_getter = getter
                 fdm = self.get_hdiag_fdm (my_braket_tab, *inv)
-                fdm = fdm.reshape (idx2[0].shape[0], idx2[1].shape[1], -1)
-                yield idx2, idx3, fdm
+                fdm = fdm.reshape (np.count_nonzero (idx_bra), np.count_nonzero (idx_ket), -1)
+                yield (tuple (idx_bra), tuple (idx_ket)), fac[0]*fac[1], fdm
         return
 
     def _crunch_2c_(self, bra, ket, a, i, b, j, s2lt, dry_run=False):
