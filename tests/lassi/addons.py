@@ -151,7 +151,7 @@ def _check_OrthBasis (ks, las, ci_fr, nelec_frs, smult_fr, ham, s2, ovlp, ops, s
     ham_diag_orth = op[1].get_hdiag_orth (ham_diag, ham_op, raw2orth)
     with ks.subTest ('hdiag orth'):
         ks.assertAlmostEqual (lib.fp (ham_orth.diagonal ()), lib.fp (ham_diag_orth), 7)
-    pspace_size = min (5, raw2orth.shape[0]//2)
+    pspace_size = min (5, max (1, raw2orth.shape[0]//2))
     pw, pv, addrs = pspace (ham_diag_orth, ham_op, raw2orth, 1, pspace_size)
     ham_test = (pv * pw[None,:]) @ pv.conj ().T
     ham_ref = ham_orth[addrs,:][:,addrs]
