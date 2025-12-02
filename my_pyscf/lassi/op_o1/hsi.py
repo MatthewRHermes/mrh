@@ -674,17 +674,17 @@ class HamS2OvlpOperators (HamS2Ovlp):
         #STEP 3 Part 2
         from mrh.my_pyscf.gpu import libgpu
         gpu = param.use_gpu
-        libgpu.bcast_vec(gpu, self.total_vecsize, n_dots)
+        #libgpu.bcast_vec(gpu, self.total_vecsize, n_dots)
         m, k = op.shape #m,k gemm
         libgpu.push_op(gpu, np.ascontiguousarray(op), m, k, n_dots) #inits and pushes on all devices
         t3, w3 = logger.process_clock (), logger.perf_counter ()
         self.dt_gpu_push_op += (t3-t2) 
         self.dw_gpu_push_op += (w3-w2) 
 
-        self.gpu_matvec_v3( m, k, bras, oket, vec_table, inv, op_t = False)
+        self.gpu_matvec_v2( m, k, bras, oket, vec_table, inv, op_t = False)
 
         if len (braHs):
-            self.gpu_matvec_v3( m, k, braHs, obra, vec_table, inv, op_t = True)
+            self.gpu_matvec_v2( m, k, braHs, obra, vec_table, inv, op_t = True)
         t4, w4 = logger.process_clock (), logger.perf_counter ()
         self.dt_compute_3frag += (t4-t2)
         self.dw_compute_3frag += (w4-w2)
