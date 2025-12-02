@@ -89,7 +89,7 @@ make -j 4
 
 ```
 
-The build can be completed faster a Polaris compute node in an interactive job. During the build, git will attempt to clone some additional repos and this requires outbound access otherwise the build will fail. More info on the proxy settings is available [here]((https://docs.alcf.anl.gov/polaris/getting-started/#proxy)).
+The build can be completed faster a Polaris compute node in an interactive job. During the build, git will attempt to clone some additional repos and this requires outbound access otherwise the build will fail. More info on the proxy settings is available [here](https://docs.alcf.anl.gov/polaris/getting-started/#proxy).
 
 ### Installing mrh
 

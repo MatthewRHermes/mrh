@@ -140,6 +140,7 @@ class FragTDMInt (object):
         self.nroots = nroots
         self.dtype = dtype
         self.nelec_r = [tuple (n) for n in nelec_rs]
+        self.spins_r = nelec_rs[:,0] - nelec_rs[:,1]
         self.smult_r = smult_r
         self.linkstr_cache = {}
         self.linkstrl_cache = {}

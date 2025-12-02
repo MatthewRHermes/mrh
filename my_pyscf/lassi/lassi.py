@@ -386,7 +386,11 @@ def _eig_block_Davidson (las, e0, h1, h2, ci_blk, nelec_blk, smult_blk, soc, opt
     # si0
     # nroots_si
     # level_shift
-    log = lib.logger.new_logger (las, lib.logger.DEBUG)
+    verbose = las.verbose
+    # We want this Davidson diagonalizer to be louder than usual
+    if verbose >= lib.logger.NOTE:
+        verbose += 1
+    log = lib.logger.new_logger (las, verbose)
     si0 = getattr (las, 'si', None)
     level_shift = getattr (las, 'level_shift_si', LEVEL_SHIFT_SI)
     nroots_si = getattr (las, 'nroots_si', NROOTS_SI)
@@ -396,12 +400,13 @@ def _eig_block_Davidson (las, e0, h1, h2, ci_blk, nelec_blk, smult_blk, soc, opt
     get_init_guess = getattr (las, 'get_init_guess_si', get_init_guess_si)
     screen_thresh = getattr (las, 'davidson_screen_thresh_si', DAVIDSON_SCREEN_THRESH_SI)
     pspace_size = getattr (las, 'pspace_size_si', PSPACE_SIZE_SI)
+    smult_si = getattr (las, 'smult_si', None)
     h_op_raw, s2_op, ovlp_op, hdiag_raw, _get_ovlp = op[opt].gen_contract_op_si_hdiag (
         las, h1, h2, ci_blk, nelec_blk, smult_fr=smult_blk, soc=soc, screen_thresh=screen_thresh
     )
     t0 = (lib.logger.process_clock (), lib.logger.perf_counter ())
     raw2orth = basis.get_orth_basis (ci_blk, las.ncas_sub, nelec_blk, _get_ovlp=_get_ovlp,
-                                     smult_fr=smult_blk)
+                                     smult_fr=smult_blk, smult_si=smult_si)
     orth2raw = raw2orth.H
     mem_orth = raw2orth.get_nbytes () / 1e6
     t0 = log.timer ('LASSI get orthogonal basis ({:.2f} MB)'.format (mem_orth), *t0)
@@ -1023,7 +1028,7 @@ class LASSI(lib.StreamObject):
 
     def kernel(self, mo_coeff=None, ci=None, veff_c=None, h2eff_sub=None, orbsym=None, soc=None,\
                break_symmetry=None, opt=None, davidson_only=None, level_shift_si=None,
-               nroots_si=None, **kwargs):
+               nroots_si=None, pspace_size_si=None, smult_si=None, **kwargs):
         if soc is None: soc = self.soc
         if break_symmetry is None: break_symmetry = self.break_symmetry
         if opt is None: opt = self.opt
@@ -1032,6 +1037,10 @@ class LASSI(lib.StreamObject):
             self.level_shift_si = level_shift_si
         if nroots_si is not None:
             self.nroots_si = nroots_si
+        if pspace_size_si is not None:
+            self.pspace_size_si = pspace_size_si
+        if smult_si is not None:
+            self.smult_si = smult_si
         log = lib.logger.new_logger (self, self.verbose)
         t0 = (lib.logger.process_clock (), lib.logger.perf_counter ())
         if not self.converged:

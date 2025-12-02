@@ -1,2 +1,2 @@
-git+https://github.com/pyscf/pyscf-forge.git@e07db979a93c8416dffef2abf96caa484e87a33f
+git+https://github.com/pyscf/pyscf-forge.git@6b9408d486028c92fbaf541320f2ac312640af43
 
