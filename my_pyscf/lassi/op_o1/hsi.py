@@ -1013,16 +1013,18 @@ class HamS2OvlpOperators (HamS2Ovlp):
         for inv, group in self.optermgroups_h.items (): 
             for op in group.ops:
                 dots = {}
+                # Looping over, i.e., different fragment m strings
                 for key in op.spincase_keys:
-                    #op1 = opterm.reduce_spin (op, key[0], key[1])
-                    for idx, fac, fdm in self.gen_pspace_fdm (raw2orth, addrs, key):
+                    for idx, fac, get_fdm in self.gen_pspace_fdm (raw2orth, addrs, key):
                         if fac == 0: continue
                         mydot = dots.get (idx, [[] for i in range (3)])
-                        mydot[0] = fdm
+                        mydot[0] = get_fdm
                         mydot[1].append (fac)
                         mydot[2].append (key)
                         dots[idx] = mydot
-                for idx, (fdm, facs, keys) in dots.items ():
+                # Looping over blocks of the pspace Hamiltonian addressed by this op
+                for idx, (get_fdm, facs, keys) in dots.items ():
+                    fdm = get_fdm ()
                     op1 = op.reduce_spin_sum (facs, keys)
                     ham[np.ix_(idx[0],idx[1])] += opterm.fdm_dot (fdm, op1)
                     ham[np.ix_(idx[1],idx[0])] += opterm.fdm_dot (fdm, op1.conj ()).T
@@ -1035,27 +1037,33 @@ class HamS2OvlpOperators (HamS2Ovlp):
         braket_tab = self.nonuniq_exc[key]
         snm_exc = raw2orth.roots2blks (braket_tab)
         uniq, invs = np.unique (snm_exc, axis=0, return_inverse=True)
+        # looping over s,n,m string pairs
         for i, (bra_snm, ket_snm) in enumerate (uniq):
             idx = (invs==i)
             my_braket_tab = braket_tab[idx]
+            # looping over t string pairs
             for fac, idx_bra, idx_ket in raw2orth.pspace_ham_spincoup_loop (
                     blks_snt, bra_snm, ket_snm):
-                rect_indices = np.indices ((np.count_nonzero (idx_ket),
-                                            np.count_nonzero (idx_bra)))
-                _ik, _ib = np.concatenate (rect_indices.T, axis=0).T
-                _col = (cols[idx_ket][_ik], cols[idx_bra][_ib])
                 # This sign differs between different m blocks
                 sgn = self.spin_shuffle[my_braket_tab[0,0]]
                 sgn *= self.spin_shuffle[my_braket_tab[0,1]]
                 sgn *= self.fermion_frag_shuffle (my_braket_tab[0,0], inv)
                 sgn *= self.fermion_frag_shuffle (my_braket_tab[0,1], inv)
-                def getter (iroot, bra=False):
-                    bra = int (bra)
-                    return raw2orth.get_xmat_rows (iroot, _col=_col[bra])
-                self._fdm_vec_getter = getter
-                fdm = self.get_hdiag_fdm (my_braket_tab, *inv)
-                fdm = fdm.reshape (np.count_nonzero (idx_bra), np.count_nonzero (idx_ket), -1)
-                yield (tuple (idx_bra), tuple (idx_ket)), fac[0]*fac[1]*sgn, fdm*sgn
+                def get_fdm (idx_bra, idx_ket, my_braket_tab, cols, sgn):
+                    rect_indices = np.indices ((np.count_nonzero (idx_ket),
+                                                np.count_nonzero (idx_bra)))
+                    _ik, _ib = np.concatenate (rect_indices.T, axis=0).T
+                    _col = (cols[idx_ket][_ik], cols[idx_bra][_ib])
+                    def getter (iroot, bra=False):
+                        bra = int (bra)
+                        return raw2orth.get_xmat_rows (iroot, _col=_col[bra])
+                    self._fdm_vec_getter = getter
+                    fdm = self.get_hdiag_fdm (my_braket_tab, *inv)
+                    fdm = fdm.reshape (np.count_nonzero (idx_bra), np.count_nonzero (idx_ket), -1)
+                    fdm = fdm * sgn
+                    return fdm
+                my_get_fdm = functools.partial (get_fdm, idx_bra, idx_ket, my_braket_tab, cols, sgn)
+                yield (tuple (idx_bra), tuple (idx_ket)), fac[0]*fac[1]*sgn, my_get_fdm
         return
 
     def _crunch_2c_(self, bra, ket, a, i, b, j, s2lt, dry_run=False):
