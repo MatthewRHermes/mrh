@@ -1035,20 +1035,29 @@ class HamS2OvlpOperators (HamS2Ovlp):
         blks_snt, cols = addrs
         inv = tuple (set (key[2:]))
         braket_tab = self.nonuniq_exc[key]
-        snm_exc = raw2orth.roots2blks (braket_tab)
-        uniq, invs = np.unique (snm_exc, axis=0, return_inverse=True)
-        # looping over s,n,m string pairs
-        for i, (bra_snm, ket_snm) in enumerate (uniq):
-            idx = (invs==i)
-            my_braket_tab = braket_tab[idx]
-            # looping over t string pairs
-            for fac, idx_bra, idx_ket in raw2orth.pspace_ham_spincoup_loop (
-                    blks_snt, bra_snm, ket_snm):
-                # This sign differs between different m blocks
+        # looping over s,n string pairs
+        for bra_sn, ket_sn, m_exc_sn, braket_tab_sn in raw2orth.pspace_ham_exc_table_loop (braket_tab):
+            uniq_m, invs_m = np.unique (m_exc_sn, axis=0, return_inverse=True)
+            sgnvec = []
+            midx_bra = []
+            midx_ket = []
+            # looping over mspec
+            for j, (mi_bra, mi_ket) in enumerate (uniq_m):
+                midx_bra.append (mi_bra)
+                midx_ket.append (mi_ket)
+                idx_m = (invs_m==j)
+                my_braket_tab = braket_tab_sn[idx_m]
                 sgn = self.spin_shuffle[my_braket_tab[0,0]]
                 sgn *= self.spin_shuffle[my_braket_tab[0,1]]
                 sgn *= self.fermion_frag_shuffle (my_braket_tab[0,0], inv)
                 sgn *= self.fermion_frag_shuffle (my_braket_tab[0,1], inv)
+                sgnvec.append (sgn)
+            midx_bra = np.asarray (midx_bra)
+            midx_ket = np.asarray (midx_ket)
+            sgnvec = np.asarray (sgnvec)
+            # looping over t string pairs
+            for fac, idx_bra, idx_ket in raw2orth.pspace_ham_spincoup_loop (
+                    blks_snt, bra_sn, ket_sn, sgnvec, midx_bra, midx_ket):
                 def get_fdm (idx_bra, idx_ket, my_braket_tab, cols, sgn):
                     rect_indices = np.indices ((np.count_nonzero (idx_ket),
                                                 np.count_nonzero (idx_bra)))
@@ -1063,7 +1072,7 @@ class HamS2OvlpOperators (HamS2Ovlp):
                     fdm = fdm * sgn
                     return fdm
                 my_get_fdm = functools.partial (get_fdm, idx_bra, idx_ket, my_braket_tab, cols, sgn)
-                yield (tuple (idx_bra), tuple (idx_ket)), fac[0]*fac[1]*sgn, my_get_fdm
+                yield (tuple (idx_bra), tuple (idx_ket)), fac, my_get_fdm
         return
 
     def _crunch_2c_(self, bra, ket, a, i, b, j, s2lt, dry_run=False):

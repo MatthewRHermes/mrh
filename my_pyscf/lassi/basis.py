@@ -228,11 +228,41 @@ class OrthBasisBase (sparse_linalg.LinearOperator):
     def roots_coupled_in_hdiag (self, i, j):
         return self.roots2blks (i) == self.roots2blks (j)
 
-    def pspace_ham_spincoup_loop (self, blks_snt, bra_snm, ket_snm):
-        idx_bra = blks_snt==bra_snm
-        idx_ket = blks_snt==ket_snm
-        if (np.count_nonzero (idx_bra)>0) and (np.count_nonzero (idx_ket)>0):
-            yield (1,1), idx_bra, idx_ket
+    def split_oblocks_by_manifolds (self, blocks):
+        blocks_shape = np.asarray (blocks).shape
+        return blocks, np.zeros (blocks_shape, dtype=int)
+
+    split_rblocks_by_manifolds=split_oblocks_by_manifolds
+
+    def pspace_ham_exc_table_loop (self, braket_tab):
+        snm_exc = self.roots2blks (braket_tab)
+        sn_exc, m_exc = self.split_rblocks_by_manifolds (snm_exc)
+        uniq_snm, invs_snm = np.unique (snm_exc, axis=0, return_inverse=True)
+        # looping over s,n,m string pairs
+        for i, (bra_snm, ket_snm) in enumerate (uniq_snm):
+            idx_snm = (invs_snm==i)
+            sn_exc_snm = sn_exc[idx_snm]
+            assert (len (np.unique (sn_exc_snm,axis=0))==1)
+            sn_exc_snm = sn_exc_snm[0]
+            m_exc_snm = m_exc[idx_snm]
+            braket_tab_snm = braket_tab[idx_snm]
+            yield sn_exc_snm[0], sn_exc_snm[1], m_exc_snm, braket_tab_snm
+
+    def pspace_ham_spincoup_loop (self, blks_snt, bra_sn, ket_sn, sgnvec, midx_bra, midx_ket):
+        blks_sn, blks_t = self.split_oblocks_by_manifolds (blks_snt)
+        idx_bra_sn = blks_sn==bra_sn
+        idx_ket_sn = blks_sn==ket_sn
+        if (0 in (np.count_nonzero (idx_bra_sn), np.count_nonzero (idx_ket_sn))):
+            return
+        assert (len (sgnvec) == 1)
+        assert (len (midx_bra) == 1)
+        assert (len (midx_ket) == 1)
+        sgn = sgnvec[0]
+        midx_bra = midx_bra[0]
+        midx_ket = midx_ket[0]
+        idx_bra = idx_bra_sn & (blks_t==midx_bra)
+        idx_ket = idx_ket_sn & (blks_t==midx_ket)
+        yield sgn, idx_bra, idx_ket
         return
 
 class NullOrthBasis (OrthBasisBase):
@@ -264,9 +294,6 @@ class NullOrthBasis (OrthBasisBase):
         cols = np.asarray (addrs) - self.offs_raw[blks,0]
         assert (np.all (cols>=0))
         return blks, cols
-
-    def split_blocks_by_manifolds (self, blocks):
-        return blocks, np.zeros (len (blocks), dtype=int)
 
     def roots2blks (self, roots):
         return roots
@@ -358,7 +385,7 @@ class OrthBasis (OrthBasisBase):
         for iroot in roots:
             iblk = self.root_block_addr[iroot,0]
             iman, imstr = self.rblock_manifold_addr[iblk]
-            mstrs.append (tuple (self.manifolds[iman].m_strs[imstr][inv]))
+            mstrs.append (tuple (np.asarray (self.manifolds[iman].m_strs)[:,inv][imstr]))
         return tuple (mstrs)
 
     def split_addrs_by_blocks (self, addrs):
@@ -368,9 +395,19 @@ class OrthBasis (OrthBasisBase):
         assert (np.all (cols>=0))
         return blks, cols
 
-    def split_blocks_by_manifolds (self, blocks):
+    def split_oblocks_by_manifolds (self, blocks):
+        blocks = np.asarray (blocks)
+        blocks_shape = blocks.shape
+        blocks = np.ravel (blocks)
         mans, sps = list (self.oblock_manifold_addr[blocks].T)
-        return mans, sps
+        return mans.reshape (blocks_shape), sps.reshape (blocks_shape)
+
+    def split_rblocks_by_manifolds (self, blocks):
+        blocks = np.asarray (blocks)
+        blocks_shape = blocks.shape
+        blocks = np.ravel (blocks)
+        mans, sps = list (self.rblock_manifold_addr[blocks].T)
+        return mans.reshape (blocks_shape), sps.reshape (blocks_shape)
 
     def get_xmat_rows (self, iroot, _col=None):
         x, j = self.root_block_addr[iroot]
@@ -463,12 +500,22 @@ class SpinCoupledOrthBasis (OrthBasis):
             yield spin_fac, (p,q)
         return
 
-    def pspace_ham_spincoup_loop (self, blks_snt, bra_snm, ket_snm):
-        bra_sn, bra_m = self.rblock_manifold_addr[bra_snm]
-        ket_sn, ket_m = self.rblock_manifold_addr[ket_snm]
-        umat_bra = self.manifolds[bra_sn].umat
-        umat_ket = self.manifolds[ket_sn].umat
-        blks_sn, blks_t = list (self.oblock_manifold_addr[blks_snt].T)
+    def pspace_ham_exc_table_loop (self, braket_tab):
+        snm_exc = self.roots2blks (braket_tab)
+        sn_exc, m_exc = self.split_rblocks_by_manifolds (snm_exc)
+        uniq_sn, invs_sn = np.unique (sn_exc, axis=0, return_inverse=True)
+        # looping over s,n string pairs
+        for i, (bra_sn, ket_sn) in enumerate (uniq_sn):
+            idx_sn = (invs_sn==i)
+            m_exc_sn = m_exc[idx_sn]
+            braket_tab_sn = braket_tab[idx_sn]
+            yield bra_sn, ket_sn, m_exc_sn, braket_tab_sn
+
+    def pspace_ham_spincoup_loop (self, blks_snt, bra_sn, ket_sn, sgnvec, midx_bra, midx_ket):
+        umat_bra = self.manifolds[bra_sn].umat[midx_bra,:]
+        umat_ket = self.manifolds[ket_sn].umat[midx_ket,:]
+        fac_mat = umat_bra.conj ().T @ (sgnvec[:,None] * umat_ket)
+        blks_sn, blks_t = self.split_oblocks_by_manifolds (blks_snt)
         idx_bra_sn = blks_sn==bra_sn 
         idx_ket_sn = blks_sn==ket_sn
         if (0 in (np.count_nonzero (idx_bra_sn), np.count_nonzero (idx_ket_sn))):
@@ -480,8 +527,7 @@ class SpinCoupledOrthBasis (OrthBasis):
             idx_ket_t = blks_t==ket_t
             idx_bra = idx_bra_sn & idx_bra_t
             idx_ket = idx_ket_sn & idx_ket_t
-            fac = (umat_ket[ket_m,ket_t], umat_bra[bra_m,bra_t])
-            yield fac, idx_bra, idx_ket
+            yield fac_mat[bra_t,ket_t], idx_bra, idx_ket
         return
 
     def _matvec (self, rawarr):
