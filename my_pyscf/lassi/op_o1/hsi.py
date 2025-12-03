@@ -1014,19 +1014,18 @@ class HamS2OvlpOperators (HamS2Ovlp):
             for op in group.ops:
                 dots = {}
                 for key in op.spincase_keys:
-                    op1 = opterm.reduce_spin (op, key[0], key[1])
+                    #op1 = opterm.reduce_spin (op, key[0], key[1])
                     for idx, fac, fdm in self.gen_pspace_fdm (raw2orth, addrs, key):
                         if fac == 0: continue
                         mydot = dots.get (idx, [[] for i in range (3)])
                         mydot[0] = fdm
                         mydot[1].append (fac)
-                        mydot[2].append (op1)
+                        mydot[2].append (key)
                         dots[idx] = mydot
-                for idx, (fdm, facs, op1s) in dots.items ():
-                    for fac, op1 in zip (facs, op1s):
-                        fdm1 = fac * fdm
-                        ham[np.ix_(idx[0],idx[1])] += opterm.fdm_dot (fdm1, op1)
-                        ham[np.ix_(idx[1],idx[0])] += opterm.fdm_dot (fdm1, op1.conj ()).T 
+                for idx, (fdm, facs, keys) in dots.items ():
+                    op1 = op.reduce_spin_sum (facs, keys)
+                    ham[np.ix_(idx[0],idx[1])] += opterm.fdm_dot (fdm, op1)
+                    ham[np.ix_(idx[1],idx[0])] += opterm.fdm_dot (fdm, op1.conj ()).T
         return ham
 
     def gen_pspace_fdm (self, raw2orth, addrs, key):
