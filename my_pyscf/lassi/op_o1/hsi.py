@@ -1071,16 +1071,20 @@ class HamS2OvlpOperators (HamS2Ovlp):
         fdm_spin = raw2orth.pspace_ham_spincoup_dm (bra_sn, ket_sn, midx_bra, midx_ket, sgnvec)
 
         def get_fdm (idx_bra, idx_ket, my_braket_tab, addrs_p, sgn):
-            rect_indices = np.indices ((np.count_nonzero (idx_ket),
-                                        np.count_nonzero (idx_bra)))
+            bra_p = addrs_p[idx_bra]
+            ket_p = addrs_p[idx_ket]
+            bra_p, pinv_bra = np.unique (bra_p, return_inverse=True)
+            ket_p, pinv_ket = np.unique (ket_p, return_inverse=True)
+            rect_indices = np.indices ((len (ket_p), len (bra_p)))
             _ik, _ib = np.concatenate (rect_indices.T, axis=0).T
-            _col = (addrs_p[idx_ket][_ik], addrs_p[idx_bra][_ib])
+            _col = (ket_p[_ik], bra_p[_ib])
             def getter (iroot, bra=False):
                 bra = int (bra)
                 return raw2orth.get_xmat_rows (iroot, _col=_col[bra])
             self._fdm_vec_getter = getter
             fdm = self.get_hdiag_fdm (my_braket_tab, *inv)
-            fdm = fdm.reshape (np.count_nonzero (idx_bra), np.count_nonzero (idx_ket), -1)
+            fdm = fdm.reshape (len (bra_p), len (ket_p), -1)
+            fdm = fdm[pinv_bra,:,:][:,pinv_ket,:]
             fdm = fdm * sgn
             return fdm
 
