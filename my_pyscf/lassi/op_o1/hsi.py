@@ -10,7 +10,7 @@ from mrh.my_pyscf.lassi.op_o1.hams2ovlp import HamS2Ovlp, ham, soc_context
 from mrh.my_pyscf.lassi.citools import _fake_gen_contract_op_si_hdiag
 from mrh.my_pyscf.lassi.op_o1.utilities import *
 from mrh.util.my_scipy import CallbackLinearOperator
-import functools
+import functools, itertools
 from itertools import product
 from pyscf import __config__
 import sys
@@ -1008,7 +1008,7 @@ class HamS2OvlpOperators (HamS2Ovlp):
 
     def get_pspace_ham (self, raw2orth, addrs):
         pspace_size = len (addrs)
-        addrs = raw2orth.split_addrs_by_blocks (addrs)
+        addrs = raw2orth.idx2addrs (addrs)
         ham = np.zeros ((pspace_size, pspace_size), dtype=self.dtype)
         for inv, group in self.optermgroups_h.items (): 
             for op in group.ops:
@@ -1031,48 +1031,74 @@ class HamS2OvlpOperators (HamS2Ovlp):
         return ham
 
     def gen_pspace_fdm (self, raw2orth, addrs, key):
-        # I have to set self._fdm_vec_getter in some highly clever way
-        blks_snt, cols = addrs
-        inv = tuple (set (key[2:]))
         braket_tab = self.nonuniq_exc[key]
-        # looping over s,n string pairs
-        for bra_sn, ket_sn, m_exc_sn, braket_tab_sn in raw2orth.pspace_ham_exc_table_loop (braket_tab):
-            uniq_m, invs_m = np.unique (m_exc_sn, axis=0, return_inverse=True)
-            sgnvec = []
-            midx_bra = []
-            midx_ket = []
-            # looping over mspec
-            for j, (mi_bra, mi_ket) in enumerate (uniq_m):
-                midx_bra.append (mi_bra)
-                midx_ket.append (mi_ket)
-                idx_m = (invs_m==j)
-                my_braket_tab = braket_tab_sn[idx_m]
-                sgn = self.spin_shuffle[my_braket_tab[0,0]]
-                sgn *= self.spin_shuffle[my_braket_tab[0,1]]
-                sgn *= self.fermion_frag_shuffle (my_braket_tab[0,0], inv)
-                sgn *= self.fermion_frag_shuffle (my_braket_tab[0,1], inv)
-                sgnvec.append (sgn)
-            midx_bra = np.asarray (midx_bra)
-            midx_ket = np.asarray (midx_ket)
-            sgnvec = np.asarray (sgnvec)
-            # looping over t string pairs
-            for fac, idx_bra, idx_ket in raw2orth.pspace_ham_spincoup_loop (
-                    blks_snt, bra_sn, ket_sn, sgnvec, midx_bra, midx_ket):
-                def get_fdm (idx_bra, idx_ket, my_braket_tab, cols, sgn):
-                    rect_indices = np.indices ((np.count_nonzero (idx_ket),
-                                                np.count_nonzero (idx_bra)))
-                    _ik, _ib = np.concatenate (rect_indices.T, axis=0).T
-                    _col = (cols[idx_ket][_ik], cols[idx_bra][_ib])
-                    def getter (iroot, bra=False):
-                        bra = int (bra)
-                        return raw2orth.get_xmat_rows (iroot, _col=_col[bra])
-                    self._fdm_vec_getter = getter
-                    fdm = self.get_hdiag_fdm (my_braket_tab, *inv)
-                    fdm = fdm.reshape (np.count_nonzero (idx_bra), np.count_nonzero (idx_ket), -1)
-                    fdm = fdm * sgn
-                    return fdm
-                my_get_fdm = functools.partial (get_fdm, idx_bra, idx_ket, my_braket_tab, cols, sgn)
-                yield (tuple (idx_bra), tuple (idx_ket)), fac, my_get_fdm
+        # Loop over pairs of "manifolds" (i.e., s&n strings)
+        for bra_sn, ket_sn, m_exc, exc_sn in raw2orth.pspace_ham_exc_table_loop (braket_tab):
+            for idx, fac, get_fdm in self.gen_pspace_fdm_sn (raw2orth, addrs, key, bra_sn, ket_sn,
+                                                             m_exc, exc_sn):
+                yield idx, fac, get_fdm
+        return
+
+    def gen_pspace_fdm_sn (self, raw2orth, addrs, key, bra_sn, ket_sn, m_exc, braket_tab):
+        inv = tuple (set (key[2:]))
+        addrs_sn, addrs_t, addrs_p = addrs
+        idx0_bra = (addrs_sn==bra_sn)
+        idx0_ket = (addrs_sn==ket_sn)
+        bra_t = addrs_t[idx0_bra]
+        ket_t = addrs_t[idx0_ket]
+        bra_p = addrs_p[idx0_bra]
+        ket_p = addrs_p[idx0_ket]
+
+        # looping over m of spectator fragments
+        # then index braket_tab to one single m case and retain the corrsponding sign factor
+        uniq_m, invs_m = np.unique (m_exc, axis=0, return_inverse=True)
+        sgnvec = []
+        midx_bra = []
+        midx_ket = []
+        for j, (mi_bra, mi_ket) in enumerate (uniq_m):
+            midx_bra.append (mi_bra)
+            midx_ket.append (mi_ket)
+            idx_m = (invs_m==j)
+            my_braket_tab = braket_tab[idx_m]
+            sgn = self.spin_shuffle[my_braket_tab[0,0]]
+            sgn *= self.spin_shuffle[my_braket_tab[0,1]]
+            sgn *= self.fermion_frag_shuffle (my_braket_tab[0,0], inv)
+            sgn *= self.fermion_frag_shuffle (my_braket_tab[0,1], inv)
+            sgnvec.append (sgn)
+        midx_bra = np.asarray (midx_bra)
+        midx_ket = np.asarray (midx_ket)
+        sgnvec = np.asarray (sgnvec)
+        fdm_spin = raw2orth.pspace_ham_spincoup_dm (bra_sn, ket_sn, midx_bra, midx_ket, sgnvec)
+
+        def get_fdm (idx_bra, idx_ket, my_braket_tab, addrs_p, sgn):
+            rect_indices = np.indices ((np.count_nonzero (idx_ket),
+                                        np.count_nonzero (idx_bra)))
+            _ik, _ib = np.concatenate (rect_indices.T, axis=0).T
+            _col = (addrs_p[idx_ket][_ik], addrs_p[idx_bra][_ib])
+            def getter (iroot, bra=False):
+                bra = int (bra)
+                return raw2orth.get_xmat_rows (iroot, _col=_col[bra])
+            self._fdm_vec_getter = getter
+            fdm = self.get_hdiag_fdm (my_braket_tab, *inv)
+            fdm = fdm.reshape (np.count_nonzero (idx_bra), np.count_nonzero (idx_ket), -1)
+            fdm = fdm * sgn
+            return fdm
+
+        # looping over t string pairs
+        all_bra_t = set (bra_t)
+        all_ket_t = set (ket_t)
+        for bra_t, ket_t in itertools.product (all_bra_t, all_ket_t):
+            idx1_bra = idx0_bra & (addrs_t==bra_t)
+            idx1_ket = idx0_ket & (addrs_t==ket_t)
+            idx = (tuple (idx1_bra), tuple (idx1_ket))
+            fac = fdm_spin[bra_t,ket_t]
+            my_get_fdm = functools.partial (get_fdm,
+                                            idx1_bra,
+                                            idx1_ket,
+                                            my_braket_tab,
+                                            addrs_p,
+                                            sgn)
+            yield idx, fac, my_get_fdm
         return
 
     def _crunch_2c_(self, bra, ket, a, i, b, j, s2lt, dry_run=False):

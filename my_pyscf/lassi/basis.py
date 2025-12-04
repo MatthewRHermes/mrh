@@ -125,6 +125,7 @@ class RootspaceManifold:
         self.m_strs = m_strs
         self.m_blocks = np.asarray (m_blocks, dtype=int)
         self.xmat = xmat
+        self.umat = np.eye (self.m_blocks.shape[0])
 
         offs1 = np.cumsum (nprods_r)
         offs0 = offs1 - nprods_r
@@ -234,6 +235,11 @@ class OrthBasisBase (sparse_linalg.LinearOperator):
 
     split_rblocks_by_manifolds=split_oblocks_by_manifolds
 
+    def idx2addrs (self, idx):
+        blks, addrs_p = self.split_addrs_by_blocks (idx)
+        addrs_sn, addrs_t = self.split_oblocks_by_manifolds (blks)
+        return addrs_sn, addrs_t, addrs_p
+
     def pspace_ham_exc_table_loop (self, braket_tab):
         snm_exc = self.roots2blks (braket_tab)
         sn_exc, m_exc = self.split_rblocks_by_manifolds (snm_exc)
@@ -247,23 +253,6 @@ class OrthBasisBase (sparse_linalg.LinearOperator):
             m_exc_snm = m_exc[idx_snm]
             braket_tab_snm = braket_tab[idx_snm]
             yield sn_exc_snm[0], sn_exc_snm[1], m_exc_snm, braket_tab_snm
-
-    def pspace_ham_spincoup_loop (self, blks_snt, bra_sn, ket_sn, sgnvec, midx_bra, midx_ket):
-        blks_sn, blks_t = self.split_oblocks_by_manifolds (blks_snt)
-        idx_bra_sn = blks_sn==bra_sn
-        idx_ket_sn = blks_sn==ket_sn
-        if (0 in (np.count_nonzero (idx_bra_sn), np.count_nonzero (idx_ket_sn))):
-            return
-        assert (len (sgnvec) == 1)
-        assert (len (midx_bra) == 1)
-        assert (len (midx_ket) == 1)
-        sgn = sgnvec[0]
-        midx_bra = midx_bra[0]
-        midx_ket = midx_ket[0]
-        idx_bra = idx_bra_sn & (blks_t==midx_bra)
-        idx_ket = idx_ket_sn & (blks_t==midx_ket)
-        yield sgn, idx_bra, idx_ket
-        return
 
 class NullOrthBasis (OrthBasisBase):
     def __init__(self, nraw, dtype, nprods_r):
@@ -310,6 +299,12 @@ class NullOrthBasis (OrthBasisBase):
 
     def spincase_mstrs (self, roots, inv):
         return tuple (roots)
+
+    def pspace_ham_spincoup_dm (self, bra_sn, ket_sn, midx_bra, midx_ket, sgnvec):
+        assert (len (sgnvec) == 1)
+        assert (len (midx_bra) == 1)
+        assert (len (midx_ket) == 1)
+        return np.atleast_2d (sgnvec)
 
 class OrthBasis (OrthBasisBase):
     def __init__(self, shape, dtype, nprods_r, manifolds):
@@ -423,6 +418,11 @@ class OrthBasis (OrthBasisBase):
             xmat = xmat[:,_col]
         return xmat
 
+    def pspace_ham_spincoup_dm (self, bra_sn, ket_sn, midx_bra, midx_ket, sgnvec):
+        umat_bra = self.manifolds[bra_sn].umat[midx_bra,:]
+        umat_ket = self.manifolds[ket_sn].umat[midx_ket,:]
+        return umat_bra.conj ().T @ (sgnvec[:,None] * umat_ket)
+
     def _matvec (self, rawarr):
         is_out_complex = (self.dtype==np.complex128) or np.iscomplexobj (rawarr)
         my_dtype = np.complex128 if is_out_complex else np.float64
@@ -510,25 +510,6 @@ class SpinCoupledOrthBasis (OrthBasis):
             m_exc_sn = m_exc[idx_sn]
             braket_tab_sn = braket_tab[idx_sn]
             yield bra_sn, ket_sn, m_exc_sn, braket_tab_sn
-
-    def pspace_ham_spincoup_loop (self, blks_snt, bra_sn, ket_sn, sgnvec, midx_bra, midx_ket):
-        umat_bra = self.manifolds[bra_sn].umat[midx_bra,:]
-        umat_ket = self.manifolds[ket_sn].umat[midx_ket,:]
-        fac_mat = umat_bra.conj ().T @ (sgnvec[:,None] * umat_ket)
-        blks_sn, blks_t = self.split_oblocks_by_manifolds (blks_snt)
-        idx_bra_sn = blks_sn==bra_sn 
-        idx_ket_sn = blks_sn==ket_sn
-        if (0 in (np.count_nonzero (idx_bra_sn), np.count_nonzero (idx_ket_sn))):
-            return
-        bra_t_cases = set (list (blks_t[idx_bra_sn]))
-        ket_t_cases = set (list (blks_t[idx_ket_sn]))
-        for bra_t, ket_t in itertools.product (bra_t_cases, ket_t_cases):
-            idx_bra_t = blks_t==bra_t
-            idx_ket_t = blks_t==ket_t
-            idx_bra = idx_bra_sn & idx_bra_t
-            idx_ket = idx_ket_sn & idx_ket_t
-            yield fac_mat[bra_t,ket_t], idx_bra, idx_ket
-        return
 
     def _matvec (self, rawarr):
         is_out_complex = (self.dtype==np.complex128) or np.iscomplexobj (rawarr)
