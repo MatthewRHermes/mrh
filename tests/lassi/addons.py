@@ -156,12 +156,18 @@ def _check_OrthBasis (ks, las, ci_fr, nelec_frs, smult_fr, ham, s2, ovlp, ops, s
     ham_test = (pv * pw[None,:]) @ pv.conj ().T
     ham_ref = ham_orth[addrs,:][:,addrs]
     with ks.subTest ('pspace'):
+        #ham_err = np.around (ham_test-ham_ref, 5)
+        #for i,j in itertools.product (range (ham_test.shape[0]), range (ham_test.shape[1])):
+        #    print (i,j,ham_err[i,j], ham_ref[i,j])
         ks.assertAlmostEqual (lib.fp (ham_test), lib.fp (ham_ref), 7)
     pspace_size = raw2orth.shape[0]
     pw, pv, addrs = pspace (ham_diag_orth, ham_op, raw2orth, 1, pspace_size)
     ham_test = (pv * pw[None,:]) @ pv.conj ().T
     ham_ref = ham_orth[addrs,:][:,addrs]
     with ks.subTest ('pspace full'):
+        #ham_err = np.around (ham_test-ham_ref, 5)
+        #for i,j in itertools.product (range (ham_test.shape[0]), range (ham_test.shape[1])):
+        #    print (i,j,ham_err[i,j], ham_ref[i,j])
         ks.assertAlmostEqual (lib.fp (ham_test), lib.fp (ham_ref), 7)
 
 def case_contract_op_si (ks, las, h1, h2, ci_fr, nelec_frs, smult_fr=None, soc=0):

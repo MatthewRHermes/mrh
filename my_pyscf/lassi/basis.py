@@ -300,10 +300,8 @@ class NullOrthBasis (OrthBasisBase):
     def spincase_mstrs (self, roots, inv):
         return tuple (roots)
 
-    def pspace_ham_spincoup_dm (self, bra_sn, ket_sn, midx_bra, midx_ket, sgnvec):
+    def pspace_ham_spincoup_dm (self, bra_sn, ket_sn, mtidx_bra, mtidx_ket, sgnvec):
         assert (len (sgnvec) == 1)
-        assert (len (midx_bra) == 1)
-        assert (len (midx_ket) == 1)
         return np.atleast_2d (sgnvec)
 
 class OrthBasis (OrthBasisBase):
@@ -418,9 +416,9 @@ class OrthBasis (OrthBasisBase):
             xmat = xmat[:,_col]
         return xmat
 
-    def pspace_ham_spincoup_dm (self, bra_sn, ket_sn, midx_bra, midx_ket, sgnvec):
-        umat_bra = self.manifolds[bra_sn].umat[midx_bra,:]
-        umat_ket = self.manifolds[ket_sn].umat[midx_ket,:]
+    def pspace_ham_spincoup_dm (self, bra_sn, ket_sn, mtidx_bra, mtidx_ket, sgnvec):
+        umat_bra = self.manifolds[bra_sn].umat[mtidx_bra]
+        umat_ket = self.manifolds[ket_sn].umat[mtidx_ket]
         return umat_bra.conj ().T @ (sgnvec[:,None] * umat_ket)
 
     def _matvec (self, rawarr):
