@@ -1006,9 +1006,9 @@ class HamS2OvlpOperators (HamS2Ovlp):
             o = o.ravel ()
         return o
 
-    def get_pspace_ham (self, raw2orth, addrs):
-        pspace_size = len (addrs)
-        addrs = raw2orth.idx2addrs (addrs)
+    def get_pspace_ham (self, raw2orth, idxs):
+        pspace_size = len (idxs)
+        addrs = raw2orth.idx2addrs (idxs)
         ham = np.zeros ((pspace_size, pspace_size), dtype=self.dtype)
         for inv, group in self.optermgroups_h.items (): 
             for op in group.ops:
@@ -1024,7 +1024,7 @@ class HamS2OvlpOperators (HamS2Ovlp):
                         dots[idx] = mydot
                 # Looping over blocks of the pspace Hamiltonian addressed by this op
                 for idx, (get_fdm, facs, keys) in dots.items ():
-                    fdm = get_fdm ()
+                    fdm = get_fdm (idx[0], idx[1])
                     op1 = op.reduce_spin_sum (facs, keys)
                     ham[np.ix_(idx[0],idx[1])] += opterm.fdm_dot (fdm, op1)
                     ham[np.ix_(idx[1],idx[0])] += opterm.fdm_dot (fdm, op1.conj ()).T
@@ -1038,6 +1038,41 @@ class HamS2OvlpOperators (HamS2Ovlp):
                                                              m_exc, exc_sn):
                 yield idx, fac, get_fdm
         return
+
+    class pspace_fdm_cache:
+        def __init__(myself, env):
+            myself.self = env['self']
+            myself.raw2orth = env['raw2orth']
+            myself.inv = env['inv']
+            myself.my_braket_tab = env['my_braket_tab']
+            myself.idx0_bra = env['idx0_bra']
+            myself.idx0_ket = env['idx0_ket']
+            myself.bra_p = env['bra_p']
+            myself.ket_p = env['ket_p']
+            myself.sgn = env['sgn']
+            myself._fdm = None
+
+        def __call__(myself, idx_bra, idx_ket):
+            if myself._fdm is None:
+                myself._fdm = myself.make_fdm ()
+            idx_bra = np.asarray (idx_bra)[myself.idx0_bra]
+            idx_ket = np.asarray (idx_ket)[myself.idx0_ket]
+            return myself._fdm[idx_bra,:,:][:,idx_ket,:]
+
+        def make_fdm (myself):
+            bra_p, pinv_bra = np.unique (myself.bra_p, return_inverse=True)
+            ket_p, pinv_ket = np.unique (myself.ket_p, return_inverse=True)
+            rect_indices = np.indices ((len (ket_p), len (bra_p)))
+            _ik, _ib = np.concatenate (rect_indices.T, axis=0).T
+            _col = (ket_p[_ik], bra_p[_ib])
+            def getter (iroot, bra=False):
+                bra = int (bra)
+                return myself.raw2orth.get_xmat_rows (iroot, _col=_col[bra])
+            myself.self._fdm_vec_getter = getter
+            fdm = myself.self.get_hdiag_fdm (myself.my_braket_tab, *myself.inv)
+            fdm = fdm.reshape (len (bra_p), len (ket_p), -1) * myself.sgn
+            fdm = fdm[pinv_bra,:,:][:,pinv_ket,:]
+            return fdm 
 
     def gen_pspace_fdm_sn (self, raw2orth, addrs, key, bra_sn, ket_sn, m_exc, braket_tab):
         inv = tuple (set (key[2:]))
@@ -1070,23 +1105,7 @@ class HamS2OvlpOperators (HamS2Ovlp):
         sgnvec = np.asarray (sgnvec)
         fdm_spin = raw2orth.pspace_ham_spincoup_dm (bra_sn, ket_sn, midx_bra, midx_ket, sgnvec)
 
-        def get_fdm (idx_bra, idx_ket, my_braket_tab, addrs_p, sgn):
-            bra_p = addrs_p[idx_bra]
-            ket_p = addrs_p[idx_ket]
-            bra_p, pinv_bra = np.unique (bra_p, return_inverse=True)
-            ket_p, pinv_ket = np.unique (ket_p, return_inverse=True)
-            rect_indices = np.indices ((len (ket_p), len (bra_p)))
-            _ik, _ib = np.concatenate (rect_indices.T, axis=0).T
-            _col = (ket_p[_ik], bra_p[_ib])
-            def getter (iroot, bra=False):
-                bra = int (bra)
-                return raw2orth.get_xmat_rows (iroot, _col=_col[bra])
-            self._fdm_vec_getter = getter
-            fdm = self.get_hdiag_fdm (my_braket_tab, *inv)
-            fdm = fdm.reshape (len (bra_p), len (ket_p), -1)
-            fdm = fdm[pinv_bra,:,:][:,pinv_ket,:]
-            fdm = fdm * sgn
-            return fdm
+        get_fdm = self.pspace_fdm_cache (locals ())
 
         # looping over t string pairs
         all_bra_t = set (bra_t)
@@ -1096,13 +1115,7 @@ class HamS2OvlpOperators (HamS2Ovlp):
             idx1_ket = idx0_ket & (addrs_t==ket_t)
             idx = (tuple (idx1_bra), tuple (idx1_ket))
             fac = fdm_spin[bra_t,ket_t]
-            my_get_fdm = functools.partial (get_fdm,
-                                            idx1_bra,
-                                            idx1_ket,
-                                            my_braket_tab,
-                                            addrs_p,
-                                            sgn)
-            yield idx, fac, my_get_fdm
+            yield idx, fac, get_fdm
         return
 
     def _crunch_2c_(self, bra, ket, a, i, b, j, s2lt, dry_run=False):
