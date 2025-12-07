@@ -1093,7 +1093,8 @@ class HamS2OvlpOperators (HamS2Ovlp):
             mtidx_bra = np.ix_(np.asarray (midx_bra), bra_t)
             mtidx_ket = np.ix_(np.asarray (midx_ket), ket_t)
             sgnvec = np.asarray (sgnvec)
-            fdm[:,:,i] = raw2orth.pspace_ham_spincoup_dm (bra_sn, ket_sn, mtidx_bra, mtidx_ket, sgnvec)
+            fdm[:,:,i] = raw2orth.pspace_ham_spincoup_dm (bra_sn, ket_sn, mtidx_bra, mtidx_ket,
+                                                          sgnvec, inv)
         return fdm
 
     def get_pspace_ham_fdm_spat (self, raw2orth, inv, op, bra_args, ket_args):
@@ -1110,6 +1111,22 @@ class HamS2OvlpOperators (HamS2Ovlp):
             if np.count_nonzero (idx) > 0: break
         assert (np.count_nonzero (idx)) > 0
         braket_tab = braket_tab[idx,:]
+        sn_exc = sn_exc[idx,:]
+        m_exc = m_exc[idx,:]
+        # When using spin-orbit coupling, braket_tab will include overlaps that
+        # vanish because the m degree of freedom is hidden from this class. To skip
+        # those overlaps correctly, I have to index down explicitly to spectator-
+        # fragment spin-conserving pairs of rootspaces. If I'm not using spin-orbit
+        # coupling, this seems pointless because braket_tab would already be so
+        # indexed, but for generality I have to keep this here.
+        idx = raw2orth.find_spin_nonvanishing_overlaps (bra_sn, ket_sn, m_exc, inv)
+        if np.count_nonzero (idx) == 0:
+            bra, ket = braket_tab[0,:]
+            nbra = np.prod (self.lroots[inv,bra])
+            nket = np.prod (self.lroots[inv,ket])
+            return np.zeros ((len (bra_p), len (ket_p), nbra*nket), dtype=float)
+        braket_tab = braket_tab[idx,:]
+        sn_exc = sn_exc[idx,:]
         m_exc = m_exc[idx,:]
         idx = np.all (m_exc==m_exc[0,:][None,:], axis=1)
         braket_tab = braket_tab[idx,:]

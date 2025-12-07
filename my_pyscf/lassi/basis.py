@@ -300,7 +300,10 @@ class NullOrthBasis (OrthBasisBase):
     def spincase_mstrs (self, roots, inv):
         return tuple (roots)
 
-    def pspace_ham_spincoup_dm (self, bra_sn, ket_sn, mtidx_bra, mtidx_ket, sgnvec):
+    def find_spin_nonvanishing_overlaps (self, bra_sn, ket_sn, m_exc, inv):
+        return np.ones (len (m_exc), dtype=bool)
+
+    def pspace_ham_spincoup_dm (self, bra_sn, ket_sn, mtidx_bra, mtidx_ket, sgnvec, inv):
         assert (len (sgnvec) == 1)
         return np.atleast_2d (sgnvec)
 
@@ -416,10 +419,35 @@ class OrthBasis (OrthBasisBase):
             xmat = xmat[:,_col]
         return xmat
 
-    def pspace_ham_spincoup_dm (self, bra_sn, ket_sn, mtidx_bra, mtidx_ket, sgnvec):
+    def get_mstr_env (self, addr_sn, addr_m, inv):
+        m_strs = self.manifolds[addr_sn].m_strs
+        nm, nfrags = m_strs.shape
+        spec = np.ones (nfrags, dtype=bool)
+        spec[np.asarray (inv)] = False
+        addr_m = np.atleast_1d (addr_m)
+        m_strs = m_strs[np.ix_(addr_m,spec)]
+        assert (m_strs.ndim==2), '{} {}'.format (addr_m, spec)
+        return m_strs 
+
+    def find_spin_nonvanishing_overlaps (self, bra_sn, ket_sn, m_exc, inv):
+        mbra = self.get_mstr_env (bra_sn, m_exc[:,0], inv)
+        mket = self.get_mstr_env (ket_sn, m_exc[:,1], inv)
+        idx = [np.all (self.get_mstr_env (bra_sn, m_exc[i,0], inv)
+                       == self.get_mstr_env (ket_sn, m_exc[i,1], inv),
+                       axis=1)[0]
+               for i in range (len (m_exc))]
+        return np.asarray (idx)
+
+    def pspace_ham_spincoup_dm (self, bra_sn, ket_sn, mtidx_bra, mtidx_ket, sgnvec, inv):
+        mstr_bra = self.get_mstr_env (bra_sn, mtidx_bra[0].ravel (), inv)
+        mstr_ket = self.get_mstr_env (ket_sn, mtidx_ket[0].ravel (), inv)
         umat_bra = self.manifolds[bra_sn].umat[mtidx_bra]
         umat_ket = self.manifolds[ket_sn].umat[mtidx_ket]
-        return umat_bra.conj ().T @ (sgnvec[:,None] * umat_ket)
+        assert (umat_bra.shape[0] == mstr_bra.shape[0])
+        assert (umat_ket.shape[0] == mstr_ket.shape[0])
+        sgnvec[np.any (mstr_bra!=mstr_ket, axis=1)] = 0
+        dm = (umat_bra.conj ().T @ (sgnvec[:,None] * umat_ket))
+        return dm
 
     def _matvec (self, rawarr):
         is_out_complex = (self.dtype==np.complex128) or np.iscomplexobj (rawarr)
