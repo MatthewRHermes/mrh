@@ -2069,6 +2069,18 @@ void Device::transpose_021( double * in, double * out, int norb)
 }
 
 /* ---------------------------------------------------------------------- */
+void Device::transpose_23140( double * in, double * out, int ax1, int ax2, int ax3, int ax4, int ax5)
+{
+  cudaStream_t s = *(pm->dev_get_queue());
+  dim3 block_size(_DEFAULT_BLOCK_SIZE, 1,1);
+  dim3 grid_size(_TILE(ax1, block_size.x),1,1);
+  //transpose_23140(in, out, ax1,ax2,ax3, ax4, ax5)
+  _CUDA_CHECK_ERRORS();
+}
+
+/* ---------------------------------------------------------------------- */
+
+
 
 
 #endif

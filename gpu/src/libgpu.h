@@ -201,6 +201,9 @@ extern "C"
 
   //MATVECS FOR LASSI
   void libgpu_push_op(void *, py::array_t<double>, int, int, int);
+  void libgpu_push_op_4frag(void *, py::array_t<double>, int, int, int);
+  void libgpu_push_d2(void *, py::array_t<double>, int, int, int);
+  void libgpu_push_d3(void *, py::array_t<double>, int, int, int);
   void libgpu_init_ox1_pinned(void *, int);
   void libgpu_init_new_sivecs_host(void * , int, int); 
   void libgpu_init_old_sivecs_host(void *, int, int); 
@@ -212,6 +215,11 @@ extern "C"
   void libgpu_compute_sivecs_full(void *, int, int, int, int); 
   void libgpu_compute_sivecs_full_v2(void *, int, int, int, int); 
   void libgpu_compute_sivecs_full_v3(void *, int, int, int, int, int, int, int, int); 
+  void libgpu_compute_4frag_matvec(void *, int, int, int, int,
+                                           int, int, int, int, 
+                                           int, 
+                                           int, int, 
+                                           int, int, int, int);
   void libgpu_print_sivecs(void *, int, int); 
   void libgpu_add_ox1_pinned(void *, py::array_t<double>, int);
   void libgpu_finalize_ox1_pinned(void *, py::array_t<double>, int);
@@ -313,6 +321,9 @@ PYBIND11_MODULE(libgpu, m) {
   m.def("pull_tdm3hab_v2_host",&libgpu_pull_tdm3hab_v2_host,"mrh/my_pyscf/fci/rdm.py::trans_rdm13hs spin1 pull_tdm13hab v2 to pinned");        
 
   m.def("push_op",&libgpu_push_op,"mrh/my_pyscf/lassi/op_o1/hsi.py::_opuniq_x_ push_op to gpu");        
+  m.def("push_op_4frag",&libgpu_push_op_4frag,"mrh/my_pyscf/lassi/op_o1/hsi.py::_opuniq_x_ push_op_frag to gpu");        
+  m.def("push_d2",&libgpu_push_d2,"mrh/my_pyscf/lassi/op_o1/hsi.py::_opuniq_x_ push_op_d2 to gpu");        
+  m.def("push_d3",&libgpu_push_d3,"mrh/my_pyscf/lassi/op_o1/hsi.py::_opuniq_x_ push_op_d3 to gpu");        
   m.def("init_ox1_pinned",&libgpu_init_ox1_pinned,"mrh/my_pyscf/lassi/op_o1/hsi.py::_opuniq_x_ for storing results"); 
   m.def("init_new_sivecs_host",&libgpu_init_new_sivecs_host,"mrh/my_pyscf/lassi/op_o1/hsi.py::_opuniq_x_ init_new_sivecs_host for storing results");        
   m.def("init_old_sivecs_host",&libgpu_init_old_sivecs_host,"mrh/my_pyscf/lassi/op_o1/hsi.py::_opuniq_x_ init_old_sivecs_host for storing inputs");        
@@ -324,6 +335,7 @@ PYBIND11_MODULE(libgpu, m) {
   m.def("compute_sivecs_full",&libgpu_compute_sivecs_full,"mrh/my_pyscf/lassi/op_o1/hsi.py::_opuniq_x_ compute_sivecs");  
   m.def("compute_sivecs_full_v2",&libgpu_compute_sivecs_full_v2,"mrh/my_pyscf/lassi/op_o1/hsi.py::_opuniq_x_ compute_sivecs_v2");  
   m.def("compute_sivecs_full_v3",&libgpu_compute_sivecs_full_v3,"mrh/my_pyscf/lassi/op_o1/hsi.py::_opuniq_x_ compute_sivecs_v3");  
+  m.def("compute_4frag_matvec",&libgpu_compute_4frag_matvec,"mrh/my_pyscf/lassi/op_o1/hsi.py::_opuniq_x_ 4frag op X");  
   m.def("print_sivecs",&libgpu_print_sivecs,"mrh/my_pyscf/lassi/op_o1/hsi.py::print_sivecs");  
   m.def("pull_sivecs_from_pinned",&libgpu_pull_sivecs_from_pinned,"mrh/my_pyscf/lassi/op_o1/hsi.py::_opuniq_x_ pull_sivecs_from_pinned to pageable");        
   m.def("add_ox1_pinned",&libgpu_add_ox1_pinned,"mrh/my_pyscf/lassi/op_o1/hsi.py::_opuniq_x_ add_ox1_from_pinned to pageable");        

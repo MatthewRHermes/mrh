@@ -5503,6 +5503,74 @@ void Device::push_op(py::array_t<double> _op, int m, int k, int counts)
   count_array[23]++;
 }
 /* ---------------------------------------------------------------------- */
+void Device::push_op_4frag(py::array_t<double> _op, int size_op, int size_req, int counts)
+{
+  double t0 = omp_get_wtime();
+  py::buffer_info info_op = _op.request();
+  double * op = static_cast<double*>(info_op.ptr);
+  int _size_op = size_op;
+
+  counts = _MIN(counts, num_devices);
+  std::vector<double *> op_vec(counts); // array of device addresses 
+
+  for(int id=0; id<counts; ++id) {
+    pm->dev_set_device(id);
+    my_device_data * dd = &(device_data[id]);
+    grow_array(dd->d_buf1, size_req, dd->size_buf1, "buf1", FLERR);
+    op_vec[id] = dd->d_buf1;}
+
+  mgpu_bcast(op_vec, op, _size_op*sizeof(double));
+
+  double t1 = omp_get_wtime();
+  t_array[33] += t1-t0;
+  count_array[23]++;
+}
+/* ---------------------------------------------------------------------- */
+void Device::push_d2(py::array_t<double> _d2, int size_d2, int loc_d2, int counts)
+{
+  double t0 = omp_get_wtime();
+  py::buffer_info info_d2 = _d2.request();
+  double * d2 = static_cast<double*>(info_d2.ptr);
+
+  counts = _MIN(counts, num_devices);
+  std::vector<double *> d2_vec(counts); // array of device addresses 
+
+  for(int id=0; id<counts; ++id) {
+    pm->dev_set_device(id);
+    my_device_data * dd = &(device_data[id]);
+    d2_vec[id] = &(dd->d_buf1[loc_d2]);}
+
+  mgpu_bcast(d2_vec, d2, size_d2*sizeof(double));
+
+  double t1 = omp_get_wtime();
+  t_array[33] += t1-t0;
+  count_array[23]++;
+}
+/* ---------------------------------------------------------------------- */
+void Device::push_d3(py::array_t<double> _d3, int size_d3, int loc_d3, int counts)
+{
+  double t0 = omp_get_wtime();
+  py::buffer_info info_d3 = _d3.request();
+  double * d3 = static_cast<double*>(info_d3.ptr);
+
+  counts = _MIN(counts, num_devices);
+  std::vector<double *> d3_vec(counts); // array of device addresses 
+
+  for(int id=0; id<counts; ++id) {
+    pm->dev_set_device(id);
+    my_device_data * dd = &(device_data[id]);
+    d3_vec[id] = &(dd->d_buf1[loc_d3]);}
+
+  mgpu_bcast(d3_vec, d3, size_d3*sizeof(double));
+
+  double t1 = omp_get_wtime();
+  t_array[33] += t1-t0;
+  count_array[23]++;
+}
+
+
+
+/* ---------------------------------------------------------------------- */
 void Device::init_new_sivecs_host(int m, int n)
 {
   double t0 = omp_get_wtime();
@@ -5876,6 +5944,102 @@ void Device::compute_sivecs_full_v3 (int _m, int _k, int n, int vec_loc, int ox1
     for (int i=0;i<m*n;++i){printf("%f\t",h_res[i]*100000);}printf("\n");
     }
   #endif
+  pm->dev_profile_stop();
+  double t1 = omp_get_wtime();
+  t_array[37] += t1-t0;
+  count_array[27]++;
+}
+
+/* ---------------------------------------------------------------------- */
+void Device::compute_4frag_matvec( int i, int j, int k, int l, 
+                             int a, int b, int c, int d,
+                             int z, 
+                             int r, int s, 
+                             int vec_loc, int ox1_loc, int fac, int op_t)
+{
+  //c === einsum(mk,nk->mn, a,b)  === dot(a,b.T) === cublasDgemm(T,N,n,m,k,alpha,b,k,a,k,beta,c,n)
+  double t0 = omp_get_wtime();
+  int device_id = 0;
+  int _m, _n, _k; //actual multiplication factors
+  double * matA, * matB, * matC; //matrices
+  //buf1: op, d[2], d[3], [op*vec], transpose_23140(op*vec)
+  //buf2: vec_loc = vec
+  //final_result = &buf3[ox1_loc]
+  //tmp1 = &buf1[size_op + size_d2 + size_d3]
+  //tmp1 = op*vec
+  //tmp2 = &tmp[size_tmp]
+  //tmp2 = transpose(tmp1)
+  //tmp1 = d2*tmp2
+  //final_result += d3*tmp1
+  //buf1[size_op + size_d2 + size_d3 + size_tmp] = transpose_23140(
+  int size_op = r*s*b*a*i*j;
+  int size_d2 = c*k*r;
+  int size_d3 = d*l*s;
+  int size_tmp_result1 = r*s*b*a*z*l*k;
+  int size_tmp_result2 = c*b*a*z*l*s;
+  int size_tmp_result3 = d*c*b*a*z;
+  int loc_C;
+  double alpha = 1.0;
+  double beta = 0.0; 
+  pm->dev_set_device(device_id);
+  pm->dev_profile_start("op_vec :: compute_4frag");
+  my_device_data * dd = &(device_data[device_id]);
+  ml->set_handle(device_id);
+  dd->active = 1;
+  if (op_t){
+  }
+  else{
+  //ox = lib.einsum ('rsbaji,zlkji->rsbazlk', self.op, other)
+  _m = r*s*b*a;
+  _n = z*l*k;
+  _k =  i*j;
+  matB = &(dd->d_buf2[vec_loc]);
+  matA = dd->d_buf1;
+  loc_C = size_op + size_d2+size_d3;
+  matC = &(dd->d_buf1[loc_C]);
+  ml->gemm((char *) "T", (char *) "N", 
+       &_n,&_m,&_k, 
+       &alpha, matB, &_k, matA, &_k,
+       &beta, matC, &_n); 
+
+  //rsbazlk->bazlskr
+
+  double * matC_T = &(matC[size_tmp_result1]); //buf1 after matC
+  transpose_23140(matC, matC_T, r, s, b*a*z, l, k); 
+  
+  //original: ox = lib.einsum ('ckr,rsbazlk->scbazl', self.d[2], ox)
+  //post transpose: ox = lib.einsum('ckr, bazlskr->cbazlk',self.d[2],ox)
+  _m = c;
+  _n = b*a*z*l*s;
+  _k =  k*r;
+  matB = matC_T;
+  matA = &(dd->d_buf1[size_op]); 
+  loc_C = size_op+size_d2+size_d3;
+  matC = &(dd->d_buf1[loc_C]);
+  ml->gemm((char *) "T", (char *) "N", 
+       &_n,&_m,&_k, 
+       &alpha, matB, &_k, matA, &_k,
+       &beta, matC, &_n); 
+
+  
+  //original: ox = lib.einsum ('dls,scbazl->dcbaz', self.d[3], ox)
+  //my_vers : ox = lib.einsum ('dls,cbazlk->dcbaz', self.d[3], ox) 
+  
+  _m = d;
+  _n = c*b*a*z;
+  _k =  l*s;
+  matB = matC; //from previous calculation
+  matA = &(dd->d_buf1[size_op+size_d2]); //d3  
+  matC = &(dd->d_buf3[ox1_loc]);
+  alpha = 1.0*fac;
+  beta = 1.0;
+  ml->gemm((char *) "T", (char *) "N", 
+       &_n,&_m,&_k, 
+       &alpha, matB, &_k, matA, &_k,
+       &beta, matC, &_n); 
+
+  }
+
   pm->dev_profile_stop();
   double t1 = omp_get_wtime();
   t_array[37] += t1-t0;
