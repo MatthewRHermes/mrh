@@ -240,19 +240,13 @@ class OrthBasisBase (sparse_linalg.LinearOperator):
         addrs_sn, addrs_t = self.split_oblocks_by_manifolds (blks)
         return addrs_sn, addrs_t, addrs_p
 
-    def pspace_ham_exc_table_loop (self, braket_tab):
-        snm_exc = self.roots2blks (braket_tab)
-        sn_exc, m_exc = self.split_rblocks_by_manifolds (snm_exc)
-        uniq_snm, invs_snm = np.unique (snm_exc, axis=0, return_inverse=True)
-        # looping over s,n,m string pairs
-        for i, (bra_snm, ket_snm) in enumerate (uniq_snm):
-            idx_snm = (invs_snm==i)
-            sn_exc_snm = sn_exc[idx_snm]
-            assert (len (np.unique (sn_exc_snm,axis=0))==1)
-            sn_exc_snm = sn_exc_snm[0]
-            m_exc_snm = m_exc[idx_snm]
-            braket_tab_snm = braket_tab[idx_snm]
-            yield sn_exc_snm[0], sn_exc_snm[1], m_exc_snm, braket_tab_snm
+    def are_tstrs_coupled (self, bra_sn, ket_sn, bra_t, ket_t, inv):
+        coup = (bra_t==ket_t)
+        if isinstance (coup, np.ndarray):
+            coup[:] = True
+        else:
+            coup = True
+        return coup
 
 class NullOrthBasis (OrthBasisBase):
     def __init__(self, nraw, dtype, nprods_r):
@@ -493,6 +487,15 @@ class OrthBasis (OrthBasisBase):
                     rawarr[mirror] = np.tensordot (xmat.conj (), ortharr[i:j], axes=1)
         return rawarr
 
+    def are_tstrs_coupled (self, bra_sn, ket_sn, bra_t, ket_t, inv):
+        brastr = self.manifolds[bra_sn].get_t_strs ()
+        ketstr = self.manifolds[bra_sn].get_t_strs ()
+        spec = np.ones (brastr.shape[-1], dtype=bool)
+        spec[np.asarray (inv)] = False
+        brastr = brastr.T[inv].T[bra_t]
+        ketstr = ketstr.T[inv].T[ket_t]
+        return np.all (brastr==ketstr, axis=-1)
+
 class SpinCoupledOrthBasis (OrthBasis):
     def roots_coupled_in_hdiag (self, i, j):
         return self.roots2mans (i) == self.roots2mans (j)
@@ -525,17 +528,6 @@ class SpinCoupledOrthBasis (OrthBasis):
             spin_fac = np.dot (ubra[:,ilsf], uket[:,ilsf])
             yield spin_fac, (p,q)
         return
-
-    def pspace_ham_exc_table_loop (self, braket_tab):
-        snm_exc = self.roots2blks (braket_tab)
-        sn_exc, m_exc = self.split_rblocks_by_manifolds (snm_exc)
-        uniq_sn, invs_sn = np.unique (sn_exc, axis=0, return_inverse=True)
-        # looping over s,n string pairs
-        for i, (bra_sn, ket_sn) in enumerate (uniq_sn):
-            idx_sn = (invs_sn==i)
-            m_exc_sn = m_exc[idx_sn]
-            braket_tab_sn = braket_tab[idx_sn]
-            yield bra_sn, ket_sn, m_exc_sn, braket_tab_sn
 
     def _matvec (self, rawarr):
         is_out_complex = (self.dtype==np.complex128) or np.iscomplexobj (rawarr)
@@ -582,6 +574,18 @@ class SpinCoupledOrthBasis (OrthBasis):
             for mirror, xarr in zip (prod_idx, uxarr):
                 rawarr[mirror] = xarr
         return rawarr
+
+    def are_tstrs_coupled (self, bra_sn, ket_sn, bra_t, ket_t, inv):
+        brastr = np.cumsum (self.manifolds[bra_sn].get_t_strs (), axis=1)
+        ketstr = np.cumsum (self.manifolds[bra_sn].get_t_strs (), axis=1)
+        inv = np.arange (brastr.shape[-1], dtype=int)[np.asarray (inv)]
+        if len (inv) == 1:
+            return bra_t==ket_t
+        spec = np.ones (brastr.shape[-1], dtype=bool)
+        spec[inv[0]:inv[-1]] = False
+        brastr = brastr.T[inv].T[bra_t]
+        ketstr = ketstr.T[inv].T[ket_t]
+        return np.all (brastr==ketstr, axis=-1)
 
 def get_spincoup_bases (smults_f, spin_lsf=None, smult_lsf=None):
     from mrh.my_pyscf.lassi.spaces import SingleLASRootspace
