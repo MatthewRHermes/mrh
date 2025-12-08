@@ -65,6 +65,8 @@ class ContractHamCI_CHC (stdm.LSTDM):
         self.dt_1d, self.dw_1d = 0.0, 0.0
         self.dt_2d, self.dw_2d = 0.0, 0.0
         self.dt_1c, self.dw_1c = 0.0, 0.0
+        self.dt_1c_td, self.dw_1c_td = 0.0, 0.0
+        self.dt_1c_h10, self.dw_1c_h10 = 0.0, 0.0
         self.dt_1c1d, self.dw_1c1d = 0.0, 0.0
         self.dt_1s, self.dw_1s = 0.0, 0.0
         self.dt_1s1c, self.dw_1s1c = 0.0, 0.0
@@ -82,6 +84,8 @@ class ContractHamCI_CHC (stdm.LSTDM):
         profile = fmt_str.format ('1d', self.dt_1d, self.dw_1d)
         profile += '\n' + fmt_str.format ('2d', self.dt_2d, self.dw_2d)
         profile += '\n' + fmt_str.format ('1c', self.dt_1c, self.dw_1c)
+        profile += '\n' + fmt_str.format ('1c_td', self.dt_1c_td, self.dw_1c_td)
+        profile += '\n' + fmt_str.format ('1c_h10', self.dt_1c_h10, self.dw_1c_h10)
         profile += '\n' + fmt_str.format ('1c1d', self.dt_1c1d, self.dw_1c1d)
         profile += '\n' + fmt_str.format ('1s', self.dt_1s, self.dw_1s)
         profile += '\n' + fmt_str.format ('1s1c', self.dt_1s1c, self.dw_1s1c)
@@ -141,7 +145,7 @@ class ContractHamCI_CHC (stdm.LSTDM):
         
         i.e.,
         
-        j ---s1---> i
+       j ---s1---> i
         '''
         t0, w0 = logger.process_clock (), logger.perf_counter ()
         hci_f_ab, iad, skip = self._get_vecs_(bra, ket, i, j)
@@ -155,20 +159,29 @@ class ContractHamCI_CHC (stdm.LSTDM):
         h1_ij = self.get_ham_2q (i,j)[s1]
         h2_ijjj = self.get_ham_2q (i,j,j,j)
         h2_iiij = self.get_ham_2q (i,i,i,j)
+
         if iad:
             D_j = self.ints[j].get_1_h (bra, ket, s1)
             D_jjj = self.ints[j].get_1_phh (bra, ket, s1).sum (0)
             h_10 = np.dot (h1_ij, D_j) + np.tensordot (h2_ijjj, D_jjj,
                 axes=((1,2,3),(2,0,1)))
             h_21 = np.dot (h2_iiij, D_j).transpose (2,0,1)
+            t1, w1 = logger.process_clock (), logger.perf_counter ()
+            self.dt_1c_td, self.dw_1c_td = self.dt_1c_td + t1 - t0, self.dw_1c_td + w1 - w0
             hci_f_ab[i] += fac * self.ints[i].contract_h10 (s1, h_10, h_21, ket)
+            t2, w2 = logger.process_clock (), logger.perf_counter ()
+            self.dt_1c_h10, self.dw_1c_h10 = self.dt_1c_h10 + t2 - t1, self.dw_1c_h10 + w2 - w1
         if jad:
             D_i = self.ints[i].get_1_p (bra, ket, s1)
             D_iii = self.ints[i].get_1_pph (bra, ket, s1).sum (0)
             h_01 = np.dot (D_i, h1_ij) + np.tensordot (D_iii, h2_iiij,
                 axes=((0,1,2),(2,0,1)))
             h_12 = np.tensordot (D_i, h2_ijjj, axes=1).transpose (1,2,0)
+            t1, w1 = logger.process_clock (), logger.perf_counter ()
+            self.dt_1c_td, self.dw_1c_td = self.dt_1c_td + t1 - t0, self.dw_1c_td + w1 - w0
             hci_f_ab[j] += fac * self.ints[j].contract_h01 (s1, h_01, h_12, ket)
+            t2, w2 = logger.process_clock (), logger.perf_counter ()
+            self.dt_1c_h10, self.dw_1c_h10 = self.dt_1c_h10 + t2 - t1, self.dw_1c_h10 + w2 - w1
         dt, dw = logger.process_clock () - t0, logger.perf_counter () - w0
         self.dt_1c, self.dw_1c = self.dt_1c + dt, self.dw_1c + dw
         self._put_vecs_(bra, ket, hci_f_ab, i, j)
@@ -491,6 +504,7 @@ class ContractHamCI_CHC (stdm.LSTDM):
         self._crunch_all_()
         self._umat_linequiv_loop_()
         self._hconst_ci_()
+        self.log.info(self.sprint_profile())
         return self.hci_fr_pabq, t0
 
 def gen_contract_ham_ci_const (ifrag, las, h1, h2, ci, nelec_frs, soc=0, h0=0, orbsym=None,

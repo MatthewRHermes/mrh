@@ -134,12 +134,14 @@ def contract_ham_ci (las, h1, h2, ci_fr, nelec_frs, si_bra=None, si_ket=None, ci
             discriminator[mask_bra_space] += np.arange (nbra, dtype=int)
 
     # First pass: single-fragment intermediates
+    t00 = (lib.logger.process_clock (), lib.logger.perf_counter ())
     ints, lroots = frag.make_ints (las, ci, nelec_frs, nlas=nlas, smult_fr=smult_fr,
                                                   screen_linequiv=False,
                                                   mask_ints=mask_ints,
                                                   discriminator=discriminator,
                                                   pt_order=pt_order,
-                                                  do_pt_order=do_pt_order, verbose=verbose)
+                                                  do_pt_order=do_pt_order, verbose=0)
+    t01 = log.timer ('LASSI hci frag make_ints', *t00)
 
     # Second pass: upper-triangle
     t0 = (lib.logger.process_clock (), lib.logger.perf_counter ())
@@ -149,8 +151,9 @@ def contract_ham_ci (las, h1, h2, ci_fr, nelec_frs, si_bra=None, si_ket=None, ci
                                 mask_ket_space=mask_ket_space, pt_order=pt_order,
                                 do_pt_order=do_pt_order, add_transpose=add_transpose, accum=accum,
                                 dtype=ci[0][0].dtype, max_memory=max_memory, log=log)
-    log.timer ('LASSI hci setup', *t0)
+    t02 = log.timer ('LASSI hci setup', *t01)
     hket_fr_pabq, t0 = contracter.kernel ()
+    t03 = log.timer ('LASSI hci contracter kernel', *t02)
     for i, hket_r_pabq in enumerate (hket_fr_pabq):
         for j, hket_pabq in enumerate (hket_r_pabq):
             if si_bra_is1d:
@@ -158,6 +161,7 @@ def contract_ham_ci (las, h1, h2, ci_fr, nelec_frs, si_bra=None, si_ket=None, ci
             if si_ket_is1d:
                 hket_pabq = hket_pabq[:,:,:,:,0]
             hket_fr_pabq[i][j] = hket_pabq
+    t04 = log.timer ('LASSI hci assignments', *t03)
     log.timer ('LASSI hci crunching', *t0)
     if verbose >= lib.logger.TIMER_LEVEL:
         log.info ('LASSI hci crunching profile:\n%s',

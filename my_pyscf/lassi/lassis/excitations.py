@@ -438,6 +438,7 @@ class ExcitationPSFCISolver (ProductStateFCISolver):
                 Vectors are multiplied by the sqrt of the weight of p.'''
         # TODO: point group symmetry
         t0 = lib.logger.process_clock (), lib.logger.perf_counter ()
+        t00 = lib.logger.process_clock (), lib.logger.perf_counter ()
         lroots = get_lroots (ci)
         nfrags = len (lroots)
         ci = [c.copy () for c in ci]
@@ -460,10 +461,12 @@ class ExcitationPSFCISolver (ProductStateFCISolver):
                                      for s, n in zip (self.fcisolvers, nelec_f)]])
         nelec_frs_bra = nelec_rfs_bra.transpose (1,0,2)
         h_op = op[self.opt].contract_ham_ci
+        t00 = lib.logger.process_clock (), lib.logger.perf_counter ()
         with temporary_env (self, ncas_sub=norb_f, mol=self.fcisolvers[0].mol):
             hci_fr_pabq = h_op (self, h1, h2, ci_fr_ket, nelec_frs_ket, ci_fr_bra=ci_fr_bra,
                                 nelec_frs_bra=nelec_frs_bra, soc=0, orbsym=None, wfnsym=None,
-                                verbose=0)
+                                verbose=self.verbose)
+        t01 = self.log.timer ('op_ham_pq_h_op', *t00)
         hci_f_pabq = [hc[0] for hc in hci_fr_pabq]
         # ZERO-STATE CLUDGE
         for ifrag in range (nfrags):

@@ -35,11 +35,9 @@ class HamS2Ovlp (stdm.LSTDM):
                             mask_bra_space=mask_bra_space, mask_ket_space=mask_ket_space,
                             pt_order=pt_order, do_pt_order=do_pt_order,
                             log=log, max_memory=max_memory, dtype=dtype)
-        t0 = self.log.timer ('HamS2Ovlp init LSTDM init', *t0)
         if h1.ndim==2: h1 = np.stack ([h1,h1], axis=0)
         self.h1 = np.ascontiguousarray (h1)
         self.h2 = np.ascontiguousarray (h2)
-        t0 = self.log.timer ('HamS2Ovlp init other parts', *t0)
 
     def interaction_spman_fprint (self, bra, ket, frags, ltri=False):
         frags = np.sort (frags)
@@ -85,7 +83,7 @@ class HamS2Ovlp (stdm.LSTDM):
         nspman = len (exc)
         for key, val in nonuniq.items ():
             self.spman[key] = [tuple (pair) for pair in val]
-        self.log.timer ('split_exc_table_by_spman_ {}'.format (lbl), *t0)
+        self.log.debug ('split_exc_table_by_spman_ {}'.format (lbl), *t0)
         self.log.debug ('%d/%d uniquely spin-adapted interactions of %s type',
                         nspman, nuniq, lbl)
         return exc

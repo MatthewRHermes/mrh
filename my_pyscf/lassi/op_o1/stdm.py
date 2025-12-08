@@ -425,7 +425,7 @@ class LSTDM (object):
         exc, nonuniq_exc = self.find_unique_exc (exc, lbl, fprint_fn=self.interaction_fprints)
         self.nonuniq_exc.update (nonuniq_exc)
         nuniq = len (exc)
-        self.log.timer ('mask_exc_table_ {}'.format (lbl), *t0)
+        self.log.debug ('mask_exc_table_ {}'.format (lbl), *t0)
         self.log.debug ('%d/%d unique interactions of %s type',
                         nuniq, nexc, lbl)
         return exc
