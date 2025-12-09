@@ -15,6 +15,13 @@ from pyscf.scf.addons import canonical_orth_
 from mrh.util.la import vector_error
 op = (op_o0, op_o1)
 
+def random_orthrows (nrows, ncols):
+    x = 2 * np.random.rand (nrows, ncols) - 1
+    Q = linalg.orth (x)
+    x = Q.T @ x
+    x /= linalg.norm (x, axis=1)[:,None]
+    return x
+
 def describe_interactions (nelec_frs):
     hopping_index = lst_hopping_index (nelec_frs)
     symm_index = np.all (hopping_index.sum (0) == 0, axis=0)

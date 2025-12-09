@@ -23,6 +23,7 @@ from pyscf import lib, gto, scf, dft, fci, mcscf, df
 from pyscf.tools import molden
 from pyscf.fci import cistring
 from pyscf.fci.direct_spin1 import _unpack_nelec
+from pyscf.csf_fci.csfstring import CSFTransformer
 from mrh.tests.lasscf.c2h4n4_struct import structure as struct
 from mrh.my_pyscf.mcscf.lasscf_o0 import LASSCF
 from mrh.my_pyscf.mcscf.lasci import get_space_info
@@ -31,12 +32,13 @@ from mrh.my_pyscf.lassi.citools import get_lroots, get_rootaddr_fragaddr
 from mrh.my_pyscf.lassi import op_o0
 from mrh.my_pyscf.lassi import op_o1
 from mrh.tests.lassi.addons import case_contract_hlas_ci, case_contract_op_si
-from mrh.tests.lassi.addons import eri_sector_indexes
+from mrh.tests.lassi.addons import eri_sector_indexes, random_orthrows
 
 op = (op_o0, op_o1)
 
 def setUpModule ():
     global mol, mf, las, nstates, nelec_frs, smult_fr, si, orbsym, wfnsym
+    norb_f = [4,2,4]
     # Build crazy state list
     states  = {'charges': [[0,0,0],],
                'spins':   [[0,0,0],],
@@ -101,33 +103,25 @@ def setUpModule ():
         [[_unpack_nelec (fcibox._get_nelec (solver, nelecas)) for solver in fcibox.fcisolvers]
          for fcibox, nelecas in zip (las.fciboxes, las.nelecas_sub)]
     )
-    #smult_fr = np.abs (nelec_frs[:,:,1] - nelec_frs[:,:,0]) + 1
-    #for i in range (nfrags):
-    #    for j in range (nroots):
-    #        smult_fr[i,j] = getattr (las.fciboxes[i].fcisolvers[j], 'smult', smult_fr[i,j])
-    smult_fr = None # These CI vectors aren't spin adapted!!!
+    smult_fr = np.abs (nelec_frs[:,:,1] - nelec_frs[:,:,0]) + 1
+    for i in range (nfrags):
+        for j in range (nroots):
+            smult_fr[i,j] = getattr (las.fciboxes[i].fcisolvers[j], 'smult', smult_fr[i,j])
     ndet_frs = np.array (
         [[[cistring.num_strings (las.ncas_sub[ifrag], nelec_frs[ifrag,iroot,0]),
            cistring.num_strings (las.ncas_sub[ifrag], nelec_frs[ifrag,iroot,1])]
           for iroot in range (las.nroots)] for ifrag in range (las.nfrags)]
     )
-    np.random.seed (1)
     for iroot in range (las.nroots):
         for ifrag in range (las.nfrags):
+            t1 = CSFTransformer (norb_f[ifrag],
+                                 nelec_frs[ifrag,iroot,0],
+                                 nelec_frs[ifrag,iroot,1],
+                                 smult_fr[ifrag,iroot])
             lroots_r = lroots[ifrag,iroot]
             ndet_s = ndet_frs[ifrag,iroot]
-            ci = np.random.rand (lroots_r, ndet_s[0], ndet_s[1])
-            ci /= linalg.norm (ci.reshape (lroots_r,-1), axis=1)[:,None,None]
-            if lroots_r==1:
-                ci=ci[0]
-            else:
-                ci = ci.reshape (lroots_r,-1)
-                w, v = linalg.eigh (ci.conj () @ ci.T)
-                idx = w > 0
-                w, v = w[idx], v[:,idx]
-                v /= np.sqrt (w)[None,:]
-                ci = np.dot (v.T, ci).reshape (lroots_r, ndet_s[0], ndet_s[1])
-            las.ci[ifrag][iroot] = ci
+            ci = t1.vec_csf2det (random_orthrows (lroots_r, t1.ncsf))
+            las.ci[ifrag][iroot] = ci.reshape (lroots_r, ndet_s[0], ndet_s[1])
     orbsym = getattr (las.mo_coeff, 'orbsym', None)
     if orbsym is None and callable (getattr (las, 'label_symmetry_', None)):
         orbsym = las.label_symmetry_(las.mo_coeff).orbsym
