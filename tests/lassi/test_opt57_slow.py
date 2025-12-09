@@ -101,10 +101,11 @@ def setUpModule ():
         [[_unpack_nelec (fcibox._get_nelec (solver, nelecas)) for solver in fcibox.fcisolvers]
          for fcibox, nelecas in zip (las.fciboxes, las.nelecas_sub)]
     )
-    smult_fr = np.abs (nelec_frs[:,:,1] - nelec_frs[:,:,0]) + 1
-    for i in range (nfrags):
-        for j in range (nroots):
-            smult_fr[i,j] = getattr (las.fciboxes[i].fcisolvers[j], 'smult', smult_fr[i,j])
+    #smult_fr = np.abs (nelec_frs[:,:,1] - nelec_frs[:,:,0]) + 1
+    #for i in range (nfrags):
+    #    for j in range (nroots):
+    #        smult_fr[i,j] = getattr (las.fciboxes[i].fcisolvers[j], 'smult', smult_fr[i,j])
+    smult_fr = None # These CI vectors aren't spin adapted!!!
     ndet_frs = np.array (
         [[[cistring.num_strings (las.ncas_sub[ifrag], nelec_frs[ifrag,iroot,0]),
            cistring.num_strings (las.ncas_sub[ifrag], nelec_frs[ifrag,iroot,1])]
