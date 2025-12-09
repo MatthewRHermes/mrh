@@ -203,7 +203,7 @@ class ExcitationPSFCISolver (ProductStateFCISolver):
         disc_svals, u, si_p, si_q, vh = self.schmidt_trunc (si, ci0, nroots=nroots)
         ham_pq = self.truncrot_ham_pq (ham_pq, u, vh)
         ci1 = self.truncrot_ci (ci0, u, vh)
-        hci_qspace = self.op_ham_pq_ref (h1, h2, ci1)
+        hci_qspace = self.op_ham_pq_ref (h1, h2, ci1, si_q)
         hci_pspace_diag = self.op_ham_pp_diag (h1, h2, ci1, norb_f, nelec_f)
         tdm1s_f = self.get_tdm1s_f (ci1, ci1, norb_f, nelec_f)
         e, si0_p = 0, si_p
@@ -229,12 +229,12 @@ class ExcitationPSFCISolver (ProductStateFCISolver):
             hci_pspace_diag = self.truncrot_hci_pspace_diag (hci_pspace_diag, u, vh)
             tdm1s_f = self.truncrot_tdm1s_f (tdm1s_f, u, vh)
             # Generate additional vectors and compute gradient
-            hpq_xq = self.get_hpq_xq (hci_qspace, ci1, si_q)
+            hpq_xq = self.get_hpq_xq (hci_qspace, ci1)
             hpp_xp = self.get_hpp_xp (ci1, si_p, hci_pspace_diag, h0, h2, tdm1s_f, norb_f, nelec_f)
             grad = self._get_grad (ci1, si_p, hpq_xq, hpp_xp, nroots=nroots)
             ci2 = self.get_new_vecs (ci1, hpq_xq, hpp_xp, nroots=nroots)
             # Extend intermediates
-            hci2_qspace = self.op_ham_pq_ref (h1, h2, ci2)
+            hci2_qspace = self.op_ham_pq_ref (h1, h2, ci2, si_q)
             hci2_pspace_diag = self.op_ham_pp_diag (h1, h2, ci2, norb_f, nelec_f)
             tdm1s_f_12 = self.get_tdm1s_f (ci1, ci2, norb_f, nelec_f)
             tdm1s_f_21 = self.get_tdm1s_f (ci2, ci1, norb_f, nelec_f)
@@ -353,9 +353,11 @@ class ExcitationPSFCISolver (ProductStateFCISolver):
             ham_pq: ndarray of shape (p+q,p+q)
                 Model space Hamiltonian matrix
         '''
-        #ref = self.get_ham_pq (h0, h1, h2, ci)
+        # TODO: come up with a fast way to make this without hci_qspace
+        # (probably using tdm13hs)
+        ref = self.get_ham_pq (h0, h1, h2, ci)
         t0 = lib.logger.process_clock (), lib.logger.perf_counter ()
-        #return ref
+        return ref
         nfrags = len (ci)
         assert (nfrags == 2)
         old_ham_pq = ham_pq
@@ -420,7 +422,7 @@ class ExcitationPSFCISolver (ProductStateFCISolver):
         t1 = self.log.timer ('update_ham_pq', *t0)
         return ham_pq
 
-    def op_ham_pq_ref (self, h1, h2, ci):
+    def op_ham_pq_ref (self, h1, h2, ci, si_q):
         '''Act the Hamiltonian on the reference CI vectors and project onto the current
         ground state of all but one active fragment, for each active fragment.
 
@@ -431,11 +433,13 @@ class ExcitationPSFCISolver (ProductStateFCISolver):
                 2-electron part of the excited-fragment Hamiltonian
             ci: list of ndarray of shape (p,ndeta[i],ndetb[i])
                 CI vectors of the active fragments in the P-space
+            si_q: ndarray of shape (nq,)
+                Q-space part of the SI vector
 
         Returns:
-            hci_f_pabq: list of ndarray of shape (p,ndeta[i],ndetb[i],q)
-                Contains H|q>, projected onto <p| for all but one fragment, for each fragment.
-                Vectors are multiplied by the sqrt of the weight of p.'''
+            hci_f_pab: list of ndarray of shape (p,ndeta[i],ndetb[i])
+                Contains H|q><q|SI>, projected onto <p| for all but one fragment, for each
+                fragment. Vectors are multiplied by the sqrt of the weight of p.'''
         # TODO: point group symmetry
         t0 = lib.logger.process_clock (), lib.logger.perf_counter ()
         lroots = get_lroots (ci)
@@ -472,8 +476,9 @@ class ExcitationPSFCISolver (ProductStateFCISolver):
                 if ifrag==jfrag: continue
                 hci = hci_f_pabq[jfrag]
                 hci_f_pabq[jfrag] = np.zeros ([0,]+list(hci.shape[1:]), dtype=hci.dtype)
+        hci_f_pab = [np.dot (hc, si_q) for hc in hci_f_pabq]
         t1 = self.log.timer ('op_ham_pq_ref', *t0)
-        return hci_f_pabq
+        return hci_f_pab
 
     def op_ham_pp_diag (self, h1, h2, ci, norb_f, nelec_f):
         ''' Act Hfrag[i]|ci[i]> for all fragments i 
@@ -667,33 +672,30 @@ class ExcitationPSFCISolver (ProductStateFCISolver):
         tdm1s_f1[1] = lib.einsum ('um,uvsij,vn->mnsij', u, tdm1s_f0[1], u.conj ())
         return tdm1s_f1
 
-    def get_hpq_xq (self, hci_f_pabq, ci0, si_q):
+    def get_hpq_xq (self, hci0_f_pab, ci0):
         '''Generate the P-row, Q-column part of the Hamiltonian-vector product projected into P'
 
         Args:
-            hci_f_pabq: list of ndarrays of shape (nroots,ndeta[i],ndetb[i],q)
-                H|q> projected on <p0| for all but one fragment, where <p0| is the first few
+            hci0_f_pab: list of ndarrays of shape (nroots,ndeta[i],ndetb[i])
+                H|q><q|SI> projected on <p0| for all but one fragment, where <p0| is the first few
                 vectors of CI, i.e., the output of op_ham_pq_ref for ci0.
             ci0: list of ndarrays of shape (nroots,ndeta[i],ndetb[i])
                 CI vectors of the p-space
-            si_q: ndarray of shape (nq,)
-                Q-space part of the SI vector
 
         Returns:
-            hci_f_pab: list of ndarrays of shape (nroots,ndeta[i],ndetb[i])
+            hci1_f_pab: list of ndarrays of shape (nroots,ndeta[i],ndetb[i])
                 Hamiltonian-vector product component, projected orthogonal to ci0
         '''
         t0 = lib.logger.process_clock (), lib.logger.perf_counter ()
         lroots = get_lroots (ci0)
         p = np.prod (lroots)
-        hci_f_pab = []
-        for ci, hci_pabq in zip (ci0, hci_f_pabq):
-            hci_pab = np.dot (hci_pabq, si_q)
+        hci1_f_pab = []
+        for ci, hci_pab in zip (ci0, hci0_f_pab):
             hci_pr = np.tensordot (hci_pab, ci.conj (), axes=((1,2),(1,2)))
             hci_pab -= np.tensordot (hci_pr, ci, axes=1)
-            hci_f_pab.append (hci_pab)
+            hci1_f_pab.append (hci_pab)
         t1 = self.log.timer ('get_hpq_xq', *t0)
-        return hci_f_pab
+        return hci1_f_pab
 
     def get_hpp_xp (self, ci0, si_p, hci_pspace_diag, h0, h2, tdm1s_f, norb_f, nelec_f):
         '''Generate the P-row, P-column part of the Hamiltonian-vector product projected into P'
