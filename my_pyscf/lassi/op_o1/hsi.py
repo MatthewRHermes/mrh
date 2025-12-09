@@ -1087,7 +1087,10 @@ class HamS2OvlpOperators (HamS2Ovlp):
         self.dw_phr += (w3-w2)
 
         ham = np.zeros ((len (idxs_bra), len (idxs_ket)), dtype=self.dtype)
-        for tbra, tket in itertools.product (range (len (tuniq_bra)), range (len (tuniq_ket))):
+        are_coupled = np.atleast_2d (raw2orth.are_tstrs_coupled (
+            bra_sn, ket_sn, tuniq_bra[:,None], tuniq_ket[None,:], inv
+        ))
+        for tbra, tket in zip (*np.where (are_coupled)):
             op1 = op.reduce_spin_sum (fdm_spin[tbra,tket,:])
             ham_ij = opterm.fdm_dot (fdm_spat, op1)
             idx_bra = (tinv_bra==tbra)

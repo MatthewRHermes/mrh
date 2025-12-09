@@ -489,11 +489,13 @@ class OrthBasis (OrthBasisBase):
 
     def are_tstrs_coupled (self, bra_sn, ket_sn, bra_t, ket_t, inv):
         brastr = self.manifolds[bra_sn].get_t_strs ()
-        ketstr = self.manifolds[bra_sn].get_t_strs ()
+        ketstr = self.manifolds[ket_sn].get_t_strs ()
         spec = np.ones (brastr.shape[-1], dtype=bool)
         spec[np.asarray (inv)] = False
-        brastr = brastr.T[inv].T[bra_t]
-        ketstr = ketstr.T[inv].T[ket_t]
+        brastr = brastr.T[spec].T
+        ketstr = ketstr.T[spec].T
+        brastr = brastr[bra_t]
+        ketstr = ketstr[ket_t]
         return np.all (brastr==ketstr, axis=-1)
 
 class SpinCoupledOrthBasis (OrthBasis):
@@ -577,14 +579,14 @@ class SpinCoupledOrthBasis (OrthBasis):
 
     def are_tstrs_coupled (self, bra_sn, ket_sn, bra_t, ket_t, inv):
         brastr = np.cumsum (self.manifolds[bra_sn].get_t_strs (), axis=1)
-        ketstr = np.cumsum (self.manifolds[bra_sn].get_t_strs (), axis=1)
+        ketstr = np.cumsum (self.manifolds[ket_sn].get_t_strs (), axis=1)
         inv = np.arange (brastr.shape[-1], dtype=int)[np.asarray (inv)]
         if len (inv) == 1:
             return bra_t==ket_t
         spec = np.ones (brastr.shape[-1], dtype=bool)
         spec[inv[0]:inv[-1]] = False
-        brastr = brastr.T[inv].T[bra_t]
-        ketstr = ketstr.T[inv].T[ket_t]
+        brastr = brastr.T[spec].T[bra_t]
+        ketstr = ketstr.T[spec].T[ket_t]
         return np.all (brastr==ketstr, axis=-1)
 
 def get_spincoup_bases (smults_f, spin_lsf=None, smult_lsf=None):
