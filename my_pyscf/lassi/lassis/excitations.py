@@ -203,7 +203,7 @@ class ExcitationPSFCISolver (ProductStateFCISolver):
         disc_svals, u, si_p, si_q, vh = self.schmidt_trunc (si, ci0, nroots=nroots)
         ham_pq = self.truncrot_ham_pq (ham_pq, u, vh)
         ci1 = self.truncrot_ci (ci0, u, vh)
-        hci_qspace = self.op_ham_pq_ref (h1, h2, ci1, si_q)
+        #hci_qspace = self.op_ham_pq_ref (h1, h2, ci1, si_q)
         hci_pspace_diag = self.op_ham_pp_diag (h1, h2, ci1, norb_f, nelec_f)
         tdm1s_f = self.get_tdm1s_f (ci1, ci1, norb_f, nelec_f)
         e, si0_p = 0, si_p
@@ -217,6 +217,7 @@ class ExcitationPSFCISolver (ProductStateFCISolver):
             # Re-diagonalize in truncated space
             e, si = self.eig1 (ham_pq, ci0)
             _, u, si_p, si_q, vh = self.schmidt_trunc (si, ci0, nroots=nroots)
+
             log.debug ('Singular values in truncated space: {}'.format (si_p))
             ci1 = self.truncrot_ci (ci0, u, vh)
             log.info ('Cycle %d: |delta space| = %e ; e = %e, |delta e| = %e, max (discarded) = %e',
@@ -225,23 +226,24 @@ class ExcitationPSFCISolver (ProductStateFCISolver):
                 converged = True
                 break
             ham_pq = self.truncrot_ham_pq (ham_pq, u, vh)
-            hci_qspace = self.truncrot_hci_qspace (hci_qspace, u, vh)
+            #hci_qspace = self.truncrot_hci_qspace (hci_qspace, u, vh)
             hci_pspace_diag = self.truncrot_hci_pspace_diag (hci_pspace_diag, u, vh)
             tdm1s_f = self.truncrot_tdm1s_f (tdm1s_f, u, vh)
             # Generate additional vectors and compute gradient
+            hci_qspace = self.op_ham_pq_ref (h1, h2, ci1, si_q)
             hpq_xq = self.get_hpq_xq (hci_qspace, ci1)
             hpp_xp = self.get_hpp_xp (ci1, si_p, hci_pspace_diag, h0, h2, tdm1s_f, norb_f, nelec_f)
             grad = self._get_grad (ci1, si_p, hpq_xq, hpp_xp, nroots=nroots)
             ci2 = self.get_new_vecs (ci1, hpq_xq, hpp_xp, nroots=nroots)
             # Extend intermediates
-            hci2_qspace = self.op_ham_pq_ref (h1, h2, ci2, si_q)
+            #hci2_qspace = self.op_ham_pq_ref (h1, h2, ci2, si_q)
             hci2_pspace_diag = self.op_ham_pp_diag (h1, h2, ci2, norb_f, nelec_f)
             tdm1s_f_12 = self.get_tdm1s_f (ci1, ci2, norb_f, nelec_f)
             tdm1s_f_21 = self.get_tdm1s_f (ci2, ci1, norb_f, nelec_f)
             tdm1s_f_22 = self.get_tdm1s_f (ci2, ci2, norb_f, nelec_f)
             for ifrag in range (len (ci1)):
                 ci1[ifrag] = np.append (ci1[ifrag], ci2[ifrag], axis=0)
-                hci_qspace[ifrag] = np.append (hci_qspace[ifrag], hci2_qspace[ifrag], axis=0)
+                #hci_qspace[ifrag] = np.append (hci_qspace[ifrag], hci2_qspace[ifrag], axis=0)
                 hci_pspace_diag[ifrag] = np.append (hci_pspace_diag[ifrag], hci2_pspace_diag[ifrag], axis=0)
                 tdm1s_f[ifrag] = np.append (
                     np.append (tdm1s_f[ifrag], tdm1s_f_12[ifrag], axis=1),
@@ -255,7 +257,7 @@ class ExcitationPSFCISolver (ProductStateFCISolver):
             disc_svals, u, si_p, si_q, vh = self.schmidt_trunc (si, ci1, nroots=nroots)
             ham_pq = self.truncrot_ham_pq (ham_pq, u, vh)
             ci1 = self.truncrot_ci (ci1, u, vh)
-            hci_qspace = self.truncrot_hci_qspace (hci_qspace, u, vh)
+            #hci_qspace = self.truncrot_hci_qspace (hci_qspace, u, vh)
             hci_pspace_diag = self.truncrot_hci_pspace_diag (hci_pspace_diag, u, vh)
             tdm1s_f = self.truncrot_tdm1s_f (tdm1s_f, u, vh)
             log.debug ('Retained singular values: {}'.format (si_p))
