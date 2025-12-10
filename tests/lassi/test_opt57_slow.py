@@ -112,6 +112,7 @@ def setUpModule ():
            cistring.num_strings (las.ncas_sub[ifrag], nelec_frs[ifrag,iroot,1])]
           for iroot in range (las.nroots)] for ifrag in range (las.nfrags)]
     )
+    rng = np.random.default_rng ()
     for iroot in range (las.nroots):
         for ifrag in range (las.nfrags):
             t1 = CSFTransformer (norb_f[ifrag],
@@ -120,7 +121,7 @@ def setUpModule ():
                                  smult_fr[ifrag,iroot])
             lroots_r = lroots[ifrag,iroot]
             ndet_s = ndet_frs[ifrag,iroot]
-            ci = t1.vec_csf2det (random_orthrows (lroots_r, t1.ncsf))
+            ci = t1.vec_csf2det (random_orthrows (lroots_r, t1.ncsf, rng=rng))
             las.ci[ifrag][iroot] = ci.reshape (lroots_r, ndet_s[0], ndet_s[1])
     orbsym = getattr (las.mo_coeff, 'orbsym', None)
     if orbsym is None and callable (getattr (las, 'label_symmetry_', None)):
@@ -129,7 +130,7 @@ def setUpModule ():
         orbsym = orbsym[las.ncore:las.ncore+las.ncas]
     wfnsym = 0
     #las.lasci (lroots=lroots)
-    rand_mat = np.random.rand (nstates,nstates)
+    rand_mat = 2 * rng.random (size=(nstates,nstates)) - 1
     rand_mat += rand_mat.T
     e, si = linalg.eigh (rand_mat)
 
