@@ -15,8 +15,10 @@ from pyscf.scf.addons import canonical_orth_
 from mrh.util.la import vector_error
 op = (op_o0, op_o1)
 
-def random_orthrows (nrows, ncols):
-    x = 2 * np.random.rand (nrows, ncols) - 1
+def random_orthrows (nrows, ncols, rng=None):
+    if rng is None:
+        rng = np.random.default_rng ()
+    x = 2 * rng.random (size=(nrows, ncols)) - 1
     Q = linalg.orth (x)
     x = Q.T @ x
     x /= linalg.norm (x, axis=1)[:,None]
