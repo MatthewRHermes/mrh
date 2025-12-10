@@ -445,6 +445,8 @@ class ExcitationPSFCISolver (ProductStateFCISolver):
         # TODO: point group symmetry
         t0 = lib.logger.process_clock (), lib.logger.perf_counter ()
         lroots = get_lroots (ci)
+        assert (np.all (lroots>0))
+        assert (lroots[0]==lroots[1])
         nfrags = len (lroots)
         ci = [c.copy () for c in ci]
         # ZERO-STATE CLUDGE

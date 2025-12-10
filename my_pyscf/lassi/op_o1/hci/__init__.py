@@ -8,6 +8,7 @@ from mrh.my_pyscf.lassi.op_o1.utilities import *
 from mrh.my_pyscf.lassi.citools import get_lroots, hci_dot_sivecs, hci_dot_sivecs_ij
 from mrh.my_pyscf.lassi.op_o1.hci.chc import ContractHamCI_CHC
 from mrh.my_pyscf.lassi.op_o1.hci.chc import gen_contract_ham_ci_const
+from mrh.my_pyscf.lassi.op_o1.hci.chcs import ContractHamCI_CHS
 from mrh.my_pyscf.lassi.op_o1.hci.schcs import ContractHamCI_SHS
 
 def ContractHamCI (las, ints, nlas, lroots, h0, h1, h2, si_bra=None, si_ket=None,
@@ -45,6 +46,24 @@ def ContractHamCI (las, ints, nlas, lroots, h0, h1, h2, si_bra=None, si_ket=None
                                   pt_order=pt_order, do_pt_order=do_pt_order,
                                   add_transpose=add_transpose, accum=accum, log=log,
                                   max_memory=param.MAX_MEMORY, dtype=np.float64)
+
+def map_sivec_to_larger_space (si0, lroots, mask):
+    if si0 is None:
+        return si0
+    nfrags, nroots = lroots.shape
+    nprods1 = lroots.prod (0)
+    q1 = np.cumsum (nprods1)
+    if si0.shape[0] == q1[-1]:
+        return si0
+    p1 = q1 - nprods1
+    si1 = np.zeros ((q1[-1], si0.shape[1]), dtype=si0.shape)
+    nprods0 = nprods1[mask]
+    q0 = np.cumsum (nprods0)
+    assert (si0.shape[0] == q0[-1])
+    p0 = q0 - nprods0
+    for i0, i1 in enumerate (mask):
+        si1[p1[i1]:q1[i1],:] = si0[p0[i0]:q0[i0],:]
+    return si1
 
 def contract_ham_ci (las, h1, h2, ci_fr, nelec_frs, si_bra=None, si_ket=None, ci_fr_bra=None,
                      nelec_frs_bra=None, smult_fr=None, smult_fr_bra=None, h0=0, soc=0,
@@ -147,6 +166,9 @@ def contract_ham_ci (las, h1, h2, ci_fr, nelec_frs, si_bra=None, si_ket=None, ci
                                                   discriminator=discriminator,
                                                   pt_order=pt_order,
                                                   do_pt_order=do_pt_order, verbose=verbose)
+
+    si_bra = map_sivec_to_larger_space (si_bra, lroots, mask_bra_space)
+    si_ket = map_sivec_to_larger_space (si_ket, lroots, mask_ket_space)
 
     # Second pass: upper-triangle
     t0 = (lib.logger.process_clock (), lib.logger.perf_counter ())
