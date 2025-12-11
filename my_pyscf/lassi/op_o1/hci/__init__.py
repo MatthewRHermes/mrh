@@ -150,12 +150,11 @@ def contract_ham_ci (las, h1, h2, ci_fr, nelec_frs, si_bra=None, si_ket=None, ci
         if si_bra.ndim==1: si_bra = si_bra[:,None]
     if si_ket is not None:
         if si_ket.ndim==1: si_ket = si_ket[:,None]
-    if si_bra is not None and si_ket is not None:
-        assert (si_bra.shape[1] == si_ket.shape[1])
-        # TODO: move this "discriminator" logic somewhere more sensible
         discriminator[mask_bra_space] = 1
         if not sum_bra:
             discriminator[mask_bra_space] += np.arange (nbra, dtype=int)
+    if si_bra is not None and si_ket is not None:
+        assert (si_bra.shape[1] == si_ket.shape[1])
 
     # First pass: single-fragment intermediates
     ints, lroots = frag.make_ints (las, ci, nelec_frs, nlas=nlas, smult_fr=smult_fr,

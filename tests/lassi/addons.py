@@ -128,17 +128,48 @@ def case_contract_hlas_ci (ks, las, h0, h1, h2, ci_fr, nelec_frs, si_bra=None, s
                                        dnelecb=nelec[:,r,1]-nelec[:,s,1]):
                         pass
                         #ks.assertAlmostEqual (lib.fp (hket_pq_s), lib.fp (hket_ref_s), 8)
+        # Test the SCHCS version
         hket_ref = np.dot (ham, sivec_ket)
-        hket_fr_pabq = op[opt].contract_ham_ci (las, h1, h2, ci_fr, nelec, h0=h0,
-                                                si_bra=sivec_bra, si_ket=sivec_ket)
-        for f, (ci_r, hket_r_pabq) in enumerate (zip (ci_fr, hket_fr_pabq)):
-            for r, (ci, hket_pabq) in enumerate (zip (ci_r, hket_r_pabq)):
+        hket_fr_pab = op[opt].contract_ham_ci (las, h1, h2, ci_fr, nelec, h0=h0,
+                                               si_bra=sivec_bra, si_ket=sivec_ket)
+        for f, (ci_r, hket_r_pab) in enumerate (zip (ci_fr, hket_fr_pab)):
+            for r, (ci, hket_pab) in enumerate (zip (ci_r, hket_r_pab)):
                 if ci.ndim < 3: ci = ci[None,:,:]
                 with ks.subTest (opt=opt, frag=f, bra_space=r, nelec=nelec[f,r]):
-                    h_test = lib.einsum ('pab,pab->', hket_pabq, ci.conj ())
+                    h_test = lib.einsum ('pab,pab->', hket_pab, ci.conj ())
                     h_ref = np.dot (sivec_bra[ni[r]:nj[r]].conj (), hket_ref[ni[r]:nj[r]])
                     ks.assertAlmostEqual (h_test, h_ref, 6)
-    return hket_fr_pabq
+        # Test the CHCS version
+        if (las.nfrags != 2) and (opt==1):
+            with ks.assertRaises (AssertionError):
+                op[opt].contract_ham_ci (las, h1, h2, ci_fr, nelec, h0=h0, si_ket=sivec_ket)
+        elif (opt==0) or (las.nfrags==2):
+            if las.nfrags==2:
+                mask = np.where (lroots[0]==lroots[1])[0]
+            else:
+                mask = np.arange (las.nfrags)
+            if len (mask) == 0: return hket_fr_pab
+            ci_fr_bra = [[ci_fr[f][r] for r in mask] for f in range (las.nfrags)]
+            nelec_frs_bra = nelec_frs[:,mask,:]
+            hket_fr_qab = op[opt].contract_ham_ci (las, h1, h2, ci_fr, nelec, ci_fr_bra=ci_fr_bra,
+                                                   nelec_frs_bra=nelec_frs_bra, h0=h0,
+                                                   si_ket=sivec_ket)
+            for f, (ci_r, hket_r_qab) in enumerate (zip (ci_fr, hket_fr_qab)):
+                current_order = list (range (las.nfrags))
+                current_order.insert (0, current_order.pop (las.nfrags-1-f))
+                for r, hket_qab in zip (mask, hket_r_qab):
+                    ci = ci_r[r]
+                    if ci.ndim < 3: ci = ci[None,:,:]
+                    with ks.subTest (opt=opt, frag=f, bra_space=r, nelec=nelec[f,r]):
+                        hket_pq = lib.einsum ('qab,pab->pq', hket_qab, ci.conj ())
+                        current_shape = lroots[::-1,r][current_order]
+                        to_proper_order = list (np.argsort (current_order))
+                        hket_pq = hket_pq.reshape (current_shape)
+                        hket_pq = hket_pq.transpose (*to_proper_order)
+                        htest = hket_pq.ravel ()
+                        href = hket_ref[ni[r]:nj[r]]
+                        ks.assertAlmostEqual (lib.fp (htest), lib.fp (href), 6)
+    return hket_fr_pab
 
 def _pick_random_smult_si (smult_fr):
     s2 = smult_fr[:,0]-1
