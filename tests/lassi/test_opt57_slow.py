@@ -99,35 +99,24 @@ def setUpModule ():
     las.mo_coeff = las.localize_init_guess ((list (range (3)),
         list (range (3,7)), list (range (7,10))), mf.mo_coeff)
     las.ci = las.get_init_guess_ci (las.mo_coeff, las.get_h2eff (las.mo_coeff))
-    nelec_frs = np.array (
-        [[_unpack_nelec (fcibox._get_nelec (solver, nelecas)) for solver in fcibox.fcisolvers]
-         for fcibox, nelecas in zip (las.fciboxes, las.nelecas_sub)]
-    )
-    smult_fr = np.abs (nelec_frs[:,:,1] - nelec_frs[:,:,0]) + 1
-    for i in range (nfrags):
-        for j in range (nroots):
-            smult_fr[i,j] = getattr (las.fciboxes[i].fcisolvers[j], 'smult', smult_fr[i,j])
-    ndet_frs = np.array (
-        [[[cistring.num_strings (las.ncas_sub[ifrag], nelec_frs[ifrag,iroot,0]),
-           cistring.num_strings (las.ncas_sub[ifrag], nelec_frs[ifrag,iroot,1])]
-          for iroot in range (las.nroots)] for ifrag in range (las.nfrags)]
-    )
+    charges_rf, spins_rf, smult_rf, wfnsym_rf = get_space_info (las)
+    smult_fr = smult_rf.T
+    nelec_fr = (np.array ([[4,2,4]]) - charges_rf).T
+    nelec_frs = np.stack ([nelec_fr+spins_rf.T, nelec_fr-spins_rf.T], axis=-1) // 2
+    orbsym = las.mo_coeff.orbsym[las.ncore:las.ncore+las.ncas]
+    orbsym_f = [orbsym[:4], orbsym[4:6], orbsym[6:]]
     rng = np.random.default_rng ()
     for iroot in range (las.nroots):
         for ifrag in range (las.nfrags):
             t1 = CSFTransformer (norb_f[ifrag],
                                  nelec_frs[ifrag,iroot,0],
                                  nelec_frs[ifrag,iroot,1],
-                                 smult_fr[ifrag,iroot])
+                                 smult_rf[iroot,ifrag],
+                                 orbsym=orbsym_f[ifrag],
+                                 wfnsym=wfnsym_rf[iroot,ifrag])
             lroots_r = lroots[ifrag,iroot]
-            ndet_s = ndet_frs[ifrag,iroot]
             ci = t1.vec_csf2det (random_orthrows (lroots_r, t1.ncsf, rng=rng))
-            las.ci[ifrag][iroot] = ci.reshape (lroots_r, ndet_s[0], ndet_s[1])
-    orbsym = getattr (las.mo_coeff, 'orbsym', None)
-    if orbsym is None and callable (getattr (las, 'label_symmetry_', None)):
-        orbsym = las.label_symmetry_(las.mo_coeff).orbsym
-    if orbsym is not None:
-        orbsym = orbsym[las.ncore:las.ncore+las.ncas]
+            las.ci[ifrag][iroot] = ci.reshape (lroots_r, t1.ndeta, t1.ndetb)
     wfnsym = 0
     #las.lasci (lroots=lroots)
     rand_mat = 2 * rng.random (size=(nstates,nstates)) - 1
