@@ -469,18 +469,18 @@ class ExcitationPSFCISolver (ProductStateFCISolver):
         nelec_frs_bra = nelec_rfs_bra.transpose (1,0,2)
         h_op = op[self.opt].contract_ham_ci
         with temporary_env (self, ncas_sub=norb_f, mol=self.fcisolvers[0].mol):
-            hci_fr_pabq = h_op (self, h1, h2, ci_fr_ket, nelec_frs_ket, ci_fr_bra=ci_fr_bra,
-                                nelec_frs_bra=nelec_frs_bra, soc=0, orbsym=None, wfnsym=None,
-                                verbose=0)
-        hci_f_pabq = [hc[0] for hc in hci_fr_pabq]
+            hci_fr_pab = h_op (self, h1, h2, ci_fr_ket, nelec_frs_ket, ci_fr_bra=ci_fr_bra,
+                               si_ket=si_q,
+                               nelec_frs_bra=nelec_frs_bra, soc=0, orbsym=None, wfnsym=None,
+                               verbose=0)
+        hci_f_pab = [hc[0] for hc in hci_fr_pab]
         # ZERO-STATE CLUDGE
         for ifrag in range (nfrags):
             if lroots[ifrag]!=0: continue
             for jfrag in range (nfrags):
                 if ifrag==jfrag: continue
-                hci = hci_f_pabq[jfrag]
-                hci_f_pabq[jfrag] = np.zeros ([0,]+list(hci.shape[1:]), dtype=hci.dtype)
-        hci_f_pab = [np.dot (hc, si_q) for hc in hci_f_pabq]
+                hci = hci_f_pab[jfrag]
+                hci_f_pab[jfrag] = np.zeros ([0,]+list(hci.shape[1:]), dtype=hci.dtype)
         t1 = self.log.timer ('op_ham_pq_ref', *t0)
         return hci_f_pab
 
