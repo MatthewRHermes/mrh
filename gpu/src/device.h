@@ -235,7 +235,7 @@ public :
                             int, int, int, int, 
                             int, 
                             int, int, 
-                            int, int, int, int);
+                            int, int, int, int, int);
   void print_sivecs(int, int);
 
   void pull_sivecs_from_pinned(py::array_t<double>, int, int, int);
@@ -293,9 +293,10 @@ public :
   void filter_tdmpp(const double *, double *, int, int);
   void filter_tdm1h(const double *, double *, int);
   void filter_tdm3h(double *, double *, int);
-  void transpose_021(double *, double *, int);
+  void transpose_021(double *, double *, int, int, int);
+  void transpose_102(double *, double *, int, int, int);
  
-  void transpose_23140(double*, double *, int, int, int, int, int);
+  void transpose_2130(const double*, double *, int, int, int, int);
   // multi-gpu communication (better here or part of PM?)
 
   void mgpu_bcast(std::vector<double *>, double *, size_t);

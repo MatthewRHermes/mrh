@@ -5376,8 +5376,8 @@ void Device::pull_tdm3hab_v2(py::array_t<double> _tdm1h, py::array_t<double> _td
   filter_tdm3h(dd->d_tdm2, &(dd->d_buf3[norb]), norb);
   
   if (cre==0){
-    transpose_021(&(dd->d_buf3[norb]),dd->d_tdm2, norb);
-    transpose_021(&(dd->d_buf3[norb+norb*norb2]),dd->d_tdm2_p, norb);
+    transpose_021(&(dd->d_buf3[norb]),dd->d_tdm2, norb, norb, norb);
+    transpose_021(&(dd->d_buf3[norb+norb*norb2]),dd->d_tdm2_p, norb, norb, norb);
     pm->dev_pull_async(dd->d_tdm2, tdm3ha, norb*norb2*sizeof(double));
     pm->dev_pull_async(dd->d_tdm2_p, tdm3hb, norb*norb2*sizeof(double));
     }
@@ -5428,8 +5428,8 @@ void Device::pull_tdm3hab_v2_host(int i, int j, int n_bra, int n_ket, int norb, 
     }
   
   if (cre==0){
-    transpose_021(&(dd->d_buf3[norb]),dd->d_tdm2, norb);
-    transpose_021(&(dd->d_buf3[norb+norb*norb2]),dd->d_tdm2_p, norb);
+    transpose_021(&(dd->d_buf3[norb]),dd->d_tdm2, norb, norb, norb);
+    transpose_021(&(dd->d_buf3[norb+norb*norb2]),dd->d_tdm2_p, norb, norb, norb);
     pm->dev_pull_async(dd->d_tdm2, h_dm3ha_loc, norb*norb2*sizeof(double));
     pm->dev_pull_async(dd->d_tdm2_p, h_dm3hb_loc, norb*norb2*sizeof(double));
     }
@@ -5955,11 +5955,11 @@ void Device::compute_4frag_matvec( int i, int j, int k, int l,
                              int a, int b, int c, int d,
                              int z, 
                              int r, int s, 
-                             int vec_loc, int ox1_loc, int fac, int op_t)
+                             int vec_loc, int ox1_loc, int fac, int op_t, int count)
 {
   //c === einsum(mk,nk->mn, a,b)  === dot(a,b.T) === cublasDgemm(T,N,n,m,k,alpha,b,k,a,k,beta,c,n)
   double t0 = omp_get_wtime();
-  int device_id = 0;
+  int device_id = count;
   int _m, _n, _k; //actual multiplication factors
   double * matA, * matB, * matC; //matrices
   //buf1: op, d[2], d[3], [op*vec], transpose_23140(op*vec)
@@ -5975,6 +5975,7 @@ void Device::compute_4frag_matvec( int i, int j, int k, int l,
   int size_op = r*s*b*a*i*j;
   int size_d2 = c*k*r;
   int size_d3 = d*l*s;
+  int size_other = z*l*k*j*i;
   int size_tmp_result1 = r*s*b*a*z*l*k;
   int size_tmp_result2 = c*b*a*z*l*s;
   int size_tmp_result3 = d*c*b*a*z;
@@ -5986,26 +5987,52 @@ void Device::compute_4frag_matvec( int i, int j, int k, int l,
   my_device_data * dd = &(device_data[device_id]);
   ml->set_handle(device_id);
   dd->active = 1;
+  double * d_op = dd->d_buf1;
+  double * d_d2 = &(dd->d_buf1[size_op]);
+  double * d_d3 = &(dd->d_buf1[size_op+size_d2]);
+  loc_C = size_op + size_d2+size_d3;
+  double * h_matC;
+  #if 0
+    //double * h_op = (double*)pm->dev_malloc_host(size_op*sizeof(double));
+    //pm->dev_pull_async(d_op, h_op, size_op*sizeof(double));
+    double * h_vec = (double*)pm->dev_malloc_host(size_other*sizeof(double));
+    double * d_vec = &(dd->d_buf2[vec_loc]);
+    pm->dev_pull_async(d_vec, h_vec, size_other*sizeof(double));
+    pm->dev_barrier();
+    //for (int _i=0; _i<size_op; ++_i){printf("%f\t",h_op[_i]);}printf("\n");
+    for (int _i=0; _i<size_other; ++_i){printf("%f\t",h_vec[_i]);}printf("\n");
+  #endif
   if (op_t){
+  double * buf_d2 = &(dd->d_buf1[loc_C]); //buffer to store transposed d2, will copy it back to it's original position after done. 
+  //transpose d[2] kcr->ckr
+  transpose_102(d_d2, buf_d2, c,k,r);
+  veccopy(buf_d2, d_d2, size_d2);
+  //transpose d[3] lds->dls
+  transpose_102(d_d3, buf_d2, d,l,s);
+  veccopy(buf_d2, d_d3, size_d3);
+  //transpose op rsjiba -> rsbaji
+  transpose_021(d_op, buf_d2, r*s, j*i, b*a);
+  veccopy(buf_d2, d_op, size_op);
   }
-  else{
+
   //ox = lib.einsum ('rsbaji,zlkji->rsbazlk', self.op, other)
   _m = r*s*b*a;
   _n = z*l*k;
   _k =  i*j;
   matB = &(dd->d_buf2[vec_loc]);
   matA = dd->d_buf1;
-  loc_C = size_op + size_d2+size_d3;
+  //loc_C = size_op + size_d2+size_d3;
   matC = &(dd->d_buf1[loc_C]);
   ml->gemm((char *) "T", (char *) "N", 
        &_n,&_m,&_k, 
        &alpha, matB, &_k, matA, &_k,
        &beta, matC, &_n); 
 
+
   //rsbazlk->bazlskr
 
   double * matC_T = &(matC[size_tmp_result1]); //buf1 after matC
-  transpose_23140(matC, matC_T, r, s, b*a*z, l, k); 
+  transpose_2130(matC, matC_T, r, s, b*a*z*l, k); 
   
   //original: ox = lib.einsum ('ckr,rsbazlk->scbazl', self.d[2], ox)
   //post transpose: ox = lib.einsum('ckr, bazlskr->cbazlk',self.d[2],ox)
@@ -6021,6 +6048,12 @@ void Device::compute_4frag_matvec( int i, int j, int k, int l,
        &alpha, matB, &_k, matA, &_k,
        &beta, matC, &_n); 
 
+  #if 0
+    h_matC = (double*)pm->dev_malloc_host(_m*_n*sizeof(double));
+    pm->dev_pull_async(matC, h_matC, _m*_n*sizeof(double));
+    pm->dev_barrier();
+    for (int _i=0; _i<_m*_n; ++_i){printf("%f\t",h_matC[_i]);}printf("\n");
+  #endif
   
   //original: ox = lib.einsum ('dls,scbazl->dcbaz', self.d[3], ox)
   //my_vers : ox = lib.einsum ('dls,cbazlk->dcbaz', self.d[3], ox) 
@@ -6031,6 +6064,15 @@ void Device::compute_4frag_matvec( int i, int j, int k, int l,
   matB = matC; //from previous calculation
   matA = &(dd->d_buf1[size_op+size_d2]); //d3  
   matC = &(dd->d_buf3[ox1_loc]);
+  #if 0
+    h_matC = (double*)pm->dev_malloc_host(_m*_n*sizeof(double));
+    pm->dev_pull_async(matC, h_matC, _m*_n*sizeof(double));
+    pm->dev_barrier();
+    for (int _i=0; _i<_m*_n; ++_i){printf("%f\t",h_matC[_i]);}printf("\n");
+  #endif
+
+
+
   alpha = 1.0*fac;
   beta = 1.0;
   ml->gemm((char *) "T", (char *) "N", 
@@ -6038,7 +6080,13 @@ void Device::compute_4frag_matvec( int i, int j, int k, int l,
        &alpha, matB, &_k, matA, &_k,
        &beta, matC, &_n); 
 
-  }
+  #if 0
+    h_matC = (double*)pm->dev_malloc_host(_m*_n*sizeof(double));
+    pm->dev_pull_async(matC, h_matC, _m*_n*sizeof(double));
+    pm->dev_barrier();
+    for (int _i=0; _i<_m*_n; ++_i){printf("%f\t",h_matC[_i]);}printf("\n");
+  #endif
+
 
   pm->dev_profile_stop();
   double t1 = omp_get_wtime();
@@ -6088,6 +6136,11 @@ void Device::finalize_ox1_pinned(py::array_t<double> _ox1, int size)
   if (ox1_on_gpu){
   py::buffer_info info_ox1 = _ox1.request(); // (empty 1D array of size)
   double * ox1 = static_cast<double*>(info_ox1.ptr);
+
+  #if 0
+    for (int _i=0; _i<size; ++_i){printf("%f\t",ox1[_i]);}printf("\n");
+  #endif
+
   std::vector<double *> ox1_vec(num_devices);
   std::vector<double *> buf_vec(num_devices);
   std::vector<int> active(num_devices);

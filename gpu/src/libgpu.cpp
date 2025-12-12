@@ -777,10 +777,10 @@ void libgpu_compute_4frag_matvec(void * ptr,
                              int a, int b, int c, int d,
                              int z, 
                              int r, int s, 
-                             int vec_loc, int ox1_loc, int fac, int op_t)
+                             int vec_loc, int ox1_loc, int fac, int op_t, int count)
 {
   Device * dev = (Device *) ptr;
-  dev->compute_4frag_matvec(i, j, k, l, a, b, c, d, z, r, s, vec_loc, ox1_loc, fac, op_t);
+  dev->compute_4frag_matvec(i, j, k, l, a, b, c, d, z, r, s, vec_loc, ox1_loc, fac, op_t, count);
 }
 /* ---------------------------------------------------------------------- */
 void libgpu_print_sivecs(void * ptr, int start, int size)

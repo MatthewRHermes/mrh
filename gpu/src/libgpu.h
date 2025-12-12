@@ -219,7 +219,7 @@ extern "C"
                                            int, int, int, int, 
                                            int, 
                                            int, int, 
-                                           int, int, int, int);
+                                           int, int, int, int, int);
   void libgpu_print_sivecs(void *, int, int); 
   void libgpu_add_ox1_pinned(void *, py::array_t<double>, int);
   void libgpu_finalize_ox1_pinned(void *, py::array_t<double>, int);
