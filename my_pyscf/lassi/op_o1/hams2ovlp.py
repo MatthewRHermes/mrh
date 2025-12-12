@@ -562,6 +562,8 @@ def ham (las, h1, h2, ci, nelec_frs, smult_fr=None, soc=0, nlas=None, _HamS2Ovlp
             identified by ndarray or list "rootidx"
     '''     
     verbose = kwargs.get ('verbose', las.verbose)
+    mask_bra_space = kwargs.get ('mask_bra_space', None)
+    mask_ket_space = kwargs.get ('mask_ket_space', None)
     log = lib.logger.new_logger (las, verbose) 
     if nlas is None: nlas = las.ncas_sub
     max_memory = getattr (las, 'max_memory', las.mol.max_memory)
@@ -588,7 +590,9 @@ def ham (las, h1, h2, ci, nelec_frs, smult_fr=None, soc=0, nlas=None, _HamS2Ovlp
     # Second pass: upper-triangle
     t0 = (lib.logger.process_clock (), lib.logger.perf_counter ())
     outerprod = _HamS2Ovlp_class (ints, nlas, lroots, h1, h2, dtype=dtype,
-                                     max_memory=max_memory, log=log)
+                                  mask_bra_space=mask_bra_space,
+                                  mask_ket_space=mask_ket_space,
+                                  max_memory=max_memory, log=log)
     if soc and not spin_pure:
         outerprod.spin_shuffle = spin_shuffle_fac
     lib.logger.timer (las, 'LASSI ham setup', *t0)

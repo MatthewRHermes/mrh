@@ -277,7 +277,7 @@ class ExcitationPSFCISolver (ProductStateFCISolver):
         lroots = get_lroots ([self.ci_ref[ifrag] for ifrag in self.excited_frags])
         return np.prod (lroots, axis=0).sum ()
 
-    def get_ham_pq (self, h0, h1, h2, ci_p):
+    def get_ham_pq (self, h0, h1, h2, ci_p, _offdiag_only=False):
         '''Build the model-space Hamiltonian matrix for the current state of the P-space.
 
         Args:
@@ -308,12 +308,25 @@ class ExcitationPSFCISolver (ProductStateFCISolver):
         nelec_fs_p = np.asarray ([list(self._get_nelec (s, n)) 
                                    for s, n in zip (fcisolvers, nelec_ref)])
         nelec_frs = np.append (nelec_fs_p[:,None,:], nelec_frs_q, axis=1)
+        if _offdiag_only:
+            mask_ket_space = np.atleast_1d ([0,]).astype (int)
+            mask_bra_space = np.arange (1, nelec_frs.shape[1], dtype=int)
+        else:
+            mask_bra_space = mask_ket_space = None
         with temporary_env (self, ncas_sub=norb_ref, mol=fcisolvers[0].mol):
             ham_pq, _, ovlp_pq = op[self.opt].ham (self, h1, h2, ci_fr, nelec_frs, soc=0,
                                                    orbsym=self.orbsym_ref,
-                                                   wfnsym=self.wfnsym_ref, verbose=0)[:3]
+                                                   wfnsym=self.wfnsym_ref, verbose=5,
+                                                   mask_bra_space=mask_bra_space,
+                                                   mask_ket_space=mask_ket_space)[:3]
+        ham_pq += h0*ovlp_pq
+        if _offdiag_only:
+            p = np.prod (get_lroots (ci_p))
+            ham_pq[p:] = 0
+            ham_pq[:,:p] = 0
+            ham_pq += ham_pq.conj ().T
         t1 = self.log.timer ('get_ham_pq', *t0)
-        return ham_pq + (h0*ovlp_pq)
+        return ham_pq
 
     def update_ham_pq (self, ham_pq, h0, h1, h2, ci, hci_qspace, hci_pspace_diag, tdm1s_f,
                        norb_f, nelec_f):
@@ -354,7 +367,7 @@ class ExcitationPSFCISolver (ProductStateFCISolver):
         # (probably using tdm13hs)
         ref = self.get_ham_pq (h0, h1, h2, ci)
         t0 = lib.logger.process_clock (), lib.logger.perf_counter ()
-        return ref
+        #return ref
         nfrags = len (ci)
         assert (nfrags == 2)
         old_ham_pq = ham_pq
@@ -368,14 +381,26 @@ class ExcitationPSFCISolver (ProductStateFCISolver):
         #assert (np.amax (np.abs (ham_pq[p:,p:] - ref[p:,p:])) < 1e-6)
 
         # p,q sector
-        h_pq = lib.einsum (
-            'iab,jabq->ijq', ci[1].conj (), hci_qspace[1],
-        )
-        h_pq = h_pq.reshape (lroots[1]*lroots[0],q)
-        ham_pq[:p,p:] = h_pq
-        #assert (np.amax (np.abs (ham_pq[:p,p:] - ref[:p,p:])) < 1e-6)
-        ham_pq[p:,:p] = h_pq.conj ().T
-        #assert (np.amax (np.abs (ham_pq[p:,:p] - ref[p:,:p])) < 1e-6)
+        h_pq = self.get_ham_pq (h0, h1, h2, ci, _offdiag_only=True)
+        ham_pq += h_pq
+        #h_pq = lib.einsum (
+        #    'iab,jabq->ijq', ci[1].conj (), hci_qspace[1],
+        #)
+        #h_pq = h_pq.reshape (lroots[1]*lroots[0],q)
+        try:
+            assert (np.amax (np.abs (ham_pq[:p,p:] - ref[:p,p:])) < 1e-6), '{}-{}={}'.format (
+                lib.fp (ham_pq[:p,p:]), lib.fp (ref[:p,p:]), lib.fp (ham_pq[:p,p:])-lib.fp (ref[:p,p:]))
+        except AssertionError as err:
+            idx = np.argmax (np.abs (ham_pq[:p,p:]-ref[:p,p:]))
+            print (lroots, idx, ham_pq[:p,p:].flat[idx], ref[:p,p:].flat[idx], (ham_pq[:p,p:]-ref[:p,p:]).flat[idx])
+            raise (err)
+        try:
+            assert (np.amax (np.abs (ham_pq[p:,:p] - ref[p:,:p])) < 1e-6), '{}-{}={}'.format (
+                lib.fp (ham_pq[p:,:p]), lib.fp (ref[p:,:p]), lib.fp (ham_pq[p:,:p])-lib.fp (ref[p:,:p]))
+        except AssertionError as err:
+            idx = np.argmax (np.abs (ham_pq[p:,:p]-ref[p:,:p]))
+            print (lroots, idx, ham_pq[p:,:p].flat[idx], ref[p:,:p].flat[idx], (ham_pq[p:,:p]-ref[p:,:p]).flat[idx])
+            raise (err)
 
         # p,p sector - constant
         h_pp = np.zeros ((p,p), dtype=ham_pq.dtype)
@@ -400,21 +425,21 @@ class ExcitationPSFCISolver (ProductStateFCISolver):
                         h2[i:,:i,:i,i:])
         h_pp += w.transpose (0,2,1,3)
         ham_pq[:p,:p] = h_pp.reshape (lroots[1]*lroots[0], lroots[1]*lroots[0])
-        #try:
-        #    assert (np.amax (np.abs (ham_pq[:p,:p] - ref[:p,:p])) < 1e-6), '{}-{}={}'.format (
-        #        lib.fp (ham_pq[:p,:p]), lib.fp (ref[:p,:p]), lib.fp (ham_pq[:p,:p])-lib.fp (ref[:p,:p]))
-        #except AssertionError as err:
-        #    idx = np.argmax (np.abs (ham_pq[:p,:p]-ref[:p,:p]))
-        #    print (lroots, idx, ham_pq[:p,:p].flat[idx], ref[:p,:p].flat[idx], (ham_pq[:p,:p]-ref[:p,:p]).flat[idx])
-        #    raise (err)
+        try:
+            assert (np.amax (np.abs (ham_pq[:p,:p] - ref[:p,:p])) < 1e-6), '{}-{}={}'.format (
+                lib.fp (ham_pq[:p,:p]), lib.fp (ref[:p,:p]), lib.fp (ham_pq[:p,:p])-lib.fp (ref[:p,:p]))
+        except AssertionError as err:
+            idx = np.argmax (np.abs (ham_pq[:p,:p]-ref[:p,:p]))
+            print (lroots, idx, ham_pq[:p,:p].flat[idx], ref[:p,:p].flat[idx], (ham_pq[:p,:p]-ref[:p,:p]).flat[idx])
+            raise (err)
 
-        #try:
-        #    assert (np.amax (np.abs (ham_pq - ref)) < 1e-6), '{}-{}={}'.format (
-        #        lib.fp (ham_pq), lib.fp (ref), lib.fp (ham_pq)-lib.fp (ref))
-        #except AssertionError as err:
-        #    idx = np.argmax (np.abs (ham_pq-ref))
-        #    print (lroots, idx, ham_pq.flat[idx], ref.flat[idx], ham_pq.flat[idx]-ref.flat[idx])
-        #    raise (err)
+        try:
+            assert (np.amax (np.abs (ham_pq - ref)) < 1e-6), '{}-{}={}'.format (
+                lib.fp (ham_pq), lib.fp (ref), lib.fp (ham_pq)-lib.fp (ref))
+        except AssertionError as err:
+            idx = np.argmax (np.abs (ham_pq-ref))
+            print (lroots, idx, ham_pq.flat[idx], ref.flat[idx], ham_pq.flat[idx]-ref.flat[idx])
+            raise (err)
 
         t1 = self.log.timer ('update_ham_pq', *t0)
         return ham_pq
