@@ -38,11 +38,11 @@ def test_matvecs():
   #print("d2\n", d2)
   #print("d3\n", d3)
 
-  ox_cpu = cpu_kernel(op, other, d2, d3, a,b,c,d,i,j,k,l,r,s,z)
-  ox_gpu = gpu_kernel(op, other, d2, d3, a,b,c,d,i,j,k,l,r,s,z)
+  ox_cpu = cpu_kernel(op, other, d2, d3)
+  ox_gpu = gpu_kernel(op, other, d2, d3)
   print(np.allclose(ox_cpu, ox_gpu))
 
-def cpu_kernel(op,other,d2, d3, a,b,c,d,i,j,k,l,r,s,z):
+def cpu_kernel(op,other,d2, d3):
   #CPU kernel
   ##remember, it's op.dot(vec.T), so this transpose is now cancelled out
   #simply a dot product now
@@ -55,8 +55,12 @@ def cpu_kernel(op,other,d2, d3, a,b,c,d,i,j,k,l,r,s,z):
   #print(ox.ravel())
   return ox.ravel()
 
-def gpu_kernel(op,other,d2, d3, a,b,c,d,i,j,k,l,r,s,z): 
+def gpu_kernel(op,other,d2, d3):
   #op doesn't need to be reshaped
+  r,s,b,a,j,i = op.shape
+  c,k,r = d2.shape
+  d,l,s = d3.shape
+  z,l,k,j,i = other.shape
   size_op = r*s*b*a*j*i;
   size_req = r*s*b*a*z*l*k;
   size_d2 = c*k*r;
