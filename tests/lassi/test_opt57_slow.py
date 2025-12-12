@@ -37,7 +37,7 @@ from mrh.tests.lassi.addons import eri_sector_indexes, random_orthrows
 op = (op_o0, op_o1)
 
 def setUpModule ():
-    global mol, mf, las, nstates, nelec_frs, smult_fr, si, orbsym, wfnsym
+    global rng_state, mol, mf, las, nstates, nelec_frs, smult_fr, si, orbsym, wfnsym
     norb_f = [4,2,4]
     # Build crazy state list
     states  = {'charges': [[0,0,0],],
@@ -106,6 +106,7 @@ def setUpModule ():
     orbsym = las.mo_coeff.orbsym[las.ncore:las.ncore+las.ncas]
     orbsym_f = [orbsym[:4], orbsym[4:6], orbsym[6:]]
     rng = np.random.default_rng ()
+    rng_state = copy.deepcopy (rng.bit_generator.state)
     for iroot in range (las.nroots):
         for ifrag in range (las.nfrags):
             t1 = CSFTransformer (norb_f[ifrag],
@@ -124,9 +125,9 @@ def setUpModule ():
     e, si = linalg.eigh (rand_mat)
 
 def tearDownModule():
-    global mol, mf, las, nstates, nelec_frs, smult_fr, si, orbsym, wfnsym
+    global rng_state, mol, mf, las, nstates, nelec_frs, smult_fr, si, orbsym, wfnsym
     mol.stdout.close ()
-    del mol, mf, las, nstates, nelec_frs, smult_fr, si, orbsym, wfnsym
+    del rng_state, mol, mf, las, nstates, nelec_frs, smult_fr, si, orbsym, wfnsym
 
 class KnownValues(unittest.TestCase):
     def test_stdm12s (self):
@@ -143,7 +144,7 @@ class KnownValues(unittest.TestCase):
                 with self.subTest (rank=r+1, idx=(i,j), spaces=(rootaddr[i], rootaddr[j]),
                                    envs=(list(fragaddr[:,i]),list(fragaddr[:,j]))):
                     self.assertAlmostEqual (lib.fp (d12_o0[r][i,...,j]),
-                        lib.fp (d12_o1[r][i,...,j]), 9)
+                        lib.fp (d12_o1[r][i,...,j]), 9, msg=rng_state)
 
     def test_ham_s2_ovlp (self):
         h1, h2 = ham_2q (las, las.mo_coeff, veff_c=None, h2eff_sub=None)[1:]
@@ -158,7 +159,7 @@ class KnownValues(unittest.TestCase):
         fps_o0 = [lib.fp (mat) for mat in mats_o0]
         for lbl, mat, fp in zip (lbls, mats_o1, fps_o0):
             with self.subTest(matrix=lbl):
-                self.assertAlmostEqual (lib.fp (mat), fp, 9)
+                self.assertAlmostEqual (lib.fp (mat), fp, 9, msg=rng_state)
 
     def test_rdm12s (self):
         si_bra = si
@@ -176,15 +177,23 @@ class KnownValues(unittest.TestCase):
             for i in range (nstates):
                 with self.subTest (rank=r+1, root=i, opt=1):
                     self.assertAlmostEqual (lib.fp (d12_o0[r][i]),
-                        lib.fp (d12_o1[r][i]), 9)
+                        lib.fp (d12_o1[r][i]), 9, msg=rng_state)
 
     def test_contract_hlas_ci (self):
         h0, h1, h2 = ham_2q (las, las.mo_coeff)
-        case_contract_hlas_ci (self, las, h0, h1, h2, las.ci, nelec_frs)
+        try:
+            case_contract_hlas_ci (self, las, h0, h1, h2, las.ci, nelec_frs)
+        except AssertionError as err:
+            print (rng_state)
+            raise err from None
 
     def test_contract_op_si (self):
         h0, h1, h2 = ham_2q (las, las.mo_coeff)
-        case_contract_op_si (self, las, h1, h2, las.ci, nelec_frs, smult_fr=smult_fr)
+        try:
+            case_contract_op_si (self, las, h1, h2, las.ci, nelec_frs, smult_fr=smult_fr)
+        except AssertionError as err:
+            print (rng_state)
+            raise err from None
 
 
 
