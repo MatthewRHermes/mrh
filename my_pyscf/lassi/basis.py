@@ -85,9 +85,13 @@ def get_orth_basis (ci_fr, norb_f, nelec_frs, _get_ovlp=None, smult_fr=None, smu
                 xmat = canonical_orth_(ovlp, thr=LINDEP_THRESH)
             else:
                 xmat = None
-            manifolds.append (get_rootspace_manifold (norb_f, lroots_fr, nprods_r, n_str, s_str,
-                                                      m_strs, m_blocks, xmat, smult_si=smult_si))
-            north += np.prod (manifolds[-1].orth_shape)
+            new_manifold = get_rootspace_manifold (norb_f, lroots_fr, nprods_r, n_str, s_str,
+                                                   m_strs, m_blocks, xmat, smult_si=smult_si)
+            if _is_first (nelec_frs, smult_fr, n_str, s_str):
+                manifolds = [new_manifold,] + manifolds
+            else:
+                manifolds.append (new_manifold)
+            north += np.prod (new_manifold.orth_shape)
             ovlp = None
 
     _get_ovlp = None
@@ -96,6 +100,13 @@ def get_orth_basis (ci_fr, norb_f, nelec_frs, _get_ovlp=None, smult_fr=None, smu
         return OrthBasis ((north,nraw), dtype, nprods_r, manifolds)
     else:
         return SpinCoupledOrthBasis ((north,nraw), dtype, nprods_r, manifolds)
+
+def _is_first (nelec_frs, smult_fr, n_str, s_str):
+    if np.any (n_str != nelec_frs[:,0,:].sum (1)):
+        return False
+    if smult_fr is None:
+        return True
+    return np.all (smult_fr[:,0]==s_str)
 
 def get_nbytes (obj):
     def _get (x):
@@ -350,10 +361,10 @@ class NullOrthBasis (OrthBasisBase):
         assert (len (sgnvec) == 1)
         return np.atleast_2d (sgnvec)
 
-    def log_debug_hdiag_raw (self, log, hdiag):
+    def log_debug_hdiag_raw (self, log, hdiag, idx=None):
         return
 
-    def log_debug_hdiag_orth (self, log, hdiag):
+    def log_debug_hdiag_orth (self, log, hdiag, idx=None):
         return
 
 class OrthBasis (OrthBasisBase):
