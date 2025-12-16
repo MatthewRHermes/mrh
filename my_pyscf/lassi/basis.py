@@ -156,6 +156,19 @@ class RootspaceManifold:
 
     def get_t_strs (self): return self.m_strs
 
+    def sprintf_address_book (self):
+        out = 'smult: {}\n'.format (self.s_str)
+        out += 'nelec: {}\n'.format (self.n_str)
+        out += self.sprintf_address_book_spin ()
+        out += '
+        return out
+
+    def sprintf_address_book_spin (self)
+        out = 'm_strs:\n'
+        for i, m_str in enumerate (self.m_strs):
+            out += ' {} {}\n'.format (i, m_str)
+        return out        
+
 class SpinCoupledRootspaceManifold (RootspaceManifold):
     def __init__(self, norb_f, nprods_r, n_str, s_str, m_strs, m_blocks, xmat, smult_si):
         super().__init__(norb_f, nprods_r, n_str, s_str, m_strs, m_blocks, xmat)
