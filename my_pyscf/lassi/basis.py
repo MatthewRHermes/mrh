@@ -277,10 +277,17 @@ class OrthBasisBase (sparse_linalg.LinearOperator):
 
     split_rblocks_by_manifolds=split_oblocks_by_manifolds
 
-    def idx2addrs (self, idx):
+    def idx2addrs_orth (self, idx):
         blks, addrs_p = self.split_addrs_by_blocks (idx)
         addrs_sn, addrs_t = self.split_oblocks_by_manifolds (blks)
         return addrs_sn, addrs_t, addrs_p
+
+    def idx2addrs_raw (self, idx):
+        blks, addrs_p = self.split_addrs_by_blocks (idx)
+        addrs_sn, addrs_m = self.split_rblocks_by_manifolds (blks)
+        return addrs_sn, addrs_m, addrs_p
+
+    idx2addrs = idx2addrs_orth
 
     def are_tstrs_coupled (self, bra_sn, ket_sn, bra_t, ket_t, inv):
         coup = (bra_t==ket_t)
@@ -342,6 +349,12 @@ class NullOrthBasis (OrthBasisBase):
     def pspace_ham_spincoup_dm (self, bra_sn, ket_sn, mtidx_bra, mtidx_ket, sgnvec, inv):
         assert (len (sgnvec) == 1)
         return np.atleast_2d (sgnvec)
+
+    def log_debug_hdiag_raw (self, log, hdiag):
+        return
+
+    def log_debug_hdiag_orth (self, log, hdiag):
+        return
 
 class OrthBasis (OrthBasisBase):
     def __init__(self, shape, dtype, nprods_r, manifolds):
@@ -539,6 +552,36 @@ class OrthBasis (OrthBasisBase):
         brastr = brastr[bra_t]
         ketstr = ketstr[ket_t]
         return np.all (brastr==ketstr, axis=-1)
+
+    def log_debug_hdiag_raw (self, log, hdiag, idx=None):
+        if idx is None:
+            idx = np.arange (len (hdiag), dtype=int)
+        idx = idx[np.argsort (hdiag[idx])]
+        addrs_sn, addrs_m, addrs_p = self.idx2addrs_raw (idx)
+        log.debug ("Address book for individual raw states:")
+        for i in np.sort (np.unique (addrs_sn)):
+            man = self.manifolds[i]
+            log.debug ("%s", man.sprintf_address_book_raw (i))
+        log.debug ("Raw basis hdiag:")
+        log.debug ("ix e addr(manifold) addr(spin) addr(spat)")
+        for i, ix in enumerate (idx):
+            log.debug ("%d %15.10e %d %d %d", idx[i], hdiag[ix], addrs_sn[i], addrs_m[i],
+                       addrs_p[i])
+
+    def log_debug_hdiag_orth (self, log, hdiag, idx=None):
+        if idx is None:
+            idx = np.arange (len (hdiag), dtype=int)
+        idx = idx[np.argsort (hdiag[idx])]
+        addrs_sn, addrs_t, addrs_p = self.idx2addrs_orth (idx)
+        log.debug ("Address book for individual orth states:")
+        for i in np.sort (np.unique (addrs_sn)):
+            man = self.manifolds[i]
+            log.debug ("%s", man.sprintf_address_book_orth (i))
+        log.debug ("Orth basis hdiag:")
+        log.debug ("ix e addr(manifold) addr(spin) addr(spat)")
+        for i, ix in enumerate (idx):
+            log.debug ("%d %15.10e %d %d %d", idx[i], hdiag[ix], addrs_sn[i], addrs_t[i],
+                       addrs_p[i])
 
 class SpinCoupledOrthBasis (OrthBasis):
     def roots_coupled_in_hdiag (self, i, j):
