@@ -5992,6 +5992,8 @@ void Device::compute_4frag_matvec( int i, int j, int k, int l,
   double * d_d3 = &(dd->d_buf1[size_op+size_d2]);
   loc_C = size_op + size_d2+size_d3;
   double * h_matC;
+  double * h_op;
+  double * h_di;
   #if 0
     //double * h_op = (double*)pm->dev_malloc_host(size_op*sizeof(double));
     //pm->dev_pull_async(d_op, h_op, size_op*sizeof(double));
@@ -6004,6 +6006,7 @@ void Device::compute_4frag_matvec( int i, int j, int k, int l,
   #endif
   if (op_t){
   double * buf_d2 = &(dd->d_buf1[loc_C]); //buffer to store transposed d2, will copy it back to it's original position after done. 
+  printf("Inside op_t branch\n");
   //transpose d[2] kcr->ckr
   transpose_102(d_d2, buf_d2, c,k,r);
   veccopy(buf_d2, d_d2, size_d2);
@@ -6014,6 +6017,14 @@ void Device::compute_4frag_matvec( int i, int j, int k, int l,
   transpose_021(d_op, buf_d2, r*s, j*i, b*a);
   veccopy(buf_d2, d_op, size_op);
   }
+
+  #if 0
+    printf("ckr\n");
+    h_di = (double*)pm->dev_malloc_host(size_d2*sizeof(double));
+    pm->dev_pull_async(d_d2, h_di, size_d2*sizeof(double));
+    pm->dev_barrier();
+    for (int _i=0; _i<size_d2; ++_i){printf("%f\t",h_di[_i]);}printf("\n");
+  #endif
 
   //ox = lib.einsum ('rsbaji,zlkji->rsbazlk', self.op, other)
   _m = r*s*b*a;
@@ -6027,6 +6038,17 @@ void Device::compute_4frag_matvec( int i, int j, int k, int l,
        &_n,&_m,&_k, 
        &alpha, matB, &_k, matA, &_k,
        &beta, matC, &_n); 
+
+  #if 1
+    if (ox1_loc==1378){
+    printf("rsjiba\n");
+    h_op = (double*)pm->dev_malloc_host(_m*_k*sizeof(double));
+    pm->dev_pull_async(matA, h_op, _m*_k*sizeof(double));
+    pm->dev_barrier();
+    for (int _i=0; _i<_m*_k; ++_i){printf("%f\t",h_op[_i]);}printf("\n");
+   }
+  #endif
+
 
 
   //rsbazlk->bazlskr
@@ -6049,6 +6071,7 @@ void Device::compute_4frag_matvec( int i, int j, int k, int l,
        &beta, matC, &_n); 
 
   #if 0
+    printf("cbazlk\n");
     h_matC = (double*)pm->dev_malloc_host(_m*_n*sizeof(double));
     pm->dev_pull_async(matC, h_matC, _m*_n*sizeof(double));
     pm->dev_barrier();
@@ -6065,6 +6088,7 @@ void Device::compute_4frag_matvec( int i, int j, int k, int l,
   matA = &(dd->d_buf1[size_op+size_d2]); //d3  
   matC = &(dd->d_buf3[ox1_loc]);
   #if 0
+    printf("dcbaz\n");
     h_matC = (double*)pm->dev_malloc_host(_m*_n*sizeof(double));
     pm->dev_pull_async(matC, h_matC, _m*_n*sizeof(double));
     pm->dev_barrier();
@@ -6072,6 +6096,15 @@ void Device::compute_4frag_matvec( int i, int j, int k, int l,
   #endif
 
 
+  #if 0
+    if (ox1_loc == 1378){
+    printf("before start\n"); 
+    h_matC = (double*)pm->dev_malloc_host(_m*_n*sizeof(double));
+    pm->dev_pull_async(matC, h_matC, _m*_n*sizeof(double));
+    pm->dev_barrier();
+    for (int _i=0; _i<_m*_n; ++_i){printf("%f\t",h_matC[_i]*1e8);}printf("\n");
+    }
+  #endif
 
   alpha = 1.0*fac;
   beta = 1.0;
@@ -6081,10 +6114,13 @@ void Device::compute_4frag_matvec( int i, int j, int k, int l,
        &beta, matC, &_n); 
 
   #if 0
+    if (ox1_loc == 1378){
+    printf("after calc start\n"); 
     h_matC = (double*)pm->dev_malloc_host(_m*_n*sizeof(double));
     pm->dev_pull_async(matC, h_matC, _m*_n*sizeof(double));
     pm->dev_barrier();
-    for (int _i=0; _i<_m*_n; ++_i){printf("%f\t",h_matC[_i]);}printf("\n");
+    for (int _i=0; _i<_m*_n; ++_i){printf("%f\t",h_matC[_i]*1e8);}printf("\n");
+    }
   #endif
 
 

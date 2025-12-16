@@ -446,6 +446,7 @@ class HamS2OvlpOperators (HamS2Ovlp):
 
         def gpu_needed(ops):
           r'''This function can be avoided if I can guarantee that all ops have atleast one function that is 1-3 frag'''
+          #return True
           for op in ops:
             for key in op.spincase_keys:
               if len(set(key[2:]))!=4: return True
@@ -469,21 +470,21 @@ class HamS2OvlpOperators (HamS2Ovlp):
               #print(diff(np.nonzero(diff)))
               for op in ops:
                 for key in op.spincase_keys:  #spincase_keys is a lookup table
-                  if (len(set(key[2:])))!=4:
-                    op = opterm.reduce_spin (op, key[0], key[1])
-                    key = tuple((key[0], key[1])) + key[2:]
-                    brakets, bras, braHs = self.get_nonuniq_exc_square (key)
-                    for bra in bras:
+                  op = opterm.reduce_spin (op, key[0], key[1])
+                  key = tuple((key[0], key[1])) + key[2:]
+                  brakets, bras, braHs = self.get_nonuniq_exc_square (key)
+                  for bra in bras:
+                    i,j,_ = self.get_ox1_params(bra, *key[2:])  
+                    if np.allclose(self.ox1[i:j],self.ox1_gpu[i:j]) != True:
+                      print("Error in bras", i, j,flush=True)
+                      print(self.ox1[i:j])
+                      print(self.ox1_gpu[i:j])
+                      exit()
+                  if len(braHs):
+                    for bra in braHs:
                       i,j,_ = self.get_ox1_params(bra, *key[2:])  
                       if np.allclose(self.ox1[i:j],self.ox1_gpu[i:j]) != True:
-                        print("Error in bras", i, j,flush=True)
-                        print(self.ox1[i:j])
-                        print(self.ox1_gpu[i:j])
-                    if len(braHs):
-                      for bra in braHs:
-                        i,j,_ = self.get_ox1_params(bra, *key[2:])  
-                        if np.allclose(self.ox1[i:j],self.ox1_gpu[i:j]) != True:
-                          print("Error in braHs",flush=True)
+                        print("Error in braHs",flush=True)
               exit()
             else: print("Correctly corrected", len(ops))
            
@@ -558,11 +559,15 @@ class HamS2OvlpOperators (HamS2Ovlp):
 
         vec_table={}
         vec_loc = 0
+        max_z = 0
         for count, (key, vec) in enumerate(vecs.items()):
           size=vec.size
           vec_table[key]=vec_loc
           libgpu.push_sivecs_to_device(gpu, np.ascontiguousarray(vec), vec_loc, size, count)
           vec_loc += size
+          ## Not the most efficient way, should technically only check for vecs related to 4 frag op terms, but for now this is done 
+          ## because I am worried that rerunning loops over vecs may make the program slow.
+          max_z = max(max_z, vec.shape[0])
 
         t2, w2 = logger.process_clock (), logger.perf_counter ()
         self.dt_gpu_push_vec += (t2-t1)
@@ -576,6 +581,7 @@ class HamS2OvlpOperators (HamS2Ovlp):
                   self._gpu_opuniq_x_v2(op, key[0],key[1], vec_table, *key[2:]) 
               else:
                   # 4-fragment case is still running on cpu
+                  #self._gpu_opuniq_x_4frag(op, key[0],key[1],vec_table, max_z, *key[2:])
                   _opuniq_x(op, key[0], key[1], vecs, *key[2:]) #4 fragment  
         #STEP 6
         t3, w3 = logger.process_clock (), logger.perf_counter ()
@@ -617,7 +623,15 @@ class HamS2OvlpOperators (HamS2Ovlp):
             self.dw_compute_3frag += (w3-w2)
         if len (braHs):
             t0, w0 = logger.process_clock (), logger.perf_counter ()
+            #try op.op:
+            #  print("Pre transpose")
+            #  print(op.shape)
+            #except: pass
             op = op.conj ().T
+
+            #try op.op:
+            #  print("Post transpose")
+            #  print(op.shape)
             t1, w1 = logger.process_clock (), logger.perf_counter ()
             self.dt_op_reduce += (t1-t0)
             self.dw_op_reduce += (w1-w0)
@@ -689,6 +703,91 @@ class HamS2OvlpOperators (HamS2Ovlp):
         self.dw_compute_3frag += (w4-w2)
         return
 
+    def _gpu_opuniq_x_4frag(self, op, obra, oket, vec_table, max_z, *inv):
+        t0, w0 = logger.process_clock (), logger.perf_counter ()
+        key = tuple ((obra, oket)) + inv
+        inv = list (set (inv))
+        brakets, bras, braHs = self.get_nonuniq_exc_square (key)
+        t1, w1 = logger.process_clock (), logger.perf_counter ()
+        self.dt_non_uniq_exc += (t1-t0)
+        self.dw_non_uniq_exc += (w1-w0)
+        #STEP 3 PART 1
+        op = opterm.reduce_spin (op, obra, oket)
+        print(op.op.ravel())
+        print(op.op.shape)
+        print(op.d[2].ravel())
+        print(op.d[2].shape)
+        print(op.d[3].ravel())
+        print(op.d[3].shape)
+
+        t2, w2 = logger.process_clock (), logger.perf_counter ()
+        self.dt_op_reduce += (t2-t1)
+        self.dw_op_reduce += (w2-w1)
+
+
+        n_dots = max(len(bras), len(braHs))
+        #STEP 3 Part 2
+        from mrh.my_pyscf.gpu import libgpu
+        gpu = param.use_gpu
+        i,j,k,l = op.lroots_ket
+        r,s,b,a,j,i = op.op.shape #op is an object, that contains op, d[2],d[3], lroots
+        c,k,r = op.d[2].shape
+        d,l,s = op.d[3].shape
+        size_op = op.op.size
+        size_req = size_op + op.d[2].size + op.d[3].size+2*r*s*b*a*l*k*max_z;
+        #print(a,b,c,d,i,j,k,l,p,q,r,s,max_z)
+        #doing counts = 1 because more counts = more gpu, currently just focusing on one gpu.
+        #op,size,total_req,counts
+        libgpu.push_op_4frag(gpu, np.ascontiguousarray(op.op), size_op, size_req,1)
+        #d2,size,loc,counts
+        libgpu.push_d2(gpu, np.ascontiguousarray(op.d[2]),op.d[2].size, size_op,1) 
+        #d3,size,loc,counts
+        libgpu.push_d3(gpu, np.ascontiguousarray(op.d[3]),op.d[3].size, size_op + op.d[2].size,1) 
+
+        self._gpu_matvec_4frag(op, bras, oket, vec_table, inv, 
+                                i,j,k,l,
+                                a,b,c,d,
+                                r,s,op_t = False)
+        t3, w3 = logger.process_clock (), logger.perf_counter ()
+        self.dt_gpu_push_op += (t3-t2) 
+        self.dw_gpu_push_op += (w3-w2) 
+        
+
+        if len (braHs):
+            op = op.conj ().T
+
+            print(op.op.ravel())
+            print(op.op.shape)
+            print(op.d[2].ravel())
+            print(op.d[2].shape)
+            print(op.d[3].ravel())
+            print(op.d[3].shape)
+            i,j,k,l = op.lroots_ket
+            r,s,b,a,j,i = op.op.shape #op is an object, that contains op, d[2],d[3], lroots
+            c,k,r = op.d[2].shape
+            d,l,s = op.d[3].shape
+            size_op = op.op.size
+            size_req = size_op + op.d[2].size + op.d[3].size+2*r*s*b*a*l*k*max_z;
+            #print(a,b,c,d,i,j,k,l,p,q,r,s,max_z)
+            #doing counts = 1 because more counts = more gpu, currently just focusing on one gpu.
+            #op,size,total_req,counts
+            libgpu.push_op_4frag(gpu, np.ascontiguousarray(op.op), size_op, size_req,1)
+            #d2,size,loc,counts
+            libgpu.push_d2(gpu, np.ascontiguousarray(op.d[2]),op.d[2].size, size_op,1) 
+            #d3,size,loc,counts
+            libgpu.push_d3(gpu, np.ascontiguousarray(op.d[3]),op.d[3].size, size_op + op.d[2].size,1) 
+
+            self._gpu_matvec_4frag(op, braHs, obra, vec_table, inv, 
+                                    i,j,k,l,
+                                    a,b,c,d,
+                                    r,s,op_t = False)
+
+        t4, w4 = logger.process_clock (), logger.perf_counter ()
+        self.dt_compute_3frag += (t4-t2)
+        self.dw_compute_3frag += (w4-w2)
+        exit()
+        return
+
     def gpu_matvec_v2(self, m, k, bras, oci, vec_table, inv, op_t = False):
 
         t0, w0 = logger.process_clock (), logger.perf_counter ()
@@ -735,7 +834,35 @@ class HamS2OvlpOperators (HamS2Ovlp):
         self.dw_gpu_compute += (w1-w0)
         return 
 
+    def _gpu_matvec_4frag(self, op, bras, oci, vec_table, inv, 
+                           i, j, k, l,
+                           a, b, c, d, 
+                           r, s, op_t = False):
 
+        t0, w0 = logger.process_clock (), logger.perf_counter ()
+        from mrh.my_pyscf.gpu import libgpu
+        gpu = param.use_gpu
+
+
+        spec = np.ones (self.nfrags, dtype=bool)
+        for i in inv: spec[i] = False
+        spec = np.where (spec)[0]
+
+        #STEP 4 
+        print(len(bras))
+        for bra in bras:
+            z = np.prod(self.lroots[spec, bra])
+            vec_loc = vec_table[self.ox_ovlp_urootstr(bra, oci, inv)]
+            ox1_loc, _, fac = self.get_ox1_params(bra, *inv)
+            libgpu.compute_4frag_matvec(gpu, i, j, k, l, 
+                                             a, b, c, d,
+                                             z, r, s, vec_loc, ox1_loc, fac, op_t, 0)
+        t1, w1 = logger.process_clock (), logger.perf_counter ()
+        self.dt_gpu_compute += (t1-t0)
+        self.dw_gpu_compute += (w1-w0)
+        return 
+
+         
     
     def ox_ovlp_urootstr (self, bra, ket, inv):
         '''Find the urootstr corresponding to the action of the overlap part of an operator
