@@ -15,6 +15,15 @@ from pyscf.scf.addons import canonical_orth_
 from mrh.util.la import vector_error
 op = (op_o0, op_o1)
 
+def random_orthrows (nrows, ncols, rng=None):
+    if rng is None:
+        rng = np.random.default_rng ()
+    x = 2 * rng.random (size=(nrows, ncols)) - 1
+    Q = linalg.orth (x)
+    x = Q.T @ x
+    x /= linalg.norm (x, axis=1)[:,None]
+    return x
+
 def describe_interactions (nelec_frs):
     hopping_index = lst_hopping_index (nelec_frs)
     symm_index = np.all (hopping_index.sum (0) == 0, axis=0)
@@ -119,17 +128,48 @@ def case_contract_hlas_ci (ks, las, h0, h1, h2, ci_fr, nelec_frs, si_bra=None, s
                                        dnelecb=nelec[:,r,1]-nelec[:,s,1]):
                         pass
                         #ks.assertAlmostEqual (lib.fp (hket_pq_s), lib.fp (hket_ref_s), 8)
+        # Test the SCHCS version
         hket_ref = np.dot (ham, sivec_ket)
-        hket_fr_pabq = op[opt].contract_ham_ci (las, h1, h2, ci_fr, nelec, h0=h0,
-                                                si_bra=sivec_bra, si_ket=sivec_ket)
-        for f, (ci_r, hket_r_pabq) in enumerate (zip (ci_fr, hket_fr_pabq)):
-            for r, (ci, hket_pabq) in enumerate (zip (ci_r, hket_r_pabq)):
+        hket_fr_pab = op[opt].contract_ham_ci (las, h1, h2, ci_fr, nelec, h0=h0,
+                                               si_bra=sivec_bra, si_ket=sivec_ket)
+        for f, (ci_r, hket_r_pab) in enumerate (zip (ci_fr, hket_fr_pab)):
+            for r, (ci, hket_pab) in enumerate (zip (ci_r, hket_r_pab)):
                 if ci.ndim < 3: ci = ci[None,:,:]
                 with ks.subTest (opt=opt, frag=f, bra_space=r, nelec=nelec[f,r]):
-                    h_test = lib.einsum ('pab,pab->', hket_pabq, ci.conj ())
+                    h_test = lib.einsum ('pab,pab->', hket_pab, ci.conj ())
                     h_ref = np.dot (sivec_bra[ni[r]:nj[r]].conj (), hket_ref[ni[r]:nj[r]])
                     ks.assertAlmostEqual (h_test, h_ref, 6)
-    return hket_fr_pabq
+        # Test the CHCS version
+        if (las.nfrags != 2) and (opt==1):
+            with ks.assertRaises (AssertionError):
+                op[opt].contract_ham_ci (las, h1, h2, ci_fr, nelec, h0=h0, si_ket=sivec_ket)
+        elif (opt==0) or (las.nfrags==2):
+            if las.nfrags==2:
+                mask = np.where (lroots[0]==lroots[1])[0]
+            else:
+                mask = np.arange (las.nfrags)
+            if len (mask) == 0: return hket_fr_pab
+            ci_fr_bra = [[ci_fr[f][r] for r in mask] for f in range (las.nfrags)]
+            nelec_frs_bra = nelec_frs[:,mask,:]
+            hket_fr_qab = op[opt].contract_ham_ci (las, h1, h2, ci_fr, nelec, ci_fr_bra=ci_fr_bra,
+                                                   nelec_frs_bra=nelec_frs_bra, h0=h0,
+                                                   si_ket=sivec_ket)
+            for f, (ci_r, hket_r_qab) in enumerate (zip (ci_fr, hket_fr_qab)):
+                current_order = list (range (las.nfrags))
+                current_order.insert (0, current_order.pop (las.nfrags-1-f))
+                for r, hket_qab in zip (mask, hket_r_qab):
+                    ci = ci_r[r]
+                    if ci.ndim < 3: ci = ci[None,:,:]
+                    with ks.subTest (opt=opt, frag=f, bra_space=r, nelec=nelec[f,r]):
+                        hket_pq = lib.einsum ('qab,pab->pq', hket_qab, ci.conj ())
+                        current_shape = lroots[::-1,r][current_order]
+                        to_proper_order = list (np.argsort (current_order))
+                        hket_pq = hket_pq.reshape (current_shape)
+                        hket_pq = hket_pq.transpose (*to_proper_order)
+                        htest = hket_pq.ravel ()
+                        href = hket_ref[ni[r]:nj[r]]
+                        ks.assertAlmostEqual (lib.fp (htest), lib.fp (href), 6)
+    return hket_fr_pab
 
 def _pick_random_smult_si (smult_fr):
     s2 = smult_fr[:,0]-1
@@ -151,17 +191,23 @@ def _check_OrthBasis (ks, las, ci_fr, nelec_frs, smult_fr, ham, s2, ovlp, ops, s
     ham_diag_orth = op[1].get_hdiag_orth (ham_diag, ham_op, raw2orth)
     with ks.subTest ('hdiag orth'):
         ks.assertAlmostEqual (lib.fp (ham_orth.diagonal ()), lib.fp (ham_diag_orth), 7)
-    pspace_size = min (5, raw2orth.shape[0]//2)
+    pspace_size = min (5, max (1, raw2orth.shape[0]//2))
     pw, pv, addrs = pspace (ham_diag_orth, ham_op, raw2orth, 1, pspace_size)
     ham_test = (pv * pw[None,:]) @ pv.conj ().T
     ham_ref = ham_orth[addrs,:][:,addrs]
     with ks.subTest ('pspace'):
+        #ham_err = np.around (ham_test-ham_ref, 5)
+        #for i,j in itertools.product (range (ham_test.shape[0]), range (ham_test.shape[1])):
+        #    print (i,j,ham_err[i,j], ham_ref[i,j])
         ks.assertAlmostEqual (lib.fp (ham_test), lib.fp (ham_ref), 7)
     pspace_size = raw2orth.shape[0]
     pw, pv, addrs = pspace (ham_diag_orth, ham_op, raw2orth, 1, pspace_size)
     ham_test = (pv * pw[None,:]) @ pv.conj ().T
     ham_ref = ham_orth[addrs,:][:,addrs]
     with ks.subTest ('pspace full'):
+        #ham_err = np.around (ham_test-ham_ref, 5)
+        #for i,j in itertools.product (range (ham_test.shape[0]), range (ham_test.shape[1])):
+        #    print (i,j,ham_err[i,j], ham_ref[i,j])
         ks.assertAlmostEqual (lib.fp (ham_test), lib.fp (ham_ref), 7)
 
 def case_contract_op_si (ks, las, h1, h2, ci_fr, nelec_frs, smult_fr=None, soc=0):

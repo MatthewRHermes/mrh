@@ -26,7 +26,7 @@ def structure (dnn1=0, dnn2=0, basis='6-31g', symmetry=False):
     dummymol = gto.M (atom = carts, basis=basis, symmetry=True)
     newcoords = dummymol.atom_coords ()
     carts = [[atoms[i]] + list(newcoords[i,:]) for i in range(10)]
-    return gto.M (atom = carts, basis=basis, symmetry=False, unit='au')
+    return gto.M (atom = carts, basis=basis, symmetry=symmetry, unit='au')
 
 
 

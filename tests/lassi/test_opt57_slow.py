@@ -23,6 +23,7 @@ from pyscf import lib, gto, scf, dft, fci, mcscf, df
 from pyscf.tools import molden
 from pyscf.fci import cistring
 from pyscf.fci.direct_spin1 import _unpack_nelec
+from pyscf.csf_fci.csfstring import CSFTransformer
 from mrh.tests.lasscf.c2h4n4_struct import structure as struct
 from mrh.my_pyscf.mcscf.lasscf_o0 import LASSCF
 from mrh.my_pyscf.mcscf.lasci import get_space_info
@@ -31,12 +32,13 @@ from mrh.my_pyscf.lassi.citools import get_lroots, get_rootaddr_fragaddr
 from mrh.my_pyscf.lassi import op_o0
 from mrh.my_pyscf.lassi import op_o1
 from mrh.tests.lassi.addons import case_contract_hlas_ci, case_contract_op_si
-from mrh.tests.lassi.addons import eri_sector_indexes
+from mrh.tests.lassi.addons import eri_sector_indexes, random_orthrows
 
 op = (op_o0, op_o1)
 
 def setUpModule ():
-    global mol, mf, las, nstates, nelec_frs, smult_fr, si, orbsym, wfnsym
+    global rng_state, mol, mf, las, nstates, nelec_frs, smult_fr, si, orbsym, wfnsym
+    norb_f = [4,2,4]
     # Build crazy state list
     states  = {'charges': [[0,0,0],],
                'spins':   [[0,0,0],],
@@ -97,51 +99,35 @@ def setUpModule ():
     las.mo_coeff = las.localize_init_guess ((list (range (3)),
         list (range (3,7)), list (range (7,10))), mf.mo_coeff)
     las.ci = las.get_init_guess_ci (las.mo_coeff, las.get_h2eff (las.mo_coeff))
-    nelec_frs = np.array (
-        [[_unpack_nelec (fcibox._get_nelec (solver, nelecas)) for solver in fcibox.fcisolvers]
-         for fcibox, nelecas in zip (las.fciboxes, las.nelecas_sub)]
-    )
-    smult_fr = np.abs (nelec_frs[:,:,1] - nelec_frs[:,:,0]) + 1
-    for i in range (nfrags):
-        for j in range (nroots):
-            smult_fr[i,j] = getattr (las.fciboxes[i].fcisolvers[j], 'smult', smult_fr[i,j])
-    ndet_frs = np.array (
-        [[[cistring.num_strings (las.ncas_sub[ifrag], nelec_frs[ifrag,iroot,0]),
-           cistring.num_strings (las.ncas_sub[ifrag], nelec_frs[ifrag,iroot,1])]
-          for iroot in range (las.nroots)] for ifrag in range (las.nfrags)]
-    )
-    np.random.seed (1)
+    charges_rf, spins_rf, smult_rf, wfnsym_rf = get_space_info (las)
+    smult_fr = smult_rf.T
+    nelec_fr = (np.array ([[4,2,4]]) - charges_rf).T
+    nelec_frs = np.stack ([nelec_fr+spins_rf.T, nelec_fr-spins_rf.T], axis=-1) // 2
+    orbsym = las.mo_coeff.orbsym[las.ncore:las.ncore+las.ncas]
+    orbsym_f = [orbsym[:4], orbsym[4:6], orbsym[6:]]
+    rng = np.random.default_rng ()
+    rng_state = copy.deepcopy (rng.bit_generator.state)
     for iroot in range (las.nroots):
         for ifrag in range (las.nfrags):
+            t1 = CSFTransformer (norb_f[ifrag],
+                                 nelec_frs[ifrag,iroot,0],
+                                 nelec_frs[ifrag,iroot,1],
+                                 smult_rf[iroot,ifrag],
+                                 orbsym=orbsym_f[ifrag],
+                                 wfnsym=wfnsym_rf[iroot,ifrag])
             lroots_r = lroots[ifrag,iroot]
-            ndet_s = ndet_frs[ifrag,iroot]
-            ci = np.random.rand (lroots_r, ndet_s[0], ndet_s[1])
-            ci /= linalg.norm (ci.reshape (lroots_r,-1), axis=1)[:,None,None]
-            if lroots_r==1:
-                ci=ci[0]
-            else:
-                ci = ci.reshape (lroots_r,-1)
-                w, v = linalg.eigh (ci.conj () @ ci.T)
-                idx = w > 0
-                w, v = w[idx], v[:,idx]
-                v /= np.sqrt (w)[None,:]
-                ci = np.dot (v.T, ci).reshape (lroots_r, ndet_s[0], ndet_s[1])
-            las.ci[ifrag][iroot] = ci
-    orbsym = getattr (las.mo_coeff, 'orbsym', None)
-    if orbsym is None and callable (getattr (las, 'label_symmetry_', None)):
-        orbsym = las.label_symmetry_(las.mo_coeff).orbsym
-    if orbsym is not None:
-        orbsym = orbsym[las.ncore:las.ncore+las.ncas]
+            ci = t1.vec_csf2det (random_orthrows (lroots_r, t1.ncsf, rng=rng))
+            las.ci[ifrag][iroot] = ci.reshape (lroots_r, t1.ndeta, t1.ndetb)
     wfnsym = 0
     #las.lasci (lroots=lroots)
-    rand_mat = np.random.rand (nstates,nstates)
+    rand_mat = 2 * rng.random (size=(nstates,nstates)) - 1
     rand_mat += rand_mat.T
     e, si = linalg.eigh (rand_mat)
 
 def tearDownModule():
-    global mol, mf, las, nstates, nelec_frs, smult_fr, si, orbsym, wfnsym
+    global rng_state, mol, mf, las, nstates, nelec_frs, smult_fr, si, orbsym, wfnsym
     mol.stdout.close ()
-    del mol, mf, las, nstates, nelec_frs, smult_fr, si, orbsym, wfnsym
+    del rng_state, mol, mf, las, nstates, nelec_frs, smult_fr, si, orbsym, wfnsym
 
 class KnownValues(unittest.TestCase):
     def test_stdm12s (self):
@@ -158,7 +144,7 @@ class KnownValues(unittest.TestCase):
                 with self.subTest (rank=r+1, idx=(i,j), spaces=(rootaddr[i], rootaddr[j]),
                                    envs=(list(fragaddr[:,i]),list(fragaddr[:,j]))):
                     self.assertAlmostEqual (lib.fp (d12_o0[r][i,...,j]),
-                        lib.fp (d12_o1[r][i,...,j]), 9)
+                        lib.fp (d12_o1[r][i,...,j]), 9, msg=rng_state)
 
     def test_ham_s2_ovlp (self):
         h1, h2 = ham_2q (las, las.mo_coeff, veff_c=None, h2eff_sub=None)[1:]
@@ -173,7 +159,7 @@ class KnownValues(unittest.TestCase):
         fps_o0 = [lib.fp (mat) for mat in mats_o0]
         for lbl, mat, fp in zip (lbls, mats_o1, fps_o0):
             with self.subTest(matrix=lbl):
-                self.assertAlmostEqual (lib.fp (mat), fp, 9)
+                self.assertAlmostEqual (lib.fp (mat), fp, 9, msg=rng_state)
 
     def test_rdm12s (self):
         si_bra = si
@@ -191,15 +177,23 @@ class KnownValues(unittest.TestCase):
             for i in range (nstates):
                 with self.subTest (rank=r+1, root=i, opt=1):
                     self.assertAlmostEqual (lib.fp (d12_o0[r][i]),
-                        lib.fp (d12_o1[r][i]), 9)
+                        lib.fp (d12_o1[r][i]), 9, msg=rng_state)
 
     def test_contract_hlas_ci (self):
         h0, h1, h2 = ham_2q (las, las.mo_coeff)
-        case_contract_hlas_ci (self, las, h0, h1, h2, las.ci, nelec_frs)
+        try:
+            case_contract_hlas_ci (self, las, h0, h1, h2, las.ci, nelec_frs)
+        except AssertionError as err:
+            print (rng_state)
+            raise err from None
 
     def test_contract_op_si (self):
         h0, h1, h2 = ham_2q (las, las.mo_coeff)
-        case_contract_op_si (self, las, h1, h2, las.ci, nelec_frs, smult_fr=smult_fr)
+        try:
+            case_contract_op_si (self, las, h1, h2, las.ci, nelec_frs, smult_fr=smult_fr)
+        except AssertionError as err:
+            print (rng_state)
+            raise err from None
 
 
 

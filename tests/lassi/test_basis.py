@@ -4,6 +4,7 @@ from scipy import linalg
 from mrh.my_pyscf.mcscf.lasscf_sync_o0 import LASSCF
 from mrh.my_pyscf.lassi import op_o0, op_o1, basis
 from mrh.my_pyscf.fci.spin_op import mdown
+from mrh.tests.lassi.addons import random_orthrows
 from pyscf import lib, gto
 from pyscf.csf_fci.csfstring import CSFTransformer
 import itertools
@@ -66,13 +67,6 @@ def setUpModule():
 def tearDownModule():
     global rng, orth_bases, ham_raw, h_op_raw, s2_op_raw, hdiag_raw
     del rng, orth_bases, ham_raw, h_op_raw, s2_op_raw, hdiag_raw
-
-def random_orthrows (nrows, ncols):
-    x = 2 * np.random.rand (nrows, ncols) - 1
-    Q = linalg.orth (x)
-    x = Q.T @ x
-    x /= linalg.norm (x, axis=1)[:,None]
-    return x
 
 def possible_smults (smult_f, spin):
     s2_f = smult_f-1

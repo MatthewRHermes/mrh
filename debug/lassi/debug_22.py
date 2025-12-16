@@ -29,10 +29,10 @@ from mrh.my_pyscf.lassi.sitools import make_sdm1
 from mrh.tests.lassi.addons import case_contract_hlas_ci, case_lassis_fbf_2_model_state
 from mrh.tests.lassi.addons import case_lassis_fbfdm, case_contract_op_si, debug_contract_op_si
 from mrh.tests.lassi.addons import case_lassis_grads, case_lassis_hessian, case_lassis_ugg
-from mrh.tests.lassi.addons import eri_sector_indexes
+from mrh.tests.lassi.addons import eri_sector_indexes, case_matrix_o0_o1
 
 def setUpModule ():
-    global mol, mf, lsi, las, mc, op, lsis
+    global mol, mf, lsi, las, mc, op, lsis, mats
     xyz='''H 0 0 0
     H 1 0 0
     H 3 0 0
@@ -68,25 +68,38 @@ def setUpModule ():
     op = (op_o0, op_o1)
 
     # LASSIS
-    lsis = lassis.LASSIS (las).run ()
+    lsis_o1 = lassis.LASSIS (las).run ()
+    assert (lsis_o1.opt==1)
+    lsis_o0 = lassis.LASSIS (las, opt=0).run ()
+    assert (lsis_o0.opt==0)
+    lsis = [lsis_o0, lsis_o1]
+
+    h0, h1, h2 = lsis[0].ham_2q ()
+    nelec_frs = lsis[0].get_nelec_frs ()
+    smult_fr = lsis[0].get_smult_fr ()
+    ham_o0, s2_o0, ovlp_o0 = op[0].ham (lsis[1], h1, h2, lsis[1].ci, nelec_frs)[:3]
+    ham_o1, s2_o1, ovlp_o1 = op[1].ham (lsis[1], h1, h2, lsis[1].ci, nelec_frs,
+                                        smult_fr=smult_fr)[:3]
+    ham = [ham_o0, ham_o1]
+    s2 = [s2_o0, s2_o1]
+    ovlp = [ovlp_o0, ovlp_o1]
+    mats = [ham, s2, ovlp]
 
 def tearDownModule():
-    global mol, mf, lsi, las, mc, op, lsis
+    global mol, mf, lsi, las, mc, op, lsis, mats
     mol.stdout.close ()
-    del mol, mf, lsi, las, mc, op, lsis
+    del mol, mf, lsi, las, mc, op, lsis, mats
 
 class KnownValues(unittest.TestCase):
 
-    @unittest.skip("debugging")
-    def test_op_o1 (self):
+    def test_casci_limit_op_o1 (self):
         e_roots, si = LASSI (lsi._las).kernel (opt=1)
         self.assertAlmostEqual (lib.fp (e_roots), lib.fp (lsi.e_roots), 8)
         ovlp = si.conj ().T @ lsi.si
         u, svals, vh = linalg.svd (ovlp)
         self.assertAlmostEqual (lib.fp (svals), lib.fp (np.ones (len (svals))), 8)
 
-    @unittest.skip("debugging")
-    def test_casci_limit (self):
+    def test_casci_limit_energy_rdm12s_stdm12s (self):
         # CASCI limit
         casdm1, casdm2 = mc.fcisolver.make_rdm12 (mc.ci, mc.ncas, mc.nelecas)
 
@@ -113,8 +126,7 @@ class KnownValues(unittest.TestCase):
                         self.assertAlmostEqual (lib.fp (stdm1s[0,:,2:,2:,0]),
                                                 lib.fp (stdm1s[1,:,2:,2:,1]))
 
-    @unittest.skip("debugging")
-    def test_si_trans_rdm12s (self):
+    def test_casci_limit_trans_rdm12s (self):
         las, e_roots, si_ket = lsi._las, lsi.e_roots, lsi.si
         si_bra = np.roll (si_ket, 1, axis=1)
         stdm1s, stdm2s = make_stdm12s (las, opt=0)
@@ -128,37 +140,31 @@ class KnownValues(unittest.TestCase):
                 with self.subTest ("lasdm2s"):
                     self.assertAlmostEqual (lib.fp (lasdm2s), lib.fp (rdm2s_ref), 8)
 
-    def test_davidson (self):
+    def test_casci_limit_davidson (self):
         lsi1 = LASSI (lsi._las).run (davidson_only=True)
         self.assertAlmostEqual (lsi1.e_roots[0], lsi.e_roots[0], 8)
         ovlp = np.dot (lsi1.si[:,0], lsi.si[:,0].conj ()) ** 2.0
         self.assertAlmostEqual (ovlp, 1.0, 4)
-        lsi1.eig ()
 
-    @unittest.skip("debugging")
     def test_lassirq (self):
         lsi1 = LASSIrq (las, 2, 3).run ()
         self.assertAlmostEqual (lsi1.e_roots[0], mc.e_tot, 8)
 
-    @unittest.skip("debugging")
     def test_lassirqct (self):
         lsi1 = LASSIrqCT (las, 2, 3).run ()
         self.assertAlmostEqual (lsi1.e_roots[0], -4.2879945248402445, 8)
 
-    @unittest.skip("debugging")
-    def test_contract_hlas_ci (self):
+    def test_casci_limit_contract_hlas_ci (self):
         e_roots, si, las = lsi.e_roots, lsi.si, lsi._las
         h0, h1, h2 = lsi.ham_2q ()
         case_contract_hlas_ci (self, las, h0, h1, h2, las.ci, lsi.get_nelec_frs ())
 
-    @unittest.skip("debugging")
-    def test_contract_op_si (self):
+    def test_casci_limit_contract_op_si (self):
         e_roots, si, las = lsi.e_roots, lsi.si, lsi._las
         h0, h1, h2 = lsi.ham_2q ()
         case_contract_op_si (self, las, h1, h2, las.ci, lsi.get_nelec_frs ())
 
-    @unittest.skip("debugging")
-    def test_energy_tot (self):
+    def test_casci_limit_energy_tot_method (self):
         las1 = LASSCF (mf, (2,2), (2,2), spin_sub=(1,1)).run () # different MOs
         # You need to set up at least the rootspaces because otherwise LASSI doesn't
         # have any way of knowing how many electrons are in each CI vector I guess
@@ -169,50 +175,141 @@ class KnownValues(unittest.TestCase):
         e_tot = lsi1.energy_tot (mo_coeff=lsi.mo_coeff, ci=lsi.ci, si=lsi.si)
         self.assertAlmostEqual (lib.fp (e_tot), lib.fp (lsi.e_roots), 9)
 
-    @unittest.skip("debugging")
-    def test_lassis (self):
-        for opt in (0,1):
-            for dson in (False,True):
-                with self.subTest (opt=opt, davidson_only=dson):
-                    lsis.run (opt=opt, davidson_only=dson, nroots_si=20)
-                    e_upper = las.e_states[0]
-                    e_lower = lsi.e_roots[0]
-                    self.assertLessEqual (e_lower, lsis.e_roots[0])
-                    self.assertLessEqual (lsis.e_roots[0], e_upper)
-                    self.assertEqual (len (lsis.e_roots), 20)
-                    # Reference depends on rng seed obviously b/c this is not casci limit
-                    self.assertAlmostEqual (lsis.e_roots[0], -4.134472877702426, 8)
-                    case_lassis_fbf_2_model_state (self, lsis)
-                    case_lassis_fbfdm (self, lsis)
+    def test_lassis_o0_noniterative_kernel (self):
+        mylsis = lsis[0]
+        e_upper = las.e_states[0]
+        e_lower = mylsis.e_roots[0]
+        self.assertTrue (mylsis.converged)
+        self.assertLessEqual (e_lower, mylsis.e_roots[0])
+        self.assertLessEqual (mylsis.e_roots[0], e_upper)
+        self.assertEqual (len (mylsis.e_roots), 20)
+        # Reference depends on rng seed obviously b/c this is not casci limit
+        self.assertAlmostEqual (mylsis.e_roots[0], -4.134472877702426, 8)
 
-    @unittest.skip("debugging")
-    def test_lassis_energy_tot (self):
+    def test_lassis_o1_noniterative_kernel (self):
+        mylsis = lsis[1]
+        e_upper = las.e_states[0]
+        e_lower = mylsis.e_roots[0]
+        self.assertTrue (mylsis.converged)
+        self.assertLessEqual (e_lower, mylsis.e_roots[0])
+        self.assertLessEqual (mylsis.e_roots[0], e_upper)
+        self.assertEqual (len (mylsis.e_roots), 20)
+        # Reference depends on rng seed obviously b/c this is not casci limit
+        self.assertAlmostEqual (mylsis.e_roots[0], -4.134472877702426, 8)
+
+    def test_lassis_o0_davidson_kernel (self):
+        mylsis = lsis[0].copy ()
+        mylsis.nroots_si=20
+        mylsis.davidson_only = True
+        mylsis.e_roots, mylsis.si = mylsis.eig ()
+        e_upper = las.e_states[0]
+        e_lower = mylsis.e_roots[0]
+        self.assertTrue (mylsis.converged)
+        self.assertLessEqual (e_lower, mylsis.e_roots[0])
+        self.assertLessEqual (mylsis.e_roots[0], e_upper)
+        self.assertEqual (len (mylsis.e_roots), 20)
+        # Reference depends on rng seed obviously b/c this is not casci limit
+        self.assertAlmostEqual (mylsis.e_roots[0], -4.134472877702426, 8)
+
+    def test_lassis_o1_davidson_kernel (self):
+        mylsis = lsis[1].copy ()
+        mylsis.nroots_si=20
+        mylsis.davidson_only = True
+        mylsis.e_roots, mylsis.si = mylsis.eig ()
+        e_upper = las.e_states[0]
+        e_lower = mylsis.e_roots[0]
+        self.assertTrue (mylsis.converged)
+        self.assertLessEqual (e_lower, mylsis.e_roots[0])
+        self.assertLessEqual (mylsis.e_roots[0], e_upper)
+        self.assertEqual (len (mylsis.e_roots), 20)
+        # Reference depends on rng seed obviously b/c this is not casci limit
+        self.assertAlmostEqual (mylsis.e_roots[0], -4.134472877702426, 8)
+
+    def test_lassis_o1_lsf_kernel (self):
+        mylsis = lsis[1].copy ()
+        e_ref = lsis[1].e_roots.copy ()
+        s2_ref = lsis[1].s2.copy ()
+        mylsis.nroots_si=1
+        mylsis.davidson_only = True
+        for smult in (1, 3, 5):
+            s = (smult-1) * .5
+            idx = np.where (np.isclose (s2_ref, s*(s+1)))[0][0]
+            mylsis.smult_si = smult
+            mylsis.si = None
+            e_test, si = mylsis.eig ()
+            self.assertAlmostEqual (e_ref[idx], e_test[0], 8)
+            self.assertAlmostEqual (s2_ref[idx], mylsis.s2[0], 8)
+
+    def test_lassis_energy_tot_method (self):
         lsis1 = lassis.LASSIS (las)
         e_tot = lsis1.energy_tot (
-            mo_coeff=lsis.mo_coeff,
-            ci_ref=lsis.get_ci_ref (),
-            ci_sf=lsis.ci_spin_flips,
-            ci_ch=lsis.ci_charge_hops,
-            si=lsis.si
+            mo_coeff=lsis[0].mo_coeff,
+            ci_ref=lsis[0].get_ci_ref (),
+            ci_sf=lsis[0].ci_spin_flips,
+            ci_ch=lsis[0].ci_charge_hops,
+            si=lsis[0].si
         )
-        self.assertAlmostEqual (lib.fp (e_tot), lib.fp (lsis.e_roots), 9)
+        self.assertAlmostEqual (lib.fp (e_tot), lib.fp (lsis[0].e_roots), 9)
 
-    @unittest.skip("debugging")
+    def test_lassis_o0_contract_hlas_ci (self):
+        mylsis = lsis[0]
+        las = mylsis._las
+        h0, h1, h2 = mylsis.ham_2q ()
+        case_contract_hlas_ci (self, las, h0, h1, h2, mylsis.ci, mylsis.get_nelec_frs ())
+
+    def test_lassis_o0_contract_op_si (self):
+        mylsis = lsis[0]
+        las = mylsis._las
+        h0, h1, h2 = mylsis.ham_2q ()
+        case_contract_op_si (self, las, h1, h2, mylsis.ci, mylsis.get_nelec_frs (),
+                             smult_fr=mylsis.get_smult_fr ())
+
+    def test_lassis_o1_contract_hlas_ci (self):
+        mylsis = lsis[1]
+        las = mylsis._las
+        h0, h1, h2 = mylsis.ham_2q ()
+        case_contract_hlas_ci (self, las, h0, h1, h2, mylsis.ci, mylsis.get_nelec_frs ())
+
+    def test_lassis_o1_contract_op_si (self):
+        mylsis = lsis[1]
+        las = mylsis._las
+        h0, h1, h2 = mylsis.ham_2q ()
+        case_contract_op_si (self, las, h1, h2, mylsis.ci, mylsis.get_nelec_frs (),
+                             smult_fr=mylsis.get_smult_fr ())
+
+    def test_lassis_o1_ham (self):
+        ham = mats[0]
+        case_matrix_o0_o1 (self, ham[0], ham[1],
+                           lsis[0].get_nelec_frs (),
+                           lsis[0].get_lroots (),
+                           lsis[0].get_smult_fr ())
+
+    def test_lassis_o1_s2 (self):
+        s2 = mats[1]
+        case_matrix_o0_o1 (self, s2[0], s2[1],
+                           lsis[0].get_nelec_frs (),
+                           lsis[0].get_lroots (),
+                           lsis[0].get_smult_fr ())
+
     def test_lassis_ugg (self):
-        case_lassis_ugg (self, lsis)
+        for mylsis in lsis:
+            case_lassis_ugg (self, mylsis)
 
-    @unittest.skip("debugging")
     def test_lassis_grads (self):
-        for lsis.opt in range (2):
-            case_lassis_grads (self, lsis)
+        for mylsis in lsis:
+            case_lassis_grads (self, mylsis)
 
-    @unittest.skip("debugging")
     def test_lassis_hessian (self):
-        for lsis.opt in range (2):
-            case_lassis_hessian (self, lsis)
+        for mylsis in lsis:
+            case_lassis_hessian (self, mylsis)
 
-    @unittest.skip("debugging")
-    def test_fdm1 (self):
+    def test_lassis_state_coverage (self):
+        case_lassis_fbf_2_model_state (self, lsis[0])
+
+    def test_lassis_fbfdm (self):
+        case_lassis_fbfdm (self, lsis[0])
+
+    def test_casci_limit_fdm1 (self):
         make_fdm1 = get_fdm1_maker (lsi, lsi.ci, lsi.get_nelec_frs (), lsi.si)
         for iroot in range (lsi.nroots):
             for ifrag in range (lsi.nfrags):

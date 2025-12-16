@@ -313,7 +313,7 @@ class KnownValues(unittest.TestCase):
         C 2.1609242811 -2.1609242811 1.2775841868
         H 2.7960805433 -2.7960805433 1.9182443024'''
         basis = {'C': 'sto-3g','H': 'sto-3g','O': 'sto-3g','Al': 'cc-pvdz','Fe': 'cc-pvdz'}
-        mol = gto.M (atom=xyz, spin=9, charge=0, basis=basis, max_memory=10000, verbose=4,
+        mol = gto.M (atom=xyz, spin=9, charge=0, basis=basis, max_memory=10000, verbose=5,
                      output='debug_lassis_targets_slow.alfefe.log')
         mf = scf.ROHF(mol)
         mf.init_guess='chk'

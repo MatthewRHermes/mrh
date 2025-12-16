@@ -10,7 +10,7 @@ from mrh.my_pyscf.lassi.op_o1.hams2ovlp import HamS2Ovlp, ham, soc_context
 from mrh.my_pyscf.lassi.citools import _fake_gen_contract_op_si_hdiag
 from mrh.my_pyscf.lassi.op_o1.utilities import *
 from mrh.util.my_scipy import CallbackLinearOperator
-import functools
+import functools, itertools
 from itertools import product
 from pyscf import __config__
 import sys
@@ -1169,45 +1169,190 @@ class HamS2OvlpOperators (HamS2Ovlp):
             o = o.ravel ()
         return o
 
-    def get_pspace_ham (self, raw2orth, addrs):
-        pspace_size = len (addrs)
-        addrs = raw2orth.split_addrs_by_blocks (addrs)
+    def init_pspace_profiling (self):
+        self.dt_phi, self.dw_phi = 0.0, 0.0
+        self.dt_phu, self.dw_phu = 0.0, 0.0
+        self.dt_phs, self.dw_phs = 0.0, 0.0
+        self.dt_phr, self.dw_phr = 0.0, 0.0
+        self.dt_phd, self.dw_phd = 0.0, 0.0
+
+    def sprint_pspace_profile (self):
+        fmt_str = '{:>5s} CPU: {:9.2f} sec ; wall: {:9.2f} sec'
+        profile = fmt_str.format ('idx', self.dt_phi, self.dw_phi)
+        profile += '\n' + fmt_str.format ('uniq', self.dt_phu, self.dw_phu)
+        profile += '\n' + fmt_str.format ('spin', self.dt_phs, self.dw_phs)
+        profile += '\n' + fmt_str.format ('spat', self.dt_phr, self.dw_phr)
+        profile += '\n' + fmt_str.format ('dot', self.dt_phd, self.dw_phd)
+        return profile
+
+    def get_pspace_ham (self, raw2orth, idxs):
+        self.init_pspace_profiling ()
+        pspace_size = len (idxs)
+        addrs = raw2orth.idx2addrs (idxs)
         ham = np.zeros ((pspace_size, pspace_size), dtype=self.dtype)
         for inv, group in self.optermgroups_h.items (): 
             for op in group.ops:
-                for key in op.spincase_keys:
-                    op1 = opterm.reduce_spin (op, key[0], key[1])
-                    for idx1, idx2, fdm in self.gen_pspace_fdm (raw2orth, addrs, key):
-                        ham[idx1] += opterm.fdm_dot (fdm, op1)
-                        ham[idx2] += opterm.fdm_dot (fdm, op1.conj ()).T 
+                for bra_sn, ket_sn in self.pspace_ham_sn_args (raw2orth, op):
+                    i = addrs[0]==bra_sn
+                    j = addrs[0]==ket_sn
+                    bra_args = (bra_sn, idxs[i], addrs[1][i], addrs[2][i])
+                    ket_args = (ket_sn, idxs[j], addrs[1][j], addrs[2][j])
+                    ham_blk = self.pspace_ham_sn (raw2orth, inv, op, bra_args, ket_args)
+                    t0, w0 = logger.process_clock (), logger.perf_counter ()
+                    ham[np.ix_(i,j)] += ham_blk
+                    ham[np.ix_(j,i)] += ham_blk.conj ().T
+                    t1, w1 = logger.process_clock (), logger.perf_counter ()
+                    self.dt_phd += (t1-t0)
+                    self.dw_phd += (w1-w0)
+        self.log.debug ('LASSI make pspace ham profile:')
+        self.log.debug (self.sprint_pspace_profile ())
         return ham
 
-    def gen_pspace_fdm (self, raw2orth, addrs, key):
-        # I have to set self._fdm_vec_getter in some highly clever way
-        blks_snt, cols = addrs
-        inv = tuple (set (key[2:]))
-        braket_tab = self.nonuniq_exc[key]
-        snm_exc = raw2orth.roots2blks (braket_tab)
-        uniq, invs = np.unique (snm_exc, axis=0, return_inverse=True)
-        for i, (bra_snm, ket_snm) in enumerate (uniq):
-            idx = (invs==i)
-            my_braket_tab = braket_tab[idx]
-            for fac, idx_bra, idx_ket in raw2orth.pspace_ham_spincoup_loop (
-                    blks_snt, bra_snm, ket_snm):
-                idx2 = np.ix_(idx_bra,idx_ket)
-                idx3 = np.ix_(idx_ket,idx_bra)
-                rect_indices = np.indices ((np.count_nonzero (idx_ket),
-                                            np.count_nonzero (idx_bra)))
-                _ik, _ib = np.concatenate (rect_indices.T, axis=0).T
-                _col = (cols[idx_ket][_ik], cols[idx_bra][_ib])
-                def getter (iroot, bra=False):
-                    bra = int (bra)
-                    return fac[bra] * raw2orth.get_xmat_rows (iroot, _col=_col[bra])
-                self._fdm_vec_getter = getter
-                fdm = self.get_hdiag_fdm (my_braket_tab, *inv)
-                fdm = fdm.reshape (idx2[0].shape[0], idx2[1].shape[1], -1)
-                yield idx2, idx3, fdm
-        return
+    def pspace_ham_sn_args (self, raw2orth, op):
+        t0, w0 = logger.process_clock (), logger.perf_counter ()
+        args = np.empty ((0,2), dtype=int)
+        for key in op.spincase_keys:
+            braket_tab = self.nonuniq_exc[key]
+            exc_sn = np.unique (raw2orth.roots2mans (braket_tab), axis=0)
+            idx = (exc_sn[:,None,:]!=args[None,:,:]).any(2).all(1)
+            exc_sn = exc_sn[idx]
+            args = np.append (args, exc_sn, axis=0)
+        t1, w1 = logger.process_clock (), logger.perf_counter ()
+        self.dt_phi += (t1-t0)
+        self.dw_phi += (w1-w0)
+        return args
+
+    def pspace_ham_sn (self, raw2orth, inv, op, bra_args, ket_args):
+        t0, w0 = logger.process_clock (), logger.perf_counter ()
+        bra_sn, idxs_bra, taddrs_bra, paddrs_bra = bra_args
+        ket_sn, idxs_ket, taddrs_ket, paddrs_ket = ket_args
+
+        tuniq_bra, tinv_bra = np.unique (taddrs_bra, return_inverse=True)
+        tuniq_ket, tinv_ket = np.unique (taddrs_ket, return_inverse=True)
+        puniq_bra, pinv_bra = np.unique (paddrs_bra, return_inverse=True)
+        puniq_ket, pinv_ket = np.unique (paddrs_ket, return_inverse=True)
+        t1, w1 = logger.process_clock (), logger.perf_counter ()
+        self.dt_phu += (t1-t0)
+        self.dw_phu += (w1-w0)
+
+        bra_args = (bra_sn, tuniq_bra)
+        ket_args = (ket_sn, tuniq_ket)
+        fdm_spin = self.get_pspace_ham_fdm_spin (raw2orth, inv, op, bra_args, ket_args)
+        t2, w2 = logger.process_clock (), logger.perf_counter ()
+        self.dt_phs += (t2-t1)
+        self.dw_phs += (w2-w1)
+
+        bra_args = (bra_sn, puniq_bra)
+        ket_args = (ket_sn, puniq_ket)
+        fdm_spat = self.get_pspace_ham_fdm_spat (raw2orth, inv, op, bra_args, ket_args)
+        t3, w3 = logger.process_clock (), logger.perf_counter ()
+        self.dt_phr += (t3-t2)
+        self.dw_phr += (w3-w2)
+
+        ham = np.zeros ((len (idxs_bra), len (idxs_ket)), dtype=self.dtype)
+        are_coupled = np.atleast_2d (raw2orth.are_tstrs_coupled (
+            bra_sn, ket_sn, tuniq_bra[:,None], tuniq_ket[None,:], inv
+        ))
+        for tbra, tket in zip (*np.where (are_coupled)):
+            op1 = op.reduce_spin_sum (fdm_spin[tbra,tket,:])
+            ham_ij = opterm.fdm_dot (fdm_spat, op1)
+            idx_bra = (tinv_bra==tbra)
+            idx_ket = (tinv_ket==tket)
+            pbra = pinv_bra[idx_bra]
+            pket = pinv_ket[idx_ket]
+            ham[np.ix_(idx_bra,idx_ket)] = ham_ij[np.ix_(pbra,pket)]
+        t4, w4 = logger.process_clock (), logger.perf_counter ()
+        self.dt_phd += (t4-t3)
+        self.dw_phd += (w4-w3)
+        return ham
+
+    def get_pspace_ham_fdm_spin (self, raw2orth, inv, op, bra_args, ket_args):
+        bra_sn, bra_t = bra_args
+        ket_sn, ket_t = ket_args
+
+        fdm = np.zeros ((len (bra_t), len (ket_t), len (op.spincase_keys)), dtype=float)
+        # looping over m of nonspectator fragments
+        for i, key in enumerate (op.spincase_keys):
+            braket_tab = self.nonuniq_exc[key]
+            snm_exc = raw2orth.roots2blks (braket_tab)
+            sn_exc, m_exc = raw2orth.split_rblocks_by_manifolds (snm_exc)
+            idx = (sn_exc[:,0]==bra_sn) & (sn_exc[:,1]==ket_sn)
+            if np.count_nonzero (idx) == 0: continue
+            braket_tab = braket_tab[idx,:]
+            m_exc = m_exc[idx,:]
+            uniq_m, invs_m = np.unique (m_exc, axis=0, return_inverse=True)
+            sgnvec = []
+            midx_bra = []
+            midx_ket = []
+            # looping over m of spectator fragments
+            # This nested loop can only be factorized once I start messing with the order
+            # of fragment spin couplings
+            for j, (mi_bra, mi_ket) in enumerate (uniq_m):
+                midx_bra.append (mi_bra)
+                midx_ket.append (mi_ket)
+                idx_m = (invs_m==j)
+                my_braket_tab = braket_tab[idx_m]
+                sgn = self.spin_shuffle[my_braket_tab[0,0]]
+                sgn *= self.spin_shuffle[my_braket_tab[0,1]]
+                sgn *= self.fermion_frag_shuffle (my_braket_tab[0,0], inv)
+                sgn *= self.fermion_frag_shuffle (my_braket_tab[0,1], inv)
+                sgnvec.append (sgn)
+            mtidx_bra = np.ix_(np.asarray (midx_bra), bra_t)
+            mtidx_ket = np.ix_(np.asarray (midx_ket), ket_t)
+            sgnvec = np.asarray (sgnvec)
+            fdm[:,:,i] = raw2orth.pspace_ham_spincoup_dm (bra_sn, ket_sn, mtidx_bra, mtidx_ket,
+                                                          sgnvec, inv)
+        return fdm
+
+    def get_pspace_ham_fdm_spat (self, raw2orth, inv, op, bra_args, ket_args):
+        bra_sn, bra_p = bra_args
+        ket_sn, ket_p = ket_args
+
+        # Index down to the first valid spin case and cancel out some signs
+        idx = 0
+        for key in op.spincase_keys:
+            braket_tab = self.nonuniq_exc[key]
+            snm_exc = raw2orth.roots2blks (braket_tab)
+            sn_exc, m_exc = raw2orth.split_rblocks_by_manifolds (snm_exc)
+            idx = (sn_exc[:,0]==bra_sn) & (sn_exc[:,1]==ket_sn)
+            if np.count_nonzero (idx) > 0: break
+        assert (np.count_nonzero (idx)) > 0
+        braket_tab = braket_tab[idx,:]
+        sn_exc = sn_exc[idx,:]
+        m_exc = m_exc[idx,:]
+        # When using spin-orbit coupling, braket_tab will include overlaps that
+        # vanish because the m degree of freedom is hidden from this class. To skip
+        # those overlaps correctly, I have to index down explicitly to spectator-
+        # fragment spin-conserving pairs of rootspaces. If I'm not using spin-orbit
+        # coupling, this seems pointless because braket_tab would already be so
+        # indexed, but for generality I have to keep this here.
+        bra, ket = braket_tab[0,:]
+        nbra = np.prod (self.lroots[inv,bra])
+        nket = np.prod (self.lroots[inv,ket])
+        fdm = np.zeros ((len (bra_p), len (ket_p), nbra*nket), dtype=float)
+        idx = raw2orth.find_spin_nonvanishing_overlaps (bra_sn, ket_sn, m_exc, inv)
+        if np.count_nonzero (idx) == 0:
+            return fdm
+        braket_tab = braket_tab[idx,:]
+        sn_exc = sn_exc[idx,:]
+        m_exc = m_exc[idx,:]
+        idx = np.all (m_exc==m_exc[0,:][None,:], axis=1)
+        braket_tab = braket_tab[idx,:]
+
+        sgn = self.spin_shuffle[braket_tab[0,0]]
+        sgn *= self.spin_shuffle[braket_tab[0,1]]
+        sgn *= self.fermion_frag_shuffle (braket_tab[0,0], inv)
+        sgn *= self.fermion_frag_shuffle (braket_tab[0,1], inv)
+        rect_indices = np.indices ((len (ket_p), len (bra_p)))
+        _ik, _ib = np.concatenate (rect_indices.T, axis=0).T
+        _col = (ket_p[_ik], bra_p[_ib])
+        def getter (iroot, bra=False):
+            bra = int (bra)
+            return raw2orth.get_xmat_rows (iroot, _col=_col[bra])
+        self._fdm_vec_getter = getter
+        fdm = self.get_hdiag_fdm (braket_tab, *inv)
+        fdm = fdm.reshape (len (bra_p), len (ket_p), -1) * sgn
+        return fdm
 
     def _crunch_2c_(self, bra, ket, a, i, b, j, s2lt, dry_run=False):
         '''Compute the reduced density matrix elements of a two-electron hop; i.e.,
@@ -1366,6 +1511,11 @@ def pspace_ham (h_op_raw, raw2orth, addrs):
     t0 = (logger.process_clock (), logger.perf_counter ())
     hobj0 = h_op_raw.parent
     all_roots = raw2orth.rootspaces_covering_addrs (addrs)
-    hobj1 = hobj0.get_subspace (all_roots, verbose=0)
-    return hobj1.get_pspace_ham (raw2orth, addrs)
+    hobj1 = hobj0.get_subspace (all_roots)
+    t1 = hobj0.log.timer ('LASSI make pspace get subspace', *t0)
+    ham = hobj1.get_pspace_ham (raw2orth, addrs)
+    hobj0.log.timer ('LASSI make pspace build ham', *t1)
+    return ham
+
+
 
