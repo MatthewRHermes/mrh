@@ -570,6 +570,18 @@ def ham (las, h1, h2, ci, nelec_frs, smult_fr=None, soc=0, nlas=None, _HamS2Ovlp
     dtype = h1.dtype
     nfrags, nroots = nelec_frs.shape[:2]
     if soc>1: raise NotImplementedError ("Spin-orbit coupling of second order")
+    mask_ints = None
+    discriminator = None
+    if (mask_bra_space is not None) or (mask_ket_space is not None):
+        if mask_bra_space is None:
+            mask_bra_space = np.arange (nroots, dtype=int)
+        if mask_ket_space is None:
+            mask_ket_space = np.arange (nroots, dtype=int)
+        mask_ints = np.zeros ((nroots,nroots), dtype=bool)
+        mask_ints[np.ix_(mask_bra_space,mask_ket_space)] = True
+        discriminator = np.zeros (nroots, dtype=int)
+        discriminator[mask_bra_space] += 1
+        discriminator[mask_ket_space] += 2
 
     # Handle possible SOC
     spin_pure, h1, h2, ci, nelec_frs, smult_fr, nlas, spin_shuffle_fac = soc_context (
@@ -577,6 +589,7 @@ def ham (las, h1, h2, ci, nelec_frs, smult_fr=None, soc=0, nlas=None, _HamS2Ovlp
 
     # First pass: single-fragment intermediates
     ints, lroots = frag.make_ints (las, ci, nelec_frs, nlas=nlas, smult_fr=smult_fr,
+                                   mask_ints=mask_ints, discriminator=discriminator,
                                    verbose=verbose)
     nstates = np.sum (np.prod (lroots, axis=0))
         
