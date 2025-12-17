@@ -428,9 +428,10 @@ def _eig_block_Davidson (las, e0, h1, h2, ci_blk, nelec_blk, smult_blk, soc, opt
         x0 = raw2orth (ovlp_op (si0))
     else:
         x0 = None
-    x0 = get_init_guess (hdiag_orth, nroots_si, x0)
+    x0 = get_init_guess (hdiag_orth, nroots_si, x0, log=log)
     def h_op (x):
         return raw2orth (h_op_raw (orth2raw (x)))
+    log.info ("LASSI E(const) = %15.10f", e0)
     conv, e, x1 = lib.davidson1 (lambda xs: [h_op (x) for x in xs],
                                  x0, precond_op, nroots=nroots_si,
                                  verbose=log, max_cycle=max_cycle_si,
@@ -474,7 +475,7 @@ def make_pspace_precond(hdiag, pspaceig, pspaceci, addr, level_shift=0):
         return x1
     return precond
 
-def get_init_guess_si (hdiag, nroots, si1):
+def get_init_guess_si (hdiag, nroots, si1, log=None):
     nprod = hdiag.size
     si0 = []
     if nprod <= nroots:
@@ -488,10 +489,16 @@ def get_init_guess_si (hdiag, nroots, si1):
     # Add noise
     si0[0][0 ] += 1e-5
     si0[0][-1] -= 1e-5
+    j = 0
     if si1 is not None:
         si1 = si1.reshape (nprod,-1)
-        for i in range (min (si1.shape[1], nroots)):
+        j = si1.shape[1]
+        for i in range (min (j, nroots)):
             si0[i] = si1[:,i]
+    if (j < nroots) and (log is not None):
+        log.info ('Energy of guess SI vectors: {}'.format (
+            hdiag[addrs[j:]]
+        ))
     return si0
 
 def _eig_block_incore (las, e0, h1, h2, ci_blk, nelec_blk, smult_blk, soc, opt):
@@ -1208,8 +1215,8 @@ class LASSI(lib.StreamObject):
     dump_chk = chkfile.dump_lsi
     load_chk = load_chk_ = chkfile.load_lsi_
 
-    def get_init_guess_si (self, hdiag, nroots, si1):
-        return get_init_guess_si (hdiag, nroots, si1)
+    def get_init_guess_si (self, hdiag, nroots, si1, log=None):
+        return get_init_guess_si (hdiag, nroots, si1, log=log)
 
     energy_tot = energy_tot
 

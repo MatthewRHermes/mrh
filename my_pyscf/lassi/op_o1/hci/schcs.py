@@ -77,11 +77,8 @@ class ContractHamCI_SHS (rdm.LRRDM):
         if self._transpose: bra = not bra
         if bra:
             si = self.si_bra
-            mask = self.mask_bra_space
         else:
             si = self.si_ket
-            mask = self.mask_ket_space
-        iroot = np.where (mask==iroot)[0][0]
         i, j = self.offs_lroots[iroot]
         return si[i:j,:]
 

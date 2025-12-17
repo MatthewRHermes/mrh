@@ -107,6 +107,10 @@ class OpTerm (OpTermReducible):
         arr *= fac
         return arr.view (OpTermContracted)
 
+    def reduce_spin_sum (self, facs):
+        arrs = np.stack ([self.reduce_spin (key[0], key[1]) for key in self.spincase_keys], axis=-1)
+        return np.dot (arrs, facs)
+
     @property
     def ndim (self):
         ncomp = 1 - int (self.comp is None)
@@ -218,6 +222,9 @@ class OpTermNFragments (OpTermReducible):
     def reduce_spin_op (self, bra, ket, fac):
         raise NotImplementedError
 
+    def reduce_spin_sum (self, facs):
+        raise NotImplementedError ('I need to be less tired to figure out how to make this general')
+
     @property
     def size (self): return self.get_size ()
 
@@ -284,6 +291,15 @@ class OpTerm4Fragments (OpTermNFragments):
     def reduce_spin_op (self, bra, ket, fac):
         fac = fac[0] * fac[1]
         return self.op.copy () * fac
+
+    def reduce_spin_sum (self, facs):
+        if any ([i.smult_r[self.spincase_keys[0][1]] is None for i in self.ints]):
+            myfac = 1
+        else:
+            myfac = np.dot (facs, [np.prod ([inti.spin_factor_constant (key[0], key[1])
+                                             for inti in self.ints])
+                                   for key in self.spincase_keys])
+        return self.__class__(self.op.copy () * myfac, self.idx, self.d, self.ints, do_crunch=False)
 
     def fdm_dot (self, fdm):
         output_shape = fdm.shape[:-1]

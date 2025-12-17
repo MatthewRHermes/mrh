@@ -125,6 +125,7 @@ class RootspaceManifold:
         self.m_strs = m_strs
         self.m_blocks = np.asarray (m_blocks, dtype=int)
         self.xmat = xmat
+        self.umat = np.eye (self.m_blocks.shape[0])
 
         offs1 = np.cumsum (nprods_r)
         offs0 = offs1 - nprods_r
@@ -153,12 +154,15 @@ class RootspaceManifold:
         m_strs = self.m_strs[:,inv]
         return np.where (np.all (m_str==m_strs, axis=1))[0]
 
+    def get_t_strs (self): return self.m_strs
+
 class SpinCoupledRootspaceManifold (RootspaceManifold):
     def __init__(self, norb_f, nprods_r, n_str, s_str, m_strs, m_blocks, xmat, smult_si):
         super().__init__(norb_f, nprods_r, n_str, s_str, m_strs, m_blocks, xmat)
         spin_si = np.sum (self.m_strs[0])
         spins_table, smult_table = get_spincoup_bases (self.s_str, spin_lsf=spin_si,
                                                        smult_lsf=smult_si)
+        self.t_strs = smult_table
         spins_table = [tuple (row) for row in spins_table]
         idx = np.asarray ([spins_table.index (tuple (row)) for row in self.m_strs])
         self.umat = get_spincoup_umat (self.s_str, spin_si, smult_si)[idx,:]
@@ -167,6 +171,8 @@ class SpinCoupledRootspaceManifold (RootspaceManifold):
             nb = (self.n_str - m_str) // 2
             self.umat[i,:] *= fermion_spin_shuffle (na, nb)
         self.orth_shape = (self.umat.shape[1], self.orth_shape[1])
+
+    def get_t_strs (self): return self.t_strs
 
 def _get_spin_split_manifolds (ci_fr, norb_f, nelec_frs, smult_fr, lroots_fr, idx):
     '''The same as _get_spin_split_manifolds_idx, except that all of the arguments need to be
@@ -223,12 +229,24 @@ class OrthBasisBase (sparse_linalg.LinearOperator):
     def roots_coupled_in_hdiag (self, i, j):
         return self.roots2blks (i) == self.roots2blks (j)
 
-    def pspace_ham_spincoup_loop (self, blks_snt, bra_snm, ket_snm):
-        idx_bra = blks_snt==bra_snm
-        idx_ket = blks_snt==ket_snm
-        if (np.count_nonzero (idx_bra)>0) and (np.count_nonzero (idx_ket)>0):
-            yield (1,1), idx_bra, idx_ket
-        return
+    def split_oblocks_by_manifolds (self, blocks):
+        blocks_shape = np.asarray (blocks).shape
+        return blocks, np.zeros (blocks_shape, dtype=int)
+
+    split_rblocks_by_manifolds=split_oblocks_by_manifolds
+
+    def idx2addrs (self, idx):
+        blks, addrs_p = self.split_addrs_by_blocks (idx)
+        addrs_sn, addrs_t = self.split_oblocks_by_manifolds (blks)
+        return addrs_sn, addrs_t, addrs_p
+
+    def are_tstrs_coupled (self, bra_sn, ket_sn, bra_t, ket_t, inv):
+        coup = (bra_t==ket_t)
+        if isinstance (coup, np.ndarray):
+            coup[:] = True
+        else:
+            coup = True
+        return coup
 
 class NullOrthBasis (OrthBasisBase):
     def __init__(self, nraw, dtype, nprods_r):
@@ -275,6 +293,13 @@ class NullOrthBasis (OrthBasisBase):
 
     def spincase_mstrs (self, roots, inv):
         return tuple (roots)
+
+    def find_spin_nonvanishing_overlaps (self, bra_sn, ket_sn, m_exc, inv):
+        return np.ones (len (m_exc), dtype=bool)
+
+    def pspace_ham_spincoup_dm (self, bra_sn, ket_sn, mtidx_bra, mtidx_ket, sgnvec, inv):
+        assert (len (sgnvec) == 1)
+        return np.atleast_2d (sgnvec)
 
 class OrthBasis (OrthBasisBase):
     def __init__(self, shape, dtype, nprods_r, manifolds):
@@ -350,7 +375,7 @@ class OrthBasis (OrthBasisBase):
         for iroot in roots:
             iblk = self.root_block_addr[iroot,0]
             iman, imstr = self.rblock_manifold_addr[iblk]
-            mstrs.append (tuple (self.manifolds[iman].m_strs[imstr][inv]))
+            mstrs.append (tuple (np.asarray (self.manifolds[iman].m_strs)[:,inv][imstr]))
         return tuple (mstrs)
 
     def split_addrs_by_blocks (self, addrs):
@@ -359,6 +384,20 @@ class OrthBasis (OrthBasisBase):
         cols = np.asarray (addrs) - self.offs_orth[blks,0]
         assert (np.all (cols>=0))
         return blks, cols
+
+    def split_oblocks_by_manifolds (self, blocks):
+        blocks = np.asarray (blocks)
+        blocks_shape = blocks.shape
+        blocks = np.ravel (blocks)
+        mans, sps = list (self.oblock_manifold_addr[blocks].T)
+        return mans.reshape (blocks_shape), sps.reshape (blocks_shape)
+
+    def split_rblocks_by_manifolds (self, blocks):
+        blocks = np.asarray (blocks)
+        blocks_shape = blocks.shape
+        blocks = np.ravel (blocks)
+        mans, sps = list (self.rblock_manifold_addr[blocks].T)
+        return mans.reshape (blocks_shape), sps.reshape (blocks_shape)
 
     def get_xmat_rows (self, iroot, _col=None):
         x, j = self.root_block_addr[iroot]
@@ -373,6 +412,36 @@ class OrthBasis (OrthBasisBase):
         if _col is not None:
             xmat = xmat[:,_col]
         return xmat
+
+    def get_mstr_env (self, addr_sn, addr_m, inv):
+        m_strs = self.manifolds[addr_sn].m_strs
+        nm, nfrags = m_strs.shape
+        spec = np.ones (nfrags, dtype=bool)
+        spec[np.asarray (inv)] = False
+        addr_m = np.atleast_1d (addr_m)
+        m_strs = m_strs[np.ix_(addr_m,spec)]
+        assert (m_strs.ndim==2), '{} {}'.format (addr_m, spec)
+        return m_strs 
+
+    def find_spin_nonvanishing_overlaps (self, bra_sn, ket_sn, m_exc, inv):
+        mbra = self.get_mstr_env (bra_sn, m_exc[:,0], inv)
+        mket = self.get_mstr_env (ket_sn, m_exc[:,1], inv)
+        idx = [np.all (self.get_mstr_env (bra_sn, m_exc[i,0], inv)
+                       == self.get_mstr_env (ket_sn, m_exc[i,1], inv),
+                       axis=1)[0]
+               for i in range (len (m_exc))]
+        return np.asarray (idx)
+
+    def pspace_ham_spincoup_dm (self, bra_sn, ket_sn, mtidx_bra, mtidx_ket, sgnvec, inv):
+        mstr_bra = self.get_mstr_env (bra_sn, mtidx_bra[0].ravel (), inv)
+        mstr_ket = self.get_mstr_env (ket_sn, mtidx_ket[0].ravel (), inv)
+        umat_bra = self.manifolds[bra_sn].umat[mtidx_bra]
+        umat_ket = self.manifolds[ket_sn].umat[mtidx_ket]
+        assert (umat_bra.shape[0] == mstr_bra.shape[0])
+        assert (umat_ket.shape[0] == mstr_ket.shape[0])
+        sgnvec[np.any (mstr_bra!=mstr_ket, axis=1)] = 0
+        dm = (umat_bra.conj ().T @ (sgnvec[:,None] * umat_ket))
+        return dm
 
     def _matvec (self, rawarr):
         is_out_complex = (self.dtype==np.complex128) or np.iscomplexobj (rawarr)
@@ -418,6 +487,17 @@ class OrthBasis (OrthBasisBase):
                     rawarr[mirror] = np.tensordot (xmat.conj (), ortharr[i:j], axes=1)
         return rawarr
 
+    def are_tstrs_coupled (self, bra_sn, ket_sn, bra_t, ket_t, inv):
+        brastr = self.manifolds[bra_sn].get_t_strs ()
+        ketstr = self.manifolds[ket_sn].get_t_strs ()
+        spec = np.ones (brastr.shape[-1], dtype=bool)
+        spec[np.asarray (inv)] = False
+        brastr = brastr.T[spec].T
+        ketstr = ketstr.T[spec].T
+        brastr = brastr[bra_t]
+        ketstr = ketstr[ket_t]
+        return np.all (brastr==ketstr, axis=-1)
+
 class SpinCoupledOrthBasis (OrthBasis):
     def roots_coupled_in_hdiag (self, i, j):
         return self.roots2mans (i) == self.roots2mans (j)
@@ -449,27 +529,6 @@ class SpinCoupledOrthBasis (OrthBasis):
             q = p + ncols
             spin_fac = np.dot (ubra[:,ilsf], uket[:,ilsf])
             yield spin_fac, (p,q)
-        return
-
-    def pspace_ham_spincoup_loop (self, blks_snt, bra_snm, ket_snm):
-        bra_sn, bra_m = self.rblock_manifold_addr[bra_snm]
-        ket_sn, ket_m = self.rblock_manifold_addr[ket_snm]
-        umat_bra = self.manifolds[bra_sn].umat
-        umat_ket = self.manifolds[ket_sn].umat
-        blks_sn, blks_t = list (self.oblock_manifold_addr[blks_snt].T)
-        idx_bra_sn = blks_sn==bra_sn 
-        idx_ket_sn = blks_sn==ket_sn
-        if (0 in (np.count_nonzero (idx_bra_sn), np.count_nonzero (idx_ket_sn))):
-            return
-        bra_t_cases = set (list (blks_t[idx_bra_sn]))
-        ket_t_cases = set (list (blks_t[idx_ket_sn]))
-        for bra_t, ket_t in itertools.product (bra_t_cases, ket_t_cases):
-            idx_bra_t = blks_t==bra_t
-            idx_ket_t = blks_t==ket_t
-            idx_bra = idx_bra_sn & idx_bra_t
-            idx_ket = idx_ket_sn & idx_ket_t
-            fac = (umat_ket[ket_m,ket_t], umat_bra[bra_m,bra_t])
-            yield fac, idx_bra, idx_ket
         return
 
     def _matvec (self, rawarr):
@@ -517,6 +576,18 @@ class SpinCoupledOrthBasis (OrthBasis):
             for mirror, xarr in zip (prod_idx, uxarr):
                 rawarr[mirror] = xarr
         return rawarr
+
+    def are_tstrs_coupled (self, bra_sn, ket_sn, bra_t, ket_t, inv):
+        brastr = np.cumsum (self.manifolds[bra_sn].get_t_strs (), axis=1)
+        ketstr = np.cumsum (self.manifolds[ket_sn].get_t_strs (), axis=1)
+        inv = np.arange (brastr.shape[-1], dtype=int)[np.asarray (inv)]
+        if len (inv) == 1:
+            return bra_t==ket_t
+        spec = np.ones (brastr.shape[-1], dtype=bool)
+        spec[inv[0]:inv[-1]] = False
+        brastr = brastr.T[spec].T[bra_t]
+        ketstr = ketstr.T[spec].T[ket_t]
+        return np.all (brastr==ketstr, axis=-1)
 
 def get_spincoup_bases (smults_f, spin_lsf=None, smult_lsf=None):
     from mrh.my_pyscf.lassi.spaces import SingleLASRootspace

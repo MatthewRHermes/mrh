@@ -8,6 +8,7 @@ from mrh.my_pyscf.lassi.op_o1.utilities import *
 from mrh.my_pyscf.lassi.citools import get_lroots, hci_dot_sivecs, hci_dot_sivecs_ij
 from mrh.my_pyscf.lassi.op_o1.hci.chc import ContractHamCI_CHC
 from mrh.my_pyscf.lassi.op_o1.hci.chc import gen_contract_ham_ci_const
+from mrh.my_pyscf.lassi.op_o1.hci.chcs import ContractHamCI_CHS
 from mrh.my_pyscf.lassi.op_o1.hci.schcs import ContractHamCI_SHS
 
 def ContractHamCI (las, ints, nlas, lroots, h0, h1, h2, si_bra=None, si_ket=None,
@@ -20,7 +21,7 @@ def ContractHamCI (las, ints, nlas, lroots, h0, h1, h2, si_bra=None, si_ket=None
                                   mask_ket_space=mask_ket_space,
                                   pt_order=pt_order, do_pt_order=do_pt_order,
                                   log=log, max_memory=max_memory, dtype=np.float64)
-    elif (si_bra is None) or (si_ket is None):
+    elif si_ket is None:
         class ContractHamCI (ContractHamCI_CHC):
             def kernel (self):
                 hci, t0 = super ().kernel ()
@@ -31,6 +32,13 @@ def ContractHamCI (las, ints, nlas, lroots, h0, h1, h2, si_bra=None, si_ket=None
                               mask_ket_space=mask_ket_space,
                               pt_order=pt_order, do_pt_order=do_pt_order,
                               log=log, max_memory=param.MAX_MEMORY, dtype=np.float64)
+    elif si_bra is None:
+        return ContractHamCI_CHS (las, ints, nlas, lroots, h0, h1, h2,
+                                  si_ket, mask_bra_space=mask_bra_space,
+                                  mask_ket_space=mask_ket_space,
+                                  pt_order=pt_order, do_pt_order=do_pt_order,
+                                  add_transpose=add_transpose, accum=accum, log=log,
+                                  max_memory=param.MAX_MEMORY, dtype=np.float64)
     else:
         return ContractHamCI_SHS (las, ints, nlas, lroots, h0, h1, h2, si_bra,
                                   si_ket, mask_bra_space=mask_bra_space,
@@ -38,6 +46,24 @@ def ContractHamCI (las, ints, nlas, lroots, h0, h1, h2, si_bra=None, si_ket=None
                                   pt_order=pt_order, do_pt_order=do_pt_order,
                                   add_transpose=add_transpose, accum=accum, log=log,
                                   max_memory=param.MAX_MEMORY, dtype=np.float64)
+
+def map_sivec_to_larger_space (si0, lroots, mask):
+    if si0 is None:
+        return si0
+    nfrags, nroots = lroots.shape
+    nprods1 = lroots.prod (0)
+    q1 = np.cumsum (nprods1)
+    if si0.shape[0] == q1[-1]:
+        return si0
+    p1 = q1 - nprods1
+    si1 = np.zeros ((q1[-1], si0.shape[1]), dtype=si0.dtype)
+    nprods0 = nprods1[mask]
+    q0 = np.cumsum (nprods0)
+    assert (si0.shape[0] == q0[-1])
+    p0 = q0 - nprods0
+    for i0, i1 in enumerate (mask):
+        si1[p1[i1]:q1[i1],:] = si0[p0[i0]:q0[i0],:]
+    return si1
 
 def contract_ham_ci (las, h1, h2, ci_fr, nelec_frs, si_bra=None, si_ket=None, ci_fr_bra=None,
                      nelec_frs_bra=None, smult_fr=None, smult_fr_bra=None, h0=0, soc=0,
@@ -119,27 +145,27 @@ def contract_ham_ci (las, h1, h2, ci_fr, nelec_frs, si_bra=None, si_ket=None, ci
             assert (smult_fr_bra is not None)
             smult_fr = np.append (smult_fr, smult_fr_bra, axis=1)
     discriminator = np.zeros (nroots, dtype=int)
-    si_bra_is1d = si_ket_is1d = False
+    si_ndim = getattr (si_bra, 'ndim', getattr (si_ket, 'ndim', 2))
     if si_bra is not None:
-        si_bra_is1d = si_bra.ndim==1
-        if si_bra_is1d: si_bra = si_bra[:,None]
+        if si_bra.ndim==1: si_bra = si_bra[:,None]
     if si_ket is not None:
-        si_ket_is1d = si_ket.ndim==1
-        if si_ket_is1d: si_ket = si_ket[:,None]
-    if si_bra is not None and si_ket is not None:
-        assert (si_bra.shape[1] == si_ket.shape[1])
-        si_ket_is1d = False
+        if si_ket.ndim==1: si_ket = si_ket[:,None]
         discriminator[mask_bra_space] = 1
         if not sum_bra:
             discriminator[mask_bra_space] += np.arange (nbra, dtype=int)
+    if si_bra is not None and si_ket is not None:
+        assert (si_bra.shape[1] == si_ket.shape[1])
 
     # First pass: single-fragment intermediates
     ints, lroots = frag.make_ints (las, ci, nelec_frs, nlas=nlas, smult_fr=smult_fr,
-                                                  screen_linequiv=False,
-                                                  mask_ints=mask_ints,
-                                                  discriminator=discriminator,
-                                                  pt_order=pt_order,
-                                                  do_pt_order=do_pt_order, verbose=verbose)
+                                   screen_linequiv=False,
+                                   mask_ints=mask_ints,
+                                   discriminator=discriminator,
+                                   pt_order=pt_order,
+                                   do_pt_order=do_pt_order, verbose=verbose)
+
+    si_bra = map_sivec_to_larger_space (si_bra, lroots, mask_bra_space)
+    si_ket = map_sivec_to_larger_space (si_ket, lroots, mask_ket_space)
 
     # Second pass: upper-triangle
     t0 = (lib.logger.process_clock (), lib.logger.perf_counter ())
@@ -151,13 +177,11 @@ def contract_ham_ci (las, h1, h2, ci_fr, nelec_frs, si_bra=None, si_ket=None, ci
                                 dtype=ci[0][0].dtype, max_memory=max_memory, log=log)
     log.timer ('LASSI hci setup', *t0)
     hket_fr_pabq, t0 = contracter.kernel ()
-    for i, hket_r_pabq in enumerate (hket_fr_pabq):
-        for j, hket_pabq in enumerate (hket_r_pabq):
-            if si_bra_is1d:
+    if si_ndim==1:
+        for i, hket_r_pabq in enumerate (hket_fr_pabq):
+            for j, hket_pabq in enumerate (hket_r_pabq):
                 hket_pabq = hket_pabq[0]
-            if si_ket_is1d:
-                hket_pabq = hket_pabq[:,:,:,:,0]
-            hket_fr_pabq[i][j] = hket_pabq
+                hket_fr_pabq[i][j] = hket_pabq
     log.timer ('LASSI hci crunching', *t0)
     if verbose >= lib.logger.TIMER_LEVEL:
         log.info ('LASSI hci crunching profile:\n%s',
