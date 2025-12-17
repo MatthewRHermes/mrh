@@ -85,9 +85,13 @@ def get_orth_basis (ci_fr, norb_f, nelec_frs, _get_ovlp=None, smult_fr=None, smu
                 xmat = canonical_orth_(ovlp, thr=LINDEP_THRESH)
             else:
                 xmat = None
-            manifolds.append (get_rootspace_manifold (norb_f, nprods_r, n_str, s_str, m_strs,
-                                                      m_blocks, xmat, smult_si=smult_si))
-            north += np.prod (manifolds[-1].orth_shape)
+            new_manifold = get_rootspace_manifold (norb_f, lroots_fr, nprods_r, n_str, s_str,
+                                                   m_strs, m_blocks, xmat, smult_si=smult_si)
+            if _is_first (nelec_frs, smult_fr, n_str, s_str):
+                manifolds = [new_manifold,] + manifolds
+            else:
+                manifolds.append (new_manifold)
+            north += np.prod (new_manifold.orth_shape)
             ovlp = None
 
     _get_ovlp = None
@@ -96,6 +100,13 @@ def get_orth_basis (ci_fr, norb_f, nelec_frs, _get_ovlp=None, smult_fr=None, smu
         return OrthBasis ((north,nraw), dtype, nprods_r, manifolds)
     else:
         return SpinCoupledOrthBasis ((north,nraw), dtype, nprods_r, manifolds)
+
+def _is_first (nelec_frs, smult_fr, n_str, s_str):
+    if np.any (n_str != nelec_frs[:,0,:].sum (1)):
+        return False
+    if smult_fr is None:
+        return True
+    return np.all (smult_fr[:,0]==s_str)
 
 def get_nbytes (obj):
     def _get (x):
@@ -110,15 +121,18 @@ def get_nbytes (obj):
     nbytes = sum ([_get (x) for x in obj.__dict__.values ()])
     return nbytes
 
-def get_rootspace_manifold (norb_f, nprods_r, n_str, s_str, m_strs, m_blocks, xmat, smult_si=None):
+def get_rootspace_manifold (norb_f, lroots_fr, nprods_r, n_str, s_str, m_strs, m_blocks, xmat,
+                            smult_si=None):
     if smult_si is None:
-        return RootspaceManifold (norb_f, nprods_r, n_str, s_str, m_strs, m_blocks, xmat)
+        return RootspaceManifold (norb_f, lroots_fr, nprods_r, n_str, s_str, m_strs, m_blocks,
+                                  xmat)
     else:
-        return SpinCoupledRootspaceManifold (norb_f, nprods_r, n_str, s_str, m_strs, m_blocks, xmat, smult_si)
+        return SpinCoupledRootspaceManifold (norb_f, lroots_fr, nprods_r, n_str, s_str, m_strs,
+                                             m_blocks, xmat, smult_si)
 
 class RootspaceManifold:
     get_nbytes = get_nbytes
-    def __init__(self, norb_f, nprods_r, n_str, s_str, m_strs, m_blocks, xmat):
+    def __init__(self, norb_f, lroots_fr, nprods_r, n_str, s_str, m_strs, m_blocks, xmat):
         self.norb_f = norb_f
         self.n_str = n_str
         self.s_str = s_str
@@ -137,6 +151,7 @@ class RootspaceManifold:
                 pij.extend (list (range (offs0[iroot], offs1[iroot])))
             self.prod_idx.append (pij)
         self.prod_idx = np.asarray (self.prod_idx, dtype=int)
+        self.lroots_rf = lroots_fr.T[self.m_blocks[0]]
         self.nprods_raw = nprods_r[self.m_blocks[0]]
         offs1 = np.cumsum (self.nprods_raw)
         offs0 = offs1 - self.nprods_raw
@@ -156,9 +171,41 @@ class RootspaceManifold:
 
     def get_t_strs (self): return self.m_strs
 
+    def sprintf_address_book_sn (self, i):
+        return 'manifold {}: smult = {}; nelec = {}'.format (i, self.s_str, self.n_str)
+
+    def sprintf_address_book_spin_raw (self):
+        out = 'm_strs:\n'
+        for i, m_str in enumerate (self.m_strs):
+            out += ' {} {}\n'.format (i, m_str)
+        return out[:-1]   
+
+    sprintf_address_book_spin_orth = sprintf_address_book_spin_raw
+
+    def sprintf_address_book_spat_raw (self):
+        out = 'rootspace address and size:\n'
+        for i, (ir, lr) in enumerate (zip (self.m_blocks[0], self.lroots_rf)):
+            out += ' {} {} {}\n'.format (i, ir, lr)
+        return out[:-1]
+
+    def sprintf_address_book_spat_orth (self):
+        return '{} generic spatial states'.format (self.orth_shape[1])
+
+    def sprintf_address_book_raw (self, i):
+        return '\n'.join ([self.sprintf_address_book_sn (i),
+                           self.sprintf_address_book_spin_raw (),
+                           self.sprintf_address_book_spat_raw ()])
+
+    def sprintf_address_book_orth (self, i):
+        return '\n'.join ([self.sprintf_address_book_sn (i),
+                           self.sprintf_address_book_spin_orth (),
+                           self.sprintf_address_book_spat_orth ()])
+
+
 class SpinCoupledRootspaceManifold (RootspaceManifold):
-    def __init__(self, norb_f, nprods_r, n_str, s_str, m_strs, m_blocks, xmat, smult_si):
-        super().__init__(norb_f, nprods_r, n_str, s_str, m_strs, m_blocks, xmat)
+    def __init__(self, norb_f, lroots_fr, nprods_r, n_str, s_str, m_strs, m_blocks, xmat,
+                 smult_si):
+        super().__init__(norb_f, lroots_fr, nprods_r, n_str, s_str, m_strs, m_blocks, xmat)
         spin_si = np.sum (self.m_strs[0])
         spins_table, smult_table = get_spincoup_bases (self.s_str, spin_lsf=spin_si,
                                                        smult_lsf=smult_si)
@@ -173,6 +220,12 @@ class SpinCoupledRootspaceManifold (RootspaceManifold):
         self.orth_shape = (self.umat.shape[1], self.orth_shape[1])
 
     def get_t_strs (self): return self.t_strs
+
+    def sprintf_address_book_spin_orth (self):
+        out = 't_strs:\n'
+        for i, t_str in enumerate (self.t_strs):
+            out += ' {} {}\n'.format (i, t_str)
+        return out[:-1]   
 
 def _get_spin_split_manifolds (ci_fr, norb_f, nelec_frs, smult_fr, lroots_fr, idx):
     '''The same as _get_spin_split_manifolds_idx, except that all of the arguments need to be
@@ -235,10 +288,17 @@ class OrthBasisBase (sparse_linalg.LinearOperator):
 
     split_rblocks_by_manifolds=split_oblocks_by_manifolds
 
-    def idx2addrs (self, idx):
+    def idx2addrs_orth (self, idx):
         blks, addrs_p = self.split_addrs_by_blocks (idx)
         addrs_sn, addrs_t = self.split_oblocks_by_manifolds (blks)
         return addrs_sn, addrs_t, addrs_p
+
+    def idx2addrs_raw (self, idx):
+        blks, addrs_p = self.split_addrs_by_blocks (idx)
+        addrs_sn, addrs_m = self.split_rblocks_by_manifolds (blks)
+        return addrs_sn, addrs_m, addrs_p
+
+    idx2addrs = idx2addrs_orth
 
     def are_tstrs_coupled (self, bra_sn, ket_sn, bra_t, ket_t, inv):
         coup = (bra_t==ket_t)
@@ -300,6 +360,12 @@ class NullOrthBasis (OrthBasisBase):
     def pspace_ham_spincoup_dm (self, bra_sn, ket_sn, mtidx_bra, mtidx_ket, sgnvec, inv):
         assert (len (sgnvec) == 1)
         return np.atleast_2d (sgnvec)
+
+    def log_debug_hdiag_raw (self, log, hdiag, idx=None):
+        return
+
+    def log_debug_hdiag_orth (self, log, hdiag, idx=None):
+        return
 
 class OrthBasis (OrthBasisBase):
     def __init__(self, shape, dtype, nprods_r, manifolds):
@@ -497,6 +563,36 @@ class OrthBasis (OrthBasisBase):
         brastr = brastr[bra_t]
         ketstr = ketstr[ket_t]
         return np.all (brastr==ketstr, axis=-1)
+
+    def log_debug_hdiag_raw (self, log, hdiag, idx=None):
+        if idx is None:
+            idx = np.arange (len (hdiag), dtype=int)
+        idx = idx[np.argsort (hdiag[idx])]
+        addrs_sn, addrs_m, addrs_p = self.idx2addrs_raw (idx)
+        log.debug ("Address book for individual raw states:")
+        for i in np.sort (np.unique (addrs_sn)):
+            man = self.manifolds[i]
+            log.debug ("%s", man.sprintf_address_book_raw (i))
+        log.debug ("Raw basis hdiag:")
+        log.debug ("ix e addr(manifold) addr(spin) addr(spat)")
+        for i, ix in enumerate (idx):
+            log.debug ("%d %15.10e %d %d %d", idx[i], hdiag[ix], addrs_sn[i], addrs_m[i],
+                       addrs_p[i])
+
+    def log_debug_hdiag_orth (self, log, hdiag, idx=None):
+        if idx is None:
+            idx = np.arange (len (hdiag), dtype=int)
+        idx = idx[np.argsort (hdiag[idx])]
+        addrs_sn, addrs_t, addrs_p = self.idx2addrs_orth (idx)
+        log.debug ("Address book for individual orth states:")
+        for i in np.sort (np.unique (addrs_sn)):
+            man = self.manifolds[i]
+            log.debug ("%s", man.sprintf_address_book_orth (i))
+        log.debug ("Orth basis hdiag:")
+        log.debug ("ix e addr(manifold) addr(spin) addr(spat)")
+        for i, ix in enumerate (idx):
+            log.debug ("%d %15.10e %d %d %d", idx[i], hdiag[ix], addrs_sn[i], addrs_t[i],
+                       addrs_p[i])
 
 class SpinCoupledOrthBasis (OrthBasis):
     def roots_coupled_in_hdiag (self, i, j):

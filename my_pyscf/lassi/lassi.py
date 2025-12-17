@@ -404,6 +404,9 @@ def _eig_block_Davidson (las, e0, h1, h2, ci_blk, nelec_blk, smult_blk, soc, opt
     h_op_raw, s2_op, ovlp_op, hdiag_raw, _get_ovlp = op[opt].gen_contract_op_si_hdiag (
         las, h1, h2, ci_blk, nelec_blk, smult_fr=smult_blk, soc=soc, screen_thresh=screen_thresh
     )
+    if verbose >= lib.logger.DEBUG:
+        # The sort is slow
+        log.debug ("fingerprint of hdiag raw: %15.10e", lib.fp (np.sort (hdiag_raw)))
     t0 = (lib.logger.process_clock (), lib.logger.perf_counter ())
     raw2orth = basis.get_orth_basis (ci_blk, las.ncas_sub, nelec_blk, _get_ovlp=_get_ovlp,
                                      smult_fr=smult_blk, smult_si=smult_si)
@@ -411,9 +414,13 @@ def _eig_block_Davidson (las, e0, h1, h2, ci_blk, nelec_blk, smult_blk, soc, opt
     mem_orth = raw2orth.get_nbytes () / 1e6
     t0 = log.timer ('LASSI get orthogonal basis ({:.2f} MB)'.format (mem_orth), *t0)
     hdiag_orth = op[opt].get_hdiag_orth (hdiag_raw, h_op_raw, raw2orth)
+    if verbose >= lib.logger.DEBUG:
+        # The sort is slow
+        log.debug ("fingerprint of hdiag orth: %15.10e", lib.fp (np.sort (hdiag_orth)))
     t0 = log.timer ('LASSI get hdiag in orthogonal basis', *t0)
     if pspace_size:
         pw, pv, addr = pspace (hdiag_orth, h_op_raw, raw2orth, opt, pspace_size)
+        raw2orth.log_debug_hdiag_orth (log, hdiag_orth, idx=addr)
         t0 = log.timer ('LASSI make pspace Hamiltonian', *t0)
         if pspace_size >= hdiag_orth.size:
             pv = pv[:,:nroots_si]
