@@ -28,33 +28,13 @@ class OpTermGroup:
         new_group.ovlplink = self.ovlplink
         return new_group
 
-    def subspace (self, roots):
+    def subspace (self, keys):
         # Project into a subspace
-        ints = self.ops[0].ints
-        nroots = len (roots)
-        # ovlplink ket filter
-        new_ovlplink = self.ovlplink.copy ()
-        idx = np.isin (new_ovlplink[:,0], roots)
-        new_ovlplink = new_ovlplink[idx]
-        if new_ovlplink.shape[0] == 0: return None
-        # ovlplink bra filter
-        urootstr = [inti.uroot_idx[roots] for inti in ints]
-        urootstr = np.asarray (urootstr).T
-        rootstrs = [tuple (rootstr) for rootstr in urootstr]
-        inv = [inti.idx_frag+1 for inti in ints]
-        brastrs = new_ovlplink[:,inv]
-        idx = np.asarray ([tuple (brastr) in rootstrs for brastr in brastrs])
-        new_ovlplink = new_ovlplink[idx]
-        if new_ovlplink.shape[0] == 0: return None
-        # ops filter
         new_ops = []
         for op in self.ops:
             new_spincase_keys = []
             for spincase_key in op.spincase_keys:
-                bra, ket = spincase_key[:2]
-                brastr = tuple ((inti.uroot_idx[bra] for inti in ints))
-                ketstr = tuple ((inti.uroot_idx[ket] for inti in ints))
-                if (brastr in rootstrs) and (ketstr in rootstrs):
+                if spincase_key in keys:
                     new_spincase_keys.append (spincase_key)
             if len (new_spincase_keys) > 0:
                 new_op = op.copy ()
@@ -63,7 +43,6 @@ class OpTermGroup:
         if len (new_ops) == 0: return None
         new_group = OpTermGroup (self.inv)
         new_group.ops = new_ops
-        new_group.ovlplink = new_ovlplink
         return new_group            
 
 class OpTermBase:
@@ -75,7 +54,13 @@ class OpTermBase:
     def spincase_fprint (self, i):
         bra, ket = self.spincase_keys[i][:2]
         brastr = [inti.uroot_idx[bra] for inti in self.ints]
-        ketstr = [inti.uroot_idx[bra] for inti in self.ints]
+        ketstr = [inti.uroot_idx[ket] for inti in self.ints]
+        return brastr, ketstr
+
+    def spincase_mstrs (self, key):
+        bra, ket = key[:2]
+        brastr = tuple ([inti.spins_r[bra] for inti in self.ints])
+        ketstr = tuple ([inti.spins_r[ket] for inti in self.ints])
         return brastr, ketstr
 
     def fprint (self):
@@ -299,4 +284,21 @@ class OpTerm4Fragments (OpTermNFragments):
     def reduce_spin_op (self, bra, ket, fac):
         fac = fac[0] * fac[1]
         return self.op.copy () * fac
+
+    def fdm_dot (self, fdm):
+        output_shape = fdm.shape[:-1]
+        ncols = fdm.shape[-1]
+        nrows = np.prod (output_shape)
+        dot_shape = [nrows,] + self.lroots_bra[::-1] + self.lroots_ket[::-1]
+        arr = fdm.reshape (*dot_shape)
+        arr = lib.einsum ('zdcbalkji,ckr,dls->zrsbaji', arr, self.d[2], self.d[3])
+        arr = lib.einsum ('zrsbaji,rsbaji->z', arr, self.op)
+        return arr.reshape (*output_shape)
+
+def fdm_dot (fdm, op1):
+    if callable (getattr (op1, 'fdm_dot', None)):
+        return op1.fdm_dot (fdm)
+    else:
+        return np.dot (fdm, op1.ravel ())
+
 

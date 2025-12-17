@@ -4,8 +4,8 @@
 
 #include "device.h"
 
-#define _NUM_SIMPLE_TIMER 32
-#define _NUM_SIMPLE_COUNTER 23
+#define _NUM_SIMPLE_TIMER 40
+#define _NUM_SIMPLE_COUNTER 30
 #include <unistd.h>
 #include <string.h>
 #include <sched.h>
@@ -75,8 +75,14 @@ Device::Device()
   // matvecs;
   size_new_sivecs=0;
   size_old_sivecs=0;
+  size_ox1 = 0;
+  size_instruction_list=0;
+  size_op = 0;
+  ox1_on_gpu = 0;
   h_new_sivecs = nullptr;
   h_old_sivecs = nullptr;
+  h_ox1 = nullptr;
+  h_instruction_list = nullptr;
 #if defined(_USE_GPU)
   use_eri_cache = true;
 #endif
@@ -132,7 +138,6 @@ Device::Device()
     device_data[i].size_tdm2=0;
     device_data[i].size_tdm2_p=0;
     //matvecs
-    device_data[i].size_op = 0;
     
     
     device_data[i].d_rho = nullptr;
@@ -141,6 +146,10 @@ Device::Device()
     device_data[i].d_buf2 = nullptr;
     device_data[i].d_buf3 = nullptr;
     device_data[i].d_vkk = nullptr;
+    device_data[i].d_dms = nullptr;
+    device_data[i].d_mo_coeff=nullptr;
+    device_data[i].d_mo_cas=nullptr;
+    device_data[i].d_dmtril = nullptr;
     device_data[i].d_dms = nullptr;
     device_data[i].d_mo_coeff=nullptr;
     device_data[i].d_mo_cas=nullptr;
@@ -176,8 +185,6 @@ Device::Device()
     device_data[i].d_tdm2=nullptr;
     device_data[i].d_tdm2_p=nullptr;
 
-    //matvecs
-    device_data[i].d_op = nullptr;
 
 #if defined (_USE_GPU)
     device_data[i].handle = nullptr;
@@ -287,6 +294,16 @@ Device::~Device()
     printf("LIBGPU :: SIMPLE_TIMER :: i= %i  name= pull_tdm2()               time= %f s\n",31,t_array[31]);
     printf("LIBGPU :: SIMPLE_TIMER :: i= %i  name= pull_tdm13h()             time= %f s\n",32,t_array[32]);
     printf("LIBGPU :: SIMPLE_TIMER :: total= %f s\n",total);
+
+    printf("\nLIBGPU :: SIMPLE_TIMER :: op_vecs\n");
+    printf("LIBGPU :: SIMPLE_TIMER :: i= %i  name= push_op()            time= %f s\n",33,t_array[33]);
+    printf("LIBGPU :: SIMPLE_TIMER :: i= %i  name= init_ox1()           time= %f s\n",34,t_array[34]);
+    printf("LIBGPU :: SIMPLE_TIMER :: i= %i  name= init_vecs()          time= %f s\n",35,t_array[35]);
+    printf("LIBGPU :: SIMPLE_TIMER :: i= %i  name= push_vecs()          time= %f s\n",36,t_array[36]);
+    printf("LIBGPU :: SIMPLE_TIMER :: i= %i  name= compute_sivecs()     time= %f s\n",37,t_array[37]);
+    printf("LIBGPU :: SIMPLE_TIMER :: i= %i  name= add_sivecs()         time= %f s\n",38,t_array[38]);
+    printf("LIBGPU :: SIMPLE_TIMER :: i= %i  name= finalize_sivecs()    time= %f s\n",39,t_array[39]);
+
     free(t_array);
     
     
@@ -313,7 +330,7 @@ Device::~Device()
     printf("LIBGPU :: SIMPLE_COUNTER :: i= %i  name=ao2mo_pass_v3()       counts= %i \n",6,count_array[6]);
     
     printf("\nLIBGPU :: SIMPLE_COUNTER :: eri_impham\n");
-    printf("LIBGPU :: SIMPLE_COUNTER :: i= %i  name=eri_impham()       counts= %i \n",7,count_array[7]);
+    printf("LIBGPU :: SIMPLE_COUNTER :: i= %i  name=eri_impham()          counts= %i \n",7,count_array[7]);
 
     
     printf("\nLIBGPU :: SIMPLE_COUNTER :: fci_kernels\n");
@@ -332,6 +349,16 @@ Device::~Device()
     printf("LIBGPU :: SIMPLE_COUNTER :: i= %i  name= pull_tdm1()          counts= %i \n",20,count_array[20]);
     printf("LIBGPU :: SIMPLE_COUNTER :: i= %i  name= pull_tdm2()          counts= %i \n",21,count_array[21]);
     printf("LIBGPU :: SIMPLE_COUNTER :: i= %i  name= pull_tdm13h()        counts= %i \n",22,count_array[22]);
+
+    printf("\nLIBGPU :: SIMPLE_COUNTER :: op_vec kernels\n");
+    printf("LIBGPU :: SIMPLE_COUNTER :: i= %i  name= push_op()            counts= %i \n",23,count_array[23]);
+    printf("LIBGPU :: SIMPLE_COUNTER :: i= %i  name= init_ox1()           counts= %i \n",24,count_array[24]);
+    printf("LIBGPU :: SIMPLE_COUNTER :: i= %i  name= init_vecs()          counts= %i \n",25,count_array[25]);
+    printf("LIBGPU :: SIMPLE_COUNTER :: i= %i  name= push_vecs()          counts= %i \n",26,count_array[26]);
+    printf("LIBGPU :: SIMPLE_COUNTER :: i= %i  name= compute_sivecs()     counts= %i \n",27,count_array[27]);
+    printf("LIBGPU :: SIMPLE_COUNTER :: i= %i  name= add_sivecs()         counts= %i \n",28,count_array[28]);
+    printf("LIBGPU :: SIMPLE_COUNTER :: i= %i  name= finalize_sivecs()    counts= %i \n",29,count_array[29]);
+ 
     free(count_array);
   }
 
@@ -402,6 +429,7 @@ Device::~Device()
     pm->dev_free(dd->d_tdm1, "tdm1");
     pm->dev_free(dd->d_tdm2, "tdm2");
     pm->dev_free(dd->d_tdm2_p, "tdm2_p");
+
 
     for(int i=0; i<dd->size_pumap.size(); ++i) {
       pm->dev_free_host(dd->pumap[i]);
@@ -3707,7 +3735,7 @@ void Device::init_tdm1(int norb)
   pm->dev_set_device(device_id);
   //pm->dev_profile_start("tdms :: init tdm1");
   my_device_data * dd = &(device_data[device_id]);
-  grow_array(dd->d_tdm1, size_tdm1, dd->size_tdm1, "TDM1", FLERR);
+  grow_array(dd->d_tdm1, size_tdm1, dd->size_tdm1, "tdm1", FLERR);
   //pm->dev_profile_stop();
   }
   double t1 = omp_get_wtime();
@@ -3722,7 +3750,7 @@ void Device::init_tdm2(int norb)
   pm->dev_set_device(device_id);
   //pm->dev_profile_start("tdms :: init tdm1");
   my_device_data * dd = &(device_data[device_id]);
-  grow_array(dd->d_tdm2, size_tdm2, dd->size_tdm2, "TDM2", FLERR);
+  grow_array(dd->d_tdm2, size_tdm2, dd->size_tdm2, "tdm2", FLERR);
   //pm->dev_profile_stop();
   }
   double t1 = omp_get_wtime();
@@ -3737,8 +3765,8 @@ void Device::init_tdm3hab(int norb)
     pm->dev_set_device(device_id);
     //pm->dev_profile_start("tdms :: init tdm1");
     my_device_data * dd = &(device_data[device_id]);
-    grow_array(dd->d_tdm2, size_tdm2, dd->size_tdm2, "TDM2", FLERR);
-    grow_array(dd->d_tdm2_p, size_tdm2, dd->size_tdm2_p, "TDM2_p", FLERR);
+    grow_array(dd->d_tdm2, size_tdm2, dd->size_tdm2, "tdm2", FLERR);
+    grow_array(dd->d_tdm2_p, size_tdm2, dd->size_tdm2_p, "tdm2_p", FLERR);
   //pm->dev_profile_stop();
   }
 
@@ -3866,14 +3894,16 @@ void Device::push_ciket_from_host(int ket_index, int na, int nb, int count)
 void Device::push_link_indexa(int na, int nlinka, py::array_t<int> _link_indexa)
 {
   double t0 = omp_get_wtime();
-  py::buffer_info info_link_indexa = _link_indexa.request(); //3D array (na, nlinka, 4)
-  int * link_indexa = static_cast<int*>(info_link_indexa.ptr);
-  int size_clinka = na*nlinka*4; //a,i,str,sign
-  for (int device_id=0;device_id<num_devices;++device_id){
-    pm->dev_set_device(device_id); 
-    my_device_data * dd = &(device_data[device_id]);
-    grow_array(dd->d_clinka, size_clinka, dd->size_clinka, "clink", FLERR);
-    pm->dev_push_async(dd->d_clinka, link_indexa, size_clinka*sizeof(int));
+  if (nlinka>0){
+    py::buffer_info info_link_indexa = _link_indexa.request(); //3D array (na, nlinka, 4)
+    int * link_indexa = static_cast<int*>(info_link_indexa.ptr);
+    int size_clinka = na*nlinka*4; //a,i,str,sign
+    for (int device_id=0;device_id<num_devices;++device_id){
+      pm->dev_set_device(device_id); 
+      my_device_data * dd = &(device_data[device_id]);
+      grow_array(dd->d_clinka, size_clinka, dd->size_clinka, "clinka", FLERR);
+      pm->dev_push_async(dd->d_clinka, link_indexa, size_clinka*sizeof(int));
+    }
   }
   double t1 = omp_get_wtime();
   t_array[17] += t1 - t0;
@@ -3882,14 +3912,16 @@ void Device::push_link_indexa(int na, int nlinka, py::array_t<int> _link_indexa)
 void Device::push_link_indexb(int nb, int nlinkb, py::array_t<int> _link_indexb)
 {
   double t0 = omp_get_wtime();
-  py::buffer_info info_link_indexb = _link_indexb.request(); //3D array (nb, nlinkb, 4)
-  int * link_indexb = static_cast<int*>(info_link_indexb.ptr);
-  int size_clinkb = nb*nlinkb*4; //a,i,str,sign
-  for (int device_id=0;device_id<num_devices;++device_id){
-    pm->dev_set_device(device_id); 
-    my_device_data * dd = &(device_data[device_id]);
-    grow_array(dd->d_clinkb, size_clinkb, dd->size_clinkb, "clink", FLERR);
-    pm->dev_push_async(dd->d_clinkb, link_indexb, size_clinkb*sizeof(int));
+  if (nlinkb>0){
+    py::buffer_info info_link_indexb = _link_indexb.request(); //3D array (nb, nlinkb, 4)
+    int * link_indexb = static_cast<int*>(info_link_indexb.ptr);
+    int size_clinkb = nb*nlinkb*4; //a,i,str,sign
+    for (int device_id=0;device_id<num_devices;++device_id){
+      pm->dev_set_device(device_id); 
+      my_device_data * dd = &(device_data[device_id]);
+      grow_array(dd->d_clinkb, size_clinkb, dd->size_clinkb, "clinkb", FLERR);
+      pm->dev_push_async(dd->d_clinkb, link_indexb, size_clinkb*sizeof(int));
+    } 
   }
   double t1 = omp_get_wtime();
   t_array[17] += t1 - t0;
@@ -3907,9 +3939,9 @@ void Device::compute_trans_rdm1a(int na, int nb, int nlinka, int nlinkb, int nor
   int size_tdm1 = norb2;
   grow_array(dd->d_tdm1,size_tdm1, dd->size_tdm1, "tdm1", FLERR); //actual returned
   set_to_zero(dd->d_tdm1, size_tdm1);
-
-  compute_FCItrans_rdm1a(dd->d_cibra, dd->d_ciket, dd->d_tdm1, norb, na, nb, nlinka, dd->d_clinka);
-
+  if (nlinka>0){
+    compute_FCItrans_rdm1a(dd->d_cibra, dd->d_ciket, dd->d_tdm1, norb, na, nb, nlinka, dd->d_clinka);
+  }
   pm->dev_profile_stop();
   double t1 = omp_get_wtime();
   t_array[18] += t1 - t0;
@@ -3928,8 +3960,9 @@ void Device::compute_trans_rdm1b(int na, int nb, int nlinka, int nlinkb, int nor
   int size_tdm1 = norb2;
   grow_array(dd->d_tdm1,size_tdm1, dd->size_tdm1, "tdm1", FLERR); //actual returned
   set_to_zero(dd->d_tdm1, size_tdm1);
-
-  compute_FCItrans_rdm1b(dd->d_cibra, dd->d_ciket, dd->d_tdm1, norb, na, nb, nlinkb, dd->d_clinkb);
+  if (nlinkb>0){
+    compute_FCItrans_rdm1b(dd->d_cibra, dd->d_ciket, dd->d_tdm1, norb, na, nb, nlinkb, dd->d_clinkb);
+  }
   pm->dev_profile_stop();
   double t1 = omp_get_wtime();
   t_array[19] += t1 - t0;
@@ -3948,9 +3981,9 @@ void Device::compute_make_rdm1a(int na, int nb, int nlinka, int nlinkb, int norb
   int size_tdm1 = norb2;
   grow_array(dd->d_tdm1,size_tdm1, dd->size_tdm1, "tdm1", FLERR); //actual returned
   set_to_zero(dd->d_tdm1, size_tdm1);
-  
+  if (nlinka>0){
   compute_FCImake_rdm1a(dd->d_cibra, dd->d_ciket, dd->d_tdm1, norb, na, nb, nlinka, dd->d_clinka);
-
+  }
   pm->dev_profile_stop();
   double t1 = omp_get_wtime();
   t_array[20] += t1 - t0;
@@ -3969,9 +4002,9 @@ void Device::compute_make_rdm1b(int na, int nb, int nlinka, int nlinkb, int norb
   int size_tdm1 = norb2;
   grow_array(dd->d_tdm1,size_tdm1, dd->size_tdm1, "tdm1", FLERR); //actual returned
   set_to_zero(dd->d_tdm1, size_tdm1);
-
+  if (nlinkb>0){
   compute_FCImake_rdm1b(dd->d_cibra, dd->d_ciket, dd->d_tdm1, norb, na, nb, nlinkb, dd->d_clinkb);
-
+  }
   pm->dev_profile_stop();
   double t1 = omp_get_wtime();
   t_array[21] += t1 - t0;
@@ -5383,7 +5416,6 @@ void Device::pull_tdm3hab_v2_host(int i, int j, int n_bra, int n_ket, int norb, 
   pm->dev_pull_async(dd->d_buf3, h_dm1_loc, norb*sizeof(double));
   h_dm3hb_loc = &(h_dm2_full[loc_tdm3h+(1-spin)*size_tdm3h]);
   h_dm3ha_loc = &(h_dm2_full[loc_tdm3h+spin*size_tdm3h]);
-
   filter_tdm3h(dd->d_tdm2, &(dd->d_buf3[norb]), norb);
   if (spin)
     { 
@@ -5443,19 +5475,33 @@ void Device::copy_tdm2_host_to_page(py::array_t<double> _dm2_full, int size_dm2_
   double t1 = omp_get_wtime();
 }
 /* ---------------------------------------------------------------------- */
-void Device::push_op(py::array_t<double> _op, int m, int k)
+void Device::push_op(py::array_t<double> _op, int m, int k, int counts)
 {
   double t0 = omp_get_wtime();
   py::buffer_info info_op = _op.request(); // (2D array of m * k)
   double * op = static_cast<double*>(info_op.ptr);
   int _size_op = m*k;
+  #if defined(_ENABLE_P2P)
+  counts = _MIN(counts, num_devices);
+  std::vector<double *> op_vec(counts); // array of device addresses 
+
+  for(int id=0; id<counts; ++id) {
+    pm->dev_set_device(id);
+    my_device_data * dd = &(device_data[id]);
+    grow_array(dd->d_buf1, _size_op, dd->size_buf1, "buf1", FLERR);
+    op_vec[id] = dd->d_buf1;}
+  mgpu_bcast(op_vec, op, _size_op*sizeof(double));
+  #else
   for (int i=0; i<num_devices;++i){
     pm->dev_set_device(i);
     my_device_data * dd = &(device_data[i]);
-    grow_array(dd->d_op, _size_op, dd->size_op, "op", FLERR);
-    pm->dev_push_async(dd->d_op, op, _size_op*sizeof(double));
+    grow_array(dd->d_buf1, _size_op, dd->size_buf1, "buf1", FLERR);
+    pm->dev_push_async(dd->d_buf1, op, _size_op*sizeof(double));
   }
+  #endif
   double t1 = omp_get_wtime();
+  t_array[33] += t1-t0;
+  count_array[23]++;
 }
 /* ---------------------------------------------------------------------- */
 void Device::init_new_sivecs_host(int m, int n)
@@ -5466,24 +5512,94 @@ void Device::init_new_sivecs_host(int m, int n)
   double t1 = omp_get_wtime();
 }
 /* ---------------------------------------------------------------------- */
+void Device::init_ox1_pinned(int size)
+{
+  double t0 = omp_get_wtime();
+  grow_array_host(h_ox1, size, size_ox1, "h:ox1");
+  int overall_max_size_buf=0;
+  int _max_size_buf, device_id;
+  for (int i=0; i<num_devices; ++i){
+    device_id = i%num_devices;
+    pm->dev_set_device(device_id);
+    my_device_data * dd = &(device_data[device_id]);
+    _max_size_buf = _MAX(dd->size_buf1, dd->size_buf2);
+    _max_size_buf = _MAX(_max_size_buf, dd->size_buf3);
+    overall_max_size_buf = _MAX(overall_max_size_buf,_max_size_buf); 
+    dd->active=0; //setting it to zero in case there is not enough work.
+    }
+  if (overall_max_size_buf>size) 
+    {ox1_on_gpu = 1;}
+  else{ox1_on_gpu=0;}
+  for (int i=0; i<num_devices;++i){
+    pm->dev_set_device(i);
+    my_device_data * dd = &(device_data[i]);
+    grow_array(dd->d_buf1, overall_max_size_buf, dd->size_buf1, "buf1", FLERR);
+    grow_array(dd->d_buf2, overall_max_size_buf, dd->size_buf2, "buf2", FLERR);
+    grow_array(dd->d_buf3, overall_max_size_buf, dd->size_buf3, "buf3", FLERR);
+    if (ox1_on_gpu){ set_to_zero(dd->d_buf3, size); } 
+    } 
+  double t1 = omp_get_wtime();
+  t_array[34] += t1-t0;
+  count_array[24]++;
+}
+
+/* ---------------------------------------------------------------------- */
 void Device::init_old_sivecs_host(int k, int n)
 {
   double t0 = omp_get_wtime();
+   
   int _size_sivecs = k*n;
+
+  pm->dev_set_device(0);
+  my_device_data * dd = &(device_data[0]);
+  if (dd->size_buf2<_size_sivecs){printf("there is an issue with the calculation\n");}
+
   grow_array_host(h_old_sivecs, _size_sivecs, size_old_sivecs, "h:old_sivecs");
   double t1 = omp_get_wtime();
+  t_array[35] += t1-t0;
+  count_array[25]++;
 }
 /* ---------------------------------------------------------------------- */
-void Device::push_sivecs_to_host(py::array_t<double> _vec, int n_loc, int n, int k)
+void Device::push_sivecs_to_host(py::array_t<double> _vec, int loc, int size)
 {
   double t0 = omp_get_wtime();
   py::buffer_info info_vec = _vec.request(); // (2D array of n * k)
   double * vec = static_cast<double*>(info_vec.ptr);
-  int _size_vec = n*k;
-  double * h_old_sivecs_loc = &(h_old_sivecs[n_loc*k]);
+  double * h_old_sivecs_loc = &(h_old_sivecs[loc]);
 #pragma omp parallel for
-  for (int i=0; i<_size_vec; ++i){h_old_sivecs_loc[i] = vec[i];}
+  for (int i=0;i<size;++i){h_old_sivecs_loc[i] = vec[i];}
   double t1 = omp_get_wtime();
+  t_array[36] += t1-t0;
+  count_array[26]++;
+}
+/* ---------------------------------------------------------------------- */
+void Device::push_sivecs_to_device(py::array_t<double> _vec, int loc, int size, int count)
+{
+  double t0 = omp_get_wtime();
+  py::buffer_info info_vec = _vec.request(); // (2D array of n * k)
+  double * vec = static_cast<double*>(info_vec.ptr);
+  //int device_id = count%num_devices;
+  int device_id=0;
+  pm->dev_set_device(device_id);
+  my_device_data * dd = &(device_data[device_id]);
+  pm->dev_push_async(&(dd->d_buf2[loc]), vec, size*sizeof(double)); 
+  double t1 = omp_get_wtime();
+  t_array[36] += t1-t0;
+  count_array[26]++;
+}
+/* ---------------------------------------------------------------------- */
+void Device::push_instruction_list(py::array_t<int> _instruction_list, int len)
+{
+  double t0 = omp_get_wtime();
+  py::buffer_info info_instruction_list = _instruction_list.request();
+  int * instruction_list = static_cast<int*>(info_instruction_list.ptr);
+  int _size_list = 4*len;
+  grow_array_host(h_instruction_list, _size_list, size_instruction_list, "h:instruction_list");
+#pragma omp parallel for
+  for (int i=0;i<_size_list; ++i){h_instruction_list[i] = instruction_list[i];}
+  double t1 = omp_get_wtime();
+  t_array[37] += t1-t0;
+  count_array[27]++;
 }
 /* ---------------------------------------------------------------------- */
 void Device::compute_sivecs (int m, int n, int k)
@@ -5495,22 +5611,16 @@ void Device::compute_sivecs (int m, int n, int k)
   int device_id;
   double alpha = 1.0;
   double beta = 0.0;
-  #ifdef _DEBUG_FCI
-  double * h_buf = nullptr;
-  int h_size_buf = 0;
-  double * h_op = nullptr;
-  int h_size_op = 0;
-  #endif
   for (int i=0; i<num_devices; ++i){
     device_id = i%num_devices;
     pm->dev_set_device(device_id);
     my_device_data * dd = &(device_data[device_id]);
     _max_size_buf = _MAX(dd->size_buf1, dd->size_buf2);
     _max_size_buf = _MAX(_max_size_buf, dd->size_buf3);
-    grow_array(dd->d_buf1, _max_size_buf, dd->size_buf1, "buf1", FLERR);
-    grow_array(dd->d_buf2, _max_size_buf, dd->size_buf2, "buf2", FLERR);
+    grow_array(dd->d_buf2, _max_size_buf, dd->size_buf2, "buf2", FLERR);//not doing buf1 because it is used for op
     grow_array(dd->d_buf3, _max_size_buf, dd->size_buf3, "buf3", FLERR);
     max_batch_n = _MIN(_max_size_buf/k, _max_size_buf/m);
+    max_batch_n = 6;//_MIN(_max_size_buf/k, _max_size_buf/m);
     }
   int device_id_counter = 0;
   for (int i=0; i<n; i+=max_batch_n){
@@ -5522,35 +5632,214 @@ void Device::compute_sivecs (int m, int n, int k)
     batch_n = _MIN(max_batch_n, n-i);
     double * old_sivecs = &(h_old_sivecs[i*k]);
     double * new_sivecs = &(h_new_sivecs[i*m]);
-    pm->dev_push_async(dd->d_buf1, old_sivecs, k*batch_n*sizeof(double));
-    //this gemm and transpose can be combined together depending on what is faster ...
-    #if 1
+
+    pm->dev_push_async(dd->d_buf2, old_sivecs, k*batch_n*sizeof(double));
     ml->gemm((char *) "T", (char *) "N", 
-             &batch_n,&m, &k, 
-             &alpha, 
-             dd->d_buf1, &k,
-             dd->d_op, &k,
-             &beta, 
-             dd->d_buf2, &batch_n);
-    transpose(dd->d_buf3, dd->d_buf2, m, batch_n);
-    #else
-    ml->gemm((char *) "N", (char *) "N", 
              &m, &batch_n, &k, 
              &alpha, 
-             dd->d_op, &m,
              dd->d_buf1, &k,
+             dd->d_buf2, &k,
              &beta, 
              dd->d_buf3, &m);
-   
-    #endif
     pm->dev_pull_async( dd->d_buf3, new_sivecs, batch_n*m*sizeof(double));
     }
   for (int i=0; i<num_devices; ++i){
     pm->dev_set_device(device_id);
     pm->dev_barrier();}
-  //printf("sivecs from pinned\n");
-  //for (int _n=0;_n<n;++_n){for (int _m=0;_m<m;++_m){printf("%f\t",h_new_sivecs[_n*m+_m]);}printf("\n");}
   double t1 = omp_get_wtime();
+}
+/* ---------------------------------------------------------------------- */
+void Device::compute_sivecs_full (int _m, int _k, int counts, int op_t)
+{
+  double t0 = omp_get_wtime();
+  int device_id = 0, device_id_counter = 0;
+  double alpha, beta;
+  
+  int m, k, n, vec_loc, vec_size, ox1_loc, ox1_size, fac;
+  double * result;
+  if (op_t){
+    m = _k;
+    k = _m;}
+  else{
+    m = _m;
+    k = _k;}
+  for (int count=0; count<counts; ++count){
+    vec_loc = h_instruction_list[count*4];
+    vec_size = h_instruction_list[count*4+1];
+    ox1_loc = h_instruction_list[count*4+2];
+    fac = h_instruction_list[count*4+3];
+    n = vec_size/k;
+    ox1_size=n*m;
+
+    device_id = count%num_devices;
+    pm->dev_set_device(device_id);
+    pm->dev_profile_start("op_vec :: compute_opvec");
+    my_device_data * dd = &(device_data[device_id]);
+    ml->set_handle(device_id);
+    dd->active = 1;
+
+    alpha = fac*1.0;
+    if (ox1_on_gpu){ 
+      beta = 1.0;
+      result = &(dd->d_buf3[ox1_loc]); }
+    else {
+      beta = 0.0;
+      result = dd->d_buf3; }
+
+    //for most calculations m*n_i and k*n_i should fit on a single gpu
+      //if that is not the case, k*n_i can be split, but we need to be careful about how we update the ox1 on pinned
+    
+    double * old_sivecs = &(h_old_sivecs[vec_loc]);
+    pm->dev_push_async(dd->d_buf2, old_sivecs, vec_size*sizeof(double));
+    if (op_t){
+      ml->gemm((char *) "T", (char *) "T", 
+           &n,&m,&k, 
+           &alpha, dd->d_buf2, &k, dd->d_buf1, &m,
+           &beta, result, &n); }
+      
+    else {
+      ml->gemm((char *) "T", (char *) "N", 
+           &n,&m,&k, 
+           &alpha, dd->d_buf2, &k, dd->d_buf1, &k,
+           &beta, result, &n); }
+ 
+    if (!ox1_on_gpu){
+      printf("shouldn't be here!\n");
+      double * new_sivecs = &(h_ox1[ox1_loc]);
+      pm->dev_pull_async( dd->d_buf3, new_sivecs, ox1_size*sizeof(double));
+      }
+    pm->dev_profile_stop();
+    }
+  if (!ox1_on_gpu){
+      printf("shouldn't be here!\n");
+    for (int i=0; i<num_devices; ++i){
+      pm->dev_set_device(device_id);
+      pm->dev_barrier();}
+    }
+  double t1 = omp_get_wtime();
+  t_array[37] += t1-t0;
+  count_array[27]++;
+}
+/* ---------------------------------------------------------------------- */
+void Device::compute_sivecs_full_v2 (int _m, int _k, int counts, int op_t)
+{
+  double t0 = omp_get_wtime();
+  int device_id = 0, device_id_counter = 0;
+  double alpha, beta;
+  
+  int m, k, n, vec_loc, vec_size, ox1_loc, ox1_size, fac;
+  double * result;
+  if (op_t){
+    m = _k;
+    k = _m;}
+  else{
+    m = _m;
+    k = _k;}
+  for (int count=0; count<counts; ++count){
+    vec_loc = h_instruction_list[count*4];
+    vec_size = h_instruction_list[count*4+1];
+    ox1_loc = h_instruction_list[count*4+2];
+    fac = h_instruction_list[count*4+3];
+    n = vec_size/k;
+    ox1_size=n*m;
+
+    //device_id = count%num_devices;
+    device_id = 0;
+    pm->dev_set_device(device_id);
+    pm->dev_profile_start("op_vec :: compute_opvec");
+    my_device_data * dd = &(device_data[device_id]);
+    ml->set_handle(device_id);
+    dd->active = 1;
+
+    alpha = fac*1.0;
+    //if (ox1_on_gpu){ 
+    //  beta = 1.0;
+    //  result = &(dd->d_buf3[ox1_loc]); }
+    //else {
+    //  beta = 0.0;
+    //  result = dd->d_buf3; }
+    beta = 1.0;
+    result = &(dd->d_buf3[ox1_loc]);
+    
+    double * vec = &(dd->d_buf2[vec_loc]);
+    if (op_t){
+      ml->gemm((char *) "T", (char *) "T", 
+           &n,&m,&k, 
+           &alpha, vec, &k, dd->d_buf1, &m,
+           &beta, result, &n); }
+      
+    else {
+      ml->gemm((char *) "T", (char *) "N", 
+           &n,&m,&k, 
+           &alpha, vec, &k, dd->d_buf1, &k,
+           &beta, result, &n); }
+ 
+    if (!ox1_on_gpu){
+      printf("shouldn't be here!\n");
+      double * new_sivecs = &(h_ox1[ox1_loc]);
+      pm->dev_pull_async( dd->d_buf3, new_sivecs, ox1_size*sizeof(double));
+      }
+    pm->dev_profile_stop();
+    }
+  if (!ox1_on_gpu){
+      printf("shouldn't be here!\n");
+    for (int i=0; i<num_devices; ++i){
+      pm->dev_set_device(device_id);
+      pm->dev_barrier();}
+    }
+  double t1 = omp_get_wtime();
+  t_array[37] += t1-t0;
+  count_array[27]++;
+}
+/* ---------------------------------------------------------------------- */
+void Device::compute_sivecs_full_v3 (int _m, int _k, int n, int vec_loc, int ox1_loc, int fac, int op_t)
+{
+  double t0 = omp_get_wtime();
+  int device_id = 0, device_id_counter = 0;
+  double alpha, beta;
+  
+  int m, k, vec_size, ox1_size; 
+  double * result;
+  if (op_t){
+    m = _k;
+    k = _m;}
+  else{
+    m = _m;
+    k = _k;}
+  ox1_size=n*m;
+  pm->dev_set_device(device_id);
+  pm->dev_profile_start("op_vec :: compute_opvec");
+  my_device_data * dd = &(device_data[device_id]);
+  ml->set_handle(device_id);
+  dd->active = 1;
+
+  alpha = fac*1.0;
+  beta = 1.0;
+  result = &(dd->d_buf3[ox1_loc]);
+  
+  double * vec = &(dd->d_buf2[vec_loc]);
+  if (op_t){
+    ml->gemm((char *) "T", (char *) "T", 
+         &n,&m,&k, 
+         &alpha, vec, &k, dd->d_buf1, &m,
+         &beta, result, &n); }
+  else {
+    ml->gemm((char *) "T", (char *) "N", 
+         &n,&m,&k, 
+         &alpha, vec, &k, dd->d_buf1, &k,
+         &beta, result, &n); }
+ 
+  pm->dev_profile_stop();
+  double t1 = omp_get_wtime();
+  t_array[37] += t1-t0;
+  count_array[27]++;
+}
+
+
+/* ---------------------------------------------------------------------- */
+void Device::print_sivecs(int start, int size)
+{
+  //for (int i=start;i<start+size;++i){printf("%f\t",h_old_sivecs[i]);}printf("\n");
 }
 /* ---------------------------------------------------------------------- */
 void Device::pull_sivecs_from_pinned(py::array_t<double> _vec, int n_loc, int m, int n)
@@ -5560,15 +5849,56 @@ void Device::pull_sivecs_from_pinned(py::array_t<double> _vec, int n_loc, int m,
   double * vec = static_cast<double*>(info_vec.ptr);
   int _size_vec = n*m;
   double * h_new_sivecs_loc = &(h_new_sivecs[n_loc*m]);
-  #if 0 
-  //for when the results from gpu are already correctly transposed
 #pragma omp parallel for
   for (int i=0; i<_size_vec; ++i){vec[i] = h_new_sivecs_loc[i];}
-  #else
-#pragma omp parallel for
-  for (int _m =0; _m<m; ++_m){for (int _n=0; _n<n; ++_n){vec[_m*n+_n] = h_new_sivecs_loc[_n*m+_m];}}
-  #endif
   double t1 = omp_get_wtime();
 }
 /* ---------------------------------------------------------------------- */
+void Device::add_ox1_pinned(py::array_t<double> _ox1, int size)
+{
+  double t0 = omp_get_wtime();
+  if (!ox1_on_gpu){
+  printf("Pulling onto pinned\n");
+  py::buffer_info info_ox1 = _ox1.request(); // (empty 1D array of size)
+  double * ox1 = static_cast<double*>(info_ox1.ptr);
+#pragma omp parallel for
+  for (int i=0; i<size; ++i){ox1[i] += h_ox1[i];}
+#pragma omp parallel for
+  for (int i=0; i<size; ++i){h_ox1[i] = 0.0;}
+  }
+  double t1 = omp_get_wtime();
+  t_array[38] += t1-t0;
+  count_array[28]++;
+}
+/* ---------------------------------------------------------------------- */
+void Device::finalize_ox1_pinned(py::array_t<double> _ox1, int size)
+{
+  double t0 = omp_get_wtime();
+  if (ox1_on_gpu){
+  py::buffer_info info_ox1 = _ox1.request(); // (empty 1D array of size)
+  double * ox1 = static_cast<double*>(info_ox1.ptr);
+  std::vector<double *> ox1_vec(num_devices);
+  std::vector<double *> buf_vec(num_devices);
+  std::vector<int> active(num_devices);
+  int count_active = 0;
+  for(int i=0; i<num_devices; ++i) {
+    my_device_data * dd = &(device_data[i]);
+    ox1_vec[i] = dd->d_buf3;//results
+    buf_vec[i] = dd->d_buf2;//buffer
+    active[i] = dd->active;
+    ++count_active;
+    }
+  if (count_active){
+    mgpu_reduce(ox1_vec, h_ox1, size, true, buf_vec, active);
+#pragma omp parallel for
+    for (int i=0;i<size;++i){ox1[i]+=h_ox1[i];}
+    }
+  
+  }
+  double t1 = omp_get_wtime();
+  t_array[39] += t1-t0;
+  count_array[29]++;
+}
+/* ---------------------------------------------------------------------- */
+
 

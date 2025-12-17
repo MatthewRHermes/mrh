@@ -3,12 +3,13 @@ from scipy import linalg
 from scipy.sparse import linalg as sparse_linalg
 from pyscf import lib
 from pyscf.lib import logger, param
-from mrh.my_pyscf.lassi import citools
+from mrh.my_pyscf.lassi import citools, basis
 from mrh.my_pyscf.lassi.op_o1 import frag, opterm
 from mrh.my_pyscf.lassi.op_o1.rdm import LRRDM
 from mrh.my_pyscf.lassi.op_o1.hams2ovlp import HamS2Ovlp, ham, soc_context
 from mrh.my_pyscf.lassi.citools import _fake_gen_contract_op_si_hdiag
 from mrh.my_pyscf.lassi.op_o1.utilities import *
+from mrh.util.my_scipy import CallbackLinearOperator
 import functools
 from itertools import product
 from pyscf import __config__
@@ -16,18 +17,6 @@ import sys
 
 PROFVERBOSE = getattr (__config__, 'lassi_hsi_profverbose', None)
 SCREEN_THRESH = getattr (__config__, 'lassi_hsi_screen_thresh', 1e-12)
-
-class CallbackLinearOperator (sparse_linalg.LinearOperator):
-    def __init__(self, parent, shape, dtype=None, matvec=None):
-        self.parent = parent
-        self.shape = shape
-        self.dtype = dtype
-        self._matvec_fn = matvec
-
-    def _matvec (self, x):
-        # Just to shut up the stupid warning
-        return self._matvec_fn (x)
-
 
 class HamS2OvlpOperators (HamS2Ovlp):
     __doc__ = HamS2Ovlp.__doc__ + '''
@@ -55,6 +44,13 @@ class HamS2OvlpOperators (HamS2Ovlp):
         self.x = self.si = np.zeros (self.nstates, self.dtype)
         self.ox = np.zeros (self.nstates, self.dtype)
         self.ox1 = np.zeros (self.nstates, self.dtype)
+        gpu_op = getattr (param, 'use_gpu', False)
+        if gpu_op: 
+            self.len_instruction_list=0
+            self.instruction_list = np.empty((self.len_instruction_list,4),dtype=int)
+        op_debug = getattr (param, 'gpu_op_debug', False)
+        if op_debug: self.ox1_gpu = np.zeros(self.nstates, self.dtype)
+
         self.init_cache_profiling ()
         self.checkmem_oppart ()
         self._cache_()
@@ -272,9 +268,23 @@ class HamS2OvlpOperators (HamS2Ovlp):
         self.dt_4f3, self.dw_4f3 = 0.0, 0.0
         self.dt_oXn = [0.0, 0.0, 0.0, 0.0]
         self.dw_oXn = [0.0, 0.0, 0.0, 0.0]
+        self.dt_non_uniq_exc, self.dw_non_uniq_exc = 0.0, 0.0
+        self.dt_op_reduce, self.dw_op_reduce = 0.0, 0.0
+        self.dt_compute_4frag, self.dw_compute_4frag = 0.0, 0.0
+        self.dt_compute_3frag, self.dw_compute_3frag = 0.0, 0.0
+
+        use_gpu = getattr (param, 'use_gpu', False)
+        if use_gpu:
+          self.dt_gpu_need, self.dw_gpu_need = 0.0, 0.0
+          self.dt_gpu_setup, self.dw_gpu_setup = 0.0, 0.0
+          self.dt_gpu_push_vec, self.dw_gpu_push_vec = 0.0, 0.0
+          self.dt_gpu_push_op, self.dw_gpu_push_op = 0.0, 0.0
+          self.dt_gpu_compute, self.dw_gpu_compute = 0.0, 0.0
+          self.dt_gpu_pull_final, self.dw_gpu_pull_final = 0.0, 0.0
+          self.dt_gpu_calc, self.dw_gpu_calc = 0.0, 0.0
 
     def sprint_cache_profile (self):
-        fmt_str = '{:>5s} CPU: {:9.2f} ; wall: {:9.2f}'
+        fmt_str = '{:>5s} CPU: {:9.2f} sec ; wall: {:9.2f} sec'
         profile = fmt_str.format ('1d', self.dt_1d, self.dw_1d)
         profile += '\n' + fmt_str.format ('2d', self.dt_2d, self.dw_2d)
         profile += '\n' + fmt_str.format ('1c', self.dt_1c, self.dw_1c)
@@ -287,7 +297,7 @@ class HamS2OvlpOperators (HamS2Ovlp):
         return profile
 
     def sprint_profile (self):
-        fmt_str = '{:>5s} CPU: {:9.2f} ; wall: {:9.2f}'
+        fmt_str = '{:>10s} CPU: {:9.2f} sec ; wall: {:9.2f} sec'
         profile = fmt_str.format ('umat', self.dt_u, self.dw_u)
         profile += '\n' + fmt_str.format ('olpX', self.dt_sX, self.dw_sX)
         profile += '\n' + fmt_str.format ('opX', self.dt_oX, self.dw_oX)
@@ -297,12 +307,30 @@ class HamS2OvlpOperators (HamS2Ovlp):
             profile += '\n' + fmt_str.format ('{}f'.format (i+1),
                                               self.dt_oXn[i],
                                               self.dw_oXn[i])
+        profile += '\n' + 'opX setup'
+        profile += '\n' + fmt_str.format ('~uniq_exc',self.dt_non_uniq_exc, self.dw_non_uniq_exc )
+        profile += '\n' + fmt_str.format ('op_reduce',self.dt_op_reduce, self.dw_op_reduce )
+        profile += '\n' + 'opX compute'
+        profile += '\n' + fmt_str.format ('comp_3fr',self.dt_compute_3frag, self.dw_compute_3frag )
+        profile += '\n' + fmt_str.format ('comp_4fr',self.dt_compute_4frag, self.dw_compute_4frag )
         profile += '\n' + 'opX 4-fragment components:'
         profile += '\n' + fmt_str.format ('4f_o', self.dt_4fo, self.dw_4fo)
         profile += '\n' + fmt_str.format ('4f_r', self.dt_4fr, self.dw_4fr)
         profile += '\n' + fmt_str.format ('4f_1', self.dt_4f1, self.dw_4f1)
         profile += '\n' + fmt_str.format ('4f_2', self.dt_4f2, self.dw_4f2)
         profile += '\n' + fmt_str.format ('4f_3', self.dt_4f3, self.dw_4f3)
+
+        use_gpu = getattr (param, 'use_gpu', False)
+        if use_gpu:
+          profile += '\n' + 'GPU accelerated:'
+          profile += '\n' + fmt_str.format ('calc',self.dt_gpu_calc, self.dw_gpu_calc )
+          profile += '\n' + fmt_str.format ('gpu need?', self.dt_gpu_need, self.dw_gpu_need)
+          profile += '\n' + fmt_str.format ('host ox,v', self.dt_gpu_setup, self.dw_gpu_setup) 
+          profile += '\n' + fmt_str.format ('push vec',self.dt_gpu_push_vec, self.dw_gpu_push_vec )
+          profile += '\n' + fmt_str.format ('push op',self.dt_gpu_push_op, self.dw_gpu_push_op )
+          profile += '\n' + fmt_str.format ('compute',self.dt_gpu_compute, self.dw_gpu_compute )
+          profile += '\n' + fmt_str.format ('pull final',self.dt_gpu_pull_final, self.dw_gpu_pull_final )
+
         return profile
 
     def get_xvec (self, iroot, *inv):
@@ -311,10 +339,19 @@ class HamS2OvlpOperators (HamS2Ovlp):
         return fac * self.x[i:j]
 
     def put_ox1_(self, vec, iroot, *inv):
-        fac = self.spin_shuffle[iroot] * self.fermion_frag_shuffle (iroot, inv)
-        i, j = self.offs_lroots[iroot]
+        i, j, fac = self.get_ox1_params(iroot, *inv)
         self.ox1[i:j] += fac * vec
         return
+    def put_ox1_debug(self, vec, iroot, *inv):
+        i, j, fac = self.get_ox1_params(iroot, *inv)
+        self.ox1_gpu[i:j] += fac * vec
+        return
+
+
+    def get_ox1_params(self, iroot, *inv):
+        fac = self.spin_shuffle[iroot] * self.fermion_frag_shuffle (iroot, inv)
+        i, j = self.offs_lroots[iroot]
+        return i, j, fac
 
     def _umat_linequiv_(self, ifrag, iroot, umat, ivec, *args):
         if ivec==0:
@@ -357,25 +394,22 @@ class HamS2OvlpOperators (HamS2Ovlp):
         # Those vector slices must be added, so I can't use dict comprehension.
         vecs = {}
         for ket in set (ovlplink[:,0]):
-            key = tuple(self.urootstr[:,ket])
-            vecs[key] = self.get_xvec (ket, *inv).reshape (-1,1) + vecs.get (key, 0)
+            key = tuple(self.urootstr[:,ket])  #gets a number 
+            vecs[key] = self.get_xvec (ket, *inv).reshape (-1,1) + vecs.get (key, 0) #gets a vector from x, adds to it if already existing
         for ifrag in range (self.nfrags):
             if ifrag in inv:
                 # Collect the nonspectator-fragment dimensions on the minor end
                 for ket, vec in vecs.items ():
                     lket = self.ints[ifrag].get_lroots_uroot (ket[ifrag])
                     lr = vec.shape[-1]
-                    vecs[ket] = vec.reshape (-1,lr*lket)
+                    vecs[ket] = vec.reshape (-1,lr*lket) #reshape vec into 2D matrix
             else:
-                vecs = self.ox_ovlp_frag (ovlplink, vecs, ifrag)
+                vecs = self.ox_ovlp_frag (ovlplink, vecs, ifrag) #multiply with ovlp part of interactions
         t1, w1 = logger.process_clock (), logger.perf_counter ()
         self.dt_sX += (t1-t0)
         self.dw_sX += (w1-w0)
+        self._opuniq_x_full(ops, vecs)
 
-        self.ox1[:] = 0
-        for op in ops:
-            for key in op.spincase_keys:
-                self._opuniq_x_(op, key[0], key[1], vecs, *key[2:])
         t2, w2 = logger.process_clock (), logger.perf_counter ()
         self.dt_oX += (t2-t1)
         self.dw_oX += (w2-w1)
@@ -402,34 +436,181 @@ class HamS2OvlpOperators (HamS2Ovlp):
         self.dt_4f3 += op.dt_4f3
         self.dw_4f3 += op.dw_4f3
         return
+    
+    def _opuniq_x_full(self, ops, vecs):
+        self.ox1[:] = 0 #of shape nstates
+
+        use_gpu = getattr (param, 'use_gpu', False)
+        op_debug = getattr (param, 'gpu_op_debug', False)
+
+        def gpu_needed(ops):
+          r'''This function can be avoided if I can guarantee that all ops have atleast one function that is 1-3 frag'''
+          for op in ops:
+            for key in op.spincase_keys:
+              if len(set(key[2:]))!=4: return True
+          return False
+
+        if use_gpu and op_debug:
+          #CPU kernel
+          self._opuniq_x_full_cpu(ops, vecs)
+          #GPU kernel
+          gpu_op = gpu_needed(ops)
+          if gpu_op:
+            self._opuniq_x_full_gpu_v2(ops, vecs)
+            if np.allclose(self.ox1, self.ox1_gpu) != True:
+              #this is all for helping guide here the error might be.
+              print("Issue in ox1 calculation",flush=True)
+              diff = self.ox1 - self.ox1_gpu
+              print(np.nonzero(diff))
+              for op in ops:
+                for key in op.spincase_keys:  #spincase_keys is a lookup table
+                  if (len(set(key[2:])))!=4:
+                    op = opterm.reduce_spin (op, key[0], key[1])
+                    key = tuple((key[0], key[1])) + key[2:]
+                    brakets, bras, braHs = self.get_nonuniq_exc_square (key)
+                    for bra in bras:
+                      i,j,_ = self.get_ox1_params(bra, *key[2:])  
+                      if np.allclose(self.ox1[i:j],self.ox1_gpu[i:j]) != True:
+                        print("Error in bras",flush=True)
+                    if len(braHs):
+                      for bra in braHs:
+                        i,j,_ = self.get_ox1_params(bra, *key[2:])  
+                        if np.allclose(self.ox1[i:j],self.ox1_gpu[i:j]) != True:
+                          print("Error in braHs",flush=True)
+              exit()
+           
+        elif use_gpu:
+            #check if gpu is needed
+            t0, w0 = logger.process_clock (), logger.perf_counter ()
+
+            gpu_op = gpu_needed(ops)
+            t1, w1 = logger.process_clock (), logger.perf_counter ()
+
+            self.dt_gpu_need += (t1-t0)
+            self.dw_gpu_need += (w1-w0)
+
+            if gpu_op:
+              self._opuniq_x_full_gpu_v2(ops, vecs)
+            else: 
+              self._opuniq_x_full_cpu(ops, vecs)
+            t2, w2 = logger.process_clock (), logger.perf_counter ()
+            self.dt_gpu_calc += (t2-t1)
+            self.dw_gpu_calc += (w2-w1)
+        else:
+            self._opuniq_x_full_cpu(ops, vecs)
+        
+    def _opuniq_x_full_cpu(self, ops, vecs):
+        for op in ops:
+            for key in op.spincase_keys:  
+                self._opuniq_x_(op, key[0], key[1], vecs, *key[2:]) 
+        return
+    
+    def _opuniq_x_full_gpu_v2(self, ops, vecs):
+        r'''
+            Input: op, vecs
+            Output: ox1
+            Several op exists, each must be of shape (m_i, k_i). Corresponding vecs are of shape (n_j, k_i).
+            ox1_i = (op_i * \sum_j (vec_ij)_)
+            Step 1. Init ox1 as just a big block of memory of size nstates on GPU. (nstates= 1e7 is 80MB of space. for blksize=240, nao = 1000, buffer size = 2.4e8 = 2GB)
+              Note: number of states grows exponentially, might be a good idea to do multigpu. but as states grow to 1 billion, we should start rethinking fragmentations.
+                    (2,2)*8 represents the same active space as (4,4)*4, but latter has a lot fewer LASSI states. 
+                    There is an accuracy tradeoff too. Find your sweet spot.
+              Three level of algorithms: (fastest to slowest, most gpu memory to least gpu memory)
+                1. ox1 on gpu
+                2. ox1 distributed across gpus
+                3. ox1 on pinned, only each vector gets calculated on gpu
+            Step 2. Vecs exists as a dictionary. The keys can be moved out, and the values can be moved onto GPU. (Similar discussion as step 1) 
+            In nested loop
+                Step 3. Get correct op_i shape and push to gpu
+                    Step 4. For each spin key, get correct bras, braHs
+                    Step 5. Ask gpu to get vec with vec_loc, get ox1_loc, do multiplication and store.
+            Step 6. Add ox1 from pinned to ox1 from pageable 
+        '''
+
+        t0, w0 = logger.process_clock (), logger.perf_counter ()
+        op_debug = getattr (param, 'gpu_op_debug', False)
+        if op_debug:
+          ox_final = self.ox1_gpu
+          _opuniq_x = self._opuniq_x_debug
+        else:
+          ox_final = self.ox1
+          _opuniq_x = self._opuniq_x_
+
+        ox_final[:] = 0 #of shape nstates
+        from mrh.my_pyscf.gpu import libgpu
+        gpu = param.use_gpu
+        total_vecsize=sum([vec.size for vec in vecs.values ()])
+        #STEP 1 Init ox1 on pinned memory, also on gpu if size allows
+        libgpu.init_ox1_pinned(gpu, self.nstates) 
+        #STEP 2 Push for all vecs on pinned memory. 
+        t1, w1 = logger.process_clock (), logger.perf_counter ()
+        self.dt_gpu_setup += (t1-t0)
+        self.dw_gpu_setup += (w1-w0)
+
+        vec_table={}
+        vec_loc = 0
+        for count, (key, vec) in enumerate(vecs.items()):
+          size=vec.size
+          vec_table[key]=vec_loc
+          libgpu.push_sivecs_to_device(gpu, np.ascontiguousarray(vec), vec_loc, size, count)
+          vec_loc += size
+
+        t2, w2 = logger.process_clock (), logger.perf_counter ()
+        self.dt_gpu_push_vec += (t2-t1)
+        self.dw_gpu_push_vec += (w2-w1)
+
+        #Nested loop
+        for op in ops:
+          for key in op.spincase_keys:  #spincase_keys is a lookup table
+              if len(set(key[2:]))!=4:
+                  #STEP 3-5
+                  self._gpu_opuniq_x_v2(op, key[0],key[1], vec_table, *key[2:]) 
+              else:
+                  # 4-fragment case is still running on cpu
+                  _opuniq_x(op, key[0], key[1], vecs, *key[2:]) #4 fragment  
+        #STEP 6
+        t3, w3 = logger.process_clock (), logger.perf_counter ()
+        libgpu.finalize_ox1_pinned(gpu, ox_final, self.nstates) 
+        t4, w4 = logger.process_clock (), logger.perf_counter ()
+        self.dt_gpu_pull_final += (t4-t3)
+        self.dw_gpu_pull_final += (w4-w3)
+
+        return
 
     def _opuniq_x_(self, op, obra, oket, ovecs, *inv):
-        '''All operations which are unique in that a given set of nonspectator fragment bra
+        r'''All operations which are unique in that a given set of nonspectator fragment bra
         statelets are coupled to a given set of nonspectator fragment ket statelets'''
-        from pyscf.lib import param
         t0, w0 = logger.process_clock (), logger.perf_counter ()
         op = opterm.reduce_spin (op, obra, oket)
         t1, w1 = logger.process_clock (), logger.perf_counter ()
+        self.dt_op_reduce += (t1-t0)
+        self.dw_op_reduce += (w1-w0)
         if len (set (inv)) == 4:
             self.dt_4fo += t1-t0
             self.dw_4fo += w1-w0
-        else:
-            try: use_gpu = param.use_gpu
-            except: use_gpu = False 
-            if use_gpu: 
-                self._gpu_opuniq_x_(op, obra, oket, ovecs, *inv)
-                return 
         key = tuple ((obra, oket)) + inv
         inv = list (set (inv))
         brakets, bras, braHs = self.get_nonuniq_exc_square (key)
+        t2, w2 = logger.process_clock (), logger.perf_counter ()
+        self.dt_non_uniq_exc += (t2-t1)
+        self.dw_non_uniq_exc += (w2-w1)
         for bra in bras:
             vec = ovecs[self.ox_ovlp_urootstr (bra, oket, inv)]
             self.put_ox1_(op.dot (vec.T).ravel (), bra, *inv)
             self._profile_4frag_(op)
+        t3, w3 = logger.process_clock (), logger.perf_counter ()
+        if len (set (inv)) == 4:
+            self.dt_compute_4frag += (t3-t2)
+            self.dw_compute_4frag += (w3-w2)
+        else:
+            self.dt_compute_3frag += (t3-t2)
+            self.dw_compute_3frag += (w3-w2)
         if len (braHs):
             t0, w0 = logger.process_clock (), logger.perf_counter ()
             op = op.conj ().T
             t1, w1 = logger.process_clock (), logger.perf_counter ()
+            self.dt_op_reduce += (t1-t0)
+            self.dw_op_reduce += (w1-w0)
             if len (set (inv)) == 4:
                 self.dt_4fo += t1-t0
                 self.dw_4fo += w1-w0
@@ -437,76 +618,88 @@ class HamS2OvlpOperators (HamS2Ovlp):
                 vec = ovecs[self.ox_ovlp_urootstr (bra, obra, inv)]
                 self.put_ox1_(op.dot (vec.T).ravel (), bra, *inv)
                 self._profile_4frag_(op)
+            t2, w2 = logger.process_clock (), logger.perf_counter ()
+            if len (set (inv)) == 4:
+                self.dt_compute_4frag += (t2-t1)
+                self.dw_compute_4frag += (w2-w1)
+            else:
+                self.dt_compute_3frag += (t2-t1)
+                self.dw_compute_3frag += (w2-w1)
         return
-    
-    def _gpu_opuniq_x_ (self, op, obra, oket, ovecs, *inv):
+    def _opuniq_x_debug(self, op, obra, oket, ovecs, *inv):
+        '''Same as the above, except I need to update in another ox1 array in case I want to debug''' 
+        op = opterm.reduce_spin (op, obra, oket)
         key = tuple ((obra, oket)) + inv
         inv = list (set (inv))
         brakets, bras, braHs = self.get_nonuniq_exc_square (key)
-
-        self.gpu_matvec(op, bras, oket, ovecs, inv)
-
+        for bra in bras:
+            vec = ovecs[self.ox_ovlp_urootstr (bra, oket, inv)]
+            self.put_ox1_debug(op.dot (vec.T).ravel (), bra, *inv)
         if len (braHs):
             op = op.conj ().T
-            self.gpu_matvec(op, braHs, obra, ovecs, inv)
+            for bra in braHs:
+                vec = ovecs[self.ox_ovlp_urootstr (bra, obra, inv)]
+                self.put_ox1_debug(op.dot (vec.T).ravel (), bra, *inv)
         return
 
-    def gpu_matvec(self, op, bras, oci, ovecs, inv):
-        '''Effectively a op*vecs 
-              where op is a matrix of size of m, k and 
-              vecs several small vectors each of size n_i * k. 
-              total_n = \sum_i n_i
-           First run through ovecs collecting vecs in an array of size (total_n * k)
-           Multiply them in a way that is optimal for gpu code 
-           Store the result in a size of (m * total_n), and then do _put_ox1_ accordingly'''
+    
+    def _gpu_opuniq_x_v2(self, op, obra, oket, vec_table, *inv):
+        t0, w0 = logger.process_clock (), logger.perf_counter ()
+        key = tuple ((obra, oket)) + inv
+        inv = list (set (inv))
+        brakets, bras, braHs = self.get_nonuniq_exc_square (key)
+        t1, w1 = logger.process_clock (), logger.perf_counter ()
+        self.dt_non_uniq_exc += (t1-t0)
+        self.dw_non_uniq_exc += (w1-w0)
+        #STEP 3 PART 1
+        op = opterm.reduce_spin (op, obra, oket)
 
+        t2, w2 = logger.process_clock (), logger.perf_counter ()
+        self.dt_op_reduce += (t2-t1)
+        self.dw_op_reduce += (w2-w1)
+
+
+        n_dots = max(len(bras), len(braHs))
+        #STEP 3 Part 2
         from mrh.my_pyscf.gpu import libgpu
-        from pyscf.lib import param
+        gpu = param.use_gpu
+        m, k = op.shape #m,k gemm
+        libgpu.push_op(gpu, np.ascontiguousarray(op), m, k, n_dots) #inits and pushes on all devices
+        t3, w3 = logger.process_clock (), logger.perf_counter ()
+        self.dt_gpu_push_op += (t3-t2) 
+        self.dw_gpu_push_op += (w3-w2) 
+
+
+        self.gpu_matvec_v2( m, k, bras, oket, vec_table, inv, op_t = False)
+
+        if len (braHs):
+            self.gpu_matvec_v2( m, k, braHs, obra, vec_table, inv, op_t = True)
+        t4, w4 = logger.process_clock (), logger.perf_counter ()
+        self.dt_compute_3frag += (t4-t2)
+        self.dw_compute_3frag += (w4-w2)
+        return
+
+    def gpu_matvec_v2(self, m, k, bras, oci, vec_table, inv, op_t = False):
+
+        t0, w0 = logger.process_clock (), logger.perf_counter ()
+        from mrh.my_pyscf.gpu import libgpu
         gpu = param.use_gpu
 
-        #Get m,n,k for gemm gemm
-        m, k = op.shape #m,k gemm
-        libgpu.push_op(gpu, np.ascontiguousarray(op), m, k) #inits and pushes on all devices
-        #Get n for gemm
         spec = np.ones (self.nfrags, dtype=bool)
         for i in inv: spec[i] = False
         spec = np.where (spec)[0]
-        total_n = sum(np.prod (self.lroots[spec,bra]) for bra in bras)  #n
 
-        libgpu.init_new_sivecs_host(gpu, m, total_n) #pinned memory for results
-
-        libgpu.init_old_sivecs_host(gpu, k, total_n) #pinned memory for input
-
-        n_array = []
-        n_loc = 0
+        #STEP 4 
         for bra in bras:
-            vec = ovecs[self.ox_ovlp_urootstr (bra, oci, inv)]
-            n,_ = vec.shape #n,k gemm
-            n_array.append(n)
-            libgpu.push_sivecs_to_host(gpu, np.ascontiguousarray(vec), n_loc, n, k) #to pinned
-            n_loc += n
+            n = np.prod(self.lroots[spec, bra])
+            vec_loc = vec_table[self.ox_ovlp_urootstr(bra, oci, inv)]
+            ox1_loc, _, fac = self.get_ox1_params(bra, *inv)
+            libgpu.compute_sivecs_full_v3(gpu, m, k, n, vec_loc, ox1_loc, fac, op_t)
+        t1, w1 = logger.process_clock (), logger.perf_counter ()
+        self.dt_gpu_compute += (t1-t0)
+        self.dw_gpu_compute += (w1-w0)
+        return 
 
-        libgpu.compute_sivecs(gpu, m, total_n, k) # H2D, compute, D2H (pinned) 
-
-
-        #vecs = []
-        #for n in n_array:
-        #    vecs.append(np.empty((n*m)))
-        #n_loc = 0
-        #for n, bra, vec in zip(n_array, bras, vecs):
-        #    libgpu.pull_sivecs_from_pinned(gpu, vec, n_loc, m, n)
-        #    self.put_ox1_(new_vec, bra, *inv)
-        #    n_loc += n
-        #vecs=None
-
-        n_loc = 0
-        for n, bra in zip(n_array, bras):
-            vec = np.empty((m*n))
-            libgpu.pull_sivecs_from_pinned(gpu, vec, n_loc, m, n)
-            self.put_ox1_(vec, bra, *inv)
-            n_loc += n
-
-        return
     
     def ox_ovlp_urootstr (self, bra, ket, inv):
         '''Find the urootstr corresponding to the action of the overlap part of an operator
@@ -583,27 +776,66 @@ class HamS2OvlpOperators (HamS2Ovlp):
                     new_parent.optermgroups_h[inv] = new_group
         return new_parent
 
-    def get_subspace (self, roots, verbose=None):
+    def get_subspace (self, roots, verbose=None, _square=True):
         # Get a Hamiltonian operator projected into a subspace of roots
         new_parent = lib.view (self, self.__class__)
         if verbose is not None:
             new_parent.log = logger.new_logger (new_parent.log, verbose)
-        urootstr = self.urootstr[:,roots]
+        # equivalence map
+        urootstr = self.urootstr[:,roots].T
+        spmanstr = [[self.ints[j].spman[urootstr[i,j]] for j in range (self.nfrags)]
+                    for i in range (urootstr.shape[0])]
+        spmanstr = np.asarray (spmanstr)
+        new_parent.spman = {}
+        new_parent.nonuniq_exc = {}
+        for key, pairs in self.spman.items ():
+            # top: spmanstr keys
+            bra, ket = key[:2]
+            inv = key[2:]
+            bra_spman = np.asarray ([self.ints[i].spman[self.urootstr[i,bra]]
+                                     for i in inv])
+            bra_in = (bra_spman[None,:]==spmanstr[:,inv]).all(1).any()
+            ket_spman = np.asarray ([self.ints[i].spman[self.urootstr[i,ket]]
+                                     for i in inv])
+            ket_in = (ket_spman[None,:]==spmanstr[:,inv]).all(1).any()
+            if _square:
+                is_in = bra_in and ket_in
+            else:
+                is_in = bra_in or ket_in
+            if not is_in:
+                continue
+            new_pairs = []
+            for (bra, ket) in pairs:
+                # middle: nonuniq_exc keys
+                bra_in = (self.urootstr[inv,bra][None,:]==urootstr[:,inv]).all(1).any ()
+                ket_in = (self.urootstr[inv,ket][None,:]==urootstr[:,inv]).all(1).any ()
+                if _square:
+                    is_in = bra_in and ket_in
+                else:
+                    is_in = bra_in or ket_in
+                if not is_in: continue
+                # bottom: nonuniq_exc vals
+                tab_bk = self.nonuniq_exc[(bra,ket)+inv]
+                idx0 = np.isin (tab_bk[:,0], roots)
+                idx1 = np.isin (tab_bk[:,1], roots)
+                if _square:
+                    idx = idx0 & idx1
+                else:
+                    idx = idx0 | idx1
+                tab_bk = tab_bk[idx]
+                if tab_bk.shape[0] > 0:
+                    new_parent.nonuniq_exc[(bra,ket)+inv] = tab_bk
+                    new_pairs.append ([bra,ket])
+            if len (new_pairs)>0:
+                new_parent.spman[key] = new_pairs
         # ops for h_op product
         new_parent.optermgroups_h = {}
+        keys = new_parent.nonuniq_exc.keys ()
         for inv, group in self.optermgroups_h.items ():
-            new_group = group.subspace (roots)
+            new_group = group.subspace (keys)
             if new_group is not None:
                 new_parent.optermgroups_h[inv] = new_group
-        # equivalence map
-        new_parent.nonuniq_exc = {}
-        for key, tab_bk in self.nonuniq_exc.items ():
-            idx = np.isin (tab_bk[:,0], roots)
-            tab_bk = tab_bk[idx]
-            idx = np.isin (tab_bk[:,1], roots)
-            tab_bk = tab_bk[idx]
-            if tab_bk.shape[0] > 0:
-                new_parent.nonuniq_exc[key] = tab_bk
+        new_parent.optermgroups_h = new_parent._index_ovlppart (new_parent.optermgroups_h)
         return new_parent
 
     def get_hdiag (self):
@@ -616,56 +848,100 @@ class HamS2OvlpOperators (HamS2Ovlp):
 
     def get_hdiag_orth (self, raw2orth):
         self.ox[:] = 0
-        self._fdm_vec_getter = raw2orth.get_xmat_rows
+        hdiag = self.ox
+        if raw2orth.shape[0] > hdiag.size:
+            hdiag = np.zeros (raw2orth.shape[0], dtype=self.ox.dtype)
+        def getter (iroot, bra=False):
+            return raw2orth.get_xmat_rows (iroot)
+        self._fdm_vec_getter = getter
         for inv, group in self.optermgroups_h.items (): 
             for op in group.ops:
-                op1 = {(key[0], key[1]): opterm.reduce_spin (op, key[0], key[1]).ravel ()
+                sinv = op.get_inv_frags ()
+                op1 = {raw2orth.spincase_mstrs (key[:2], sinv)[1]:
+                       opterm.reduce_spin (op, key[0], key[1]).ravel ()
                        for key in op.spincase_keys}
-                itertable = self.hdiag_orth_getiter (raw2orth, op.spincase_keys)
-                for braket_tab, mblock_table in itertable:
+                for iman, braket_tab, mblocks in self.hdiag_orth_gen (raw2orth, op):
                     fdm = self.get_hdiag_fdm (braket_tab, *inv)
-                    for (key0, key1), (p, q) in mblock_table:
-                        op2 = op1[(key0,key1)]
-                        fdm = fdm.reshape (q-p, op2.size)
-                        self.ox[p:q] += np.dot (fdm, op2 + op2.conj ())
-        return self.ox[:raw2orth.shape[0]].copy ()
+                    nx = raw2orth.get_manifold_orth_shape (iman)[1]
+                    ny = np.prod (op.shape)
+                    fdm = fdm.reshape (nx, ny)
+                    for mstr_bra, mstr_ket in mblocks:
+                        op2 = op1[mstr_ket]
+                        op2 = np.dot (fdm, op2 + op2.conj ())
+                        for fac,(p,q) in raw2orth.hdiag_spincoup_loop (iman,mstr_bra,mstr_ket,sinv):
+                            hdiag[p:q] += fac * op2
+        return hdiag[:raw2orth.shape[0]].copy ()
 
-    def hdiag_orth_getiter (self, raw2orth, spincase_keys):
+    def hdiag_orth_gen (self, raw2orth, op):
+        r'''Inverting a bunch of lookup tables, in order to help get the diagonal elements of the
+        Hamiltonian in OrthBasis.
+
+        Args:
+            raw2orth : instance of :class: OrthBasis or NullOrthBasis
+            op : instance of :class: OpTerm
+
+        Returns a generator with elements:
+            iman : integer
+                Index of an OrthBasis Manifold
+            braket_tab : ndarray of ints
+                argument to get_hdiag_fdm
+            mblocks : list
+                elements are (mstr_bra, mstr_ket)
+                identifying the M case of the corresponding
+                operator in the inv block
+        '''
+        spincase_keys = op.spincase_keys
+        sinv = op.get_inv_frags ()
         braket_tabs = {}
         mblocks = {}
         for key in spincase_keys:
-            my_braket_tabs, my_mblocks = self.hdiag_orth_getiter_1key (raw2orth, key)
-            # overwrite braket_tab, because it should always be the same for the same sblock
+            mstrs = raw2orth.spincase_mstrs (key[:2], sinv)
+            my_braket_tabs = self.hdiag_orth_split_braket_tabs (raw2orth, key)
+            # overwrite braket_tab, because it should always be the same for the same manifold
             braket_tabs.update (my_braket_tabs)
             # append because I think the dict keys here can collide
-            for sblock, mbl1 in my_mblocks.items ():
-                mblocks[sblock] = mblocks.get (sblock, []) + mbl1
+            for iman in my_braket_tabs.keys ():
+                mblocks[iman] = mblocks.get (iman, []) + [mstrs,]
         assert (len (braket_tabs.keys ()) == len (mblocks.keys ()))
-        itertable = []
-        for sblock in braket_tabs.keys ():
-            itertable.append ((braket_tabs[sblock], mblocks[sblock]))
-        return itertable
+        for iman in braket_tabs.keys ():
+            yield iman, braket_tabs[iman], mblocks[iman]
 
-    def hdiag_orth_getiter_1key (self, raw2orth, key):
+    def hdiag_orth_split_braket_tabs (self, raw2orth, key):
+        r'''Split the tables in self.nonuniq_exc[key] along the "manifold" index
+        of an OrthBasis, in order to help get the diagonal elements of the
+        Hamiltonian.
+
+        Args:
+            raw2orth : instance of :class: OrthBasis or NullOrthBasis
+            key : list of integers
+                A key for self.nonuniq_exc. The corresponding value is immediately truncated
+                to only those pairs that could contribute to diagonal elements
+
+        Returns:
+            braket_tabs : dict
+                The truncated value of self.nonuniq_exc[key], split up according to the
+                "manifold" in which it lives (i.e., OrthBasis states sharing N and S string)
+        '''
         tab = self.nonuniq_exc[key]
-        tab = [[bra, ket] for bra, ket in tab if raw2orth.roots_in_same_block (bra, ket)]
+        tab = [[bra, ket] for bra, ket in tab if raw2orth.roots_coupled_in_hdiag (bra, ket)]
         tab = np.asarray (tab)
         braket_tabs = {}
-        mblocks = {}
-        if tab.size == 0: return braket_tabs, mblocks
+        mblocks = set ()
+        if tab.size == 0: return braket_tabs
         bras = tab[:,0]
-        man = raw2orth.root_manifold_addr[bras]
-        uniq, inv = np.unique (man[:,0], return_inverse=True)
+        blks = raw2orth.roots2blks (bras)
+        mans = raw2orth.roots2mans (bras)
+        uniq, inv = np.unique (blks, return_inverse=True)
         tab = np.asarray (tab)
+        # This overwrites the entry for different spectator-fragment m strings.
+        # THIS IS INTENTIONAL
+        # The summation over spectator-fragment m strings occurs in hdiag_spincoup_loop
         for i,p in enumerate (uniq):
             idx = inv==i
-            sblock = man[idx,1][0]
-            assert (np.all (man[idx,1]==sblock))
-            braket_tabs[sblock] = tab[idx]
-            mblock = mblocks.get (sblock, [])
-            mblock.append (((key[0], key[1]), raw2orth.offs_orth[p]))
-            mblocks[sblock] = mblock
-        return braket_tabs, mblocks
+            iman = mans[idx][0]
+            assert (np.all (mans[idx]==iman))
+            braket_tabs[iman] = tab[idx]
+        return braket_tabs
 
     def get_hdiag_fdm (self, braket_tab, *inv):
         fdm = 0
@@ -679,7 +955,7 @@ class HamS2OvlpOperators (HamS2Ovlp):
         # subclassed to facilitate use of LRRDM.get_fdm_1space
         # TODO: if necessary, split into a bra getter and a ket getter
         # TODO: it might be more efficient to umat the op and modify get_fdm_1space
-        vec = self._fdm_vec_getter (iroot).copy ()
+        vec = self._fdm_vec_getter (iroot, bra=bra).copy ()
         lroots = self.lroots[:,iroot:iroot+1]
         for i, inti in enumerate (self.ints):
             umat = inti.umat_root.get (iroot, np.eye (lroots[i,0]))
@@ -729,6 +1005,46 @@ class HamS2OvlpOperators (HamS2Ovlp):
             o = np.multiply.outer (i.get_ovlp_inpbasis (rbra, rbra).diagonal (), o)
             o = o.ravel ()
         return o
+
+    def get_pspace_ham (self, raw2orth, addrs):
+        pspace_size = len (addrs)
+        addrs = raw2orth.split_addrs_by_blocks (addrs)
+        ham = np.zeros ((pspace_size, pspace_size), dtype=self.dtype)
+        for inv, group in self.optermgroups_h.items (): 
+            for op in group.ops:
+                for key in op.spincase_keys:
+                    op1 = opterm.reduce_spin (op, key[0], key[1])
+                    for idx1, idx2, fdm in self.gen_pspace_fdm (raw2orth, addrs, key):
+                        ham[idx1] += opterm.fdm_dot (fdm, op1)
+                        ham[idx2] += opterm.fdm_dot (fdm, op1.conj ()).T 
+        return ham
+
+    def gen_pspace_fdm (self, raw2orth, addrs, key):
+        # I have to set self._fdm_vec_getter in some highly clever way
+        blks_snt, cols = addrs
+        inv = tuple (set (key[2:]))
+        braket_tab = self.nonuniq_exc[key]
+        snm_exc = raw2orth.roots2blks (braket_tab)
+        uniq, invs = np.unique (snm_exc, axis=0, return_inverse=True)
+        for i, (bra_snm, ket_snm) in enumerate (uniq):
+            idx = (invs==i)
+            my_braket_tab = braket_tab[idx]
+            for fac, idx_bra, idx_ket in raw2orth.pspace_ham_spincoup_loop (
+                    blks_snt, bra_snm, ket_snm):
+                idx2 = np.ix_(idx_bra,idx_ket)
+                idx3 = np.ix_(idx_ket,idx_bra)
+                rect_indices = np.indices ((np.count_nonzero (idx_ket),
+                                            np.count_nonzero (idx_bra)))
+                _ik, _ib = np.concatenate (rect_indices.T, axis=0).T
+                _col = (cols[idx_ket][_ik], cols[idx_bra][_ib])
+                def getter (iroot, bra=False):
+                    bra = int (bra)
+                    return fac[bra] * raw2orth.get_xmat_rows (iroot, _col=_col[bra])
+                self._fdm_vec_getter = getter
+                fdm = self.get_hdiag_fdm (my_braket_tab, *inv)
+                fdm = fdm.reshape (idx2[0].shape[0], idx2[1].shape[1], -1)
+                yield idx2, idx3, fdm
+        return
 
     def _crunch_2c_(self, bra, ket, a, i, b, j, s2lt, dry_run=False):
         '''Compute the reduced density matrix elements of a two-electron hop; i.e.,
@@ -880,34 +1196,18 @@ def gen_contract_op_si_hdiag (las, h1, h2, ci, nelec_frs, smult_fr=None, soc=0, 
     s2_op = outerprod.get_s2_op ()
     ovlp_op = outerprod.get_ovlp_op ()
     hdiag = outerprod.get_hdiag ()
-    #raw2orth = citools.get_orth_basis (ci, las.ncas_sub, nelec_frs,
-    #                                   _get_ovlp=outerprod.get_ovlp)
     return ham_op, s2_op, ovlp_op, hdiag, outerprod.get_ovlp
 
 def get_hdiag_orth (hdiag_raw, h_op_raw, raw2orth):
-    if isinstance (raw2orth, citools.NullOrthBasis):
+    if isinstance (raw2orth, basis.NullOrthBasis):
         return hdiag_raw
     hobj_neutral = h_op_raw.parent.get_neutral (verbose=0)
     return hobj_neutral.get_hdiag_orth (raw2orth)
-    #h_op_neutral = hobj_neutral.get_ham_op ()
-    #hdiag_orth = np.empty (raw2orth.shape[0], dtype=hdiag_raw.dtype)
-    #uniq_prod_idx = raw2orth.uniq_prod_idx
-    #nuniq_prod = len (uniq_prod_idx)
-    #hdiag_orth[:nuniq_prod] = hdiag_raw[uniq_prod_idx]
-    #old_roots = None
-    #def cmp (new, old):
-    #    if old is None: return False
-    #    if len (new) != len (old): return False
-    #    if np.any (new!=old): return False
-    #    return True
-    #for i, (x0, roots) in enumerate (raw2orth.gen_mixed_state_vectors (_yield_roots=True)):
-    #    if not cmp (roots, old_roots):
-    #        hobj_subspace = hobj_neutral.get_subspace (roots, verbose=0)
-    #        h_op_subspace = hobj_subspace.get_ham_op ()
-    #        old_roots = roots
-    #    hdiag_orth[i+nuniq_prod] = np.dot (x0.conj (), h_op_subspace (x0))
-    #return hdiag_orth
 
-
-
+def pspace_ham (h_op_raw, raw2orth, addrs):
+    t0 = (logger.process_clock (), logger.perf_counter ())
+    hobj0 = h_op_raw.parent
+    all_roots = raw2orth.rootspaces_covering_addrs (addrs)
+    hobj1 = hobj0.get_subspace (all_roots, verbose=0)
+    return hobj1.get_pspace_ham (raw2orth, addrs)
 

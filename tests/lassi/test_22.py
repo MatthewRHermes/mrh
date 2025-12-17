@@ -225,6 +225,21 @@ class KnownValues(unittest.TestCase):
         # Reference depends on rng seed obviously b/c this is not casci limit
         self.assertAlmostEqual (mylsis.e_roots[0], -4.134472877702426, 8)
 
+    def test_lassis_o1_lsf_kernel (self):
+        mylsis = lsis[1].copy ()
+        e_ref = lsis[1].e_roots.copy ()
+        s2_ref = lsis[1].s2.copy ()
+        mylsis.nroots_si=1
+        mylsis.davidson_only = True
+        for smult in (1, 3, 5):
+            s = (smult-1) * .5
+            idx = np.where (np.isclose (s2_ref, s*(s+1)))[0][0]
+            mylsis.smult_si = smult
+            mylsis.si = None
+            e_test, si = mylsis.eig ()
+            self.assertAlmostEqual (e_ref[idx], e_test[0], 8)
+            self.assertAlmostEqual (s2_ref[idx], mylsis.s2[0], 8)
+
     def test_lassis_energy_tot_method (self):
         lsis1 = lassis.LASSIS (las)
         e_tot = lsis1.energy_tot (

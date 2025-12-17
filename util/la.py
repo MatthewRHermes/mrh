@@ -4,7 +4,19 @@ import scipy
 import scipy.linalg
 import copy
 import math
+from scipy.sparse import linalg as sparse_linalg
 from mrh.util import params
+
+class CallbackLinearOperator (sparse_linalg.LinearOperator):
+    def __init__(self, parent, shape, dtype=None, matvec=None):
+        self.parent = parent
+        self.shape = shape
+        self.dtype = dtype
+        self._matvec_fn = matvec
+
+    def _matvec (self, x):
+        # Just to shut up the stupid warning
+        return self._matvec_fn (x)
 
 def vector_error (test, ref, err_type='norm', ang_units='rad'):
     ''' For two ndarrays test and ref, compute the norm of the difference and

@@ -183,10 +183,10 @@ class KnownValues(unittest.TestCase):
         las1 = LASSCF (mf1, (1,1,1,1), ((0,1),(1,0),(0,1),(1,0)))
         mo_coeff = las1.localize_init_guess ([[0,],[1,],[2,],[3,]])
         las1.lasci_(mo_coeff)
-        for dson in (False,True):
-            with self.subTest (davidson_only=dson):
-                lsi = LASSIS (las1).set (davidson_only=dson)
-                if dson:
+        for dson, smult_si in zip((False,True,True),(None,None,1)):
+            with self.subTest (davidson_only=dson, smult_si=smult_si):
+                lsi = LASSIS (las1).set (davidson_only=dson, smult_si=smult_si)
+                if dson and (smult_si is None):
                     lsi.prepare_states_()
                     h0, h1, h2 = ham_2q (las1, las1.mo_coeff)
                     case_contract_op_si (self, las1, h1, h2, lsi.ci, lsi.get_nelec_frs (),
@@ -194,6 +194,10 @@ class KnownValues(unittest.TestCase):
                 lsi.kernel ()
                 self.assertTrue (lsi.converged)
                 self.assertAlmostEqual (lsi.e_roots[0], -1.867291372401379, 6)
+                if smult_si is not None:
+                    s2_ref = .5 * (smult_si - 1)
+                    s2_ref = s2_ref*(s2_ref+1)
+                    self.assertAlmostEqual (lsi.s2[0], s2_ref, 8)
                 case_lassis_fbf_2_model_state (self, lsi)
                 case_lassis_fbfdm (self, lsi)
 
@@ -214,16 +218,20 @@ class KnownValues(unittest.TestCase):
         case_matrix_o0_o1 (self, ham_o0, ham_o1, lsi.get_nelec_frs (), lsi.get_lroots (),
                            lsi.get_smult_fr ())
         # Starting from converged SIvecs doesn't guarantee instant convergence for some reason
-        for dson in (False,True):
-            with self.subTest (davidson_only=dson):
-                lsi.eig (davidson_only=dson)
-                if dson:
+        for dson, smult_si in zip((False,True,True),(None,None,1)):
+            with self.subTest (davidson_only=dson, smult_si=smult_si):
+                lsi.eig (davidson_only=dson, smult_si=smult_si)
+                if dson and (smult_si is None):
                     h0, h1, h2 = ham_2q (las0, las0.mo_coeff)
                     case_contract_op_si (self, las, h1, h2, lsi.ci, lsi.get_nelec_frs (),
                                          smult_fr=lsi.get_smult_fr ())#, tol=4)
                 self.assertTrue (lsi.converged)
                 self.assertTrue (lsi.converged_si)
-                self.assertAlmostEqual (lsi.e_roots[0], -304.5361582311853, 3)
+                self.assertAlmostEqual (lsi.e_roots[0], -304.5361582311853, 2)
+                if smult_si is not None:
+                    s2_ref = .5 * (smult_si - 1)
+                    s2_ref = s2_ref*(s2_ref+1)
+                    self.assertAlmostEqual (lsi.s2[0], s2_ref, 8)
                 case_lassis_fbf_2_model_state (self, lsi)
                 #case_lassis_fbfdm (self, lsi)
                 lsi.si = fuzz_sivecs (lsi.si)

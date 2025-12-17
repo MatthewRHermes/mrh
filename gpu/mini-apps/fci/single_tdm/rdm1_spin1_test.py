@@ -29,8 +29,9 @@ mf.with_df.auxbasis = pyscf.df.make_auxbasis(mol)
 mf.max_cycle=1
 mf.kernel()
 
-norb = 10
-nelec = 9
+norb = 6
+#nelec = (5,0)
+nelec = (0,5)
 
 neleca, nelecb = _unpack_nelec(nelec)
 link_indexa = link_indexb = cistring.gen_linkstr_index(range(norb), neleca)
