@@ -383,6 +383,7 @@ class OrthBasis (OrthBasisBase):
         # rows are rootspaces
         # [blk_idx, rootspace_idx]
         self.root_block_addr = -np.ones ((len (nprods_r),2), dtype=int)
+        self.root_block_prod_offs = -np.ones (len (nprods_r), dtype=int)
         # lookup for diagonal blocking
         # rows are blocks
         # [snp_idx, m_idx]
@@ -391,7 +392,6 @@ class OrthBasis (OrthBasisBase):
         nman = 0
         self.nprods_orth = []
         blk_off = 0
-        self.nprods_raw_blocks = []
         for i, manifold in enumerate (manifolds):
             for j in range (manifold.orth_shape[0]):
                 self.oblock_manifold_addr.append ([i,j])
@@ -400,10 +400,11 @@ class OrthBasis (OrthBasisBase):
                 self.rblock_manifold_addr.append ([i,j])
             for j, m_block in enumerate (manifold.m_blocks):
                 # common m string: a "block"
+                offs = np.cumsum (self.nprods_raw[m_block])
                 for k, iroot in enumerate (m_block):
                     # an individual root
                     self.root_block_addr[iroot,:] = [nman,k]
-                self.nprods_raw_blocks.append (self.nprods_raw[m_block].sum ())
+                    self.root_block_prod_offs[iroot] = offs[k]
                 nman += 1
         assert (np.all (self.root_block_addr>-1))
         self.rblock_manifold_addr = np.stack (self.rblock_manifold_addr, axis=0)
@@ -412,9 +413,6 @@ class OrthBasis (OrthBasisBase):
         offs1 = np.cumsum (self.nprods_orth)
         offs0 = offs1 - self.nprods_orth
         self.offs_orth = np.stack ([offs0, offs1], axis=1)
-        offs1 = np.cumsum (self.nprods_raw_blocks)
-        offs0 = offs1 - self.nprods_raw_blocks
-        self.offs_raw_blocks = np.stack ([offs0, offs1], axis=1)
         assert (self.offs_orth[-1,-1] == self.shape[0])
 
     def rootspaces_covering_addrs (self, addrs):
@@ -463,8 +461,10 @@ class OrthBasis (OrthBasisBase):
     split_addrs_by_oblocks = split_addrs_by_blocks
 
     def split_addrs_by_rblocks (self, addrs):
-        blks = np.searchsorted (self.offs_raw_blocks[:,0], addrs, side='right')-1
-        cols = np.asarray (addrs) - self.offs_raw_blocks[blks,0]
+        roots = np.searchsorted (self.offs_raw[:,0], addrs, side='right')-1
+        cols = np.asarray (addrs) - self.offs_raw[roots,0]
+        cols += self.root_block_prod_offs[roots]
+        blks = self.root_block_addr[roots,0]
         assert (np.all (cols>=0))
         return blks, cols
 
