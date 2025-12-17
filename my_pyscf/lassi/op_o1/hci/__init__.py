@@ -169,6 +169,7 @@ def contract_ham_ci (las, h1, h2, ci_fr, nelec_frs, si_bra=None, si_ket=None, ci
     si_ket = map_sivec_to_larger_space (si_ket, lroots, mask_ket_space)
 
     # Second pass: upper-triangle
+    t01 = log.timer ('LASSI hci frag tdm', *t00)
     t0 = (lib.logger.process_clock (), lib.logger.perf_counter ())
     max_memory = getattr (las, 'max_memory', las.mol.max_memory)
     contracter = ContractHamCI (las, ints, nlas, lroots, h0, h1, h2, si_bra=si_bra,
