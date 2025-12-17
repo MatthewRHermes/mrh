@@ -289,12 +289,12 @@ class OrthBasisBase (sparse_linalg.LinearOperator):
     split_rblocks_by_manifolds=split_oblocks_by_manifolds
 
     def idx2addrs_orth (self, idx):
-        blks, addrs_p = self.split_addrs_by_blocks (idx)
+        blks, addrs_p = self.split_addrs_by_oblocks (idx)
         addrs_sn, addrs_t = self.split_oblocks_by_manifolds (blks)
         return addrs_sn, addrs_t, addrs_p
 
     def idx2addrs_raw (self, idx):
-        blks, addrs_p = self.split_addrs_by_blocks (idx)
+        blks, addrs_p = self.split_addrs_by_rblocks (idx)
         addrs_sn, addrs_m = self.split_rblocks_by_manifolds (blks)
         return addrs_sn, addrs_m, addrs_p
 
@@ -337,6 +337,9 @@ class NullOrthBasis (OrthBasisBase):
         cols = np.asarray (addrs) - self.offs_raw[blks,0]
         assert (np.all (cols>=0))
         return blks, cols
+
+    split_addrs_by_oblocks = split_addrs_by_blocks
+    split_addrs_by_rblocks = split_addrs_by_blocks
 
     def roots2blks (self, roots):
         return roots
@@ -387,6 +390,8 @@ class OrthBasis (OrthBasisBase):
         self.oblock_manifold_addr = []
         nman = 0
         self.nprods_orth = []
+        blk_off = 0
+        self.nprods_raw_blocks = []
         for i, manifold in enumerate (manifolds):
             for j in range (manifold.orth_shape[0]):
                 self.oblock_manifold_addr.append ([i,j])
@@ -398,6 +403,7 @@ class OrthBasis (OrthBasisBase):
                 for k, iroot in enumerate (m_block):
                     # an individual root
                     self.root_block_addr[iroot,:] = [nman,k]
+                self.nprods_raw_blocks.append (self.nprods_raw[m_block].sum ())
                 nman += 1
         assert (np.all (self.root_block_addr>-1))
         self.rblock_manifold_addr = np.stack (self.rblock_manifold_addr, axis=0)
@@ -406,6 +412,9 @@ class OrthBasis (OrthBasisBase):
         offs1 = np.cumsum (self.nprods_orth)
         offs0 = offs1 - self.nprods_orth
         self.offs_orth = np.stack ([offs0, offs1], axis=1)
+        offs1 = np.cumsum (self.nprods_raw_blocks)
+        offs0 = offs1 - self.nprods_raw_blocks
+        self.offs_raw_blocks = np.stack ([offs0, offs1], axis=1)
         assert (self.offs_orth[-1,-1] == self.shape[0])
 
     def rootspaces_covering_addrs (self, addrs):
@@ -448,6 +457,14 @@ class OrthBasis (OrthBasisBase):
         # This usage implies "orth" blocks
         blks = np.searchsorted (self.offs_orth[:,0], addrs, side='right')-1
         cols = np.asarray (addrs) - self.offs_orth[blks,0]
+        assert (np.all (cols>=0))
+        return blks, cols
+
+    split_addrs_by_oblocks = split_addrs_by_blocks
+
+    def split_addrs_by_rblocks (self, addrs):
+        blks = np.searchsorted (self.offs_raw_blocks[:,0], addrs, side='right')-1
+        cols = np.asarray (addrs) - self.offs_raw_blocks[blks,0]
         assert (np.all (cols>=0))
         return blks, cols
 
