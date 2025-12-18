@@ -326,6 +326,8 @@ class NullOrthBasis (OrthBasisBase):
         offs0 = offs1 - nprods_r
         self.offs_raw = np.stack ([offs0,offs1], axis=1)
 
+    def get_ref_man_size (self): return self.nprods_raw[0]
+
     def _matvec (self, x): return x
 
     def _rmatvec (self, x): return x
@@ -424,6 +426,8 @@ class OrthBasis (OrthBasisBase):
         offs0 = offs1 - self.nprods_orth
         self.offs_orth = np.stack ([offs0, offs1], axis=1)
         assert (self.offs_orth[-1,-1] == self.shape[0])
+
+    def get_ref_man_size (self): return np.prod (self.manifolds[0].orth_shape)
 
     def rootspaces_covering_addrs (self, addrs):
         blocks = np.searchsorted (self.offs_orth[:,0], addrs, side='right')-1

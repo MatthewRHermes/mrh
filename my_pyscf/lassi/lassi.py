@@ -36,6 +36,7 @@ MAX_SPACE_SI = getattr (__config__, 'lassi_max_space_si', 12)
 TOL_SI = getattr (__config__, 'lassi_tol_si', 1e-8)
 DAVIDSON_SCREEN_THRESH_SI = getattr (__config__, 'lassi_hsi_screen_thresh', 1e-12)
 PSPACE_SIZE_SI = getattr (__config__, 'lassi_hsi_pspace_size', 400)
+INIT_GUESS_SI = getattr (__config__, 'lassi_init_guess_si', 'safe')
 
 op = (op_o0, op_o1)
 
@@ -398,6 +399,7 @@ def _eig_block_Davidson (las, e0, h1, h2, ci_blk, nelec_blk, smult_blk, soc, opt
     max_space_si = getattr (las, 'max_space_si', MAX_SPACE_SI)
     tol_si = getattr (las, 'tol_si', TOL_SI)
     get_init_guess = getattr (las, 'get_init_guess_si', get_init_guess_si)
+    init_guess = getattr (las, 'init_guess_si', INIT_GUESS_SI)
     screen_thresh = getattr (las, 'davidson_screen_thresh_si', DAVIDSON_SCREEN_THRESH_SI)
     pspace_size = getattr (las, 'pspace_size_si', PSPACE_SIZE_SI)
     smult_si = getattr (las, 'smult_si', None)
@@ -436,7 +438,14 @@ def _eig_block_Davidson (las, e0, h1, h2, ci_blk, nelec_blk, smult_blk, soc, opt
         x0 = raw2orth (ovlp_op (si0))
     else:
         x0 = None
-    x0 = get_init_guess (hdiag_orth, nroots_si, x0, log=log)
+    hdiag_orth1 = hdiag_orth.copy ()
+    if init_guess.lower () == 'safe':
+        # Force the reference state to appear in the first (few?) guess vectors
+        i = raw2orth.get_ref_man_size ()
+        e0 = np.amin (hdiag_orth1)
+        e1 = np.amax (hdiag_orth1[:i])
+        hdiag_orth1[:i] -= (e1 - e0 + 0.001)
+    x0 = get_init_guess (hdiag_orth1, nroots_si, x0, log=log)
     def h_op (x):
         return raw2orth (h_op_raw (orth2raw (x)))
     log.info ("LASSI E(const) = %15.10f", e0)
