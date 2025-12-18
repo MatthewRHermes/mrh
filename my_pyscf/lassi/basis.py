@@ -364,7 +364,7 @@ class NullOrthBasis (OrthBasisBase):
         assert (len (sgnvec) == 1)
         return np.atleast_2d (sgnvec)
 
-    def log_debug_hdiag_raw (self, log, hdiag, idx=None):
+    def log_debug1_hdiag_raw (self, log, hdiag, idx=None):
         return
 
     def log_debug_hdiag_orth (self, log, hdiag, idx=None):
@@ -581,19 +581,19 @@ class OrthBasis (OrthBasisBase):
         ketstr = ketstr[ket_t]
         return np.all (brastr==ketstr, axis=-1)
 
-    def log_debug_hdiag_raw (self, log, hdiag, idx=None):
+    def log_debug1_hdiag_raw (self, log, hdiag, idx=None):
         if idx is None:
             idx = np.arange (len (hdiag), dtype=int)
         idx = idx[np.argsort (hdiag[idx])]
         addrs_sn, addrs_m, addrs_p = self.idx2addrs_raw (idx)
-        log.debug ("Address book for individual raw states:")
+        log.debug1 ("Address book for individual raw states:")
         for i in np.sort (np.unique (addrs_sn)):
             man = self.manifolds[i]
-            log.debug ("%s", man.sprintf_address_book_raw (i))
-        log.debug ("Raw basis hdiag:")
-        log.debug ("ix e addr(manifold) addr(spin) addr(spat)")
+            log.debug1 ("%s", man.sprintf_address_book_raw (i))
+        log.debug1 ("Raw basis hdiag:")
+        log.debug1 ("ix e addr(manifold) addr(spin) addr(spat)")
         for i, ix in enumerate (idx):
-            log.debug ("%d %15.10e %d %d %d", idx[i], hdiag[ix], addrs_sn[i], addrs_m[i],
+            log.debug1 ("%d %15.10e %d %d %d", idx[i], hdiag[ix], addrs_sn[i], addrs_m[i],
                        addrs_p[i])
 
     def log_debug_hdiag_orth (self, log, hdiag, idx=None):
