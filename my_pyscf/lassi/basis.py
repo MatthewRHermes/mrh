@@ -401,6 +401,7 @@ class OrthBasis (OrthBasisBase):
             for j, m_block in enumerate (manifold.m_blocks):
                 # common m string: a "block"
                 offs = np.cumsum (self.nprods_raw[m_block])
+                offs -= self.nprods_raw[m_block]
                 for k, iroot in enumerate (m_block):
                     # an individual root
                     self.root_block_addr[iroot,:] = [nman,k]
