@@ -63,7 +63,9 @@ def get_orth_basis (ci_fr, norb_f, nelec_frs, _get_ovlp=None, smult_fr=None, smu
     north = 0
     manifolds = []
     # iterate over smult & nelec strings
+    found1st = False
     for sn_string_idx, sn_str in enumerate (unique.T):
+        contains1st = (inverse[0]==sn_string_idx)
         n_str = sn_str[:nfrags]
         s_str = sn_str[nfrags:]
         pm_blocks, pm_strs = _get_spin_split_manifolds (ci_fr, norb_f, nelec_frs, smult_fr,
@@ -87,13 +89,16 @@ def get_orth_basis (ci_fr, norb_f, nelec_frs, _get_ovlp=None, smult_fr=None, smu
                 xmat = None
             new_manifold = get_rootspace_manifold (norb_f, lroots_fr, nprods_r, n_str, s_str,
                                                    m_strs, m_blocks, xmat, smult_si=smult_si)
-            if _is_first (nelec_frs, smult_fr, n_str, s_str):
+            if contains1st and _is_first (nelec_frs, smult_fr, n_str, s_str, m_strs):
+                assert (not found1st)
                 manifolds = [new_manifold,] + manifolds
+                found1st = True
             else:
                 manifolds.append (new_manifold)
             north += np.prod (new_manifold.orth_shape)
             ovlp = None
 
+    assert (found1st)
     _get_ovlp = None
 
     if smult_si is None:
@@ -101,12 +106,16 @@ def get_orth_basis (ci_fr, norb_f, nelec_frs, _get_ovlp=None, smult_fr=None, smu
     else:
         return SpinCoupledOrthBasis ((north,nraw), dtype, nprods_r, manifolds)
 
-def _is_first (nelec_frs, smult_fr, n_str, s_str):
+def _is_first (nelec_frs, smult_fr, n_str, s_str, m_strs):
     if np.any (n_str != nelec_frs[:,0,:].sum (1)):
         return False
     if smult_fr is None:
-        return True
-    return np.all (smult_fr[:,0]==s_str)
+        n0_fs = nelec_frs[:,0,:][None,:,:]
+        n1_rfs = np.asarray ([[n_str + m_str, n_str - m_str]
+                              for m_str in m_strs]).transpose (0,2,1) // 2
+        return (n0_fs==n1_rfs).all ((1,2)).any ()
+    else:
+        return np.all (smult_fr[:,0]==s_str)
 
 def get_nbytes (obj):
     def _get (x):
