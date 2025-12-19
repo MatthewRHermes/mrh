@@ -421,8 +421,18 @@ def _eig_block_Davidson (las, e0, h1, h2, ci_blk, nelec_blk, smult_blk, soc, opt
         # The sort is slow
         log.debug ("fingerprint of hdiag orth: %15.10e", lib.fp (np.sort (hdiag_orth)))
     t0 = log.timer ('LASSI get hdiag in orthogonal basis', *t0)
+    hdiag_penalty = np.zeros_like (hdiag_orth)
+    if privilege_ref:
+        # Force the reference state to appear in the first (few?) guess vectors
+        i = raw2orth.get_ref_man_size ()
+        if (i>0) and (i < len (hdiag_orth)):
+            below = np.amin (hdiag_orth[i:])
+            above = np.amax (hdiag_orth[:i])
+            if above > below:
+                hdiag_penalty[i:] = (above - below + 0.001)
     if pspace_size:
-        pw, pv, addr = pspace (hdiag_orth, h_op_raw, raw2orth, opt, pspace_size)
+        pw, pv, addr = pspace (hdiag_orth, h_op_raw, raw2orth, opt, pspace_size, log=log,
+                               penalty=hdiag_penalty)
         raw2orth.log_debug_hdiag_orth (log, hdiag_orth, idx=addr)
         t0 = log.timer ('LASSI make pspace Hamiltonian', *t0)
         if pspace_size >= hdiag_orth.size:
@@ -438,14 +448,6 @@ def _eig_block_Davidson (las, e0, h1, h2, ci_blk, nelec_blk, smult_blk, soc, opt
         x0 = raw2orth (ovlp_op (si0))
     else:
         x0 = None
-    hdiag_penalty = np.zeros_like (hdiag_orth)
-    if privilege_ref:
-        # Force the reference state to appear in the first (few?) guess vectors
-        i = raw2orth.get_ref_man_size ()
-        below = np.amin (hdiag_orth[i:])
-        above = np.amax (hdiag_orth[:i])
-        if above > below:
-            hdiag_penalty[i:] = (above - below + 0.001)
     x0 = get_init_guess (hdiag_orth, nroots_si, x0, log=log, penalty=hdiag_penalty)
     def h_op (x):
         return raw2orth (h_op_raw (orth2raw (x)))
@@ -460,16 +462,35 @@ def _eig_block_Davidson (las, e0, h1, h2, ci_blk, nelec_blk, smult_blk, soc, opt
     s2 = np.array ([np.dot (x.conj (), s2_op (x)) for x in si1.T])
     return conv, e, si1, s2
 
-def pspace (hdiag_orth, h_op_raw, raw2orth, opt, pspace_size):
+def pspace (hdiag_orth, h_op_raw, raw2orth, opt, pspace_size, log=None, penalty=None):
+    heff = hdiag_orth.copy ()
+    if penalty is not None:
+        heff += penalty
     if hdiag_orth.size <= pspace_size:
         addr = np.arange (hdiag_orth.size)
     else:
         try: # this is just a fast PARTIAL sort
-            addr = np.argpartition(hdiag_orth, pspace_size-1)[:pspace_size].copy()
+            addr = np.argpartition(heff, pspace_size-1)[:pspace_size].copy()
         except AttributeError:
-            addr = np.argsort(hdiag_orth)[:pspace_size].copy()
+            addr = np.argsort(heff)[:pspace_size].copy()
     h0 = op[opt].pspace_ham (h_op_raw, raw2orth, addr)
     pw, pv = linalg.eigh (h0)
+    e_pspace = h0.diagonal ()
+    e_hdiag = hdiag_orth[addr]
+    idx_err = np.abs (e_hdiag-e_pspace) > 1e-5
+    if np.count_nonzero (idx_err):
+        log.error ("LASSI hdiag and pspace Hamiltonian disagree!")
+        log.error ("The incoming table may take a very long time to print out.")
+        log.error ("Do not expect this calculation to complete.")
+        log.error ("{:>4s} {:>17s} {:>17s} {:>17s}".format ('ix', 'pspace', 'hdiag', 'operator'))
+        fmt_str = '{:4d} {:17.10e} {:17.10e} {:17.10e}'
+        for i in np.where (idx_err)[0]:
+            x = np.zeros (raw2orth.shape[0], dtype=raw2orth.dtype)
+            x[addr[i]] = 1.0
+            x = raw2orth.H (x)
+            e_ref = np.dot (x.conj (), h_op_raw (x))
+            log.error (fmt_str.format (addr[i], e_pspace[i], e_hdiag[i], e_ref))
+        raise RuntimeError ("LASSI hdiag and pspace Hamiltonian disagree!")
     return pw, pv, addr
 
 def make_pspace_precond(hdiag, pspaceig, pspaceci, addr, level_shift=0):
