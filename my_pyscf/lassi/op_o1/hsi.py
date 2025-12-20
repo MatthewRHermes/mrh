@@ -932,7 +932,6 @@ class HamS2OvlpOperators (HamS2Ovlp):
         blks = raw2orth.roots2blks (bras)
         mans = raw2orth.roots2mans (bras)
         uniq, inv = np.unique (blks, return_inverse=True)
-        tab = np.asarray (tab)
         # This overwrites the entry for different spectator-fragment m strings.
         # THIS IS INTENTIONAL
         # The summation over spectator-fragment m strings occurs in hdiag_spincoup_loop

@@ -193,8 +193,9 @@ class RootspaceManifold:
 
     def sprintf_address_book_spat_raw (self):
         out = 'rootspace address and size:\n'
-        for i, (ir, lr) in enumerate (zip (self.m_blocks[0], self.lroots_rf)):
-            out += ' {} {} {}\n'.format (i, ir, lr)
+        for i, m_block in enumerate (self.m_blocks):
+            for j, (ir, lr) in enumerate (zip (m_block, self.lroots_rf)):
+                out += ' {} {} {} {}\n'.format (i, j, ir, lr)
         return out[:-1]
 
     def sprintf_address_book_spat_orth (self):

@@ -429,11 +429,12 @@ def _eig_block_Davidson (las, e0, h1, h2, ci_blk, nelec_blk, smult_blk, soc, opt
             below = np.amin (hdiag_orth[i:])
             above = np.amax (hdiag_orth[:i])
             if above > below:
-                hdiag_penalty[i:] = (above - below + 0.001)
+                penvalue = above - below + 0.001
+                log.debug ("Hdiag penalty value: %17.10e", penvalue)
+                hdiag_penalty[i:] = penvalue
     if pspace_size:
         pw, pv, addr = pspace (hdiag_orth, h_op_raw, raw2orth, opt, pspace_size, log=log,
                                penalty=hdiag_penalty)
-        raw2orth.log_debug_hdiag_orth (log, hdiag_orth, idx=addr)
         t0 = log.timer ('LASSI make pspace Hamiltonian', *t0)
         if pspace_size >= hdiag_orth.size:
             pv = pv[:,:nroots_si]
@@ -475,6 +476,8 @@ def pspace (hdiag_orth, h_op_raw, raw2orth, opt, pspace_size, log=None, penalty=
             addr = np.argsort(heff)[:pspace_size].copy()
     h0 = op[opt].pspace_ham (h_op_raw, raw2orth, addr)
     pw, pv = linalg.eigh (h0)
+    if log is not None:
+        raw2orth.log_debug_hdiag_orth (log, hdiag_orth, idx=addr)
     e_pspace = h0.diagonal ()
     e_hdiag = hdiag_orth[addr]
     idx_err = np.abs (e_hdiag-e_pspace) > 1e-5
