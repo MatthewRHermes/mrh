@@ -482,6 +482,10 @@ def pspace (hdiag_orth, h_op_raw, raw2orth, opt, pspace_size, log=None, penalty=
     e_hdiag = hdiag_orth[addr]
     idx_err = np.abs (e_hdiag-e_pspace) > 1e-5
     if np.count_nonzero (idx_err):
+        # Some notes:
+        # 1. For my small helium tetrahedron, pspace also fails for the lindep-affected states
+        # 2. The 2-fragment soc failure of this seems to oscillate between just a few numbers,
+        #    which is a pretty big hint.
         log.error ("LASSI hdiag and pspace Hamiltonian disagree!")
         log.error ("The incoming table may take a very long time to print out.")
         log.error ("Do not expect this calculation to complete.")
