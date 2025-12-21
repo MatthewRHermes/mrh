@@ -362,7 +362,7 @@ class NullOrthBasis (OrthBasisBase):
     def get_manifold_orth_shape (self, iroot):
         return (1, self.nprods_raw[iroot])
 
-    def hdiag_spincoup_loop (self, iroot, mstr_bra, mstr_ket):
+    def hdiag_spincoup_loop (self, iroot, mstr_bra, mstr_ket, mblks):
         yield 1, self.offs_raw[iroot]
         return
 
@@ -444,13 +444,14 @@ class OrthBasis (OrthBasisBase):
     def get_manifold_orth_shape (self, iman):
         return self.manifolds[iman].orth_shape
 
-    def hdiag_spincoup_loop (self, iman, mstr_bra, mstr_ket, inv):
+    def hdiag_spincoup_loop (self, iman, mstr_bra, mstr_ket, inv, mblks):
         assert (mstr_bra == mstr_ket)
         offs0 = 0
         for man in self.manifolds[:iman]:
             offs0 += np.prod (man.orth_shape)
         man = self.manifolds[iman]
         iblks = man.idx_m_str (mstr_ket, inv)
+        iblks = iblks[np.isin (iblks, mblks)]
         ncols = man.orth_shape[1]
         for iblk in iblks:
             p = offs0 + iblk*ncols
@@ -639,7 +640,7 @@ class SpinCoupledOrthBasis (OrthBasis):
                 roots.extend (m_block)
         return np.atleast_1d (roots).astype (int)
 
-    def hdiag_spincoup_loop (self, iman, mstr_bra, mstr_ket, inv):
+    def hdiag_spincoup_loop (self, iman, mstr_bra, mstr_ket, inv, mblks):
         offs0 = 0
         for man in self.manifolds[:iman]:
             offs0 += np.prod (man.orth_shape)
