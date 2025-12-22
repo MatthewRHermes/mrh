@@ -444,67 +444,49 @@ class HamS2OvlpOperators (HamS2Ovlp):
         use_gpu = getattr (param, 'use_gpu', False)
         op_debug = getattr (param, 'gpu_op_debug', False)
 
-        def gpu_needed(ops):
-          r'''This function can be avoided if I can guarantee that all ops have atleast one function that is 1-3 frag'''
-          #return True
-          for op in ops:
-            for key in op.spincase_keys:
-              if len(set(key[2:]))!=4: return True
-          return False
-
         if use_gpu and op_debug:
+          #GPU kernel
+          self._opuniq_x_full_gpu_v2(ops, vecs)
           #CPU kernel
           self._opuniq_x_full_cpu(ops, vecs)
-          #GPU kernel
-          gpu_op = gpu_needed(ops)
-          if gpu_op:
-            self._opuniq_x_full_gpu_v2(ops, vecs)
-            if np.allclose(self.ox1, self.ox1_gpu) != True:
-              #this is all for helping guide here the error might be.
-              print("Issue in ox1 calculation",flush=True)
-              diff = self.ox1 - self.ox1_gpu
-              print(len(self.ox1))
-              print(self.ox1)
-              print(self.ox1_gpu)
-              print(np.nonzero(diff))
-              #print(diff(np.nonzero(diff)))
-              for op in ops:
-                for key in op.spincase_keys:  #spincase_keys is a lookup table
-                  op = opterm.reduce_spin (op, key[0], key[1])
-                  key = tuple((key[0], key[1])) + key[2:]
-                  brakets, bras, braHs = self.get_nonuniq_exc_square (key)
-                  for bra in bras:
+          if np.allclose(self.ox1, self.ox1_gpu) != True:
+            #this is all for helping guide here the error might be.
+            print("Issue in ox1 calculation",flush=True)
+            diff = self.ox1 - self.ox1_gpu
+            print(len(self.ox1))
+            print(self.ox1)
+            print(self.ox1_gpu)
+            print(np.nonzero(diff))
+            #print(diff(np.nonzero(diff)))
+            for op in ops:
+              for key in op.spincase_keys:  #spincase_keys is a lookup table
+                op = opterm.reduce_spin (op, key[0], key[1])
+                key = tuple((key[0], key[1])) + key[2:]
+                brakets, bras, braHs = self.get_nonuniq_exc_square (key)
+                for bra in bras:
+                  i,j,_ = self.get_ox1_params(bra, *key[2:])  
+                  if np.allclose(self.ox1[i:j],self.ox1_gpu[i:j]) != True:
+                    print("Error in bras", i, j,flush=True)
+                    print(self.ox1[i:j])
+                    print(self.ox1_gpu[i:j])
+                    exit()
+                if len(braHs):
+                  for bra in braHs:
                     i,j,_ = self.get_ox1_params(bra, *key[2:])  
                     if np.allclose(self.ox1[i:j],self.ox1_gpu[i:j]) != True:
-                      print("Error in bras", i, j,flush=True)
-                      print(self.ox1[i:j])
-                      print(self.ox1_gpu[i:j])
-                      exit()
-                  if len(braHs):
-                    for bra in braHs:
-                      i,j,_ = self.get_ox1_params(bra, *key[2:])  
-                      if np.allclose(self.ox1[i:j],self.ox1_gpu[i:j]) != True:
-                        print("Error in braHs",flush=True)
-              exit()
-            else: print("Correctly corrected", len(ops))
+                      print("Error in braHs",flush=True)
+            exit()
+          else: print("Correctly corrected", len(ops))
            
         elif use_gpu:
             #check if gpu is needed
             t0, w0 = logger.process_clock (), logger.perf_counter ()
 
-            gpu_op = gpu_needed(ops)
+            self._opuniq_x_full_gpu_v2(ops, vecs)
+
             t1, w1 = logger.process_clock (), logger.perf_counter ()
-
-            self.dt_gpu_need += (t1-t0)
-            self.dw_gpu_need += (w1-w0)
-
-            if gpu_op:
-              self._opuniq_x_full_gpu_v2(ops, vecs)
-            else: 
-              self._opuniq_x_full_cpu(ops, vecs)
-            t2, w2 = logger.process_clock (), logger.perf_counter ()
-            self.dt_gpu_calc += (t2-t1)
-            self.dw_gpu_calc += (w2-w1)
+            self.dt_gpu_calc += (t1-t0)
+            self.dw_gpu_calc += (w1-w0)
         else:
             self._opuniq_x_full_cpu(ops, vecs)
         
@@ -581,8 +563,8 @@ class HamS2OvlpOperators (HamS2Ovlp):
                   self._gpu_opuniq_x_v2(op, key[0],key[1], vec_table, *key[2:]) 
               else:
                   # 4-fragment case is still running on cpu
-                  #self._gpu_opuniq_x_4frag(op, key[0],key[1],vec_table, max_z, *key[2:])
-                  _opuniq_x(op, key[0], key[1], vecs, *key[2:]) #4 fragment  
+                  self._gpu_opuniq_x_4frag(op, key[0],key[1],vec_table, vecs, max_z, *key[2:])
+                  #_opuniq_x(op, key[0], key[1], vecs, *key[2:]) #4 fragment  
         #STEP 6
         t3, w3 = logger.process_clock (), logger.perf_counter ()
         libgpu.finalize_ox1_pinned(gpu, ox_final, self.nstates) 
@@ -703,7 +685,7 @@ class HamS2OvlpOperators (HamS2Ovlp):
         self.dw_compute_3frag += (w4-w2)
         return
 
-    def _gpu_opuniq_x_4frag(self, op, obra, oket, vec_table, max_z, *inv):
+    def _gpu_opuniq_x_4frag(self, op, obra, oket, vec_table, vecs, max_z, *inv):
         t0, w0 = logger.process_clock (), logger.perf_counter ()
         key = tuple ((obra, oket)) + inv
         inv = list (set (inv))
@@ -713,12 +695,12 @@ class HamS2OvlpOperators (HamS2Ovlp):
         self.dw_non_uniq_exc += (w1-w0)
         #STEP 3 PART 1
         op = opterm.reduce_spin (op, obra, oket)
-        print(op.op.ravel())
-        print(op.op.shape)
-        print(op.d[2].ravel())
-        print(op.d[2].shape)
-        print(op.d[3].ravel())
-        print(op.d[3].shape)
+        #print(op.op.ravel())
+        #print(op.op.shape)
+        #print(op.d[2].ravel())
+        #print(op.d[2].shape)
+        #print(op.d[3].ravel())
+        #print(op.d[3].shape)
 
         t2, w2 = logger.process_clock (), logger.perf_counter ()
         self.dt_op_reduce += (t2-t1)
@@ -744,24 +726,23 @@ class HamS2OvlpOperators (HamS2Ovlp):
         #d3,size,loc,counts
         libgpu.push_d3(gpu, np.ascontiguousarray(op.d[3]),op.d[3].size, size_op + op.d[2].size,1) 
 
-        self._gpu_matvec_4frag(op, bras, oket, vec_table, inv, 
+        self._gpu_matvec_4frag(op, vecs, bras, oket, vec_table, inv, 
                                 i,j,k,l,
                                 a,b,c,d,
                                 r,s,op_t = False)
         t3, w3 = logger.process_clock (), logger.perf_counter ()
         self.dt_gpu_push_op += (t3-t2) 
         self.dw_gpu_push_op += (w3-w2) 
-        
 
         if len (braHs):
             op = op.conj ().T
 
-            print(op.op.ravel())
-            print(op.op.shape)
-            print(op.d[2].ravel())
-            print(op.d[2].shape)
-            print(op.d[3].ravel())
-            print(op.d[3].shape)
+            #print(op.op.ravel())
+            #print(op.op.shape)
+            #print(op.d[2].ravel())
+            #print(op.d[2].shape)
+            #print(op.d[3].ravel())
+            #print(op.d[3].shape)
             i,j,k,l = op.lroots_ket
             r,s,b,a,j,i = op.op.shape #op is an object, that contains op, d[2],d[3], lroots
             c,k,r = op.d[2].shape
@@ -777,7 +758,7 @@ class HamS2OvlpOperators (HamS2Ovlp):
             #d3,size,loc,counts
             libgpu.push_d3(gpu, np.ascontiguousarray(op.d[3]),op.d[3].size, size_op + op.d[2].size,1) 
 
-            self._gpu_matvec_4frag(op, braHs, obra, vec_table, inv, 
+            self._gpu_matvec_4frag(op, vecs, braHs, obra, vec_table, inv, 
                                     i,j,k,l,
                                     a,b,c,d,
                                     r,s,op_t = False)
@@ -785,7 +766,7 @@ class HamS2OvlpOperators (HamS2Ovlp):
         t4, w4 = logger.process_clock (), logger.perf_counter ()
         self.dt_compute_3frag += (t4-t2)
         self.dw_compute_3frag += (w4-w2)
-        exit()
+        #exit()
         return
 
     def gpu_matvec_v2(self, m, k, bras, oci, vec_table, inv, op_t = False):
@@ -834,7 +815,7 @@ class HamS2OvlpOperators (HamS2Ovlp):
         self.dw_gpu_compute += (w1-w0)
         return 
 
-    def _gpu_matvec_4frag(self, op, bras, oci, vec_table, inv, 
+    def _gpu_matvec_4frag(self, op, vecs, bras, oci, vec_table, inv, 
                            i, j, k, l,
                            a, b, c, d, 
                            r, s, op_t = False):
@@ -845,13 +826,16 @@ class HamS2OvlpOperators (HamS2Ovlp):
 
 
         spec = np.ones (self.nfrags, dtype=bool)
-        for i in inv: spec[i] = False
+        for _i in inv: spec[_i] = False
         spec = np.where (spec)[0]
+        
 
         #STEP 4 
-        print(len(bras))
+        #print(len(bras))
         for bra in bras:
             z = np.prod(self.lroots[spec, bra])
+            vec = vecs[self.ox_ovlp_urootstr (bra, oci, inv)]
+            #print(vec)
             vec_loc = vec_table[self.ox_ovlp_urootstr(bra, oci, inv)]
             ox1_loc, _, fac = self.get_ox1_params(bra, *inv)
             libgpu.compute_4frag_matvec(gpu, i, j, k, l, 
