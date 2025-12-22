@@ -2272,7 +2272,6 @@ void Device::get_h2eff_df_v2(py::array_t<double> _cderi,
   printf("LIBGPU :: Inside Device::get_h2eff_df_v2()\n");
   printf("LIBGPU:: dfobj= %p count= %i combined= %lu %p update_dfobj= %i\n",(void*)(addr_dfobj), count, addr_dfobj+count, (void*)(addr_dfobj+count),update_dfobj);
 #endif 
-  
   pm->dev_profile_start("h2eff df setup");
   
   py::buffer_info info_eri = _eri.request(); //2D array nao * ncas * ncas_pair
@@ -2284,6 +2283,8 @@ void Device::get_h2eff_df_v2(py::array_t<double> _cderi,
   my_device_data * dd = &(device_data[device_id]);
 
   dd->active = 1;
+  //printf("nao: %i, nmo: %i, ncas: %i, naux: %i count %i\n",nao, nmo, ncas, naux, count);
+
 
   const int nao_pair = nao * (nao+1)/2;
   const int ncas_pair = ncas * (ncas+1)/2;
@@ -2321,6 +2322,7 @@ void Device::get_h2eff_df_v2(py::array_t<double> _cderi,
   if(size_bumP_buvP > max_size_buf) max_size_buf = size_bumP_buvP;
   if(size_vuwM > max_size_buf) max_size_buf = size_vuwM; 
   if(size_vuwm > max_size_buf) max_size_buf = size_vuwm; 
+  printf("cderi_up: %i bump_buvP: %i vuWM:%i vuwm:%i size_buf%i\n",size_cderi_unpacked,size_bumP_buvP, size_vuwM, size_vuwm, max_size_buf);
   
   grow_array(dd->d_buf1, max_size_buf, dd->size_buf1, "buf1", FLERR); // holds cderi_unpacked and bumP+buvP and vuwM
 
@@ -2337,6 +2339,18 @@ void Device::get_h2eff_df_v2(py::array_t<double> _cderi,
   double * eri = static_cast<double*>(info_eri.ptr);
   double * d_mo_coeff = dd->d_mo_coeff;
   double * d_mo_cas = dd->d_mo_cas; 
+ 
+  #if 0
+    double * h_result = (double *)pm->dev_malloc_host(nao*ncas*sizeof(double)); 
+    pm->dev_pull_async(d_mo_cas, h_result, nao*ncas*sizeof(double));
+    pm->dev_barrier();
+    printf("printing from mo_cas");
+    for (int i=0; i<3; ++i){
+      for (int j=0; j<3; ++j){
+         printf("%f\t",h_result[i*nao + j]*1e7);}printf("\n");}printf("\n");
+    pm->dev_free_host(h_result);
+
+  #endif
   
   py::buffer_info info_cderi = _cderi.request(); // 2D array blksize * nao_pair
   double * cderi = static_cast<double*>(info_cderi.ptr);
@@ -2360,6 +2374,19 @@ void Device::get_h2eff_df_v2(py::array_t<double> _cderi,
   
   getjk_unpack_buf2(d_cderi_unpacked, d_cderi, d_my_unpack_map_ptr, naux, nao, nao_pair);
   
+  #if 0 
+    double * h_result = (double *)pm->dev_malloc_host(size_cderi_unpacked*sizeof(double)); 
+    pm->dev_pull_async(d_cderi_unpacked, h_result, size_cderi_unpacked*sizeof(double));
+    pm->dev_barrier();
+    printf("printing from cderi unpacked results");
+    for (int i=0; i<3; ++i){
+      for (int j=0; j<3; ++j){
+        for (int k=0; k<3; ++k){
+         printf("%f\t",h_result[i*nao*nao + j*nao + k]*1e7);}printf("\n");}printf("\n");};
+    pm->dev_free_host(h_result);
+  #endif 
+
+
   //bPmu = np.einsum('Pmn,nu->Pmu',cderi,mo_cas)
   
   const double alpha = 1.0;
@@ -2424,6 +2451,20 @@ void Device::get_h2eff_df_v2(py::array_t<double> _cderi,
     pack_d_vuwM(d_vuwM, dd->d_buf3, my_d_tril_map_ptr, nmo, ncas, ncas_pair);
     vecadd(dd->d_buf3, dd->d_eri_h2eff, _size_eri_h2eff);
   }
+
+  #if 0
+    double * h_result = (double *)pm->dev_malloc_host(size_vuwM*sizeof(double)); 
+    if (count < num_devices) {
+       pm->dev_pull_async(dd->d_eri_h2eff, h_result, size_vuwM*sizeof(double));}
+    else{
+       pm->dev_pull_async(dd->d_buf3, h_result, size_vuwM*sizeof(double));}
+    pm->dev_barrier();
+    printf("printing from h2eff results");
+    for (int i=0; i<3; ++i){
+      for (int j=0; j<3; ++j){
+         printf("%f\t",h_result[i*ncas*ncas_pair + j]*1e5);}printf("\n");}printf("\n");
+    pm->dev_free_host(h_result);
+  #endif 
 
   pm->dev_profile_stop();
   
@@ -5972,6 +6013,7 @@ void Device::compute_4frag_matvec( int i, int j, int k, int l,
   //tmp1 = d2*tmp2
   //final_result += d3*tmp1
   //buf1[size_op + size_d2 + size_d3 + size_tmp] = transpose_23140(
+  //printf("r: %i s: %i b: %i a: %i i: %i j: %i\n",r,s,b,a,i,j);
   int size_op = r*s*b*a*i*j;
   int size_d2 = c*k*r;
   int size_d3 = d*l*s;
@@ -5995,13 +6037,15 @@ void Device::compute_4frag_matvec( int i, int j, int k, int l,
   double * h_op;
   double * h_di;
   #if 0
-    //double * h_op = (double*)pm->dev_malloc_host(size_op*sizeof(double));
+    //h_op = (double*)pm->dev_malloc_host(size_op*sizeof(double));
     //pm->dev_pull_async(d_op, h_op, size_op*sizeof(double));
     double * h_vec = (double*)pm->dev_malloc_host(size_other*sizeof(double));
     double * d_vec = &(dd->d_buf2[vec_loc]);
     pm->dev_pull_async(d_vec, h_vec, size_other*sizeof(double));
     pm->dev_barrier();
-    //for (int _i=0; _i<size_op; ++_i){printf("%f\t",h_op[_i]);}printf("\n");
+    //printf("%i op\n",size_op);
+    //for (int _i=0; _i<size_op; ++_i){printf("%f\t",h_op[_i]*1e7);}printf("\n");
+    printf("vec\n");
     for (int _i=0; _i<size_other; ++_i){printf("%f\t",h_vec[_i]);}printf("\n");
   #endif
   if (op_t){
@@ -6039,7 +6083,7 @@ void Device::compute_4frag_matvec( int i, int j, int k, int l,
        &alpha, matB, &_k, matA, &_k,
        &beta, matC, &_n); 
 
-  #if 1
+  #if 0
     if (ox1_loc==1378){
     printf("rsjiba\n");
     h_op = (double*)pm->dev_malloc_host(_m*_k*sizeof(double));
