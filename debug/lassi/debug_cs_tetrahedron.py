@@ -123,8 +123,8 @@ class KnownValues(unittest.TestCase):
         h0, h1, h2 = ham_2q (las, las.mo_coeff)
         nelec_frs = lsi.get_nelec_frs ()
         smult_fr = lsi.get_smult_fr ()
-        debug_contract_op_si (self, las, h1, h2, lsi.ci, nelec_frs, smult_fr=smult_fr)
-        #case_contract_op_si (self, las, h1, h2, lsi.ci, nelec_frs, smult_fr=smult_fr)
+        #debug_contract_op_si (self, las, h1, h2, lsi.ci, nelec_frs, smult_fr=smult_fr)
+        case_contract_op_si (self, las, h1, h2, lsi.ci, nelec_frs, smult_fr=smult_fr)
 
 
 if __name__ == "__main__":
