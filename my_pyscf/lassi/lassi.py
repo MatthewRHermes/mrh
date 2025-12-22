@@ -481,7 +481,7 @@ def pspace (hdiag_orth, h_op_raw, raw2orth, opt, pspace_size, log=None, penalty=
     e_pspace = h0.diagonal ()
     e_hdiag = hdiag_orth[addr]
     idx_err = np.abs (e_hdiag-e_pspace) > 1e-5
-    if (log.verbose > lib.logger.DEBUG) and (np.count_nonzero (idx_err)):
+    if (log is not None) and (log.verbose > lib.logger.DEBUG) and (np.count_nonzero (idx_err)):
         # Some notes:
         # 1. For my small helium tetrahedron, pspace also fails for the lindep-affected states
         # 2. The 2-fragment soc failure of this seems to oscillate between just a few numbers,
