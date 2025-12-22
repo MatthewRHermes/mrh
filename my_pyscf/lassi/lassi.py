@@ -388,10 +388,10 @@ def _eig_block_Davidson (las, e0, h1, h2, ci_blk, nelec_blk, smult_blk, soc, opt
     # nroots_si
     # level_shift
     verbose = las.verbose
+    davidson_log = log = lib.logger.new_logger (las, verbose)
     # We want this Davidson diagonalizer to be louder than usual
     if verbose >= lib.logger.NOTE:
-        verbose += 1
-    log = lib.logger.new_logger (las, verbose)
+        davidson_log = lib.logger.new_logger (las, verbose+1)
     si0 = getattr (las, 'si', None)
     level_shift = getattr (las, 'level_shift_si', LEVEL_SHIFT_SI)
     nroots_si = getattr (las, 'nroots_si', NROOTS_SI)
@@ -455,7 +455,7 @@ def _eig_block_Davidson (las, e0, h1, h2, ci_blk, nelec_blk, smult_blk, soc, opt
     log.info ("LASSI E(const) = %15.10f", e0)
     conv, e, x1 = lib.davidson1 (lambda xs: [h_op (x) for x in xs],
                                  x0, precond_op, nroots=nroots_si,
-                                 verbose=log, max_cycle=max_cycle_si,
+                                 verbose=davidson_log, max_cycle=max_cycle_si,
                                  max_space=max_space_si, tol=tol_si)
     conv = all (conv)
     if not conv: log.warn ('LASSI Davidson diagonalization not converged')
@@ -481,7 +481,7 @@ def pspace (hdiag_orth, h_op_raw, raw2orth, opt, pspace_size, log=None, penalty=
     e_pspace = h0.diagonal ()
     e_hdiag = hdiag_orth[addr]
     idx_err = np.abs (e_hdiag-e_pspace) > 1e-5
-    if (log.verbose > lib.logger.INFO) and (np.count_nonzero (idx_err)):
+    if (log.verbose > lib.logger.DEBUG) and (np.count_nonzero (idx_err)):
         # Some notes:
         # 1. For my small helium tetrahedron, pspace also fails for the lindep-affected states
         # 2. The 2-fragment soc failure of this seems to oscillate between just a few numbers,
