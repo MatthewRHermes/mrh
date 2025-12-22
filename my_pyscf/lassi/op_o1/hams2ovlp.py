@@ -83,7 +83,7 @@ class HamS2Ovlp (stdm.LSTDM):
         nspman = len (exc)
         for key, val in nonuniq.items ():
             self.spman[key] = [tuple (pair) for pair in val]
-        self.log.debug ('split_exc_table_by_spman_ {}'.format (lbl), *t0)
+        self.log.timer ('split_exc_table_by_spman_ {}'.format (lbl), *t0)
         self.log.debug ('%d/%d uniquely spin-adapted interactions of %s type',
                         nspman, nuniq, lbl)
         return exc
