@@ -649,6 +649,8 @@ class SpinCoupledOrthBasis (OrthBasis):
         # I explicitly sorted the mstrs above
         iblks_bra = man.idx_m_str (mstr_bra, inv)
         iblks_ket = man.idx_m_str (mstr_ket, inv)
+        assert (np.isin (iblks_bra, mblks[:,0]).all ())
+        assert (np.isin (iblks_ket, mblks[:,1]).all ())
         nlsf = man.umat.shape[1]
         ubra = man.umat[iblks_bra,:]
         uket = man.umat[iblks_ket,:]

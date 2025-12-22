@@ -860,10 +860,6 @@ class HamS2OvlpOperators (HamS2Ovlp):
                 op1 = {raw2orth.spincase_mstrs (key[:2], sinv)[1]:
                        opterm.reduce_spin (op, key[0], key[1]).ravel ()
                        for key in op.spincase_keys}
-                backkey = {raw2orth.spincase_mstrs (key[:2], sinv)[1]:
-                           key
-                           for key in op.spincase_keys}
-                print ("op:", op, op1.keys (), len (op.spincase_keys), flush=True)
                 for iman, braket_tab, mstrs, mblks in self.hdiag_orth_gen (raw2orth, op):
                     fdm = self.get_hdiag_fdm (braket_tab, *inv)
                     nx = raw2orth.get_manifold_orth_shape (iman)[1]
@@ -871,19 +867,10 @@ class HamS2OvlpOperators (HamS2Ovlp):
                     fdm = fdm.reshape (nx, ny)
                     for mstr_bra, mstr_ket in mstrs:
                         op2 = op1[mstr_ket]
-                        if iman in (39,41) and (inv + op.spincase_keys[0] + backkey[mstr_ket] + mstr_ket) == (0,7,7,0,69,58,0,0):
-                            print (iman, inv, op.spincase_keys[0], mstr_ket)
-                            print (fdm)
-                            print (op2 + op2.conj ())
-                            print (braket_tab)
                         op2 = np.dot (fdm, op2 + op2.conj ())
                         for fac,(p,q) in raw2orth.hdiag_spincoup_loop (
                                 iman, mstr_bra, mstr_ket, sinv, mblks
                         ):
-                            for r in (188, 203):
-                                if (p <= r) and (q > r):
-                                    s = r - p
-                                    print (r, ":", s, inv, op.spincase_keys[0], backkey[mstr_ket], iman, mstr_ket, fac, op2[s], flush=True)
                             hdiag[p:q] += fac * op2
         return hdiag[:raw2orth.shape[0]].copy ()
 
@@ -910,20 +897,32 @@ class HamS2OvlpOperators (HamS2Ovlp):
         braket_tabs = {}
         mstrs = {}
         mblocks = {}
+        mstrs2keys = {}
+        # group the keys together on the basis of common nonspectator m
         for key in spincase_keys:
             my_mstrs = raw2orth.spincase_mstrs (key[:2], sinv)
-            my_braket_tabs, my_mblocks = self.hdiag_orth_split_braket_tabs (raw2orth, key)
+            my_keys = mstrs2keys.get (my_mstrs, [])
+            my_keys.append (key)
+            mstrs2keys[my_mstrs] = my_keys
+        for my_mstrs, my_keys in mstrs2keys.items ():
+            my_braket_tabs = {}
+            my_mblocks = {}
+            # sum over spectator m and concatenate the tables
+            for key in my_keys:
+                my_my_braket_tabs, my_my_mblocks = self.hdiag_orth_split_braket_tabs (raw2orth, key)
+                for iman in my_my_braket_tabs.keys ():
+                    parent = my_braket_tabs.get (iman, np.empty ((0,2), dtype=int))
+                    parent = np.append (parent, my_my_braket_tabs[iman], axis=0)
+                    my_braket_tabs[iman] = parent
+                    parent = my_mblocks.get (iman, np.empty ((0,2), dtype=int))
+                    parent = np.append (parent, my_my_mblocks[iman], axis=0)
+                    my_mblocks[iman] = parent
             for iman, tab in my_braket_tabs.items ():
-                # append because I think the dict keys here can collide
-                if iman in (39,41) and (tuple (sinv) + op.spincase_keys[0] + my_mstrs[1]) == (0,7,7,0,0):
-                    print ("gen", iman, key)
-                    print (my_braket_tabs[iman])
                 mstrs[iman] = mstrs.get (iman, []) + [my_mstrs,]
                 mblocks[iman] = np.unique (np.append (
                     mblocks.get (iman, np.zeros ((0,2), dtype=int)),
                     my_mblocks[iman],
                     axis=0), axis=0)
-            # overwrite braket_tab, because it should always be the same for the same manifold
             braket_tabs.update (my_braket_tabs)
         assert (len (braket_tabs.keys ()) == len (mstrs.keys ()))
         for iman in braket_tabs.keys ():
