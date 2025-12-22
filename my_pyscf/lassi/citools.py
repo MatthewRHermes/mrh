@@ -289,6 +289,7 @@ def _get_unique_roots_with_spin (ci_r, norb, nelec_r, smult_r):
         for lroot in range (lroots_r[iroot]):
             ci1.append (spin_op.mup (ci0[lroot], norb, nelec_r[iroot], smult_r[iroot]))
         ci_r[iroot] = np.stack (ci1, axis=0).reshape (lroots_r[iroot],-1)
+    spin_r = [n[0] - n[1] for n in nelec_r]
     nelec_r = [sum (n) for n in nelec_r]
     root_unique = np.ones (nroots, dtype=bool)
     unique_root = np.arange (nroots, dtype=int)
@@ -299,6 +300,7 @@ def _get_unique_roots_with_spin (ci_r, norb, nelec_r, smult_r):
         if nelec_r[i] != nelec_r[j]: continue
         if smult_r[i] != smult_r[j]: continue
         if lroots_r[i] != lroots_r[j]: continue
+        if spin_r[i] == spin_r[j]: continue # assumed distinct if they entered with same m 
         ovlp = [np.dot (ci_r[i][l], ci_r[j][l]) for l in range (lroots_r[i])]
         if np.allclose (ovlp, 1.0):
             root_unique[j] = False
