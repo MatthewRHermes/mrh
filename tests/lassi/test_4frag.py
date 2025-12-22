@@ -186,7 +186,7 @@ class KnownValues(unittest.TestCase):
         for dson, smult_si in zip((False,True,True),(None,None,1)):
             with self.subTest (davidson_only=dson, smult_si=smult_si):
                 lsi = LASSIS (las1).set (davidson_only=dson, smult_si=smult_si)
-                if dson and (smult_si is None):
+                if dson and (smult_si is None): # smult_si is always tested in case_contract_op_si
                     lsi.prepare_states_()
                     h0, h1, h2 = ham_2q (las1, las1.mo_coeff)
                     case_contract_op_si (self, las1, h1, h2, lsi.ci, lsi.get_nelec_frs (),
@@ -221,7 +221,7 @@ class KnownValues(unittest.TestCase):
         for dson, smult_si in zip((False,True,True),(None,None,1)):
             with self.subTest (davidson_only=dson, smult_si=smult_si):
                 lsi.eig (davidson_only=dson, smult_si=smult_si)
-                if dson and (smult_si is None):
+                if dson and (smult_si is None): # smult_si is always tested in case_contract_op_si
                     h0, h1, h2 = ham_2q (las0, las0.mo_coeff)
                     case_contract_op_si (self, las, h1, h2, lsi.ci, lsi.get_nelec_frs (),
                                          smult_fr=lsi.get_smult_fr ())#, tol=4)
