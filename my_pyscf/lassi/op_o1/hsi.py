@@ -1007,15 +1007,17 @@ class HamS2OvlpOperators (HamS2Ovlp):
                 op1 = {raw2orth.spincase_mstrs (key[:2], sinv)[1]:
                        opterm.reduce_spin (op, key[0], key[1]).ravel ()
                        for key in op.spincase_keys}
-                for iman, braket_tab, mblocks in self.hdiag_orth_gen (raw2orth, op):
+                for iman, braket_tab, mstrs, mblks in self.hdiag_orth_gen (raw2orth, op):
                     fdm = self.get_hdiag_fdm (braket_tab, *inv)
                     nx = raw2orth.get_manifold_orth_shape (iman)[1]
                     ny = np.prod (op.shape)
                     fdm = fdm.reshape (nx, ny)
-                    for mstr_bra, mstr_ket in mblocks:
+                    for mstr_bra, mstr_ket in mstrs:
                         op2 = op1[mstr_ket]
                         op2 = np.dot (fdm, op2 + op2.conj ())
-                        for fac,(p,q) in raw2orth.hdiag_spincoup_loop (iman,mstr_bra,mstr_ket,sinv):
+                        for fac,(p,q) in raw2orth.hdiag_spincoup_loop (
+                                iman, mstr_bra, mstr_ket, sinv, mblks
+                        ):
                             hdiag[p:q] += fac * op2
         return hdiag[:raw2orth.shape[0]].copy ()
 
@@ -1032,7 +1034,7 @@ class HamS2OvlpOperators (HamS2Ovlp):
                 Index of an OrthBasis Manifold
             braket_tab : ndarray of ints
                 argument to get_hdiag_fdm
-            mblocks : list
+            mstrs : list
                 elements are (mstr_bra, mstr_ket)
                 identifying the M case of the corresponding
                 operator in the inv block
@@ -1040,18 +1042,38 @@ class HamS2OvlpOperators (HamS2Ovlp):
         spincase_keys = op.spincase_keys
         sinv = op.get_inv_frags ()
         braket_tabs = {}
+        mstrs = {}
         mblocks = {}
+        mstrs2keys = {}
+        # group the keys together on the basis of common nonspectator m
         for key in spincase_keys:
-            mstrs = raw2orth.spincase_mstrs (key[:2], sinv)
-            my_braket_tabs = self.hdiag_orth_split_braket_tabs (raw2orth, key)
-            # overwrite braket_tab, because it should always be the same for the same manifold
+            my_mstrs = raw2orth.spincase_mstrs (key[:2], sinv)
+            my_keys = mstrs2keys.get (my_mstrs, [])
+            my_keys.append (key)
+            mstrs2keys[my_mstrs] = my_keys
+        for my_mstrs, my_keys in mstrs2keys.items ():
+            my_braket_tabs = {}
+            my_mblocks = {}
+            # sum over spectator m and concatenate the tables
+            for key in my_keys:
+                my_my_braket_tabs, my_my_mblocks = self.hdiag_orth_split_braket_tabs (raw2orth, key)
+                for iman in my_my_braket_tabs.keys ():
+                    parent = my_braket_tabs.get (iman, np.empty ((0,2), dtype=int))
+                    parent = np.append (parent, my_my_braket_tabs[iman], axis=0)
+                    my_braket_tabs[iman] = parent
+                    parent = my_mblocks.get (iman, np.empty ((0,2), dtype=int))
+                    parent = np.append (parent, my_my_mblocks[iman], axis=0)
+                    my_mblocks[iman] = parent
+            for iman, tab in my_braket_tabs.items ():
+                mstrs[iman] = mstrs.get (iman, []) + [my_mstrs,]
+                mblocks[iman] = np.unique (np.append (
+                    mblocks.get (iman, np.zeros ((0,2), dtype=int)),
+                    my_mblocks[iman],
+                    axis=0), axis=0)
             braket_tabs.update (my_braket_tabs)
-            # append because I think the dict keys here can collide
-            for iman in my_braket_tabs.keys ():
-                mblocks[iman] = mblocks.get (iman, []) + [mstrs,]
-        assert (len (braket_tabs.keys ()) == len (mblocks.keys ()))
+        assert (len (braket_tabs.keys ()) == len (mstrs.keys ()))
         for iman in braket_tabs.keys ():
-            yield iman, braket_tabs[iman], mblocks[iman]
+            yield iman, braket_tabs[iman], mstrs[iman], mblocks[iman]
 
     def hdiag_orth_split_braket_tabs (self, raw2orth, key):
         r'''Split the tables in self.nonuniq_exc[key] along the "manifold" index
@@ -1073,13 +1095,13 @@ class HamS2OvlpOperators (HamS2Ovlp):
         tab = [[bra, ket] for bra, ket in tab if raw2orth.roots_coupled_in_hdiag (bra, ket)]
         tab = np.asarray (tab)
         braket_tabs = {}
-        mblocks = set ()
-        if tab.size == 0: return braket_tabs
+        mblocks = {}
+        if tab.size == 0: return braket_tabs, mblocks
         bras = tab[:,0]
-        blks = raw2orth.roots2blks (bras)
+        blks = raw2orth.roots2blks (tab)
+        blks = raw2orth.split_rblocks_by_manifolds (blks)[1]
         mans = raw2orth.roots2mans (bras)
-        uniq, inv = np.unique (blks, return_inverse=True)
-        tab = np.asarray (tab)
+        uniq, inv = np.unique (mans, return_inverse=True)
         # This overwrites the entry for different spectator-fragment m strings.
         # THIS IS INTENTIONAL
         # The summation over spectator-fragment m strings occurs in hdiag_spincoup_loop
@@ -1087,8 +1109,10 @@ class HamS2OvlpOperators (HamS2Ovlp):
             idx = inv==i
             iman = mans[idx][0]
             assert (np.all (mans[idx]==iman))
-            braket_tabs[iman] = tab[idx]
-        return braket_tabs
+            uniq1, inv1 = np.unique (blks[idx], return_inverse=True, axis=0)
+            mblocks[iman] = uniq1
+            braket_tabs[iman] = tab[idx][inv1==0]
+        return braket_tabs, mblocks
 
     def get_hdiag_fdm (self, braket_tab, *inv):
         fdm = 0

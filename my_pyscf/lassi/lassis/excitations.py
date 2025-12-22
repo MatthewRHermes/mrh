@@ -32,13 +32,13 @@ def lowest_refovlp_eigpair (ham_pq, p=1, ovlp_thresh=LOWEST_REFOVLP_EIGVAL_THRES
     u_valid = u_all[:,idx_valid]
     idx_choice = np.argmin (e_valid)
     if log is not None and log.verbose > logger.DEBUG:
-        log.debug2 ("Debugging eigenpair selection")
-        log.debug2 (" idx e w_pp w_q0q0 w_pq0")
+        log.debug1 ("Debugging eigenpair selection")
+        log.debug1 (" idx e w_pp w_q0q0 w_pq0")
         i0 = np.where (idx_valid)[0][idx_choice]
         for i in range (len (e_all)):
             line = ' {} {} {} {} {}'.format (i,e_all[i],w_pp[i],w_q0q0[i],w_pq0[i])
             if i==i0: line += ' selected'
-            log.debug2 (line)
+            log.debug1 (line)
     return e_valid[idx_choice], u_valid[:,idx_choice]
 
 def lowest_refovlp_eigval (ham_pq, p=1, ovlp_thresh=LOWEST_REFOVLP_EIGVAL_THRESH):
@@ -652,6 +652,8 @@ class ExcitationPSFCISolver (ProductStateFCISolver):
         vh = vh[:nroots,:]
         si_p = svals
         si_q = si[p:]
+        self.log.debug1 ('[svals retained], [svals discarded] = %s , %s',
+                         str (svals), str (disc_svals))
         return disc_svals, u, si_p, si_q, vh
 
     def truncrot_ci (self, ci0, u, vh):

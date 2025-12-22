@@ -36,6 +36,7 @@ MAX_SPACE_SI = getattr (__config__, 'lassi_max_space_si', 12)
 TOL_SI = getattr (__config__, 'lassi_tol_si', 1e-8)
 DAVIDSON_SCREEN_THRESH_SI = getattr (__config__, 'lassi_hsi_screen_thresh', 1e-12)
 PSPACE_SIZE_SI = getattr (__config__, 'lassi_hsi_pspace_size', 400)
+PRIVREF_SI = getattr (__config__, 'lassi_privref_si', True)
 
 op = (op_o0, op_o1)
 
@@ -387,10 +388,10 @@ def _eig_block_Davidson (las, e0, h1, h2, ci_blk, nelec_blk, smult_blk, soc, opt
     # nroots_si
     # level_shift
     verbose = las.verbose
+    davidson_log = log = lib.logger.new_logger (las, verbose)
     # We want this Davidson diagonalizer to be louder than usual
     if verbose >= lib.logger.NOTE:
-        verbose += 1
-    log = lib.logger.new_logger (las, verbose)
+        davidson_log = lib.logger.new_logger (las, verbose+1)
     si0 = getattr (las, 'si', None)
     level_shift = getattr (las, 'level_shift_si', LEVEL_SHIFT_SI)
     nroots_si = getattr (las, 'nroots_si', NROOTS_SI)
@@ -398,6 +399,7 @@ def _eig_block_Davidson (las, e0, h1, h2, ci_blk, nelec_blk, smult_blk, soc, opt
     max_space_si = getattr (las, 'max_space_si', MAX_SPACE_SI)
     tol_si = getattr (las, 'tol_si', TOL_SI)
     get_init_guess = getattr (las, 'get_init_guess_si', get_init_guess_si)
+    privilege_ref = getattr (las, 'privref_si', PRIVREF_SI)
     screen_thresh = getattr (las, 'davidson_screen_thresh_si', DAVIDSON_SCREEN_THRESH_SI)
     pspace_size = getattr (las, 'pspace_size_si', PSPACE_SIZE_SI)
     smult_si = getattr (las, 'smult_si', None)
@@ -410,6 +412,7 @@ def _eig_block_Davidson (las, e0, h1, h2, ci_blk, nelec_blk, smult_blk, soc, opt
     t0 = (lib.logger.process_clock (), lib.logger.perf_counter ())
     raw2orth = basis.get_orth_basis (ci_blk, las.ncas_sub, nelec_blk, _get_ovlp=_get_ovlp,
                                      smult_fr=smult_blk, smult_si=smult_si)
+    raw2orth.log_debug1_hdiag_raw (log, hdiag_raw)
     orth2raw = raw2orth.H
     mem_orth = raw2orth.get_nbytes () / 1e6
     t0 = log.timer ('LASSI get orthogonal basis ({:.2f} MB)'.format (mem_orth), *t0)
@@ -418,9 +421,20 @@ def _eig_block_Davidson (las, e0, h1, h2, ci_blk, nelec_blk, smult_blk, soc, opt
         # The sort is slow
         log.debug ("fingerprint of hdiag orth: %15.10e", lib.fp (np.sort (hdiag_orth)))
     t0 = log.timer ('LASSI get hdiag in orthogonal basis', *t0)
+    hdiag_penalty = np.zeros_like (hdiag_orth)
+    if privilege_ref:
+        # Force the reference state to appear in the first (few?) guess vectors
+        i = raw2orth.get_ref_man_size ()
+        if (i>0) and (i < len (hdiag_orth)):
+            below = np.amin (hdiag_orth[i:])
+            above = np.amax (hdiag_orth[:i])
+            if above > below:
+                penvalue = above - below + 0.001
+                log.debug ("Hdiag penalty value: %17.10e", penvalue)
+                hdiag_penalty[i:] = penvalue
     if pspace_size:
-        pw, pv, addr = pspace (hdiag_orth, h_op_raw, raw2orth, opt, pspace_size)
-        raw2orth.log_debug_hdiag_orth (log, hdiag_orth, idx=addr)
+        pw, pv, addr = pspace (hdiag_orth, h_op_raw, raw2orth, opt, pspace_size, log=log,
+                               penalty=hdiag_penalty)
         t0 = log.timer ('LASSI make pspace Hamiltonian', *t0)
         if pspace_size >= hdiag_orth.size:
             pv = pv[:,:nroots_si]
@@ -435,13 +449,13 @@ def _eig_block_Davidson (las, e0, h1, h2, ci_blk, nelec_blk, smult_blk, soc, opt
         x0 = raw2orth (ovlp_op (si0))
     else:
         x0 = None
-    x0 = get_init_guess (hdiag_orth, nroots_si, x0, log=log)
+    x0 = get_init_guess (hdiag_orth, nroots_si, x0, log=log, penalty=hdiag_penalty)
     def h_op (x):
         return raw2orth (h_op_raw (orth2raw (x)))
     log.info ("LASSI E(const) = %15.10f", e0)
     conv, e, x1 = lib.davidson1 (lambda xs: [h_op (x) for x in xs],
                                  x0, precond_op, nroots=nroots_si,
-                                 verbose=log, max_cycle=max_cycle_si,
+                                 verbose=davidson_log, max_cycle=max_cycle_si,
                                  max_space=max_space_si, tol=tol_si)
     conv = all (conv)
     if not conv: log.warn ('LASSI Davidson diagonalization not converged')
@@ -449,16 +463,41 @@ def _eig_block_Davidson (las, e0, h1, h2, ci_blk, nelec_blk, smult_blk, soc, opt
     s2 = np.array ([np.dot (x.conj (), s2_op (x)) for x in si1.T])
     return conv, e, si1, s2
 
-def pspace (hdiag_orth, h_op_raw, raw2orth, opt, pspace_size):
+def pspace (hdiag_orth, h_op_raw, raw2orth, opt, pspace_size, log=None, penalty=None):
+    heff = hdiag_orth.copy ()
+    if penalty is not None:
+        heff += penalty
     if hdiag_orth.size <= pspace_size:
         addr = np.arange (hdiag_orth.size)
     else:
         try: # this is just a fast PARTIAL sort
-            addr = np.argpartition(hdiag_orth, pspace_size-1)[:pspace_size].copy()
+            addr = np.argpartition(heff, pspace_size-1)[:pspace_size].copy()
         except AttributeError:
-            addr = np.argsort(hdiag_orth)[:pspace_size].copy()
+            addr = np.argsort(heff)[:pspace_size].copy()
     h0 = op[opt].pspace_ham (h_op_raw, raw2orth, addr)
     pw, pv = linalg.eigh (h0)
+    if log is not None:
+        raw2orth.log_debug_hdiag_orth (log, hdiag_orth, idx=addr)
+    e_pspace = h0.diagonal ()
+    e_hdiag = hdiag_orth[addr]
+    idx_err = np.abs (e_hdiag-e_pspace) > 1e-5
+    if (log is not None) and (log.verbose > lib.logger.DEBUG) and (np.count_nonzero (idx_err)):
+        # Some notes:
+        # 1. For my small helium tetrahedron, pspace also fails for the lindep-affected states
+        # 2. The 2-fragment soc failure of this seems to oscillate between just a few numbers,
+        #    which is a pretty big hint.
+        log.error ("LASSI hdiag and pspace Hamiltonian disagree!")
+        log.error ("The incoming table may take a very long time to print out.")
+        log.error ("Do not expect this calculation to complete.")
+        log.error ("{:>4s} {:>17s} {:>17s} {:>17s}".format ('ix', 'pspace', 'hdiag', 'operator'))
+        fmt_str = '{:4d} {:17.10e} {:17.10e} {:17.10e}'
+        for i in np.where (idx_err)[0]:
+            x = np.zeros (raw2orth.shape[0], dtype=raw2orth.dtype)
+            x[addr[i]] = 1.0
+            x = raw2orth.H (x)
+            e_ref = np.dot (x.conj (), h_op_raw (x))
+            log.error (fmt_str.format (addr[i], e_pspace[i], e_hdiag[i], e_ref))
+        raise RuntimeError ("LASSI hdiag and pspace Hamiltonian disagree!")
     return pw, pv, addr
 
 def make_pspace_precond(hdiag, pspaceig, pspaceci, addr, level_shift=0):
@@ -482,13 +521,16 @@ def make_pspace_precond(hdiag, pspaceig, pspaceci, addr, level_shift=0):
         return x1
     return precond
 
-def get_init_guess_si (hdiag, nroots, si1, log=None):
+def get_init_guess_si (hdiag, nroots, si1, log=None, penalty=None):
     nprod = hdiag.size
+    heff = hdiag.copy ()
+    if penalty is not None:
+        heff += penalty
     si0 = []
     if nprod <= nroots:
         addrs = np.arange(nprod)
     else:
-        addrs = np.argpartition(hdiag, nroots-1)[:nroots]
+        addrs = np.argpartition(heff, nroots-1)[:nroots]
     for addr in addrs:
         x = np.zeros((nprod))
         x[addr] = 1
@@ -1032,6 +1074,8 @@ class LASSI(lib.StreamObject):
         self.nroots_si = nroots_si
         self.converged_si = False
         self.davidson_screen_thresh_si = DAVIDSON_SCREEN_THRESH_SI
+        self.pspace_size_si = PSPACE_SIZE_SI
+        self.privref_si = PRIVREF_SI
         self._keys = set((self.__dict__.keys())).union(keys)
 
     def copy (self):
@@ -1042,7 +1086,7 @@ class LASSI(lib.StreamObject):
 
     def kernel(self, mo_coeff=None, ci=None, veff_c=None, h2eff_sub=None, orbsym=None, soc=None,\
                break_symmetry=None, opt=None, davidson_only=None, level_shift_si=None,
-               nroots_si=None, pspace_size_si=None, smult_si=None, **kwargs):
+               nroots_si=None, pspace_size_si=None, smult_si=None, privref_si=None, **kwargs):
         if soc is None: soc = self.soc
         if break_symmetry is None: break_symmetry = self.break_symmetry
         if opt is None: opt = self.opt
@@ -1055,6 +1099,8 @@ class LASSI(lib.StreamObject):
             self.pspace_size_si = pspace_size_si
         if smult_si is not None:
             self.smult_si = smult_si
+        if privref_si is not None:
+            self.privref_si = privref_si
         log = lib.logger.new_logger (self, self.verbose)
         t0 = (lib.logger.process_clock (), lib.logger.perf_counter ())
         if not self.converged:
@@ -1222,8 +1268,8 @@ class LASSI(lib.StreamObject):
     dump_chk = chkfile.dump_lsi
     load_chk = load_chk_ = chkfile.load_lsi_
 
-    def get_init_guess_si (self, hdiag, nroots, si1, log=None):
-        return get_init_guess_si (hdiag, nroots, si1, log=log)
+    def get_init_guess_si (self, hdiag, nroots, si1, log=None, penalty=None):
+        return get_init_guess_si (hdiag, nroots, si1, log=log, penalty=penalty)
 
     energy_tot = energy_tot
 
