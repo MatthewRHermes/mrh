@@ -118,7 +118,7 @@ class KnownValues(unittest.TestCase):
         nelec_frs = lsi.get_nelec_frs ()
         case_contract_hlas_ci (self, las, h0, h1, h2, lsi.ci, nelec_frs)
 
-    @unittest.skip('debugging')
+    #@unittest.skip('debugging')
     def test_contract_op_si (self):
         h0, h1, h2 = ham_2q (las, las.mo_coeff)
         nelec_frs = lsi.get_nelec_frs ()
