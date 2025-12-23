@@ -46,7 +46,7 @@ def setUpModule ():
              He    -0.530330085890   0.530330085890   0.530330085890'''
     mol = gto.M (atom=xyz, basis='6-31g', symmetry=False,# output='/dev/null', verbose=0)
                  output='debug_cs_tetrahedron.log',
-                 verbose=5)
+                 verbose=6)
     mf = scf.RHF (mol).run ()
     las = LASSCF (mf, [2,2,2,2], [(1,0),(1,2),(0,1),(2,1)], spin_sub=(2,2,2,2))
     mo_coeff = las.localize_init_guess ([[i,] for i in range (4)])
@@ -95,9 +95,9 @@ class KnownValues(unittest.TestCase):
                                                      soc=False, break_symmetry=False, opt=1)[r]
                     self.assertAlmostEqual (lib.fp (d12_o1_test), lib.fp (d12_o0[r][i]), 9)
 
-    @unittest.skip('debugging')
+    #@unittest.skip('debugging')
     def test_davidson (self):
-        lsi1 = LASSIS (lsi._las).run (davidson_only=True)
+        lsi1 = LASSIS (lsi._las).run (davidson_only=True, smult_si=1)
         self.assertAlmostEqual (lsi1.e_roots[0], lsi.e_roots[0], 6)
 
     @unittest.skip('debugging')
@@ -118,7 +118,7 @@ class KnownValues(unittest.TestCase):
         nelec_frs = lsi.get_nelec_frs ()
         case_contract_hlas_ci (self, las, h0, h1, h2, lsi.ci, nelec_frs)
 
-    #@unittest.skip('debugging')
+    @unittest.skip('debugging')
     def test_contract_op_si (self):
         h0, h1, h2 = ham_2q (las, las.mo_coeff)
         nelec_frs = lsi.get_nelec_frs ()
