@@ -61,7 +61,7 @@ def tearDownModule():
 
 class KnownValues(unittest.TestCase):
 
-    @unittest.skip('debugging')
+    #@unittest.skip('debugging')
     def test_ham_s2_ovlp (self):
         h1, h2 = ham_2q (lsi, las.mo_coeff, veff_c=None, h2eff_sub=None)[1:]
         nelec_frs = lsi.get_nelec_frs ()
@@ -73,7 +73,7 @@ class KnownValues(unittest.TestCase):
             with self.subTest(opt=1, matrix=lbl):
                 self.assertAlmostEqual (lib.fp (mat), fp, 9)
 
-    @unittest.skip('debugging')
+    #@unittest.skip('debugging')
     def test_rdm12s_slow (self):
         nroots = 2
         si = lsi.si[:,:nroots]
@@ -106,7 +106,7 @@ class KnownValues(unittest.TestCase):
             lsi1 = LASSIS (lsi._las).run (davidson_only=True)
             self.assertAlmostEqual (lsi1.e_roots[0], lsi.e_roots[0], 6)
 
-    @unittest.skip('debugging')
+    #@unittest.skip('debugging')
     def test_fdm1 (self):
         nelec_frs = lsi.get_nelec_frs ()
         nroots = nelec_frs.shape[1]
@@ -118,7 +118,7 @@ class KnownValues(unittest.TestCase):
                     sdm1 = make_sdm1 (lsi, iroot, ifrag, si=lsi.si[:,0:1])
                     self.assertAlmostEqual (lib.fp (fdm1), lib.fp (sdm1), 7)
 
-    @unittest.skip('way too slow for some reason')
+    #@unittest.skip('way too slow for some reason')
     def test_contract_hlas_ci (self):
         h0, h1, h2 = ham_2q (las, las.mo_coeff)
         nelec_frs = lsi.get_nelec_frs ()
