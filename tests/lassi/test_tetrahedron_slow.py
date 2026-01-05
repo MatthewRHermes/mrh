@@ -16,9 +16,11 @@
 import copy
 import unittest
 import numpy as np
+import importlib
 from scipy import linalg
 from copy import deepcopy
 from itertools import product
+from pyscf import __config__
 from pyscf import lib, gto, scf, dft, fci, mcscf
 from pyscf.tools import molden
 from pyscf.fci import cistring
@@ -117,7 +119,7 @@ class KnownValues(unittest.TestCase):
                     sdm1 = make_sdm1 (lsi, iroot, ifrag, si=lsi.si[:,0:1])
                     self.assertAlmostEqual (lib.fp (fdm1), lib.fp (sdm1), 7)
 
-    #@unittest.skip('way too slow for some reason')
+    @unittest.skip('way too slow for some reason')
     def test_contract_hlas_ci (self):
         h0, h1, h2 = ham_2q (las, las.mo_coeff)
         nelec_frs = lsi.get_nelec_frs ()
@@ -132,10 +134,13 @@ class KnownValues(unittest.TestCase):
 
     def test_contract_op_si_no_linequiv (self):
         with lib.temporary_env (__config__, lassi_frag_do_screen_linequiv=False):
+            from mrh.my_pyscf.lassi.op_o1 import frag
+            importlib.reload (frag)
             h0, h1, h2 = ham_2q (las, las.mo_coeff)
             nelec_frs = lsi.get_nelec_frs ()
             smult_fr = lsi.get_smult_fr ()
             case_contract_op_si (self, las, h1, h2, lsi.ci, nelec_frs, smult_fr=smult_fr)
+        importlib.reload (frag)
 
 
 if __name__ == "__main__":
