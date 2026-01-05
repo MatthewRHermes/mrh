@@ -4,6 +4,7 @@ from scipy import linalg
 from pyscf import gto, scf, lib, mcscf
 from pyscf.fci.direct_spin1 import _unpack_nelec
 from mrh.tests.lasscf.c2h6n4_struct import structure as struct
+from mrh.tests.lassi.addons import case_contract_op_si
 from mrh.my_pyscf.fci import csf_solver
 from mrh.my_pyscf.lassi import dms as lassi_dms
 from mrh.my_pyscf.mcscf.soc_int import compute_hso, amfi_dm
@@ -278,7 +279,12 @@ class KnownValues (unittest.TestCase):
         for dson in (False, True):
             lsi = lassi.LASSI (lsi2._las, soc=True, break_symmetry=True, opt=1)
             lsi = lsi.set (davidson_only=dson, nroots_si=lsi2._las.nroots)
-            with lib.light_speed (5): lsi.kernel (opt=1)
+            with lib.light_speed (5):
+                lsi.kernel (opt=1)
+                if dson:
+                    h0, h1, h2 = ham_2q (lsi2._las, lsi2.mo_coeff, soc=True)
+                    case_contract_op_si (self, lsi, h1, h2, lsi.ci, lsi.get_nelec_frs (),
+                                         smult_fr=lsi.get_smult_fr (), soc=True)#, tol=4)
             with self.subTest (opt=1, davidson_only=dson, deltaE='SO'):
                 self.assertAlmostEqual (lib.fp (lsi.e_roots), -214.8684319949548, 8)
             with self.subTest ('hamiltonian', opt=1, davidson_only=dson):
