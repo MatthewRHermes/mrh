@@ -104,8 +104,11 @@ class KnownValues(unittest.TestCase):
 
     def test_davidson_no_linequiv (self):
         with lib.temporary_env (__config__, lassi_frag_do_screen_linequiv=False):
+            from mrh.my_pyscf.lassi.op_o1 import frag
+            importlib.reload (frag)
             lsi1 = LASSIS (lsi._las).run (davidson_only=True)
             self.assertAlmostEqual (lsi1.e_roots[0], lsi.e_roots[0], 6)
+        importlib.reload (frag)
 
     #@unittest.skip('debugging')
     def test_fdm1 (self):

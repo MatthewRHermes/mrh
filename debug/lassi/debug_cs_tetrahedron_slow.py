@@ -46,11 +46,11 @@ def setUpModule ():
              He     0.530330085890   0.530330085890  -0.530330085890
              He     0.530330085890  -0.530330085890   0.530330085890
              He    -0.530330085890   0.530330085890   0.530330085890'''
-    mol = gto.M (atom=xyz, basis='6-31g', symmetry=False, output='/dev/null', verbose=0)
-                 #output='test_tetrahedron.log',
-                 #verbose=5)
+    mol = gto.M (atom=xyz, basis='6-31g', symmetry=False,# output='/dev/null', verbose=0)
+                 output='debug_cs_tetrahedron_slow.log',
+                 verbose=5)
     mf = scf.RHF (mol).run ()
-    las = LASSCF (mf, [2,2,2,2], [(1,1),(1,1),(1,1),(1,1)], spin_sub=(1,1,1,1))
+    las = LASSCF (mf, [2,2,2,2], [(1,0),(1,2),(0,1),(2,1)], spin_sub=(2,2,2,2))
     mo_coeff = las.localize_init_guess ([[i,] for i in range (4)])
     las.lasci_(mo_coeff)
     lsi = LASSIS (las).run ()
@@ -62,7 +62,7 @@ def tearDownModule():
 
 class KnownValues(unittest.TestCase):
 
-    #@unittest.skip('debugging')
+    @unittest.skip('debugging')
     def test_ham_s2_ovlp (self):
         h1, h2 = ham_2q (lsi, las.mo_coeff, veff_c=None, h2eff_sub=None)[1:]
         nelec_frs = lsi.get_nelec_frs ()
@@ -74,7 +74,7 @@ class KnownValues(unittest.TestCase):
             with self.subTest(opt=1, matrix=lbl):
                 self.assertAlmostEqual (lib.fp (mat), fp, 9)
 
-    #@unittest.skip('debugging')
+    @unittest.skip('debugging')
     def test_rdm12s_slow (self):
         nroots = 2
         si = lsi.si[:,:nroots]
@@ -102,6 +102,7 @@ class KnownValues(unittest.TestCase):
         lsi1 = LASSIS (lsi._las).run (davidson_only=True)
         self.assertAlmostEqual (lsi1.e_roots[0], lsi.e_roots[0], 6)
 
+    #@unittest.skip('debugging')
     def test_davidson_no_linequiv (self):
         with lib.temporary_env (__config__, lassi_frag_do_screen_linequiv=False):
             from mrh.my_pyscf.lassi.op_o1 import frag
@@ -110,7 +111,7 @@ class KnownValues(unittest.TestCase):
             self.assertAlmostEqual (lsi1.e_roots[0], lsi.e_roots[0], 6)
         importlib.reload (frag)
 
-    #@unittest.skip('debugging')
+    @unittest.skip('debugging')
     def test_fdm1 (self):
         nelec_frs = lsi.get_nelec_frs ()
         nroots = nelec_frs.shape[1]
@@ -147,6 +148,6 @@ class KnownValues(unittest.TestCase):
 
 
 if __name__ == "__main__":
-    print("Full Tests for LASSI he he he he tetrahedron")
+    print("Full Tests for LASSI he+he-he+he- tetrahedron")
     unittest.main()
 
