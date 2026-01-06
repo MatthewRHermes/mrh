@@ -220,7 +220,7 @@ def case_contract_op_si (ks, las, h1, h2, ci_fr, nelec_frs, smult_fr=None, soc=0
     _check_OrthBasis (ks, las, ci_fr, nelec_frs, smult_fr, ham, s2, ovlp, ops)
     if (soc==0) and (smult_fr is not None):
         smult_si = _pick_random_smult_si (smult_fr)
-        with ks.subTest (basis_type='spin-coupled'):
+        with ks.subTest (basis_type='spin-coupled ({})'.format (smult_si)):
             _check_OrthBasis (ks, las, ci_fr, nelec_frs, smult_fr, ham, s2, ovlp, ops,
                               smult_si=smult_si)
     nstates = ham.shape[0]

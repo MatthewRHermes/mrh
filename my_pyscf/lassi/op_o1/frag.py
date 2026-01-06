@@ -485,7 +485,12 @@ class FragTDMInt (object):
             ci_u = [ci[i] for i in self.uroot_addr]
             nelec_u = [self.nelec_r[i] for i in self.uroot_addr]
             smult_u = [self.smult_r[i] for i in self.uroot_addr]
-            self.spman = _get_unique_roots_with_spin (ci_u, self.norb, nelec_u, smult_u)
+            if self.discriminator is None:
+                disc_u = None
+            else:
+                disc_u = [self.discriminator[i] for i in self.uroot_addr]
+            self.spman = _get_unique_roots_with_spin (ci_u, self.norb, nelec_u, smult_u,
+                                                      discriminator=disc_u)
         self.nspman = np.amax (self.spman)+1
         spman_inter = {}
         spman_inter_keys = np.empty ((nuroots,nuroots,3), dtype=int)

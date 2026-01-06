@@ -48,7 +48,7 @@ def setUpModule ():
              He    -0.530330085890   0.530330085890   0.530330085890'''
     mol = gto.M (atom=xyz, basis='6-31g', symmetry=False,# output='/dev/null', verbose=0)
                  output='debug_cs_tetrahedron_slow.log',
-                 verbose=5)
+                 verbose=6)
     mf = scf.RHF (mol).run ()
     las = LASSCF (mf, [2,2,2,2], [(1,0),(1,2),(0,1),(2,1)], spin_sub=(2,2,2,2))
     mo_coeff = las.localize_init_guess ([[i,] for i in range (4)])

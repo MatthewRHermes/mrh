@@ -243,7 +243,7 @@ def hci_dot_sivecs_ij (hci_pabq, si_bra, si_ket, lroots, i, j):
                 if is1d: hci_pabq = hci_pabq[0]
     return hci_pabq
 
-def get_unique_roots_with_spin (ci_r, norb, nelec_r, smult_r):
+def get_unique_roots_with_spin (ci_r, norb, nelec_r, smult_r, discriminator=None):
     '''Identify which groups of CI vectors are equal or equivalent from a list, including
     equivalencies under rotation of the spin Z-axis.
 
@@ -261,23 +261,28 @@ def get_unique_roots_with_spin (ci_r, norb, nelec_r, smult_r):
         unique_root: ndarray of ints length nroots
             The index of the unique image of each set of CI vectors in the list
     '''
+    if discriminator is None:
+        discriminator = np.zeros (len (ci_r), dtype=int)
     root_unique, unique_root1 = get_unique_roots (ci_r, nelec_r, screen_linequiv=False,
-                                                  discriminator=smult_r)[:2]
+                                                  discriminator=list(zip(discriminator,smult_r)))[:2]
     idx = np.where (root_unique)[0]
     ci_r = [ci_r[i] for i in idx]
     nelec_r = [nelec_r[i] for i in idx]
     smult_r = [smult_r[i] for i in idx]
-    unique_root2 = _get_unique_roots_with_spin (ci_r, norb, nelec_r, smult_r)
+    discriminator = [discriminator[i] for i in idx]
+    unique_root2 = _get_unique_roots_with_spin (ci_r, norb, nelec_r, smult_r, discriminator)
     unique_root3 = -np.ones (len (root_unique), dtype=int)
     unique_root3[root_unique] = unique_root2
     unique_root = unique_root3[unique_root1]
     assert (np.all (unique_root>=0))
     return unique_root
 
-def _get_unique_roots_with_spin (ci_r, norb, nelec_r, smult_r):
+def _get_unique_roots_with_spin (ci_r, norb, nelec_r, smult_r, discriminator):
     '''The same as get_unique_roots_with_spin, except that it is assumed that all CI vectors are
     already unique except for equivalencies under rotation of the spin Z-axis that have not yet
     been considered.'''
+    if discriminator is None:
+        discriminator = np.zeros (len (ci_r), dtype=int)
     # After indexing down to only unique roots, so each root can be only 1 manifold
     nroots = len (ci_r)
     lroots_r = get_lroots (ci_r)
@@ -297,6 +302,7 @@ def _get_unique_roots_with_spin (ci_r, norb, nelec_r, smult_r):
         if nelec_r[i] != nelec_r[j]: continue
         if smult_r[i] != smult_r[j]: continue
         if lroots_r[i] != lroots_r[j]: continue
+        if discriminator[i] != discriminator[j]: continue
         exclude[i,j] = exclude[j,i] = (spin_r[i]==spin_r[j])
     root_unique = np.ones (nroots, dtype=bool)
     unique_root = np.arange (nroots, dtype=int)
