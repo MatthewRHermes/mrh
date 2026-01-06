@@ -1277,8 +1277,8 @@ class HamS2OvlpOperators (HamS2Ovlp):
 
 
 #gen_contract_op_si_hdiag = functools.partial (_fake_gen_contract_op_si_hdiag, ham)
-def gen_contract_op_si_hdiag (las, h1, h2, ci, nelec_frs, smult_fr=None, soc=0, nlas=None,
-                              _HamS2Ovlp_class=HamS2OvlpOperators, _return_int=False,
+def gen_contract_op_si_hdiag (las, h1, h2, ci, nelec_frs, smult_fr=None, disc_fr=None, soc=0,
+                              nlas=None, _HamS2Ovlp_class=HamS2OvlpOperators, _return_int=False,
                               screen_thresh=SCREEN_THRESH, **kwargs):
     ''' Build Hamiltonian, spin-squared, and overlap matrices in LAS product state basis
 
@@ -1297,6 +1297,10 @@ def gen_contract_op_si_hdiag (las, h1, h2, ci, nelec_frs, smult_fr=None, soc=0, 
     Kwargs:
         smult_fr : ndarray of shape (nfrags,nroots)
             Spin multiplicity of each fragment in each rootspace
+        disc_fr : ndarray of shape (nfrags, nroots)
+            Additional information to descriminate between otherwise-equivalent rootspaces,
+            applicable to individual fragments (e.g., 3 is the same as 5 but only for fragment 1,
+            not fragment 2)
         soc : integer
             Order of spin-orbit coupling included in the Hamiltonian
         nlas : sequence of length (nfrags)
@@ -1341,7 +1345,8 @@ def gen_contract_op_si_hdiag (las, h1, h2, ci, nelec_frs, smult_fr=None, soc=0, 
 
     # First pass: single-fragment intermediates
     ints, lroots = frag.make_ints (las, ci, nelec_frs, nlas=nlas, smult_fr=smult_fr,
-                                   pt_order=pt_order, do_pt_order=do_pt_order, verbose=verbose)
+                                   disc_fr=disc_fr, pt_order=pt_order, do_pt_order=do_pt_order,
+                                   verbose=verbose)
     t1 = log.timer ('LASSI hsi operator first pass make ints', *t1)
     nstates = np.sum (np.prod (lroots, axis=0))
 

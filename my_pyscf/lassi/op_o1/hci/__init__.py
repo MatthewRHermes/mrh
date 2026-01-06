@@ -66,9 +66,10 @@ def map_sivec_to_larger_space (si0, lroots, mask):
     return si1
 
 def contract_ham_ci (las, h1, h2, ci_fr, nelec_frs, si_bra=None, si_ket=None, ci_fr_bra=None,
-                     nelec_frs_bra=None, smult_fr=None, smult_fr_bra=None, h0=0, soc=0,
-                     sum_bra=False, orbsym=None, wfnsym=None, pt_order=None, do_pt_order=None,
-                     accum=None, add_transpose=False, verbose=None):
+                     nelec_frs_bra=None, smult_fr=None, smult_fr_bra=None, disc_fr=None,
+                     disc_fr_bra=None, h0=0, soc=0, sum_bra=False, orbsym=None, wfnsym=None,
+                     pt_order=None, do_pt_order=None, accum=None, add_transpose=False,
+                     verbose=None):
     '''Evaluate the action of the state interaction Hamiltonian on a set of ket CI vectors,
     projected onto a basis of bra CI vectors, leaving one fragment of the bra uncontracted.
 
@@ -100,6 +101,14 @@ def contract_ham_ci (las, h1, h2, ci_fr, nelec_frs, si_bra=None, si_ket=None, ci
             Spin multiplicity of each fragment in each rootspace of the ket
         smult_fr_bra : ndarray of shape (nfrags,nroots)
             Spin multiplicity of each fragment in each rootspace of the bra
+        disc_fr : ndarray of shape (nfrags, nroots)
+            Additional information to descriminate between otherwise-equivalent ket rootspaces,
+            applicable to individual fragments (e.g., 3 is the same as 5 but only for fragment 1,
+            not fragment 2)
+        disc_fr_bra : ndarray of shape (nfrags, nroots)
+            Additional information to descriminate between otherwise-equivalent bra rootspaces,
+            applicable to individual fragments (e.g., 3 is the same as 5 but only for fragment 1,
+            not fragment 2)
         soc : integer
             Order of spin-orbit coupling included in the Hamiltonian
         h0 : float
@@ -144,6 +153,9 @@ def contract_ham_ci (las, h1, h2, ci_fr, nelec_frs, si_bra=None, si_ket=None, ci
         if smult_fr is not None:
             assert (smult_fr_bra is not None)
             smult_fr = np.append (smult_fr, smult_fr_bra, axis=1)
+        if disc_fr is not None:
+            assert (disc_fr_bra is not None)
+            disc_fr = np.append (disc_fr, disc_fr_bra, axis=1)
     discriminator = np.zeros (nroots, dtype=int)
     si_ndim = getattr (si_bra, 'ndim', getattr (si_ket, 'ndim', 2))
     if si_bra is not None:
@@ -161,6 +173,7 @@ def contract_ham_ci (las, h1, h2, ci_fr, nelec_frs, si_bra=None, si_ket=None, ci
                                    screen_linequiv=False,
                                    mask_ints=mask_ints,
                                    discriminator=discriminator,
+                                   disc_fr=disc_fr,
                                    pt_order=pt_order,
                                    do_pt_order=do_pt_order, verbose=verbose)
 
