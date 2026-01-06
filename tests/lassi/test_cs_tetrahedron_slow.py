@@ -133,7 +133,9 @@ class KnownValues(unittest.TestCase):
         h0, h1, h2 = ham_2q (las, las.mo_coeff)
         nelec_frs = lsi.get_nelec_frs ()
         smult_fr = lsi.get_smult_fr ()
-        case_contract_op_si (self, las, h1, h2, lsi.ci, nelec_frs, smult_fr=smult_fr)
+        disc_fr = lsi.get_disc_fr ()
+        case_contract_op_si (self, las, h1, h2, lsi.ci, nelec_frs, smult_fr=smult_fr,
+                             disc_fr=disc_fr)
 
     def test_contract_op_si_no_linequiv (self):
         with lib.temporary_env (__config__, lassi_frag_do_screen_linequiv=False):
@@ -142,7 +144,9 @@ class KnownValues(unittest.TestCase):
             h0, h1, h2 = ham_2q (las, las.mo_coeff)
             nelec_frs = lsi.get_nelec_frs ()
             smult_fr = lsi.get_smult_fr ()
-            case_contract_op_si (self, las, h1, h2, lsi.ci, nelec_frs, smult_fr=smult_fr)
+            disc_fr = lsi.get_disc_fr ()
+            case_contract_op_si (self, las, h1, h2, lsi.ci, nelec_frs, smult_fr=smult_fr,
+                                 disc_fr=disc_fr)
         importlib.reload (frag)
 
 

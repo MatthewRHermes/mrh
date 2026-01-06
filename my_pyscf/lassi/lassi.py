@@ -415,7 +415,7 @@ def _eig_block_Davidson (las, e0, h1, h2, ci_blk, nelec_blk, smult_blk, soc, opt
         log.debug ("fingerprint of hdiag raw: %15.10e", lib.fp (np.sort (hdiag_raw)))
     t0 = (lib.logger.process_clock (), lib.logger.perf_counter ())
     raw2orth = basis.get_orth_basis (ci_blk, las.ncas_sub, nelec_blk, _get_ovlp=_get_ovlp,
-                                     smult_fr=smult_blk, smult_si=smult_si)#, disc_fr=disc_fr)
+                                     smult_fr=smult_blk, smult_si=smult_si, disc_fr=disc_fr)
     raw2orth.log_debug1_hdiag_raw (log, hdiag_raw)
     orth2raw = raw2orth.H
     mem_orth = raw2orth.get_nbytes () / 1e6

@@ -190,7 +190,8 @@ class KnownValues(unittest.TestCase):
                     lsi.prepare_states_()
                     h0, h1, h2 = ham_2q (las1, las1.mo_coeff)
                     case_contract_op_si (self, las1, h1, h2, lsi.ci, lsi.get_nelec_frs (),
-                                         smult_fr=lsi.get_smult_fr ())
+                                         smult_fr=lsi.get_smult_fr (),
+                                         disc_fr=lsi.get_disc_fr ())
                 lsi.kernel ()
                 self.assertTrue (lsi.converged)
                 self.assertAlmostEqual (lsi.e_roots[0], -1.867291372401379, 6)
@@ -224,7 +225,8 @@ class KnownValues(unittest.TestCase):
                 if dson and (smult_si is None): # smult_si is always tested in case_contract_op_si
                     h0, h1, h2 = ham_2q (las0, las0.mo_coeff)
                     case_contract_op_si (self, las, h1, h2, lsi.ci, lsi.get_nelec_frs (),
-                                         smult_fr=lsi.get_smult_fr ())#, tol=4)
+                                         smult_fr=lsi.get_smult_fr (),#)#, tol=4)
+                                         disc_fr=lsi.get_disc_fr ())
                 self.assertTrue (lsi.converged)
                 self.assertTrue (lsi.converged_si)
                 self.assertAlmostEqual (lsi.e_roots[0], -304.5361582311853, 2)
