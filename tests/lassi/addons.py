@@ -214,7 +214,7 @@ def _check_OrthBasis (ks, las, ci_fr, nelec_frs, smult_fr, ham, s2, ovlp, ops, d
 def case_contract_op_si (ks, las, h1, h2, ci_fr, nelec_frs, smult_fr=None, soc=0, disc_fr=None):
     ham, s2, ovlp = op[1].ham (las, h1, h2, ci_fr, nelec_frs, soc=soc, smult_fr=smult_fr)[:3]
     ops = op[1].gen_contract_op_si_hdiag (las, h1, h2, ci_fr, nelec_frs, soc=soc,
-                                          smult_fr=smult_fr)
+                                          smult_fr=smult_fr, disc_fr=disc_fr)
     ham_op, s2_op, ovlp_op, ham_diag, _get_ovlp = ops
     with ks.subTest ('hdiag'):
         ks.assertAlmostEqual (lib.fp (ham.diagonal ()), lib.fp (ham_diag), 7)

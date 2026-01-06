@@ -416,7 +416,8 @@ def _eig_block_Davidson (las, e0, h1, h2, ci_blk, nelec_blk, smult_blk, disc_blk
     pspace_size = getattr (las, 'pspace_size_si', PSPACE_SIZE_SI)
     smult_si = getattr (las, 'smult_si', None)
     h_op_raw, s2_op, ovlp_op, hdiag_raw, _get_ovlp = op[opt].gen_contract_op_si_hdiag (
-        las, h1, h2, ci_blk, nelec_blk, smult_fr=smult_blk, soc=soc, screen_thresh=screen_thresh
+        las, h1, h2, ci_blk, nelec_blk, smult_fr=smult_blk, soc=soc, disc_fr=disc_blk,
+        screen_thresh=screen_thresh
     )
     if verbose >= lib.logger.DEBUG:
         # The sort is slow
