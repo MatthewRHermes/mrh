@@ -735,6 +735,14 @@ class LASSIS (LASSI):
         assert (ci is not None)
         return LASSI.get_lroots (self, ci=ci)
 
+    def get_disc_fr (self):
+        disc_fr = -np.ones ((self.nfrags, self.nroots), dtype=int)
+        for i, ents in enumerate (self.entmaps):
+            for j,k in ents:
+                disc_fr[j,i] = k
+                disc_fr[k,i] = j
+        return disc_fr
+
     def get_raw2orth (self, ci_ref=None, ci_sf=None, ci_ch=None, soc=None, opt=None):
         if ci_ref is None: ci_ref = self.get_ci_ref ()
         if ci_sf is None: ci_sf = self.ci_spin_flips

@@ -403,6 +403,10 @@ def _eig_block_Davidson (las, e0, h1, h2, ci_blk, nelec_blk, smult_blk, soc, opt
     screen_thresh = getattr (las, 'davidson_screen_thresh_si', DAVIDSON_SCREEN_THRESH_SI)
     pspace_size = getattr (las, 'pspace_size_si', PSPACE_SIZE_SI)
     smult_si = getattr (las, 'smult_si', None)
+    if callable (getattr (las, 'get_disc_fr', None)):
+        disc_fr = las.get_disc_fr ()
+    else:
+        disc_fr = None
     h_op_raw, s2_op, ovlp_op, hdiag_raw, _get_ovlp = op[opt].gen_contract_op_si_hdiag (
         las, h1, h2, ci_blk, nelec_blk, smult_fr=smult_blk, soc=soc, screen_thresh=screen_thresh
     )
@@ -411,7 +415,7 @@ def _eig_block_Davidson (las, e0, h1, h2, ci_blk, nelec_blk, smult_blk, soc, opt
         log.debug ("fingerprint of hdiag raw: %15.10e", lib.fp (np.sort (hdiag_raw)))
     t0 = (lib.logger.process_clock (), lib.logger.perf_counter ())
     raw2orth = basis.get_orth_basis (ci_blk, las.ncas_sub, nelec_blk, _get_ovlp=_get_ovlp,
-                                     smult_fr=smult_blk, smult_si=smult_si)
+                                     smult_fr=smult_blk, smult_si=smult_si)#, disc_fr=disc_fr)
     raw2orth.log_debug1_hdiag_raw (log, hdiag_raw)
     orth2raw = raw2orth.H
     mem_orth = raw2orth.get_nbytes () / 1e6
@@ -1140,6 +1144,9 @@ class LASSI(lib.StreamObject):
     def get_lroots (self, ci=None):
         if ci is None: ci = self.ci
         return get_lroots (ci)
+
+    def get_disc_fr (self):
+        return np.zeros ((self.nfrags, self.nroots), dtype=int)
 
     def get_nprods (self, ci=None):
         lroots = self.get_lroots (ci=ci)
