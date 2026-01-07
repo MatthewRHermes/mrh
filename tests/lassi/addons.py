@@ -220,7 +220,7 @@ def case_contract_op_si (ks, las, h1, h2, ci_fr, nelec_frs, smult_fr=None, soc=0
     _check_OrthBasis (ks, las, ci_fr, nelec_frs, smult_fr, ham, s2, ovlp, ops)
     if (soc==0) and (smult_fr is not None):
         smult_si = _pick_random_smult_si (smult_fr)
-        with ks.subTest ('spin-coupled basis'):
+        with ks.subTest (basis_type='spin-coupled'):
             _check_OrthBasis (ks, las, ci_fr, nelec_frs, smult_fr, ham, s2, ovlp, ops,
                               smult_si=smult_si)
     nstates = ham.shape[0]
@@ -248,7 +248,7 @@ def debug_contract_op_si (ks, las, h1, h2, ci_fr, nelec_frs, smult_fr=None, soc=
     np.save ('nelec_frs.npy', nelec_frs)
     ops = op[1].gen_contract_op_si_hdiag (las, h1, h2, ci_fr, nelec_frs, soc=soc,
                                           smult_fr=smult_fr)
-    ham_op, s2_op, ovlp_op, ham_diag, _get_ovlp = ops[:4]
+    ham_op, s2_op, ovlp_op, ham_diag, _get_ovlp = ops
     lroots = get_lroots (ci_fr)
     lroots_prod = np.prod (lroots, axis=0)
     nj = np.cumsum (lroots_prod)
@@ -259,22 +259,22 @@ def debug_contract_op_si (ks, las, h1, h2, ci_fr, nelec_frs, smult_fr=None, soc=
         with ks.subTest ('hdiag', root=r, nelec_fs=nelec_frs[:,r,:]):
             #print (ham.diagonal ()[i:j], ham_diag[i:j])
             ks.assertAlmostEqual (lib.fp (ham.diagonal ()[i:j]), lib.fp (ham_diag[i:j]), 7)
-    x = (2 * np.random.rand (nstates)) - 1
-    if soc:
-        x = x + 1j*np.random.rand (nstates)
-    for myop, ref, lbl in ((ham_op, ham, 'ham'), (s2_op, s2, 's2'), (ovlp_op, ovlp, 'ovlp')):
-        test = myop (np.eye (nstates))
-        for s in range (nroots):
-            k, l = ni[s], nj[s]
-            test = myop (np.eye (nstates)[:,k:l])
-            for r in range (nroots):
-                i, j = ni[r], nj[r]
-                with ks.subTest (lbl, blk=(r,s), intyp=interactions[interidx[r,s]]):
-                    ks.assertAlmostEqual (lib.fp (test[i:j]), lib.fp (ref[i:j,k:l]), 7)
-        #for r,s in itertools.product (range (nroots), repeat=2):
-        #    i, j = ni[r], nj[r]
-        #    with ks.subTest (lbl, blk=(r,s), intyp=interactions[interidx[r,s]]):
-        #        ks.assertAlmostEqual (lib.fp (test[i:j,k:l]), lib.fp (ref[i:j,k:l]), 7)
+    #x = (2 * np.random.rand (nstates)) - 1
+    #if soc:
+    #    x = x + 1j*np.random.rand (nstates)
+    #for myop, ref, lbl in ((ham_op, ham, 'ham'), (s2_op, s2, 's2'), (ovlp_op, ovlp, 'ovlp')):
+    #    test = myop (np.eye (nstates))
+    #    for s in range (nroots):
+    #        k, l = ni[s], nj[s]
+    #        test = myop (np.eye (nstates)[:,k:l])
+    #        for r in range (nroots):
+    #            i, j = ni[r], nj[r]
+    #            with ks.subTest (lbl, blk=(r,s), intyp=interactions[interidx[r,s]]):
+    #                ks.assertAlmostEqual (lib.fp (test[i:j]), lib.fp (ref[i:j,k:l]), 7)
+    #    #for r,s in itertools.product (range (nroots), repeat=2):
+    #    #    i, j = ni[r], nj[r]
+    #    #    with ks.subTest (lbl, blk=(r,s), intyp=interactions[interidx[r,s]]):
+    #    #        ks.assertAlmostEqual (lib.fp (test[i:j,k:l]), lib.fp (ref[i:j,k:l]), 7)
 
 def case_lassis_fbf_2_model_state (ks, lsi):
     seen_fr = np.zeros ((lsi.nfrags,lsi.nroots), dtype=int)

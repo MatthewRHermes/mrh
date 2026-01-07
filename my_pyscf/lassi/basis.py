@@ -68,12 +68,12 @@ def get_orth_basis (ci_fr, norb_f, nelec_frs, _get_ovlp=None, smult_fr=None, smu
         contains1st = (inverse[0]==sn_string_idx)
         n_str = sn_str[:nfrags]
         s_str = sn_str[nfrags:]
-        pm_blocks, pm_strs = _get_spin_split_manifolds (ci_fr, norb_f, nelec_frs, smult_fr,
-                                                        lroots_fr, inverse==sn_string_idx)
+        pm_blocks, pm_strs, has1st = _get_spin_split_manifolds (ci_fr, norb_f, nelec_frs, smult_fr,
+                                                                lroots_fr, inverse==sn_string_idx)
         # iterate over spatial wave functions. I think that the length of this iteration
         # should be 1 if the model space is really spin-adapted; but in this function,
         # I don't want to require that
-        for m_blocks, m_strs in zip (pm_blocks, pm_strs):
+        for m_blocks, m_strs, is1st in zip (pm_blocks, pm_strs, has1st):
             num_m_blocks = len (m_blocks)
             # iterate over m strings, but only to sanity check
             nprod = np.asarray ([(offs1[m]-offs0[m]).sum () for m in m_blocks])
@@ -89,7 +89,7 @@ def get_orth_basis (ci_fr, norb_f, nelec_frs, _get_ovlp=None, smult_fr=None, smu
                 xmat = None
             new_manifold = get_rootspace_manifold (norb_f, lroots_fr, nprods_r, n_str, s_str,
                                                    m_strs, m_blocks, xmat, smult_si=smult_si)
-            if contains1st and _is_first (nelec_frs, smult_fr, n_str, s_str, m_strs):
+            if is1st:
                 assert (not found1st)
                 manifolds = [new_manifold,] + manifolds
                 found1st = True
@@ -105,17 +105,6 @@ def get_orth_basis (ci_fr, norb_f, nelec_frs, _get_ovlp=None, smult_fr=None, smu
         return OrthBasis ((north,nraw), dtype, nprods_r, manifolds)
     else:
         return SpinCoupledOrthBasis ((north,nraw), dtype, nprods_r, manifolds)
-
-def _is_first (nelec_frs, smult_fr, n_str, s_str, m_strs):
-    if np.any (n_str != nelec_frs[:,0,:].sum (1)):
-        return False
-    if smult_fr is None:
-        n0_fs = nelec_frs[:,0,:][None,:,:]
-        n1_rfs = np.asarray ([[n_str + m_str, n_str - m_str]
-                              for m_str in m_strs]).transpose (0,2,1) // 2
-        return (n0_fs==n1_rfs).all ((1,2)).any ()
-    else:
-        return np.all (smult_fr[:,0]==s_str)
 
 def get_nbytes (obj):
     def _get (x):
@@ -244,14 +233,16 @@ def _get_spin_split_manifolds (ci_fr, norb_f, nelec_frs, smult_fr, lroots_fr, id
     nelec_frs = nelec_frs[:,idx,:]
     if smult_fr is not None: smult_fr = smult_fr[:,idx]
     lroots_fr = lroots_fr[:,idx]
-    idx = np.where (idx)[0]
+    idx = np.sort (np.where (idx)[0])
+    assert (np.all (idx>=0))
     ci1_fr = [[ci_r[i] for i in idx] for ci_r in ci_fr]
-    manifolds, m_strs = _get_spin_split_manifolds_idx (ci1_fr, norb_f, nelec_frs, smult_fr, lroots_fr)
+    manifolds, m_strs, has1st = _get_spin_split_manifolds_idx (ci1_fr, norb_f, nelec_frs, smult_fr,
+                                                               lroots_fr, has1st=(idx[0]==0))
     for i in range (len (manifolds)):
         manifolds[i] = [idx[j] for j in manifolds[i]]
-    return manifolds, m_strs
+    return manifolds, m_strs, has1st
 
-def _get_spin_split_manifolds_idx (ci_fr, norb_f, nelec_frs, smult_fr, lroots_fr):
+def _get_spin_split_manifolds_idx (ci_fr, norb_f, nelec_frs, smult_fr, lroots_fr, has1st=None):
     '''Split a manifold of model state rootspaces which have same numbers of electrons and spin
     multiplicities in each fragment into submanifolds according to their spin-projection quantum
     numbers Na-Nb.'''
@@ -261,9 +252,12 @@ def _get_spin_split_manifolds_idx (ci_fr, norb_f, nelec_frs, smult_fr, lroots_fr
     tabulator = spins_fr.T
     m_strs, inverse = np.unique (tabulator, axis=0, return_inverse=True)
     num_m_blocks = len (m_strs)
-    m_blocks = [np.where (inverse==i)[0] for i in range (num_m_blocks)]
+    m_blocks = [np.sort (np.where (inverse==i)[0]) for i in range (num_m_blocks)]
+    has1st = [(has1st and idx[0]==0) for idx in m_blocks]
     if smult_fr is None or num_m_blocks<2:
-        return [m_block[None,:] for m_block in m_blocks], [m_str[None,:] for m_str in m_strs]
+        manifolds = [m_block[None,:] for m_block in m_blocks]
+        m_strs = [m_str[None,:] for m_str in m_strs]
+        return manifolds, m_strs, has1st
     fprint = np.stack ([get_unique_roots_with_spin (
         ci_fr[ifrag], norb_f[ifrag], [tuple (n) for n in nelec_frs[ifrag]], smult_fr[ifrag]
     ) for ifrag in range (nfrags)], axis=1)
@@ -280,12 +274,14 @@ def _get_spin_split_manifolds_idx (ci_fr, norb_f, nelec_frs, smult_fr, lroots_fr
     m_strs = [np.stack ([m_strs[i] for i in np.where (inverse==j)[0]],
                         axis=0)
               for j in range (len (uniq))]
+    has1st = [np.any ([has1st[i] for i in np.where (inverse==j)[0]])
+              for j in range (len (uniq))]
     for iblk in range (len (uniq)):
         for ifrag in range (nfrags):
             idx = np.argsort (m_strs[iblk][:,ifrag], kind='mergesort')
             m_strs[iblk] = m_strs[iblk][idx]
             manifolds[iblk] = manifolds[iblk][idx]
-    return manifolds, m_strs
+    return manifolds, m_strs, has1st
 
 class OrthBasisBase (sparse_linalg.LinearOperator):
     get_nbytes = get_nbytes

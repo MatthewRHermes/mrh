@@ -48,7 +48,8 @@ class HamS2Ovlp (stdm.LSTDM):
                                for i in range (len (frags))], axis=1)
         brastr, ketstr = braketstr
         if ltri: brastr, ketstr = sorted ([list(brastr),list(ketstr)])
-        fprint = hash (tuple (np.stack ([frags, brastr, ketstr], axis=0).ravel ()))
+        hashable = tuple (np.stack ([frags, brastr, ketstr], axis=0).ravel ())
+        fprint = hash (hashable)
         return fprint
 
     def interaction_spman_fprints (self, exc, lbl):
