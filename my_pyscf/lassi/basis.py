@@ -206,6 +206,12 @@ class RootspaceManifold:
                            self.sprintf_address_book_spin_orth (),
                            self.sprintf_address_book_spat_orth ()])
 
+    def sprintf_single_orth_address (self, i, j):
+        address = str (self.s_str) + '; '
+        address += str (self.n_str) + '; '
+        address += str (self.get_t_strs ()[i]) + '; '
+        address += '{}/{}'.format (j, self.orth_shape[1])
+        return address
 
 class SpinCoupledRootspaceManifold (RootspaceManifold):
     def __init__(self, norb_f, lroots_fr, nprods_r, n_str, s_str, m_strs, m_blocks, xmat,
@@ -634,6 +640,13 @@ class OrthBasis (OrthBasisBase):
         for i, ix in enumerate (idx):
             log.debug ("%d %15.10e %d %d %d", idx[i], hdiag[ix], addrs_sn[i], addrs_t[i],
                        addrs_p[i])
+
+    def sprintf_single_orth_address (self, idx):
+        idx = np.atleast_1d (idx)
+        assert (len (idx) == 1)
+        addrs_sn, addrs_t, addrs_p = self.idx2addrs_orth (idx)
+        return self.manifolds[addrs_sn[0]].sprintf_single_orth_address (addrs_t[0], addrs_p[0])
+
 
 class SpinCoupledOrthBasis (OrthBasis):
     def roots_coupled_in_hdiag (self, i, j):

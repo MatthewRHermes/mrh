@@ -97,12 +97,12 @@ class KnownValues(unittest.TestCase):
                                                      soc=False, break_symmetry=False, opt=1)[r]
                     self.assertAlmostEqual (lib.fp (d12_o1_test), lib.fp (d12_o0[r][i]), 9)
 
-    #@unittest.skip('debugging')
+    @unittest.skip('debugging')
     def test_davidson (self):
         lsi1 = LASSIS (lsi._las).run (davidson_only=True)
         self.assertAlmostEqual (lsi1.e_roots[0], lsi.e_roots[0], 6)
 
-    #@unittest.skip('debugging')
+    @unittest.skip('debugging')
     def test_davidson_no_linequiv (self):
         with lib.temporary_env (__config__, lassi_frag_do_screen_linequiv=False):
             from mrh.my_pyscf.lassi.op_o1 import frag
@@ -111,12 +111,12 @@ class KnownValues(unittest.TestCase):
             self.assertAlmostEqual (lsi1.e_roots[0], lsi.e_roots[0], 6)
         importlib.reload (frag)
 
-    #@unittest.skip('debugging')
+    @unittest.skip('debugging')
     def test_davidson_spincoup (self):
         lsi1 = LASSIS (lsi._las).run (davidson_only=True, smult_si=1)
         self.assertAlmostEqual (lsi1.e_roots[0], lsi.e_roots[0], 6)
 
-    #@unittest.skip('debugging')
+    @unittest.skip('debugging')
     def test_davidson_spincoup_no_linequiv (self):
         with lib.temporary_env (__config__, lassi_frag_do_screen_linequiv=False):
             from mrh.my_pyscf.lassi.op_o1 import frag
@@ -152,6 +152,7 @@ class KnownValues(unittest.TestCase):
         case_contract_op_si (self, las, h1, h2, lsi.ci, nelec_frs, smult_fr=smult_fr,
                              disc_fr=disc_fr)
 
+    @unittest.skip('debugging')
     def test_contract_op_si_no_linequiv (self):
         with lib.temporary_env (__config__, lassi_frag_do_screen_linequiv=False):
             from mrh.my_pyscf.lassi.op_o1 import frag

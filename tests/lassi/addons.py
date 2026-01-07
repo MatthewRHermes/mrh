@@ -190,8 +190,14 @@ def _check_OrthBasis (ks, las, ci_fr, nelec_frs, smult_fr, ham, s2, ovlp, ops, d
     ham_orth = raw2orth (ham.T).T
     ham_orth = raw2orth (ham_orth.conj ()).conj ()
     ham_diag_orth = op[1].get_hdiag_orth (ham_diag, ham_op, raw2orth)
+    msg = '\n'
+    for i in range (len (ham_diag_orth)):
+        myerr = ham_diag_orth[i] - ham_orth[i,i]
+        if abs (myerr) < 1e-8: continue
+        address = raw2orth.sprintf_single_orth_address (i)
+        msg += '\n{} {} {} {} {}'.format (i, address, ham_diag_orth[i], ham_orth[i,i], myerr)
     with ks.subTest ('hdiag orth'):
-        ks.assertAlmostEqual (lib.fp (ham_orth.diagonal ()), lib.fp (ham_diag_orth), 7)
+        ks.assertAlmostEqual (lib.fp (ham_orth.diagonal ()), lib.fp (ham_diag_orth), 7, msg=msg)
     pspace_size = min (5, max (1, raw2orth.shape[0]//2))
     pw, pv, addrs = pspace (ham_diag_orth, ham_op, raw2orth, 1, pspace_size)
     ham_test = (pv * pw[None,:]) @ pv.conj ().T
