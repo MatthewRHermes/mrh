@@ -332,6 +332,11 @@ class OrthBasisBase (sparse_linalg.LinearOperator):
             coup = True
         return coup
 
+    def get_manifold_orth_offs (self, iman):
+        offs0 = sum ([0,] + [np.prod (self.get_manifold_orth_shape (i)) for i in range (iman)])
+        offs1 = offs0 + np.prod (self.get_manifold_orth_shape (iman))
+        return offs0, offs1
+
 class NullOrthBasis (OrthBasisBase):
     def __init__(self, nraw, dtype, nprods_r):
         self.shape = (nraw,nraw)
@@ -375,6 +380,7 @@ class NullOrthBasis (OrthBasisBase):
 
     def get_manifold_orth_shape (self, iroot):
         return (1, self.nprods_raw[iroot])
+
 
     def hdiag_spincoup_loop (self, iroot, mstr_bra, mstr_ket, mblks):
         yield 1, self.offs_raw[iroot]

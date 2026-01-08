@@ -846,33 +846,33 @@ class HamS2OvlpOperators (HamS2Ovlp):
         self.log.timer ('HamS2OvlpOperators.get_hdiag', *t0)
         return self.ox.copy ()
 
-    def get_hdiag_orth (self, raw2orth):
-        self.ox[:] = 0
-        hdiag = self.ox
-        if raw2orth.shape[0] > hdiag.size:
-            hdiag = np.zeros (raw2orth.shape[0], dtype=self.ox.dtype)
-        def getter (iroot, bra=False):
-            return raw2orth.get_xmat_rows (iroot)
-        self._fdm_vec_getter = getter
-        for inv, group in self.optermgroups_h.items (): 
-            for op in group.ops:
-                sinv = op.get_inv_frags ()
-                op1 = {raw2orth.spincase_mstrs (key[:2], sinv)[1]:
-                       opterm.reduce_spin (op, key[0], key[1]).ravel ()
-                       for key in op.spincase_keys}
-                for iman, braket_tab, mstrs, mblks in self.hdiag_orth_gen (raw2orth, op):
-                    fdm = self.get_hdiag_fdm (braket_tab, *inv)
-                    nx = raw2orth.get_manifold_orth_shape (iman)[1]
-                    ny = np.prod (op.shape)
-                    fdm = fdm.reshape (nx, ny)
-                    for mstr_bra, mstr_ket in mstrs:
-                        op2 = op1[mstr_ket]
-                        op2 = np.dot (fdm, op2 + op2.conj ())
-                        for fac,(p,q) in raw2orth.hdiag_spincoup_loop (
-                                iman, mstr_bra, mstr_ket, sinv, mblks
-                        ):
-                            hdiag[p:q] += fac * op2
-        return hdiag[:raw2orth.shape[0]].copy ()
+    #def get_hdiag_orth (self, raw2orth):
+    #    self.ox[:] = 0
+    #    hdiag = self.ox
+    #    if raw2orth.shape[0] > hdiag.size:
+    #        hdiag = np.zeros (raw2orth.shape[0], dtype=self.ox.dtype)
+    #    def getter (iroot, bra=False):
+    #        return raw2orth.get_xmat_rows (iroot)
+    #    self._fdm_vec_getter = getter
+    #    for inv, group in self.optermgroups_h.items (): 
+    #        for op in group.ops:
+    #            sinv = op.get_inv_frags ()
+    #            op1 = {raw2orth.spincase_mstrs (key[:2], sinv)[1]:
+    #                   opterm.reduce_spin (op, key[0], key[1]).ravel ()
+    #                   for key in op.spincase_keys}
+    #            for iman, braket_tab, mstrs, mblks in self.hdiag_orth_gen (raw2orth, op):
+    #                fdm = self.get_hdiag_fdm (braket_tab, *inv)
+    #                nx = raw2orth.get_manifold_orth_shape (iman)[1]
+    #                ny = np.prod (op.shape)
+    #                fdm = fdm.reshape (nx, ny)
+    #                for mstr_bra, mstr_ket in mstrs:
+    #                    op2 = op1[mstr_ket]
+    #                    op2 = np.dot (fdm, op2 + op2.conj ())
+    #                    for fac,(p,q) in raw2orth.hdiag_spincoup_loop (
+    #                            iman, mstr_bra, mstr_ket, sinv, mblks
+    #                    ):
+    #                        hdiag[p:q] += fac * op2
+    #    return hdiag[:raw2orth.shape[0]].copy ()
 
     def hdiag_orth_gen (self, raw2orth, op):
         r'''Inverting a bunch of lookup tables, in order to help get the diagonal elements of the
@@ -1046,6 +1046,20 @@ class HamS2OvlpOperators (HamS2Ovlp):
         profile += '\n' + fmt_str.format ('dot', self.dt_phd, self.dw_phd)
         return profile
 
+    def get_hdiag_orth (self, raw2orth):
+        self.ox[:] = 0
+        hdiag = self.ox
+        if raw2orth.shape[0] > hdiag.size:
+            hdiag = np.zeros (raw2orth.shape[0], dtype=self.ox.dtype)
+        for inv, group in self.optermgroups_h.items (): 
+            for op in group.ops:
+                for addr_sn in self.hdiag_orth_sn_args (raw2orth, op):
+                    i, j = raw2orth.get_manifold_orth_offs (addr_sn)
+                    hdiag_sn = self.hdiag_orth_sn (raw2orth, inv, op, addr_sn)
+                    hdiag_sn += hdiag_sn.conj ()
+                    hdiag[i:j] += hdiag_sn.ravel ()
+        return hdiag[:raw2orth.shape[0]].copy ()
+
     def get_pspace_ham (self, raw2orth, idxs):
         self.init_pspace_profiling ()
         pspace_size = len (idxs)
@@ -1069,6 +1083,22 @@ class HamS2OvlpOperators (HamS2Ovlp):
         self.log.debug (self.sprint_pspace_profile ())
         return ham
 
+    def hdiag_orth_sn_args (self, raw2orth, op):
+        t0, w0 = logger.process_clock (), logger.perf_counter ()
+        args = np.empty (0, dtype=int)
+        for key in op.spincase_keys:
+            braket_tab = self.nonuniq_exc[key]
+            exc_sn = raw2orth.roots2mans (braket_tab)
+            exc_sn = exc_sn[exc_sn[:,0]==exc_sn[:,1],0]
+            exc_sn = np.unique (exc_sn)
+            idx = (exc_sn[:,None]!=args[None,:]).all(1)
+            exc_sn = exc_sn[idx]
+            args = np.append (args, exc_sn, axis=0)
+        t1, w1 = logger.process_clock (), logger.perf_counter ()
+        #self.dt_phi += (t1-t0)
+        #self.dw_phi += (w1-w0)
+        return args
+
     def pspace_ham_sn_args (self, raw2orth, op):
         t0, w0 = logger.process_clock (), logger.perf_counter ()
         args = np.empty ((0,2), dtype=int)
@@ -1082,6 +1112,29 @@ class HamS2OvlpOperators (HamS2Ovlp):
         self.dt_phi += (t1-t0)
         self.dw_phi += (w1-w0)
         return args
+
+    def hdiag_orth_sn (self, raw2orth, inv, op, addr_sn):
+        t1, w1 = logger.process_clock (), logger.perf_counter ()
+        size_t, size_p = raw2orth.get_manifold_orth_shape (addr_sn)
+
+        fdens_spin = self.get_hdiag_orth_fdens_spin (raw2orth, inv, op, addr_sn)
+        t2, w2 = logger.process_clock (), logger.perf_counter ()
+        #self.dt_phs += (t2-t1)
+        #self.dw_phs += (w2-w1)
+
+        fdens_spat = self.get_hdiag_orth_fdens_spat (raw2orth, inv, op, addr_sn)
+        t3, w3 = logger.process_clock (), logger.perf_counter ()
+        #self.dt_phr += (t3-t2)
+        #self.dw_phr += (w3-w2)
+
+        hdiag = np.zeros ((size_t, size_p), dtype=self.dtype)
+        for i, fden_spin in enumerate (fdens_spin):
+            op1 = op.reduce_spin_sum (fden_spin)
+            hdiag[i,:] = opterm.fdm_dot (fdens_spat, op1)
+        t4, w4 = logger.process_clock (), logger.perf_counter ()
+        #self.dt_phd += (t4-t3)
+        #self.dw_phd += (w4-w3)
+        return hdiag
 
     def pspace_ham_sn (self, raw2orth, inv, op, bra_args, ket_args):
         t0, w0 = logger.process_clock (), logger.perf_counter ()
@@ -1127,6 +1180,14 @@ class HamS2OvlpOperators (HamS2Ovlp):
         self.dw_phd += (w4-w3)
         return ham
 
+    def get_hdiag_orth_fdens_spin (self, raw2orth, inv, op, addr_sn):
+        size_t = raw2orth.get_manifold_orth_shape (addr_sn)[0]
+        addr_t = np.arange (size_t, dtype=int)
+        bra_args = (addr_sn, addr_t)
+        ket_args = (addr_sn, addr_t)
+        fdens = self.get_pspace_ham_fdm_spin (raw2orth, inv, op, bra_args, ket_args)
+        return fdens.diagonal ().T
+
     def get_pspace_ham_fdm_spin (self, raw2orth, inv, op, bra_args, ket_args):
         bra_sn, bra_t = bra_args
         ket_sn, ket_t = ket_args
@@ -1164,6 +1225,14 @@ class HamS2OvlpOperators (HamS2Ovlp):
             fdm[:,:,i] = raw2orth.pspace_ham_spincoup_dm (bra_sn, ket_sn, mtidx_bra, mtidx_ket,
                                                           sgnvec, inv)
         return fdm
+
+    def get_hdiag_orth_fdens_spat (self, raw2orth, inv, op, addr_sn):
+        size_p = raw2orth.get_manifold_orth_shape (addr_sn)[1]
+        addr_p = np.arange (size_p, dtype=int)
+        bra_args = (addr_sn, addr_p)
+        ket_args = (addr_sn, addr_p)
+        fdens = self.get_pspace_ham_fdm_spat (raw2orth, inv, op, bra_args, ket_args)
+        return fdens.diagonal ().T
 
     def get_pspace_ham_fdm_spat (self, raw2orth, inv, op, bra_args, ket_args):
         bra_sn, bra_p = bra_args
