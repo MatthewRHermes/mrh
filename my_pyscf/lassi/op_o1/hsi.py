@@ -846,131 +846,14 @@ class HamS2OvlpOperators (HamS2Ovlp):
         self.log.timer ('HamS2OvlpOperators.get_hdiag', *t0)
         return self.ox.copy ()
 
-    #def get_hdiag_orth (self, raw2orth):
-    #    self.ox[:] = 0
-    #    hdiag = self.ox
-    #    if raw2orth.shape[0] > hdiag.size:
-    #        hdiag = np.zeros (raw2orth.shape[0], dtype=self.ox.dtype)
-    #    def getter (iroot, bra=False):
-    #        return raw2orth.get_xmat_rows (iroot)
-    #    self._fdm_vec_getter = getter
-    #    for inv, group in self.optermgroups_h.items (): 
-    #        for op in group.ops:
-    #            sinv = op.get_inv_frags ()
-    #            op1 = {raw2orth.spincase_mstrs (key[:2], sinv)[1]:
-    #                   opterm.reduce_spin (op, key[0], key[1]).ravel ()
-    #                   for key in op.spincase_keys}
-    #            for iman, braket_tab, mstrs, mblks in self.hdiag_orth_gen (raw2orth, op):
-    #                fdm = self.get_hdiag_fdm (braket_tab, *inv)
-    #                nx = raw2orth.get_manifold_orth_shape (iman)[1]
-    #                ny = np.prod (op.shape)
-    #                fdm = fdm.reshape (nx, ny)
-    #                for mstr_bra, mstr_ket in mstrs:
-    #                    op2 = op1[mstr_ket]
-    #                    op2 = np.dot (fdm, op2 + op2.conj ())
-    #                    for fac,(p,q) in raw2orth.hdiag_spincoup_loop (
-    #                            iman, mstr_bra, mstr_ket, sinv, mblks
-    #                    ):
-    #                        hdiag[p:q] += fac * op2
-    #    return hdiag[:raw2orth.shape[0]].copy ()
-
-    def hdiag_orth_gen (self, raw2orth, op):
-        r'''Inverting a bunch of lookup tables, in order to help get the diagonal elements of the
-        Hamiltonian in OrthBasis.
-
-        Args:
-            raw2orth : instance of :class: OrthBasis or NullOrthBasis
-            op : instance of :class: OpTerm
-
-        Returns a generator with elements:
-            iman : integer
-                Index of an OrthBasis Manifold
-            braket_tab : ndarray of ints
-                argument to get_hdiag_fdm
-            mstrs : list
-                elements are (mstr_bra, mstr_ket)
-                identifying the M case of the corresponding
-                operator in the inv block
-        '''
-        spincase_keys = op.spincase_keys
-        sinv = op.get_inv_frags ()
-        braket_tabs = {}
-        mstrs = {}
-        mblocks = {}
-        mstrs2keys = {}
-        # group the keys together on the basis of common nonspectator m
-        for key in spincase_keys:
-            my_mstrs = raw2orth.spincase_mstrs (key[:2], sinv)
-            my_keys = mstrs2keys.get (my_mstrs, [])
-            my_keys.append (key)
-            mstrs2keys[my_mstrs] = my_keys
-        for my_mstrs, my_keys in mstrs2keys.items ():
-            my_braket_tabs = {}
-            my_mblocks = {}
-            # sum over spectator m and concatenate the tables
-            for key in my_keys:
-                my_my_braket_tabs, my_my_mblocks = self.hdiag_orth_split_braket_tabs (raw2orth, key)
-                for iman in my_my_braket_tabs.keys ():
-                    parent = my_braket_tabs.get (iman, np.empty ((0,2), dtype=int))
-                    parent = np.append (parent, my_my_braket_tabs[iman], axis=0)
-                    my_braket_tabs[iman] = parent
-                    parent = my_mblocks.get (iman, np.empty ((0,2), dtype=int))
-                    parent = np.append (parent, my_my_mblocks[iman], axis=0)
-                    my_mblocks[iman] = parent
-            for iman, tab in my_braket_tabs.items ():
-                mstrs[iman] = mstrs.get (iman, []) + [my_mstrs,]
-                mblocks[iman] = np.unique (np.append (
-                    mblocks.get (iman, np.zeros ((0,2), dtype=int)),
-                    my_mblocks[iman],
-                    axis=0), axis=0)
-            braket_tabs.update (my_braket_tabs)
-        assert (len (braket_tabs.keys ()) == len (mstrs.keys ()))
-        for iman in braket_tabs.keys ():
-            yield iman, braket_tabs[iman], mstrs[iman], mblocks[iman]
-
-    def hdiag_orth_split_braket_tabs (self, raw2orth, key):
-        r'''Split the tables in self.nonuniq_exc[key] along the "manifold" index
-        of an OrthBasis, in order to help get the diagonal elements of the
-        Hamiltonian.
-
-        Args:
-            raw2orth : instance of :class: OrthBasis or NullOrthBasis
-            key : list of integers
-                A key for self.nonuniq_exc. The corresponding value is immediately truncated
-                to only those pairs that could contribute to diagonal elements
-
-        Returns:
-            braket_tabs : dict
-                The truncated value of self.nonuniq_exc[key], split up according to the
-                "manifold" in which it lives (i.e., OrthBasis states sharing N and S string)
-        '''
-        tab = self.nonuniq_exc[key]
-        tab = [[bra, ket] for bra, ket in tab if raw2orth.roots_coupled_in_hdiag (bra, ket)]
-        tab = np.asarray (tab)
-        braket_tabs = {}
-        mblocks = {}
-        if tab.size == 0: return braket_tabs, mblocks
-        bras = tab[:,0]
-        blks = raw2orth.roots2blks (tab)
-        blks = raw2orth.split_rblocks_by_manifolds (blks)[1]
-        mans = raw2orth.roots2mans (bras)
-        uniq, inv = np.unique (mans, return_inverse=True)
-        # This overwrites the entry for different spectator-fragment m strings.
-        # THIS IS INTENTIONAL
-        # The summation over spectator-fragment m strings occurs in hdiag_spincoup_loop
-        for i,p in enumerate (uniq):
-            idx = inv==i
-            iman = mans[idx][0]
-            assert (np.all (mans[idx]==iman))
-            uniq1, inv1 = np.unique (blks[idx], return_inverse=True, axis=0)
-            mblocks[iman] = uniq1
-            braket_tabs[iman] = tab[idx][inv1==0]
-        return braket_tabs, mblocks
-
-    def get_hdiag_fdm (self, braket_tab, *inv):
+    def get_hdiag_pspace_fdm (self, braket_tab, *inv):
+        sgn = self.spin_shuffle[braket_tab[0,0]]
+        sgn *= self.spin_shuffle[braket_tab[0,1]]
+        sgn *= self.fermion_frag_shuffle (braket_tab[0,0], inv)
+        sgn *= self.fermion_frag_shuffle (braket_tab[0,1], inv)
         fdm = 0
         for bra, ket in braket_tab:
-            fdm += self.get_fdm_1space (bra, ket, *inv)
+            fdm += self.get_fdm_1space (bra, ket, *inv) * sgn
         return fdm
 
     get_fdm_1space = LRRDM.get_fdm_1space
@@ -1269,10 +1152,6 @@ class HamS2OvlpOperators (HamS2Ovlp):
         idx = np.all (m_exc==m_exc[0,:][None,:], axis=1)
         braket_tab = braket_tab[idx,:]
 
-        sgn = self.spin_shuffle[braket_tab[0,0]]
-        sgn *= self.spin_shuffle[braket_tab[0,1]]
-        sgn *= self.fermion_frag_shuffle (braket_tab[0,0], inv)
-        sgn *= self.fermion_frag_shuffle (braket_tab[0,1], inv)
         rect_indices = np.indices ((len (ket_p), len (bra_p)))
         _ik, _ib = np.concatenate (rect_indices.T, axis=0).T
         _col = (ket_p[_ik], bra_p[_ib])
@@ -1280,8 +1159,8 @@ class HamS2OvlpOperators (HamS2Ovlp):
             bra = int (bra)
             return raw2orth.get_xmat_rows (iroot, _col=_col[bra])
         self._fdm_vec_getter = getter
-        fdm = self.get_hdiag_fdm (braket_tab, *inv)
-        fdm = fdm.reshape (len (bra_p), len (ket_p), -1) * sgn
+        fdm = self.get_hdiag_pspace_fdm (braket_tab, *inv)
+        fdm = fdm.reshape (len (bra_p), len (ket_p), -1)
         return fdm
 
     def _crunch_2c_(self, bra, ket, a, i, b, j, s2lt, dry_run=False):

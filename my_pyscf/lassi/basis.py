@@ -303,8 +303,6 @@ def _get_spin_split_manifolds_idx (ci_fr, norb_f, nelec_frs, smult_fr, lroots_fr
 
 class OrthBasisBase (sparse_linalg.LinearOperator):
     get_nbytes = get_nbytes
-    def roots_coupled_in_hdiag (self, i, j):
-        return self.roots2blks (i) == self.roots2blks (j)
 
     def split_oblocks_by_manifolds (self, blocks):
         blocks_shape = np.asarray (blocks).shape
@@ -380,11 +378,6 @@ class NullOrthBasis (OrthBasisBase):
 
     def get_manifold_orth_shape (self, iroot):
         return (1, self.nprods_raw[iroot])
-
-
-    def hdiag_spincoup_loop (self, iroot, mstr_bra, mstr_ket, mblks):
-        yield 1, self.offs_raw[iroot]
-        return
 
     def spincase_mstrs (self, roots, inv):
         return tuple (roots)
@@ -463,21 +456,6 @@ class OrthBasis (OrthBasisBase):
 
     def get_manifold_orth_shape (self, iman):
         return self.manifolds[iman].orth_shape
-
-    def hdiag_spincoup_loop (self, iman, mstr_bra, mstr_ket, inv, mblks):
-        assert (mstr_bra == mstr_ket)
-        offs0 = 0
-        for man in self.manifolds[:iman]:
-            offs0 += np.prod (man.orth_shape)
-        man = self.manifolds[iman]
-        iblks = man.idx_m_str (mstr_ket, inv)
-        iblks = iblks[np.isin (iblks, mblks)]
-        ncols = man.orth_shape[1]
-        for iblk in iblks:
-            p = offs0 + iblk*ncols
-            q = p + ncols
-            yield 1, (p,q)
-        return
 
     def spincase_mstrs (self, roots, inv):
         mstrs = []
@@ -655,8 +633,6 @@ class OrthBasis (OrthBasisBase):
 
 
 class SpinCoupledOrthBasis (OrthBasis):
-    def roots_coupled_in_hdiag (self, i, j):
-        return self.roots2mans (i) == self.roots2mans (j)
 
     def rootspaces_covering_addrs (self, addrs):
         blocks = np.searchsorted (self.offs_orth[:,0], addrs, side='right')-1
@@ -666,28 +642,6 @@ class SpinCoupledOrthBasis (OrthBasis):
             for m_block in self.manifolds[i].m_blocks:
                 roots.extend (m_block)
         return np.atleast_1d (roots).astype (int)
-
-    def hdiag_spincoup_loop (self, iman, mstr_bra, mstr_ket, inv, mblks):
-        offs0 = 0
-        for man in self.manifolds[:iman]:
-            offs0 += np.prod (man.orth_shape)
-        man = self.manifolds[iman]
-        # This indexing should be properly sorted for the dot product below
-        # I explicitly sorted the mstrs above
-        iblks_bra = man.idx_m_str (mstr_bra, inv)
-        iblks_ket = man.idx_m_str (mstr_ket, inv)
-        assert (np.isin (iblks_bra, mblks[:,0]).all ())
-        assert (np.isin (iblks_ket, mblks[:,1]).all ())
-        nlsf = man.umat.shape[1]
-        ubra = man.umat[iblks_bra,:]
-        uket = man.umat[iblks_ket,:]
-        ncols = man.orth_shape[1]
-        for ilsf in range (nlsf):
-            p = offs0 + ilsf*ncols
-            q = p + ncols
-            spin_fac = np.dot (ubra[:,ilsf], uket[:,ilsf])
-            yield spin_fac, (p,q)
-        return
 
     def _matvec (self, rawarr):
         is_out_complex = (self.dtype==np.complex128) or np.iscomplexobj (rawarr)
