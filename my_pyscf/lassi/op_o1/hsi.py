@@ -1151,7 +1151,6 @@ class HamS2OvlpOperators (HamS2Ovlp):
         bra, ket = braket_tab[0,:]
         nbra = np.prod (self.lroots[inv,bra])
         nket = np.prod (self.lroots[inv,ket])
-        fdm = np.zeros ((len (bra_p), len (ket_p), nbra*nket), dtype=float)
 
         # When using spin-orbit coupling, braket_tab will include overlaps that
         # vanish because the m degree of freedom is hidden from this class. To skip
@@ -1161,7 +1160,10 @@ class HamS2OvlpOperators (HamS2Ovlp):
         # indexed, but for generality I have to keep this here.
         idx = raw2orth.find_spin_nonvanishing_overlaps (bra_sn, ket_sn, m_exc, inv)
         if np.count_nonzero (idx) == 0:
-            return fdm
+            if diag:
+                return np.zeros ((len (bra_p), nbra*nket), dtype=float)
+            else:
+                return np.zeros ((len (bra_p), len (ket_p), nbra*nket), dtype=float)
         braket_tab = braket_tab[idx,:]
         sn_exc = sn_exc[idx,:]
         m_exc = m_exc[idx,:]
