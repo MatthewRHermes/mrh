@@ -846,15 +846,12 @@ class HamS2OvlpOperators (HamS2Ovlp):
         self.log.timer ('HamS2OvlpOperators.get_hdiag', *t0)
         return self.ox.copy ()
 
-    def get_hdiag_pspace_fdm (self, braket_tab, *inv):
+    def get_hdiag_pspace_sgn (self, braket_tab, *inv):
         sgn = self.spin_shuffle[braket_tab[0,0]]
         sgn *= self.spin_shuffle[braket_tab[0,1]]
         sgn *= self.fermion_frag_shuffle (braket_tab[0,0], inv)
         sgn *= self.fermion_frag_shuffle (braket_tab[0,1], inv)
-        fdm = 0
-        for bra, ket in braket_tab:
-            fdm += self.get_fdm_1space (bra, ket, *inv) * sgn
-        return fdm
+        return sgn
 
     get_fdm_1space = LRRDM.get_fdm_1space
     get_frag_transposed_sivec = LRRDM.get_frag_transposed_sivec
@@ -913,6 +910,20 @@ class HamS2OvlpOperators (HamS2Ovlp):
             o = o.ravel ()
         return o
 
+    def init_hdiag_orth_profiling (self):
+        self.dt_hoi, self.dw_hoi = 0.0, 0.0
+        self.dt_hos, self.dw_hos = 0.0, 0.0
+        self.dt_hor, self.dw_hor = 0.0, 0.0
+        self.dt_hod, self.dw_hod = 0.0, 0.0
+
+    def sprint_hdiag_orth_profile (self):
+        fmt_str = '{:>5s} CPU: {:9.2f} sec ; wall: {:9.2f} sec'
+        profile = fmt_str.format ('idx', self.dt_hoi, self.dw_hoi)
+        profile += '\n' + fmt_str.format ('spin', self.dt_hos, self.dw_hos)
+        profile += '\n' + fmt_str.format ('spat', self.dt_hor, self.dw_hor)
+        profile += '\n' + fmt_str.format ('dot', self.dt_hod, self.dw_hod)
+        return profile
+
     def init_pspace_profiling (self):
         self.dt_phi, self.dw_phi = 0.0, 0.0
         self.dt_phu, self.dw_phu = 0.0, 0.0
@@ -930,6 +941,7 @@ class HamS2OvlpOperators (HamS2Ovlp):
         return profile
 
     def get_hdiag_orth (self, raw2orth):
+        self.init_hdiag_orth_profiling ()
         self.ox[:] = 0
         hdiag = self.ox
         if raw2orth.shape[0] > hdiag.size:
@@ -939,8 +951,14 @@ class HamS2OvlpOperators (HamS2Ovlp):
                 for addr_sn in self.hdiag_orth_sn_args (raw2orth, op):
                     i, j = raw2orth.get_manifold_orth_offs (addr_sn)
                     hdiag_sn = self.hdiag_orth_sn (raw2orth, inv, op, addr_sn)
+                    t0, w0 = logger.process_clock (), logger.perf_counter ()
                     hdiag_sn += hdiag_sn.conj ()
                     hdiag[i:j] += hdiag_sn.ravel ()
+                    t1, w1 = logger.process_clock (), logger.perf_counter ()
+                    self.dt_hod += (t1-t0)
+                    self.dw_hod += (w1-w0)
+        self.log.debug ('LASSI make hdiag in orth basis profile:')
+        self.log.debug (self.sprint_hdiag_orth_profile ())
         return hdiag[:raw2orth.shape[0]].copy ()
 
     def get_pspace_ham (self, raw2orth, idxs):
@@ -978,8 +996,8 @@ class HamS2OvlpOperators (HamS2Ovlp):
             exc_sn = exc_sn[idx]
             args = np.append (args, exc_sn, axis=0)
         t1, w1 = logger.process_clock (), logger.perf_counter ()
-        #self.dt_phi += (t1-t0)
-        #self.dw_phi += (w1-w0)
+        self.dt_hoi += (t1-t0)
+        self.dw_hoi += (w1-w0)
         return args
 
     def pspace_ham_sn_args (self, raw2orth, op):
@@ -1002,21 +1020,21 @@ class HamS2OvlpOperators (HamS2Ovlp):
 
         fdens_spin = self.get_hdiag_orth_fdens_spin (raw2orth, inv, op, addr_sn)
         t2, w2 = logger.process_clock (), logger.perf_counter ()
-        #self.dt_phs += (t2-t1)
-        #self.dw_phs += (w2-w1)
+        self.dt_hos += (t2-t1)
+        self.dw_hos += (w2-w1)
 
         fdens_spat = self.get_hdiag_orth_fdens_spat (raw2orth, inv, op, addr_sn)
         t3, w3 = logger.process_clock (), logger.perf_counter ()
-        #self.dt_phr += (t3-t2)
-        #self.dw_phr += (w3-w2)
+        self.dt_hor += (t3-t2)
+        self.dw_hor += (w3-w2)
 
         hdiag = np.zeros ((size_t, size_p), dtype=self.dtype)
         for i, fden_spin in enumerate (fdens_spin):
             op1 = op.reduce_spin_sum (fden_spin)
             hdiag[i,:] = opterm.fdm_dot (fdens_spat, op1)
         t4, w4 = logger.process_clock (), logger.perf_counter ()
-        #self.dt_phd += (t4-t3)
-        #self.dw_phd += (w4-w3)
+        self.dt_hod += (t4-t3)
+        self.dw_hod += (w4-w3)
         return hdiag
 
     def pspace_ham_sn (self, raw2orth, inv, op, bra_args, ket_args):
@@ -1097,10 +1115,7 @@ class HamS2OvlpOperators (HamS2Ovlp):
                 midx_ket.append (mi_ket)
                 idx_m = (invs_m==j)
                 my_braket_tab = braket_tab[idx_m]
-                sgn = self.spin_shuffle[my_braket_tab[0,0]]
-                sgn *= self.spin_shuffle[my_braket_tab[0,1]]
-                sgn *= self.fermion_frag_shuffle (my_braket_tab[0,0], inv)
-                sgn *= self.fermion_frag_shuffle (my_braket_tab[0,1], inv)
+                sgn = self.get_hdiag_pspace_sgn (my_braket_tab, *inv)
                 sgnvec.append (sgn)
             mtidx_bra = np.ix_(np.asarray (midx_bra), bra_t)
             mtidx_ket = np.ix_(np.asarray (midx_ket), ket_t)
@@ -1114,14 +1129,14 @@ class HamS2OvlpOperators (HamS2Ovlp):
         addr_p = np.arange (size_p, dtype=int)
         bra_args = (addr_sn, addr_p)
         ket_args = (addr_sn, addr_p)
-        fdens = self.get_pspace_ham_fdm_spat (raw2orth, inv, op, bra_args, ket_args)
-        return fdens.diagonal ().T
+        fdens = self.get_pspace_ham_fdm_spat (raw2orth, inv, op, bra_args, ket_args, diag=True)
+        return fdens
 
-    def get_pspace_ham_fdm_spat (self, raw2orth, inv, op, bra_args, ket_args):
+    def get_pspace_ham_fdm_spat (self, raw2orth, inv, op, bra_args, ket_args, diag=False):
         bra_sn, bra_p = bra_args
         ket_sn, ket_p = ket_args
 
-        # Index down to the first valid spin case and cancel out some signs
+        # Index down to the first valid spin case
         idx = 0
         for key in op.spincase_keys:
             braket_tab = self.nonuniq_exc[key]
@@ -1133,16 +1148,17 @@ class HamS2OvlpOperators (HamS2Ovlp):
         braket_tab = braket_tab[idx,:]
         sn_exc = sn_exc[idx,:]
         m_exc = m_exc[idx,:]
+        bra, ket = braket_tab[0,:]
+        nbra = np.prod (self.lroots[inv,bra])
+        nket = np.prod (self.lroots[inv,ket])
+        fdm = np.zeros ((len (bra_p), len (ket_p), nbra*nket), dtype=float)
+
         # When using spin-orbit coupling, braket_tab will include overlaps that
         # vanish because the m degree of freedom is hidden from this class. To skip
         # those overlaps correctly, I have to index down explicitly to spectator-
         # fragment spin-conserving pairs of rootspaces. If I'm not using spin-orbit
         # coupling, this seems pointless because braket_tab would already be so
         # indexed, but for generality I have to keep this here.
-        bra, ket = braket_tab[0,:]
-        nbra = np.prod (self.lroots[inv,bra])
-        nket = np.prod (self.lroots[inv,ket])
-        fdm = np.zeros ((len (bra_p), len (ket_p), nbra*nket), dtype=float)
         idx = raw2orth.find_spin_nonvanishing_overlaps (bra_sn, ket_sn, m_exc, inv)
         if np.count_nonzero (idx) == 0:
             return fdm
@@ -1152,15 +1168,24 @@ class HamS2OvlpOperators (HamS2Ovlp):
         idx = np.all (m_exc==m_exc[0,:][None,:], axis=1)
         braket_tab = braket_tab[idx,:]
 
-        rect_indices = np.indices ((len (ket_p), len (bra_p)))
-        _ik, _ib = np.concatenate (rect_indices.T, axis=0).T
-        _col = (ket_p[_ik], bra_p[_ib])
+        # Note the sign canceling
+        if diag:
+            _col = (bra_p, bra_p)
+            fdm_shape = (len (bra_p), -1)
+        else:
+            rect_indices = np.indices ((len (ket_p), len (bra_p)))
+            _ik, _ib = np.concatenate (rect_indices.T, axis=0).T
+            _col = (ket_p[_ik], bra_p[_ib])
+            fdm_shape = (len (bra_p), len (ket_p), -1)
         def getter (iroot, bra=False):
             bra = int (bra)
             return raw2orth.get_xmat_rows (iroot, _col=_col[bra])
         self._fdm_vec_getter = getter
-        fdm = self.get_hdiag_pspace_fdm (braket_tab, *inv)
-        fdm = fdm.reshape (len (bra_p), len (ket_p), -1)
+        fdm = 0
+        sgn = self.get_hdiag_pspace_sgn (braket_tab, *inv)
+        for bra, ket in braket_tab:
+            fdm += self.get_fdm_1space (bra, ket, *inv) * sgn
+        fdm = fdm.reshape (*fdm_shape)
         return fdm
 
     def _crunch_2c_(self, bra, ket, a, i, b, j, s2lt, dry_run=False):
@@ -1323,7 +1348,7 @@ def gen_contract_op_si_hdiag (las, h1, h2, ci, nelec_frs, smult_fr=None, disc_fr
 def get_hdiag_orth (hdiag_raw, h_op_raw, raw2orth):
     if isinstance (raw2orth, basis.NullOrthBasis):
         return hdiag_raw
-    hobj_neutral = h_op_raw.parent.get_neutral (verbose=0)
+    hobj_neutral = h_op_raw.parent.get_neutral ()
     return hobj_neutral.get_hdiag_orth (raw2orth)
 
 def pspace_ham (h_op_raw, raw2orth, addrs):
