@@ -271,8 +271,8 @@ class HamS2OvlpOperators (HamS2Ovlp):
         self.dw_oXn = [0.0, 0.0, 0.0, 0.0]
         self.dt_non_uniq_exc, self.dw_non_uniq_exc = 0.0, 0.0
         self.dt_op_reduce, self.dw_op_reduce = 0.0, 0.0
-        self.dt_compute_4frag, self.dw_compute_4frag = 0.0, 0.0
         self.dt_compute_3frag, self.dw_compute_3frag = 0.0, 0.0
+        self.dt_compute_4frag, self.dw_compute_4frag = 0.0, 0.0
 
         use_gpu = getattr (param, 'use_gpu', False)
         if use_gpu:
@@ -281,6 +281,7 @@ class HamS2OvlpOperators (HamS2Ovlp):
           self.dt_gpu_push_vec, self.dw_gpu_push_vec = 0.0, 0.0
           self.dt_gpu_push_op, self.dw_gpu_push_op = 0.0, 0.0
           self.dt_gpu_compute, self.dw_gpu_compute = 0.0, 0.0
+          self.dt_gpu_compute_4frag, self.dw_gpu_compute_4frag = 0.0, 0.0
           self.dt_gpu_pull_final, self.dw_gpu_pull_final = 0.0, 0.0
           self.dt_gpu_calc, self.dw_gpu_calc = 0.0, 0.0
 
@@ -329,7 +330,8 @@ class HamS2OvlpOperators (HamS2Ovlp):
           profile += '\n' + fmt_str.format ('host ox,v', self.dt_gpu_setup, self.dw_gpu_setup) 
           profile += '\n' + fmt_str.format ('push vec',self.dt_gpu_push_vec, self.dw_gpu_push_vec )
           profile += '\n' + fmt_str.format ('push op',self.dt_gpu_push_op, self.dw_gpu_push_op )
-          profile += '\n' + fmt_str.format ('compute',self.dt_gpu_compute, self.dw_gpu_compute )
+          profile += '\n' + fmt_str.format ('compute-3frag',self.dt_gpu_compute, self.dw_gpu_compute )
+          profile += '\n' + fmt_str.format ('compute-4frag',self.dt_gpu_compute_4frag, self.dw_gpu_compute_4frag )
           profile += '\n' + fmt_str.format ('pull final',self.dt_gpu_pull_final, self.dw_gpu_pull_final )
 
         return profile
@@ -695,12 +697,6 @@ class HamS2OvlpOperators (HamS2Ovlp):
         self.dw_non_uniq_exc += (w1-w0)
         #STEP 3 PART 1
         op = opterm.reduce_spin (op, obra, oket)
-        #print(op.op.ravel())
-        #print(op.op.shape)
-        #print(op.d[2].ravel())
-        #print(op.d[2].shape)
-        #print(op.d[3].ravel())
-        #print(op.d[3].shape)
 
         t2, w2 = logger.process_clock (), logger.perf_counter ()
         self.dt_op_reduce += (t2-t1)
@@ -717,7 +713,6 @@ class HamS2OvlpOperators (HamS2Ovlp):
         d,l,s = op.d[3].shape
         size_op = op.op.size
         size_req = size_op + op.d[2].size + op.d[3].size+2*r*s*b*a*l*k*max_z;
-        #print(a,b,c,d,i,j,k,l,p,q,r,s,max_z)
         #doing counts = 1 because more counts = more gpu, currently just focusing on one gpu.
         #op,size,total_req,counts
         libgpu.push_op_4frag(gpu, np.ascontiguousarray(op.op), size_op, size_req,1)
@@ -725,31 +720,31 @@ class HamS2OvlpOperators (HamS2Ovlp):
         libgpu.push_d2(gpu, np.ascontiguousarray(op.d[2]),op.d[2].size, size_op,1) 
         #d3,size,loc,counts
         libgpu.push_d3(gpu, np.ascontiguousarray(op.d[3]),op.d[3].size, size_op + op.d[2].size,1) 
+        t3, w3 = logger.process_clock (), logger.perf_counter ()
+        self.dt_gpu_push_op += (t3-t2) 
+        self.dw_gpu_push_op += (w3-w2) 
 
         self._gpu_matvec_4frag(op, vecs, bras, oket, vec_table, inv, 
                                 i,j,k,l,
                                 a,b,c,d,
                                 r,s,op_t = False)
-        t3, w3 = logger.process_clock (), logger.perf_counter ()
-        self.dt_gpu_push_op += (t3-t2) 
-        self.dw_gpu_push_op += (w3-w2) 
+
+        t4, w4 = logger.process_clock (), logger.perf_counter ()
+
+        self.dt_gpu_compute_4frag += (t4-t3) 
+        self.dw_gpu_compute_4frag += (w4-w3) 
+        self.dt_compute_4frag += (t4-t2)
+        self.dw_compute_4frag += (w4-w2)
 
         if len (braHs):
             op = op.conj ().T
 
-            #print(op.op.ravel())
-            #print(op.op.shape)
-            #print(op.d[2].ravel())
-            #print(op.d[2].shape)
-            #print(op.d[3].ravel())
-            #print(op.d[3].shape)
             i,j,k,l = op.lroots_ket
             r,s,b,a,j,i = op.op.shape #op is an object, that contains op, d[2],d[3], lroots
             c,k,r = op.d[2].shape
             d,l,s = op.d[3].shape
             size_op = op.op.size
             size_req = size_op + op.d[2].size + op.d[3].size+2*r*s*b*a*l*k*max_z;
-            #print(a,b,c,d,i,j,k,l,p,q,r,s,max_z)
             #doing counts = 1 because more counts = more gpu, currently just focusing on one gpu.
             #op,size,total_req,counts
             libgpu.push_op_4frag(gpu, np.ascontiguousarray(op.op), size_op, size_req,1)
@@ -758,15 +753,19 @@ class HamS2OvlpOperators (HamS2Ovlp):
             #d3,size,loc,counts
             libgpu.push_d3(gpu, np.ascontiguousarray(op.d[3]),op.d[3].size, size_op + op.d[2].size,1) 
 
+            t5, w5 = logger.process_clock (), logger.perf_counter ()
+            self.dt_gpu_push_op += (t5-t4) 
+            self.dw_gpu_push_op += (w5-w4) 
+
             self._gpu_matvec_4frag(op, vecs, braHs, obra, vec_table, inv, 
                                     i,j,k,l,
                                     a,b,c,d,
                                     r,s,op_t = False)
 
-        t4, w4 = logger.process_clock (), logger.perf_counter ()
-        self.dt_compute_3frag += (t4-t2)
-        self.dw_compute_3frag += (w4-w2)
-        #exit()
+            t6, w6 = logger.process_clock (), logger.perf_counter ()
+            self.dt_gpu_compute_4frag += (t6-t5) 
+            self.dw_gpu_compute_4frag += (w6-w5) 
+
         return
 
     def gpu_matvec_v2(self, m, k, bras, oci, vec_table, inv, op_t = False):
@@ -820,7 +819,6 @@ class HamS2OvlpOperators (HamS2Ovlp):
                            a, b, c, d, 
                            r, s, op_t = False):
 
-        t0, w0 = logger.process_clock (), logger.perf_counter ()
         from mrh.my_pyscf.gpu import libgpu
         gpu = param.use_gpu
 
@@ -841,9 +839,6 @@ class HamS2OvlpOperators (HamS2Ovlp):
             libgpu.compute_4frag_matvec(gpu, i, j, k, l, 
                                              a, b, c, d,
                                              z, r, s, vec_loc, ox1_loc, fac, op_t, 0)
-        t1, w1 = logger.process_clock (), logger.perf_counter ()
-        self.dt_gpu_compute += (t1-t0)
-        self.dw_gpu_compute += (w1-w0)
         return 
 
          
