@@ -182,15 +182,22 @@ def _pick_random_smult_si (smult_fr):
     smults = np.arange (smult_min, smult_max+1, 2, dtype=int)
     return np.random.choice (smults)
 
-def _check_OrthBasis (ks, las, ci_fr, nelec_frs, smult_fr, ham, s2, ovlp, ops, smult_si=None):
+def _check_OrthBasis (ks, las, ci_fr, nelec_frs, smult_fr, ham, s2, ovlp, ops, disc_fr,
+                      smult_si=None):
     ham_op, s2_op, ovlp_op, ham_diag, _get_ovlp = ops
     raw2orth = basis.get_orth_basis (ci_fr, las.ncas_sub, nelec_frs, smult_fr=smult_fr,
-                                     _get_ovlp=_get_ovlp, smult_si=smult_si)
+                                     _get_ovlp=_get_ovlp, smult_si=smult_si, disc_fr=disc_fr)
     ham_orth = raw2orth (ham.T).T
     ham_orth = raw2orth (ham_orth.conj ()).conj ()
     ham_diag_orth = op[1].get_hdiag_orth (ham_diag, ham_op, raw2orth)
+    msg = '\n'
+    for i in range (len (ham_diag_orth)):
+        myerr = ham_diag_orth[i] - ham_orth[i,i]
+        if abs (myerr) < 1e-8: continue
+        address = raw2orth.sprintf_single_orth_address (i)
+        msg += '\n{} {} {} {} {}'.format (i, address, ham_diag_orth[i], ham_orth[i,i], myerr)
     with ks.subTest ('hdiag orth'):
-        ks.assertAlmostEqual (lib.fp (ham_orth.diagonal ()), lib.fp (ham_diag_orth), 7)
+        ks.assertAlmostEqual (lib.fp (ham_orth.diagonal ()), lib.fp (ham_diag_orth), 7, msg=msg)
     pspace_size = min (5, max (1, raw2orth.shape[0]//2))
     pw, pv, addrs = pspace (ham_diag_orth, ham_op, raw2orth, 1, pspace_size)
     ham_test = (pv * pw[None,:]) @ pv.conj ().T
@@ -210,19 +217,19 @@ def _check_OrthBasis (ks, las, ci_fr, nelec_frs, smult_fr, ham, s2, ovlp, ops, s
         #    print (i,j,ham_err[i,j], ham_ref[i,j])
         ks.assertAlmostEqual (lib.fp (ham_test), lib.fp (ham_ref), 7)
 
-def case_contract_op_si (ks, las, h1, h2, ci_fr, nelec_frs, smult_fr=None, soc=0):
+def case_contract_op_si (ks, las, h1, h2, ci_fr, nelec_frs, smult_fr=None, soc=0, disc_fr=None):
     ham, s2, ovlp = op[1].ham (las, h1, h2, ci_fr, nelec_frs, soc=soc, smult_fr=smult_fr)[:3]
     ops = op[1].gen_contract_op_si_hdiag (las, h1, h2, ci_fr, nelec_frs, soc=soc,
-                                          smult_fr=smult_fr)
+                                          smult_fr=smult_fr, disc_fr=disc_fr)
     ham_op, s2_op, ovlp_op, ham_diag, _get_ovlp = ops
     with ks.subTest ('hdiag'):
         ks.assertAlmostEqual (lib.fp (ham.diagonal ()), lib.fp (ham_diag), 7)
-    _check_OrthBasis (ks, las, ci_fr, nelec_frs, smult_fr, ham, s2, ovlp, ops)
+    _check_OrthBasis (ks, las, ci_fr, nelec_frs, smult_fr, ham, s2, ovlp, ops, disc_fr)
     if (soc==0) and (smult_fr is not None):
         smult_si = _pick_random_smult_si (smult_fr)
-        with ks.subTest (basis_type='spin-coupled'):
+        with ks.subTest (basis_type='spin-coupled ({})'.format (smult_si)):
             _check_OrthBasis (ks, las, ci_fr, nelec_frs, smult_fr, ham, s2, ovlp, ops,
-                              smult_si=smult_si)
+                              disc_fr, smult_si=smult_si)
     nstates = ham.shape[0]
     x = (2 * np.random.rand (nstates)) - 1
     if soc:

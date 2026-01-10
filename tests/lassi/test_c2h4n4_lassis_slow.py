@@ -117,7 +117,8 @@ class KnownValues(unittest.TestCase):
         las = lsi._las
         h0, h1, h2 = lsi.ham_2q ()
         case_contract_op_si (self, las, h1, h2, lsi.ci, lsi.get_nelec_frs (),
-                             smult_fr=lsi.get_smult_fr ())
+                             smult_fr=lsi.get_smult_fr (),
+                             disc_fr=lsi.get_disc_fr ())
 
     #@unittest.skip("debugging")
     def test_fbf_2_model_state (self):

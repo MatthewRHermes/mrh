@@ -156,7 +156,8 @@ class KnownValues(unittest.TestCase):
         e_roots, si, las = lsi.e_roots, lsi.si, lsi._las
         h0, h1, h2 = lsi.ham_2q (soc=1)
         case_contract_op_si (self, las, h1, h2, las.ci, lsi.get_nelec_frs (), 
-                             smult_fr=lsi.get_smult_fr (), soc=1)
+                             smult_fr=lsi.get_smult_fr (), soc=1,
+                             disc_fr=lsi.get_disc_fr ())
 
     #def test_lassirq (self):
     #    lsi1 = LASSIrq (las, 2, 3).run ()

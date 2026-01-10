@@ -262,7 +262,8 @@ class KnownValues(unittest.TestCase):
         las = mylsis._las
         h0, h1, h2 = mylsis.ham_2q ()
         case_contract_op_si (self, las, h1, h2, mylsis.ci, mylsis.get_nelec_frs (),
-                             smult_fr=mylsis.get_smult_fr ())
+                             smult_fr=mylsis.get_smult_fr (),
+                             disc_fr=mylsis.get_disc_fr ())
 
     def test_lassis_o1_contract_hlas_ci (self):
         mylsis = lsis[1]
@@ -275,7 +276,8 @@ class KnownValues(unittest.TestCase):
         las = mylsis._las
         h0, h1, h2 = mylsis.ham_2q ()
         case_contract_op_si (self, las, h1, h2, mylsis.ci, mylsis.get_nelec_frs (),
-                             smult_fr=mylsis.get_smult_fr ())
+                             smult_fr=mylsis.get_smult_fr (),
+                             disc_fr=mylsis.get_disc_fr ())
 
     def test_lassis_o1_ham (self):
         ham = mats[0]

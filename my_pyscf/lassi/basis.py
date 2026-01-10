@@ -11,7 +11,8 @@ from mrh.my_pyscf.lassi.op_o1.utilities import fermion_spin_shuffle
 
 LINDEP_THRESH = getattr (__config__, 'lassi_lindep_thresh', 1.0e-5)
 
-def get_orth_basis (ci_fr, norb_f, nelec_frs, _get_ovlp=None, smult_fr=None, smult_si=None):
+def get_orth_basis (ci_fr, norb_f, nelec_frs, _get_ovlp=None, smult_fr=None, smult_si=None,
+                    disc_fr=None):
     '''Unitary matrix for an orthonormal product-state basis from a set of CI vectors.
 
     Args:
@@ -27,6 +28,10 @@ def get_orth_basis (ci_fr, norb_f, nelec_frs, _get_ovlp=None, smult_fr=None, smu
             Spin multiplicity in each fragment in each rootspace
         smult_si: integer
             Target spin multiplicity. If included, smult_fr is also required
+        disc_fr: ndarray of shape (nfrags,nroots) of int
+            Additional information to descriminate between otherwise-equivalent rootspaces,
+            applicable to individual fragments (e.g., 3 is the same as 5 but only for fragment 1,
+            not fragment 2)
         _get_ovlp: callable with kwarg rootidx
             Produce the overlap matrix between model states in a set of rootspaces,
             identified by ndarray or list "rootidx"
@@ -69,7 +74,8 @@ def get_orth_basis (ci_fr, norb_f, nelec_frs, _get_ovlp=None, smult_fr=None, smu
         n_str = sn_str[:nfrags]
         s_str = sn_str[nfrags:]
         pm_blocks, pm_strs, has1st = _get_spin_split_manifolds (ci_fr, norb_f, nelec_frs, smult_fr,
-                                                                lroots_fr, inverse==sn_string_idx)
+                                                                lroots_fr, disc_fr,
+                                                                inverse==sn_string_idx)
         # iterate over spatial wave functions. I think that the length of this iteration
         # should be 1 if the model space is really spin-adapted; but in this function,
         # I don't want to require that
@@ -200,6 +206,12 @@ class RootspaceManifold:
                            self.sprintf_address_book_spin_orth (),
                            self.sprintf_address_book_spat_orth ()])
 
+    def sprintf_single_orth_address (self, i, j):
+        address = str (self.s_str) + '; '
+        address += str (self.n_str) + '; '
+        address += str (self.get_t_strs ()[i]) + '; '
+        address += '{}/{}'.format (j, self.orth_shape[1])
+        return address
 
 class SpinCoupledRootspaceManifold (RootspaceManifold):
     def __init__(self, norb_f, lroots_fr, nprods_r, n_str, s_str, m_strs, m_blocks, xmat,
@@ -226,28 +238,33 @@ class SpinCoupledRootspaceManifold (RootspaceManifold):
             out += ' {} {}\n'.format (i, t_str)
         return out[:-1]   
 
-def _get_spin_split_manifolds (ci_fr, norb_f, nelec_frs, smult_fr, lroots_fr, idx):
+def _get_spin_split_manifolds (ci_fr, norb_f, nelec_frs, smult_fr, lroots_fr, disc_fr, idx):
     '''The same as _get_spin_split_manifolds_idx, except that all of the arguments need to be
     indexed down from the full model space into the input manifold via "idx" first. The returned
     submanifold list is likewise indexed back into the full model space.'''
     nelec_frs = nelec_frs[:,idx,:]
     if smult_fr is not None: smult_fr = smult_fr[:,idx]
+    if disc_fr is not None: disc_fr = disc_fr[:,idx]
     lroots_fr = lroots_fr[:,idx]
     idx = np.sort (np.where (idx)[0])
     assert (np.all (idx>=0))
     ci1_fr = [[ci_r[i] for i in idx] for ci_r in ci_fr]
     manifolds, m_strs, has1st = _get_spin_split_manifolds_idx (ci1_fr, norb_f, nelec_frs, smult_fr,
-                                                               lroots_fr, has1st=(idx[0]==0))
+                                                               lroots_fr, disc_fr,
+                                                               has1st=(idx[0]==0))
     for i in range (len (manifolds)):
         manifolds[i] = [idx[j] for j in manifolds[i]]
     return manifolds, m_strs, has1st
 
-def _get_spin_split_manifolds_idx (ci_fr, norb_f, nelec_frs, smult_fr, lroots_fr, has1st=None):
+def _get_spin_split_manifolds_idx (ci_fr, norb_f, nelec_frs, smult_fr, lroots_fr, disc_fr,
+                                   has1st=None):
     '''Split a manifold of model state rootspaces which have same numbers of electrons and spin
     multiplicities in each fragment into submanifolds according to their spin-projection quantum
     numbers Na-Nb.'''
     # after indexing down to the current spinless manifold
     nfrags = len (norb_f)
+    if disc_fr is None:
+        disc_fr = [None for i in range (nfrags)]
     spins_fr = nelec_frs[:,:,0] - nelec_frs[:,:,1]
     tabulator = spins_fr.T
     m_strs, inverse = np.unique (tabulator, axis=0, return_inverse=True)
@@ -259,7 +276,8 @@ def _get_spin_split_manifolds_idx (ci_fr, norb_f, nelec_frs, smult_fr, lroots_fr
         m_strs = [m_str[None,:] for m_str in m_strs]
         return manifolds, m_strs, has1st
     fprint = np.stack ([get_unique_roots_with_spin (
-        ci_fr[ifrag], norb_f[ifrag], [tuple (n) for n in nelec_frs[ifrag]], smult_fr[ifrag]
+        ci_fr[ifrag], norb_f[ifrag], [tuple (n) for n in nelec_frs[ifrag]], smult_fr[ifrag],
+        discriminator=disc_fr[ifrag]
     ) for ifrag in range (nfrags)], axis=1)
     fprint = [fprint[m_block] for m_block in m_blocks]
     for iblk in range (len (m_blocks)):
@@ -285,8 +303,6 @@ def _get_spin_split_manifolds_idx (ci_fr, norb_f, nelec_frs, smult_fr, lroots_fr
 
 class OrthBasisBase (sparse_linalg.LinearOperator):
     get_nbytes = get_nbytes
-    def roots_coupled_in_hdiag (self, i, j):
-        return self.roots2blks (i) == self.roots2blks (j)
 
     def split_oblocks_by_manifolds (self, blocks):
         blocks_shape = np.asarray (blocks).shape
@@ -313,6 +329,11 @@ class OrthBasisBase (sparse_linalg.LinearOperator):
         else:
             coup = True
         return coup
+
+    def get_manifold_orth_offs (self, iman):
+        offs0 = sum ([0,] + [np.prod (self.get_manifold_orth_shape (i)) for i in range (iman)])
+        offs1 = offs0 + np.prod (self.get_manifold_orth_shape (iman))
+        return offs0, offs1
 
 class NullOrthBasis (OrthBasisBase):
     def __init__(self, nraw, dtype, nprods_r):
@@ -357,10 +378,6 @@ class NullOrthBasis (OrthBasisBase):
 
     def get_manifold_orth_shape (self, iroot):
         return (1, self.nprods_raw[iroot])
-
-    def hdiag_spincoup_loop (self, iroot, mstr_bra, mstr_ket, mblks):
-        yield 1, self.offs_raw[iroot]
-        return
 
     def spincase_mstrs (self, roots, inv):
         return tuple (roots)
@@ -439,21 +456,6 @@ class OrthBasis (OrthBasisBase):
 
     def get_manifold_orth_shape (self, iman):
         return self.manifolds[iman].orth_shape
-
-    def hdiag_spincoup_loop (self, iman, mstr_bra, mstr_ket, inv, mblks):
-        assert (mstr_bra == mstr_ket)
-        offs0 = 0
-        for man in self.manifolds[:iman]:
-            offs0 += np.prod (man.orth_shape)
-        man = self.manifolds[iman]
-        iblks = man.idx_m_str (mstr_ket, inv)
-        iblks = iblks[np.isin (iblks, mblks)]
-        ncols = man.orth_shape[1]
-        for iblk in iblks:
-            p = offs0 + iblk*ncols
-            q = p + ncols
-            yield 1, (p,q)
-        return
 
     def spincase_mstrs (self, roots, inv):
         mstrs = []
@@ -623,9 +625,14 @@ class OrthBasis (OrthBasisBase):
             log.debug ("%d %15.10e %d %d %d", idx[i], hdiag[ix], addrs_sn[i], addrs_t[i],
                        addrs_p[i])
 
+    def sprintf_single_orth_address (self, idx):
+        idx = np.atleast_1d (idx)
+        assert (len (idx) == 1)
+        addrs_sn, addrs_t, addrs_p = self.idx2addrs_orth (idx)
+        return self.manifolds[addrs_sn[0]].sprintf_single_orth_address (addrs_t[0], addrs_p[0])
+
+
 class SpinCoupledOrthBasis (OrthBasis):
-    def roots_coupled_in_hdiag (self, i, j):
-        return self.roots2mans (i) == self.roots2mans (j)
 
     def rootspaces_covering_addrs (self, addrs):
         blocks = np.searchsorted (self.offs_orth[:,0], addrs, side='right')-1
@@ -635,28 +642,6 @@ class SpinCoupledOrthBasis (OrthBasis):
             for m_block in self.manifolds[i].m_blocks:
                 roots.extend (m_block)
         return np.atleast_1d (roots).astype (int)
-
-    def hdiag_spincoup_loop (self, iman, mstr_bra, mstr_ket, inv, mblks):
-        offs0 = 0
-        for man in self.manifolds[:iman]:
-            offs0 += np.prod (man.orth_shape)
-        man = self.manifolds[iman]
-        # This indexing should be properly sorted for the dot product below
-        # I explicitly sorted the mstrs above
-        iblks_bra = man.idx_m_str (mstr_bra, inv)
-        iblks_ket = man.idx_m_str (mstr_ket, inv)
-        assert (np.isin (iblks_bra, mblks[:,0]).all ())
-        assert (np.isin (iblks_ket, mblks[:,1]).all ())
-        nlsf = man.umat.shape[1]
-        ubra = man.umat[iblks_bra,:]
-        uket = man.umat[iblks_ket,:]
-        ncols = man.orth_shape[1]
-        for ilsf in range (nlsf):
-            p = offs0 + ilsf*ncols
-            q = p + ncols
-            spin_fac = np.dot (ubra[:,ilsf], uket[:,ilsf])
-            yield spin_fac, (p,q)
-        return
 
     def _matvec (self, rawarr):
         is_out_complex = (self.dtype==np.complex128) or np.iscomplexobj (rawarr)

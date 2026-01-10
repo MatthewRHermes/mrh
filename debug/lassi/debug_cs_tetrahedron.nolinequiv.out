@@ -1,0 +1,77 @@
+sFFFFERROR: LASSI hdiag and pspace Hamiltonian disagree!
+ERROR: The incoming table may take a very long time to print out.
+ERROR: Do not expect this calculation to complete.
+ERROR:   ix            pspace             hdiag          operator
+ERROR:   88 -1.8227774059e+01 -9.3238887711e+00 -1.4666219944e+01
+ERROR:   89 -1.7169250263e+01 -8.2653649757e+00 -1.3607696148e+01
+ERROR:   90 -1.7261272917e+01 -8.3573876292e+00 -1.3699718802e+01
+ERROR:  101 -1.2882217143e+01 -1.6443771258e+01 -1.4662994201e+01
+ERROR:  102 -1.2658706537e+01 -1.6220260652e+01 -1.4439483594e+01
+ERROR:  103 -1.1089672928e+01 -1.4651227043e+01 -1.2870449986e+01
+Esss
+======================================================================
+ERROR: test_davidson (__main__.KnownValues.test_davidson)
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "/home/herme068/gits/mrh/debug/lassi/debug_cs_tetrahedron.py", line 100, in test_davidson
+    lsi1 = LASSIS (lsi._las).run (davidson_only=True, smult_si=1)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/home/herme068/anaconda3/envs/pyscf/lib/python3.12/site-packages/pyscf/lib/misc.py", line 638, in run
+    self.kernel(*args)
+  File "/home/herme068/anaconda3/envs/pyscf/lib/python3.12/site-packages/mrh/my_pyscf/lassi/lassis/lassis.py", line 663, in kernel
+    self.e_roots, self.si = self.eig (**kwargs)
+                            ^^^^^^^^^^^^^^^^^^^
+  File "/home/herme068/anaconda3/envs/pyscf/lib/python3.12/site-packages/mrh/my_pyscf/lassi/lassi.py", line 1108, in kernel
+    e_roots, si = lassi(self, mo_coeff=mo_coeff, ci=ci, veff_c=veff_c, h2eff_sub=h2eff_sub,
+                  ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/home/herme068/anaconda3/envs/pyscf/lib/python3.12/site-packages/mrh/my_pyscf/lassi/lassi.py", line 313, in lassi
+    las.converged_si, e, c, s2_blk = _eig_block (las1, e0, h1, h2, ci_blk, nelec_blk, smult_blk,
+                                     ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/home/herme068/anaconda3/envs/pyscf/lib/python3.12/site-packages/mrh/my_pyscf/lassi/lassi.py", line 383, in _eig_block
+    return _eig_block_Davidson (las, e0, h1, h2, ci_blk, nelec_blk, smult_blk, soc, opt)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/home/herme068/anaconda3/envs/pyscf/lib/python3.12/site-packages/mrh/my_pyscf/lassi/lassi.py", line 436, in _eig_block_Davidson
+    pw, pv, addr = pspace (hdiag_orth, h_op_raw, raw2orth, opt, pspace_size, log=log,
+                   ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/home/herme068/anaconda3/envs/pyscf/lib/python3.12/site-packages/mrh/my_pyscf/lassi/lassi.py", line 500, in pspace
+    raise RuntimeError ("LASSI hdiag and pspace Hamiltonian disagree!")
+RuntimeError: LASSI hdiag and pspace Hamiltonian disagree!
+
+======================================================================
+FAIL: test_contract_op_si (__main__.KnownValues.test_contract_op_si) [hdiag orth]
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "/home/herme068/anaconda3/envs/pyscf/lib/python3.12/site-packages/mrh/tests/lassi/addons.py", line 193, in _check_OrthBasis
+    ks.assertAlmostEqual (lib.fp (ham_orth.diagonal ()), lib.fp (ham_diag_orth), 7)
+AssertionError: 3.803250692039594 != 19.980144720171573 within 7 places (16.17689402813198 difference)
+
+======================================================================
+FAIL: test_contract_op_si (__main__.KnownValues.test_contract_op_si) [pspace full]
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "/home/herme068/anaconda3/envs/pyscf/lib/python3.12/site-packages/mrh/tests/lassi/addons.py", line 211, in _check_OrthBasis
+    ks.assertAlmostEqual (lib.fp (ham_test), lib.fp (ham_ref), 7)
+AssertionError: 1488.5516357478161 != -28.84871773393901 within 7 places (1517.4003534817552 difference)
+
+======================================================================
+FAIL: test_contract_op_si (__main__.KnownValues.test_contract_op_si) [hdiag orth] (basis_type='spin-coupled')
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "/home/herme068/anaconda3/envs/pyscf/lib/python3.12/site-packages/mrh/tests/lassi/addons.py", line 193, in _check_OrthBasis
+    ks.assertAlmostEqual (lib.fp (ham_orth.diagonal ()), lib.fp (ham_diag_orth), 7)
+AssertionError: -36.875041395917506 != -31.58066574100784 within 7 places (5.294375654909665 difference)
+
+======================================================================
+FAIL: test_contract_op_si (__main__.KnownValues.test_contract_op_si) [pspace full] (basis_type='spin-coupled')
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "/home/herme068/anaconda3/envs/pyscf/lib/python3.12/site-packages/mrh/tests/lassi/addons.py", line 211, in _check_OrthBasis
+    ks.assertAlmostEqual (lib.fp (ham_test), lib.fp (ham_ref), 7)
+AssertionError: -40.49093314024346 != -17.495091206888546 within 7 places (22.995841933354917 difference)
+
+----------------------------------------------------------------------
+Ran 6 tests in 303.093s
+
+FAILED (failures=4, errors=1, skipped=4)
+Full Tests for LASSI he+he-he+he- tetrahedron
+overwrite output file: debug_cs_tetrahedron.log
