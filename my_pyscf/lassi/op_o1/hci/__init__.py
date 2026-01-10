@@ -179,11 +179,13 @@ def contract_ham_ci (las, h1, h2, ci_fr, nelec_frs, si_bra=None, si_ket=None, ci
                                 dtype=ci[0][0].dtype, max_memory=max_memory, log=log)
     t02 = log.timer ('LASSI hci setup', *t01)
     hket_fr_pabq, t0 = contracter.kernel ()
+    t03 = log.timer ('LASSI hci contractor kernel', *t02)
     if si_ndim==1:
         for i, hket_r_pabq in enumerate (hket_fr_pabq):
             for j, hket_pabq in enumerate (hket_r_pabq):
                 hket_pabq = hket_pabq[0]
                 hket_fr_pabq[i][j] = hket_pabq
+    t03 = log.timer ('LASSI hci rearrange', *t02)
     log.timer ('LASSI hci crunching', *t0)
     if verbose >= lib.logger.TIMER_LEVEL:
         log.info ('LASSI hci crunching profile:\n%s',
