@@ -5553,11 +5553,13 @@ void Device::push_op_4frag(py::array_t<double> _op, int size_op, int size_req, i
 
   counts = _MIN(counts, num_devices);
   std::vector<double *> op_vec(counts); // array of device addresses 
+  //printf("size_req: %i, size_op: %i\t",size_req, size_op);
 
   for(int id=0; id<counts; ++id) {
     pm->dev_set_device(id);
     my_device_data * dd = &(device_data[id]);
     grow_array(dd->d_buf1, size_req, dd->size_buf1, "buf1", FLERR);
+    //printf("size_buf: %i\n", dd->size_buf1);
     op_vec[id] = dd->d_buf1;}
 
   mgpu_bcast(op_vec, op, _size_op*sizeof(double));

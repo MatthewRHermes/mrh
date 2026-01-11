@@ -475,21 +475,25 @@ class ExcitationPSFCISolver (ProductStateFCISolver):
         nelec_f = np.asarray ([self.nelec_ref[ifrag] for ifrag in excited_frags])
         ci_fr_ket = [self.ci_ref[ifrag] for ifrag in excited_frags]
         nelec_frs_ket = np.zeros ((len (excited_frags), len (self.solvers_ref), 2), dtype=int)
+        t01 = self.log.timer ('zero state cludge part 1', *t00)
         for iq, solver_ref in enumerate (self.solvers_ref):
             fcisolvers = [solver_ref.fcisolvers[ifrag] for ifrag in excited_frags]
             for ifrag, (s, n) in enumerate (zip (fcisolvers, nelec_f)):
                 nelec_frs_ket[ifrag,iq,:] = self._get_nelec (s, n)
+        t02 = self.log.timer ('first loop', *t01)
         ci_fr_bra = [[np.asarray (c)] for c in ci]
         nelec_rfs_bra = np.asarray ([[list(self._get_nelec (s, n))
                                      for s, n in zip (self.fcisolvers, nelec_f)]])
         nelec_frs_bra = nelec_rfs_bra.transpose (1,0,2)
+        t03 = self.log.timer ('more throat clearing', *t02)
         h_op = op[self.opt].contract_ham_ci
-        t00 = lib.logger.process_clock (), lib.logger.perf_counter ()
+        t04 = self.log.timer ('contract_ham_ci', *t03)
         with temporary_env (self, ncas_sub=norb_f, mol=self.fcisolvers[0].mol):
             hci_fr_pab = h_op (self, h1, h2, ci_fr_ket, nelec_frs_ket, ci_fr_bra=ci_fr_bra,
                                si_ket=si_q,
                                nelec_frs_bra=nelec_frs_bra, soc=0, orbsym=None, wfnsym=None,
                                verbose=0)
+        t05 = self.log.timer ('doing h_op', *t04)
         hci_f_pab = [hc[0] for hc in hci_fr_pab]
         # ZERO-STATE CLUDGE
         for ifrag in range (nfrags):
@@ -498,6 +502,7 @@ class ExcitationPSFCISolver (ProductStateFCISolver):
                 if ifrag==jfrag: continue
                 hci = hci_f_pab[jfrag]
                 hci_f_pab[jfrag] = np.zeros ([0,]+list(hci.shape[1:]), dtype=hci.dtype)
+        t06 = self.log.timer ('last part', *t05)
         t1 = self.log.timer ('op_ham_pq_ref', *t0)
         return hci_f_pab
 
