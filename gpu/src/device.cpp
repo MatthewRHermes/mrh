@@ -2322,7 +2322,7 @@ void Device::get_h2eff_df_v2(py::array_t<double> _cderi,
   if(size_bumP_buvP > max_size_buf) max_size_buf = size_bumP_buvP;
   if(size_vuwM > max_size_buf) max_size_buf = size_vuwM; 
   if(size_vuwm > max_size_buf) max_size_buf = size_vuwm; 
-  printf("cderi_up: %i bump_buvP: %i vuWM:%i vuwm:%i size_buf%i\n",size_cderi_unpacked,size_bumP_buvP, size_vuwM, size_vuwm, max_size_buf);
+  //printf("cderi_up: %i bump_buvP: %i vuWM:%i vuwm:%i size_buf%i\n",size_cderi_unpacked,size_bumP_buvP, size_vuwM, size_vuwm, max_size_buf);
   
   grow_array(dd->d_buf1, max_size_buf, dd->size_buf1, "buf1", FLERR); // holds cderi_unpacked and bumP+buvP and vuwM
 
