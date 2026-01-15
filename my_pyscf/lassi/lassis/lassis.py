@@ -323,10 +323,13 @@ def all_spin_flips (lsi, las, ci_sf, nspin=1, ham_2q=None):
             solver = csf_solver (las.mol, smult=sm).set (nelec=(neleca,nelecb), norb=norb)
             solver.check_transformer_cache ()
             nroots = min (nroots, solver.transformer.ncsf)
-            ci_list = solver.kernel (h1_i, h2_i, norb, (neleca,nelecb), ci0=ci0, nroots=nroots)[1]
-            if nroots==1: ci_list = [ci_list,]
+            e_list, ci_list = solver.kernel (h1_i, h2_i, norb, (neleca,nelecb), ci0=ci0, nroots=nroots)[:2]
+            if nroots==1:
+                e_list = [e_list,]
+                ci_list = [ci_list,]
+            e_arr = np.atleast_1d (e_list)
             ci_arr = np.array ([mup (c, norb, (neleca,nelecb), sm) for c in ci_list])
-            return np.all (solver.converged), ci_arr
+            return np.all (solver.converged), e_arr, ci_arr
         smults1_i = []
         spins1_i = []
         ci1_i = []
@@ -337,7 +340,11 @@ def all_spin_flips (lsi, las, ci_sf, nspin=1, ham_2q=None):
             spins1_i.append (smult-3)
             ci0 = ci_sf[ifrag][0]
             m2 = np.sign (spin) * (abs (spin) - 2) if abs (spin) > 1 else spin
-            conv, ci1_i_down = cisolve (smult-2, m2, ndn0[ifrag], ci0)
+            conv, e_i_down, ci1_i_down = cisolve (smult-2, m2, ndn0[ifrag], ci0)
+            log.info ("LASSIS fragment %d spin down (%de,%do;2S+1=%d) statelet energies:",
+                      ifrag, nelec, norb, smult-2)
+            for ix, e in enumerate (e_i_down):
+                log.info (" %d %15.10e", ix, e)
             if not conv: log.warn ("CI vectors for spin-lowering of fragment %i not converged",
                                    ifrag)
             converged = converged & conv
@@ -352,7 +359,11 @@ def all_spin_flips (lsi, las, ci_sf, nspin=1, ham_2q=None):
             spins1_i.append (smult+1)
             ci0 = ci_sf[ifrag][1]
             m2 = np.sign (spin) * (abs (spin) + 2)
-            conv, ci1_i_up = cisolve (smult+2, m2, nup0[ifrag], ci0)
+            conv, e_i_down, ci1_i_up = cisolve (smult+2, m2, nup0[ifrag], ci0)
+            log.info ("LASSIS fragment %d spin up (%de,%do;2S+1=%d) statelet energies:",
+                      ifrag, nelec, norb, smult+2)
+            for ix, e in enumerate (e_i_down):
+                log.info ("%d %15.10e", ix, e)
             if not conv: log.warn ("CI vectors for spin-raising of fragment %i not converged",
                                    ifrag)
             converged = converged & conv
