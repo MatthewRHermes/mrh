@@ -284,7 +284,8 @@ class KnownValues (unittest.TestCase):
                 if dson:
                     h0, h1, h2 = ham_2q (lsi2._las, lsi2.mo_coeff, soc=True)
                     case_contract_op_si (self, lsi, h1, h2, lsi.ci, lsi.get_nelec_frs (),
-                                         smult_fr=lsi.get_smult_fr (), soc=True)#, tol=4)
+                                         smult_fr=lsi.get_smult_fr (), soc=True,#)#, tol=4)
+                                         disc_fr=lsi.get_disc_fr ())
             with self.subTest (opt=1, davidson_only=dson, deltaE='SO'):
                 self.assertAlmostEqual (lib.fp (lsi.e_roots), -214.8684319949548, 8)
             with self.subTest ('hamiltonian', opt=1, davidson_only=dson):

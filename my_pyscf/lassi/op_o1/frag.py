@@ -485,7 +485,12 @@ class FragTDMInt (object):
             ci_u = [ci[i] for i in self.uroot_addr]
             nelec_u = [self.nelec_r[i] for i in self.uroot_addr]
             smult_u = [self.smult_r[i] for i in self.uroot_addr]
-            self.spman = _get_unique_roots_with_spin (ci_u, self.norb, nelec_u, smult_u)
+            if self.discriminator is None:
+                disc_u = None
+            else:
+                disc_u = [self.discriminator[i] for i in self.uroot_addr]
+            self.spman = _get_unique_roots_with_spin (ci_u, self.norb, nelec_u, smult_u,
+                                                      discriminator=disc_u)
         self.nspman = np.amax (self.spman)+1
         spman_inter = {}
         spman_inter_keys = np.empty ((nuroots,nuroots,3), dtype=int)
@@ -1285,7 +1290,7 @@ class HamTerm:
 
 
 def make_ints (las, ci, nelec_frs, smult_fr=None, screen_linequiv=DO_SCREEN_LINEQUIV, nlas=None,
-               _FragTDMInt_class=FragTDMInt, mask_ints=None, discriminator=None,
+               _FragTDMInt_class=FragTDMInt, mask_ints=None, discriminator=None, disc_fr=None,
                pt_order=None, do_pt_order=None, verbose=None):
     ''' Build fragment-local intermediates (`FragTDMInt`) for LASSI o1
 
@@ -1307,6 +1312,10 @@ def make_ints (las, ci, nelec_frs, smult_fr=None, screen_linequiv=DO_SCREEN_LINE
             Mask index down to only the included interactions
         discriminator : sequence of length (nroots)
             Additional information to descriminate between otherwise-equivalent rootspaces
+        disc_fr : ndarray of shape (nfrags, nroots)
+            Additional information to descriminate between otherwise-equivalent rootspaces,
+            but applicable to individual fragments rather than globally (e.g., 3 is the same
+            as 5 but only for fragment 1, not fragment 2)
         verbose : integer
             Verbosity level of intermediate logger
 
@@ -1323,6 +1332,10 @@ def make_ints (las, ci, nelec_frs, smult_fr=None, screen_linequiv=DO_SCREEN_LINE
     if nlas is None: nlas = las.ncas_sub
     if smult_fr is None: smult_fr = [None for i in range (nfrags)]
     lroots = get_lroots (ci)
+    if disc_fr is None:
+        disc_fr = np.zeros_like (lroots)
+    if discriminator is None:
+        discriminator = np.zeros (lroots.shape[1], dtype=int)
     rootaddr, fragaddr = get_rootaddr_fragaddr (lroots)
     ints = []
     t0 = log.timer('make ints initialize', *t0)
@@ -1333,7 +1346,7 @@ def make_ints (las, ci, nelec_frs, smult_fr=None, screen_linequiv=DO_SCREEN_LINE
                                     nlas[ifrag], nroots, nelec_frs[ifrag], rootaddr,
                                     fragaddr[ifrag], ifrag, mask_ints,
                                     smult_r=smult_fr[ifrag],
-                                    discriminator=discriminator,
+                                    discriminator=list(zip(discriminator,disc_fr[ifrag])),
                                     screen_linequiv=screen_linequiv,
                                     pt_order=pt_order, do_pt_order=do_pt_order,
                                     verbose=verbose)

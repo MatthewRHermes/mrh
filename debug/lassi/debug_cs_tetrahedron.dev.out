@@ -1,0 +1,59 @@
+sFERROR: LASSI hdiag and pspace Hamiltonian disagree!
+ERROR: The incoming table may take a very long time to print out.
+ERROR: Do not expect this calculation to complete.
+ERROR:   ix            pspace             hdiag          operator
+ERROR:   34 -1.6215602028e+01 -1.6221742589e+01 -1.6215602028e+01
+ERROR:   37 -1.4636064359e+01 -1.4644996961e+01 -1.4636064359e+01
+ERROR:   40 -1.3672713226e+01 -1.3676367853e+01 -1.3672713226e+01
+ERROR:   86 -1.5098273489e+01 -1.5109998132e+01 -1.5098273489e+01
+ERROR:   96 -8.4964745972e+00 -8.5023369189e+00 -8.4964745971e+00
+ERROR:   97 -1.0058979275e+01 -1.0064841597e+01 -1.0058979275e+01
+ERROR:  105 -1.5098273489e+01 -1.5104135810e+01 -1.5098273489e+01
+ERROR:  109 -1.3515272630e+01 -1.3524066113e+01 -1.3515272630e+01
+ERROR:  110 -1.3515272630e+01 -1.3520548720e+01 -1.3515272630e+01
+ERROR:  117 -1.6216048063e+01 -1.6225843250e+01 -1.6216048063e+01
+ERROR:  119 -1.4635652832e+01 -1.4641168820e+01 -1.4635652832e+01
+ERROR:  120 -1.4635241305e+01 -1.4646347555e+01 -1.4635241305e+01
+Esss
+======================================================================
+ERROR: test_davidson (__main__.KnownValues.test_davidson)
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "/home/herme068/gits/mrh/debug/lassi/debug_cs_tetrahedron.py", line 100, in test_davidson
+    lsi1 = LASSIS (lsi._las).run (davidson_only=True, smult_si=1)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/home/herme068/anaconda3/envs/pyscf/lib/python3.12/site-packages/pyscf/lib/misc.py", line 638, in run
+    self.kernel(*args)
+  File "/home/herme068/anaconda3/envs/pyscf/lib/python3.12/site-packages/mrh/my_pyscf/lassi/lassis/lassis.py", line 663, in kernel
+    self.e_roots, self.si = self.eig (**kwargs)
+                            ^^^^^^^^^^^^^^^^^^^
+  File "/home/herme068/anaconda3/envs/pyscf/lib/python3.12/site-packages/mrh/my_pyscf/lassi/lassi.py", line 1108, in kernel
+    e_roots, si = lassi(self, mo_coeff=mo_coeff, ci=ci, veff_c=veff_c, h2eff_sub=h2eff_sub,
+                  ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/home/herme068/anaconda3/envs/pyscf/lib/python3.12/site-packages/mrh/my_pyscf/lassi/lassi.py", line 313, in lassi
+    las.converged_si, e, c, s2_blk = _eig_block (las1, e0, h1, h2, ci_blk, nelec_blk, smult_blk,
+                                     ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/home/herme068/anaconda3/envs/pyscf/lib/python3.12/site-packages/mrh/my_pyscf/lassi/lassi.py", line 383, in _eig_block
+    return _eig_block_Davidson (las, e0, h1, h2, ci_blk, nelec_blk, smult_blk, soc, opt)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/home/herme068/anaconda3/envs/pyscf/lib/python3.12/site-packages/mrh/my_pyscf/lassi/lassi.py", line 436, in _eig_block_Davidson
+    pw, pv, addr = pspace (hdiag_orth, h_op_raw, raw2orth, opt, pspace_size, log=log,
+                   ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/home/herme068/anaconda3/envs/pyscf/lib/python3.12/site-packages/mrh/my_pyscf/lassi/lassi.py", line 500, in pspace
+    raise RuntimeError ("LASSI hdiag and pspace Hamiltonian disagree!")
+RuntimeError: LASSI hdiag and pspace Hamiltonian disagree!
+
+======================================================================
+FAIL: test_contract_op_si (__main__.KnownValues.test_contract_op_si) [hdiag orth] (basis_type='spin-coupled')
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "/home/herme068/anaconda3/envs/pyscf/lib/python3.12/site-packages/mrh/tests/lassi/addons.py", line 193, in _check_OrthBasis
+    ks.assertAlmostEqual (lib.fp (ham_orth.diagonal ()), lib.fp (ham_diag_orth), 7)
+AssertionError: -36.72252693631909 != -36.706049891487375 within 7 places (0.01647704483171708 difference)
+
+----------------------------------------------------------------------
+Ran 6 tests in 221.371s
+
+FAILED (failures=1, errors=1, skipped=4)
+Full Tests for LASSI he+he-he+he- tetrahedron
+overwrite output file: debug_cs_tetrahedron.log

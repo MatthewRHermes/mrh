@@ -16,9 +16,11 @@
 import copy
 import unittest
 import numpy as np
+import importlib
 from scipy import linalg
 from copy import deepcopy
 from itertools import product
+from pyscf import __config__
 from pyscf import lib, gto, scf, dft, fci, mcscf
 from pyscf.tools import molden
 from pyscf.fci import cistring
@@ -100,6 +102,14 @@ class KnownValues(unittest.TestCase):
         lsi1 = LASSIS (lsi._las).run (davidson_only=True)
         self.assertAlmostEqual (lsi1.e_roots[0], lsi.e_roots[0], 6)
 
+    def test_davidson_no_linequiv (self):
+        with lib.temporary_env (__config__, lassi_frag_do_screen_linequiv=False):
+            from mrh.my_pyscf.lassi.op_o1 import frag
+            importlib.reload (frag)
+            lsi1 = LASSIS (lsi._las).run (davidson_only=True)
+            self.assertAlmostEqual (lsi1.e_roots[0], lsi.e_roots[0], 6)
+        importlib.reload (frag)
+
     #@unittest.skip('debugging')
     def test_fdm1 (self):
         nelec_frs = lsi.get_nelec_frs ()
@@ -123,7 +133,21 @@ class KnownValues(unittest.TestCase):
         h0, h1, h2 = ham_2q (las, las.mo_coeff)
         nelec_frs = lsi.get_nelec_frs ()
         smult_fr = lsi.get_smult_fr ()
-        case_contract_op_si (self, las, h1, h2, lsi.ci, nelec_frs, smult_fr=smult_fr)
+        disc_fr = lsi.get_disc_fr ()
+        case_contract_op_si (self, las, h1, h2, lsi.ci, nelec_frs, smult_fr=smult_fr,
+                             disc_fr=disc_fr)
+
+    def test_contract_op_si_no_linequiv (self):
+        with lib.temporary_env (__config__, lassi_frag_do_screen_linequiv=False):
+            from mrh.my_pyscf.lassi.op_o1 import frag
+            importlib.reload (frag)
+            h0, h1, h2 = ham_2q (las, las.mo_coeff)
+            nelec_frs = lsi.get_nelec_frs ()
+            smult_fr = lsi.get_smult_fr ()
+            disc_fr = lsi.get_disc_fr ()
+            case_contract_op_si (self, las, h1, h2, lsi.ci, nelec_frs, smult_fr=smult_fr,
+                                 disc_fr=disc_fr)
+        importlib.reload (frag)
 
 
 if __name__ == "__main__":
