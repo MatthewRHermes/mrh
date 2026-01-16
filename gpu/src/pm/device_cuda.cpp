@@ -1971,7 +1971,7 @@ void Device::reduce_buf3_to_rdm(const double * buf3, double * dm2, int size_tdm2
   cudaStream_t s = *(pm->dev_get_queue());
   dim3 block_size(_DEFAULT_BLOCK_SIZE, 1,1);
   dim3 grid_size (_TILE(size_tdm2, block_size.x),1,1);
-  vecadd_batch(buf3, dm2, size_tdm2, num_gemm_batches);
+  _vecadd_batch<<<grid_size, block_size,0, s>>>(buf3, dm2, size_tdm2, num_gemm_batches);
   _CUDA_CHECK_ERRORS();
 }
 
