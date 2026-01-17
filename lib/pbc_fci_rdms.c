@@ -89,6 +89,7 @@ void FCImake_rdm1b_cplx(double complex *rdm1,
                         double complex *cibra,
                         double complex *ciket,
                         int norb, int na, int nb, int nlinka, int nlinkb,
+                
                         int *link_indexa, int *link_indexb)
 {
         int i, a, j, k, str0, str1, sign;
@@ -138,29 +139,30 @@ void FCImake_rdm1b_cplx(double complex *rdm1,
 
 
 static void _transpose_jikl_cplx(double complex *dm2, int norb)
-    {
+{
         int nnorb = norb * norb;
         int i, j, k;
         double complex *p0, *p1;
         double complex *tmp = malloc(sizeof(double complex) * (size_t)nnorb * (size_t)nnorb);
 
-        /* tmp = dm2 */
-        // NPzcopy(tmp, dm2, nnorb*nnorb);
-        for (k = 0; k < nnorb*nnorb; k++) tmp[k] = dm2[k];
-
-        for (i = 0; i < norb; i++) {
-            for (j = 0; j < norb; j++) {
-                p0 = tmp + (size_t)(j*norb+i) * (size_t)nnorb;
-                p1 = dm2 + (size_t)(i*norb+j) * (size_t)nnorb;
-                for (k = 0; k < nnorb; k++) {
-                        p1[k] = p0[k];
+        NPzcopy(tmp, dm2, nnorb*nnorb);
+        
+        for (i = 0; i < norb; i++){
+                for (j = 0; j < norb; j++) {
+                        p0 = tmp + (size_t)(j*norb+i) * (size_t)nnorb;
+                        p1 = dm2 + (size_t)(i*norb+j) * (size_t)nnorb;
+                        for (k = 0; k < nnorb; k++) {
+                                p1[k] = p0[k];
+                        }
                 }
-            }
         }
         free(tmp);
 }
 
-
+/*
+ * This is driver function, basically the threading and looping is controlled here
+ * This also symmetrizes the final rdm2 according to the symmetry choice
+ */
 void FCIrdm12_drv_cplx(dm12kernel_cplx_t dm12kernel,
                        double complex *rdm1, double complex *rdm2,
                        double complex *bra,  double complex *ket,
@@ -171,13 +173,11 @@ void FCIrdm12_drv_cplx(dm12kernel_cplx_t dm12kernel,
         int strk, i, j, k, l, ib, blen;
         double complex *pdm1, *pdm2;
 
-        /* zero rdm1, rdm2 */
         NPzset0(rdm1, nnorb);
         NPzset0(rdm2, nnorb*nnorb);
 
         _LinkT *clinka = malloc(sizeof(_LinkT) * (size_t)nlinka * (size_t)na);
         _LinkT *clinkb = malloc(sizeof(_LinkT) * (size_t)nlinkb * (size_t)nb);
-
         FCIcompress_link(clinka, link_indexa, norb, na, nlinka);
         FCIcompress_link(clinkb, link_indexb, norb, nb, nlinkb);
 
@@ -188,12 +188,12 @@ void FCIrdm12_drv_cplx(dm12kernel_cplx_t dm12kernel,
 
 #pragma omp for schedule(dynamic, 40)
         for (strk = 0; strk < na; strk++) {
-            for (ib = 0; ib < nb; ib += BUFBASE) {
-                    blen = MIN(BUFBASE, nb-ib);
-                    (*dm12kernel)(pdm1, pdm2, bra, ket, blen, strk, ib,
-                                    norb, na, nb, nlinka, nlinkb,
-                                    clinka, clinkb, symm);
-            }
+                for (ib = 0; ib < nb; ib += BUFBASE) {
+                        blen = MIN(BUFBASE, nb-ib);
+                        (*dm12kernel)(pdm1, pdm2, bra, ket, blen, strk, ib,
+                                norb, na, nb, nlinka, nlinkb,
+                                clinka, clinkb, symm);
+                        }
         }
 
 #pragma omp critical
@@ -207,67 +207,59 @@ void FCIrdm12_drv_cplx(dm12kernel_cplx_t dm12kernel,
 }
         free(pdm1);
         free(pdm2);
-} /* omp parallel */
+}
 
         free(clinka);
         free(clinkb);
 
         switch (symm) {
-                case BRAKETSYM:
-                        /* Hermitize rdm1 */
-                        for (i = 0; i < norb; i++) {
+        case BRAKETSYM:
+                for (i = 0; i < norb; i++) {
                         for (j = 0; j < i; j++) {
                                 rdm1[j*norb+i] = conj(rdm1[i*norb+j]);
-                                }
                         }
+                }
 
-                        /* Hermitize rdm2 in paired-index matrix form (nnorb x nnorb) */
-                        for (i = 0; i < nnorb; i++) {
+                for (i = 0; i < nnorb; i++) {
                         for (j = 0; j < i; j++) {
                                 rdm2[j*nnorb+i] = conj(rdm2[i*nnorb+j]);
                         }
-                        }
-
-                        _transpose_jikl_cplx(rdm2, norb);
-                        break;
-                
-                /* Need to test this*/
-                case PARTICLESYM:
-                        /* right 2pdm order is required here, which transposes the cre/des on bra */
-                        for (i = 0; i < norb; i++) {
+                }
+                _transpose_jikl_cplx(rdm2, norb);
+                break;
+        
+        // I didn't test this yet!
+        case PARTICLESYM:
+                for (i = 0; i < norb; i++) {
                         for (j = 0; j < i; j++) {
                                 double complex *blk1 = rdm2 + (size_t)(i*nnorb+j) * (size_t)norb;
                                 double complex *blk2 = rdm2 + (size_t)(j*nnorb+i) * (size_t)norb;
-
                                 for (k = 0; k < norb; k++) {
                                         for (l = 0; l < norb; l++) {
                                                 blk2[l*nnorb+k] = blk1[k*nnorb+l];
-                                        } 
+                                        }
                                 }
                                 for (k = 0; k < norb; k++) {
                                         blk2[i*nnorb+k] += rdm1[j*norb+k];
                                         blk2[k*nnorb+j] -= rdm1[i*norb+k];
                                 }
-                        } }
-                        break;
-
-                default:
-                        _transpose_jikl_cplx(rdm2, norb);
+                        } 
+                }
+                break;
+        default:
+                _transpose_jikl_cplx(rdm2, norb);
         }
 }
-
-
 
 /*
 Helper function for 2pdm construction
 */
-
 static void tril_particle_symm_cplx(double complex *rdm2, double complex *tbra,
                                     double complex *tket, int bcount, int norb, 
                                     double alpha, double beta)
 {
         const char TRANS_N = 'N';
-        const char TRANS_C = 'C';
+        const char TRANS_C = 'C'; // For complex, we will have to used conjugate transpose
         int nnorb = norb * norb;
         int i, j, k, m, n;
         int blk = MIN(((int)(48/norb))*norb, nnorb);
@@ -290,6 +282,7 @@ static void tril_particle_symm_cplx(double complex *rdm2, double complex *tbra,
                        &zalpha, tket+m, &nnorb, buf+m, &nnorb,
                        &zbeta, rdm2+(size_t)m*nnorb+m, &nnorb);
         }
+
         n = nnorb - m;
         zgemm_(&TRANS_N, &TRANS_C, &n, &n, &bcount,
                &zalpha, tket+m, &nnorb, buf+m, &nnorb,
@@ -318,19 +311,19 @@ double FCIrdm2_a_t1ci_cplx(double complex *ci0, double complex *t1,
                 pci = ci0 + str1*nstrb;
                 pt1 = t1 + i*norb+a;
                 if (sign == 0) {
-                    break;
+                        break;
                 } 
                 else if (sign > 0) {
-                    for (k = 0; k < bcount; k++) {
-                        pt1[k*nnorb] += pci[k];
-                        csum += creal(conj(pci[k]) * pci[k]);
-                    }
+                        for (k = 0; k < bcount; k++) {
+                                pt1[k*nnorb] += pci[k];
+                                csum += creal(conj(pci[k]) * pci[k]);
+                        }
                 } 
                 else {
-                    for (k = 0; k < bcount; k++) {
-                        pt1[k*nnorb] -= pci[k];
-                        csum += creal(conj(pci[k]) * pci[k]);
-                    }
+                        for (k = 0; k < bcount; k++) {
+                                pt1[k*nnorb] -= pci[k];
+                                csum += creal(conj(pci[k]) * pci[k]);
+                        }
                 }
         }
         return csum;
@@ -348,21 +341,21 @@ double FCIrdm2_b_t1ci_cplx(double complex *ci0, double complex *t1,
         double csum = 0;
 
         for (str0 = 0; str0 < bcount; str0++) {
-            for (j = 0; j < nlinkb; j++) {
-                a    = EXTRACT_CRE (tab[j]);
-                i    = EXTRACT_DES (tab[j]);
-                str1 = EXTRACT_ADDR(tab[j]);
-                sign = EXTRACT_SIGN(tab[j]);
-                if (sign == 0) {
-                    break;
-                } 
-                else {
-                    t1[i*norb+a] += ((double)sign) * pci[str1];
-                    csum += creal(conj(pci[str1]) * pci[str1]);
+                for (j = 0; j < nlinkb; j++) {
+                        a    = EXTRACT_CRE (tab[j]);
+                        i    = EXTRACT_DES (tab[j]);
+                        str1 = EXTRACT_ADDR(tab[j]);
+                        sign = EXTRACT_SIGN(tab[j]);
+                        if (sign == 0) {
+                                break;
+                        } 
+                        else {
+                                t1[i*norb+a] += ((double)sign) * pci[str1];
+                                csum += creal(conj(pci[str1]) * pci[str1]);
+                        }
                 }
-            }
-            t1 += nnorb;
-            tab += nlinkb;
+                t1 += nnorb;
+                tab += nlinkb;
         }
         return csum;
 }
@@ -395,15 +388,13 @@ void FCIrdm12kern_a_cplx(double complex *rdm1, double complex *rdm2,
                               norb, nb, nlinka, clink_indexa);
 
         if (csum > CSUMTHR) {
-                /* rdm1 += buf * ket_segment */
-               double complex *v = malloc(sizeof(double complex) * (size_t)bcount);
+                double complex *v = malloc(sizeof(double complex) * (size_t)bcount);
                 for (int kk = 0; kk < bcount; kk++) {
                         v[kk] = conj(bra[stra_id*nb + strb_id + kk]);
                 }
                 zgemv_(&TRANS_N, &nnorb, &bcount, &Z1, buf, &nnorb,
                     v, &INC1, &Z1, rdm1, &INC1);
                 free(v);
-
 
                 switch (symm) {
                 case BRAKETSYM:
@@ -413,12 +404,10 @@ void FCIrdm12kern_a_cplx(double complex *rdm1, double complex *rdm2,
                         zherk_(&UP, &TRANS_N, &nnorb, &bcount,
                                &D1, buf, &nnorb, &D1, rdm2, &nnorb);
                         break;
-
+                // Not tested this yet.
                 case PARTICLESYM:
-                        /* Ne*/
                         tril_particle_symm_cplx(rdm2, buf, buf, bcount, norb, 1.0, 1.0);
                         break;
-
                 default:
                         /*
                          * rdm2 += buf * buf^H
@@ -456,28 +445,29 @@ void FCIrdm12kern_b_cplx(double complex *rdm1, double complex *rdm2,
         csum = FCIrdm2_b_t1ci_cplx(ket, buf, bcount, stra_id, strb_id,
                               norb, nb, nlinkb, clink_indexb);
         if (csum > CSUMTHR) {
-                /* rdm1 += buf * ket_segment */
-               double complex *v = malloc(sizeof(double complex) * (size_t)bcount);
+                double complex *v = malloc(sizeof(double complex) * (size_t)bcount);
                 for (int kk = 0; kk < bcount; kk++) {
                         v[kk] = conj(bra[stra_id*nb + strb_id + kk]);
                 }
+                
                 zgemv_(&TRANS_N, &nnorb, &bcount, &Z1, buf, &nnorb,
                     v, &INC1, &Z1, rdm1, &INC1);
+                
                 free(v);
-
 
                 switch (symm) {
                 case BRAKETSYM:
-                    zherk_(&UP, &TRANS_N, &nnorb, &bcount,
-                            &D1, buf, &nnorb, &D1, rdm2, &nnorb);
-                    break;
+                        zherk_(&UP, &TRANS_N, &nnorb, &bcount,
+                                &D1, buf, &nnorb, &D1, rdm2, &nnorb);
+                        break;
+
                 case PARTICLESYM:
-                    tril_particle_symm_cplx(rdm2, buf, buf, bcount, norb, 1.0, 1.0);
-                    break;
+                        tril_particle_symm_cplx(rdm2, buf, buf, bcount, norb, 1.0, 1.0);
+                        break;
                 default:
-                    zgemm_(&TRANS_N, &TRANS_C, &nnorb, &nnorb, &bcount,
-                            &Z1, buf, &nnorb, buf, &nnorb,
-                            &Z1, rdm2, &nnorb);
+                        zgemm_(&TRANS_N, &TRANS_C, &nnorb, &nnorb, &bcount,
+                                &Z1, buf, &nnorb, buf, &nnorb,
+                                &Z1, rdm2, &nnorb);
                 }
         }
         free(buf);
@@ -511,9 +501,6 @@ void FCItdm12kern_ab_cplx(double complex *tdm1, double complex *tdm2,
                               norb, nb, nlinkb, clink_indexb);
         if (csum < CSUMTHR) { goto _normal_end; }
 
-        /* no particle symmetry between alpha-alpha-beta-beta 2pdm
-         * tdm2 += bufb * bufa^H
-         */
         zgemm_(&TRANS_N, &TRANS_C, &nnorb, &nnorb, &bcount,
                &Z1, bufb, &nnorb, bufa, &nnorb, &Z1, tdm2, &nnorb);
 
@@ -523,6 +510,9 @@ _normal_end:
 }
 
 
+/*
+* These are functions to compute the make_rdm2 directly without constructing intermidiates
+*/
 double FCIrdm2_0b_t1ci_cplx(double complex *ci0, double complex *t1,
                        int bcount, int stra_id, int strb_id,
                        int norb, int nstrb, int nlinkb, _LinkT *clink_indexb)
@@ -553,7 +543,6 @@ double FCIrdm2_0b_t1ci_cplx(double complex *ci0, double complex *t1,
         return csum;
 }
 
-
 double FCI_t1ci_sf_cplx(double complex *ci0, double complex *t1, int bcount,
                    int stra_id, int strb_id,
                    int norb, int na, int nb, int nlinka, int nlinkb,
@@ -566,7 +555,6 @@ double FCI_t1ci_sf_cplx(double complex *ci0, double complex *t1, int bcount,
                                norb, nb, nlinka, clink_indexa);
         return csum;
 }
-
 
 void FCIrdm12kern_sf_cplx(double complex *rdm1, double complex *rdm2,
                      double complex *bra, double complex *ket,
