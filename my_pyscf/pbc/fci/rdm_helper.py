@@ -8,13 +8,13 @@ from mrh.lib.helper import load_library
 
 libpbcrdm = load_library('libpbc_fci_rdms')
 
-def reorder_dm2_cplx(dm1, dm2, inplace=True):
+def reorder_rdm(dm1, dm2, inplace=True):
     norb = dm1.shape[0]
     if not inplace:
         dm2 = dm2.copy()
     for r in range(norb):
         dm2[:, r, r, :] -= dm1.conj().T
-    return dm2
+    return dm1, dm2
 
 def make_rdm1_spin1(fname, cibra, ciket, norb, nelec, link_index=None):
     '''
@@ -179,8 +179,8 @@ def make_rdm12s_cplx(fcivec, norb, nelec, link_index=None, reorder=True):
                 dm2ab[:, :, s, r] += cbra * sgn_b * Ta[:, :, jb]
 
     if reorder:
-        dm2aa = reorder_dm2_cplx(dm1a, dm2aa)
-        dm2bb = reorder_dm2_cplx(dm1b, dm2bb)
+        dm1a, dm2aa = reorder_rdm(dm1a, dm2aa)
+        dm1b, dm2bb = reorder_rdm(dm1b, dm2bb)
         
     
     '''
@@ -198,7 +198,7 @@ def make_rdm12s_cplx(fcivec, norb, nelec, link_index=None, reorder=True):
 
     dm2aa = dm2aa.transpose(0, 2, 1, 3).conj()
     dm2bb = dm2bb.transpose(0, 2, 1, 3).conj()
-    return (dm1a, dm1b), (dm2aa, dm2ab, dm2bb   )
+    return (dm1a, dm1b), (dm2aa, dm2ab, dm2bb)
 
 def make_rdm1_cplx(fcivec, norb, nelec, link_index=None):
     (dm1a, dm1b) = make_rdm1s_cplx(fcivec, norb, nelec, link_index=link_index)
