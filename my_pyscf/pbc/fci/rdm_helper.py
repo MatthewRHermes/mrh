@@ -17,9 +17,13 @@ def reorder_dm2_cplx(dm1, dm2, inplace=True):
     return dm2
 
 def make_rdm1_spin1(fname, cibra, ciket, norb, nelec, link_index=None):
+    '''
+    Wrapper function for backend c function, to compute the spin-separated 1-RDMs.
+    '''
     assert (cibra is not None and ciket is not None)
     cibra = np.asarray(cibra, order='C')
     ciket = np.asarray(ciket, order='C')
+    dtype = ciket.dtype
     if link_index is None:
         neleca, nelecb = _unpack_nelec(nelec)
         link_indexa = link_indexb = cistring.gen_linkstr_index(range(norb), neleca)
@@ -31,7 +35,8 @@ def make_rdm1_spin1(fname, cibra, ciket, norb, nelec, link_index=None):
     nb,nlinkb = link_indexb.shape[:2]
     assert (cibra.size == na*nb), '{} {} {}'.format (cibra.size, na, nb)
     assert (ciket.size == na*nb), '{} {} {}'.format (ciket.size, na, nb)
-    rdm1 = np.empty((norb,norb), dtype=np.complex128, order='C')
+
+    rdm1 = np.empty((norb,norb), dtype=dtype, order='C')
     fn = getattr(libpbcrdm, fname)
     fn(rdm1.ctypes.data_as(ctypes.c_void_p),
        cibra.ctypes.data_as(ctypes.c_void_p),
@@ -193,8 +198,7 @@ def make_rdm12s_cplx(fcivec, norb, nelec, link_index=None, reorder=True):
 
     dm2aa = dm2aa.transpose(0, 2, 1, 3).conj()
     dm2bb = dm2bb.transpose(0, 2, 1, 3).conj()
-    dm2ba = dm2ab.conj().transpose(1,0,3,2)
-    return (dm1a, dm1b), (dm2aa, dm2bb, dm2ab, dm2ba)
+    return (dm1a, dm1b), (dm2aa, dm2ab, dm2bb   )
 
 def make_rdm1_cplx(fcivec, norb, nelec, link_index=None):
     (dm1a, dm1b) = make_rdm1s_cplx(fcivec, norb, nelec, link_index=link_index)
@@ -202,9 +206,10 @@ def make_rdm1_cplx(fcivec, norb, nelec, link_index=None):
     return rdm1.conj().T
 
 def make_rdm12_cplx(fcivec, norb, nelec, link_index=None, reorder=True):
-    (dm1a, dm1b), (dm2aa, dm2bb, dm2ab, dm2ba) = \
+    (dm1a, dm1b), (dm2aa, dm2ab, dm2bb) = \
         make_rdm12s_cplx(fcivec, norb, nelec, link_index=link_index, reorder=reorder)
     rdm1 = dm1a + dm1b
+    dm2ba = dm2ab.conj().transpose(1,0,3,2)
     rdm2 = dm2aa + dm2bb + dm2ab + dm2ba
     rdm2 = 0.5*(rdm2 + rdm2.conj().transpose(1,0,3,2))
     return rdm1.conj().T, rdm2
