@@ -110,6 +110,7 @@ def kernel (las, mo_coeff=None, ci0=None, casdm0_fr=None, conv_tol_grad=1e-4,
                 l = j + ugg.nvar_orb
                 log.debug ('GRADIENT IMPLEMENTATION TEST: |D g_ci({})| = %.15g'.format (isub), 
                            linalg.norm (g_ci_test[i:j] - g_vec[k:l]))
+            # TODO: figure out why this fails in intermediate combined lascis in lasscf_async
             err = linalg.norm (g_ci_test - g_vec[ugg.nvar_orb:])
             assert (err < 1e-5), '{}'.format (err)
         gx = H_op.get_gx ()
