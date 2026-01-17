@@ -18,18 +18,6 @@
 #define BRAKETSYM       1
 #define PARTICLESYM     2
 
-
-/* BLAS/LAPACK functions to avoid the warnings */
-// extern void zgemm_(const char*, const char*, const int*, const int*, const int*,
-//                    const double complex*, const double complex*, const int*,
-//                    const double complex*, const int*,
-//                    const double complex*, double complex*, const int*);
-
-// extern void zgemv_(const char*, const int*, const int*,
-//                    const double complex*, const double complex*, const int*,
-//                    const double complex*, const int*,
-//                    const double complex*, double complex*, const int*);
-
 extern void zherk_(const char*, const char*, const int*, const int*,
                    const double*, const double complex*, const int*,
                    const double*, double complex*, const int*);
@@ -58,47 +46,42 @@ void FCImake_rdm1a_cplx(double complex *rdm1,
         _LinkT *clink = malloc(sizeof(_LinkT) * nlinka * na);
         FCIcompress_link(clink, link_indexa, norb, na, nlinka);
 
-        // Initialize rdm1 as zero_matrix
         NPzset0(rdm1, norb*norb);
-        // for (i = 0; i < norb*norb; i++) rdm1[i] = 0.0;
-        
-        // Main loop to construct RDM1
         
         for (str0 = 0; str0 < na; str0++) {
-            tab = clink + str0 * nlinka;
-            pci0 = ci0 + str0 * nb;
-            for (j = 0; j < nlinka; j++) {
-                a    = EXTRACT_CRE (tab[j]);
-                i    = EXTRACT_DES (tab[j]);
-                str1 = EXTRACT_ADDR(tab[j]);
-                sign = EXTRACT_SIGN(tab[j]);
-                pci1 = ci0 + str1 * nb;
-                if (a >= i) {
-                    if (sign == 0){
-                        break;
-                    }
-                    else if (sign > 0) {
-                        for (k = 0; k < nb; k++) {
-                            rdm1[a*norb+i] += pci0[k] * conj(pci1[k]);
+                tab = clink + str0 * nlinka;
+                pci0 = ci0 + str0 * nb;
+                for (j = 0; j < nlinka; j++) {
+                        a    = EXTRACT_CRE (tab[j]);
+                        i    = EXTRACT_DES (tab[j]);
+                        str1 = EXTRACT_ADDR(tab[j]);
+                        sign = EXTRACT_SIGN(tab[j]);
+                        pci1 = ci0 + str1 * nb;
+                        if (a >= i) {
+                                if (sign == 0){
+                                        break;
+                                }
+                                else if (sign > 0) {
+                                        for (k = 0; k < nb; k++) {
+                                                rdm1[a*norb+i] += conj(pci0[k]) * pci1[k];
+                                        }
+                                }
+                                else {
+                                        for (k = 0; k < nb; k++) {
+                                                rdm1[a*norb+i] -= conj(pci0[k]) * pci1[k];
+                                        }
+                                }
                         }
-                    } 
-                    else {
-                        for (k = 0; k < nb; k++) {
-                            rdm1[a*norb+i] -= pci0[k] * conj(pci1[k]);
-                        }
-                    }
                 }
         }
-    }
-        
-        // Conjugate symmetry: Fill lower triangle
-        for (j = 0; j < norb; j++) {
-            for (k = 0; k < j; k++) {
-                rdm1[k*norb+j] = conj(rdm1[j*norb+k]);
-            }
+    
+    for (j = 0; j < norb; j++) {        
+        for (k = 0; k < j; k++) {
+            rdm1[k*norb+j] = conj(rdm1[j*norb+k]);
         }
-        
-        free(clink);
+    }
+    
+    free(clink);
 }
 
 
@@ -108,55 +91,47 @@ void FCImake_rdm1b_cplx(double complex *rdm1,
                         int norb, int na, int nb, int nlinka, int nlinkb,
                         int *link_indexa, int *link_indexb)
 {
-    int i, a, j, k, str0, str1, sign;
+        int i, a, j, k, str0, str1, sign;
+        double complex *pci0, *pci1;
+        double complex *ci0 = ciket;
+        double complex tmp;
 
-    double complex *pci0, *pci1;
-    double complex *ci0 = ciket;
-    double complex tmp;
+        _LinkT *tab;
+        _LinkT *clink = malloc(sizeof(_LinkT) * nlinkb * nb);
+        FCIcompress_link(clink, link_indexb, norb, nb, nlinkb);
 
-    _LinkT *tab;
-    _LinkT *clink = malloc(sizeof(_LinkT) * nlinkb * nb);
-    FCIcompress_link(clink, link_indexb, norb, nb, nlinkb);
-
-    // Initialize rdm1 as zero_matrix
-    NPzset0(rdm1, norb*norb);
-
-    // Main loop to construct RDM1
-    for (str0 = 0; str0 < na; str0++) {
-        pci0 = ci0 + str0 * nb;
-        for (k = 0; k < nb; k++) {
-            tab = clink + k * nlinkb;
-            tmp = pci0[k];
-            for (j = 0; j < nlinkb; j++) {
-                a    = EXTRACT_CRE (tab[j]);
-                i    = EXTRACT_DES (tab[j]);
-                str1 = EXTRACT_ADDR(tab[j]);
-                sign = EXTRACT_SIGN(tab[j]);
-
-                if (a >= i) {
-                    if (sign == 0) 
-                    {
-                            break;
-                    } 
-                    else if (sign > 0) 
-                    {
-                        rdm1[a*norb+i] += pci0[str1] * conj(tmp);
-                    }
-                    else 
-                    {
-                        rdm1[a*norb+i] -= pci0[str1] * conj(tmp);
-                    }
+        NPzset0(rdm1, norb*norb);
+        
+        for (str0 = 0; str0 < na; str0++) {
+                pci0 = ci0 + str0 * nb;
+                for (k = 0; k < nb; k++) {
+                        tab = clink + k * nlinkb;
+                        tmp = pci0[k];
+                        for (j = 0; j < nlinkb; j++) {
+                                a    = EXTRACT_CRE (tab[j]);
+                                i    = EXTRACT_DES (tab[j]);
+                                str1 = EXTRACT_ADDR(tab[j]);
+                                sign = EXTRACT_SIGN(tab[j]);
+                                if (a >= i) {
+                                        if (sign == 0){
+                                                break;
+                                        }
+                                        else if (sign > 0){
+                                                rdm1[a*norb+i] += pci0[str1] * conj(tmp);
+                                        }
+                                        else{
+                                                rdm1[a*norb+i] -= pci0[str1] * conj(tmp);
+                                        }
+                                }
+                        }
                 }
-            }
         }
-    }
-
-    /* Fill the other half */
-    for (j = 0; j < norb; j++) {
-        for (k = 0; k < j; k++) {
-            rdm1[k*norb+j] = conj(rdm1[j*norb+k]);
+        
+        for (j = 0; j < norb; j++) {
+                for (k = 0; k < j; k++) {
+                        rdm1[k*norb+j] = conj(rdm1[j*norb+k]);
         }
-    }
+}
 
     free(clink);
 }
