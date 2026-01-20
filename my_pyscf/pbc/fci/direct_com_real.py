@@ -330,7 +330,6 @@ def make_rdm1(fcivec, norb, nelec, link_index=None):
 
 def make_rdm12s(fcivec, norb, nelec, link_index=None, reorder=True):
     make_rdm12s.__doc__ = direct_spin1.make_rdm12s.__doc__
-
     dm1a, dm2aa = rdm_helper.make_rdm12_spin1('FCIrdm12kern_a_cplx', fcivec, fcivec,
                                        norb, nelec, link_index, 1)
     dm1b, dm2bb = rdm_helper.make_rdm12_spin1('FCIrdm12kern_b_cplx', fcivec, fcivec,
@@ -340,6 +339,7 @@ def make_rdm12s(fcivec, norb, nelec, link_index=None, reorder=True):
     if reorder:
         dm1a, dm2aa = rdm_helper.reorder_rdm(dm1a, dm2aa, inplace=True)
         dm1b, dm2bb = rdm_helper.reorder_rdm(dm1b, dm2bb, inplace=True)
+    
     return (dm1a, dm1b), (dm2aa, dm2ab, dm2bb)
 
 def make_rdm12(fcivec, norb, nelec, link_index=None, reorder=True):
@@ -348,6 +348,22 @@ def make_rdm12(fcivec, norb, nelec, link_index=None, reorder=True):
                                     norb, nelec, link_index, 1)
     if reorder:
         dm1, dm2 = rdm_helper.reorder_rdm(dm1, dm2, inplace=True)
+    return dm1, dm2
+
+def make_rdm1_py(fcivec, norb, nelec, link_index=None):
+    rdm1 = rdm_helper.make_rdm1_cplx(fcivec, norb, nelec, link_index)
+    return rdm1
+
+def make_rdm1s_py(fcivec, norb, nelec, link_index=None):
+    rdm1a, rdm1b = rdm_helper.make_rdm1s_cplx(fcivec, norb, nelec, link_index)
+    return rdm1a, rdm1b
+
+def make_rdm12s_py(fcivec, norb, nelec, link_index=None, reorder=True):
+    (dm1a, dm1b), (dm2aa, dm2ab, dm2bb) = rdm_helper.make_rdm12s_cplx(fcivec, norb, nelec, link_index, reorder)
+    return (dm1a, dm1b), (dm2aa, dm2ab, dm2bb)
+
+def make_rdm12_py(fcivec, norb, nelec, link_index=None, reorder=True):
+    dm1, dm2 = rdm_helper.make_rdm12_cplx(fcivec, norb, nelec, link_index, reorder)
     return dm1, dm2
 
 class FCISolver(direct_spin1.FCISolver):
@@ -437,21 +453,16 @@ class FCISolver(direct_spin1.FCISolver):
         return get_init_guess_cplx(norb, nelec, nroots, hdiag)
     
     def make_rdm1s_py(self, fcivec, norb, nelec, link_index=None):
-        rdm1a, rdm1b = rdm_helper.make_rdm1s_cplx(fcivec, norb, nelec, link_index)
-        return rdm1a, rdm1b
+        return make_rdm1s_py(fcivec, norb, nelec, link_index)
     
     def make_rdm1_py(self, fcivec, norb, nelec, link_index=None):
-        rdm1 = rdm_helper.make_rdm1_cplx(fcivec, norb, nelec, link_index)
-        return rdm1
+        return make_rdm1_py(fcivec, norb, nelec, link_index)
     
     def make_rdm12s_py(self, fcivec, norb, nelec, link_index=None, reorder=True):
-        (dm1a, dm1b), (dm2aa, dm2bb, dm2ab, dm2ba) = \
-            rdm_helper.make_rdm12s_cplx(fcivec, norb, nelec, link_index, reorder)
-        return (dm1a, dm1b), (dm2aa, dm2bb, dm2ab, dm2ba)
+        return make_rdm12s_py(fcivec, norb, nelec, link_index, reorder)
     
     def make_rdm12_py(self, fcivec, norb, nelec, link_index=None, reorder=True):
-        dm1, dm2 = rdm_helper.make_rdm12_cplx(fcivec, norb, nelec, link_index, reorder)
-        return dm1, dm2
+        return make_rdm12_py(fcivec, norb, nelec, link_index, reorder)
     
 FCI = FCISolver
 
