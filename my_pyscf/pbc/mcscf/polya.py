@@ -62,7 +62,7 @@ cell = pgto.Cell(atom = get_xyz(nU, d),
 )
 cell.build()
 
-nk = [2, 1, 1]
+nk = [4, 1, 1]
 kpts = cell.make_kpts(nk)
 nC = nU * nk[0]
 
@@ -107,9 +107,9 @@ def active_space_eri(scell, mo_coeff_R, filename):
 
 def get_coredm(mo_c, nkpts=1):
     '''
-    Basically the cdm is 2* (C @ C.T)
+    Basically the cdm is 2* (C @ C.conj().T)
     '''
-    core_dm_k = np.asarray([2.0 * (mo_c[k] @ mo_c[k].conj().T) for k in range(nkpts)])
+    core_dm_k = np.asarray([2.0 * (mo_c[k] @ mo_c[k].conj().T) for k in range(nkpts)], dtype=mo_c[0].dtype)
     return core_dm_k
 
 def get_fci_ham(kmf, ncore, ncas, mo_coeff, eri_file):
@@ -190,15 +190,46 @@ e_tot_fromFCI, fcivec = cisolver.kernel(h1, h2, nkpts*ncas, (nkpts*1,nkpts*1), e
 fcivec /= np.sqrt(np.vdot(fcivec, fcivec))
 print("FCI - SCF Energy:", e_tot_fromFCI/nkpts - kmf.e_tot )
 
-# Compare the energy computations from different methods:
-# Test-1: Compute RDM1 and RDM2 and contract with the Hamiltonian
-rdm1, rdm2 = cisolver.make_rdm12_py(fcivec, nkpts*ncas, (nkpts*1,nkpts*1), reorder=True)
-e_tot_fromRDM = np.einsum('pq,qp', h1, rdm1) + 0.5* lib.einsum('pqrs,pqrs', h2, rdm2)
-e_tot_fromRDM += h0
+# # Compare the energy computations from different methods:
+# # Test-1: Compute RDM1 and RDM2 and contract with the Hamiltonian
+# rdm1, rdm2 = cisolver.make_rdm12_py(fcivec, nkpts*ncas, (nkpts*1,nkpts*1), reorder=True)
+# e_tot_fromRDM = np.einsum('pq,qp', h1, rdm1) + 0.5* lib.einsum('pqrs,pqrs', h2, rdm2)
+# e_tot_fromRDM += h0
 
-# Test-2: Based on the energy routine
-e_tot_fromEnergy = cisolver.energy(h1, h2, fcivec, nkpts*ncas, (nkpts*1,nkpts*1))
-e_tot_fromEnergy += h0
+# # Test-2: Based on the energy routine
+# e_tot_fromEnergy = cisolver.energy(h1, h2, fcivec, nkpts*ncas, (nkpts*1,nkpts*1))
+# e_tot_fromEnergy += h0
 
-print("FCI energy difference (RDMs based - kernel):", (e_tot_fromRDM - cisolver.eci).real / nkpts)
-print("FCI energy difference (Energy routine based - kernel)", (e_tot_fromEnergy - cisolver.eci).real / nkpts)
+# print("FCI energy difference (RDMs based - kernel):", (e_tot_fromRDM - cisolver.eci).real / nkpts)
+# print("FCI energy difference (Energy routine based - kernel)", (e_tot_fromEnergy - cisolver.eci).real / nkpts)
+
+# Computing the RDM1s using the C solver
+# def compare_rdm1s(rdm1, rdm1ref):
+#     diff = np.max(np.abs(rdm1 - rdm1ref))
+#     print("Max difference in RDM1s:", diff)
+
+# rdm1a, rdm1b = cisolver.make_rdm1s(fcivec, nkpts*ncas, (nkpts*1,nkpts*1))
+# rdm1aref, rdm1bref = cisolver.make_rdm1s_py(fcivec, nkpts*ncas, (nkpts*1,nkpts*1))
+# rdm1check = cisolver.make_rdm12s_py(fcivec, nkpts*ncas, (nkpts*1,nkpts*1))[0]
+# compare_rdm1s(rdm1check[0], rdm1aref)
+# compare_rdm1s(rdm1check[1], rdm1bref)
+# compare_rdm1s(rdm1a, rdm1aref)
+# compare_rdm1s(rdm1b, rdm1bref)
+# compare_rdm1s(rdm1a+rdm1b, rdm1bref+rdm1bref)
+
+
+
+
+# Time to compare the 2-RDMs
+
+def compare_rdm2s(rdm2, rdm2ref):
+    diff = np.max(np.abs(rdm2 - rdm2ref))
+    print("Max difference in RDM2s:", diff)
+    print("Max difference in real part of RDM2s:", np.max(np.abs(rdm2.real - rdm2ref.real)))
+    print("Max difference in imag part of RDM2s:", np.max(np.abs(rdm2.imag - rdm2ref.imag)))
+
+rdm2aa, rdm2ab, rdm2bb = cisolver.make_rdm12s(fcivec, nkpts*ncas, (nkpts*1,nkpts*1))[1]
+rdm2aa_c, rdm2ab_c, rdm2bb_c = cisolver.make_rdm12s_py(fcivec, nkpts*ncas, (nkpts*1,nkpts*1))[1]
+compare_rdm2s(rdm2aa, rdm2aa_c)
+compare_rdm2s(rdm2ab, rdm2ab_c)
+compare_rdm2s(rdm2bb, rdm2bb_c)
