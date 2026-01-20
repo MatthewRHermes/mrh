@@ -45,6 +45,7 @@ class LASImpurityOrbitalCallable (object):
         self.mol = las.mol
         self._scf = las._scf
         self.ncore, self.ncas_sub, self.ncas = las.ncore, las.ncas_sub, las.ncas
+        self.nelecas_sub = las.nelecas_sub
         self.with_df = getattr (las, 'with_df', None)
         self.frag_id = frag_id
         self.schmidt_thresh = schmidt_thresh
@@ -53,10 +54,12 @@ class LASImpurityOrbitalCallable (object):
 
         # Convenience
         self.las0 = self.nlas = self.las1 = 0
+        self.nelelas = [0,0]
         if frag_id is not None:
             self.las0 = self.ncore + sum(self.ncas_sub[:frag_id])
             self.nlas = self.ncas_sub[frag_id]
             self.las1 = self.las0 + self.nlas
+            self.nelelas = self.nelecas_sub[frag_id]
         self.ncas = sum (self.ncas_sub)
         self.nocc = self.ncore + self.ncas
         self.s0 = self._scf.get_ovlp ()
@@ -96,15 +99,16 @@ class LASImpurityOrbitalCallable (object):
         dm1s = dm1s_
         veff = veff_
         fock1 = mo @ fock1 @ mo.conj ().T
+        ao = mo[:,self.ncore:][:,:self.ncas]
         self._test_orthonormality (mo_coeff, mo)
-        _ = self._get_nelec_fo (mo, dm1s, tag='whole molecule')
+        _ = self._get_nelec_fo (ao, mo, dm1s, tag='whole molecule')
         # ^ This is a sanity test of the density matrix. If dm1s or mo somehow
         # diverged or were transformed improperly, it might show a non-integer
         # total number of electrons.
 
         def build (max_size, fock1):
             fo, eo = self._get_orthnorm_frag (mo)
-            _ = self._get_nelec_fo (np.append (fo[:,self.nlas:], eo, axis=1),
+            _ = self._get_nelec_fo (ao, np.append (fo[:,self.nlas:], eo, axis=1),
                                     dm1s, tag='whole-molecule non-active (first check)')
             # ^ If the MOs are somehow not orthonormal, this sanity test might fail
             # even if the one above passes
@@ -112,7 +116,7 @@ class LASImpurityOrbitalCallable (object):
             if isinstance (max_size, str) and "small" in max_size.lower():
                 max_size = 2*fo.shape[1]
             fo, eo, fock1 = self._a2i_gradorbs (fo, eo, fock1, veff, dm1s)
-            _ = self._get_nelec_fo (np.append (fo[:,self.nlas:], eo, axis=1),
+            _ = self._get_nelec_fo (ao, np.append (fo[:,self.nlas:], eo, axis=1),
                                     dm1s, tag='whole-molecule non-active (second check)')
             # ^ If a2i_gradorbs is broken somehow
             if self.do_gradorbs: self.log.info ("nfrag after gradorbs 1 = %d", fo.shape[1])
@@ -120,7 +124,7 @@ class LASImpurityOrbitalCallable (object):
                 max_size = 2*fo.shape[1]
             fo, eo = self._schmidt (fo, eo, mo)
             self.log.info ("nfrag after schmidt = %d", fo.shape[1])
-            nelec_fo = self._get_nelec_fo (fo, dm1s, tag='pre-ia2x_gradorbs impurity')
+            nelec_fo = self._get_nelec_fo (ao, fo, dm1s, tag='pre-ia2x_gradorbs impurity')
             self.log.info ("nelec in fragment = %d", nelec_fo)
             if isinstance (max_size, str) and "large" in max_size.lower():
                 max_size = 2*fo.shape[1]
@@ -128,9 +132,9 @@ class LASImpurityOrbitalCallable (object):
                 raise FragSizeError ("max_size of {} is too small".format (max_size))
             fo, eo = self._ia2x_gradorbs (fo, eo, mo, fock1, max_size)
             self.log.info ("nfrag after gradorbs 2 = %d", fo.shape[1])
-            nelec_fo = self._get_nelec_fo (fo, dm1s, tag='final impurity')
+            nelec_fo = self._get_nelec_fo (ao, fo, dm1s, tag='final impurity')
             self.log.info ("nelec in fragment = %d", nelec_fo)
-            nelec_eo = self._get_nelec_fo (eo, dm1s, tag='final environment')
+            nelec_eo = self._get_nelec_fo (ao, eo, dm1s, tag='final environment')
             self.log.info ("%d occupied and %d unoccupied inactive unentangled env orbs",
                            nelec_eo//2, eo.shape[1] - (nelec_eo//2))
             fo_coeff = self.oo_coeff @ fo
@@ -366,9 +370,14 @@ class LASImpurityOrbitalCallable (object):
 
         return fo, eo
 
-    def _get_nelec_fo (self, fo, dm1s, tag='this'):
+    def _get_nelec_fo (self, ao, fo, dm1s, tag='this'):
+        # subtract active-orbital part of dm1s
+        p = ao @ ao.conj ().T
+        dm1s = [d - (p @ d @ p) for d in dm1s]
         neleca = (dm1s[0] @ fo).ravel ().dot (fo.conj ().ravel ())
         nelecb = (dm1s[1] @ fo).ravel ().dot (fo.conj ().ravel ())
+        neleca += self.nelelas[0]
+        nelecb += self.nelelas[1]
         nelec = neleca + nelecb
         nelec_err = nelec - int (round (nelec))
         if abs(nelec_err)>self.nelec_int_thresh:

@@ -213,8 +213,16 @@ def gradient_analysis (las, kf, log):
     for ifrag, gc in enumerate (gci):
         i = ncore + sum (las.ncas_sub[:ifrag])
         j = i + las.ncas_sub[ifrag]
-        log.debug ('Active fragment %d |g_orb|: %.15g ; |g_ci|: %.15g',
-                   ifrag, linalg.norm (gorb[i:j,:]), linalg.norm (gc))
+        if las.nroots > 1:
+            gc_flat = np.concatenate ([x.ravel () for x in gc])
+        else:
+            gc_flat = gc
+        try:
+            log.debug ('Active fragment %d |g_orb|: %.15g ; |g_ci|: %.15g',
+                       ifrag, linalg.norm (gorb[i:j,:]), linalg.norm (gc_flat))
+        except Exception as err:
+            print (gc)
+            raise (err)
     return
 
 
