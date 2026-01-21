@@ -127,6 +127,7 @@ def _trans_rdm1hs_o1(cre, cibra, ciket, norb, nelec, spin=0, link_index=None):
                                ia_bra, ja_bra, ib_bra, jb_bra, sgn_bra,
                                ia_ket, ja_ket, ib_ket, jb_ket, sgn_ket, 0) #TODO: write a better name
     libgpu.pull_tdm1(gpu, tdm1h, norb+1, 0)
+    libgpu.barrier(gpu)
     return tdm1h.T
    
 
@@ -286,6 +287,7 @@ def _trans_rdm13hs_o5(cre, cibra, ciket, norb, nelec, spin=0, link_index=None, r
                                    ia_ket, ja_ket, ib_ket, jb_ket, sgn_ket, 0) #TODO: write a better name
     if reorder: libgpu.reorder_rdm(gpu, norb+1, 0)
     libgpu.pull_tdm3hab_v2(gpu, tdm1h, tdm3ha, tdm3hb, norb, cre, spin, 0)
+    libgpu.barrier(gpu)
     return tdm1h, tdm3ha, tdm3hb 
 
 def _trans_rdm13hs_o6(cre, cibra, ciket, norb, nelec, spin=0, link_index=None, reorder=True):
@@ -323,6 +325,7 @@ def _trans_rdm13hs_o6(cre, cibra, ciket, norb, nelec, spin=0, link_index=None, r
                                    ia_ket, ja_ket, ib_ket, jb_ket, sgn_ket, 0) #TODO: write a better name
     if reorder: libgpu.reorder_rdm(gpu, norb+1, 0)
     libgpu.pull_tdm3hab_v2(gpu, tdm1h, tdm3ha, tdm3hb, norb, cre, spin, 0)
+    libgpu.barrier(gpu)
     return tdm1h, tdm3ha, tdm3hb 
 
 
@@ -439,6 +442,7 @@ def _trans_sfudm1_o2(cibra,ciket,norb, nelec, link_index=None):
                          ia_ket, ja_ket, ib_ket, jb_ket, sgn_ket,
                          ia_bra, ja_bra, ib_bra, jb_bra, sgn_bra, 0)
     libgpu.pull_tdm1(gpu, dm2dum, norb, 0)#when filtering
+    libgpu.barrier(gpu)
     return dm2dum
 
 def trans_sfddm1 (cibra, ciket, norb, nelec, link_index=None):
@@ -610,6 +614,7 @@ def _trans_ppdm_o3(cibra, ciket, norb, nelec, spin = 0, link_index = None):
     #return dumdm2[:-ndum,-1,:-ndum,-ndum]
     dumdm2 = np.empty((norb, norb))
     libgpu.pull_tdm1(gpu, dumdm2, norb, 0)
+    libgpu.barrier(gpu)
     return dumdm2
 
 def trans_hhdm (cibra, ciket, norb, nelec, spin=0, link_index=None):

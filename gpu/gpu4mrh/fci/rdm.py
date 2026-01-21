@@ -177,16 +177,19 @@ def _make_rdm12_spin1(fname, cibra, ciket, norb, nelec, link_index=None, symm=0)
       if fname == 'FCItdm12kern_a': 
         libgpu.compute_tdm12kern_a_v2(gpu, na, nb, nlinka, nlinkb, norb, 0)
         libgpu.pull_tdm1(gpu, rdm1_gpu, norb, 0)
+        libgpu.barrier(gpu)
         rdm1_correct = numpy.allclose(rdm1_cpu, rdm1_gpu)
       if fname == 'FCItdm12kern_b': 
         libgpu.compute_tdm12kern_b_v2(gpu, na, nb, nlinka, nlinkb, norb, 0)
         libgpu.pull_tdm1(gpu, rdm1_gpu, norb, 0)
+        libgpu.barrier(gpu)
         rdm1_correct = numpy.allclose(rdm1_cpu, rdm1_gpu)
       if fname == 'FCItdm12kern_ab': 
         libgpu.compute_tdm12kern_ab_v2(gpu, na, nb, nlinka, nlinkb, norb, 0)
       if fname == 'FCIrdm12kern_sf': 
         libgpu.compute_rdm12kern_sf_v2(gpu, na, nb, nlinka, nlinkb, norb, 0)
         libgpu.pull_tdm1(gpu, rdm1_gpu, norb, 0)
+        libgpu.barrier(gpu)
         rdm1_correct = numpy.allclose(rdm1_cpu, rdm1_gpu)
         
       libgpu.pull_tdm2(gpu, rdm2_gpu, norb, 0)
