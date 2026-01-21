@@ -1023,19 +1023,20 @@ class ImpurityLASCI (lasci.LASCINoSymm, ImpuritySolver):
             casdm1rs=casdm1rs, casdm2rs=casdm2rs, weights=weights
         )
 
-    def get_grad_orb (las, **kwargs):
-        gorb = lasci.LASCINoSymm.get_grad_orb (las, **kwargs)
+    def get_grad_orb (self, **kwargs):
+        gorb = lasci.LASCINoSymm.get_grad_orb (self, **kwargs)
         mo_coeff = kwargs.get ('mo_coeff', self.mo_coeff)
+        ci = kwargs.get ('ci', self.ci)
         hermi = kwargs.get ('hermi', -1)
-        nao, nmo = las.mo_coeff.shape
-        ncore, ncas = las.ncore, las.ncas
+        nao, nmo = self.mo_coeff.shape
+        ncore, ncas = self.ncore, self.ncas
         nocc = ncore + ncas
         mo_cas = mo_coeff[:,ncore:nocc]
         dh1_rs = np.dot (self.get_hcore_rs () - self.get_hcore ()[None,None,:,:], mo_cas)
         dh1_rs = np.tensordot (mo_coeff.conj (), dh1_rs, axes=((0),(2))).transpose (1,2,0,3)
-        casdm1rs = las.states_make_casdm1s (ci=ci)
+        casdm1rs = self.states_make_casdm1s (ci=ci)
         f = np.zeros ((nmo,nmo), dtype=gorb.dtype)
-        for w, h, d in zip (las.weights, dh1_rs, casdm1rs):
+        for w, h, d in zip (self.weights, dh1_rs, casdm1rs):
             f[:,ncore:nocc] += w * (h[0] @ d[0] + h[1] @ d[1])
         if hermi == -1:
             return gorb + f - f.T
@@ -1046,9 +1047,8 @@ class ImpurityLASCI (lasci.LASCINoSymm, ImpuritySolver):
         else:
             raise ValueError ("kwarg 'hermi' must = -1, 0, or +1")
 
-    def h1e_for_las (las, **kwargs):
-        h1e_fr = lasci.LASCINoSymm.h1e_for_las (las, **kwargs)
-        mo_coeff = kwargs.get ('mo_coeff', self.mo_coeff)
+    def h1e_for_las (self, mo_coeff=None, **kwargs):
+        h1e_fr = lasci.LASCINoSymm.h1e_for_las (self, mo_coeff=mo_coeff, **kwargs)
         ncas_sub = kwargs.get ('ncas_sub', self.ncas_sub)
         dh1_rs = np.dot (self.get_hcore_rs () - self.get_hcore ()[None,None,:,:], mo_coeff)
         dh1_rs = np.tensordot (mo_coeff.conj (), dh1_rs, axes=((0),(2))).transpose (1,2,0,3)
@@ -1057,6 +1057,7 @@ class ImpurityLASCI (lasci.LASCINoSymm, ImpuritySolver):
             j = i + ncas_sub[ix]
             h1e_fr[ix] += dh1_rs[:,:,i:j,i:j]
         return h1e_fr
+    get_h1eff = get_h1las = h1e_for_las = h1e_for_las
 
     def states_energy_elec (self, **kwargs):
         energy_elec = lasci.LASCINoSymm.states_energy_elec (self, **kwargs)
@@ -1128,7 +1129,8 @@ def get_pair_lasci (las, frags, inherit_df=False):
         ilas = lasci.density_fit (ilas, with_df=imf.with_df)
     charges, spins, smults, wfnsyms = lasci.get_space_info (las)
     ilas.state_average_(weights=las.weights, charges=charges[:,frags], spins=spins[:,frags],
-                        smults=smults[:,frags], wfnsyms=wfnsyms[:,frags])
+                        smults=smults[:,frags], wfnsyms=wfnsyms[:,frags],
+                        assert_no_dupes=False)
     def imporb_builder (mo_coeff, dm1s, veff, fock1, **kwargs):
         idx = np.zeros (mo_coeff.shape[1], dtype=bool)
         for ix in frags:    
