@@ -178,14 +178,16 @@ class SingleLASRootspace (object):
         if self.smults[i]<max_smult: dsmult.append (+1)
         return dsmult
 
-    def get_singles (self):
+    def get_singles (self, mask=None):
         log = logger.new_logger (self, self.verbose)
+        if mask is None: mask = np.ones ((self.nfrag, self.nfrag), dtype=bool)
         # move 1 alpha electron
         has_ea = np.where (self.neleca > 0)[0]
         has_ha = np.where (self.nholea > 0)[0]
         singles = []
         for i, a in itertools.product (has_ea, has_ha):
             if i==a: continue
+            if not mask[i,a]: continue
             si_range = self.get_valid_smult_change (i, -1, 0)
             sa_range = self.get_valid_smult_change (a,  1, 0)
             for si, sa in itertools.product (si_range, sa_range):
@@ -198,6 +200,7 @@ class SingleLASRootspace (object):
         has_hb = np.where (self.nholeb > 0)[0]
         for i, a in itertools.product (has_eb, has_hb):
             if i==a: continue
+            if not mask[i,a]: continue
             si_range = self.get_valid_smult_change (i, 0, -1)
             sa_range = self.get_valid_smult_change (a, 0,  1)
             for si, sa in itertools.product (si_range, sa_range):
@@ -599,7 +602,7 @@ def combine_orthogonal_excitations (exc1, exc2, ref, flexible_m=False):
                     (product.ci[ifrag] is ref.ci[ifrag]))
     return product
 
-def all_single_excitations (las, verbose=None, filter_shuffles=False):
+def all_single_excitations (las, verbose=None, filter_shuffles=False, mask=None):
     '''Add states characterized by one electron hopping from one fragment to another fragment
     in all possible ways. Uses all states already present as reference states, so that calling
     this function a second time generates two-electron excitations, etc. The input object is
@@ -615,7 +618,7 @@ def all_single_excitations (las, verbose=None, filter_shuffles=False):
     for weight, state in zip (las.weights, ref_states): state.weight = weight
     new_states = []
     for ref_state in ref_states:
-        new_states.extend (ref_state.get_singles ())
+        new_states.extend (ref_state.get_singles (mask=mask))
     seen = set (ref_states)
     all_states = ref_states + [state for state in new_states if not ((state in seen) or seen.add (state))]
     if filter_shuffles:

@@ -5452,6 +5452,8 @@ void Device::pull_tdm3hab_v2_host(int i, int j, int n_bra, int n_ket, int norb, 
   double * h_dm1_loc = &(h_dm1_full[loc_tdm1h]);
   double * h_dm3ha_loc;
   double * h_dm3hb_loc;
+
+  grow_array(dd->d_buf3, norb, dd->size_buf3, "buf3", FLERR);
   
   filter_tdm1h(dd->d_tdm1, dd->d_buf3, norb);
   pm->dev_pull_async(dd->d_buf3, h_dm1_loc, norb*sizeof(double));
