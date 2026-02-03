@@ -1635,8 +1635,8 @@ void Device::getjk_vj(double * vj, double * rho, double * eri, int nset, int nao
   sycl::range<3> block_size(_DOT_BLOCK_SIZE, 1, 1);
 
 #ifdef _DEBUG_DEVICE
-  printf("LIBGPU ::  -- get_jk::_getjk_vj :: nset= %i  nao_pair= %i  chunk_size= %i  num_chunks= %i  _DOT_BLOCK_SIZE= %i  grid_size= %zu %zu %zu  block_size= %zu %zu %zu\n",
-	 nset, nao_pair, chunk_size, num_chunks, _DOT_BLOCK_SIZE, grid_size[0], grid_size[1], grid_size[2], block_size[0], block_size[1], block_size[2]);
+  printf("LIBGPU ::  -- get_jk::_getjk_vj :: nset= %i  nao_pair= %i  gs_nao_pair= %i  chunk_size= %i  num_chunks= %i  _DOT_BLOCK_SIZE= %i  grid_size= %zu %zu %zu  block_size= %zu %zu %zu\n",
+	 nset, nao_pair, gs_nao_pair, chunk_size, num_chunks, _DOT_BLOCK_SIZE, grid_size[0], grid_size[1], grid_size[2], block_size[0], block_size[1], block_size[2]);
 #endif
   
   sycl::queue * s = pm->dev_get_queue();
