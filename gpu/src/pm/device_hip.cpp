@@ -18,6 +18,7 @@
 #define _ACCELERATE_KERNEL
 
 #define _TILE(A,B) (A + B - 1) / B
+#define _HIP_MAX_GRID_DIM_YZ 65535
 
 /* ---------------------------------------------------------------------- */
 
@@ -127,19 +128,21 @@ __global__ void _getjk_rho(double * rho, double * dmtril, double * eri1, int nse
 
 /* ---------------------------------------------------------------------- */
 
-__global__ void _getjk_vj(double * vj, double * rho, double * eri1, int nset, int nao_pair, int naux, int init)
+__global__ void _getjk_vj(double * vj, double * rho, double * eri1, int nset, int nao_pair, int naux, int chunk_size, int init)
 {
   const int i = blockIdx.x * blockDim.x + threadIdx.x;
   const int j = blockIdx.y * blockDim.y + threadIdx.y;
+  const int k = blockIdx.z * blockDim.z + threadIdx.z;
 
-  if(i >= nset) return;
-  if(j >= nao_pair) return;
+  int indxK = j * chunk_size + k;
+  
+  if(indxK >= nao_pair) return;
 
   double val = 0.0;
-  for(int k=0; k<naux; ++k) val += rho[i * naux + k] * eri1[k * nao_pair + j];
+  for(int l=0; l<naux; ++l) val += rho[i * naux + l] * eri1[l * nao_pair + indxK];
   
-  if(init) vj[i * nao_pair + j] = val;
-  else vj[i * nao_pair + j] += val;
+  if(init) vj[i * nao_pair + indxK] = val;
+  else vj[i * nao_pair + indxK] += val;
 }
 
 /* ---------------------------------------------------------------------- */
@@ -1255,16 +1258,20 @@ void Device::getjk_rho(double * rho, double * dmtril, double * eri, int nset, in
 
 void Device::getjk_vj(double * vj, double * rho, double * eri, int nset, int nao_pair, int naux, int init)
 {
-  dim3 grid_size(nset, (nao_pair + (_DOT_BLOCK_SIZE - 1)) / _DOT_BLOCK_SIZE, 1);
-  dim3 block_size(1, _DOT_BLOCK_SIZE, 1);
+  const int gs_nao_pair = (nao_pair + (_DOT_BLOCK_SIZE - 1)) / _DOT_BLOCK_SIZE;
+  const int chunk_size = (gs_nao_pair <= _HIP_MAX_GRID_DIM_YZ) ? gs_nao_pair : _HIP_MAX_GRID_DIM_YZ;
+  const int num_chunks = (gs_nao_pair <= _HIP_MAX_GRID_DIM_YZ) ? 1 : (gs_nao_pair / _HIP_MAX_GRID_DIM_YZ + 1);
+  
+  dim3 grid_size(nset, num_chunks, chunk_size);
+  dim3 block_size(1, 1, _DOT_BLOCK_SIZE);
   
   hipStream_t s = *(pm->dev_get_queue());
   
-  _getjk_vj<<<grid_size, block_size, 0, s>>>(vj, rho, eri, nset, nao_pair, naux, init);
+  _getjk_vj<<<grid_size, block_size, 0, s>>>(vj, rho, eri, nset, nao_pair, naux, chunk_size, init);
   
 #ifdef _DEBUG_DEVICE
-  printf("LIBGPU ::  -- get_jk::_getjk_vj :: nset= %i  nao_pair= %i _DOT_BLOCK_SIZE= %i  grid_size= %i %i %i  block_size= %i %i %i\n",
-	 nset, nao_pair, _DOT_BLOCK_SIZE, grid_size.x,grid_size.y,grid_size.z,block_size.x,block_size.y,block_size.z);
+  printf("LIBGPU ::  -- get_jk::_getjk_vj :: nset= %i  nao_pair= %i  chunk_size= %i  num_chunks= %i  _DOT_BLOCK_SIZE= %i  grid_size= %i %i %i  block_size= %i %i %i\n",
+	 nset, nao_pair, chunk_size, num_chunks, _DOT_BLOCK_SIZE, grid_size.x, grid_size.y, grid_size.z, block_size.x, block_size.y, block_size.z);
   _HIP_CHECK_ERRORS();
 #endif
 }

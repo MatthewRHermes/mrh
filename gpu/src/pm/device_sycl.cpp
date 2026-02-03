@@ -24,6 +24,7 @@
 //#define _DEBUG_AO2MO
 
 #define _TILE(A,B) (A + B - 1) / B
+#define _SYCL_MAX_GRID_DIM_YZ 65535
 
 /* ---------------------------------------------------------------------- */
 
@@ -145,22 +146,25 @@ __global__ void _getjk_rho(double * rho, double * dmtril, double * eri1, int nse
 
 /* ---------------------------------------------------------------------- */
 
-void _getjk_vj(double * vj, double * rho, double * eri1, int nset, int nao_pair, int naux, int init)
+void _getjk_vj(double * vj, double * rho, double * eri1, int nset, int nao_pair, int naux, int chunk_size, int init)
 {
   auto item_ct1 = sycl::ext::oneapi::this_work_item::get_nd_item<3>();
   const int i = item_ct1.get_group(2) * item_ct1.get_local_range(2) +
                 item_ct1.get_local_id(2);
   const int j = item_ct1.get_group(1) * item_ct1.get_local_range(1) +
                 item_ct1.get_local_id(1);
+  const int k = item_ct1.get_group(0) * item_ct1.get_local_range(0) +
+                item_ct1.get_local_id(0);
 
-  if(i >= nset) return;
-  if(j >= nao_pair) return;
+  int indxK = j * chunk_size + k;
+  
+  if(indxK >= nao_pair) return;
 
   double val = 0.0;
-  for(int k=0; k<naux; ++k) val += rho[i * naux + k] * eri1[k * nao_pair + j];
+  for(int l=0; l<naux; ++l) val += rho[i * naux + l] * eri1[l * nao_pair + indxK];
   
-  if(init) vj[i * nao_pair + j] = val;
-  else vj[i * nao_pair + j] += val;
+  if(init) vj[i * nao_pair + indxK] = val;
+  else vj[i * nao_pair + indxK] += val;
 }
 
 /* ---------------------------------------------------------------------- */
@@ -1623,13 +1627,16 @@ void Device::getjk_rho(double * rho, double * dmtril, double * eri, int nset, in
 
 void Device::getjk_vj(double * vj, double * rho, double * eri, int nset, int nao_pair, int naux, int init)
 {
-  sycl::range<3> grid_size(
-      1, (nao_pair + (_DOT_BLOCK_SIZE - 1)) / _DOT_BLOCK_SIZE, nset);
-  sycl::range<3> block_size(1, _DOT_BLOCK_SIZE, 1);
+  const int gs_nao_pair = (nao_pair + (_DOT_BLOCK_SIZE - 1)) / _DOT_BLOCK_SIZE;
+  const int chunk_size = (gs_nao_pair <= _SYCL_MAX_GRID_DIM_YZ) ? gs_nao_pair : _SYCL_MAX_GRID_DIM_YZ;
+  const int num_chunks = (gs_nao_pair <= _SYCL_MAX_GRID_DIM_YZ) ? 1 : (gs_nao_pair / _SYCL_MAX_GRID_DIM_YZ + 1);
+  
+  sycl::range<3> grid_size(chunk_size, num_chunks, nset);
+  sycl::range<3> block_size(_DOT_BLOCK_SIZE, 1, 1);
 
 #ifdef _DEBUG_DEVICE
-  printf("LIBGPU ::  -- get_jk::_getjk_vj :: nset= %i  nao_pair= %i _DOT_BLOCK_SIZE= %i  grid_size= %zu %zu %zu  block_size= %zu %zu %zu\n",
-	 nset, nao_pair, _DOT_BLOCK_SIZE, grid_size[0],grid_size[1],grid_size[2],block_size[0],block_size[1],block_size[2]);
+  printf("LIBGPU ::  -- get_jk::_getjk_vj :: nset= %i  nao_pair= %i  chunk_size= %i  num_chunks= %i  _DOT_BLOCK_SIZE= %i  grid_size= %zu %zu %zu  block_size= %zu %zu %zu\n",
+	 nset, nao_pair, chunk_size, num_chunks, _DOT_BLOCK_SIZE, grid_size[0], grid_size[1], grid_size[2], block_size[0], block_size[1], block_size[2]);
 #endif
   
   sycl::queue * s = pm->dev_get_queue();
@@ -1639,7 +1646,7 @@ void Device::getjk_vj(double * vj, double * rho, double * eri, int nset, int nao
 
     s->parallel_for(sycl::nd_range<3>(grid_size * block_size, block_size),
                     [=](sycl::nd_item<3> item_ct1) {
-                      _getjk_vj(vj, rho, eri, nset, nao_pair, naux, init);
+                      _getjk_vj(vj, rho, eri, nset, nao_pair, naux, chunk_size, init);
                     });
   }
 
