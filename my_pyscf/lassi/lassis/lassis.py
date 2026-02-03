@@ -220,6 +220,7 @@ def single_excitations_ci (lsi, las2, las1, ci_ch, ncharge=1, sa_heff=True, deac
             ci0[1] = mdown (ci0[1], norb_a, nelec_a, smult_a)
             if lroots[afrag,i] == 1 and ci0[1].ndim==3: ci0[1] = ci0[1][0]
         ci0 = [ci0[int (afrag<ifrag)], ci0[int (ifrag<afrag)]]
+        psexc.__dict__.update (lsi.cisolver_attr_charge_hops)
         conv, e_roots[i], ci1, disc_svals_max = psexc.kernel (
             h1, h2, ecore=h0, ci0=ci0, max_cycle_macro=lsi.max_cycle_macro,
             conv_tol_self=lsi.conv_tol_self, nroots=ncharge_i
@@ -324,6 +325,8 @@ def all_spin_flips (lsi, las, ci_sf, nspin=1, ham_2q=None):
             solver = csf_solver (las.mol, smult=sm).set (nelec=(neleca,nelecb), norb=norb)
             solver.verbose = lsi.verbose
             solver.stdout = lsi.stdout
+            solver.__dict__.update (lsi.cisolver_attr_spin_flips)
+            solver.dump_flags ()
             solver.check_transformer_cache ()
             nroots = min (nroots, solver.transformer.ncsf)
             e_list, ci_list = solver.kernel (h1_i, h2_i, norb, (neleca,nelecb), ci0=ci0, nroots=nroots)[:2]
@@ -610,9 +613,11 @@ class LASSIS (LASSI):
         self.max_cycle_macro = 50
         self.conv_tol_self = 1e-8
         self.ci_spin_flips = [[None for s in range (2)] for i in range (self.nfrags)]
+        self.cisolver_attr_spin_flips = {}
         self.ci_charge_hops = [[[[None,None] for s in range (4)]
                                 for a in range (self.nfrags)]
                                for i in range (self.nfrags)]
+        self.cisolver_attr_charge_hops = {}
         self._cached_ham_2q = None
         self.mask_charge_hops = None
         self.ci = None
