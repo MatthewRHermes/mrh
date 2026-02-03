@@ -1270,8 +1270,8 @@ void Device::getjk_vj(double * vj, double * rho, double * eri, int nset, int nao
   _getjk_vj<<<grid_size, block_size, 0, s>>>(vj, rho, eri, nset, nao_pair, naux, chunk_size, init);
   
 #ifdef _DEBUG_DEVICE
-  printf("LIBGPU ::  -- get_jk::_getjk_vj :: nset= %i  nao_pair= %i  chunk_size= %i  num_chunks= %i  _DOT_BLOCK_SIZE= %i  grid_size= %i %i %i  block_size= %i %i %i\n",
-	 nset, nao_pair, chunk_size, num_chunks, _DOT_BLOCK_SIZE, grid_size.x, grid_size.y, grid_size.z, block_size.x, block_size.y, block_size.z);
+  printf("LIBGPU ::  -- get_jk::_getjk_vj :: nset= %i  nao_pair= %i  gs_nao_pair= %i  chunk_size= %i  num_chunks= %i  _DOT_BLOCK_SIZE= %i  grid_size= %i %i %i  block_size= %i %i %i\n",
+	 nset, nao_pair, gs_nao_pair, chunk_size, num_chunks, _DOT_BLOCK_SIZE, grid_size.x, grid_size.y, grid_size.z, block_size.x, block_size.y, block_size.z);
   _HIP_CHECK_ERRORS();
 #endif
 }
