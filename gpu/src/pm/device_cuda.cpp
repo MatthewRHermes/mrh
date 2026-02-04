@@ -1778,7 +1778,7 @@ void Device::compute_FCItrans_rdm1a_v2(double * cibra, double * ciket, double * 
                                                              sign, link_index);
     }
 #ifdef _DEBUG_DEVICE
-    printf("na_ket: %i ia_ket: %i ja_ket: %i ib_ket: %i ib_bra: %i nb_bra: %i nb_ket: %i b_len: %i b_bra_offset: %i b_ket_offset: %i sign: %i\n",na_ket, ia_ket, ja_ket, ib_ket, ib_bra, nb_bra, nb_ket, b_len, b_bra_offset, b_ket_offset, sign);
+    //printf("na_ket: %i ia_ket: %i ja_ket: %i ib_ket: %i ib_bra: %i nb_bra: %i nb_ket: %i b_len: %i b_bra_offset: %i b_ket_offset: %i sign: %i\n",na_ket, ia_ket, ja_ket, ib_ket, ib_bra, nb_bra, nb_ket, b_len, b_bra_offset, b_ket_offset, sign);
 #endif
   _CUDA_CHECK_ERRORS();
 }
@@ -1855,6 +1855,8 @@ void Device::compute_FCIrdm2_a_t1ci_v2(double * ci, double * buf, int stra_id, i
   dim3 block_size(1, 1, _DEFAULT_BLOCK_SIZE);
   dim3 grid_size(_TILE(batches, block_size.x),_TILE(nb, block_size.y), 1);
   _compute_FCIrdm2_a_t1ci_v4<<<grid_size, block_size, 0,s>>>(ci, buf, stra_id,batches,nb, norb, nlinka, link_index);
+  _CUDA_CHECK_ERRORS();
+  printf("compute_FCIrdm2_a_t1ci_v2 working\n");
 #ifdef _DEBUG_DEVICE 
   printf("LIBGPU ::  -- general::compute_FCIrdm2_a_t1ci; :: Nb= %i Norb =%i Nlinka =%i grid_size= %i %i %i  block_size= %i %i %i\n",
 	 nb, norb, nlinka, grid_size.x,grid_size.y,grid_size.z,block_size.x,block_size.y,block_size.z);
@@ -1868,10 +1870,8 @@ void Device::compute_FCIrdm2_b_t1ci_v2(double * ci, double * buf, int stra_id, i
   {dim3 block_size(1, 1,_DEFAULT_BLOCK_SIZE);
   dim3 grid_size(_TILE(batches,block_size.x),_TILE(nb, block_size.y), 1);
   _compute_FCIrdm2_b_t1ci_v4<<<grid_size, block_size, 0,s>>>(ci, buf, stra_id, batches, nb, norb, nlinkb, link_index);}
-#ifdef _DEBUG_DEVICE 
-  printf("LIBGPU ::  -- general::compute_FCIrdm2_b_t1ci; :: Nb= %i Norb =%i Nlinkb =%i grid_size= %i %i %i  block_size= %i %i %i\n",
-	 nb, norb, nlinkb, grid_size.x,grid_size.y,grid_size.z,block_size.x,block_size.y,block_size.z);
   _CUDA_CHECK_ERRORS();
+#ifdef _DEBUG_DEVICE 
 #endif
 } 
 
@@ -1888,10 +1888,10 @@ void Device::compute_FCIrdm3h_a_t1ci_v2(double * ci, double * buf, int stra_id, 
   dim3 grid_size(_TILE(jb-ib, block_size.x), 1, 1);
   _compute_FCIrdm3h_a_t1ci_v4<<<grid_size, block_size, 0,s>>>(ci, buf, stra_id, nb, norb, nlinka, ia, ja, ib, jb, link_index);
   #endif
+  _CUDA_CHECK_ERRORS();
 #ifdef _DEBUG_DEVICE 
   printf("LIBGPU ::  -- general::compute_FCIrdm2_a_t1ci; :: Nb= %i Norb =%i Nlinka =%i grid_size= %i %i %i  block_size= %i %i %i\n",
 	 nb, norb, nlinka, grid_size.x,grid_size.y,grid_size.z,block_size.x,block_size.y,block_size.z);
-  _CUDA_CHECK_ERRORS();
 #endif
 }
 /* ---------------------------------------------------------------------- */

@@ -54,10 +54,10 @@ def _trans_rdm1s(cibra, ciket, norb, nelec, link_index=None):
         exit()
     elif custom_fci and use_gpu: 
       #rdm1a, rdm1b = trans_rdm1s_o1(cibra, ciket, norb, nelec, link_index)
-      rdm1a, rdm1b = trans_rdm1s_o0(cibra, ciket, norb, nelec, link_index)
+      rdm1a, rdm1b = _trans_rdm1s_o0(cibra, ciket, norb, nelec, link_index)
     else: 
-      rdm1a, rdm1b = trans_rdm1s_o0(cibra, ciket, norb, nelec, link_index)
-    return (dm1a, dm1b), (dm2aa, dm2ab, dm2ba, dm2bb)
+      rdm1a, rdm1b = _trans_rdm1s_o0(cibra, ciket, norb, nelec, link_index)
+    return rdm1a, rdm1b 
 
 def _trans_rdm1s_o0(cibra, ciket, norb, nelec, link_index=None):
     rdm1a = rdm.make_rdm1_spin1('FCItrans_rdm1a', cibra, ciket,

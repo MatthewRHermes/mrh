@@ -4320,6 +4320,7 @@ void Device::compute_rdm12kern_sf_v2(int na, int nb, int nlinka, int nlinkb, int
   int bits_tdm1 = sizeof(double)*size_tdm1;
   int bits_tdm2 = sizeof(double)*size_tdm2;
   int _size_buf = _MAX(dd->size_buf1, dd->size_buf2);// (dd->size_buf1 > dd->size_buf2) ? dd->size_buf1 : dd->size_buf2;
+  _size_buf = _MAX(_size_buf, dd->size_buf3);//
   #ifdef _TEMP_BUFSIZING
   _size_buf = size_buf*6;
   #endif
@@ -4333,6 +4334,7 @@ void Device::compute_rdm12kern_sf_v2(int na, int nb, int nlinka, int nlinkb, int
   int num_gemm_batches; 
   int num_gemv_batches; 
   grow_array(dd->d_buf1,final_size_buf, dd->size_buf1, "buf1", FLERR); 
+  grow_array(dd->d_buf2,final_size_buf, dd->size_buf2, "buf1", FLERR); 
   grow_array(dd->d_buf3,final_size_buf, dd->size_buf3, "buf3", FLERR); 
   int bits_buf = sizeof(double)*buf_batch_size*size_buf;
   ml->memset(dd->d_buf1, &zero, &bits_buf); 
