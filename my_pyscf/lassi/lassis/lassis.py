@@ -220,6 +220,7 @@ def single_excitations_ci (lsi, las2, las1, ci_ch, ncharge=1, sa_heff=True, deac
             ci0[1] = mdown (ci0[1], norb_a, nelec_a, smult_a)
             if lroots[afrag,i] == 1 and ci0[1].ndim==3: ci0[1] = ci0[1][0]
         ci0 = [ci0[int (afrag<ifrag)], ci0[int (ifrag<afrag)]]
+        psexc.__dict__.update (lsi.cisolver_attr_charge_hops)
         conv, e_roots[i], ci1, disc_svals_max = psexc.kernel (
             h1, h2, ecore=h0, ci0=ci0, max_cycle_macro=lsi.max_cycle_macro,
             conv_tol_self=lsi.conv_tol_self, nroots=ncharge_i
@@ -282,6 +283,7 @@ class SpinFlips (object):
 def all_spin_flips (lsi, las, ci_sf, nspin=1, ham_2q=None):
     # NOTE: this actually only uses the -first- rootspace in las, so it can be done before
     # the initial spin shuffle
+    t0 = (logger.process_clock (), logger.perf_counter ())
     log = logger.new_logger (lsi, lsi.verbose)
     norb_f = las.ncas_sub
     spaces = list_spaces (las)
@@ -321,6 +323,10 @@ def all_spin_flips (lsi, las, ci_sf, nspin=1, ham_2q=None):
             neleca = (nelec + m2) // 2
             nelecb = (nelec - m2) // 2
             solver = csf_solver (las.mol, smult=sm).set (nelec=(neleca,nelecb), norb=norb)
+            solver.verbose = lsi.verbose
+            solver.stdout = lsi.stdout
+            solver.__dict__.update (lsi.cisolver_attr_spin_flips)
+            solver.dump_flags ()
             solver.check_transformer_cache ()
             nroots = min (nroots, solver.transformer.ncsf)
             e_list, ci_list = solver.kernel (h1_i, h2_i, norb, (neleca,nelecb), ci0=ci0, nroots=nroots)[:2]
@@ -333,6 +339,7 @@ def all_spin_flips (lsi, las, ci_sf, nspin=1, ham_2q=None):
         smults1_i = []
         spins1_i = []
         ci1_i = []
+        t1 = (logger.process_clock (), logger.perf_counter ())
         if smult > 2: # spin-lowered
             log.info ("LASSIS fragment %d spin down (%de,%do;2S+1=%d)",
                       ifrag, nelec, norb, smult-2)
@@ -347,6 +354,7 @@ def all_spin_flips (lsi, las, ci_sf, nspin=1, ham_2q=None):
                 log.info (" %d %15.10e", ix, e)
             if not conv: log.warn ("CI vectors for spin-lowering of fragment %i not converged",
                                    ifrag)
+            t1 = log.timer ("LASSIS fragment {} spin down CI solve".format (ifrag), *t1)
             converged = converged & conv
             ci_sf[ifrag][0] = ci1_i_down
             ci1_i.append (ci1_i_down)
@@ -366,6 +374,7 @@ def all_spin_flips (lsi, las, ci_sf, nspin=1, ham_2q=None):
                 log.info ("%d %15.10e", ix, e)
             if not conv: log.warn ("CI vectors for spin-raising of fragment %i not converged",
                                    ifrag)
+            t1 = log.timer ("LASSIS fragment {} spin up CI solve".format (ifrag), *t1)
             converged = converged & conv
             ci_sf[ifrag][1] = ci1_i_up
             ci1_i.append (ci1_i_up)
@@ -375,6 +384,7 @@ def all_spin_flips (lsi, las, ci_sf, nspin=1, ham_2q=None):
         i = j
     spin_flips = [SpinFlips (las.mol,c,no,ne,m,s)
                   for c,no,ne,m,s in zip (ci1,norb0,nelec0,spins1,smults1)]
+    t0 = log.timer ("LASSIS spin flip all CI solves", *t0)
     return converged, spin_flips, ci_sf
 
 def _spin_flip_products (spaces, spin_flips, nroots_ref=1, frozen_frags=None):
@@ -603,9 +613,11 @@ class LASSIS (LASSI):
         self.max_cycle_macro = 50
         self.conv_tol_self = 1e-8
         self.ci_spin_flips = [[None for s in range (2)] for i in range (self.nfrags)]
+        self.cisolver_attr_spin_flips = {}
         self.ci_charge_hops = [[[[None,None] for s in range (4)]
                                 for a in range (self.nfrags)]
                                for i in range (self.nfrags)]
+        self.cisolver_attr_charge_hops = {}
         self._cached_ham_2q = None
         self.mask_charge_hops = None
         self.ci = None
