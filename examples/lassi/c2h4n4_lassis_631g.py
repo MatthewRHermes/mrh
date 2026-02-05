@@ -32,8 +32,7 @@ molden.from_mcscf (mc, 'c2h4n4_casscf66_631g.molden', cas_natorb=True)
 print ("LASSCF((3,3),(3,3)) energy =", las.e_tot)
 print ("CASCI(6,6) energy =", mc.e_tot)
 
-attr = {'conv_tol_space': 1e-10, 'conv_tol_self': 1e-10, 'max_cycle': 3}
-lsi = lassi.LASSIS(las).set (cisolver_attr_charge_hops=attr)
+lsi = lassi.LASSIS(las)
 e_roots, si = lsi.kernel()
 
 print ("LASSIS energy =", e_roots[0])
