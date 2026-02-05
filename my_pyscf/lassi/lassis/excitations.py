@@ -17,9 +17,9 @@ from pyscf import __config__
 op = (op_o0, op_o1)
 
 LOWEST_REFOVLP_EIGVAL_THRESH = getattr (__config__, 'lassi_excitations_refovlp_eigval_thresh', 1e-9)
-IMAG_SHIFT = getattr (__config__, 'lassi_excitations_imag_shift', 1e-6)
-MAX_CYCLE_E0 = getattr (__config__, 'lassi_excitations_max_cycle_e0', 1)
-CONV_TOL_E0 = getattr (__config__, 'lassi_excitations_conv_tol_e0', 1e-8)
+MAX_CYCLE = getattr (__config__, 'lassi_excitations_max_cycle', 50)
+CONV_TOL_SPACE = getattr (__config__, 'lassi_excitations_conv_tol_space', 1e-4)
+CONV_TOL_SELF = getattr (__config__, 'lassi_excitations_conv_tol_self', 1e-8)
 
 def lowest_refovlp_eigpair (ham_pq, p=1, ovlp_thresh=LOWEST_REFOVLP_EIGVAL_THRESH, log=None):
     ''' Identify the lowest-energy eigenpair for which the eigenvector has nonzero overlap with
@@ -59,7 +59,16 @@ class ExcitationPSFCISolver (ProductStateFCISolver):
     |ref(i)> = A prod_K |ci(ref(i))_K>
     |exc> = A prod_{K in excited} |ci(exc)_K> prod_{K not in excited} |ci(ref(0))_K>
 
-    with {ci(ref(i))_K} fixed.'''
+    with {ci(ref(i))_K} fixed.
+
+    Convergence attributes:
+        conv_tol_space : float
+            Stationarity of the state space
+        conv_tol_self : float
+            Stationarity of the energy
+        max_cycle : integer
+            Maximum number of cycles
+    '''
 
     def __init__(self, solvers_ref, ci_ref, norb_ref, nelec_ref, orbsym_ref=None,
                  wfnsym_ref=None, stdout=None, verbose=0, opt=0, ref_weights=None, 
@@ -81,6 +90,9 @@ class ExcitationPSFCISolver (ProductStateFCISolver):
         self.crash_locmin = crash_locmin
         self.opt = opt
         self._linkstr_cache = {}
+        self.conv_tol_space = CONV_TOL_SPACE
+        self.conv_tol_self = CONV_TOL_SELF
+        self.max_cycle = MAX_CYCLE
         ProductStateFCISolver.__init__(self, solvers_ref[0].fcisolvers, stdout=stdout,
                                        verbose=verbose)
         ci_ref_rf = [[c[i] for c in ci_ref] for i in range (len (self.solvers_ref))]
@@ -94,6 +106,17 @@ class ExcitationPSFCISolver (ProductStateFCISolver):
         self.fcisolvers = []
         self._e_q = []
         self._si_q = []
+
+    def dump_flags (self, verbose=None):
+        if verbose is None: verbose = self.verbose
+        log = logger.new_logger (self, verbose)
+        log.info ('******** %s ********', self.__class__)
+        log.info ('max_cycle = %d', self.max_cycle)
+        log.info ('conv_tol_space = %7.1e', self.conv_tol_space)
+        log.info ('conv_tol_self = %7.1e', self.conv_tol_self)
+        log.info ('opt = %d', self.opt)
+        log.info ('max_memory %d MB', self.max_memory)
+        return self
 
     def get_excited_orb_idx (self):
         nj = np.cumsum (self.norb_ref)
@@ -188,8 +211,11 @@ class ExcitationPSFCISolver (ProductStateFCISolver):
         return delta
 
     def kernel (self, h1, h2, ecore=0, ci0=None,
-                conv_tol_space=1e-4, conv_tol_self=1e-6, max_cycle_macro=50,
-                serialfrag=False, nroots=1, **kwargs):
+                conv_tol_space=None, conv_tol_self=None, max_cycle=None,
+                nroots=1, **kwargs):
+        if conv_tol_space is None: conv_tol_space = self.conv_tol_space
+        if conv_tol_self is None: conv_tol_self = self.conv_tol_self
+        if max_cycle is None: max_cycle = self.max_cycle
         t0 = lib.logger.process_clock (), lib.logger.perf_counter ()
         h0, h1, h2 = self.get_excited_h (ecore, h1, h2)
         log = self.log
@@ -199,6 +225,9 @@ class ExcitationPSFCISolver (ProductStateFCISolver):
         if orbsym is not None:
             idx = self.get_excited_orb_idx ()
             orbsym = [orbsym[iorb] for iorb in range (norb_tot) if idx[iorb]]
+        log.info (("ExcitationPSFCISolver is optimizing %d P-space states factorized across "
+                   "%d fragments with %d fixed Q-space states"),
+                  nroots, len (norb_f), self.get_nq ())
         ci0 = self.get_init_guess (ci0, norb_f, nelec_f, h1, h2, nroots=3*nroots)
         ham_pq = self.get_ham_pq (h0, h1, h2, ci0)
         e, si = self.eig1 (ham_pq, ci0)
@@ -207,11 +236,11 @@ class ExcitationPSFCISolver (ProductStateFCISolver):
         ci1 = self.truncrot_ci (ci0, u, vh)
         hci_pspace_diag = self.op_ham_pp_diag (h1, h2, ci1, norb_f, nelec_f)
         tdm1s_f = self.get_tdm1s_f (ci1, ci1, norb_f, nelec_f)
-        e, si0_p = 0, si_p
+        e, eprime, eprime_last, si0_p = 0, 0, 0, si_p
         disc_sval_max = max (list(disc_svals)+[0.0,])
         converged = False
         log.info ('Entering product-state fixed-point CI iteration')
-        for it in range (max_cycle_macro):
+        for it in range (max_cycle):
             e_last = e
             space_delta = self.space_delta (ci0, si0_p, ci1, si_p, nroots)
             ci0, si0_p = ci1, si_p
@@ -221,8 +250,9 @@ class ExcitationPSFCISolver (ProductStateFCISolver):
 
             log.debug ('Singular values in truncated space: {}'.format (si_p))
             ci1 = self.truncrot_ci (ci0, u, vh)
-            log.info ('Cycle %d: |delta space| = %e ; e = %e, |delta e| = %e, max (discarded) = %e',
-                      it, space_delta, e, e - e_last, disc_sval_max)
+            log.info (("Cycle %d: |delta space| = %e ; e = %e, de = %e, e' = %e, de' = %e, "
+                       "max (discarded) = %e"),
+                      it, space_delta, e, e - e_last, eprime, eprime - eprime_last, disc_sval_max)
             if ((space_delta < conv_tol_space) and (abs (e-e_last) < conv_tol_self)):
                 converged = True
                 break
@@ -251,7 +281,8 @@ class ExcitationPSFCISolver (ProductStateFCISolver):
             ham_pq = self.update_ham_pq (ham_pq, h0, h1, h2, ci1, hci_qspace, hci_pspace_diag,
                                          tdm1s_f, norb_f, nelec_f)
             # Diagonalize and truncate
-            _, si = self.eig1 (ham_pq, ci1)
+            eprime_last = eprime
+            eprime, si = self.eig1 (ham_pq, ci1)
             disc_svals, u, si_p, si_q, vh = self.schmidt_trunc (si, ci1, nroots=nroots)
             ham_pq = self.truncrot_ham_pq (ham_pq, u, vh)
             ci1 = self.truncrot_ci (ci1, u, vh)
