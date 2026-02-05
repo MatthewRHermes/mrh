@@ -8,9 +8,8 @@ from mrh.my_pyscf.lassi.spaces import SingleLASRootspace
 from mrh.my_pyscf.lassi.op_o1.utilities import lst_hopping_index
 from mrh.my_pyscf.lassi.lassis import coords, grad_orb_ci_si, hessian_orb_ci_si
 from mrh.my_pyscf.lassi import op_o0, op_o1, citools, basis
-from mrh.my_pyscf.lassi.lassi import pspace
+from mrh.my_pyscf.lassi import sisolver
 from mrh.my_pyscf.fci.spin_op import mup
-from mrh.my_pyscf.lassi.lassi import LINDEP_THRESH
 from pyscf.scf.addons import canonical_orth_
 from mrh.util.la import vector_error
 op = (op_o0, op_o1)
@@ -199,7 +198,7 @@ def _check_OrthBasis (ks, las, ci_fr, nelec_frs, smult_fr, ham, s2, ovlp, ops, d
     with ks.subTest ('hdiag orth'):
         ks.assertAlmostEqual (lib.fp (ham_orth.diagonal ()), lib.fp (ham_diag_orth), 7, msg=msg)
     pspace_size = min (5, max (1, raw2orth.shape[0]//2))
-    pw, pv, addrs = pspace (ham_diag_orth, ham_op, raw2orth, 1, pspace_size)
+    pw, pv, addrs = sisolver.pspace (ham_diag_orth, ham_op, raw2orth, 1, pspace_size)
     ham_test = (pv * pw[None,:]) @ pv.conj ().T
     ham_ref = ham_orth[addrs,:][:,addrs]
     with ks.subTest ('pspace'):
@@ -208,7 +207,7 @@ def _check_OrthBasis (ks, las, ci_fr, nelec_frs, smult_fr, ham, s2, ovlp, ops, d
         #    print (i,j,ham_err[i,j], ham_ref[i,j])
         ks.assertAlmostEqual (lib.fp (ham_test), lib.fp (ham_ref), 7)
     pspace_size = raw2orth.shape[0]
-    pw, pv, addrs = pspace (ham_diag_orth, ham_op, raw2orth, 1, pspace_size)
+    pw, pv, addrs = sisolver.pspace (ham_diag_orth, ham_op, raw2orth, 1, pspace_size)
     ham_test = (pv * pw[None,:]) @ pv.conj ().T
     ham_ref = ham_orth[addrs,:][:,addrs]
     with ks.subTest ('pspace full'):
@@ -338,7 +337,7 @@ def case_lassis_fbfdm (ks, lsi):
             evals, evecs = linalg.eigh (dm1)
             ks.assertTrue (evals[0]>-1e-4)
         with ks.subTest ('normalization', ifrag=ifrag):
-            x = canonical_orth_(ovlp, thr=LINDEP_THRESH)
+            x = canonical_orth_(ovlp, thr=sisolver.LINDEP_THRESH)
             xdx = x.conj ().T @ dm1 @ x
             ks.assertAlmostEqual ((dm1*ovlp).sum (), 1.0, 9)
 

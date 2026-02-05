@@ -321,12 +321,12 @@ class KnownValues(unittest.TestCase):
         s2 = []
         e = []
         with self.subTest ('lsf solver'):
-            lsi.smult_si = 1
+            lsi.sisolver.smult_si = 1
             lsi.si = None
             e_roots, si = lsi.eig ()
             e.append (e_roots[0])
             s2.append (lsi.s2[0])
-            lsi.smult_si = 7
+            lsi.sisolver.smult_si = 7
             lsi.si = None
             e_roots, si = lsi.eig ()
             e.append (e_roots[0])
@@ -397,12 +397,12 @@ class KnownValues(unittest.TestCase):
         s2 = []
         e = []
         with self.subTest ('lsf solver'):
-            lsi.smult_si = 2
+            lsi.sisolver.smult_si = 2
             lsi.si = None
             e_roots, si = lsi.eig ()
             e.append (e_roots[0])
             s2.append (lsi.s2[0])
-            lsi.smult_si = 10
+            lsi.sisolver.smult_si = 10
             lsi.si = None
             e_roots, si = lsi.eig ()
             e.append (e_roots[0])
