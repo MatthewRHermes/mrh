@@ -17,15 +17,8 @@ from itertools import combinations, product
 from mrh.my_pyscf.mcscf import soc_int as soc_int
 from pyscf import __config__
 from mrh.my_pyscf.lassi.spaces import list_spaces
-# TODO: refactor to remove the below
-from mrh.my_pyscf.lassi.sisolver import LEVEL_SHIFT_SI, NROOTS_SI
-from mrh.my_pyscf.lassi.sisolver import DAVIDSON_SCREEN_THRESH_SI
-from mrh.my_pyscf.lassi.sisolver import PRIVREF_SI, PSPACE_SIZE_SI
-from mrh.my_pyscf.lassi.sisolver import _eig_block
-from mrh.my_pyscf.lassi.sisolver import get_init_guess_si
-# TODO: fix test imports to remove the below
-from mrh.my_pyscf.lassi.sisolver import pspace
-from mrh.my_pyscf.lassi.sisolver import LINDEP_THRESH
+from mrh.my_pyscf.lassi.sisolver import SISolver, NROOTS_SI
+from mrh.my_pyscf.lassi.sisolver import get_init_guess as get_init_guess_si
 
 # TODO: fix stdm1 index convention in both o0 and o1
 
@@ -282,6 +275,7 @@ def lassi (las, mo_coeff=None, ci=None, veff_c=None, h2eff_sub=None, orbsym=None
     o0_memcheck = op_o0.memcheck (las, ci, soc=soc)
     if opt == 0 and o0_memcheck == False:
         raise RuntimeError ('Insufficient memory to use o0 LASSI algorithm')
+    sisolver = getattr (las, 'sisolver', SISolver (las))
 
     # Construct second-quantization Hamiltonian
     if callable (getattr (las, 'ham_2q', None)):
@@ -320,9 +314,11 @@ def lassi (las, mo_coeff=None, ci=None, veff_c=None, h2eff_sub=None, orbsym=None
             rootsym.extend ([sym,])
             continue
         wfnsym = None if break_symmetry else sym[-1]
-        las.converged_si, e, c, s2_blk = _eig_block (las1, e0, h1, h2, ci_blk, nelec_blk, smult_blk,
-                                                     disc_blk, soc, opt, davidson_only=davidson_only,
-                                                     max_memory=max_memory)
+        sisolver.converged, e, c, s2_blk = sisolver.kernel (e0, h1, h2, las.ncas_sub, ci_blk,
+                                                            nelec_blk, smult_blk,
+                                                            disc_blk, soc, opt,
+                                                            davidson_only=davidson_only,
+                                                            max_memory=max_memory)
         si.append (c)
         e_roots.extend (list(e))
         s2_roots.extend (list (s2_blk))
@@ -803,14 +799,13 @@ class LASSI(lib.StreamObject):
         self.break_symmetry = break_symmetry
         self.soc = soc
         self.opt = opt
-        self.davidson_only = davidson_only
-        self.level_shift_si = LEVEL_SHIFT_SI
-        self.nroots_si = nroots_si
-        self.converged_si = False
-        self.davidson_screen_thresh_si = DAVIDSON_SCREEN_THRESH_SI
-        self.pspace_size_si = PSPACE_SIZE_SI
-        self.privref_si = PRIVREF_SI
+        self.sisolver = SISolver (self, soc=soc, opt=opt, davidson_only=davidson_only,
+                                  nroots_si=nroots_si)
         self._keys = set((self.__dict__.keys())).union(keys)
+
+    @property
+    def converged_si (self):
+        return self.sisolver.converged
 
     def copy (self):
         # semi-deep copy of nested lists
@@ -824,17 +819,17 @@ class LASSI(lib.StreamObject):
         if soc is None: soc = self.soc
         if break_symmetry is None: break_symmetry = self.break_symmetry
         if opt is None: opt = self.opt
-        if davidson_only is None: davidson_only=self.davidson_only
+        if davidson_only is None: davidson_only=self.sisolver.davidson_only
         if level_shift_si is not None:
-            self.level_shift_si = level_shift_si
+            self.sisolver.level_shift_si = level_shift_si
         if nroots_si is not None:
-            self.nroots_si = nroots_si
+            self.sisolver.nroots_si = nroots_si
         if pspace_size_si is not None:
-            self.pspace_size_si = pspace_size_si
+            self.sisolver.pspace_size = pspace_size_si
         if smult_si is not None:
-            self.smult_si = smult_si
+            self.sisolver.smult_si = smult_si
         if privref_si is not None:
-            self.privref_si = privref_si
+            self.sisolver.privref_si = privref_si
         log = lib.logger.new_logger (self, self.verbose)
         t0 = (lib.logger.process_clock (), lib.logger.perf_counter ())
         if not self.converged:

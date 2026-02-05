@@ -22,51 +22,101 @@ PRIVREF_SI = getattr (__config__, 'lassi_privref_si', True)
 
 op = (op_o0, op_o1)
 
-def _eig_block (las, e0, h1, h2, ci_blk, nelec_blk, smult_blk, disc_blk, soc, opt,
+def _eig_block (sisolver, e0, h1, h2, norb_f, ci_blk, nelec_blk, smult_blk, disc_blk, soc, opt,
                 max_memory=param.MAX_MEMORY, davidson_only=False):
     nstates = np.prod (get_lroots (ci_blk), axis=0).sum ()
     req_memory = 24*nstates*nstates/1e6
     current_memory = lib.current_memory ()[0]
+    sisolver.converged = False
     if current_memory+req_memory > max_memory:
         if opt==0:
             raise MemoryError ("Need %f MB of %f MB av (N.B.: o0 Davidson is fake; use opt=1)",
                                req_memory, max_memory-current_memory)
-        lib.logger.info (las, "Need %f MB of %f MB av for incore LASSI diag; Davidson alg forced",
-                         req_memory, max_memory-current_memory)
+        lib.logger.info (sisolver, ("Need %f MB of %f MB av for incore LASSI diag; Davidson alg "
+                                    "forced"), req_memory, max_memory-current_memory)
     if davidson_only or current_memory+req_memory > max_memory:
-        return _eig_block_Davidson (las, e0, h1, h2, ci_blk, nelec_blk, smult_blk, disc_blk, soc,
-                                    opt)
-    return _eig_block_incore (las, e0, h1, h2, ci_blk, nelec_blk, smult_blk, soc, opt)
+        return _eig_block_Davidson (sisolver, e0, h1, h2, norb_f, ci_blk, nelec_blk, smult_blk,
+                                    disc_blk, soc, opt)
+    return _eig_block_incore (sisolver, e0, h1, h2, norb_f, ci_blk, nelec_blk, smult_blk, soc, opt)
 
-def _eig_block_Davidson (las, e0, h1, h2, ci_blk, nelec_blk, smult_blk, disc_blk, soc, opt):
+def get_init_guess (sisolver, hdiag, nroots, si1, log=None, penalty=None):
+    nprod = hdiag.size
+    heff = hdiag.copy ()
+    if penalty is not None:
+        heff += penalty
+    si0 = []
+    if nprod <= nroots:
+        addrs = np.arange(nprod)
+    else:
+        addrs = np.argpartition(heff, nroots-1)[:nroots]
+    for addr in addrs:
+        x = np.zeros((nprod))
+        x[addr] = 1
+        si0.append(x)
+    # Add noise
+    si0[0][0 ] += 1e-5
+    si0[0][-1] -= 1e-5
+    j = 0
+    if si1 is not None:
+        si1 = si1.reshape (nprod,-1)
+        j = si1.shape[1]
+        for i in range (min (j, nroots)):
+            si0[i] = si1[:,i]
+    if (j < nroots) and (log is not None):
+        log.info ('Energy of guess SI vectors: {}'.format (
+            hdiag[addrs[j:]]
+        ))
+    return si0
+
+class SISolver (lib.StreamObject):
+
+    def __init__(self, las, soc=0, opt=1, davidson_only=False, nroots_si=NROOTS_SI):
+        self.las = las # I need this because op_o? fns need this
+        self.verbose = las.verbose
+        self.stdout = las.stdout
+        self.davidson_only = davidson_only
+        self.level_shift = LEVEL_SHIFT_SI
+        self.davidson_screen_thresh = DAVIDSON_SCREEN_THRESH_SI
+        self.pspace_size = PSPACE_SIZE_SI
+        self.privref_si = PRIVREF_SI
+        self.tol_si = TOL_SI
+        self.nroots_si = nroots_si
+        self.smult_si = None
+        self.converged = False
+        self._keys = set((self.__dict__.keys()))
+
+    kernel = _eig_block
+    get_init_guess = get_init_guess
+
+def _eig_block_Davidson (sisolver, e0, h1, h2, norb_f, ci_blk, nelec_blk, smult_blk, disc_blk, soc,
+                         opt):
     # si0
     # nroots_si
     # level_shift
-    verbose = las.verbose
-    davidson_log = log = lib.logger.new_logger (las, verbose)
+    verbose = sisolver.verbose
+    davidson_log = log = lib.logger.new_logger (sisolver, verbose)
     # We want this Davidson diagonalizer to be louder than usual
     if verbose >= lib.logger.NOTE:
-        davidson_log = lib.logger.new_logger (las, verbose+1)
-    si0 = getattr (las, 'si', None)
-    level_shift = getattr (las, 'level_shift_si', LEVEL_SHIFT_SI)
-    nroots_si = getattr (las, 'nroots_si', NROOTS_SI)
-    max_cycle_si = getattr (las, 'max_cycle_si', MAX_CYCLE_SI)
-    max_space_si = getattr (las, 'max_space_si', MAX_SPACE_SI)
-    tol_si = getattr (las, 'tol_si', TOL_SI)
-    get_init_guess = getattr (las, 'get_init_guess_si', get_init_guess_si)
-    privilege_ref = getattr (las, 'privref_si', PRIVREF_SI)
-    screen_thresh = getattr (las, 'davidson_screen_thresh_si', DAVIDSON_SCREEN_THRESH_SI)
-    pspace_size = getattr (las, 'pspace_size_si', PSPACE_SIZE_SI)
-    smult_si = getattr (las, 'smult_si', None)
+        davidson_log = lib.logger.new_logger (sisolver, verbose+1)
+    si0 = getattr (sisolver.las, 'si', None)
+    level_shift = getattr (sisolver, 'level_shift_si', LEVEL_SHIFT_SI)
+    nroots_si = getattr (sisolver, 'nroots_si', NROOTS_SI)
+    max_cycle_si = getattr (sisolver, 'max_cycle_si', MAX_CYCLE_SI)
+    max_space_si = getattr (sisolver, 'max_space_si', MAX_SPACE_SI)
+    tol_si = getattr (sisolver, 'tol_si', TOL_SI)
+    privilege_ref = getattr (sisolver, 'privref_si', PRIVREF_SI)
+    screen_thresh = getattr (sisolver, 'davidson_screen_thresh_si', DAVIDSON_SCREEN_THRESH_SI)
+    pspace_size = getattr (sisolver, 'pspace_size_si', PSPACE_SIZE_SI)
+    smult_si = getattr (sisolver, 'smult_si', None)
     h_op_raw, s2_op, ovlp_op, hdiag_raw, _get_ovlp = op[opt].gen_contract_op_si_hdiag (
-        las, h1, h2, ci_blk, nelec_blk, smult_fr=smult_blk, soc=soc, disc_fr=disc_blk,
+        sisolver.las, h1, h2, ci_blk, nelec_blk, smult_fr=smult_blk, soc=soc, disc_fr=disc_blk,
         screen_thresh=screen_thresh
     )
     if verbose >= lib.logger.DEBUG:
         # The sort is slow
         log.debug ("fingerprint of hdiag raw: %15.10e", lib.fp (np.sort (hdiag_raw)))
     t0 = (lib.logger.process_clock (), lib.logger.perf_counter ())
-    raw2orth = basis.get_orth_basis (ci_blk, las.ncas_sub, nelec_blk, _get_ovlp=_get_ovlp,
+    raw2orth = basis.get_orth_basis (ci_blk, norb_f, nelec_blk, _get_ovlp=_get_ovlp,
                                      smult_fr=smult_blk, smult_si=smult_si, disc_fr=disc_blk)
     raw2orth.log_debug1_hdiag_raw (log, hdiag_raw)
     orth2raw = raw2orth.H
@@ -105,7 +155,7 @@ def _eig_block_Davidson (las, e0, h1, h2, ci_blk, nelec_blk, smult_blk, disc_blk
         x0 = raw2orth (ovlp_op (si0))
     else:
         x0 = None
-    x0 = get_init_guess (hdiag_orth, nroots_si, x0, log=log, penalty=hdiag_penalty)
+    x0 = sisolver.get_init_guess (hdiag_orth, nroots_si, x0, log=log, penalty=hdiag_penalty)
     def h_op (x):
         return raw2orth (h_op_raw (orth2raw (x)))
     log.info ("LASSI E(const) = %15.10f", e0)
@@ -177,109 +227,19 @@ def make_pspace_precond(hdiag, pspaceig, pspaceci, addr, level_shift=0):
         return x1
     return precond
 
-def get_init_guess_si (hdiag, nroots, si1, log=None, penalty=None):
-    nprod = hdiag.size
-    heff = hdiag.copy ()
-    if penalty is not None:
-        heff += penalty
-    si0 = []
-    if nprod <= nroots:
-        addrs = np.arange(nprod)
-    else:
-        addrs = np.argpartition(heff, nroots-1)[:nroots]
-    for addr in addrs:
-        x = np.zeros((nprod))
-        x[addr] = 1
-        si0.append(x)
-    # Add noise
-    si0[0][0 ] += 1e-5
-    si0[0][-1] -= 1e-5
-    j = 0
-    if si1 is not None:
-        si1 = si1.reshape (nprod,-1)
-        j = si1.shape[1]
-        for i in range (min (j, nroots)):
-            si0[i] = si1[:,i]
-    if (j < nroots) and (log is not None):
-        log.info ('Energy of guess SI vectors: {}'.format (
-            hdiag[addrs[j:]]
-        ))
-    return si0
-
-def _eig_block_incore (las, e0, h1, h2, ci_blk, nelec_blk, smult_blk, soc, opt):
+def _eig_block_incore (sisolver, e0, h1, h2, norb_f, ci_blk, nelec_blk, smult_blk, soc, opt):
     # TODO: simplify
     t0 = (lib.logger.process_clock (), lib.logger.perf_counter ())
-    o0_memcheck = op_o0.memcheck (las, ci_blk, soc=soc)
-    if (las.verbose > lib.logger.INFO) and (o0_memcheck):
-        ham_ref, s2_ref, ovlp_ref = op_o0.ham (las, h1, h2, ci_blk, nelec_blk, soc=soc)[:3]
-        t0 = lib.logger.timer (las, 'LASSI diagonalizer CI algorithm', *t0)
+     
+    ham_blk, s2_blk, ovlp_blk, _get_ovlp = op[opt].ham (
+        sisolver.las, h1, h2, ci_blk, nelec_blk, smult_fr=smult_blk, soc=soc)
+    t0 = lib.logger.timer (sisolver, 'LASSI H build', *t0)
 
-        h1_sf = h1
-        if soc:
-            h1_sf = (h1[0:las.ncas,0:las.ncas]
-                     - h1[las.ncas:2*las.ncas,las.ncas:2*las.ncas]).real/2
-        ham_blk, s2_blk, ovlp_blk, _get_ovlp = op[opt].ham (
-            las, h1_sf, h2, ci_blk, nelec_blk)
-        t0 = lib.logger.timer (las, 'LASSI diagonalizer TDM algorithm', *t0)
-        lib.logger.debug (las,
-            'LASSI diagonalizer ham o0-o1 algorithm disagreement = {}'.format (
-                linalg.norm (ham_blk - ham_ref))) 
-        lib.logger.debug (las,
-            'LASSI diagonalizer S2 o0-o1 algorithm disagreement = {}'.format (
-                linalg.norm (s2_blk - s2_ref))) 
-        lib.logger.debug (las,
-            'LASSI diagonalizer ovlp o0-o1 algorithm disagreement = {}'.format (
-                linalg.norm (ovlp_blk - ovlp_ref))) 
-        errvec = np.concatenate ([(ham_blk-ham_ref).ravel (), (s2_blk-s2_ref).ravel (),
-                                  (ovlp_blk-ovlp_ref).ravel ()])
-        if np.amax (np.abs (errvec)) > 1e-8 and soc == False: # tmp until SOC in op_o1
-            raise LASSIOop01DisagreementError ("Hamiltonian + S2 + Ovlp", errvec)
-        if opt == 0:
-            ham_blk = ham_ref
-            s2_blk = s2_ref
-            ovlp_blk = ovlp_ref
-    else:
-        if (las.verbose > lib.logger.INFO): lib.logger.debug (
-            las, 'Insufficient memory to test against o0 LASSI algorithm')
-        ham_blk, s2_blk, ovlp_blk, _get_ovlp = op[opt].ham (
-            las, h1, h2, ci_blk, nelec_blk, smult_fr=smult_blk, soc=soc)
-        t0 = lib.logger.timer (las, 'LASSI H build', *t0)
-    log_debug = lib.logger.debug2 if las.nroots>10 else lib.logger.debug
-    if np.iscomplexobj (ham_blk):
-        log_debug (las, 'Block Hamiltonian - ecore (real):')
-        log_debug (las, '{}'.format (ham_blk.real.round (8)))
-        log_debug (las, 'Block Hamiltonian - ecore (imag):')
-        log_debug (las, '{}'.format (ham_blk.imag.round (8)))
-    else:
-        log_debug (las, 'Block Hamiltonian - ecore:')
-        log_debug (las, '{}'.format (ham_blk.round (8)))
-    log_debug (las, 'Block S**2:')
-    log_debug (las, '{}'.format (s2_blk.round (8)))
-    log_debug (las, 'Block overlap matrix:')
-    log_debug (las, '{}'.format (ovlp_blk.round (8)))
-    # Error catch: diagonal Hamiltonian elements
-    # This diagnostic is simply not valid for local excitations;
-    # the energies aren't supposed to be additive
-    lroots = get_lroots (ci_blk)
-    e_states_meaningful = not getattr (las, 'e_states_meaningless', False)
-    e_states_meaningful &= np.all (lroots==1)
-    e_states_meaningful &= not (soc) # TODO: fix?
-    if e_states_meaningful:
-        diag_test = np.diag (ham_blk)
-        diag_ref = las.e_states - e0
-        maxerr = np.max (np.abs (diag_test-diag_ref))
-        if maxerr>1e-5:
-            lib.logger.debug (las, '{:>13s} {:>13s} {:>13s}'.format ('Diagonal', 'Reference',
-                                                                     'Error'))
-            for ix, (test, ref) in enumerate (zip (diag_test, diag_ref)):
-                lib.logger.debug (las, '{:13.6e} {:13.6e} {:13.6e}'.format (test, ref, test-ref))
-            lib.logger.warn (las, 'LAS states in basis may not be converged (%s = %e)',
-                             'max(|Hdiag-e_states|)', maxerr)
     # Error catch: linear dependencies in basis
-    raw2orth = basis.get_orth_basis (ci_blk, las.ncas_sub, nelec_blk, _get_ovlp=_get_ovlp,
+    raw2orth = basis.get_orth_basis (ci_blk, norb_f, nelec_blk, _get_ovlp=_get_ovlp,
                                      smult_fr=smult_blk)
     xhx = raw2orth (ham_blk.T).T
-    lib.logger.info (las, '%d/%d linearly independent model states',
+    lib.logger.info (sisolver, '%d/%d linearly independent model states',
                      xhx.shape[1], xhx.shape[0])
     xhx = raw2orth (xhx.conj ()).conj ()
     try:
@@ -287,7 +247,7 @@ def _eig_block_incore (las, e0, h1, h2, ci_blk, nelec_blk, smult_blk, soc, opt):
     except linalg.LinAlgError as err:
         ovlp_det = linalg.det (ovlp_blk)
         lc = 'checking if LASSI basis has lindeps: |ovlp| = {:.6e}'.format (ovlp_det)
-        lib.logger.info (las, 'Caught error %s, %s', str (err), lc)
+        lib.logger.info (sisolver, 'Caught error %s, %s', str (err), lc)
         if ovlp_det < LINDEP_THRESH:
             x_ref = canonical_orth_(ovlp_blk, thr=LINDEP_THRESH)
             x_test = raw2orth (np.eye (ham_blk.shape[0]))
