@@ -6,25 +6,33 @@ from mrh.my_pyscf.lassi import op_o1
 from mrh.my_pyscf.lassi import basis
 from mrh.my_pyscf.lassi.citools import get_lroots
 from pyscf import lib 
-from pyscf.lib import param
+from pyscf.lib import param, logger
 from pyscf.scf.addons import canonical_orth_
 from pyscf import __config__
 
 LINDEP_THRESH = getattr (__config__, 'lassi_lindep_thresh', 1.0e-5)
-MAX_CYCLE_SI = getattr (__config__, 'lassi_max_cycle_si', 100)
-MAX_SPACE_SI = getattr (__config__, 'lassi_max_space_si', 12)
-TOL_SI = getattr (__config__, 'lassi_tol_si', 1e-8)
-LEVEL_SHIFT_SI = getattr (__config__, 'lassi_level_shift_si', 1.0e-8)
-NROOTS_SI = getattr (__config__, 'lassi_nroots_si', 1)
-DAVIDSON_SCREEN_THRESH_SI = getattr (__config__, 'lassi_hsi_screen_thresh', 1e-12)
-PSPACE_SIZE_SI = getattr (__config__, 'lassi_hsi_pspace_size', 400)
-PRIVREF_SI = getattr (__config__, 'lassi_privref_si', True)
+MAX_CYCLE = getattr (__config__, 'lassi_max_cycle_si', 100)
+MAX_SPACE = getattr (__config__, 'lassi_max_space_si', 12)
+CONV_TOL = getattr (__config__, 'lassi_conv_tol', getattr (__config__, 'lassi_tol_si', 1e-8))
+LEVEL_SHIFT = getattr (__config__, 'lassi_level_shift_si', 1.0e-8)
+NROOTS = getattr (__config__, 'lassi_nroots_si', 1)
+DAVIDSON_SCREEN_THRESH = getattr (__config__, 'lassi_hsi_screen_thresh', 1e-12)
+PSPACE_SIZE = getattr (__config__, 'lassi_hsi_pspace_size', 400)
+PRIVREF = getattr (__config__, 'lassi_privref', True)
 
 op = (op_o0, op_o1)
 
-def _eig_block (sisolver, e0, h1, h2, norb_f, ci_blk, nelec_blk, smult_blk, disc_blk, soc, opt,
-                max_memory=param.MAX_MEMORY, davidson_only=False):
-    nstates = np.prod (get_lroots (ci_blk), axis=0).sum ()
+def kernel (sisolver, e0, h1, h2, norb_f, ci_fr, nelec_frs, smult_fr=None,
+                disc_fr=None, soc=None, opt=None, max_memory=None, davidson_only=None):
+    if soc is None:
+        soc = getattr (sisolver, 'soc', 0)
+    if opt is None:
+        opt = getattr (sisolver, 'opt', 1)
+    if davidson_only is None:
+        davidson_only = getattr (sisolver, 'davidson_only', False)
+    if max_memory is None:
+        max_memory = getattr (sisolver, 'max_memory', param.MAX_MEMORY)
+    nstates = np.prod (get_lroots (ci_fr), axis=0).sum ()
     req_memory = 24*nstates*nstates/1e6
     current_memory = lib.current_memory ()[0]
     sisolver.converged = False
@@ -32,12 +40,12 @@ def _eig_block (sisolver, e0, h1, h2, norb_f, ci_blk, nelec_blk, smult_blk, disc
         if opt==0:
             raise MemoryError ("Need %f MB of %f MB av (N.B.: o0 Davidson is fake; use opt=1)",
                                req_memory, max_memory-current_memory)
-        lib.logger.info (sisolver, ("Need %f MB of %f MB av for incore LASSI diag; Davidson alg "
+        logger.info (sisolver, ("Need %f MB of %f MB av for incore LASSI diag; Davidson alg "
                                     "forced"), req_memory, max_memory-current_memory)
     if davidson_only or current_memory+req_memory > max_memory:
-        return _eig_block_Davidson (sisolver, e0, h1, h2, norb_f, ci_blk, nelec_blk, smult_blk,
-                                    disc_blk, soc, opt)
-    return _eig_block_incore (sisolver, e0, h1, h2, norb_f, ci_blk, nelec_blk, smult_blk, soc, opt)
+        return kernel_Davidson (sisolver, e0, h1, h2, norb_f, ci_fr, nelec_frs, smult_fr,
+                                    disc_fr, soc, opt)
+    return kernel_incore (sisolver, e0, h1, h2, norb_f, ci_fr, nelec_frs, smult_fr, soc, opt)
 
 def get_init_guess (sisolver, hdiag, nroots, si1, log=None, penalty=None):
     nprod = hdiag.size
@@ -70,60 +78,62 @@ def get_init_guess (sisolver, hdiag, nroots, si1, log=None, penalty=None):
 
 class SISolver (lib.StreamObject):
 
-    def __init__(self, las, soc=0, opt=1, davidson_only=False, nroots_si=NROOTS_SI):
+    def __init__(self, las, soc=0, opt=1, davidson_only=False, nroots=NROOTS,
+                 max_memory=param.MAX_MEMORY):
         self.las = las # I need this because op_o? fns need this
         self.verbose = las.verbose
         self.stdout = las.stdout
+        self.max_memory = max_memory
         self.davidson_only = davidson_only
-        self.level_shift = LEVEL_SHIFT_SI
-        self.davidson_screen_thresh = DAVIDSON_SCREEN_THRESH_SI
-        self.pspace_size = PSPACE_SIZE_SI
-        self.privref_si = PRIVREF_SI
-        self.tol_si = TOL_SI
-        self.nroots_si = nroots_si
+        self.level_shift = LEVEL_SHIFT
+        self.davidson_screen_thresh = DAVIDSON_SCREEN_THRESH
+        self.pspace_size = PSPACE_SIZE
+        self.privref = PRIVREF
+        self.conv_tol = CONV_TOL
+        self.nroots = nroots
         self.smult_si = None
         self.converged = False
         self._keys = set((self.__dict__.keys()))
 
-    kernel = _eig_block
+    kernel = kernel
     get_init_guess = get_init_guess
 
-def _eig_block_Davidson (sisolver, e0, h1, h2, norb_f, ci_blk, nelec_blk, smult_blk, disc_blk, soc,
+def kernel_Davidson (sisolver, e0, h1, h2, norb_f, ci_fr, nelec_frs, smult_fr, disc_fr, soc,
                          opt):
     # si0
-    # nroots_si
+    # nroots
     # level_shift
     verbose = sisolver.verbose
-    davidson_log = log = lib.logger.new_logger (sisolver, verbose)
+    davidson_log = log = logger.new_logger (sisolver, verbose)
     # We want this Davidson diagonalizer to be louder than usual
-    if verbose >= lib.logger.NOTE:
-        davidson_log = lib.logger.new_logger (sisolver, verbose+1)
+    if verbose >= logger.NOTE:
+        davidson_log = logger.new_logger (sisolver, verbose+1)
     si0 = getattr (sisolver.las, 'si', None)
-    level_shift = getattr (sisolver, 'level_shift_si', LEVEL_SHIFT_SI)
-    nroots_si = getattr (sisolver, 'nroots_si', NROOTS_SI)
-    max_cycle_si = getattr (sisolver, 'max_cycle_si', MAX_CYCLE_SI)
-    max_space_si = getattr (sisolver, 'max_space_si', MAX_SPACE_SI)
-    tol_si = getattr (sisolver, 'tol_si', TOL_SI)
-    privilege_ref = getattr (sisolver, 'privref_si', PRIVREF_SI)
-    screen_thresh = getattr (sisolver, 'davidson_screen_thresh_si', DAVIDSON_SCREEN_THRESH_SI)
-    pspace_size = getattr (sisolver, 'pspace_size_si', PSPACE_SIZE_SI)
+    level_shift = getattr (sisolver, 'level_shift', LEVEL_SHIFT)
+    nroots = getattr (sisolver, 'nroots', NROOTS)
+    max_cycle = getattr (sisolver, 'max_cycle', MAX_CYCLE)
+    max_space = getattr (sisolver, 'max_space', MAX_SPACE)
+    conv_tol = getattr (sisolver, 'conv_tol', CONV_TOL)
+    privilege_ref = getattr (sisolver, 'privref', PRIVREF)
+    screen_thresh = getattr (sisolver, 'davidson_screen_thresh', DAVIDSON_SCREEN_THRESH)
+    pspace_size = getattr (sisolver, 'pspace_size', PSPACE_SIZE)
     smult_si = getattr (sisolver, 'smult_si', None)
     h_op_raw, s2_op, ovlp_op, hdiag_raw, _get_ovlp = op[opt].gen_contract_op_si_hdiag (
-        sisolver.las, h1, h2, ci_blk, nelec_blk, smult_fr=smult_blk, soc=soc, disc_fr=disc_blk,
+        sisolver.las, h1, h2, ci_fr, nelec_frs, smult_fr=smult_fr, soc=soc, disc_fr=disc_fr,
         screen_thresh=screen_thresh
     )
-    if verbose >= lib.logger.DEBUG:
+    if verbose >= logger.DEBUG:
         # The sort is slow
         log.debug ("fingerprint of hdiag raw: %15.10e", lib.fp (np.sort (hdiag_raw)))
-    t0 = (lib.logger.process_clock (), lib.logger.perf_counter ())
-    raw2orth = basis.get_orth_basis (ci_blk, norb_f, nelec_blk, _get_ovlp=_get_ovlp,
-                                     smult_fr=smult_blk, smult_si=smult_si, disc_fr=disc_blk)
+    t0 = (logger.process_clock (), logger.perf_counter ())
+    raw2orth = basis.get_orth_basis (ci_fr, norb_f, nelec_frs, _get_ovlp=_get_ovlp,
+                                     smult_fr=smult_fr, smult_si=smult_si, disc_fr=disc_fr)
     raw2orth.log_debug1_hdiag_raw (log, hdiag_raw)
     orth2raw = raw2orth.H
     mem_orth = raw2orth.get_nbytes () / 1e6
     t0 = log.timer ('LASSI get orthogonal basis ({:.2f} MB)'.format (mem_orth), *t0)
     hdiag_orth = op[opt].get_hdiag_orth (hdiag_raw, h_op_raw, raw2orth)
-    if verbose >= lib.logger.DEBUG:
+    if verbose >= logger.DEBUG:
         # The sort is slow
         log.debug ("fingerprint of hdiag orth: %15.10e", lib.fp (np.sort (hdiag_orth)))
     t0 = log.timer ('LASSI get hdiag in orthogonal basis', *t0)
@@ -143,8 +153,8 @@ def _eig_block_Davidson (sisolver, e0, h1, h2, norb_f, ci_blk, nelec_blk, smult_
                                penalty=hdiag_penalty)
         t0 = log.timer ('LASSI make pspace Hamiltonian', *t0)
         if pspace_size >= hdiag_orth.size:
-            pv = pv[:,:nroots_si]
-            pw = pw[:nroots_si]
+            pv = pv[:,:nroots]
+            pw = pw[:nroots]
             si1 = orth2raw (pv)
             s2 = lib.einsum ('ij,ij->j', si1.conj (), s2_op (si1))
             return True, pw, si1, s2
@@ -155,14 +165,15 @@ def _eig_block_Davidson (sisolver, e0, h1, h2, norb_f, ci_blk, nelec_blk, smult_
         x0 = raw2orth (ovlp_op (si0))
     else:
         x0 = None
-    x0 = sisolver.get_init_guess (hdiag_orth, nroots_si, x0, log=log, penalty=hdiag_penalty)
+    x0 = sisolver.get_init_guess (hdiag_orth, nroots, x0, log=log, penalty=hdiag_penalty)
     def h_op (x):
         return raw2orth (h_op_raw (orth2raw (x)))
     log.info ("LASSI E(const) = %15.10f", e0)
+    print ("right before davidson", nroots, flush=True)
     conv, e, x1 = lib.davidson1 (lambda xs: [h_op (x) for x in xs],
-                                 x0, precond_op, nroots=nroots_si,
-                                 verbose=davidson_log, max_cycle=max_cycle_si,
-                                 max_space=max_space_si, tol=tol_si)
+                                 x0, precond_op, nroots=nroots,
+                                 verbose=davidson_log, max_cycle=max_cycle,
+                                 max_space=max_space, tol=conv_tol)
     conv = all (conv)
     if not conv: log.warn ('LASSI Davidson diagonalization not converged')
     si1 = np.stack ([orth2raw (x) for x in x1], axis=-1)
@@ -187,7 +198,7 @@ def pspace (hdiag_orth, h_op_raw, raw2orth, opt, pspace_size, log=None, penalty=
     e_pspace = h0.diagonal ()
     e_hdiag = hdiag_orth[addr]
     idx_err = np.abs (e_hdiag-e_pspace) > 1e-5
-    if (log is not None) and (log.verbose > lib.logger.DEBUG) and (np.count_nonzero (idx_err)):
+    if (log is not None) and (log.verbose > logger.DEBUG) and (np.count_nonzero (idx_err)):
         # Some notes:
         # 1. For my small helium tetrahedron, pspace also fails for the lindep-affected states
         # 2. The 2-fragment soc failure of this seems to oscillate between just a few numbers,
@@ -227,19 +238,19 @@ def make_pspace_precond(hdiag, pspaceig, pspaceci, addr, level_shift=0):
         return x1
     return precond
 
-def _eig_block_incore (sisolver, e0, h1, h2, norb_f, ci_blk, nelec_blk, smult_blk, soc, opt):
+def kernel_incore (sisolver, e0, h1, h2, norb_f, ci_fr, nelec_frs, smult_fr, soc, opt):
     # TODO: simplify
-    t0 = (lib.logger.process_clock (), lib.logger.perf_counter ())
+    t0 = (logger.process_clock (), logger.perf_counter ())
      
     ham_blk, s2_blk, ovlp_blk, _get_ovlp = op[opt].ham (
-        sisolver.las, h1, h2, ci_blk, nelec_blk, smult_fr=smult_blk, soc=soc)
-    t0 = lib.logger.timer (sisolver, 'LASSI H build', *t0)
+        sisolver.las, h1, h2, ci_fr, nelec_frs, smult_fr=smult_fr, soc=soc)
+    t0 = logger.timer (sisolver, 'LASSI H build', *t0)
 
     # Error catch: linear dependencies in basis
-    raw2orth = basis.get_orth_basis (ci_blk, norb_f, nelec_blk, _get_ovlp=_get_ovlp,
-                                     smult_fr=smult_blk)
+    raw2orth = basis.get_orth_basis (ci_fr, norb_f, nelec_frs, _get_ovlp=_get_ovlp,
+                                     smult_fr=smult_fr)
     xhx = raw2orth (ham_blk.T).T
-    lib.logger.info (sisolver, '%d/%d linearly independent model states',
+    logger.info (sisolver, '%d/%d linearly independent model states',
                      xhx.shape[1], xhx.shape[0])
     xhx = raw2orth (xhx.conj ()).conj ()
     try:
@@ -247,7 +258,7 @@ def _eig_block_incore (sisolver, e0, h1, h2, norb_f, ci_blk, nelec_blk, smult_bl
     except linalg.LinAlgError as err:
         ovlp_det = linalg.det (ovlp_blk)
         lc = 'checking if LASSI basis has lindeps: |ovlp| = {:.6e}'.format (ovlp_det)
-        lib.logger.info (sisolver, 'Caught error %s, %s', str (err), lc)
+        logger.info (sisolver, 'Caught error %s, %s', str (err), lc)
         if ovlp_det < LINDEP_THRESH:
             x_ref = canonical_orth_(ovlp_blk, thr=LINDEP_THRESH)
             x_test = raw2orth (np.eye (ham_blk.shape[0]))
