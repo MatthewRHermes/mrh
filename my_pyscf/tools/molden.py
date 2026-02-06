@@ -43,7 +43,20 @@ def from_si_mcscf (mc, fname, state=None, si=None, cas_natorb=False, cas_mo_ener
 
 def from_lasscf (las, fname, state=None, natorb_casdm1=None, only_as=False, **kwargs):
     if state is not None: natorb_casdm1 = las.states_make_casdm1s ()[state].sum (0)
-    mo_coeff, mo_ene, mo_occ = las.canonicalize (natorb_casdm1=natorb_casdm1)[:3]
+    # Rotating CI vectors is stupid slow for large active spaces
+    # and completely unnecessary here
+    las_ci_is_None = (las.ci is None)
+    las1 = las.copy ()
+    # Temporary lroots safety; see corresponding block at tope of canonicalize function
+    if las1.ci is not None:
+        for i, ci_i in enumerate (las1.ci):
+            for j in range (len (ci_i)):
+                if las1.ci[i][j].ndim>2:
+                    las1.ci[i][j] = las1.ci[i][j][0]
+    casdm1fs = las1.make_casdm1s_sub ()
+    las1.ci = None
+    mo_coeff, mo_ene, mo_occ = las1.canonicalize (casdm1fs=casdm1fs, natorb_casdm1=natorb_casdm1)
+    assert (las_ci_is_None == (las.ci is None))
     if only_as:
         mo_coeff = mo_coeff[:, las.ncore:las.ncore+las.ncas]
         mo_ene = mo_ene[las.ncore:las.ncore+las.ncas]
