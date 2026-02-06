@@ -277,6 +277,7 @@ def lassi (las, mo_coeff=None, ci=None, veff_c=None, h2eff_sub=None, orbsym=None
     sisolver = getattr (las, 'sisolver', SISolver (las, soc=soc, opt=opt,
                                                    davidson_only=davidson_only,
                                                    max_memory=max_memory))
+    sisolver.dump_flags ()
 
     # Construct second-quantization Hamiltonian
     if callable (getattr (las, 'ham_2q', None)):
@@ -830,7 +831,7 @@ class LASSI(lib.StreamObject):
         if pspace_size_si is not None:
             self.sisolver.pspace_size = pspace_size_si
         if smult_si is not None:
-            self.sisolver.smult_si = smult_si
+            self.sisolver.smult = smult_si
         if privref_si is not None:
             self.sisolver.privref_si = privref_si
         log = lib.logger.new_logger (self, self.verbose)
@@ -1098,6 +1099,16 @@ class LASSI(lib.StreamObject):
         log.warn (("LASSI privref_si is deprecated. Set "
                    "sisolver.privref in the future"))
         self.sisolver.privref = x
+
+    @property
+    def smult_si (self): return self.sisolver.smult
+
+    @smult_si.setter
+    def smult_si (self, x):
+        log = lib.logger.new_logger (self, self.verbose)
+        log.warn (("LASSI smult_si is deprecated. Set "
+                   "sisolver.smult in the future"))
+        self.sisolver.smult = x
 
     energy_tot = energy_tot
 

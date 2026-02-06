@@ -23,7 +23,7 @@ PRIVREF = getattr (__config__, 'lassi_privref', True)
 op = (op_o0, op_o1)
 
 def kernel (sisolver, e0, h1, h2, norb_f, ci_fr, nelec_frs, smult_fr=None,
-                disc_fr=None, soc=None, opt=None, max_memory=None, davidson_only=None):
+            disc_fr=None, soc=None, opt=None, max_memory=None, davidson_only=None):
     if soc is None:
         soc = getattr (sisolver, 'soc', 0)
     if opt is None:
@@ -41,7 +41,7 @@ def kernel (sisolver, e0, h1, h2, norb_f, ci_fr, nelec_frs, smult_fr=None,
             raise MemoryError ("Need %f MB of %f MB av (N.B.: o0 Davidson is fake; use opt=1)",
                                req_memory, max_memory-current_memory)
         logger.info (sisolver, ("Need %f MB of %f MB av for incore LASSI diag; Davidson alg "
-                                    "forced"), req_memory, max_memory-current_memory)
+                                "forced"), req_memory, max_memory-current_memory)
     if davidson_only or current_memory+req_memory > max_memory:
         return kernel_Davidson (sisolver, e0, h1, h2, norb_f, ci_fr, nelec_frs, smult_fr,
                                     disc_fr, soc, opt)
@@ -77,6 +77,43 @@ def get_init_guess (sisolver, hdiag, nroots, si1, log=None, penalty=None):
     return si0
 
 class SISolver (lib.StreamObject):
+    '''Class for diagonalizing a LASSI model space Hamiltonian matrix
+
+    Attributes:
+        verbose : int
+            Print level
+        max_cycle : int
+            Total number of iterations
+        max_space : tuple of int
+            Davidson iteration space size
+        conv_tol : float
+            Energy convergence tolerance
+        level_shift : float
+            Level shift applied in the preconditioner to avoid singularity
+        davidson_only : bool
+            By default, the entire Hamiltonian matrix will be constructed and
+            diagonalized if the system is small (see attribute pspace_size).
+            Setting this parameter to True will enforce the eigenvalue
+            problems being solved by Davidson subspace algorithm.  This flag
+            should be enabled when initial guess is given or particular spin
+            symmetry or point-group symmetry is required because the initial
+            guess or symmetry are completely ignored in the direct diagonalization.
+        pspace_size : int
+            The dimension of Hamiltonian matrix over which Davidson iteration
+            algorithm will be used for the eigenvalue problem.
+        nroots : int
+            Number of states to be solved.  Default is 1, the ground state.
+        davidson_screen_thresh : float
+            When diagonalizing iteratively, this sets a threshold for screening
+            the Hamiltonian in the matrix-vector product
+        privref : logical
+            If True, when diagonalizing iteratively, the initial guess vector will
+            always be chosen in the configuration space of the reference wave function,
+            i.e., the first model state.
+        smult : int or None
+            Spin-multiplicity of the desired roots when diagonalizing iteratively. If
+            unset, the lowest-energy roots are sought regardless of spin.
+    '''
 
     def __init__(self, las, soc=0, opt=1, davidson_only=False, nroots=NROOTS,
                  max_memory=param.MAX_MEMORY):
@@ -85,18 +122,36 @@ class SISolver (lib.StreamObject):
         self.stdout = las.stdout
         self.max_memory = max_memory
         self.davidson_only = davidson_only
+        self.max_cycle = MAX_CYCLE
+        self.max_space = MAX_SPACE
         self.level_shift = LEVEL_SHIFT
         self.davidson_screen_thresh = DAVIDSON_SCREEN_THRESH
         self.pspace_size = PSPACE_SIZE
         self.privref = PRIVREF
         self.conv_tol = CONV_TOL
         self.nroots = nroots
-        self.smult_si = None
+        self.smult = None
         self.converged = False
         self._keys = set((self.__dict__.keys()))
 
     kernel = kernel
     get_init_guess = get_init_guess
+
+    def dump_flags (self, verbose=None):
+        if verbose is None: verbose = self.verbose
+        log = logger.new_logger(self, verbose)
+        log.info('******** %s ********', self.__class__)
+        log.info('max. cycles = %d', self.max_cycle)
+        log.info('conv_tol = %g', self.conv_tol)
+        log.info('davidson only = %s', self.davidson_only)
+        log.info('level shift = %g', self.level_shift)
+        log.info('max iter space = %d', self.max_space)
+        log.info('max_memory %d MB', self.max_memory)
+        log.info('nroots = %d', self.nroots)
+        log.info('pspace_size = %d', self.pspace_size)
+        log.info('spin multiplicity = %s', self.smult)
+        log.info('privref = %s', self.privref)
+        log.info('davidson_screen_thresh = %g', self.davidson_screen_thresh)
 
 def kernel_Davidson (sisolver, e0, h1, h2, norb_f, ci_fr, nelec_frs, smult_fr, disc_fr, soc,
                          opt):
@@ -117,7 +172,7 @@ def kernel_Davidson (sisolver, e0, h1, h2, norb_f, ci_fr, nelec_frs, smult_fr, d
     privilege_ref = getattr (sisolver, 'privref', PRIVREF)
     screen_thresh = getattr (sisolver, 'davidson_screen_thresh', DAVIDSON_SCREEN_THRESH)
     pspace_size = getattr (sisolver, 'pspace_size', PSPACE_SIZE)
-    smult_si = getattr (sisolver, 'smult_si', None)
+    smult = getattr (sisolver, 'smult', None)
     h_op_raw, s2_op, ovlp_op, hdiag_raw, _get_ovlp = op[opt].gen_contract_op_si_hdiag (
         sisolver.las, h1, h2, ci_fr, nelec_frs, smult_fr=smult_fr, soc=soc, disc_fr=disc_fr,
         screen_thresh=screen_thresh
@@ -127,7 +182,7 @@ def kernel_Davidson (sisolver, e0, h1, h2, norb_f, ci_fr, nelec_frs, smult_fr, d
         log.debug ("fingerprint of hdiag raw: %15.10e", lib.fp (np.sort (hdiag_raw)))
     t0 = (logger.process_clock (), logger.perf_counter ())
     raw2orth = basis.get_orth_basis (ci_fr, norb_f, nelec_frs, _get_ovlp=_get_ovlp,
-                                     smult_fr=smult_fr, smult_si=smult_si, disc_fr=disc_fr)
+                                     smult_fr=smult_fr, smult_si=smult, disc_fr=disc_fr)
     raw2orth.log_debug1_hdiag_raw (log, hdiag_raw)
     orth2raw = raw2orth.H
     mem_orth = raw2orth.get_nbytes () / 1e6
