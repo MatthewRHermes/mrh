@@ -321,6 +321,7 @@ class KnownValues(unittest.TestCase):
         s2 = []
         e = []
         with self.subTest ('lsf solver'):
+            lsi.sisolver.davidson_only = True
             lsi.sisolver.smult_si = 1
             lsi.si = None
             e_roots, si = lsi.eig ()
@@ -397,6 +398,7 @@ class KnownValues(unittest.TestCase):
         s2 = []
         e = []
         with self.subTest ('lsf solver'):
+            lsi.sisolver.davidson_only = True
             lsi.sisolver.smult_si = 2
             lsi.si = None
             e_roots, si = lsi.eig ()
