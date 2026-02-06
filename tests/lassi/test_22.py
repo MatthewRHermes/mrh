@@ -234,7 +234,7 @@ class KnownValues(unittest.TestCase):
         for smult in (1, 3, 5):
             s = (smult-1) * .5
             idx = np.where (np.isclose (s2_ref, s*(s+1)))[0][0]
-            mylsis.sisolver.smult_si = smult
+            mylsis.sisolver.smult = smult
             mylsis.si = None
             e_test, si = mylsis.eig ()
             self.assertAlmostEqual (e_ref[idx], e_test[0], 8)
