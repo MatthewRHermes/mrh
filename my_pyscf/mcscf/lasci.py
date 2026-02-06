@@ -2508,10 +2508,12 @@ class LASCISymm (casci_symm.CASCI, LASCINoSymm):
         return LASCINoSymm.kernel(self, mo_coeff=mo_coeff, ci0=ci0,
             casdm0_fr=casdm0_fr, verbose=verbose, assert_no_dupes=assert_no_dupes)
 
-    def canonicalize (self, mo_coeff=None, ci=None, natorb_casdm1=None, veff=None, h2eff_sub=None):
+    def canonicalize (self, mo_coeff=None, ci=None, casdm1fs=None, natorb_casdm1=None, veff=None,
+                      h2eff_sub=None):
         if mo_coeff is None: mo_coeff = self.mo_coeff
         mo_coeff = self.label_symmetry_(mo_coeff)
-        return canonicalize (self, mo_coeff=mo_coeff, ci=ci, natorb_casdm1=natorb_casdm1,
+        return canonicalize (self, mo_coeff=mo_coeff, ci=ci, casdm1fs=casdm1fs,
+                             natorb_casdm1=natorb_casdm1,
                              h2eff_sub=h2eff_sub, orbsym=mo_coeff.orbsym)
 
     def label_symmetry_(self, mo_coeff=None):

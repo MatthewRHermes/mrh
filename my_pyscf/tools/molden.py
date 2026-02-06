@@ -55,7 +55,8 @@ def from_lasscf (las, fname, state=None, natorb_casdm1=None, only_as=False, **kw
                     las1.ci[i][j] = las1.ci[i][j][0]
     casdm1fs = las1.make_casdm1s_sub ()
     las1.ci = None
-    mo_coeff, mo_ene, mo_occ = las1.canonicalize (casdm1fs=casdm1fs, natorb_casdm1=natorb_casdm1)
+    mo_coeff, mo_ene, mo_occ = las1.canonicalize (casdm1fs=casdm1fs,
+                                                  natorb_casdm1=natorb_casdm1)[:3]
     assert (las_ci_is_None == (las.ci is None))
     if only_as:
         mo_coeff = mo_coeff[:, las.ncore:las.ncore+las.ncas]
