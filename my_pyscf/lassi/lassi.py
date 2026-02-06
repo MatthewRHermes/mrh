@@ -17,8 +17,7 @@ from itertools import combinations, product
 from mrh.my_pyscf.mcscf import soc_int as soc_int
 from pyscf import __config__
 from mrh.my_pyscf.lassi.spaces import list_spaces
-from mrh.my_pyscf.lassi.sisolver import SISolver, NROOTS_SI
-from mrh.my_pyscf.lassi.sisolver import get_init_guess as get_init_guess_si
+from mrh.my_pyscf.lassi.sisolver import SISolver
 
 # TODO: fix stdm1 index convention in both o0 and o1
 
@@ -275,7 +274,9 @@ def lassi (las, mo_coeff=None, ci=None, veff_c=None, h2eff_sub=None, orbsym=None
     o0_memcheck = op_o0.memcheck (las, ci, soc=soc)
     if opt == 0 and o0_memcheck == False:
         raise RuntimeError ('Insufficient memory to use o0 LASSI algorithm')
-    sisolver = getattr (las, 'sisolver', SISolver (las))
+    sisolver = getattr (las, 'sisolver', SISolver (las, soc=soc, opt=opt,
+                                                   davidson_only=davidson_only,
+                                                   max_memory=max_memory))
 
     # Construct second-quantization Hamiltonian
     if callable (getattr (las, 'ham_2q', None)):
@@ -769,7 +770,7 @@ class LASSI(lib.StreamObject):
     LASSI Method class
     '''
     def __init__(self, las, mo_coeff=None, ci=None, soc=False, break_symmetry=False, opt=1,
-                 davidson_only=False, nroots_si=NROOTS_SI, **kwargs):
+                 davidson_only=False, nroots_si=None, **kwargs):
         from mrh.my_pyscf.mcscf.lasci import LASCINoSymm
         if isinstance(las, LASCINoSymm): self._las = las
         else: raise RuntimeError("LASSI requires las instance")
@@ -800,7 +801,9 @@ class LASSI(lib.StreamObject):
         self.soc = soc
         self.opt = opt
         self.sisolver = SISolver (self, soc=soc, opt=opt, davidson_only=davidson_only,
-                                  nroots_si=nroots_si)
+                                  max_memory=self.max_memory)
+        if nroots_si is not None:
+            self.sisolver.nroots = nroots_si
         self._keys = set((self.__dict__.keys())).union(keys)
 
     @property
@@ -1001,7 +1004,100 @@ class LASSI(lib.StreamObject):
     load_chk = load_chk_ = chkfile.load_lsi_
 
     def get_init_guess_si (self, hdiag, nroots, si1, log=None, penalty=None):
-        return get_init_guess_si (hdiag, nroots, si1, log=log, penalty=penalty)
+        return self.sisolver.get_init_guess (hdiag, nroots, si1, log=log, penalty=penalty)
+
+    #Backwards compatibility
+
+    @property
+    def nroots_si (self): return self.sisolver.nroots
+
+    @nroots_si.setter
+    def nroots_si (self, x):
+        log = lib.logger.new_logger (self, self.verbose)
+        log.warn (("LASSI nroots_si is deprecated. Set "
+                   "sisolver.nroots in the future"))
+        self.sisolver.nroots = x
+        print ("right after setting", self.nroots_si)
+
+    @property
+    def davidson_only (self): return self.sisolver.davidson_only
+
+    @davidson_only.setter
+    def davidson_only (self, x):
+        log = lib.logger.new_logger (self, self.verbose)
+        log.warn (("LASSI davidson_only is deprecated. Set "
+                   "sisolver.davidson_only in the future"))
+        self.sisolver.davidson_only = x
+
+    @property
+    def max_cycle_si (self): return self.sisolver.max_cycle
+
+    @max_cycle_si.setter
+    def max_cycle_si (self, x):
+        log = lib.logger.new_logger (self, self.verbose)
+        log.warn (("LASSI max_cycle_si is deprecated. Set "
+                   "sisolver.max_cycle in the future"))
+        self.sisolver.max_cycle = x
+
+    @property
+    def max_space_si (self): return self.sisolver.max_space
+
+    @max_space_si.setter
+    def max_space_si (self, x):
+        log = lib.logger.new_logger (self, self.verbose)
+        log.warn (("LASSI max_space_si is deprecated. Set "
+                   "sisolver.max_space in the future"))
+        self.sisolver.max_space = x
+
+    @property
+    def tol_si (self): return self.sisolver.conv_tol
+
+    @tol_si.setter
+    def tol_si (self, x):
+        log = lib.logger.new_logger (self, self.verbose)
+        log.warn (("LASSI tol_si is deprecated. Set "
+                   "sisolver.conv_tol in the future"))
+        self.sisolver.conv_tol = x
+
+    @property
+    def level_shift_si (self): return self.sisolver.level_shift
+
+    @level_shift_si.setter
+    def level_shift_si (self, x):
+        log = lib.logger.new_logger (self, self.verbose)
+        log.warn (("LASSI level_shift_si is deprecated. Set "
+                   "sisolver.level_shift in the future"))
+        self.sisolver.level_shift = x
+
+    @property
+    def davidson_screen_thresh_si (self): return self.sisolver.davidson_screen_thresh
+
+    @davidson_screen_thresh_si.setter
+    def davidson_screen_thresh_si (self, x):
+        log = lib.logger.new_logger (self, self.verbose)
+        log.warn (("LASSI davidson_screen_thresh_si is deprecated. Set "
+                   "sisolver.davidson_screen_thresh in the future"))
+        self.sisolver.davidson_screen_thresh = x
+
+    @property
+    def pspace_size_si (self): return self.sisolver.pspace_size
+
+    @pspace_size_si.setter
+    def pspace_size_si (self, x):
+        log = lib.logger.new_logger (self, self.verbose)
+        log.warn (("LASSI pspace_size_si is deprecated. Set "
+                   "sisolver.pspace_size in the future"))
+        self.sisolver.pspace_size = x
+
+    @property
+    def privref_si (self): return self.sisolver.privref
+
+    @privref_si.setter
+    def privref_si (self, x):
+        log = lib.logger.new_logger (self, self.verbose)
+        log.warn (("LASSI privref_si is deprecated. Set "
+                   "sisolver.privref in the future"))
+        self.sisolver.privref = x
 
     energy_tot = energy_tot
 
