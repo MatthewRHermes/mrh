@@ -199,8 +199,8 @@ class KnownValues(unittest.TestCase):
 
     def test_lassis_o0_davidson_kernel (self):
         mylsis = lsis[0].copy ()
-        mylsis.nroots_si=20
-        mylsis.davidson_only = True
+        mylsis.sisolver.nroots = 20
+        mylsis.sisolver.davidson_only = True
         mylsis.e_roots, mylsis.si = mylsis.eig ()
         e_upper = las.e_states[0]
         e_lower = mylsis.e_roots[0]
@@ -213,8 +213,8 @@ class KnownValues(unittest.TestCase):
 
     def test_lassis_o1_davidson_kernel (self):
         mylsis = lsis[1].copy ()
-        mylsis.nroots_si=20
-        mylsis.davidson_only = True
+        mylsis.sisolver.nroots = 20
+        mylsis.sisolver.davidson_only = True
         mylsis.e_roots, mylsis.si = mylsis.eig ()
         e_upper = las.e_states[0]
         e_lower = mylsis.e_roots[0]
@@ -229,12 +229,12 @@ class KnownValues(unittest.TestCase):
         mylsis = lsis[1].copy ()
         e_ref = lsis[1].e_roots.copy ()
         s2_ref = lsis[1].s2.copy ()
-        mylsis.nroots_si=1
-        mylsis.davidson_only = True
+        mylsis.sisolver.nroots = 1
+        mylsis.sisolver.davidson_only = True
         for smult in (1, 3, 5):
             s = (smult-1) * .5
             idx = np.where (np.isclose (s2_ref, s*(s+1)))[0][0]
-            mylsis.smult_si = smult
+            mylsis.sisolver.smult = smult
             mylsis.si = None
             e_test, si = mylsis.eig ()
             self.assertAlmostEqual (e_ref[idx], e_test[0], 8)
