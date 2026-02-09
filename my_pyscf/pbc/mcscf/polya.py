@@ -53,12 +53,12 @@ maxMem = 120000
 
 cell = pgto.Cell(atom = get_xyz(nU, d),
                  a = np.diag([d*nU, 17.5, 17.5]),
-                 basis = basis,
-                 pseudo = pseudo,
-                 precision = 1e-10,
-                 verbose = 3, #lib.logger.INFO,
-                 max_memory = maxMem,
-                 ke_cutoff = 40,
+    basis = basis,
+    pseudo = pseudo,
+    precision = 1e-10,
+    verbose = 3, #lib.logger.INFO,
+    max_memory = maxMem,
+    ke_cutoff = 40,
 )
 cell.build()
 
@@ -76,7 +76,7 @@ kmf.conv_tol = 1e-10
 meanfieldenergy = kmf.kernel()
 
 # Use the right AVAS, for the active space selection.
-ncas, nelecas, mo_coeff = avas.kernel(kmf, ['C 2pz'], minao=cell.basis, threshold=0.01, canonicalize=True)
+ncas, nelecas, mo_coeff = avas.kernel(kmf, ['C 2pz'], minao=cell.basis, threshold=0.01, canonicalize=True)[:3]
 
 
 # Steps
@@ -233,3 +233,6 @@ rdm2aa_c, rdm2ab_c, rdm2bb_c = cisolver.make_rdm12s_py(fcivec, nkpts*ncas, (nkpt
 compare_rdm2s(rdm2aa, rdm2aa_c)
 compare_rdm2s(rdm2ab, rdm2ab_c)
 compare_rdm2s(rdm2bb, rdm2bb_c)
+
+cisolver.make_rdm12_py(fcivec, nkpts*ncas, (nkpts*1,nkpts*1))
+print("Done")
