@@ -120,7 +120,7 @@ def prepare_fbf (lsi, ci_ref, ci_sf, ci_ch, ncharge=1, nspin=0, sa_heff=True,
     las1.e_states = las1.energy_nuc () + np.array (las1.states_energy_elec ())
     # 3. Charge excitations
     if ncharge:
-        las2 = all_single_excitations (las1, filter_shuffles=True)
+        las2 = all_single_excitations (las1, filter_shuffles=True, mask=lsi.mask_charge_hops)
         conv_ch, ci_ch, max_disc_sval = single_excitations_ci (
             lsi, las2, las1, ci_ch, ncharge=ncharge, sa_heff=sa_heff,
             deactivate_vrv=deactivate_vrv, spin_flips=spin_flips, crash_locmin=crash_locmin,
@@ -282,6 +282,7 @@ class SpinFlips (object):
 def all_spin_flips (lsi, las, ci_sf, nspin=1, ham_2q=None):
     # NOTE: this actually only uses the -first- rootspace in las, so it can be done before
     # the initial spin shuffle
+    t0 = (logger.process_clock (), logger.perf_counter ())
     log = logger.new_logger (lsi, lsi.verbose)
     norb_f = las.ncas_sub
     spaces = list_spaces (las)
@@ -321,6 +322,8 @@ def all_spin_flips (lsi, las, ci_sf, nspin=1, ham_2q=None):
             neleca = (nelec + m2) // 2
             nelecb = (nelec - m2) // 2
             solver = csf_solver (las.mol, smult=sm).set (nelec=(neleca,nelecb), norb=norb)
+            solver.verbose = lsi.verbose
+            solver.stdout = lsi.stdout
             solver.check_transformer_cache ()
             nroots = min (nroots, solver.transformer.ncsf)
             e_list, ci_list = solver.kernel (h1_i, h2_i, norb, (neleca,nelecb), ci0=ci0, nroots=nroots)[:2]
@@ -333,6 +336,7 @@ def all_spin_flips (lsi, las, ci_sf, nspin=1, ham_2q=None):
         smults1_i = []
         spins1_i = []
         ci1_i = []
+        t1 = (logger.process_clock (), logger.perf_counter ())
         if smult > 2: # spin-lowered
             log.info ("LASSIS fragment %d spin down (%de,%do;2S+1=%d)",
                       ifrag, nelec, norb, smult-2)
@@ -347,6 +351,7 @@ def all_spin_flips (lsi, las, ci_sf, nspin=1, ham_2q=None):
                 log.info (" %d %15.10e", ix, e)
             if not conv: log.warn ("CI vectors for spin-lowering of fragment %i not converged",
                                    ifrag)
+            t1 = log.timer ("LASSIS fragment {} spin down CI solve".format (ifrag), *t1)
             converged = converged & conv
             ci_sf[ifrag][0] = ci1_i_down
             ci1_i.append (ci1_i_down)
@@ -366,6 +371,7 @@ def all_spin_flips (lsi, las, ci_sf, nspin=1, ham_2q=None):
                 log.info ("%d %15.10e", ix, e)
             if not conv: log.warn ("CI vectors for spin-raising of fragment %i not converged",
                                    ifrag)
+            t1 = log.timer ("LASSIS fragment {} spin up CI solve".format (ifrag), *t1)
             converged = converged & conv
             ci_sf[ifrag][1] = ci1_i_up
             ci1_i.append (ci1_i_up)
@@ -375,6 +381,7 @@ def all_spin_flips (lsi, las, ci_sf, nspin=1, ham_2q=None):
         i = j
     spin_flips = [SpinFlips (las.mol,c,no,ne,m,s)
                   for c,no,ne,m,s in zip (ci1,norb0,nelec0,spins1,smults1)]
+    t0 = log.timer ("LASSIS spin flip all CI solves", *t0)
     return converged, spin_flips, ci_sf
 
 def _spin_flip_products (spaces, spin_flips, nroots_ref=1, frozen_frags=None):
@@ -607,6 +614,7 @@ class LASSIS (LASSI):
                                 for a in range (self.nfrags)]
                                for i in range (self.nfrags)]
         self._cached_ham_2q = None
+        self.mask_charge_hops = None
         self.ci = None
         if las.nroots>1:
             logger.warn (self, ("Only the first LASSCF state is used by LASSIS! "
@@ -646,7 +654,13 @@ class LASSIS (LASSI):
         return h1_no_soc
 
     def kernel (self, ncharge=None, nspin=None, sa_heff=None, deactivate_vrv=None,
-                crash_locmin=None, **kwargs):
+                crash_locmin=None, mask_charge_hops=None, **kwargs):
+        if mask_charge_hops is not None:
+            self.mask_charge_hops = mask_charge_hops
+        if nspin is not None:
+            self.nspin = nspin
+        if ncharge is not None:
+            self.ncharge = ncharge
         t0 = (logger.process_clock (), logger.perf_counter ())
         log = logger.new_logger (self, self.verbose)
         h0, h1, h2 = self.ham_2q(soc=self.soc)

@@ -64,7 +64,7 @@ def _make_rdm1_spin1(fname, cibra, ciket, norb, nelec, link_index=None):
         libgpu.push_link_indexb(gpu, nb, nlinkb, link_indexb) #TODO: move up to direct_spin1 or just generate on the fly
         libgpu.compute_make_rdm1b(gpu, na, nb, nlinka, nlinkb, norb, 0) #TODO: update name
       libgpu.pull_tdm1(gpu, rdm_gpu, norb, 0)
-      #libgpu.barrier(gpu)
+      libgpu.barrier(gpu)
       if (numpy.allclose(rdm_cpu, rdm_gpu)):
         print("RDM1_spin1", fname, "TDM1s calculate correctly", flush=True)
       else: 
@@ -95,7 +95,7 @@ def _make_rdm1_spin1(fname, cibra, ciket, norb, nelec, link_index=None):
         libgpu.push_link_indexb(gpu, nb, nlinkb, link_indexb) #TODO: move up to direct_spin1 or just generate on the fly
         libgpu.compute_make_rdm1b(gpu, na, nb, nlinka, nlinkb, norb, 0) #TODO: update name
       libgpu.pull_tdm1(gpu, rdm_gpu, norb, 0)
-      #libgpu.barrier(gpu)
+      libgpu.barrier(gpu)
 
       return rdm_gpu.T
 
@@ -177,19 +177,23 @@ def _make_rdm12_spin1(fname, cibra, ciket, norb, nelec, link_index=None, symm=0)
       if fname == 'FCItdm12kern_a': 
         libgpu.compute_tdm12kern_a_v2(gpu, na, nb, nlinka, nlinkb, norb, 0)
         libgpu.pull_tdm1(gpu, rdm1_gpu, norb, 0)
+        libgpu.barrier(gpu)
         rdm1_correct = numpy.allclose(rdm1_cpu, rdm1_gpu)
       if fname == 'FCItdm12kern_b': 
         libgpu.compute_tdm12kern_b_v2(gpu, na, nb, nlinka, nlinkb, norb, 0)
         libgpu.pull_tdm1(gpu, rdm1_gpu, norb, 0)
+        libgpu.barrier(gpu)
         rdm1_correct = numpy.allclose(rdm1_cpu, rdm1_gpu)
       if fname == 'FCItdm12kern_ab': 
         libgpu.compute_tdm12kern_ab_v2(gpu, na, nb, nlinka, nlinkb, norb, 0)
       if fname == 'FCIrdm12kern_sf': 
         libgpu.compute_rdm12kern_sf_v2(gpu, na, nb, nlinka, nlinkb, norb, 0)
         libgpu.pull_tdm1(gpu, rdm1_gpu, norb, 0)
+        libgpu.barrier(gpu)
         rdm1_correct = numpy.allclose(rdm1_cpu, rdm1_gpu)
+        
       libgpu.pull_tdm2(gpu, rdm2_gpu, norb, 0)
-      #libgpu.barrier(gpu)
+      libgpu.barrier(gpu)
       rdm2_correct = numpy.allclose(rdm2_cpu, rdm2_gpu)
       if rdm1_correct and rdm2_correct:
         print('RDM12_spin1', fname, "TDM12 calculated correctly at GPU", gpu)
@@ -224,7 +228,7 @@ def _make_rdm12_spin1(fname, cibra, ciket, norb, nelec, link_index=None, symm=0)
         libgpu.compute_rdm12kern_sf_v2(gpu, na, nb, nlinka, nlinkb, norb, 0)
         libgpu.pull_tdm1(gpu, rdm1_gpu, norb, 0)
       libgpu.pull_tdm2(gpu, rdm2_gpu, norb, 0)
-      #libgpu.barrier(gpu)
+      libgpu.barrier(gpu)
       return rdm1_gpu.T, rdm2_gpu
     else: 
       rdm1 = numpy.empty((norb,norb))

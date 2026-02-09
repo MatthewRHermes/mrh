@@ -4,6 +4,7 @@ import ctypes
 import itertools
 from scipy import linalg
 from pyscf.lib import logger, param
+from pyscf.fci import cistring
 from pyscf.fci.direct_spin1 import _unpack_nelec, trans_rdm1s, trans_rdm12s
 from pyscf.scf.addons import canonical_orth_
 from mrh.my_pyscf.mcscf.productstate import ProductStateFCISolver, state_average_fcisolver
@@ -79,6 +80,7 @@ class ExcitationPSFCISolver (ProductStateFCISolver):
         self.wfnsym_ref = wfnsym_ref
         self.crash_locmin = crash_locmin
         self.opt = opt
+        self._linkstr_cache = {}
         ProductStateFCISolver.__init__(self, solvers_ref[0].fcisolvers, stdout=stdout,
                                        verbose=verbose)
         ci_ref_rf = [[c[i] for c in ci_ref] for i in range (len (self.solvers_ref))]
@@ -271,6 +273,7 @@ class ExcitationPSFCISolver (ProductStateFCISolver):
         for ifrag, c in zip (self.excited_frags, ci1_active):
             ci1[ifrag] = np.asarray (c)
         t1 = self.log.timer ('ExcitationPSFCISolver kernel', *t0)
+        self._linkstr_cache = {} # Finalize
         return converged, energy_elec, ci1, disc_sval_max
 
     def get_nq (self):
@@ -570,18 +573,29 @@ class ExcitationPSFCISolver (ProductStateFCISolver):
         for ifrag in range (nfrags):
             solver = self.fcisolvers[ifrag]
             norb, nelec = norb_f[ifrag], self._get_nelec (solver, nelec_f[ifrag])
+            linkstr = self._get_linkstr_tdm1s_f_(ifrag, norb, nelec)
             nbra, nket = lroots_bra[ifrag], lroots_ket[ifrag]
             tdm1s = np.zeros ((nbra, nket, 2, norb, norb))
             b = cibra[ifrag]
             k = ciket[ifrag]
             for i, j in itertools.product (range (nbra), range (nket)):
-                tdm1s[i,j,0], tdm1s[i,j,1] = trans_rdm1s (b[i], k[j], norb, nelec)
+                tdm1s[i,j,0], tdm1s[i,j,1] = trans_rdm1s (b[i], k[j], norb, nelec,
+                                                          link_index=linkstr)
                 tdm1s[i,j,0] = tdm1s[i,j,0].T
                 tdm1s[i,j,1] = tdm1s[i,j,1].T
             assert (tdm1s.ndim==5)
             tdm1s_f.append (tdm1s)
         t1 = self.log.timer ('get_tdm1s_f', *t0)
         return tdm1s_f
+
+    def _get_linkstr_tdm1s_f_(self, ifrag, norb, nelec):
+        linkstr = self._linkstr_cache.get ((ifrag,norb,nelec), None)
+        if linkstr is None:
+            la = cistring.gen_linkstr_index (range (norb), nelec[0])
+            lb = cistring.gen_linkstr_index (range (norb), nelec[1])
+            linkstr = (la,lb)
+            self._linkstr_cache[(ifrag,norb,nelec)] = linkstr
+        return linkstr
 
     def eig1 (self, ham_pq, ci0, ovlp_thresh=1e-3):
         '''Diagonalize the coupled Hamiltonian for the lowest-energy eigensolution with substantial
