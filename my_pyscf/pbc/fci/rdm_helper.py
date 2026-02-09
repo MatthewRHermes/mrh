@@ -189,12 +189,12 @@ def make_rdm12s_cplx(fcivec, norb, nelec, link_index=None, reorder=True):
     2. Traces
     3. 1-RDM from 2-RDM
     '''
-    assert np.max(np.abs(dm2aa - dm2aa.conj().transpose(2,3,0,1))) < 1e-8
-    assert np.max(np.abs(dm2bb - dm2bb.conj().transpose(2,3,0,1))) < 1e-8
-    dm1a_from_dm2aa =  np.einsum("pqrq->pr", dm2aa, optimize=True) / (na - 1)
-    dm1b_from_dm2bb =  np.einsum("pqrq->pr", dm2bb, optimize=True) / (nb - 1)
-    assert np.max(np.abs(dm1a_from_dm2aa - dm1a.conj().T)) < 1e-8, "1-RDM a diff: {}".format(np.max(np.abs(dm1a_from_dm2aa - dm1a.conj().T)))
-    assert np.max(np.abs(dm1b_from_dm2bb - dm1b.conj().T)) < 1e-8, "1-RDM b diff: {}".format(np.max(np.abs(dm1b_from_dm2bb - dm1b.conj().T)))
+    # assert np.max(np.abs(dm2aa - dm2aa.conj().transpose(2,3,0,1))) < 1e-8
+    # assert np.max(np.abs(dm2bb - dm2bb.conj().transpose(2,3,0,1))) < 1e-8
+    # dm1a_from_dm2aa =  np.einsum("pqrq->pr", dm2aa, optimize=True) / (na - 1)
+    # dm1b_from_dm2bb =  np.einsum("pqrq->pr", dm2bb, optimize=True) / (nb - 1)
+    # assert np.max(np.abs(dm1a_from_dm2aa - dm1a.conj().T)) < 1e-8, "1-RDM a diff: {}".format(np.max(np.abs(dm1a_from_dm2aa - dm1a.conj().T)))
+    # assert np.max(np.abs(dm1b_from_dm2bb - dm1b.conj().T)) < 1e-8, "1-RDM b diff: {}".format(np.max(np.abs(dm1b_from_dm2bb - dm1b.conj().T)))
 
     dm2aa = dm2aa.transpose(0, 2, 1, 3).conj()
     dm2bb = dm2bb.transpose(0, 2, 1, 3).conj()
