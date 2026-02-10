@@ -112,15 +112,16 @@ def _localize (las, frags_orbs, mo_coeff, spin, lo_coeff, fock, ao_ovlp, freeze_
             null_coeff = np.hstack ([null_coeff, mo_proj[:,nlas:]])
 
     # SVD of null space to pick inactive orbitals
-    assert (null_coeff.shape[-1] + ncas == nmo)
-    mo_core = tag_array (mo_coeff[:,:ncore], orbsym=mo_orbsym[:ncore])
-    mocc_core = mo_occ[:ncore]
-    mo_proj, sval, mo_core, mocc_core = las._svd (null_coeff, mo_core, s=ao_ovlp,
-                                                  mo_occ=mocc_core)
-    mo_coeff[:,:ncore], mo_coeff[:,nocc:] = mo_proj[:,:ncore], mo_proj[:,ncore:]
-    if has_orbsym:
-        mo_orbsym[:ncore] = mo_proj.orbsym[:ncore]
-        mo_orbsym[nocc:] = mo_proj.orbsym[ncore:]
+    if ncore > 0:
+        assert (null_coeff.shape[-1] + ncas == nmo)
+        mo_core = tag_array (mo_coeff[:,:ncore], orbsym=mo_orbsym[:ncore])
+        mocc_core = mo_occ[:ncore]
+        mo_proj, sval, mo_core, mocc_core = las._svd (null_coeff, mo_core, s=ao_ovlp,
+                                                      mo_occ=mocc_core)
+        mo_coeff[:,:ncore], mo_coeff[:,nocc:] = mo_proj[:,:ncore], mo_proj[:,ncore:]
+        if has_orbsym:
+            mo_orbsym[:ncore] = mo_proj.orbsym[:ncore]
+            mo_orbsym[nocc:] = mo_proj.orbsym[ncore:]
     mo_coeff = tag_array (mo_coeff, orbsym=mo_orbsym)
 
     # Canonicalize for good init CI guess and visualization
