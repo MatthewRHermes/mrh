@@ -220,10 +220,16 @@ def single_excitations_ci (lsi, las2, las1, ci_ch, ncharge=1, sa_heff=True, deac
             ci0[1] = mdown (ci0[1], norb_a, nelec_a, smult_a)
             if lroots[afrag,i] == 1 and ci0[1].ndim==3: ci0[1] = ci0[1][0]
         ci0 = [ci0[int (afrag<ifrag)], ci0[int (ifrag<afrag)]]
-        psexc.__dict__.update (lsi.cisolver_attr_charge_hops)
+        attr = {key: val for key, val in lsi.cisolver_attr_charge_hops.items ()}
+        # Backwards compatibility with older ways of setting these convergence parameters
+        if 'max_cycle' not in attr.keys () and lsi.max_cycle_macro is not None:
+            attr['max_cycle'] = lsi.max_cycle_macro
+        if 'conv_tol_self' not in attr.keys () and lsi.conv_tol_self is not None:
+            attr['conv_tol_self'] = lsi.conv_tol_self
+        psexc.__dict__.update (attr)
+        psexc.dump_flags ()
         conv, e_roots[i], ci1, disc_svals_max = psexc.kernel (
-            h1, h2, ecore=h0, ci0=ci0, max_cycle_macro=lsi.max_cycle_macro,
-            conv_tol_self=lsi.conv_tol_self, nroots=ncharge_i
+            h1, h2, ecore=h0, ci0=ci0, nroots=ncharge_i
         )
         ci_ch_ias[0] = mup (ci1[ifrag], norb_i, nelec_i, smult_i)
         if lroots[ifrag,i]==1 and ci_ch_ias[0].ndim == 2:
@@ -610,8 +616,8 @@ class LASSIS (LASSI):
         self.crash_locmin = crash_locmin
         self.e_states_meaningless = True # a tag to silence an invalid warning
         LASSI.__init__(self, las, opt=opt, **kwargs)
-        self.max_cycle_macro = 50
-        self.conv_tol_self = 1e-8
+        self._max_cycle_macro = None
+        self._conv_tol_self = None
         self.ci_spin_flips = [[None for s in range (2)] for i in range (self.nfrags)]
         self.cisolver_attr_spin_flips = {}
         self.ci_charge_hops = [[[[None,None] for s in range (4)]
@@ -624,6 +630,28 @@ class LASSIS (LASSI):
         if las.nroots>1:
             logger.warn (self, ("Only the first LASSCF state is used by LASSIS! "
                                 "Other states are discarded!"))
+
+    @property
+    def conv_tol_self (self):
+        return self._conv_tol_self
+
+    @conv_tol_self.setter
+    def conv_tol_self (self, x):
+        log = logger.new_logger (self, self.verbose)
+        log.warn (("LASSIS conv_tol_self is deprecated. Set "
+                   "cisolver_attr_charge_hops['conv_tol_self'] in the future"))
+        self._conv_tol_self = x
+
+    @property
+    def max_cycle_macro (self):
+        return self._max_cycle_macro
+
+    @max_cycle_macro.setter
+    def max_cycle_macro (self, x):
+        log = logger.new_logger (self, self.verbose)
+        log.warn (("LASSIS max_cycle_macro is deprecated. Set "
+                   "cisolver_attr_charge_hops['max_cycle'] in the future"))
+        self._max_cycle_macro = x
 
     def copy (self):
         # semi-deep copy of nested lists
@@ -748,7 +776,12 @@ class LASSIS (LASSI):
     def get_lroots (self, ci=None):
         if ci is None: ci = self.ci
         if ci is None:
-            with lib.temporary_env (self, max_cycle_macro=0):
+            chattr = {k: v for k, v in self.cisolver_attr_charge_hops.items ()}
+            chattr['max_cycle'] = 0
+            sfattr = {k: v for k, v in self.cisolver_attr_spin_flips.items ()}
+            sfattr['max_cycle'] = 0
+            with lib.temporary_env (self, cisolver_attr_charge_hops=chattr,
+                                    cisolver_attr_spin_flips=sfatter):
                 self.prepare_states_()
             ci = self.ci
         assert (ci is not None)

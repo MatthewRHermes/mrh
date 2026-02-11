@@ -16,6 +16,7 @@
 #define _ATOMICADD
 #define _ACCELERATE_KERNEL
 #define _TILE(A,B) (A + B - 1) / B
+#define _CUDA_MAX_GRID_DIM_YZ 65535
 
 /* ---------------------------------------------------------------------- */
 
@@ -125,19 +126,21 @@ __global__ void _getjk_rho(double * rho, double * dmtril, double * eri1, int nse
 
 /* ---------------------------------------------------------------------- */
 
-__global__ void _getjk_vj(double * vj, double * rho, double * eri1, int nset, int nao_pair, int naux, int init)
+__global__ void _getjk_vj(double * vj, double * rho, double * eri1, int nset, int nao_pair, int naux, int chunk_size, int init)
 {
   const int i = blockIdx.x * blockDim.x + threadIdx.x;
   const int j = blockIdx.y * blockDim.y + threadIdx.y;
+  const int k = blockIdx.z * blockDim.z + threadIdx.z;
 
-  if(i >= nset) return;
-  if(j >= nao_pair) return;
-
-  double val = 0.0;
-  for(int k=0; k<naux; ++k) val += rho[i * naux + k] * eri1[k * nao_pair + j];
+  int indxK = j * chunk_size + k;
   
-  if(init) vj[i * nao_pair + j] = val;
-  else vj[i * nao_pair + j] += val;
+  if(indxK >= nao_pair) return;
+  
+  double val = 0.0;
+  for(int l=0; l<naux; ++l) val += rho[i * naux + l] * eri1[l * nao_pair + indxK];
+  
+  if(init) vj[i * nao_pair + indxK] = val;
+  else vj[i * nao_pair + indxK] += val;
 }
 
 /* ---------------------------------------------------------------------- */
@@ -1278,16 +1281,19 @@ void Device::getjk_rho(double * rho, double * dmtril, double * eri, int nset, in
 
 void Device::getjk_vj(double * vj, double * rho, double * eri, int nset, int nao_pair, int naux, int init)
 {
-  dim3 grid_size(nset, (nao_pair + (_DOT_BLOCK_SIZE - 1)) / _DOT_BLOCK_SIZE, 1);
-  dim3 block_size(1, _DOT_BLOCK_SIZE, 1);
-  
+  const int gs_nao_pair = (nao_pair + (_DOT_BLOCK_SIZE - 1)) / _DOT_BLOCK_SIZE;
+  const int chunk_size = (gs_nao_pair <= _CUDA_MAX_GRID_DIM_YZ) ? gs_nao_pair : _CUDA_MAX_GRID_DIM_YZ;
+  const int num_chunks = (gs_nao_pair <= _CUDA_MAX_GRID_DIM_YZ) ? 1 : (gs_nao_pair / _CUDA_MAX_GRID_DIM_YZ + 1);
+
+  dim3 grid_size(nset, num_chunks, chunk_size);
+  dim3 block_size(1, 1, _DOT_BLOCK_SIZE);
+
   cudaStream_t s = *(pm->dev_get_queue());
-  
-  _getjk_vj<<<grid_size, block_size, 0, s>>>(vj, rho, eri, nset, nao_pair, naux, init);
-  
+  _getjk_vj<<<grid_size, block_size, 0, s>>>(vj, rho, eri, nset, nao_pair, naux, chunk_size, init);
+
 #ifdef _DEBUG_DEVICE
-  printf("LIBGPU ::  -- get_jk::_getjk_vj :: nset= %i  nao_pair= %i _DOT_BLOCK_SIZE= %i  grid_size= %i %i %i  block_size= %i %i %i\n",
-	 nset, nao_pair, _DOT_BLOCK_SIZE, grid_size.x,grid_size.y,grid_size.z,block_size.x,block_size.y,block_size.z);
+  printf("LIBGPU ::  -- get_jk::_getjk_vj :: nset= %i  nao_pair= %i  gs_nao_pair= %i  chunk_size= %i  num_chunks= %i _DOT_BLOCK_SIZE= %i  grid_size= %i %i %i  block_size= %i %i %i\n",
+         nset, nao_pair, gs_nao_pair, chunk_size, num_chunks, _DOT_BLOCK_SIZE, grid_size.x, grid_size.y, grid_size.z, block_size.x, block_size.y, block_size.z);
   _CUDA_CHECK_ERRORS();
 #endif
 }
@@ -1763,10 +1769,11 @@ void Device::compute_FCItrans_rdm1a_v2(double * cibra, double * ciket, double * 
   int ib_max = (ib_bra > ib_ket) ? ib_bra : ib_ket;
   int jb_min = (jb_bra < jb_ket) ? jb_bra : jb_ket;
   int b_len  = jb_min - ib_max;
-  if (b_len>0){
-    int b_bra_offset = ib_max - ib_bra;
-    int b_ket_offset = ib_max - ib_ket;
+  
+  int b_bra_offset = ib_max - ib_bra;
+  int b_ket_offset = ib_max - ib_ket;
 
+  if (b_len>0){
     dim3 block_size(_DEFAULT_BLOCK_SIZE, _DEFAULT_BLOCK_SIZE, 1);
     dim3 grid_size(_TILE(na_ket, block_size.x),_TILE(nlinka,block_size.y),1);
 
@@ -1777,6 +1784,7 @@ void Device::compute_FCItrans_rdm1a_v2(double * cibra, double * ciket, double * 
                                                              b_len, b_bra_offset, b_ket_offset, 
                                                              sign, link_index);
     }
+  
 #ifdef _DEBUG_DEVICE
     //printf("na_ket: %i ia_ket: %i ja_ket: %i ib_ket: %i ib_bra: %i nb_bra: %i nb_ket: %i b_len: %i b_bra_offset: %i b_ket_offset: %i sign: %i\n",na_ket, ia_ket, ja_ket, ib_ket, ib_bra, nb_bra, nb_ket, b_len, b_bra_offset, b_ket_offset, sign);
 #endif
@@ -1866,9 +1874,13 @@ void Device::compute_FCIrdm2_a_t1ci_v2(double * ci, double * buf, int stra_id, i
 void Device::compute_FCIrdm2_b_t1ci_v2(double * ci, double * buf, int stra_id, int batches, int nb, int norb, int nlinkb, int * link_index)
 {
   cudaStream_t s = *(pm->dev_get_queue());
-  {dim3 block_size(1, 1,_DEFAULT_BLOCK_SIZE);
+  dim3 block_size(1, 1,_DEFAULT_BLOCK_SIZE);
   dim3 grid_size(_TILE(batches,block_size.x),_TILE(nb, block_size.y), 1);
-  _compute_FCIrdm2_b_t1ci_v4<<<grid_size, block_size, 0,s>>>(ci, buf, stra_id, batches, nb, norb, nlinkb, link_index);}
+  _compute_FCIrdm2_b_t1ci_v4<<<grid_size, block_size, 0,s>>>(ci, buf, stra_id, batches, nb, norb, nlinkb, link_index);
+  
+#ifdef _DEBUG_DEVICE 
+  printf("LIBGPU ::  -- general::compute_FCIrdm2_b_t1ci; :: Nb= %i Norb =%i Nlinkb =%i grid_size= %i %i %i  block_size= %i %i %i\n",
+	 nb, norb, nlinkb, grid_size.x,grid_size.y,grid_size.z,block_size.x,block_size.y,block_size.z);
   _CUDA_CHECK_ERRORS();
 #ifdef _DEBUG_DEVICE 
 #endif

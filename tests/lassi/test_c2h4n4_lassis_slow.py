@@ -46,10 +46,10 @@ def setUpModule ():
     las.kernel (mo_coeff)
     lsi_o1 = LASSIS (las).run (nroots_si=3)
     assert (lsi_o1.opt==1)
-    assert (not lsi_o1.davidson_only)
+    assert (not lsi_o1.sisolver.davidson_only)
     lsi_o0 = LASSIS (las, opt=0).run ()
     assert (lsi_o0.opt==0)
-    assert (not lsi_o0.davidson_only)
+    assert (not lsi_o0.sisolver.davidson_only)
     lsis = [lsi_o0, lsi_o1]
     h0, h1, h2 = lsis[0].ham_2q ()
     nelec_frs = lsis[0].get_nelec_frs ()
