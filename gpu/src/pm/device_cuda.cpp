@@ -1856,7 +1856,6 @@ void Device::compute_FCIrdm2_a_t1ci_v2(double * ci, double * buf, int stra_id, i
   dim3 grid_size(_TILE(batches, block_size.x),_TILE(nb, block_size.y), 1);
   _compute_FCIrdm2_a_t1ci_v4<<<grid_size, block_size, 0,s>>>(ci, buf, stra_id,batches,nb, norb, nlinka, link_index);
   _CUDA_CHECK_ERRORS();
-  printf("compute_FCIrdm2_a_t1ci_v2 working\n");
 #ifdef _DEBUG_DEVICE 
   printf("LIBGPU ::  -- general::compute_FCIrdm2_a_t1ci; :: Nb= %i Norb =%i Nlinka =%i grid_size= %i %i %i  block_size= %i %i %i\n",
 	 nb, norb, nlinka, grid_size.x,grid_size.y,grid_size.z,block_size.x,block_size.y,block_size.z);
@@ -1969,6 +1968,7 @@ void Device::transpose_jikl(double * tdm, double * buf, int norb)
 void Device::reduce_buf3_to_rdm(const double * buf3, double * dm2, int size_tdm2, int num_gemm_batches)
 {
   cudaStream_t s = *(pm->dev_get_queue());
+  _CUDA_CHECK_ERRORS();
   dim3 block_size(_DEFAULT_BLOCK_SIZE, 1,1);
   dim3 grid_size (_TILE(size_tdm2, block_size.x),1,1);
   _vecadd_batch<<<grid_size, block_size,0, s>>>(buf3, dm2, size_tdm2, num_gemm_batches);

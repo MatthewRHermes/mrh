@@ -4336,13 +4336,14 @@ void Device::compute_rdm12kern_sf_v2(int na, int nb, int nlinka, int nlinkb, int
   grow_array(dd->d_buf1,final_size_buf, dd->size_buf1, "buf1", FLERR); 
   grow_array(dd->d_buf2,final_size_buf, dd->size_buf2, "buf1", FLERR); 
   grow_array(dd->d_buf3,final_size_buf, dd->size_buf3, "buf3", FLERR); 
-  int bits_buf = sizeof(double)*buf_batch_size*size_buf;
-  ml->memset(dd->d_buf1, &zero, &bits_buf); 
+  size_t bits_buf = sizeof(double)*buf_batch_size*size_buf;
   grow_array(dd->d_tdm1, size_tdm1, dd->size_tdm1, "tdm1", FLERR);
   grow_array(dd->d_tdm2, size_tdm2, dd->size_tdm2, "tdm2", FLERR); 
+
+  ml->memset(dd->d_buf1, &zero, &bits_buf); 
   ml->memset(dd->d_tdm1, &zero, &bits_tdm1);
   ml->memset(dd->d_tdm2, &zero, &bits_tdm2);
- 
+  double * h_buf3 = (double *)pm->dev_malloc_host(final_size_buf*sizeof(double));
 
   for (int stra_id = 0; stra_id<na; stra_id += buf_batch_size){
     num_buf_batches = _MIN(buf_batch_size, na-stra_id);

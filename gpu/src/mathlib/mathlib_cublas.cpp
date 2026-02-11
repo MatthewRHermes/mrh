@@ -107,6 +107,31 @@ void MATHLIB::memset(double * array, const int * num, const int * size)
 #endif
 
 }
+// ----------------------------------------------------------------
+
+void MATHLIB::memset(double * array, const int * num, const size_t * size)
+{
+#ifdef _DEBUG_ML 
+  printf("Inside MATHLIB::memset()\n");
+#endif
+//TODO: add profiling lines related things
+
+#if 1
+  cudaStream_t * s = pm->dev_get_queue();
+
+  cudaMemsetAsync ( array, *num, *size, *s);
+#else
+  cudaMemset ( array, *num, *size);
+#endif
+  
+  _CUDA_CHECK_ERRORS();
+
+#ifdef _DEBUG_ML 
+  printf(" -- Leaving MATHLIB::memset()\n");
+#endif
+
+}
+
 
 // ----------------------------------------------------------------
 
