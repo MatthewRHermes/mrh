@@ -607,15 +607,8 @@ class HamS2OvlpOperators (HamS2Ovlp):
             self.dw_compute_3frag += (w3-w2)
         if len (braHs):
             t0, w0 = logger.process_clock (), logger.perf_counter ()
-            #try op.op:
-            #  print("Pre transpose")
-            #  print(op.shape)
-            #except: pass
             op = op.conj ().T
 
-            #try op.op:
-            #  print("Post transpose")
-            #  print(op.shape)
             t1, w1 = logger.process_clock (), logger.perf_counter ()
             self.dt_op_reduce += (t1-t0)
             self.dw_op_reduce += (w1-w0)
