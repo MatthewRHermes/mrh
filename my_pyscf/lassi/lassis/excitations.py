@@ -536,7 +536,7 @@ class ExcitationPSFCISolver (ProductStateFCISolver):
                 if ifrag==jfrag: continue
                 hci = hci_f_pab[jfrag]
                 hci_f_pab[jfrag] = np.zeros ([0,]+list(hci.shape[1:]), dtype=hci.dtype)
-        t06 = self.log.timer ('last part', *t05)
+        t06 = self.log.timer ('last part of op_ham_pq_ref', *t05)
         t1 = self.log.timer ('op_ham_pq_ref', *t0)
         return hci_f_pab
 
