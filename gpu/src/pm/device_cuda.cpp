@@ -1882,7 +1882,6 @@ void Device::compute_FCIrdm2_b_t1ci_v2(double * ci, double * buf, int stra_id, i
   printf("LIBGPU ::  -- general::compute_FCIrdm2_b_t1ci; :: Nb= %i Norb =%i Nlinkb =%i grid_size= %i %i %i  block_size= %i %i %i\n",
 	 nb, norb, nlinkb, grid_size.x,grid_size.y,grid_size.z,block_size.x,block_size.y,block_size.z);
   _CUDA_CHECK_ERRORS();
-#ifdef _DEBUG_DEVICE 
 #endif
 } 
 
