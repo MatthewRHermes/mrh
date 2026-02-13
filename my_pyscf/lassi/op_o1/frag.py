@@ -155,16 +155,13 @@ class FragTDMInt (object):
         if pt_order is None: pt_order = np.zeros (nroots, dtype=int)
         self.pt_order = pt_order
         self.do_pt_order = do_pt_order
-        t0 = self.log.timer('FragTDM init setup', *t0)
 
         # Consistent array shape
         self.ndeta_r = np.array ([cistring.num_strings (norb, nelec[0]) for nelec in self.nelec_r])
         self.ndetb_r = np.array ([cistring.num_strings (norb, nelec[1]) for nelec in self.nelec_r])
         self.ci = [c.reshape (-1,na,nb) for c, na, nb in zip (self.ci, self.ndeta_r, self.ndetb_r)]
-        t0 = self.log.timer('FragTDM init array shape', *t0)
 
         self.time_crunch = self._init_crunch_(screen_linequiv)
-        t0 = self.log.timer('FragTDM init crunch', *t0)
 
     mat_keys = ('ovlp', 'h', 'hh', 'phh', 'sm', 'dm1', 'dm2')
     mdown_tdm = {'ovlp': lambda *args: args[0],
@@ -546,9 +543,7 @@ class FragTDMInt (object):
                         self.mask_ints[:,i], self.mask_ints[:,j]
                     )
 
-        self.log.timer ('_init_crunch_ indexing', *t0)
         t1 = self._make_dms_()
-        self.log.timer ('_init_crunch_ _make_dms_', *t1)
         return t0
 
     def update_ci_(self, iroot, ci):
@@ -1326,6 +1321,7 @@ def make_ints (las, ci, nelec_frs, smult_fr=None, screen_linequiv=DO_SCREEN_LINE
     '''
     t0 = (lib.logger.process_clock (), lib.logger.perf_counter ())
     nfrags, nroots = nelec_frs.shape[:2]
+    print("verbose:", verbose)
     if verbose is None: verbose = las.verbose
     log = lib.logger.new_logger (las, verbose)
     max_memory = getattr (las, 'max_memory', las.mol.max_memory)
@@ -1338,7 +1334,6 @@ def make_ints (las, ci, nelec_frs, smult_fr=None, screen_linequiv=DO_SCREEN_LINE
         discriminator = np.zeros (lroots.shape[1], dtype=int)
     rootaddr, fragaddr = get_rootaddr_fragaddr (lroots)
     ints = []
-    t0 = log.timer('make ints initialize', *t0)
 
     for ifrag in range (nfrags):
         m0 = lib.current_memory ()[0]
@@ -1351,14 +1346,13 @@ def make_ints (las, ci, nelec_frs, smult_fr=None, screen_linequiv=DO_SCREEN_LINE
                                     pt_order=pt_order, do_pt_order=do_pt_order,
                                     verbose=verbose)
         m1 = lib.current_memory ()[0]
-        log.info ('LAS-state TDM12s fragment %d uses %f MB of %f MB total used',
+        log.debug ('LAS-state TDM12s fragment %d uses %f MB of %f MB total used',
                          ifrag, m1-m0, m1)
         log.timer ('LAS-state TDM12s fragment {} intermediate crunching'.format (
             ifrag), *tdmint.time_crunch)
         log.debug ('UNIQUE ROOTSPACES OF FRAG %d: %d/%d', ifrag,
                           np.count_nonzero (tdmint.root_unique), nroots)
         ints.append (tdmint)
-        t0 = log.timer('make ints calculate', *t0)
     return ints, lroots
 
 

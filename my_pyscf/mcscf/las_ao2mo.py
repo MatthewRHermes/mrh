@@ -133,20 +133,26 @@ def get_h2eff_gpu_v2 (las,mo_coeff):
     eri =np.zeros((nmo,  int(ncas*ncas*(ncas+1)/2)))
     t0 = (lib.logger.process_clock (), lib.logger.perf_counter ())
     eri1 = np.zeros((nmo, int(ncas*ncas*(ncas+1)/2)),dtype='d')
-    if las.verbose>=lib.logger.DEBUG and gpu:
+    if las.verbose>lib.logger.DEBUG and gpu:
         eri_cpu = np.zeros((nmo, int(ncas*ncas*(ncas+1)/2)))
     for cderi in las.with_df.loop (blksize=blksize):
+        #print(count)
         #t1 = lib.logger.timer (las, 'Sparsedf', *t0)
         naux = cderi.shape[0]
-        if las.verbose>=lib.logger.DEBUG and gpu:
+        if las.verbose>lib.logger.DEBUG and gpu:
+            #print("using h2eff_df_v2")
             libgpu.get_h2eff_df_v2(gpu, cderi, nao, nmo, ncas, naux, ncore,eri1, count, id(las.with_df))
             bPmn = sparsedf_array (cderi)
+            #print(lib.unpack_tril(cderi)[:3,:3,:3])
+            #print(lib.unpack_tril(cderi).shape)
+            print(mo_cas)
             bmuP1 = bPmn.contract1 (mo_cas)
             buvP = np.tensordot (mo_cas.conjugate (), bmuP1, axes=((0),(0)))
             eri2 = np.tensordot (bmuP1, buvP, axes=((2),(2)))
             eri2 = np.tensordot (mo_coeff.conjugate (), eri2, axes=((0),(0)))
             eri2 = lib.pack_tril (eri2.reshape (nmo*ncas, ncas, ncas)).reshape (nmo, -1)
             eri_cpu +=eri2
+            #print(eri2)
         elif gpu: 
             libgpu.get_h2eff_df_v2(gpu, cderi, nao, nmo, ncas, naux, ncore,eri1, count, id(las.with_df)); 
         else: 
@@ -162,9 +168,17 @@ def get_h2eff_gpu_v2 (las,mo_coeff):
         count+=1
     t0 = lib.logger.timer (las, 'las_ao2mo', *t0)
     libgpu.pull_eri_h2eff(gpu, eri, nmo, ncas)
-    if las.verbose>=lib.logger.DEBUG and gpu:
+    if las.verbose>lib.logger.DEBUG and gpu:
         if np.allclose(eri, eri_cpu): log.debug("h2eff_v2 working")
-        else: log.debug("h2eff not working");log.debug('eri_diff' + str(np.max(np.abs(eri-eri_cpu))));exit()
+        else: 
+            print("h2eff not working");
+            diff = eri - eri_cpu
+            non_zero_vals = np.nonzero(diff)
+            print(non_zero_vals)
+            print(np.max(np.abs(diff)))
+            log.debug("h2eff not working");
+            log.debug('eri_diff' + str(np.max(np.abs(eri-eri_cpu))));
+            exit()
     eri1= None
     return eri
 

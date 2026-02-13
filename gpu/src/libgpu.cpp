@@ -672,6 +672,28 @@ void libgpu_push_op(void * ptr,
   dev->push_op(op, m, k, counts);
 }
 /* ---------------------------------------------------------------------- */
+void libgpu_push_op_4frag(void * ptr, 
+                     py::array_t<double> op, int size_op, int size_req, int counts)
+{
+  Device * dev = (Device *) ptr;
+  dev->push_op_4frag(op, size_op, size_req, counts);
+}
+/* ---------------------------------------------------------------------- */
+void libgpu_push_d2(void * ptr, 
+                     py::array_t<double> d2, int size_d2, int loc_d2, int counts)
+{
+  Device * dev = (Device *) ptr;
+  dev->push_d2(d2, size_d2, loc_d2, counts);
+}
+/* ---------------------------------------------------------------------- */
+void libgpu_push_d3(void * ptr, 
+                     py::array_t<double> d3, int size_d3, int loc_d3, int counts)
+{
+  Device * dev = (Device *) ptr;
+  dev->push_d3(d3, size_d3, loc_d3, counts);
+}
+
+/* ---------------------------------------------------------------------- */
 void libgpu_init_ox1_pinned(void * ptr, 
                                int size)
 {
@@ -708,6 +730,12 @@ void libgpu_push_sivecs_to_device(void * ptr,
   dev->push_sivecs_to_device(vec, loc, size, count);
 }
 /* ---------------------------------------------------------------------- */
+void libgpu_bcast_vec(void * ptr, int size, int counts)
+{ 
+  Device * dev = (Device *) ptr;
+  dev->bcast_vec(size, counts);
+}
+/* ---------------------------------------------------------------------- */
 void libgpu_push_instruction_list(void * ptr, 
                                   py::array_t<int> instruction_list, int len)
 {
@@ -738,10 +766,21 @@ void libgpu_compute_sivecs_full_v2(void * ptr,
 }
 /* ---------------------------------------------------------------------- */
 void libgpu_compute_sivecs_full_v3(void * ptr, 
-                             int m, int k, int n, int vec_loc, int ox1_loc, int fac, int op_t)
+                             int m, int k, int n, int vec_loc, int ox1_loc, int fac, int op_t, int count)
 {
   Device * dev = (Device *) ptr;
-  dev->compute_sivecs_full_v3(m, k, n, vec_loc, ox1_loc, fac, op_t);
+  dev->compute_sivecs_full_v3(m, k, n, vec_loc, ox1_loc, fac, op_t, count);
+}
+/* ---------------------------------------------------------------------- */
+void libgpu_compute_4frag_matvec(void * ptr, 
+                             int i, int j, int k, int l, 
+                             int a, int b, int c, int d,
+                             int z, 
+                             int r, int s, 
+                             int vec_loc, int ox1_loc, int fac, int op_t, int count)
+{
+  Device * dev = (Device *) ptr;
+  dev->compute_4frag_matvec(i, j, k, l, a, b, c, d, z, r, s, vec_loc, ox1_loc, fac, op_t, count);
 }
 /* ---------------------------------------------------------------------- */
 void libgpu_print_sivecs(void * ptr, int start, int size)

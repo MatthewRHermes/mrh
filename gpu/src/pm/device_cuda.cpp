@@ -1200,26 +1200,56 @@ __global__ void _filter_tdm3h(double * in, double * out, int norb)
     out[(i*norb+j)*norb+k] = in[((i*norb1+norb)*norb1+j)*norb1+k];
 }  
 /* ---------------------------------------------------------------------- */
-__global__ void _transpose_021(double * in, double * out, int norb) {
+__global__ void _transpose_021(double * in, double * out, int ax1, int ax2, int ax3) {
     // abc->acb
     int i = blockIdx.x * blockDim.x + threadIdx.x;
     int j = blockIdx.y * blockDim.y + threadIdx.y;
     int k = blockIdx.z * blockDim.z + threadIdx.z;
 
-    if(i >= norb) return;
-    if(j >= norb) return;
-    if(k >= norb) return;
+    if(i >= ax1) return;
+    if(j >= ax2) return;
+    if(k >= ax3) return;
 
-    int inputIndex = i*norb*norb+k*norb+j;
-    int outputIndex = i*norb*norb  + j*norb + k;
+    int inputIndex = (i*ax3+k)*ax2+j;
+    int outputIndex = (i*ax2+j)*ax3+k;
+    //printf("%i %i %i %f\n",i, j, k, in[inputIndex]);
+    out[outputIndex] = in[inputIndex];
+}
+/* ---------------------------------------------------------------------- */
+__global__ void _transpose_102(double * in, double * out, int ax1, int ax2, int ax3) {
+    // abc->acb
+    int i = blockIdx.x * blockDim.x + threadIdx.x;
+    int j = blockIdx.y * blockDim.y + threadIdx.y;
+    int k = blockIdx.z * blockDim.z + threadIdx.z;
+
+    if(i >= ax1) return;
+    if(j >= ax2) return;
+    if(k >= ax3) return;
+
+    int inputIndex = (j*ax1+i)*ax3+k;
+    int outputIndex = (i*ax2+j)*ax3+k;
     //printf("%i %i %i %f\n",i, j, k, in[inputIndex]);
     out[outputIndex] = in[inputIndex];
 }
 
 
+/* ---------------------------------------------------------------------- */
+__global__ void _transpose_2130(const double * in, double * out, int ax1, int ax2, int ax3, int ax4) {
+    // rs(bazl)k->(bazl)skr
+    int idx1 = blockIdx.x * blockDim.x + threadIdx.x;
+    int idx2 = blockIdx.y * blockDim.y + threadIdx.y;
+    int idx3 = blockIdx.z * blockDim.z + threadIdx.z;
 
-
- 
+    if(idx1 >= ax1) return;
+    if(idx2 >= ax2) return;
+    if(idx3 >= ax3) return;
+    int inputIndex, outputIndex;
+    for (int idx4=0;idx4<ax4;++idx4){
+      outputIndex = ((idx3*ax2 + idx2)*ax4 + idx4)*ax1 + idx1; 
+      inputIndex = ((idx1*ax2 + idx2)*ax3 + idx3)*ax4 + idx4;
+      //printf("input: %i: %f output: %i\n",inputIndex, in[inputIndex], outputIndex);
+      out[outputIndex] = in[inputIndex];}
+}
 
 /* ---------------------------------------------------------------------- */
 
@@ -1756,7 +1786,7 @@ void Device::compute_FCItrans_rdm1a_v2(double * cibra, double * ciket, double * 
     }
   
 #ifdef _DEBUG_DEVICE
-    printf("na_ket: %i ia_ket: %i ja_ket: %i ib_ket: %i ib_bra: %i nb_bra: %i nb_ket: %i b_len: %i b_bra_offset: %i b_ket_offset: %i sign: %i\n",na_ket, ia_ket, ja_ket, ib_ket, ib_bra, nb_bra, nb_ket, b_len, b_bra_offset, b_ket_offset, sign);
+    //printf("na_ket: %i ia_ket: %i ja_ket: %i ib_ket: %i ib_bra: %i nb_bra: %i nb_ket: %i b_len: %i b_bra_offset: %i b_ket_offset: %i sign: %i\n",na_ket, ia_ket, ja_ket, ib_ket, ib_bra, nb_bra, nb_ket, b_len, b_bra_offset, b_ket_offset, sign);
 #endif
   _CUDA_CHECK_ERRORS();
 }
@@ -1833,6 +1863,7 @@ void Device::compute_FCIrdm2_a_t1ci_v2(double * ci, double * buf, int stra_id, i
   dim3 block_size(1, 1, _DEFAULT_BLOCK_SIZE);
   dim3 grid_size(_TILE(batches, block_size.x),_TILE(nb, block_size.y), 1);
   _compute_FCIrdm2_a_t1ci_v4<<<grid_size, block_size, 0,s>>>(ci, buf, stra_id,batches,nb, norb, nlinka, link_index);
+  _CUDA_CHECK_ERRORS();
 #ifdef _DEBUG_DEVICE 
   printf("LIBGPU ::  -- general::compute_FCIrdm2_a_t1ci; :: Nb= %i Norb =%i Nlinka =%i grid_size= %i %i %i  block_size= %i %i %i\n",
 	 nb, norb, nlinka, grid_size.x,grid_size.y,grid_size.z,block_size.x,block_size.y,block_size.z);
@@ -1845,7 +1876,6 @@ void Device::compute_FCIrdm2_b_t1ci_v2(double * ci, double * buf, int stra_id, i
   cudaStream_t s = *(pm->dev_get_queue());
   dim3 block_size(1, 1,_DEFAULT_BLOCK_SIZE);
   dim3 grid_size(_TILE(batches,block_size.x),_TILE(nb, block_size.y), 1);
-
   _compute_FCIrdm2_b_t1ci_v4<<<grid_size, block_size, 0,s>>>(ci, buf, stra_id, batches, nb, norb, nlinkb, link_index);
   
 #ifdef _DEBUG_DEVICE 
@@ -1868,10 +1898,10 @@ void Device::compute_FCIrdm3h_a_t1ci_v2(double * ci, double * buf, int stra_id, 
   dim3 grid_size(_TILE(jb-ib, block_size.x), 1, 1);
   _compute_FCIrdm3h_a_t1ci_v4<<<grid_size, block_size, 0,s>>>(ci, buf, stra_id, nb, norb, nlinka, ia, ja, ib, jb, link_index);
   #endif
+  _CUDA_CHECK_ERRORS();
 #ifdef _DEBUG_DEVICE 
   printf("LIBGPU ::  -- general::compute_FCIrdm2_a_t1ci; :: Nb= %i Norb =%i Nlinka =%i grid_size= %i %i %i  block_size= %i %i %i\n",
 	 nb, norb, nlinka, grid_size.x,grid_size.y,grid_size.z,block_size.x,block_size.y,block_size.z);
-  _CUDA_CHECK_ERRORS();
 #endif
 }
 /* ---------------------------------------------------------------------- */
@@ -1949,9 +1979,10 @@ void Device::transpose_jikl(double * tdm, double * buf, int norb)
 void Device::reduce_buf3_to_rdm(const double * buf3, double * dm2, int size_tdm2, int num_gemm_batches)
 {
   cudaStream_t s = *(pm->dev_get_queue());
+  _CUDA_CHECK_ERRORS();
   dim3 block_size(_DEFAULT_BLOCK_SIZE, 1,1);
   dim3 grid_size (_TILE(size_tdm2, block_size.x),1,1);
-  vecadd_batch(buf3, dm2, size_tdm2, num_gemm_batches);
+  _vecadd_batch<<<grid_size, block_size,0, s>>>(buf3, dm2, size_tdm2, num_gemm_batches);
   _CUDA_CHECK_ERRORS();
 }
 
@@ -2064,14 +2095,28 @@ void Device::veccopy(const double * src, double *dest, int size)
 
 /* ---------------------------------------------------------------------- */
 
-void Device::transpose_021( double * in, double * out, int norb)
+void Device::transpose_021( double * in, double * out, int ax1, int ax2, int ax3)
 {
   cudaStream_t s = *(pm->dev_get_queue());
   //dim3 block_size(_DEFAULT_BLOCK_SIZE, _DEFAULT_BLOCK_SIZE, _DEFAULT_BLOCK_SIZE);
   dim3 block_size(1,1,1);
-  dim3 grid_size(_TILE(norb, block_size.x),_TILE(norb, block_size.y),_TILE(norb, block_size.z));
+  dim3 grid_size(_TILE(ax1, block_size.x),_TILE(ax2, block_size.y),_TILE(ax3, block_size.z));
   #if 1
-  _transpose_021<<<grid_size, block_size, 0, s>>>(in, out, norb);
+  _transpose_021<<<grid_size, block_size, 0, s>>>(in, out, ax1, ax2, ax3);
+  #else
+
+  #endif
+  _CUDA_CHECK_ERRORS();
+}
+/* ---------------------------------------------------------------------- */
+void Device::transpose_102( double * in, double * out, int ax1, int ax2, int ax3)
+{
+  cudaStream_t s = *(pm->dev_get_queue());
+  //dim3 block_size(_DEFAULT_BLOCK_SIZE, _DEFAULT_BLOCK_SIZE, _DEFAULT_BLOCK_SIZE);
+  dim3 block_size(1,1,1);
+  dim3 grid_size(_TILE(ax1, block_size.x),_TILE(ax2, block_size.y),_TILE(ax3, block_size.z));
+  #if 1
+  _transpose_102<<<grid_size, block_size, 0, s>>>(in, out, ax1, ax2, ax3);
   #else
 
   #endif
@@ -2079,6 +2124,18 @@ void Device::transpose_021( double * in, double * out, int norb)
 }
 
 /* ---------------------------------------------------------------------- */
+void Device::transpose_2130(const double * in, double * out, int ax1, int ax2, int ax3, int ax4)
+{
+  cudaStream_t s = *(pm->dev_get_queue());
+  dim3 block_size(1, 1,1);
+  dim3 grid_size(_TILE(ax1, block_size.x),_TILE(ax2, block_size.y),_TILE(ax3,block_size.z));
+  _transpose_2130<<<grid_size, block_size, 0, s>>>(in, out, ax1, ax2, ax3, ax4);
+  _CUDA_CHECK_ERRORS();
+}
+
+/* ---------------------------------------------------------------------- */
+
+
 
 
 #endif
