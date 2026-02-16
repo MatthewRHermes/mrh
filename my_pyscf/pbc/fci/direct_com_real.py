@@ -464,6 +464,10 @@ class FCISolver(direct_spin1.FCISolver):
     def make_rdm12_py(self, fcivec, norb, nelec, link_index=None, reorder=True):
         return make_rdm12_py(fcivec, norb, nelec, link_index, reorder)
     
+    def spin_square(self, fcivec, norb, nelec):
+        from mrh.my_pyscf.pbc.fci import spin_op
+        return spin_op.spin_square0(fcivec, norb, nelec)
+
 FCI = FCISolver
 
 def _unpack(norb, nelec, link_index):
