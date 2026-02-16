@@ -2342,9 +2342,36 @@ class LASCINoSymm (casci.CASCI):
     get_init_guess_ci = get_init_guess_ci
     _combine_init_guess_ci = _combine_init_guess_ci
     localize_init_guess=lasscf_guess.localize_init_guess
-    def _svd (self, mo_lspace, mo_rspace, s=None, **kwargs):
+
+    def _svd (self, mo_lspace, mo_rspace, s=None, mo_occ=None, **kwargs):
+        # if mo_occ is nontrivial, then I don't care about the lvecs
+        if mo_occ is None: mo_occ = np.ones (mo_rspace.shape[1], dtype=int)
+        mo_occ1 = []
+        svals = []
+        mo_rvecs = []
+        for m in np.unique (mo_occ):
+            idx = (mo_occ==m)
+            l, sv, r = self._svd1 (mo_lspace, mo_rspace[:,idx], s=s, **kwargs)
+            k = min (len (sv), np.count_nonzero (idx))
+            mo_lvecs = l
+            svals.append (sv[:k])
+            mo_rvecs.append (r[:,:k])
+            mo_occ1.append (np.asarray ([m,]*k))
+        mo_rvecs = np.concatenate (mo_rvecs, axis=1)
+        svals = np.concatenate (svals)
+        mo_occ1 = np.concatenate (mo_occ1)
+        idx = np.argsort (-svals)
+        svals = svals[idx]
+        mo_occ1 = mo_occ1[idx]
+        k = len (idx)
+        mo_lvecs[:,:k] = mo_lvecs[:,:k][:,idx]
+        mo_rvecs = mo_rvecs[:,idx]
+        return mo_lvecs, svals, mo_rvecs, mo_occ1
+
+    def _svd1 (self, mo_lspace, mo_rspace, s=None, **kwargs):
         if s is None: s = self._scf.get_ovlp ()
-        return matrix_svd_control_options (s, lspace=mo_lspace, rspace=mo_rspace, full_matrices=True)[:3]
+        return matrix_svd_control_options (s, lspace=mo_lspace, rspace=mo_rspace,
+                                           full_matrices=True)[:4]
 
     def dump_flags (self, verbose=None, _method_name='LASCI'):
         log = lib.logger.new_logger (self, verbose)
@@ -2535,15 +2562,16 @@ class LASCISymm (casci_symm.CASCI, LASCINoSymm):
         
     @lib.with_doc(LASCINoSymm.localize_init_guess.__doc__)
     def localize_init_guess (self, frags_atoms, mo_coeff=None, spin=None, lo_coeff=None, fock=None,
-                             freeze_cas_spaces=False):
+                             mo_occ=None, freeze_cas_spaces=False):
         if mo_coeff is None:
             mo_coeff = self.mo_coeff
         mo_coeff = casci_symm.label_symmetry_(self, mo_coeff)
         return LASCINoSymm.localize_init_guess (self, frags_atoms, mo_coeff=mo_coeff, spin=spin,
-            lo_coeff=lo_coeff, fock=fock, freeze_cas_spaces=freeze_cas_spaces)
+            lo_coeff=lo_coeff, fock=fock, mo_occ=mo_occ, freeze_cas_spaces=freeze_cas_spaces)
 
-    def _svd (self, mo_lspace, mo_rspace, s=None, **kwargs):
-        if s is None: s = self._scf.get_ovlp ()
+    def _svd (self, mo_lspace, mo_rspace, s=None, mo_occ=None, **kwargs):
+        # if mo_occ is nontrivial, then I don't care about the lvecs
+        if mo_occ is None: mo_occ = np.ones (mo_rspace.shape[1], dtype=int)
         lsymm = getattr (mo_lspace, 'orbsym', None)
         if lsymm is None:
             mo_lspace = symm.symmetrize_space (self.mol, mo_lspace)
@@ -2554,6 +2582,36 @@ class LASCISymm (casci_symm.CASCI, LASCINoSymm):
             mo_rspace = symm.symmetrize_space (self.mol, mo_rspace)
             rsymm = symm.label_orb_symm(self.mol, self.mol.irrep_id,
                 self.mol.symm_orb, mo_rspace, s=s)
+        mo_occ1 = []
+        svals = []
+        mo_rvecs = []
+        rsymm1 = []
+        for m in np.unique (mo_occ):
+            idx = (mo_occ==m)
+            l, sv, r = self._svd1 (mo_lspace, mo_rspace[:,idx], lsymm, rsymm[idx], s=s, **kwargs)
+            mo_lvecs = l
+            k = min (len (sv), np.count_nonzero (idx))
+            svals.append (sv[:k])
+            mo_rvecs.append (r[:,:k])
+            mo_occ1.append (np.asarray ([m,]*k))
+            rsymm1.append (r.orbsym)
+        mo_rvecs = np.concatenate (mo_rvecs, axis=1)
+        svals = np.concatenate (svals)
+        mo_occ1 = np.concatenate (mo_occ1)
+        idx = np.argsort (-svals)
+        svals = svals[idx]
+        mo_occ1 = mo_occ1[idx]
+        mo_rvecs = mo_rvecs[:,idx]
+        lsymm = mo_lvecs.orbsym
+        k = len (idx)
+        lsymm[:k] = lsymm[:k][idx]
+        mo_lvecs[:,:k] = mo_lvecs[:,:k][:,idx]
+        mo_rvecs = lib.tag_array (mo_rvecs, orbsym=np.concatenate (rsymm1))
+        mo_lvecs = lib.tag_array (mo_lvecs, orbsym=lsymm)
+        return mo_lvecs, svals, mo_rvecs, mo_occ1
+
+    def _svd1 (self, mo_lspace, mo_rspace, lsymm, rsymm, s=None, **kwargs):
+        if s is None: s = self._scf.get_ovlp ()
         decomp = matrix_svd_control_options (s,
             lspace=mo_lspace, rspace=mo_rspace,
             lspace_symmetry=lsymm, rspace_symmetry=rsymm,

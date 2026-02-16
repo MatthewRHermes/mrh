@@ -28,11 +28,80 @@ def _trans_rdm1s(cibra, ciket, norb, nelec, link_index=None):
 
     1pdm[p,q] = :math:`\langle q^\dagger p \rangle`
     '''
+    from pyscf.lib import param
+    try: 
+      use_gpu = param.use_gpu
+      gpu = use_gpu
+    except: 
+      use_gpu = None
+    try: gpu_debug = param.gpu_debug
+    except: gpu_debug = False
+    try: custom_fci = param.custom_fci
+    except: custom_fci = False
+    try: custom_debug = param.custom_debug
+    except: custom_debug = False
+
+    if custom_fci and custom_debug and use_gpu:
+      rdm1a, rdm1b = trans_rdm1s_o0(cibra, ciket, norb, nelec, link_index)
+      rdm1a_c, rdm1b_c = trans_rdm1s_o1(cibra, ciket, norb, nelec, link_index)
+      rdm1a_correct = numpy.allclose(rdm1a, rdm1a_c)
+      rdm1b_correct = numpy.allclose(rdm1b, rdm1b_c)
+      if rdm1a_correct*rdm1b_correct:
+        print("All DMs calculated correctly")
+      else:
+        print("rdm1a_correct?", rdm1a_correct) 
+        print("rdm1b_correct?", rdm1b_correct) 
+        exit()
+    elif custom_fci and use_gpu: 
+      #rdm1a, rdm1b = trans_rdm1s_o1(cibra, ciket, norb, nelec, link_index)
+      rdm1a, rdm1b = _trans_rdm1s_o0(cibra, ciket, norb, nelec, link_index)
+    else: 
+      rdm1a, rdm1b = _trans_rdm1s_o0(cibra, ciket, norb, nelec, link_index)
+    return rdm1a, rdm1b 
+
+def _trans_rdm1s_o0(cibra, ciket, norb, nelec, link_index=None):
     rdm1a = rdm.make_rdm1_spin1('FCItrans_rdm1a', cibra, ciket,
                                 norb, nelec, link_index)
     rdm1b = rdm.make_rdm1_spin1('FCItrans_rdm1b', cibra, ciket,
                                 norb, nelec, link_index)
     return rdm1a, rdm1b
+
+def _trans_rdm1s_o1(cibra, ciket, norb, nelec, link_index=None):
+
+    rdm1a = np.empty((norb,norb))
+    rdm1b = np.empty((norb,norb))
+    if link_index is None:
+        neleca, nelecb = _unpack_nelec(nelec)
+        link_indexa = link_indexb = cistring.gen_linkstr_index(range(norb), neleca)
+        if neleca != nelecb:
+            link_indexb = cistring.gen_linkstr_index(range(norb), nelecb)
+    else:
+        link_indexa, link_indexb = link_index
+    na,nlinka = link_indexa.shape[:2]
+    nb,nlinkb = link_indexb.shape[:2]
+    cibra = numpy.ascontiguousarray(cibra)
+    ciket = numpy.ascontiguousarray(ciket)
+    assert (cibra.size == na*nb), '{} {} {}'.format (cibra.size, na, nb)
+    assert (ciket.size == na*nb), '{} {} {}'.format (ciket.size, na, nb)
+
+    libgpu.init_tdm1(gpu, norb)
+    #remember, this is just one GPU work.
+    libgpu.push_cibra(gpu, cibra, na, nb, 0)
+    libgpu.push_ciket(gpu, ciket, na, nb, 0)
+    libgpu.push_link_indexa(gpu, na, nlinka, link_indexa) 
+    libgpu.compute_trans_rdm1a(gpu, na, nb, nlinka, nlinkb, norb, 0) 
+    libgpu.pull_tdm1(gpu, rdm1a, norb, 0)
+    libgpu.push_link_indexb(gpu, nb, nlinkb, link_indexb) 
+    libgpu.compute_trans_rdm1b(gpu, na, nb, nlinka, nlinkb, norb, 0) 
+    libgpu.pull_tdm1(gpu, rdm1b, norb, 0)
+    #TODO: finish the rest
+    #rdm1a = rdm.make_rdm1_spin1('FCItrans_rdm1a', cibra, ciket,
+    #                            norb, nelec, link_index)
+    #rdm1b = rdm.make_rdm1_spin1('FCItrans_rdm1b', cibra, ciket,
+    #                            norb, nelec, link_index)
+    return rdm1a.T, rdm1b.T
+
+
 
 def _trans_rdm12s(cibra, ciket, norb, nelec, link_index=None, reorder=True):
     r'''Spin separated 1- and 2-particle transition density matrices.

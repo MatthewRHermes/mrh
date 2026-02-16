@@ -169,6 +169,7 @@ def contract_ham_ci (las, h1, h2, ci_fr, nelec_frs, si_bra=None, si_ket=None, ci
         assert (si_bra.shape[1] == si_ket.shape[1])
 
     # First pass: single-fragment intermediates
+    t00 = (lib.logger.process_clock (), lib.logger.perf_counter ())
     ints, lroots = frag.make_ints (las, ci, nelec_frs, nlas=nlas, smult_fr=smult_fr,
                                    screen_linequiv=False,
                                    mask_ints=mask_ints,
@@ -181,6 +182,7 @@ def contract_ham_ci (las, h1, h2, ci_fr, nelec_frs, si_bra=None, si_ket=None, ci
     si_ket = map_sivec_to_larger_space (si_ket, lroots, mask_ket_space)
 
     # Second pass: upper-triangle
+    t01 = log.timer ('LASSI hci frag tdm', *t00)
     t0 = (lib.logger.process_clock (), lib.logger.perf_counter ())
     max_memory = getattr (las, 'max_memory', las.mol.max_memory)
     contracter = ContractHamCI (las, ints, nlas, lroots, h0, h1, h2, si_bra=si_bra,
@@ -188,13 +190,15 @@ def contract_ham_ci (las, h1, h2, ci_fr, nelec_frs, si_bra=None, si_ket=None, ci
                                 mask_ket_space=mask_ket_space, pt_order=pt_order,
                                 do_pt_order=do_pt_order, add_transpose=add_transpose, accum=accum,
                                 dtype=ci[0][0].dtype, max_memory=max_memory, log=log)
-    log.timer ('LASSI hci setup', *t0)
+    t02 = log.timer ('LASSI hci setup', *t01)
     hket_fr_pabq, t0 = contracter.kernel ()
+    t03 = log.timer ('LASSI hci contractor kernel', *t02)
     if si_ndim==1:
         for i, hket_r_pabq in enumerate (hket_fr_pabq):
             for j, hket_pabq in enumerate (hket_r_pabq):
                 hket_pabq = hket_pabq[0]
                 hket_fr_pabq[i][j] = hket_pabq
+    t03 = log.timer ('LASSI hci rearrange', *t02)
     log.timer ('LASSI hci crunching', *t0)
     if verbose >= lib.logger.TIMER_LEVEL:
         log.info ('LASSI hci crunching profile:\n%s',
