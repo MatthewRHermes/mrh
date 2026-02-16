@@ -127,9 +127,14 @@ def kernel (las, mo_coeff=None, ci0=None, conv_tol_grad=1e-4,
     log.info ('LASSCF E = %.15g ; |g| = %.15g', e_tot,
               norm_gvec)
     t1 = log.timer ('LASSCF final energy', *t1)
-    mo_coeff, mo_energy, mo_occ, ci1, h2eff_sub = las.canonicalize (mo_coeff, ci1, veff=veff,
-                                                                    h2eff_sub=h2eff_sub)
-    t1 = log.timer ('LASSCF canonicalization', *t1)
+    if las.canonicalization:
+        mo_coeff, mo_energy, mo_occ, ci1, h2eff_sub = las.canonicalize (
+            mo_coeff, ci1, veff=veff, h2eff_sub=h2eff_sub)
+        t1 = log.timer ('LASSCF canonicalization', *t1)
+    else:
+        fock = mo_coeff.conjugate ().T @ las.get_fock (mo_coeff=mo_coeff, ci=ci1,
+                                                       veff=veff)
+        mo_energy = (fock * mo_coeff).sum (0)
     t0 = log.timer ('LASSCF kernel function', *t0)
 
     e_cas = None # TODO: get rid of this worthless, meaningless variable
