@@ -61,6 +61,7 @@ def _localize (las, frags_orbs, mo_coeff, spin, lo_coeff, fock, ao_ovlp, freeze_
     mo_coeff = mo_coeff.copy () # Safety
     if mo_occ is not None:
         freeze_cas_spaces = True
+        mo_occ = mo_occ.copy ()
     else:
         mo_occ = np.zeros (nmo, dtype=int)
         mo_occ[:ncore] = 2
