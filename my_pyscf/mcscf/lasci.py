@@ -222,7 +222,8 @@ def density_fit (las, auxbasis=None, with_df=None):
     return new_las
 
 def h1e_for_las (las, mo_coeff=None, ncas=None, ncore=None, nelecas=None, ci=None, ncas_sub=None,
-                 nelecas_sub=None, veff=None, h2eff_sub=None, casdm1s_sub=None, casdm1frs=None):
+                 nelecas_sub=None, veff=None, h2eff_sub=None, casdm1s_sub=None, casdm1frs=None,
+                 eri_cas=None):
     ''' Effective one-body Hamiltonians (plural) for a LASCI problem
 
     Args:
@@ -277,8 +278,12 @@ def h1e_for_las (las, mo_coeff=None, ncas=None, ncore=None, nelecas=None, ci=Non
     moH_cas = mo_cas.conj ().T 
     h1e = moH_cas @ (las.get_hcore ()[None,:,:] + veff) @ mo_cas
     h1e_r = np.empty ((las.nroots, 2, ncas, ncas), dtype=h1e.dtype)
-    h2e = lib.numpy_helper.unpack_tril (h2eff_sub.reshape (nmo*ncas,
-        ncas*(ncas+1)//2)).reshape (nmo, ncas, ncas, ncas)[ncore:nocc,:,:,:]
+    if eri_cas is None:
+        eri_cas = lib.numpy_helper.unpack_tril (h2eff_sub.reshape (nmo*ncas,
+            ncas*(ncas+1)//2)).reshape (nmo, ncas, ncas, ncas)[ncore:nocc,:,:,:]
+    else:
+        assert (eri_cas.shape==(ncas,ncas,ncas,ncas))
+    h2e = eri_cas
     avgdm1s = np.stack ([linalg.block_diag (*[dm[spin] for dm in casdm1s_sub])
                          for spin in range (2)], axis=0)
     for state in range (las.nroots):
@@ -296,7 +301,7 @@ def h1e_for_las (las, mo_coeff=None, ncas=None, ncore=None, nelecas=None, ci=Non
         p = sum (las.ncas_sub[:ix])
         q = p + las.ncas_sub[ix]
         h1e = h1e_r[:,:,p:q,p:q]
-        h2e = las.get_h2eff_slice (h2eff_sub, ix)
+        h2e = eri_cas[p:q,p:q,p:q,p:q]
         j = np.tensordot (casdm1s_r, h2e, axes=((2,3),(2,3)))
         k = np.tensordot (casdm1s_r, h2e, axes=((2,3),(2,1)))
         h1e_fr.append (h1e - j - j[:,::-1] + k)
@@ -503,15 +508,23 @@ def get_init_guess_ci (las, mo_coeff=None, h2eff_sub=None, ci0=None, eri_cas=Non
         eri_cas = lib.numpy_helper.unpack_tril (h2eff_sub.reshape (nmo*ncas, ncas*(ncas+1)//2))
         eri_cas = eri_cas.reshape (nmo, ncas, ncas, ncas)
         eri_cas = eri_cas[ncore:nocc]
-    dm1_core= 2 * mo_coeff[:,:ncore] @ mo_coeff[:,:ncore].conj ().T
-    h1e_ao = las._scf.get_fock (dm=dm1_core)
+    for ix, (fcibox, norb, nelecas) in enumerate (zip (las.fciboxes,las.ncas_sub,las.nelecas_sub)):
+        for iy, solver in enumerate (fcibox.fcisolvers):
+            nelec = fcibox._get_nelec (solver, nelecas)
+            solver.norb, solver.nelec = norb, nelec
+            solver.check_transformer_cache ()
+            t = solver.transformer
+            c = np.zeros ((t.ncsf,), dtype=float)
+            c[0] = 1.0
+            ci0[ix][iy] = t.vec_csf2det (c, normalize=True)
+            
+    h1eff = las.get_h1eff (mo_coeff=mo_coeff, ci=ci0, eri_cas=eri_cas)
     for ix, (fcibox, norb, nelecas) in enumerate (zip (las.fciboxes,las.ncas_sub,las.nelecas_sub)):
         i = sum (las.ncas_sub[:ix])
         j = i + norb
         mo = mo_coeff[:,ncore+i:ncore+j]
         moH = mo.conj ().T
-        h1e = moH @ h1e_ao @ mo
-        h1e = [h1e, h1e]
+        h1e = h1eff[ix]
         eri = eri_cas[i:j,i:j,i:j,i:j]
         for iy, solver in enumerate (fcibox.fcisolvers):
             nelec = fcibox._get_nelec (solver, nelecas)
