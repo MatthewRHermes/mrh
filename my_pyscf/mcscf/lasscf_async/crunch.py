@@ -1104,6 +1104,7 @@ def get_impurity_casscf (las, ifrag, imporb_builder=None):
     if imporb_builder is not None:
         imporb_builder.log = logger.new_logger (imc, imc.verbose)
     imc._imporb_builder = imporb_builder
+    imc.canonicalization = False
     params = getattr (las, 'impurity_params', {})
     glob = {key: val for key, val in params.items () if isinstance (key, str)}
     imc.__dict__.update (glob)
@@ -1144,6 +1145,7 @@ def get_pair_lasci (las, frags, inherit_df=False):
     ilas._ifrags = frags
     ilas.conv_tol_grad = 'DEFAULT'
     ilas.min_cycle_macro = 1
+    ilas.canonicalization = False
     params = getattr (las, 'relax_params', {})
     glob = {key: val for key, val in params.items () if isinstance (key, str)}
     glob = {key: val for key, val in glob.items () if key not in ('frozen', 'frozen_ci')}
