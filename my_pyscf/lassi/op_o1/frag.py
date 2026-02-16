@@ -1321,7 +1321,6 @@ def make_ints (las, ci, nelec_frs, smult_fr=None, screen_linequiv=DO_SCREEN_LINE
     '''
     t0 = (lib.logger.process_clock (), lib.logger.perf_counter ())
     nfrags, nroots = nelec_frs.shape[:2]
-    print("verbose:", verbose)
     if verbose is None: verbose = las.verbose
     log = lib.logger.new_logger (las, verbose)
     max_memory = getattr (las, 'max_memory', las.mol.max_memory)
