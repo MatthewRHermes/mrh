@@ -11,6 +11,8 @@ from pyscf import lib
 from pyscf.lib import logger
 from pyscf import gto, scf, ao2mo, fci
 from pyscf.mcscf import addons
+
+from pyscf.fci.addons import _unpack_nelec
 from pyscf import __config__
 from pyscf import mcscf
 from mrh.my_pyscf.pbc.fci import direct_com_real
@@ -87,6 +89,40 @@ def h1e_for_cas(casci, mo_coeff=None, ncas=None, ncore=None):
 
     return h1eff_R, ecore
 
+def kernel(casci, mo_coeff=None, ci0=None, verbose=logger.NOTE):
+    '''
+    '''
+    if mo_coeff is None: mo_coeff = casci.mo_coeff
+    if ci0 is None: ci0 = casci.ci
+
+    log = logger.new_logger(casci, verbose)
+    t0 = (logger.process_clock(), logger.perf_counter())
+    log.debug('Start CASCI')
+
+    nkpts = casci.nkpts
+    ncas = casci.ncas
+    nelecas = casci.nelecas
+    nelecas = _unpack_nelec(nelecas, ncas)
+    eri_cas = casci.get_h2eff(mo_coeff)
+    t1 = log.timer('integral transformation to CAS space', *t0)
+    h1eff, energy_core = casci.get_h1eff(mo_coeff)
+    log.debug('core energy = %.15g', energy_core)
+
+    max_memory = max(4000, casci.max_memory-lib.current_memory()[0])
+    
+    assert eri_cas.shape == (nkpts*ncas, nkpts*ncas, nkpts*ncas, nkpts*ncas)
+    assert h1eff.shape == (nkpts*ncas, nkpts*ncas)
+
+    e_tot, fcivec = casci.fcisolver.kernel(h1eff, eri_cas, nkpts*ncas, nkpts*nelecas, 
+                                           ci0=ci0, verbose=log, max_memory=max_memory, 
+                                           e_core=energy_core)
+    t1 = log.timer('FCI solver', *t1)
+    e_cas = e_tot - energy_core
+
+    # The energy is per-unit cell
+    e_cas /= nkpts
+    e_tot /= nkpts
+    return e_tot, e_cas, fcivec
 
 class PBCCASBASE(mcscf.casci.CASBase):
     """
@@ -284,6 +320,37 @@ class PBCCASBASE(mcscf.casci.CASBase):
     def get_h1cas(**kwargs):
         pass
 
+    def _finalize(self):
+        log = logger.Logger(self.stdout, self.verbose)
+        nkpts = self.nkpts
+        if log.verbose >= logger.NOTE and getattr(self.fcisolver, 'spin_square', None):
+            if isinstance(self.e_cas, (np.complex128, np.float64)):
+                try:
+                    ss = self.fcisolver.spin_square(self.ci, nkpts*self.ncas, nkpts*self.nelecas)
+                    log.note('CASCI E (per k-point)= %#.15g  E(CI) = %#.15g  S^2 = %.7f',
+                             self.e_tot, self.e_cas, ss[0])
+                except NotImplementedError:
+                    log.note('CASCI E (per k-point) = %#.15g  E(CI) = %#.15g',
+                             self.e_tot, self.e_cas)
+            else:
+                for i, e in enumerate(self.e_cas):
+                    try:
+                        ss = self.fcisolver.spin_square(self.ci[i], nkpts*self.ncas, nkpts*self.nelecas)
+                        log.note('CASCI E (per k-point) state %3d  E = %#.15g  E(CI) = %#.15g  S^2 = %.7f',
+                                 i, self.e_tot[i], e, ss[0])
+                    except NotImplementedError:
+                        log.note('CASCI E (per k-point) state %3d  E = %#.15g  E(CI) = %#.15g',
+                                 i, self.e_tot[i], e)
+
+        else:
+            if isinstance(self.e_cas, (np.complex128, np.float64)):
+                log.note('CASCI E (per k-point)= %#.15g  E(CI) = %#.15g', self.e_tot, self.e_cas)
+            else:
+                for i, e in enumerate(self.e_cas):
+                    log.note('CASCI E (per k-point) state %3d  E = %#.15g  E(CI) = %#.15g',
+                             i, self.e_tot[i], e)
+        return self
+
     def kernel(**kwargs):
         pass
 
@@ -322,6 +389,7 @@ class PBCCASCI(PBCCASBASE):
         eris = eri.reshape(nkpts*ncas, nkpts*ncas, nkpts*ncas, nkpts*ncas)
         return eris
     
+
     def kernel(self, mo_coeff=None, ci0=None, verbose=None):
         '''
         args:
@@ -357,11 +425,13 @@ class PBCCASCI(PBCCASBASE):
         if self.natorb:
             raise NotImplementedError
 
+        # Check for convergence:
         if getattr(self.fcisolver, 'converged', None) is not None:
             self.converged = np.all(self.fcisolver.converged)
             if self.converged: log.info('CASCI converged')
             else: log.info('CASCI not converged')
-        else: self.converged = True
+        else: 
+            self.converged = True
 
         self._finalize()
 
@@ -369,3 +439,6 @@ class PBCCASCI(PBCCASBASE):
     
     def nuc_grad_method(self):
         raise NotImplementedError
+
+
+CASCI = PBCCASCI
