@@ -513,7 +513,7 @@ def get_init_guess_ci (las, mo_coeff=None, h2eff_sub=None, ci0=None, eri_cas=Non
         i = sum (las.ncas_sub[:ix])
         j = i + norb
         orbsym = getattr (mo_coeff, 'orbsym', None)
-        if orbsym is not None: orbsym=orbsym[i:j]
+        if orbsym is not None: orbsym=orbsym[ncore+i:ncore+j]
         casdm1frs.append (fcibox.get_aufbau_states_rdm1s (norb, nelecas, orbsym=orbsym))
 
     h1eff = las.get_h1eff (mo_coeff=mo_coeff, casdm1frs=casdm1frs, eri_cas=eri_cas)
