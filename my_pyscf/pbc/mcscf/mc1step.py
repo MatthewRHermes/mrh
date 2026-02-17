@@ -73,7 +73,6 @@ def gen_g_hop(mc, mo_coeff, mo_phase, u, casdm1, casdm2, eris):
 
     for k1, k2, k3 in kpts_helper.loop_kkk(nkpts):
         k4 = kconserv[k1, k2, k3]
-
         # I think we should not loop over nmo:
         # First I made the without for loop version for the molecular case.
         # vhf_a = np.einsum('iquv,uv->iq', ppaa, casdm1) 
@@ -124,7 +123,56 @@ def gen_g_hop(mc, mo_coeff, mo_phase, u, casdm1, casdm2, eris):
     hcore = None
 
     def gorb_update(u, fcivec):
-        pass
+        g = np.zeros_like((nkpts, nmo, nmo), dtype=dtype)
+        casdm1, casdm2 = mc.fcisolver.make_rdm12(fcivec, nkpts*ncas, (nkpts*nelecas[0], nkpts*nelecas[1]))
+        for k in range(nkpts):
+            uc = u[k][:, :ncore].copy()
+            ua = u[k][:, ncore:nocc].copy()
+            rmat = u[k] - np.eye(nmo)
+            ra = rmat[:, ncore:nocc].copy()
+            mo1 = np.dot(mo_coeff[k], u[k])
+            mo_c = np.dot(mo_coeff[k], uc)
+            mo_a = np.dot(mo_coeff[k], ua)
+            dm_c = np.dot(mo_c, mo_c.conj().T) * 2.0
+            casdm1_k = reduce(np.dot, (mo_phase[k], casdm1, mo_phase[k].conj().T))
+            dm_a = reduce(np.dot, (mo_a, casdm1_k, mo_a.conj().T))
+            vj, vk = mc.get_jk(mc._scf.cell, (dm_c, dm_a), kpts=mc._scf.kpts)
+            vhf_c = reduce(np.dot, (mo1.conj().T, vj[0]-vk[0]*0.5, mo1[:,:nocc]))
+            vhf_a = reduce(np.dot, (mo1.conj().T, vj[1]-vk[1]*0.5, mo1[:,:nocc]))
+            h1e_mo1 = reduce(np.dot, (u[k].conj().T, h1e_mo[k], u[k][:,:nocc]))
+            
+            p1aa = np.empty((nkpts, nkpts, nkpts, nmo, ncas, ncasncas), dtype=dtype)
+            paa1 = np.empty((nkpts, nkpts, nkpts, nmo, ncasncas, ncas), dtype=dtype)
+            aaaa = np.empty((nkpts, nkpts, nkpts, ncas, ncas, ncas, ncas), dtype=dtype)
+
+            for k1, k2, k3 in kpts_helper.loop(nkpts):
+                k4 = kconserv[k1, k2, k3]
+                if not k4 == k:
+                    pass
+                else:
+                    jbuf = eris.ppaa[k1, k2, k3]
+                    kbuf = eris.papa[k1, k2, k3]
+                    p1aa[k1, k2, k3] = np.einsum('pu, pqm-> qum', ua, jbuf.reshape(nmo, nmo, -1))
+                    paa1[k1, k2, k3] = np.einsum('pqm, pu-> qmu', kbuf.conj().transpose(0,2,1,3).reshape(nmo, nmo, -1), ra)
+                    aaaa[k1, k2, k3] = jbuf[ncore:nocc, ncore:nocc, :, :]
+                
+            g[k][:, :ncore] = 2.0 * (h1e_mo1[k][:,:ncore] + vhf_c[k][:,:ncore] + vhf_a[k][:,:ncore])
+            g[k][:,ncore:nocc] = np.dot(h1e_mo1[k][:,ncore:nocc] + vhf_c[k][:,ncore:nocc], casdm1_k)
+
+            for k1, k2, k3 in kpts_helper.loop(nkpts):
+                k4 = kconserv[k1, k2, k3]
+                if not k4 == k:
+                    pass
+                else:
+                    dm2_k = np.einsum('ip, jq, pqrs, kr, ls->ijkl', 
+                                      mo_phase[k1], mo_phase[k2], casdm2, mo_phase[k3], mo_phase[k4])
+                    p1aa_k = lib.dot(u[k].conj().T, p1aa[k1, k2, k3].reshape(nmo, -1)).reshape(nmo, ncas, ncas, ncas)
+                    paa1_k = lib.dot(u[k].conj().T, paa1[k1, k2, k3].reshape(nmo, -1)).reshape(nmo, ncas, ncas, ncas)
+                    p1aa_k += paa1_k
+                    p1aa_k += paa1_k.conj().transpose(0, 1, 3, 2)
+                    g[k][:, ncore:nocc] += np.einsum('puwx, wxuv->pv', p1aa_k, dm2_k)
+
+        return [mc.pack_uniq_var(grd - grd.conj().T) for grd in g]    
     
     # Hessian diagonal
     hdiag = np.empty((nkpts, nmo, ncas), dtype=dtype)
@@ -164,7 +212,29 @@ def gen_g_hop(mc, mo_coeff, mo_phase, u, casdm1, casdm2, eris):
                         for k in range(nkpts)])
     
     def h_op(x):
-        x2=None
-        return mc.pack_uniq_var(x2)
+        x2 = np.empty((nkpts, nmo, nmo), dtype=dtype)
+        for k in range(nkpts):
+            x1 = mc.unpack_uniq_var(x[k])
+            x2[k] = reduce(np.dot, (h1e_mo[k], x1, dm1[k]))
+            x2[k] -= 0.5 * np.dot((g[k] + g[k].conj().T), x1)
+            x2[k][:ncore] += 2.0 * reduce(np.dot, (x1[:ncore,ncore:], vhf_ca[k][ncore:]))
+            x2[k][ncore:nocc] += reduce(np.dot, (casdm1, x1[ncore:nocc], eris.vhf_c[k]))
+
+            for k1, k2, k3 in kpts_helper.loop_kkk(nkpts):
+                k4 = kconserv[k1, k2, k3]
+                if not k4 == k:
+                    continue
+                else:
+                    x2[k][:, ncore:nocc] += np.einsum('purv,rv->pu', hdm2[k1, k2, k3], x1[:,ncore:nocc])
+            
+            if ncore > 0:
+                # I need to modify this function: mc.update_jk_in_ah as well.
+                va, vc = mc.update_jk_in_ah(mo_coeff, x1, casdm1, eris)
+                x2[k][ncore:nocc] += va
+                x2[k][:ncore,ncore:] += vc
+            
+            x2[k] = x2[k] - x2[k].conj().T
+
+        return [mc.pack_uniq_var(x2_) for x2_ in x2]
     
     return g_orb, gorb_update, h_op, h_diag
