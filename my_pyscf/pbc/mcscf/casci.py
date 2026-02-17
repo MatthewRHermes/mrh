@@ -1,28 +1,29 @@
-from ast import Sub
-from fileinput import filename
 
 import os
-import tempfile
 import sys
-from turtle import fd
-import warnings
+import tempfile
 import numpy as np
 from functools import reduce
-from pyscf import lib
-from pyscf.lib import logger
 
+from pyscf import lib, mcscf, __config__
+from pyscf.lib import logger
 from pyscf.pbc import scf
 from pyscf.fci.addons import _unpack_nelec
-from pyscf import __config__
-from pyscf import mcscf
 
-from functools import cached_property
 from mrh.my_pyscf.pbc import fci as pbc_fci
 from mrh.my_pyscf.pbc.mcscf.k2R import  get_mo_coeff_k2R
 
 # Global variable to store the 2e integrals
 _CDERI_CACHE_PATH = None
 
+
+WITH_META_LOWDIN = getattr(__config__, 'mcscf_analyze_with_meta_lowdin', True)
+
+
+if sys.version_info < (3,):
+    RANGE_TYPE = list
+else:
+    RANGE_TYPE = range
 
 # 
 # Generalization of the CASCI module with complex integrals for PBC systems.
@@ -38,11 +39,11 @@ in case of rdm also, since the ci are in r-space, construct the 1-RDM and 2-RDM 
 def _basis_transformation(operator, mo):
     return reduce(np.dot, (mo.conj().T, operator, mo))
 
-def h1e_for_cas(casci, mo_coeff=None, ncas=None, ncore=None):
+def h1e_for_cas(mc, mo_coeff=None, ncas=None, ncore=None):
     '''
     Compute the 1e Hamiltonian for CAS space and core energy.
     Args:
-        casci : pbc.mcscf.CASCI
+        mc : pbc.mcscf.CASCI
             The CASCI object.
         mo_coeff : np.ndarray [nk, nao, nmo_k]
             orbitals at each k-point.
@@ -57,64 +58,219 @@ def h1e_for_cas(casci, mo_coeff=None, ncas=None, ncore=None):
             The core energy.
     '''
     
-    if mo_coeff is None: mo_coeff = casci.mo_coeff
-    if ncas is None: ncas = casci.ncas
-    if ncore is None: ncore = casci.ncore
+    if mo_coeff is None: 
+        mo_coeff = mc.mo_coeff
+    if ncas is None: 
+        ncas = mc.ncas
+    if ncore is None: 
+        ncore = mc.ncore
     
-    cell = casci.cell
+    cell = mc.cell
     nao = cell.nao_nr()
 
-    dtype = casci.mo_coeff[0].dtype
-    nkpts = casci.nkpts
-    kpts = casci._scf.kpts
+    dtype = mc.mo_coeff[0].dtype
+    nkpts = mc.nkpts
     mo_core_kpts = [mo[:, :ncore] for mo in mo_coeff]
 
-    h1ao_k = casci.get_hcore()
+    h1ao_k = mc.get_hcore()
 
     # Remember, I am multiplying by nkpts here because total energy would be divided by nkpts later.
-    ecore = casci.energy_nuc() * nkpts
+    ecore = mc.energy_nuc() * nkpts
     if len(mo_core_kpts) == 0:
         corevhf_kpts = 0
     else:
         coredm_kpts = np.asarray([2.0 * (mo_core_kpts[k] @ mo_core_kpts[k].conj().T) 
                                   for k in range(nkpts)], dtype=dtype)
-        corevhf_kpts = casci._scf.get_veff(cell, coredm_kpts, hermi=1)
+        corevhf_kpts = mc._scf.get_veff(cell, coredm_kpts, hermi=1)
         fock = h1ao_k + 0.5 * corevhf_kpts
         ecore += sum(np.einsum('ij,ji', coredm_kpts[k], fock[k]) for k in range(nkpts))
         fock = None  # Free memory
 
     h1ao_k += corevhf_kpts
 
-    phase, mo_coeff_R = get_mo_coeff_k2R(casci._scf, mo_coeff, ncore, ncas)[1:3]
+    phase, mo_coeff_R = get_mo_coeff_k2R(mc._scf, mo_coeff, ncore, ncas)[1:3]
     h1ao_R = np.einsum('Rk,kij,Sk->RiSj', phase, h1ao_k, phase.conj())
     h1ao_R = h1ao_R.reshape(nkpts*nao, nkpts*nao)
     h1eff_R = _basis_transformation(h1ao_R, mo_coeff_R)
     return h1eff_R, ecore
 
-def kernel(casci, mo_coeff=None, ci0=None, verbose=logger.NOTE):
-    '''
-    '''
-    if mo_coeff is None: mo_coeff = casci.mo_coeff
-    if ci0 is None: ci0 = casci.ci
+@lib.with_doc(mcscf.casci.get_fock.__doc__)
+def get_fock(mc, mo_coeff=None, ci=None, eris=None, casdm1=None, verbose=None):
+    
+    if ci is None: 
+        ci = mc.ci
+    if mo_coeff is None: 
+        mo_coeff = mc.mo_coeff
+    
+    cell = mc.cell
+    nkpts = mc.nkpts
+    ncore = mc.ncore
+    ncas = mc.ncas
+    nocc = ncore + ncas
+    nelecas = mc.nelecas
 
-    log = logger.new_logger(casci, verbose)
+    if casdm1 is None:
+        casdm1 = mc.fcisolver.make_rdm1(ci, ncas, nelecas)
+    
+    dtype = casdm1.dtype
+
+    mo_core_kpts = [mo[:, :ncore] for mo in mo_coeff]
+    dm_core = np.asarray([2.0 * (mo_core_kpts[k] @ mo_core_kpts[k].conj().T) 
+                                for k in range(nkpts)], dtype=dtype)
+    
+    hcore_k = mc.get_hcore()
+    fock = np.empty_like(hcore_k, dtype=dtype)
+
+    for k in range(nkpts):
+        mocas = mo_coeff[k][:,ncore:nocc]
+        dm = dm_core[k]
+        dm += reduce(np.dot, (mocas, casdm1[k], mocas.conj().T))
+        vj, vk = mc._scf.get_jk(cell, dm)
+        fock[k] = hcore_k[k] + vj - 0.5*vk
+    
+    hcore_k = dm_core = mo_core_kpts = None
+
+    return fock
+
+def cas_natorb(**kwargs):
+    # TODO: Currently, the natural orbitals are not the prime goal.
+    raise NotImplementedError
+
+@lib.with_doc(mcscf.casci.canonicalize.__doc__)
+def canonicalize(mc, mo_coeff=None, ci=None, eris=None, sort=False, 
+                 cas_natorb=False, casdm1=None, verbose=logger.NOTE,
+                 with_meta_lowdin=WITH_META_LOWDIN, stav_dm1=False):
+    from pyscf.mcscf import addons
+    log = logger.new_logger(mc, verbose)
+    log.debug('Canonicalizing CAS orbitals')
+
+    if mo_coeff is None: 
+        mo_coeff = mc.mo_coeff
+    if ci is None: 
+        ci = mc.ci
+        
+    nkpts = mc.nkpts
+    ncas = mc.ncas
+    nelecas = mc.nelecas
+    ncore = mc.ncore
+    nocc = ncore + ncas
+    nmo = mo_coeff[0].shape[1]
+
+    if casdm1 is None:
+        if (isinstance(ci, (list, tuple, RANGE_TYPE)) and
+                not isinstance(mc.fcisolver, addons.StateAverageFCISolver)):
+            if stav_dm1:
+                log.warn('Mulitple states found in CASCI solver. '
+                         'Use state-average 1RDM  to compute the Fock matrix'
+                         ' and natural orbitals in the active space.')
+                
+                casdm1 = mc.fcisolver.make_rdm1(ci[0], nkpts*ncas, (nkpts*nelecas[0], nkpts*nelecas[1]))
+                for root in range(1, len(ci)):
+                    casdm1 += mc.fcisolver.make_rdm1(ci[root], nkpts*ncas,
+                                                     (nkpts*nelecas[0], nkpts*nelecas[1]))
+                casdm1 /= len(ci)
+            else:
+                log.warn('Mulitple states found in CASCI solver. '
+                         'First state is used to compute the Fock matrix'
+                         ' and natural orbitals in active space.')
+                casdm1 = mc.fcisolver.make_rdm1(ci[0], nkpts*ncas, (nkpts*nelecas[0], nkpts*nelecas[1]))
+        else:
+            casdm1 = mc.fcisolver.make_rdm1(ci, nkpts*ncas, (nkpts*nelecas[0], nkpts*nelecas[1]))
+    
+    fock_ao = get_fock(mc, mo_coeff=mo_coeff, ci=ci, casdm1=casdm1, verbose=verbose)
+
+    if cas_natorb:
+        # Currently not implemented.
+        mo_coeff = cas_natorb(mc, mo_coeff, casdm1, verbose=verbose)
+    else:
+        mo_coeff1 = mo_coeff.copy()
+        log.info('Density matrix diagonal elements')
+        for k in range(nkpts):
+            mo_cas = mo_coeff[k][:, ncore:nocc]
+            # This function needed to be updated
+            dm_k = mo_cas @ casdm1[k] @ mo_cas.conj().T 
+            log.info('k-point %d, diagonal elements of dm: %s', k, np.diag(dm_k))
+
+    mo_energy = [np.einsum('pi, pi-> i', mo_coeff1.conj(), fock_ao[k] @ mo_coeff1) 
+                 for k in range(nkpts)]
+    
+    if getattr(mo_coeff, 'orbsym', None) is not None:
+        raise NotImplementedError('Orbital symmetry is not implemented for PBC CASCI yet.')
+    else:
+        orbsym = np.zeros(nmo, dtype=int)
+
+    extrasym = getattr(mc, 'extrasym', None)
+    if extrasym is not None:
+        raise NotImplementedError('Extra symmetry is not implemented for PBC CASCI yet.')
+    else:
+        orbsym_extra = orbsym
+
+    def _diag_subfock_(idx):
+        if idx.size > 1:
+            for k in range(nkpts):
+                c = mo_coeff1[k][:,idx]
+                fock = reduce(np.dot, (c.conj().T, fock_ao[k], c))
+                w, c = mc._eig(fock, None, None, orbsym_extra[idx])
+
+                if sort:
+                    sub_order = np.argsort(w.round(9), kind='mergesort')
+                    w = w[sub_order]
+                    c = c[:,sub_order]
+                    orbsym[idx] = orbsym[idx][sub_order]
+
+                mo_coeff1[k][:,idx] = mo_coeff1[k][:,idx].dot(c)
+                mo_energy[k][idx] = w
+
+    mask = np.ones(nmo, dtype=bool)
+    frozen = getattr(mc, 'frozen', None)
+    if frozen is not None:
+        if isinstance(frozen, (int, np.integer)):
+            mask[:frozen] = False
+        else:
+            mask[frozen] = False
+
+    # The loop over k-pts is done under the _diag_subfock.
+    core_idx = np.where(mask[:ncore])[0]
+    vir_idx = np.where(mask[nocc:])[0] + nocc
+    _diag_subfock_(core_idx)
+    _diag_subfock_(vir_idx)
+
+    # Not needed, but when I will implement the symmetry...
+    if getattr(mo_coeff, 'orbsym', None) is not None:
+        mo_coeff1 = lib.tag_array(mo_coeff1, orbsym=orbsym)
+
+    if log.verbose >= logger.DEBUG:
+        for k in range(nkpts):
+            log.debug('k-point %d', k)
+            for i in range(nmo):
+                    log.debug('i = %d  <i|F|i> = %12.8f', i+1, mo_energy[k][i])
+
+    return mo_coeff1, ci, mo_energy
+
+def kernel(mc, mo_coeff=None, ci0=None, verbose=logger.NOTE):
+    '''
+    '''
+    if mo_coeff is None: mo_coeff = mc.mo_coeff
+    if ci0 is None: ci0 = mc.ci
+
+    log = logger.new_logger(mc, verbose)
     t0 = (logger.process_clock(), logger.perf_counter())
     log.debug('Start CASCI')
 
-    nkpts = casci.nkpts
-    ncas = casci.ncas
-    nelecas = casci.nelecas
-    nelecas = _unpack_nelec(nelecas, casci._scf.cell.spin)
-    eri_cas = casci.get_h2eff(mo_coeff)
+    nkpts = mc.nkpts
+    ncas = mc.ncas
+    nelecas = mc.nelecas
+    nelecas = _unpack_nelec(nelecas, mc._scf.cell.spin)
+    eri_cas = mc.get_h2eff(mo_coeff)
     t1 = log.timer('integral transformation to CAS space', *t0)
-    h1eff, energy_core = casci.get_h1eff(mo_coeff)
+    h1eff, energy_core = mc.get_h1eff(mo_coeff)
     log.debug('core energy = %.15g', energy_core)
-    max_memory = max(4000, casci.max_memory-lib.current_memory()[0])
+    max_memory = max(4000, mc.max_memory-lib.current_memory()[0])
     
     assert eri_cas.shape == (nkpts*ncas, nkpts*ncas, nkpts*ncas, nkpts*ncas)
     assert h1eff.shape == (nkpts*ncas, nkpts*ncas)
 
-    e_tot, fcivec = casci.fcisolver.kernel(h1eff, eri_cas, 
+    e_tot, fcivec = mc.fcisolver.kernel(h1eff, eri_cas, 
                                            nkpts*ncas, (nkpts*nelecas[0],nkpts*nelecas[1]), 
                                            ci0=ci0, verbose=log, max_memory=max_memory, 
                                            ecore=energy_core)
@@ -468,5 +624,8 @@ class PBCCASCI(PBCCASBASE):
     def nuc_grad_method(self):
         raise NotImplementedError
 
+    def analyze(self):
+        #TODO:
+        raise NotImplementedError
 
 CASCI = PBCCASCI
