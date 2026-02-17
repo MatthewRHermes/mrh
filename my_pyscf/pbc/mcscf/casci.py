@@ -14,11 +14,9 @@ from mrh.my_pyscf.pbc import fci as pbc_fci
 from mrh.my_pyscf.pbc.mcscf.k2R import  get_mo_coeff_k2R
 
 # Global variable to store the 2e integrals
-_CDERI_CACHE_PATH = None
-
-
+_CDERI_CACHE_PATH = getattr(__config__, 'pbc_mcscf_casci_CASCI_cderi_cache_path', None)
 WITH_META_LOWDIN = getattr(__config__, 'mcscf_analyze_with_meta_lowdin', True)
-
+PENALTY = getattr(__config__, 'mcscf_casci_CASCI_fix_spin_shift', 0.2)
 
 if sys.version_info < (3,):
     RANGE_TYPE = list
@@ -577,7 +575,7 @@ class PBCCASBASE(mcscf.casci.CASBase):
         
         mo_phase = get_mo_coeff_k2R(self._scf, mo_coeff, ncore, ncas)[-1]
         nao = mo_coeff[0].shape[0]
-        casdm1a, casdm1b = self.fcisolver.make_rdm1s(ci, nkpts*ncas, nkpts*(nelecas[0], nelecas[1]))
+        casdm1a, casdm1b = self.fcisolver.make_rdm1s(ci, nkpts*ncas, (nkpts*nelecas[0], nkpts*nelecas[1]))
         
         dm1a = np.empty((nkpts, nao, nao), dtype=casdm1a.dtype)
         dm1b = np.empty((nkpts, nao, nao), dtype=casdm1b.dtype)
@@ -586,8 +584,8 @@ class PBCCASBASE(mcscf.casci.CASBase):
             mocore = mo_coeff[k][:,:ncore]
             mocas = mo_coeff[k][:,ncore:ncore+ncas]
             dm1b[k] = np.dot(mocore, mocore.conj().T)
-            dm1a[k] = dm1b[k] + reduce(np.dot, (mocas, mo_phase, casdm1a[k], mo_phase.conj().T,mocas.conj().T))
-            dm1b[k] += reduce(np.dot, (mocas, casdm1b[k], mocas.conj().T))
+            dm1a[k] = dm1b[k] + reduce(np.dot, (mocas, mo_phase[k], casdm1a, mo_phase[k].conj().T,mocas.conj().T))
+            dm1b[k] += reduce(np.dot, (mocas, mo_phase[k], casdm1b, mo_phase[k].conj().T,mocas.conj().T))
         return dm1a, dm1b
     
     def make_rdm1(self, mo_coeff=None, ci=None, ncas=None, nelecas=None,
@@ -608,7 +606,7 @@ class PBCCASBASE(mcscf.casci.CASBase):
 
         nkpts = self.nkpts
         nao = mo_coeff[0].shape[0]
-        
+
         casdm1 = self.fcisolver.make_rdm1(ci, nkpts*ncas, (nkpts*nelecas[0], nkpts*nelecas[1]))
         mo_phase = get_mo_coeff_k2R(self._scf, mo_coeff, ncore, ncas)[-1]
 
@@ -617,8 +615,23 @@ class PBCCASBASE(mcscf.casci.CASBase):
             mocore = mo_coeff[k][:,:ncore]
             mocas = mo_coeff[k][:,ncore:ncore+ncas]
             dm1[k] = np.dot(mocore, mocore.conj().T) * 2
-            dm1[k] += reduce(np.dot, (mocas, mo_phase, casdm1[k], mo_phase.conj().T,mocas.conj().T))
+            dm1[k] += reduce(np.dot, (mocas, mo_phase[k], casdm1, mo_phase[k].conj().T,mocas.conj().T))
         return dm1
+
+    @lib.with_doc(mcscf.casci.CASBase.fix_spin.__doc__)
+    def fix_spin_(self, shift=PENALTY, ss=None):
+        # fci.addons.fix_spin_(self.fcisolver, shift, ss)
+        # return self
+        raise NotImplementedError('fix_spin is not implemented for PBC CASCI yet.')
+
+    fix_spin = fix_spin_
+
+    def sfx2c1e(self):
+        '''
+        Pointing to the sfx2c1e object for the PBC system.
+        '''
+        from pyscf.pbc.x2c import sfx2c1e
+        return sfx2c1e.sfx2c1e(self)
 
 class PBCCASCI(PBCCASBASE):
     '''
