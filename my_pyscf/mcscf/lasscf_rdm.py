@@ -5,7 +5,7 @@
 import time
 import numpy as np
 from scipy import linalg, sparse
-from mrh.my_pyscf.mcscf import lasscf_sync_o0, lasci, lasci_sync, _DFLASCI
+from mrh.my_pyscf.mcscf import lasscf_sync_o0, lasci, lasci_sync, _DFLASCI, addons
 from mrh.my_pyscf.mcscf.lasci_sync import MicroIterInstabilityException
 from mrh.my_pyscf.fci import csf_solver
 from pyscf import lib, gto, ao2mo
@@ -243,7 +243,7 @@ def kernel (las, mo_coeff=None, casdm1frs=None, casdm2fr=None, conv_tol_grad=1e-
             else:
                 log.info ('LASSCF micro %d : |x_orb| = %.15g', microit[0], norm_xorb)
             if abs(x_max)>.5: # Nonphysical step vector element
-                if last_x[0] is 0:
+                if last_x[0] == 0:
                     x[np.abs (x)>.5*np.pi] = 0
                     last_x[0] = x
                 raise MicroIterInstabilityException ("|x[i]| > pi/2")
@@ -445,6 +445,25 @@ class FCIBox (lib.StreamObject):
             nelec = np.sum (nelec) - c
             nelec = (nelec+m)//2, (nelec-m)//2
         return nelec
+
+    def get_aufbau_guess (self, norb, nelec0, orbsym=None):
+        solvers_r = []
+        nelec_r = []
+        for rdmsolver in self.fcisolvers:
+            nelec_r.append (self._get_nelec (rdmsolver, nelec0))
+            solvers_r.append (rdmsolver._get_csf_solver (nelec_r[-1]))
+        ci_r = addons.get_aufbau_guess (solvers_r, norb, nelec_r, orbsym=orbsym)
+        ci0 = []
+        for ci, nelec, rdmsolver in zip (ci_r, nelec_r, self.fcisolvers):
+            fci = rdmsolver._get_csf_solver (nelec)
+            dm1s, dm2 = rdmsolver._ci2rdm (fci, ci, norb, nelec)
+            ci0.append ((dm1s, dm2))
+        return ci0
+
+    def states_make_rdm1s (self, ci, norb, nelec):
+        dm1a = np.stack ([c[0][0,:,:] for c in ci], axis=0)
+        dm1b = np.stack ([c[0][1,:,:] for c in ci], axis=0)
+        return dm1a, dm1b
 
 def make_fcibox (mol, kernel=None, get_init_guess=None, spin=None, smult=None):
     s = RDMSolver (mol, kernel=kernel, get_init_guess=get_init_guess)

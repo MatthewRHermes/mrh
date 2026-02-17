@@ -25,6 +25,8 @@ class KnownValues(unittest.TestCase):
         ecasci = mc.kernel()[0]
 
         las = LASSCF(mf, (2,), (2,))
+        # Currently, h1e_for_las breaks so I have to use this
+        las.init_guess_ci = 'aufbau'
         mo0 = las.localize_init_guess((list(range(2)), ))
         elasci = las.lasci(mo0)[1]
 
