@@ -16,6 +16,7 @@ from pyscf.fci.addons import _unpack_nelec
 from pyscf import __config__
 from pyscf import mcscf
 
+from functools import cached_property
 from mrh.my_pyscf.pbc import fci as pbc_fci
 from mrh.my_pyscf.pbc.mcscf.k2R import  get_mo_coeff_k2R
 
@@ -113,8 +114,10 @@ def kernel(casci, mo_coeff=None, ci0=None, verbose=logger.NOTE):
     assert eri_cas.shape == (nkpts*ncas, nkpts*ncas, nkpts*ncas, nkpts*ncas)
     assert h1eff.shape == (nkpts*ncas, nkpts*ncas)
 
-    e_tot, fcivec = casci.fcisolver.kernel(h1eff, eri_cas, nkpts*ncas, (nkpts*nelecas[0],
-                                                                        nkpts*nelecas[1]), ci0=ci0, verbose=log, max_memory=max_memory, ecore=energy_core)
+    e_tot, fcivec = casci.fcisolver.kernel(h1eff, eri_cas, 
+                                           nkpts*ncas, (nkpts*nelecas[0],nkpts*nelecas[1]), 
+                                           ci0=ci0, verbose=log, max_memory=max_memory, 
+                                           ecore=energy_core)
     t1 = log.timer('FCI solver', *t1)
     e_cas = e_tot - energy_core
 
@@ -218,7 +221,6 @@ class PBCCASBASE(mcscf.casci.CASBase):
         self.frozen = None # [nk, nmo]
         self.extrasym = None
 
-
         self.e_tot = 0
         self.e_cas = None
         self.ci = None
@@ -309,6 +311,14 @@ class PBCCASBASE(mcscf.casci.CASBase):
     def ao2mo(**kwargs):
         pass
     
+    def get_hcore(self, **kwargs):
+        '''
+        Wrapper to avoid printing a huge output for computing the hcore.
+        '''
+        with lib.temporary_env(self._scf, verbose=0):
+            self._scf.cell.verbose = 0
+            return self._scf.get_hcore(**kwargs)
+
     def get_h1cas(**kwargs):
         pass
     
