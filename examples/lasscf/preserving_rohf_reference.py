@@ -34,10 +34,12 @@ print ("LASCI(12,8) guess energy:",
 # You can fix this by passing the MO occupancy list instead of freeze_cas_spaces=True.
 # This prevents, i.e., singly- and doubly-occupied orbitals from mixing during the
 # localization.
+print ("Now I turn on 'Aufbau' guess and require fixed ROHF occupancies")
 las = LASSCF (mf, (4, 4), ((4,2), (4,2)), spin_sub=(3,3))
+las.init_guess_ci = 'aufbau'
 las.mo_coeff = las.localize_init_guess ([[1,2],[9,10]], mf.mo_coeff, mo_occ=mf.mo_occ)
 las.ci = las.get_init_guess_ci ()
-print ("LASCI(12,8) guess energy, requiring fixed ROHF occupancies:",
+print ("LASCI(12,8) guess energy:",
        las.energy_elec () + las.energy_nuc ())
 
 
