@@ -99,6 +99,9 @@ def _localize (las, frags_orbs, mo_coeff, spin, lo_coeff, fock, ao_ovlp, freeze_
                 raise ValueError ("Cannot make " + inadAOs)
         mo_proj, sval, mo_cas, mocc_cas = las._svd (lo_coeff[:,frag_orbs], mo_cas, s=ao_ovlp,
                                                     mo_occ=mocc_cas)
+        if len (sval) < nlas:
+            log.error ("Too many active or too few fragment orbitals in fragment %d", ix)
+            raise RuntimeError ("Can't localize active space")
         i, j = ncore + sum (las.ncas_sub[:ix]), ncore + sum (las.ncas_sub[:ix]) + nlas
         mo_las = mo_cas if freeze_cas_spaces else mo_proj
         mo_coeff[:,i:j] = mo_las[:,:nlas]
