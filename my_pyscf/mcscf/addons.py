@@ -48,6 +48,20 @@ def state_average_n_mix_(casscf, fcisolvers, weights=(0.5,0.5)):
 class H1EZipFCISolver (object):
     pass
 
+def get_aufbau_states_rdm1s (solvers_r, norb, nelec_r, orbsym=None):
+    rdm1rs = []
+    for solver, nelec in zip (solvers_r, nelec_r):
+        solver.norb, solver.nelec = norb, nelec
+        if orbsym is not None:
+            solver.orbsym = orbsym
+        solver.check_transformer_cache ()
+        t = solver.transformer
+        c = np.zeros ((t.ncsf,), dtype=float)
+        c[0] = 1.0
+        ci = t.vec_csf2det (c, normalize=True)
+        rdm1rs.append (solver.make_rdm1s (ci, norb, nelec))
+    return np.stack (rdm1rs, axis=0)
+
 def get_h1e_zipped_fcisolver (fcisolver):
     ''' Wrap a state-average-mix FCI solver to take a list of h1es to apply to each solver. '''
 
@@ -59,6 +73,11 @@ def get_h1e_zipped_fcisolver (fcisolver):
     has_spin_square = getattr(fcisolver, 'states_spin_square', None)
 
     class FCISolver (fcisolver.__class__, H1EZipFCISolver):
+
+        def get_aufbau_states_rdm1s (self, norb, nelec0, orbsym=None):
+            solvers = self.fcisolvers
+            nelec_r = [self._get_nelec (solver, nelec0) for solver in solvers]
+            return get_aufbau_states_rdm1s (solvers, norb, nelec_r, orbsym=orbsym)
 
         # This is a hack designed to, i.e., set
         # self.fcisolvers[i].nroots = 1 for all i

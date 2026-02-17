@@ -5,7 +5,7 @@
 import time
 import numpy as np
 from scipy import linalg, sparse
-from mrh.my_pyscf.mcscf import lasscf_sync_o0, lasci, lasci_sync, _DFLASCI
+from mrh.my_pyscf.mcscf import lasscf_sync_o0, lasci, lasci_sync, _DFLASCI, addons
 from mrh.my_pyscf.mcscf.lasci_sync import MicroIterInstabilityException
 from mrh.my_pyscf.fci import csf_solver
 from pyscf import lib, gto, ao2mo
@@ -445,6 +445,14 @@ class FCIBox (lib.StreamObject):
             nelec = np.sum (nelec) - c
             nelec = (nelec+m)//2, (nelec-m)//2
         return nelec
+
+    def get_aufbau_states_rdm1s (self, norb, nelec0, orbsym=None):
+        solvers_r = []
+        nelec_r = []
+        for rdmsolver in self.fcisolvers:
+            nelec_r.append (self._get_nelec (rdmsolver, nelec0))
+            solvers_r.append (rdmsolver._get_csf_solver (nelec_r[-1]))
+        return addons.get_aufbau_states_rdm1s (solvers_r, norb, nelec_r, orbsym=orbsym)
 
 def make_fcibox (mol, kernel=None, get_init_guess=None, spin=None, smult=None):
     s = RDMSolver (mol, kernel=kernel, get_init_guess=get_init_guess)

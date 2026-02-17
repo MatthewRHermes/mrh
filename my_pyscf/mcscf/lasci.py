@@ -268,8 +268,8 @@ def h1e_for_las (las, mo_coeff=None, ncas=None, ncore=None, nelecas=None, ci=Non
     if casdm1s_sub is None: casdm1s_sub = [np.einsum ('rsij,r->sij',dm,las.weights)
                                            for dm in casdm1frs]
     if veff is None:
-        veff = las.get_veff (dm = las.make_rdm1 (mo_coeff=mo_coeff, ci=ci))
-        veff = las.split_veff (veff, h2eff_sub, mo_coeff=mo_coeff, ci=ci, casdm1s_sub=casdm1s_sub)
+        veff = las.get_veff (dm = las.make_rdm1 (mo_coeff=mo_coeff, casdm1s_sub=casdm1s_sub))
+        veff = las.split_veff (veff, h2eff_sub, mo_coeff=mo_coeff, casdm1s_sub=casdm1s_sub)
 
     # First pass: split by root  
     nocc = ncore + ncas
@@ -508,17 +508,15 @@ def get_init_guess_ci (las, mo_coeff=None, h2eff_sub=None, ci0=None, eri_cas=Non
         eri_cas = lib.numpy_helper.unpack_tril (h2eff_sub.reshape (nmo*ncas, ncas*(ncas+1)//2))
         eri_cas = eri_cas.reshape (nmo, ncas, ncas, ncas)
         eri_cas = eri_cas[ncore:nocc]
+    casdm1frs = []
     for ix, (fcibox, norb, nelecas) in enumerate (zip (las.fciboxes,las.ncas_sub,las.nelecas_sub)):
-        for iy, solver in enumerate (fcibox.fcisolvers):
-            nelec = fcibox._get_nelec (solver, nelecas)
-            solver.norb, solver.nelec = norb, nelec
-            solver.check_transformer_cache ()
-            t = solver.transformer
-            c = np.zeros ((t.ncsf,), dtype=float)
-            c[0] = 1.0
-            ci0[ix][iy] = t.vec_csf2det (c, normalize=True)
-            
-    h1eff = las.get_h1eff (mo_coeff=mo_coeff, ci=ci0, eri_cas=eri_cas)
+        i = sum (las.ncas_sub[:ix])
+        j = i + norb
+        orbsym = getattr (mo_coeff, 'orbsym', None)
+        if orbsym is not None: orbsym=orbsym[i:j]
+        casdm1frs.append (fcibox.get_aufbau_states_rdm1s (norb, nelecas, orbsym=orbsym))
+
+    h1eff = las.get_h1eff (mo_coeff=mo_coeff, casdm1frs=casdm1frs, eri_cas=eri_cas)
     for ix, (fcibox, norb, nelecas) in enumerate (zip (las.fciboxes,las.ncas_sub,las.nelecas_sub)):
         i = sum (las.ncas_sub[:ix])
         j = i + norb
