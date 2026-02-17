@@ -553,6 +553,72 @@ class PBCCASBASE(mcscf.casci.CASBase):
     def kernel(**kwargs):
         pass
 
+    def get_fock(self, mo_coeff=None, ci=None, eris=None, casdm1=None,
+                 verbose=None):
+        return get_fock(self, mo_coeff, ci, eris, casdm1, verbose)
+
+    def make_rdm1s(self, mo_coeff=None, ci=None, ncas=None, nelecas=None,
+                   ncore=None, **kwargs):
+        '''
+        Spin-separated one-particle density matrices for alpha and beta spin on AO basis
+        '''
+        if mo_coeff is None: 
+            mo_coeff = self.mo_coeff
+        if ci is None: 
+            ci = self.ci
+        if ncas is None:
+            ncas = self.ncas
+        if nelecas is None:
+            nelecas = self.nelecas
+        if ncore is None:
+            ncore = self.ncore
+
+        nkpts = self.nkpts
+        
+        mo_phase = get_mo_coeff_k2R(self._scf, mo_coeff, ncore, ncas)[-1]
+        nao = mo_coeff[0].shape[0]
+        casdm1a, casdm1b = self.fcisolver.make_rdm1s(ci, nkpts*ncas, nkpts*(nelecas[0], nelecas[1]))
+        
+        dm1a = np.empty((nkpts, nao, nao), dtype=casdm1a.dtype)
+        dm1b = np.empty((nkpts, nao, nao), dtype=casdm1b.dtype)
+
+        for k in range(nkpts):
+            mocore = mo_coeff[k][:,:ncore]
+            mocas = mo_coeff[k][:,ncore:ncore+ncas]
+            dm1b[k] = np.dot(mocore, mocore.conj().T)
+            dm1a[k] = dm1b[k] + reduce(np.dot, (mocas, mo_phase, casdm1a[k], mo_phase.conj().T,mocas.conj().T))
+            dm1b[k] += reduce(np.dot, (mocas, casdm1b[k], mocas.conj().T))
+        return dm1a, dm1b
+    
+    def make_rdm1(self, mo_coeff=None, ci=None, ncas=None, nelecas=None,
+                  ncore=None, **kwargs):
+        '''
+        Spin-summed one-particle density matrix in AO representation
+        '''
+        if mo_coeff is None:
+            mo_coeff = self.mo_coeff
+        if ci is None:
+            ci = self.ci
+        if ncas is None:
+            ncas = self.ncas
+        if nelecas is None:
+            nelecas = self.nelecas
+        if ncore is None:
+            ncore = self.ncore
+
+        nkpts = self.nkpts
+        nao = mo_coeff[0].shape[0]
+        
+        casdm1 = self.fcisolver.make_rdm1(ci, nkpts*ncas, (nkpts*nelecas[0], nkpts*nelecas[1]))
+        mo_phase = get_mo_coeff_k2R(self._scf, mo_coeff, ncore, ncas)[-1]
+
+        dm1 = np.empty((nkpts, nao, nao), dtype=casdm1.dtype)
+        for k in range(nkpts):
+            mocore = mo_coeff[k][:,:ncore]
+            mocas = mo_coeff[k][:,ncore:ncore+ncas]
+            dm1[k] = np.dot(mocore, mocore.conj().T) * 2
+            dm1[k] += reduce(np.dot, (mocas, mo_phase, casdm1[k], mo_phase.conj().T,mocas.conj().T))
+        return dm1
 
 class PBCCASCI(PBCCASBASE):
     '''
