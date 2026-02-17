@@ -564,7 +564,37 @@ def get_init_guess_ci_aufbau1 (las, mo_coeff=None, h2eff_sub=None, ci0=None, eri
     return ci0
 
 def get_init_guess_ci_vac (las, mo_coeff=None, h2eff_sub=None, ci0=None, eri_cas=None):
-    raise NotImplementedError
+    if mo_coeff is None: mo_coeff = las.mo_coeff
+    if ci0 is None: ci0 = [[None for i in range (las.nroots)] for j in range (las.nfrags)]
+    nmo = mo_coeff.shape[-1]
+    ncore, ncas = las.ncore, las.ncas
+    nocc = ncore + ncas
+    if eri_cas is None:
+        if h2eff_sub is None: h2eff_sub = las.get_h2eff (mo_coeff)
+        eri_cas = lib.numpy_helper.unpack_tril (h2eff_sub.reshape (nmo*ncas, ncas*(ncas+1)//2))
+        eri_cas = eri_cas.reshape (nmo, ncas, ncas, ncas)
+        eri_cas = eri_cas[ncore:nocc]
+    dm1_core= 2 * mo_coeff[:,:ncore] @ mo_coeff[:,:ncore].conj ().T
+    h1e_ao = las._scf.get_fock (dm=dm1_core)
+    for ix, (fcibox, norb, nelecas) in enumerate (zip (las.fciboxes,las.ncas_sub,las.nelecas_sub)):
+        i = sum (las.ncas_sub[:ix])
+        j = i + norb
+        mo = mo_coeff[:,ncore+i:ncore+j]
+        moH = mo.conj ().T
+        h1e = moH @ h1e_ao @ mo
+        h1e = [h1e, h1e]
+        eri = eri_cas[i:j,i:j,i:j,i:j]
+        for iy, solver in enumerate (fcibox.fcisolvers):
+            nelec = fcibox._get_nelec (solver, nelecas)
+            if hasattr (mo_coeff, 'orbsym'):
+                solver.orbsym = mo_coeff.orbsym[ncore+i:ncore+j]
+            max_memory = max (400, las.max_memory - lib.current_memory()[0])
+            hdiag_csf = solver.make_hdiag_csf (h1e, eri, norb, nelec, max_memory=max_memory)
+            ci0g = solver.get_init_guess (norb, nelec, solver.nroots, hdiag_csf)
+            ci0[ix][iy] = las._combine_init_guess_ci (ci0[ix][iy], ci0g, norb, nelec,
+                                                      solver.nroots)
+    return ci0
+
 
 def _combine_init_guess_ci (las, ci0i, ci0g, norb, nelec, nroots):
     ''' Function to handle the combination of a generated set of guess CI vectors (ci0g) with
