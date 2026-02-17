@@ -4,10 +4,10 @@ from pyscf.lib import tag_array, logger
 
 def _get_minmax_occs (las, norb_f, nelec_f, smults_f, mo_occ):
     norb = sum (norb_f)
-    assert (len (mo_occ) == norb)
     nfrag = len (norb_f)
     rngs = -np.ones ((nfrag, 3, 2), dtype=int)
     if mo_occ is None: return rngs
+    assert (len (mo_occ) == norb)
     ndomo = np.count_nonzero (mo_occ==2)
     nsomo = np.count_nonzero (mo_occ==1)
     nuomo = norb - ndomo - nsomo
@@ -85,14 +85,16 @@ def _localize (las, frags_orbs, mo_coeff, spin, lo_coeff, fock, ao_ovlp, freeze_
     has_orbsym = hasattr (mo_coeff, 'orbsym')
     mo_orbsym = getattr (mo_coeff, 'orbsym', np.zeros (nmo))
     mo_coeff = mo_coeff.copy () # Safety
-    rngs = _get_minmax_occs (las, las.ncas_sub, nelec_f, smults_f, mo_occ[ncore:nocc])
     if mo_occ is not None:
         freeze_cas_spaces = True
         mo_occ = mo_occ.copy ()
+        mocc_cas = mo_occ[ncore:nocc]
     else:
         mo_occ = np.zeros (nmo, dtype=int)
         mo_occ[:ncore] = 2
         mo_occ[ncore:nocc] = 1
+        mocc_cas = None
+    rngs = _get_minmax_occs (las, las.ncas_sub, nelec_f, smults_f, mocc_cas)
 
     # Duplicate AO handling
     dupeAOerr = ValueError (("Cannot assign 1 AO to more than 1 fragment unless active orbitals "
