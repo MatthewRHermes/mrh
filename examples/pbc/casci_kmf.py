@@ -58,7 +58,7 @@ cell = pgto.Cell(atom = get_xyz(nU, d),
 cell.build()
 
 nk = [3, 1, 1]
-kpts = cell.make_kpts(nk)
+kpts = cell.make_kpts(nk, wrap_around=True)
 nC = nU * nk[0]
 
 kmf = scf.KRHF(cell, kpts=kpts).density_fit(auxbasis='def2-svp-jkfit')
@@ -80,3 +80,11 @@ molden.from_mo(kmf.cell, f'PAchain.{nC}.molden', np.hstack([mo_coeff[k][:, 6:8] 
 from mrh.my_pyscf.pbc import mcscf
 kmc = mcscf.CASCI(kmf, 2, 2)
 kmc.kernel(mo_coeff)
+
+
+# Spin-summed and spin-separated 1-RDMs in the AO basis.
+dm1 = kmc.make_rdm1()
+print("dm1 shape", dm1.shape)
+
+dm1s = kmc.make_rdm1s()
+print("dm1s shape", dm1s[0].shape)
