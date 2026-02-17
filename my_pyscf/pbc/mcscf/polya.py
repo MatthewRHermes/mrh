@@ -142,7 +142,7 @@ def get_fci_ham(kmf, ncore, ncas, mo_coeff, eri_file):
     #     ecore += np.einsum('ij, ji', coredm[k],Fpq[k])
     
     ecore += nkpts*energy_nuc 
-    
+
     # Remember the nuclear repulsion energy is for the unit-cell but FCI problem 
     # is solved for the entire system. In the final step, I will divide the total energy 
     # by the nkpts to get the energy per unit cell.
@@ -188,6 +188,12 @@ cisolver = direct_com_real.FCISolver()
 
 e_tot_fromFCI, fcivec = cisolver.kernel(h1, h2, nkpts*ncas, (nkpts*1,nkpts*1), ecore=h0, verbose=4)
 fcivec /= np.sqrt(np.vdot(fcivec, fcivec))
+
+from mrh.my_pyscf.pbc.fci import spin_op
+ss, multip = spin_op.spin_square0(fcivec, nkpts*ncas, (nkpts*1,nkpts*1))
+print("Spin square:", ss, "Multiplicty:", multip)
+
+
 print("FCI - SCF Energy:", e_tot_fromFCI/nkpts - kmf.e_tot )
 
 # # Compare the energy computations from different methods:
