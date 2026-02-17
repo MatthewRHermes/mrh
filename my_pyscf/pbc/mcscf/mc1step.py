@@ -5,8 +5,10 @@ from functools import reduce
 
 from pyscf import lib, __config__
 from pyscf.soscf import ciah # Recently they have added the CIAH solver for PBC. Will use it!
-
+from pyscf.mcscf.addons import StateAverageMCSCFSolver
 from pyscf.pbc.lib import kpts_helper
+from pyscf.mcscf.mc1step import max_stepsize_scheduler
+logger = lib.logger
 
 '''
 I think these reference are utmost useful, if anyone is trying to implement the CASSCF.
@@ -243,7 +245,6 @@ def gen_g_hop(mc, mo_coeff, mo_phase, u, casdm1, casdm2, eris):
 
 def rotate_orb_cc(casscf, mo_coeff, mo_phase, fcivec, fcasdm1, fcasdm2, eris, x0_guess=None,
                 conv_tol_grad=1e-4, max_stepsize=None, verbose=None):
-    logger = lib.logger
     log = logger.new_logger(casscf, verbose)
     if max_stepsize is None: max_stepsize = casscf.max_stepsize
     t3m = (logger.process_clock(), logger.perf_counter())
@@ -363,4 +364,169 @@ def rotate_orb_cc(casscf, mo_coeff, mo_phase, fcivec, fcasdm1, fcasdm2, eris, x0
     yield u, g_kf, ihop+jkcount, dxi
 
 
+def kernel(casscf, mo_coeff, tol=1e-7, conv_tol_grad=None,
+           ci0=None, callback=None, verbose=logger.NOTE, dump_chk=True):
+    '''
+    Quasi-newton CASSCF optimization driver.
+    This is based on CIAH solver of Qiming et. al.
+    '''
+    log = logger.new_logger(casscf, verbose)
+    cput0 = (logger.process_clock(), logger.perf_counter())
+    log.debug('Start 1-step CASSCF')
+    if callback is None:
+        callback = casscf.callback
 
+    if ci0 is None:
+        ci0 = casscf.ci
+
+    mo = mo_coeff
+    nmo = mo_coeff[0].shape[1]
+    ncore = casscf.ncore
+    ncas = casscf.ncas
+    nocc = ncore + ncas
+    nkpts = casscf.nkpts
+    nelecas = casscf.nelecas
+
+    eris = casscf.ao2mo(mo) # Have to rewrite this.
+    e_tot, e_cas, fcivec = casscf.casci(mo, ci0, eris, log, locals())
+
+    if conv_tol_grad is None:
+        conv_tol_grad = np.sqrt(tol)
+        logger.info(casscf, 'Set conv_tol_grad to %g', conv_tol_grad)
+
+    conv_tol_ddm = conv_tol_grad * 3
+    conv = False
+    totmicro = totinner = 0
+    norm_gorb = norm_gci = -1
+    de, elast = e_tot, e_tot
+    r0 = None
+
+    t1m = log.timer('Initializing 1-step CASSCF', *cput0)
+    casdm1, casdm2 = casscf.fcisolver.make_rdm12(fcivec, nkpts*ncas, (nelecas[0]*nkpts, nelecas[1]*nkpts))
+    norm_ddm = 1e2
+    casdm1_prev = casdm1_last = casdm1
+    t3m = t2m = log.timer('CAS DM', *t1m)
+    imacro = 0
+    dr0 = None
+    while not conv and imacro < casscf.max_cycle_macro:
+        imacro += 1
+        max_cycle_micro = casscf.micro_cycle_scheduler(locals())
+        max_stepsize = casscf.max_stepsize_scheduler(locals())
+        imicro = 0
+        rota = casscf.rotate_orb_cc(mo, lambda:fcivec, lambda:casdm1, lambda:casdm2,
+                                    eris, r0, conv_tol_grad*.3, max_stepsize, log)
+        
+        for u, g_orb, njk, r0 in rota:
+            imicro += 1
+            norm_gorb = np.mean([np.linalg.norm(g_orb_) for g_orb_ in g_orb])
+            if imicro == 1:
+                norm_gorb0 = norm_gorb
+            norm_t = np.mean([np.linalg.norm(u_-np.eye(nmo)) for u_ in u])
+            t3m = log.timer('orbital rotation', *t3m)
+            if imicro >= max_cycle_micro:
+                log.debug('micro %2d  |u-1|=%5.3g  |g[o]|=%5.3g',
+                          imicro, norm_t, norm_gorb)
+                break
+
+            casdm1, casdm2, gci, fcivec = \
+                    casscf.update_casdm(mo, u, fcivec, e_cas, eris, locals())
+            norm_ddm = np.linalg.norm(casdm1 - casdm1_last)
+            norm_ddm_micro = np.linalg.norm(casdm1 - casdm1_prev)
+            casdm1_prev = casdm1
+            t3m = log.timer('update CAS DM', *t3m)
+
+            # I have kept the gradient in the R-space.
+            if isinstance(gci, np.ndarray):
+                norm_gci = np.linalg.norm(gci)
+                log.debug('micro %2d  |u-1|=%5.3g  |g[o]|=%5.3g  |g[c]|=%5.3g  |ddm|=%5.3g',
+                          imicro, norm_t, norm_gorb, norm_gci, norm_ddm)
+            else:
+                norm_gci = None
+                log.debug('micro %2d  |u-1|=%5.3g  |g[o]|=%5.3g  |g[c]|=%s  |ddm|=%5.3g',
+                          imicro, norm_t, norm_gorb, norm_gci, norm_ddm)
+            
+            if callable(callback):
+                callback(locals())
+            
+            t3m = log.timer('micro iter %2d'%imicro, *t3m)
+            if (norm_t < conv_tol_grad or
+                (norm_gorb < conv_tol_grad*0.5 and
+                 (norm_ddm < conv_tol_ddm*0.4 or norm_ddm_micro < conv_tol_ddm*0.4))):
+                break
+
+        rota.close()
+        rota = None
+
+        totmicro += imicro
+        totinner += njk
+
+        eris = None
+        
+        mo = casscf.rotate_mo(mo, u, log)
+        eris = casscf.ao2mo(mo)
+        t2m = log.timer('update eri', *t3m)
+
+        max_offdiag_u = np.abs(np.triu(u, 1)).max()
+
+        if max_offdiag_u < casscf.small_rot_tol:
+            small_rot = True
+        else:
+            small_rot = False
+
+        if not isinstance(casscf, StateAverageMCSCFSolver):
+            # I have to code this up:
+            if not isinstance(fcivec, np.ndarray):
+                fcivec = small_rot
+        else:
+            newvecs = []
+            for subvec in fcivec:
+                if not isinstance(subvec, np.ndarray):
+                    newvecs.append(small_rot)
+                else:
+                    newvecs.append(subvec)
+            fcivec = newvecs
+
+        e_tot, e_cas, fcivec = casscf.casci(mo, fcivec, eris, log, locals())
+
+        casdm1, casdm2 = casscf.fcisolver.make_rdm12(fcivec, nkpts*ncas, (nkpts*nelecas[0], nkpts*nelecas[1]))
+        norm_ddm = np.linalg.norm(casdm1 - casdm1_last)
+        casdm1_prev = casdm1_last = casdm1
+        log.timer('CASCI solver', *t2m)
+        t3m = t2m = t1m = log.timer('macro iter %2d'%imacro, *t1m)
+
+        de, elast = e_tot - elast, e_tot
+        if (abs(de) < tol and norm_gorb0 < conv_tol_grad and
+                norm_ddm < conv_tol_ddm and
+                (max_offdiag_u < casscf.small_rot_tol or casscf.small_rot_tol == 0)):
+            conv = True
+
+        if dump_chk and casscf.chkfile:
+            casscf.dump_chk(locals())
+
+        if callable(callback):
+            callback(locals())
+
+    if conv:
+        log.info('1-step CASSCF converged in %3d macro (%3d JK %3d micro) steps',
+                 imacro, totinner, totmicro)
+    else:
+        log.info('1-step CASSCF not converged, %3d macro (%3d JK %3d micro) steps',
+                 imacro, totinner, totmicro)
+
+    if casscf.canonicalization:
+        log.info('CASSCF canonicalization')
+        mo, fcivec, mo_energy = \
+                casscf.canonicalize(mo, fcivec, eris, casscf.sorting_mo_energy,
+                                    casscf.natorb, casdm1, log)
+        if casscf.natorb and dump_chk: # dump_chk may save casdm1
+            occ, ucas = casscf._eig(-casdm1, ncore, nocc)
+            casdm1 = np.diag(-occ)
+    else:
+        if casscf.natorb:
+            raise NotImplementedError('Natural orbital is not implemented for PBC-CASSCF')
+
+    if dump_chk and casscf.chkfile:
+        casscf.dump_chk(locals())
+
+    log.timer('1-step CASSCF', *cput0)
+    return conv, e_tot, e_cas, fcivec, mo, mo_energy
