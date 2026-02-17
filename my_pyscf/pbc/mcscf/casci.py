@@ -108,9 +108,10 @@ def get_fock(mc, mo_coeff=None, ci=None, eris=None, casdm1=None, verbose=None):
     ncas = mc.ncas
     nocc = ncore + ncas
     nelecas = mc.nelecas
+    kmf = mc._scf
 
     if casdm1 is None:
-        casdm1 = mc.fcisolver.make_rdm1(ci, ncas, nelecas)
+        casdm1 = mc.fcisolver.make_rdm1(ci, nkpts*ncas, (nkpts*nelecas[0], nkpts*nelecas[1]))
     
     dtype = casdm1.dtype
 
@@ -121,12 +122,20 @@ def get_fock(mc, mo_coeff=None, ci=None, eris=None, casdm1=None, verbose=None):
     hcore_k = mc.get_hcore()
     fock = np.empty_like(hcore_k, dtype=dtype)
 
+    mo_phase = get_mo_coeff_k2R(kmf, mo_coeff, ncore, ncas)[-1]
+    
+    dm_k = np.empty_like(dm_core)
+
     for k in range(nkpts):
         mocas = mo_coeff[k][:,ncore:nocc]
         dm = dm_core[k]
-        dm += reduce(np.dot, (mocas, casdm1[k], mocas.conj().T))
-        vj, vk = mc._scf.get_jk(cell, dm)
-        fock[k] = hcore_k[k] + vj - 0.5*vk
+        dm += reduce(np.dot, (mocas, mo_phase[k], casdm1, mo_phase[k].conj().T @ mocas.conj().T))
+        dm_k[k] = dm
+    
+    veff = mc._scf.get_veff(cell, dm_k, hermi=1)
+        
+    for k in range(nkpts):
+        fock[k] = hcore_k[k] + veff[k]
     
     hcore_k = dm_core = mo_core_kpts = None
 
@@ -155,6 +164,7 @@ def canonicalize(mc, mo_coeff=None, ci=None, eris=None, sort=False,
     ncore = mc.ncore
     nocc = ncore + ncas
     nmo = mo_coeff[0].shape[1]
+    kmf = mc._scf
 
     if casdm1 is None:
         if (isinstance(ci, (list, tuple, RANGE_TYPE)) and
@@ -179,6 +189,8 @@ def canonicalize(mc, mo_coeff=None, ci=None, eris=None, sort=False,
     
     fock_ao = get_fock(mc, mo_coeff=mo_coeff, ci=ci, casdm1=casdm1, verbose=verbose)
 
+    mo_phase = get_mo_coeff_k2R(kmf, mo_coeff, ncore, ncas)[-1]
+
     if cas_natorb:
         # Currently not implemented.
         mo_coeff = cas_natorb(mc, mo_coeff, casdm1, verbose=verbose)
@@ -186,12 +198,13 @@ def canonicalize(mc, mo_coeff=None, ci=None, eris=None, sort=False,
         mo_coeff1 = mo_coeff.copy()
         log.info('Density matrix diagonal elements')
         for k in range(nkpts):
-            mo_cas = mo_coeff[k][:, ncore:nocc]
-            # This function needed to be updated
-            dm_k = mo_cas @ casdm1[k] @ mo_cas.conj().T 
-            log.info('k-point %d, diagonal elements of dm: %s', k, np.diag(dm_k))
-
-    mo_energy = [np.einsum('pi, pi-> i', mo_coeff1.conj(), fock_ao[k] @ mo_coeff1) 
+            dm_k = mo_phase[k] @ casdm1 @ mo_phase[k].conj().T
+            # TODO: add an option to check whether the imaginary part of the density matrix is small, 
+            # and if so, print only the real part.
+            log.info("k-point %d, only real diagonal = %s",
+                     k,
+                     np.array2string(np.diag(dm_k).real, precision=5, floatmode='fixed', separator=', '))
+    mo_energy = [np.einsum('pi, pi-> i', mo_coeff1[k].conj(), fock_ao[k] @ mo_coeff1[k]) 
                  for k in range(nkpts)]
     
     if getattr(mo_coeff, 'orbsym', None) is not None:
@@ -455,8 +468,9 @@ class PBCCASBASE(mcscf.casci.CASBase):
         return self._scf.get_veff(cell=cell, dm=dm, hermi=hermi, kpt=kpt)
     
     # Defining all of these functions here to initialize it. Do we really need it?
-    def _eig(**kwargs):
-        pass
+    def _eig(self, h, *args):
+        from pyscf import scf
+        return scf.hf.eig(h, None)
 
     def get_h2cas(**kwargs):
         pass
@@ -490,6 +504,20 @@ class PBCCASBASE(mcscf.casci.CASBase):
         return self._scf.get_jk(cell=cell, dm=dm, hermi=hermi, vhfopt=vhfopt, 
                                 kpt=kpt, kpts_band=kpts_band, with_j=with_j, 
                                 with_k=with_k, omega=omega, **kwargs)
+    
+
+    canonicalize = canonicalize
+
+    @lib.with_doc(canonicalize.__doc__)
+    def canonicalize_(self, mo_coeff=None, ci=None, eris=None, sort=False,
+                      cas_natorb=False, casdm1=None, verbose=None,
+                      with_meta_lowdin=WITH_META_LOWDIN):
+        self.mo_coeff, ci, self.mo_energy = \
+                canonicalize(self, mo_coeff, ci, eris,
+                             sort, cas_natorb, casdm1, verbose, with_meta_lowdin)
+        if cas_natorb:  # When active space is changed, the ci solution needs to be updated
+            self.ci = ci
+        return self.mo_coeff, ci, self.mo_energy
     
     def _finalize(self):
         log = logger.Logger(self.stdout, self.verbose)
@@ -603,9 +631,10 @@ class PBCCASCI(PBCCASBASE):
         self.e_tot, self.e_cas, self.ci = kernel(self, mo_coeff=mo_coeff, ci0=ci0, verbose=verbose)
 
         if self.canonicalization:
-            pass
-            #raise NotImplementedError
-        
+            self.canonicalize_(mo_coeff, self.ci,
+                               sort=self.sorting_mo_energy,
+                               cas_natorb=self.natorb, verbose=log)
+            
         if self.natorb:
             raise NotImplementedError
 
