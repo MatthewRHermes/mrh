@@ -4,19 +4,24 @@ from fileinput import filename
 import os
 import tempfile
 import sys
+from turtle import fd
 import warnings
 import numpy as np
 from functools import reduce
 from pyscf import lib
 from pyscf.lib import logger
-from pyscf import gto, scf, ao2mo, fci
-from pyscf.mcscf import addons
 
+from pyscf.pbc import scf
 from pyscf.fci.addons import _unpack_nelec
 from pyscf import __config__
 from pyscf import mcscf
-from mrh.my_pyscf.pbc.fci import direct_com_real
+
+from mrh.my_pyscf.pbc import fci as pbc_fci
 from mrh.my_pyscf.pbc.mcscf.k2R import  get_mo_coeff_k2R
+
+# Global variable to store the 2e integrals
+_CDERI_CACHE_PATH = None
+
 
 # 
 # Generalization of the CASCI module with complex integrals for PBC systems.
@@ -56,37 +61,33 @@ def h1e_for_cas(casci, mo_coeff=None, ncas=None, ncore=None):
     if ncore is None: ncore = casci.ncore
     
     cell = casci.cell
-    scell = casci.scell
-    kmf = casci.kmf
     nao = cell.nao_nr()
 
     dtype = casci.mo_coeff[0].dtype
-    nkpts = len(casci.kpts)
-
+    nkpts = casci.nkpts
+    kpts = casci._scf.kpts
     mo_core_kpts = [mo[:, :ncore] for mo in mo_coeff]
 
     h1ao_k = casci.get_hcore()
 
     # Remember, I am multiplying by nkpts here because total energy would be divided by nkpts later.
-    ecore = casci.energy_nuc() * nkpts 
-
+    ecore = casci.energy_nuc() * nkpts
     if len(mo_core_kpts) == 0:
         corevhf_kpts = 0
     else:
         coredm_kpts = np.asarray([2.0 * (mo_core_kpts[k] @ mo_core_kpts[k].conj().T) 
                                   for k in range(nkpts)], dtype=dtype)
-        corevhf_kpts = casci.get_veff(cell, coredm_kpts, hermi=1)
-        ecore += np.einsum('ij,ji', h1ao_k, coredm_kpts)
-        ecore += 0.5 * np.einsum('ij,ji', corevhf_kpts, coredm_kpts)
+        corevhf_kpts = casci._scf.get_veff(cell, coredm_kpts, hermi=1)
+        fock = h1ao_k + 0.5 * corevhf_kpts
+        ecore += sum(np.einsum('ij,ji', coredm_kpts[k], fock[k]) for k in range(nkpts))
+        fock = None  # Free memory
 
     h1ao_k += corevhf_kpts
 
-    phase, mo_coeff_R = get_mo_coeff_k2R(casci, mo_coeff, ncore, ncas)[1:3]
-
+    phase, mo_coeff_R = get_mo_coeff_k2R(casci._scf, mo_coeff, ncore, ncas)[1:3]
     h1ao_R = np.einsum('Rk,kij,Sk->RiSj', phase, h1ao_k, phase.conj())
     h1ao_R = h1ao_R.reshape(nkpts*nao, nkpts*nao)
     h1eff_R = _basis_transformation(h1ao_R, mo_coeff_R)
-
     return h1eff_R, ecore
 
 def kernel(casci, mo_coeff=None, ci0=None, verbose=logger.NOTE):
@@ -102,20 +103,18 @@ def kernel(casci, mo_coeff=None, ci0=None, verbose=logger.NOTE):
     nkpts = casci.nkpts
     ncas = casci.ncas
     nelecas = casci.nelecas
-    nelecas = _unpack_nelec(nelecas, ncas)
+    nelecas = _unpack_nelec(nelecas, casci._scf.cell.spin)
     eri_cas = casci.get_h2eff(mo_coeff)
     t1 = log.timer('integral transformation to CAS space', *t0)
     h1eff, energy_core = casci.get_h1eff(mo_coeff)
     log.debug('core energy = %.15g', energy_core)
-
     max_memory = max(4000, casci.max_memory-lib.current_memory()[0])
     
     assert eri_cas.shape == (nkpts*ncas, nkpts*ncas, nkpts*ncas, nkpts*ncas)
     assert h1eff.shape == (nkpts*ncas, nkpts*ncas)
 
-    e_tot, fcivec = casci.fcisolver.kernel(h1eff, eri_cas, nkpts*ncas, nkpts*nelecas, 
-                                           ci0=ci0, verbose=log, max_memory=max_memory, 
-                                           e_core=energy_core)
+    e_tot, fcivec = casci.fcisolver.kernel(h1eff, eri_cas, nkpts*ncas, (nkpts*nelecas[0],
+                                                                        nkpts*nelecas[1]), ci0=ci0, verbose=log, max_memory=max_memory, ecore=energy_core)
     t1 = log.timer('FCI solver', *t1)
     e_cas = e_tot - energy_core
 
@@ -191,6 +190,7 @@ class PBCCASBASE(mcscf.casci.CASBase):
         'natorb', 'canonicalization', 'sorting_mo_energy', 'cell', 'max_memory',
         'ncas', 'nelecas', 'ncore', 'fcisolver', 'frozen', 'extrasym',
         'e_tot', 'e_cas', 'ci', 'mo_coeff', 'mo_energy', 'mo_occ', 'converged',
+        'nkpts', 'scell'
     }
 
     def __init__(self, kmf, ncas=0, nelecas=0, ncore=None):
@@ -203,7 +203,7 @@ class PBCCASBASE(mcscf.casci.CASBase):
         self.max_memory = kmf.max_memory
         self.ncas = ncas
         if isinstance(nelecas, (int, np.integer)):
-            nelecb = (nelecas-kmf.spin)//2
+            nelecb = (nelecas-cell.spin)//2
             neleca = nelecas - nelecb
             self.nelecas = (neleca, nelecb)
         else:
@@ -211,7 +211,7 @@ class PBCCASBASE(mcscf.casci.CASBase):
         self.ncore = ncore
         singlet = (getattr(__config__, 'mcscf_casci_CASCI_fcisolver_direct_spin0', False)
                    and self.nelecas[0] == self.nelecas[1])  # leads to direct_spin1
-        self.fcisolver = direct_com_real(cell, singlet, symm=False)
+        self.fcisolver = pbc_fci.solver(cell, singlet, symm=False)
         self.fcisolver.lindep = getattr(__config__, 'mcscf_casci_CASCI_fcisolver_lindep', 1e-12)
         self.fcisolver.max_cycle = getattr(__config__, 'mcscf_casci_CASCI_fcisolver_max_cycle', 200)
         self.fcisolver.conv_tol = getattr(__config__, 'mcscf_casci_CASCI_fcisolver_conv_tol', 1e-8)
@@ -291,18 +291,10 @@ class PBCCASBASE(mcscf.casci.CASBase):
     def energy_nuc(self):
         return self._scf.energy_nuc()
     
-    def get_veff(self, cell=None, dm=None, hermi=1):
+    def get_veff(self, cell=None, dm=None, hermi=1, kpt=None):
         # Note this would be in k-space: would need transformation
         # before its direct use.
-        if cell is None: cell = self.cell
-        if dm is None:
-            ncore = self.ncore
-            nkpts = self.nkpts
-            mo_core = [self.mo_coeff[k][:, :ncore] for k in range(nkpts)]
-            dm = [mo_core[k] @ mo_core[k].conj().T for k in range(nkpts)]
-        
-        vj, vk = self.get_jk(cell, dm, hermi=hermi)
-        return vj, vk
+        return self._scf.get_veff(cell=cell, dm=dm, hermi=hermi, kpt=kpt)
     
     # Defining all of these functions here to initialize it. Do we really need it?
     def _eig(**kwargs):
@@ -319,28 +311,41 @@ class PBCCASBASE(mcscf.casci.CASBase):
     
     def get_h1cas(**kwargs):
         pass
+    
+    def get_h1cas(self, mo_coeff=None, ncas=None, ncore=None):
+        '''An alias of get_h1eff method'''
+        return self.get_h1eff(mo_coeff, ncas, ncore)
 
+    get_h1eff = h1e_for_cas = h1e_for_cas
+
+    @lib.with_doc(scf.hf.get_jk.__doc__)
+    def get_jk(self, cell, dm, hermi=1, vhfopt=None, kpt=np.zeros(3),
+           kpts_band=None, with_j=True, with_k=True, omega=None, **kwargs):
+        return self._scf.get_jk(cell=cell, dm=dm, hermi=hermi, vhfopt=vhfopt, 
+                                kpt=kpt, kpts_band=kpts_band, with_j=with_j, 
+                                with_k=with_k, omega=omega, **kwargs)
+    
     def _finalize(self):
         log = logger.Logger(self.stdout, self.verbose)
         nkpts = self.nkpts
         if log.verbose >= logger.NOTE and getattr(self.fcisolver, 'spin_square', None):
             if isinstance(self.e_cas, (np.complex128, np.float64)):
                 try:
-                    ss = self.fcisolver.spin_square(self.ci, nkpts*self.ncas, nkpts*self.nelecas)
+                    ss = self.fcisolver.spin_square(self.ci, nkpts*self.ncas, (nkpts*self.nelecas[0], nkpts*self.nelecas[1]))
                     log.note('CASCI E (per k-point)= %#.15g  E(CI) = %#.15g  S^2 = %.7f',
-                             self.e_tot, self.e_cas, ss[0])
+                             self.e_tot.real, self.e_cas.real, ss[0])
                 except NotImplementedError:
                     log.note('CASCI E (per k-point) = %#.15g  E(CI) = %#.15g',
-                             self.e_tot, self.e_cas)
+                             self.e_tot.real, self.e_cas.real)
             else:
                 for i, e in enumerate(self.e_cas):
                     try:
                         ss = self.fcisolver.spin_square(self.ci[i], nkpts*self.ncas, nkpts*self.nelecas)
                         log.note('CASCI E (per k-point) state %3d  E = %#.15g  E(CI) = %#.15g  S^2 = %.7f',
-                                 i, self.e_tot[i], e, ss[0])
+                                 i, self.e_tot[i].real, e.real, ss[0])
                     except NotImplementedError:
                         log.note('CASCI E (per k-point) state %3d  E = %#.15g  E(CI) = %#.15g',
-                                 i, self.e_tot[i], e)
+                                 i, self.e_tot[i].real, e.real)
 
         else:
             if isinstance(self.e_cas, (np.complex128, np.float64)):
@@ -364,7 +369,9 @@ class PBCCASCI(PBCCASBASE):
         '''
         The mo_coeff are in k-space, while the eris returned by this function is in r-space.
         '''
+        global _CDERI_CACHE_PATH
 
+        from pyscf.pbc import scf
         kmf = self._scf
         ncore = self.ncore
         ncas = self.ncas
@@ -376,14 +383,24 @@ class PBCCASCI(PBCCASBASE):
 
         # Currently, I am relaying on generating one-more eris, because I didn't go through the
         # math to transform the eris from k-space to r-space.
-
         mf = scf.RHF(scell).density_fit(kmf.with_df.auxbasis)
         mf.exxdiv = kmf.exxdiv
-        tmpfile = tempfile.NamedTemporaryFile(dir=lib.param.TMPDIR)
-        mf.with_df._cderi = tmpfile
-        if not os.path.getsize(tmpfile.name):
-            mf.with_df._cderi_to_save = tmpfile
+
+        # During a cycle of CASCI, the get_h2eff is called multiple times, and building the cderi object is the most expensive step. So I am caching the cderi object to avoid rebuilding it multiple times. The integrals are stored on the disk.
+        if _CDERI_CACHE_PATH is not None and \
+            os.path.isfile(_CDERI_CACHE_PATH) and \
+                  os.path.getsize(_CDERI_CACHE_PATH) > 0:
+            mf.with_df._cderi = _CDERI_CACHE_PATH
+        else:
+            fd, cderi_path = tempfile.mkstemp(dir=lib.param.TMPDIR, prefix="pyscf_cderi_", suffix=".h5")
+            os.close(fd)
+            try:
+                os.remove(cderi_path)
+            except FileNotFoundError:
+                pass
+            mf.with_df._cderi_to_save = cderi_path
             mf.with_df.build()
+            _CDERI_CACHE_PATH = cderi_path
 
         eri = mf.with_df.ao2mo(mo_coeff_R,)
         eris = eri.reshape(nkpts*ncas, nkpts*ncas, nkpts*ncas, nkpts*ncas)
@@ -420,7 +437,8 @@ class PBCCASCI(PBCCASBASE):
         self.e_tot, self.e_cas, self.ci = kernel(self, mo_coeff=mo_coeff, ci0=ci0, verbose=verbose)
 
         if self.canonicalization:
-            raise NotImplementedError
+            pass
+            #raise NotImplementedError
         
         if self.natorb:
             raise NotImplementedError
