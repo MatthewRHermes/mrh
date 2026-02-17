@@ -1,6 +1,7 @@
 import numpy as np
 import os
-from pyscf.pbc import scf, df, ao2mo
+from pyscf import lib
+from pyscf.pbc import scf, df
 from pyscf.pbc import gto as pgto
 from mrh.my_pyscf.pbc.mcscf import avas
 
@@ -50,7 +51,7 @@ cell = pgto.Cell(atom = get_xyz(nU, d),
     basis = basis,
     pseudo = pseudo,
     precision = 1e-10,
-    verbose = 3, #lib.logger.INFO,
+    verbose = lib.logger.INFO,
     max_memory = maxMem,
     ke_cutoff = 40,
 )
