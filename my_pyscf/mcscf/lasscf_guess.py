@@ -64,7 +64,13 @@ def _localize (las, frags_orbs, mo_coeff, spin, lo_coeff, fock, ao_ovlp, freeze_
             each other to localize them and freeze_cas_spaces is automatically
             set to True.
         smults_f: ndarray of ints of shape (nfrag,)
+            Used to constrain how many singly-occupied orbitals (per mo_occ)
+            are assigned to each fragment, if possible. If las is a single-state
+            calculation, its quantum numbers are used as default values.
         nelec_f: ndarray of ints of shape (nfrag,)
+            Used to constrain how many doubly-occupied orbitals (per mo_occ)
+            are assigned to each fragment, if possible. If las is a single-state
+            calculation, its quantum numbers are used as default values.
 
     Returns:
         mo_coeff: ndarray of shape (nao,nmo)
@@ -220,6 +226,14 @@ def localize_init_guess (las, frags_atoms, mo_coeff=None, spin=None, lo_coeff=No
             as possible using SVD.
         frags_by_AOs: logical
             If True, interpret integer frags_atoms as AOs rather than atoms
+        smults_f: ndarray of ints of shape (nfrag,)
+            Used to constrain how many singly-occupied orbitals (per mo_occ)
+            are assigned to each fragment, if possible. If las is a single-state
+            calculation, its quantum numbers are used as default values.
+        nelec_f: ndarray of ints of shape (nfrag,)
+            Used to constrain how many doubly-occupied orbitals (per mo_occ)
+            are assigned to each fragment, if possible. If las is a single-state
+            calculation, its quantum numbers are used as default values.
 
     Returns:
         mo_coeff: ndarray of shape (nao,nmo)

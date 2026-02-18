@@ -252,6 +252,26 @@ class LASSCFNoSymm (lasci.LASCINoSymm):
                 If false, this step is skipped and mo_coeff is returned unaltered
             frags_by_AOs: logical
                 If True, interpret integer frags_atoms as AOs rather than atoms
+            mo_occ: ndarray of shape (nmo)
+                If passed, only orbitals with the same occupancies are mixed with
+                each other to localize them and freeze_cas_spaces is automatically
+                set to True.
+            freeze_cas_spaces: logical
+                If true, then active orbitals are mixed only among themselves
+                when localizing, which leaves the inactive and external sectors
+                unchanged (to within numerical precision). Otherwise, active
+                orbitals are projected into the localized-orbital space and
+                the inactive and external orbitals are reconstructed as closely
+                as possible using SVD.
+            smults_f: ndarray of ints of shape (nfrag,)
+                Used to constrain how many singly-occupied orbitals (per mo_occ)
+                are assigned to each fragment, if possible. If las is a single-state
+                calculation, its quantum numbers are used as default values.
+            nelec_f: ndarray of ints of shape (nfrag,)
+                Used to constrain how many doubly-occupied orbitals (per mo_occ)
+                are assigned to each fragment, if possible. If las is a single-state
+                calculation, its quantum numbers are used as default values.
+
     
         Returns:
             mo_coeff: ndarray of shape (nao,nmo)
