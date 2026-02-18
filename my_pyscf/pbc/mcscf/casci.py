@@ -439,7 +439,8 @@ class PBCCASBASE(mcscf.casci.CASBase):
         return self
     
     def check_sanity(self):
-        super().check_sanity()
+        # This goes to parent CASCI and that will break the sanity check.
+        # super().check_sanity()
         assert self.ncas > 0
         ncore = self.ncore
         nvir = self.mo_coeff[0].shape[1] - ncore - self.ncas
