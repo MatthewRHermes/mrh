@@ -57,7 +57,16 @@ def get_aufbau_guess (solvers_r, norb, nelec_r, orbsym=None):
         solver.check_transformer_cache ()
         t = solver.transformer
         c = np.zeros ((t.ncsf,), dtype=float)
-        c[0] = 1.0
+        # TODO: either reverse the order of configurations in csf_fci, or else
+        # move this logic onto the CSFTransformer class
+        for i in range (t.ndeta*t.ndetb):
+            j = t.econf_det_mask[i]
+            if (t.wfnsym is None) or (t._orbsym is None) or (t.confsym[j]==t.wfnsym):
+                break
+        for ix in range (t.ncsf):
+            if t.econf_csf_mask[ix] == j:
+                break
+        c[ix] = 1.0
         ci.append (t.vec_csf2det (c, normalize=True))
     return ci
 
