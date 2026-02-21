@@ -6,14 +6,7 @@ import h5py
 import tempfile
 from pyscf.mcpdft.otfnal import transfnal, get_transfnal
 from pyscf.mcpdft.mcpdft import _get_e_decomp
-
-try:
-    from pyscf.mcpdft.mcpdft import _PDFT, _mcscf_env
-except ImportError:
-    msg = "For performing LASPDFT, you will require pyscf-forge.\n" + \
-          "pyscf-forge can be found at : https://github.com/pyscf/pyscf-forge"
-    raise ImportError(msg)
-
+from pyscf.mcpdft.mcpdft import _PDFT, _mcscf_env
 
 def make_casdm1s(filename, i):
     """
