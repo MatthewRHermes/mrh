@@ -1,6 +1,7 @@
 import sys
 from pyscf import gto, scf, tools, dft, lib
 from mrh.my_pyscf.mcscf.lasscf_o0 import LASSCF
+from mrh.my_pyscf.mcscf.lasscf_async import LASSCF as asyncLASSCF
 from mrh.my_dmet import localintegrals, dmet, fragments
 from mrh.my_pyscf import mcpdft
 import unittest
@@ -33,6 +34,15 @@ class KnownValues(unittest.TestCase):
         elas = mc.e_mcscf[0]
         epdft = mc.e_tot
         self.assertAlmostEqual (mc.e_tot, -2.285617754797544, 7)
+
+        # Making sure asyncLASSCF also gives the same energy
+        las = asyncLASSCF(mf, (2, 2), (2, 2), spin_sub=(1,1))
+        mo0 = las.set_fragments_(frag_atom_list)
+        las.lasci_(mc.mo_coeff, ci0=mc.ci)
+
+        mc2 = mcpdft.LASSCF(las, 'tPBE', grids_level=1)
+        epdft2 = mc2.compute_pdft_energy_()[0]
+        self.assertAlmostEqual (epdft2, mc.e_tot, 7)
 
 if __name__ == "__main__":
     print("Full Tests for LAS-PDFT")

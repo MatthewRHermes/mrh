@@ -8,7 +8,7 @@ from pyscf.mcscf import mc1step, casci
 import mrh
 from mrh.util.io import mcpdft_removal_warn
 from mrh.my_pyscf.mcscf.lasscf_sync_o0 import LASSCFNoSymm, LASSCFSymm
-
+from mrh.my_pyscf.mcscf.lasscf_async import LASSCFNoSymm as asyncLASSCFNoSymm, LASSCFSymm as asyncLASSCFSymm
 mcpdft_removal_warn()
 
 
@@ -63,7 +63,8 @@ CASCI = CASCIPDFT
 # LAS-PDFT
 def _laspdftEnergy(mc_class, mc_or_mf_or_mol, ot, ncas_sub, nelecas_sub, DoLASSI=False, ncore=None, spin_sub=None,
                    frozen=None, **kwargs):
-    if isinstance(mc_or_mf_or_mol, (LASSCFNoSymm, LASSCFSymm)):
+    if isinstance(mc_or_mf_or_mol, (LASSCFNoSymm, LASSCFSymm)) or \
+        isinstance(mc_or_mf_or_mol, (asyncLASSCFNoSymm, asyncLASSCFSymm)):
         mc0 = mc_or_mf_or_mol
         mf_or_mol = mc_or_mf_or_mol._scf
     else:
@@ -77,7 +78,8 @@ def _laspdftEnergy(mc_class, mc_or_mf_or_mol, ot, ncas_sub, nelecas_sub, DoLASSI
         logger.warn(mf_or_mol,
                     'Initializing MC-SCF with a symmetry-adapted Mole object may not work!')
 
-    if isinstance(mc_or_mf_or_mol, (LASSCFNoSymm, LASSCFSymm)):
+    if isinstance(mc_or_mf_or_mol, (LASSCFNoSymm, LASSCFSymm)) or \
+        isinstance(mc_or_mf_or_mol, (asyncLASSCFNoSymm, asyncLASSCFSymm)):
         mc1 = mc_or_mf_or_mol
         if frozen is not None:
             mc1.frozen = frozen
