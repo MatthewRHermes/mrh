@@ -44,3 +44,6 @@ test_all.sh
 *.tab
 *.txt
 
+# Integral files
+*.gdf
+*.h5
