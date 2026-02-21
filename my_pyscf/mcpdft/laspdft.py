@@ -88,7 +88,7 @@ def get_mcpdft_child_class(mc, ot, DoLASSI=False, states=None, **kwargs):
         
         # Have to pass this due to dump_chk, which won't work for LAS.
         def compute_pdft_energy_(self, mo_coeff=None, ci=None, ot=None, otxc=None,
-                                 grids_level=None, grids_attr=None, dunp_chk=False, **kwargs):
+                                 grids_level=None, grids_attr=None, dump_chk=False, **kwargs):
             return _LASPDFT.compute_pdft_energy_(self, mo_coeff=mo_coeff, ci=ci, ot=ot, otxc=otxc,
                     grids_level=grids_level, grids_attr=grids_attr, dump_chk=False, **kwargs)
 
