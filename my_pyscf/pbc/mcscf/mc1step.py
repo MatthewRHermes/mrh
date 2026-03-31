@@ -36,6 +36,12 @@ Steps
 2. Integrate the above functions with k-point CIAH solver.
 '''
 
+'''
+#TODOs:
+1. Normalize the 2e integrals in mc_ao2mo generation only.
+2. 
+'''
+
 def _get_casdm2_kpts(casdm2, mo_phase1, klabel):
     '''
     Compute the 2RDM for a given k-point configuration.
@@ -50,7 +56,7 @@ def _get_casdm2_kpts(casdm2, mo_phase1, klabel):
 def gen_g_hop(mc, mo_coeff, mo_phase, u, casdm1, casdm2, eris):
     '''
     To solve the second order or quasi-second order CASSCF equations, we need to 
-    generate the gradient and the Hessian-vector product. 
+    generate the gradient, hessian diagonal and the Hessian-vector product. 
     I am generalizing pyscf/mcscf/mc1step.py to the k-point case. 
     Note that the input args are different than the original gen_g_hop function.
     PySCF implementation doesn't have the docstring, but I am writing one to make my or
@@ -123,8 +129,6 @@ def gen_g_hop(mc, mo_coeff, mo_phase, u, casdm1, casdm2, eris):
 
     kpts = kmf.kpts
     
-    ncasncas = ncas*ncas
-    nmonmo = nmo*nmo
     ncastot = nkpts*ncas
 
     kconserv = kpts_helper.get_kconserv(cell, kpts)
@@ -179,7 +183,7 @@ def gen_g_hop(mc, mo_coeff, mo_phase, u, casdm1, casdm2, eris):
     # I think we should not loop over nmo, because it will be solved for 
     # a given k-point, means the number of orbitals would be way small than total system. 
     # To remove the loop over nmo, as done in the molecular code, I have first converted 
-    # that code without for loop, matched it with loop.
+    # that (molecular) code without for loop, matched it with loop.
     # That code is:
     # ppaa = eris.ppaa
     # papa = eris.papa
@@ -188,6 +192,7 @@ def gen_g_hop(mc, mo_coeff, mo_phase, u, casdm1, casdm2, eris):
     # jtmp = lib.dot(ppaa.reshape(nmo*nmo,-1), casdm2.reshape(ncas*ncas,-1))
     # jtmp = jtmp.reshape(nmo,nmo,ncas,ncas) # nmo, nmo, ncas, ncas
     # g_dm2 = numpy.einsum('puuv->pv', jtmp[:, ncore:nocc])
+
     for k1, k2, k3 in kpts_helper.loop_kkk(nkpts):
         k4 = kconserv[k1, k2, k3]
         ppaa = eris.ppaa(k1, k2, k3) # (k1, k2, k3, k4)
@@ -226,7 +231,7 @@ def gen_g_hop(mc, mo_coeff, mo_phase, u, casdm1, casdm2, eris):
 
     def gorb_update(u, fcivec):
         # TODO: Note: currently I am using the CIAH not the k-CIAH, so the update matrix is packed into
-        # one giant matrix. This will need restructure once I switch to k-CIAH.
+        # one giant matrix. This will need restructured once I switch to k-CIAH.
 
         u = block_diag_to_kblocks(u, nkpts, nmo)
         assert u.shape == (nkpts, nmo, nmo)
@@ -326,9 +331,9 @@ def gen_g_hop(mc, mo_coeff, mo_phase, u, casdm1, casdm2, eris):
 
     # hdm2: which is the 2e part of the hessian diagonal. It have the contraction of 2e integrals with 2-RDMs.
     # The above dot products in the einsum format is written as the
-    # hdm2_J = np.einsum('pqwx,wxuv->puqv', ppaa, casdm2)
-    # hdm2_K = np.einsum('pwqx,xuwv->puqv', papa, casdm2)
-    # hdm2_K += np.einsum('pwqx,wuxv->puqv', papa, casdm2)
+    # hdm2 = numpy.einsum('pqwx,wxuv->puqv', eris.ppaa, casdm2) # J
+    # hdm2 += numpy.einsum('pwqx,uwxv->puqv', eris.papa, casdm2) # K1
+    # hdm2 += numpy.einsum('pwqx,wuxv->puqv', eris.papa, casdm2) # K2
 
     for k1, k2, k3 in kpts_helper.loop_kkk(nkpts):
         k4 = kconserv[k1, k2, k3]
@@ -345,22 +350,22 @@ def gen_g_hop(mc, mo_coeff, mo_phase, u, casdm1, casdm2, eris):
             kx = kconserv[k1, k3, kw]
             if kconserv[kw, kx, k2] == k4:
                 ppaa = eris.ppaa(k1, k3, kw)  # (k1, k3, kw, kx)
-                dm2  = casdm2_kpts[kw, kx, k2] # (kw, kx, k2, k4)
-                hdm2[k1, k2, k3] += (1.0 / nkpts) * np.einsum('pqwx,wxuv->puqv', ppaa, dm2, optimize=True)
+                dm2_blk  = casdm2_kpts[kw, kx, k2] # (kw, kx, k2, k4)
+                hdm2[k1, k2, k3] += (1.0 / nkpts) * np.einsum('pqwx,wxuv->puqv', ppaa, dm2_blk, optimize=True)
 
-         # hdm2: K term
+        # hdm2: K1 term
         for kw in range(nkpts):
             kx = kconserv[k1, kw, k3]
             papa = eris.papa(k1, kw, k3) # (k1, kw, k3, kx)
 
-            if kconserv[kx, k2, kw] == k4:
-                dm2 = casdm2_kpts[kx, k2, kw] # (kx, k2, kw, k4)
-                hdm2[k1, k2, k3] += (1.0 / nkpts) * np.einsum('pwqx,xuwv->puqv', papa, dm2, optimize=True)
+            if kconserv[k2, kw, kx] == k4:
+                dm2_blk = casdm2_kpts[k2, kw, kx] # (k2, kw, kx, k4)
+                hdm2[k1, k2, k3] += (1.0 / nkpts) * np.einsum('pwqx,uwxv->puqv', papa, dm2_blk, optimize=True)
 
             if kconserv[kw, k2, kx] == k4:
-                dm2 = casdm2_kpts[kw, k2, kx] # (kw, k2, kx, k4)
-                hdm2[k1, k2, k3] += (1.0 / nkpts) * np.einsum('pwqx,wuxv->puqv', papa, dm2, optimize=True)
-
+                dm2_blk = casdm2_kpts[kw, k2, kx] # (kw, k2, kx, k4)
+                hdm2[k1, k2, k3] += (1.0 / nkpts) * np.einsum('pwqx,wuxv->puqv', papa, dm2_blk, optimize=True)
+        
     ppaa = papa = jtmp = temp = None
 
     # After the construction of the hdm2 and jkcaa, I can construct the hessian diagonal.
