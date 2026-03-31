@@ -1278,12 +1278,7 @@ class PBCCASSCF(casci.PBCCASBASE):
             ci1 = ci1.reshape(ci0.shape)
         return ci1, g
     
-
-    def get_grad(self, mo_coeff=None, casdm1_casdm2=None, eris=None):
-        '''
-        Orbital gradients: differentiation of total energy with orbital 
-        rotations.
-        '''
+    def _gen_g_hop_test(self, mo_coeff=None, casdm1_casdm2=None, eris=None):
         if mo_coeff is None: mo_coeff = self.mo_coeff
         if eris is None: eris = self.ao2mo(mo_coeff)
         # The mo_phase is needed for the transformation of the integrals to R-space. 
@@ -1297,7 +1292,16 @@ class PBCCASSCF(casci.PBCCASBASE):
             casdm1, casdm2 = self.fcisolver.make_rdm12(civec, ncastot, nelecas)
         else:
             casdm1, casdm2 = casdm1_casdm2
-        return self.gen_g_hop(mo_coeff, mo_phase, 1, casdm1, casdm2, eris)[:2]
+        return self.gen_g_hop(mo_coeff, mo_phase, 1, casdm1, casdm2, eris)
+
+    def get_grad(self, mo_coeff=None, casdm1_casdm2=None, eris=None):
+        return self._gen_g_hop_test(mo_coeff, casdm1_casdm2=casdm1_casdm2, eris=eris)[0]
+
+    def get_grad_update(self, mo_coeff=None, casdm1_casdm2=None, eris=None):
+        return self._gen_g_hop_test(mo_coeff, casdm1_casdm2=casdm1_casdm2, eris=eris)[1]
+
+    def get_hessian_diag(self, mo_coeff=None, casdm1_casdm2=None, eris=None):
+        return self._get_hessian_diag(mo_coeff, casdm1_casdm2=casdm1_casdm2, eris=eris)[2]
 
     def _exact_paaa(self, mo_kpts, u_kpts, out=None):
         '''
