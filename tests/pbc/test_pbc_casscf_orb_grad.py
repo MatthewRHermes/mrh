@@ -64,7 +64,7 @@ class KnownValues(unittest.TestCase):
 
         # Now compute the gradients
         kmf_orb_grad = kmf.get_grad(mo_ref, kmf.mo_occ)
-        kmc_orb_grad = kmc.get_grad(mo_coeff=mo_ref)[0]
+        kmc_orb_grad = kmc.get_grad(mo_coeff=mo_ref)
 
         for a, b in zip(kmf_orb_grad, kmc_orb_grad):
             self.assertAlmostEqual(a, b, places=7)
@@ -103,8 +103,8 @@ class KnownValues(unittest.TestCase):
         kmc2.kernel(mo_coeff)
 
         # Compute the gradient and the update function
-        grad, grad_update = kmc2.get_grad(mo_ref)
-
+        grad = kmc2.get_grad(mo_ref.copy())
+        grad_update = kmc2.get_grad_update(mo_ref.copy())
         # Compute the updated gradient (i) very small rotation (1e-10) such that U=I and 
         # (ii) using finite size rotation (1e-3) to check the consistency of the grad_update function.
         def _generate_grad_and_grad_updates(scale, mo_ref, grad_update):
@@ -124,7 +124,7 @@ class KnownValues(unittest.TestCase):
             e_rot = kmc_rot.kernel(mo_rot)[0]
 
             # direct gradient at rotated orbitals
-            grad_direct = kmc_rot.get_grad(mo_rot)[0]
+            grad_direct = kmc_rot.get_grad(mo_rot)
             grad_from_update = grad_update(umat, kmc2.ci)
             return grad_direct, grad_from_update, e_rot
         
