@@ -75,7 +75,7 @@ def davidson_cc (mc, h_op, g_all, x0_guess, precond, tol=None, g_update=None, ca
                             mc.max_cycle_micro-int(np.log(norm_gkf+1e-7)*2))
             log.debug1('Set max_cycle %d', max_cycle)
             ikf += 1
-            if stat.imic > 3 and norm_gall > norm_gkf*mc.ah_grad_trust_region:
+            if stat.imic > 0 and norm_gall > norm_gkf*mc.ah_grad_trust_region:
                 g_all = g_all - hdxi
                 dr -= dxi
                 norm_gall = np.linalg.norm(g_all)
@@ -86,9 +86,9 @@ def davidson_cc (mc, h_op, g_all, x0_guess, precond, tol=None, g_update=None, ca
                 break
 
             # TODO: implement g_update and restore original logic
-            elif (ikf >= max(mc.kf_interval, mc.kf_interval-np.log(norm_dr+1e-7))):# or
-                   # Insert keyframe if the keyframe and the estimated grad are too different
-                   #norm_gall < norm_gkf/mc.kf_trust_region)):
+            elif (ikf >= max(mc.kf_interval, mc.kf_interval-np.log(norm_dr+1e-7)) or
+                  # Insert keyframe if the keyframe and the estimated grad are too different
+                  (norm_gall < norm_gkf/mc.kf_trust_region)):
                 if not callable (g_update):
                     log.debug('Out of trust region. Restore previouse step')
                     g_all = g_all - hdxi
@@ -96,8 +96,8 @@ def davidson_cc (mc, h_op, g_all, x0_guess, precond, tol=None, g_update=None, ca
                     norm_gall = norm_gkf = np.linalg.norm(g_all)
                     break
                 ikf = 0
-                dr_list.append (dr)
-                g_kf1 = g_update (dr)
+                dr_list.append (dr.copy ())
+                g_kf1 = g_update (dr_list)
                 dr[:] = 0
                 stat.tot_kf += 1
                 norm_gkf1 = np.linalg.norm(g_kf1)
@@ -106,13 +106,20 @@ def davidson_cc (mc, h_op, g_all, x0_guess, precond, tol=None, g_update=None, ca
                           '|g-correction|= %4.3g',
                           norm_gkf1, norm_dg)
 
+                log.debug ('%f %f %f %f %f', norm_dg, norm_gall, norm_gkf1, conv_tol_grad, mc.ah_grad_trust_region)
                 if (norm_dg < norm_gall*mc.ah_grad_trust_region  # kf not too diff
                     #or norm_gkf1 < norm_gkf  # grad is decaying
                     # close to solution
                     or norm_gkf1 < conv_tol_grad*mc.ah_grad_trust_region):
+                    log.debug('kf not too diff')
                     g_all = g_kf1
                     g_kf1 = None
                     norm_gall = norm_gkf = norm_gkf1
+                # TODO: understand why this new branch is necessary for anything to converge!
+                # Does it have something to do with the preconditioner??
+                elif norm_gkf1 > norm_gall * mc.ah_grad_trust_region:
+                    log.debug ('Hessian breakdown; iterate')
+                    break
                 else:
                     g_all = g_all - hdxi
                     dr -= dxi
@@ -120,8 +127,8 @@ def davidson_cc (mc, h_op, g_all, x0_guess, precond, tol=None, g_update=None, ca
                     log.debug('Out of trust region. Restore previouse step')
                     break
 
-        if callable (callback):
-            callback (dr)
+            if callable (callback):
+                callback (dr)
 
     if len (dr_list) > 0:
         dr_list.append (dr)

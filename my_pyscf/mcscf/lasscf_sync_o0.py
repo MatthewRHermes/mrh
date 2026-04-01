@@ -181,11 +181,17 @@ def kernel (las, mo_coeff=None, ci0=None, casdm0_fr=None, conv_tol_grad=1e-4,
                 raise MicroIterInstabilityException ("||x(n)|| > 10*||x(0)||")
             last_x[0] = x.copy ()
 
+        def g_update (x):
+            mo1, ci1, h2eff_sub1 = H_op.update_mo_ci_eri (x, h2eff_sub)
+            g1_orb, g1_ci = las.get_grad (ugg=ugg, mo_coeff=mo1, ci=ci1, h2eff_sub=h2eff_sub)[:2]
+            g1 = np.append (g1_orb, g1_ci)
+            return g1
         my_tol = max (conv_tol_grad, norm_gx/10)
         try:
             x = mc_ciah.davidson_cc (las, H_op, g_vec, x0, prec_op, tol=my_tol,
                                      callback=my_callback, verbose=log.verbose,
-                                     conv_tol_grad=conv_tol_grad)[0]
+                                     conv_tol_grad=conv_tol_grad,
+                                     g_update=g_update)[0]
             t1 = log.timer ('LASSCF {} microcycles'.format (microit[0]), *t1)
             mo_coeff, ci1, h2eff_sub = H_op.update_mo_ci_eri (x, h2eff_sub)
             t1 = log.timer ('LASSCF Hessian update', *t1)
@@ -1304,10 +1310,12 @@ class LASSCF_HessianOperator (sparse_linalg.LinearOperator):
         return np.concatenate ([self._get_Horb_diag ()] + self._get_Hci_diag ())
 
     def update_mo_ci_eri (self, x, h2eff_sub):
+        log = lib.logger.new_logger (self.las, self.las.verbose)
         if isinstance (x, (list,tuple)) and not isinstance (x, np.ndarray):
             mo0 = self.mo_coeff
             ci0 = self.ci
-            for xi in x:
+            for i, xi in enumerate (x):
+                log.info ('vector {}'.format (i))
                 mo1, ci1, h2eff_sub = self.update_mo_ci_eri (xi, h2eff_sub)
                 self.mo_coeff = mo1
                 self.ci = ci1
