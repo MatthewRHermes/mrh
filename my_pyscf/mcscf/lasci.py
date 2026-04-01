@@ -1,5 +1,5 @@
 from pyscf.scf.rohf import get_roothaan_fock
-from pyscf import fci
+from pyscf import fci, __config__
 from pyscf.fci import cistring
 from pyscf.mcscf import casci, casci_symm, df
 from pyscf.tools import dump_mat
@@ -889,7 +889,40 @@ class LASCINoSymm (casci.CASCI):
         self.frozen_ci = frozen_ci
         self.conv_tol_grad = 1e-4
         self.conv_tol_self = 1e-10
-        self.ah_level_shift = 1e-8
+        # for augmented hessian
+        self.max_stepsize = getattr(__config__, 'mcscf_LASSCF_max_stepsize', .02)
+        self.ah_level_shift = getattr(__config__, 'mcscf_LASSCF_ah_level_shift', 1e-8)
+        self.ah_conv_tol = getattr(__config__, 'mcscf_LASSCF_ah_conv_tol', 1e-12)
+        self.ah_max_cycle = getattr(__config__, 'mcscf_LASSCF_ah_max_cycle', 30)
+        self.ah_lindep = getattr(__config__, 'mcscf_LASSCF_ah_lindep', 1e-14)
+    # * ah_start_tol and ah_start_cycle control the start point to use AH step.
+    #   In function rotate_orb_cc, the orbital rotation is carried out with the
+    #   approximate aug_hessian step after a few davidson updates of the AH eigen
+    #   problem.  Reducing ah_start_tol or increasing ah_start_cycle will delay
+    #   the start point of orbital rotation.
+    # * We can do early ah_start since it only affect the first few iterations.
+    #   The start tol will be reduced when approach the convergence point.
+    # * Be careful with the SYMMETRY BROKEN caused by ah_start_tol/ah_start_cycle.
+    #   ah_start_tol/ah_start_cycle actually approximates the hessian to reduce
+    #   the J/K evaluation required by AH.  When the system symmetry is higher
+    #   than the one given by mol.symmetry/mol.groupname,  symmetry broken might
+    #   occur due to this approximation,  e.g.  with the default ah_start_tol,
+    #   C2 (16o, 8e) under D2h symmetry might break the degeneracy between
+    #   pi_x, pi_y orbitals since pi_x, pi_y belong to different irreps.  It can
+    #   be fixed by increasing the accuracy of AH solver, e.g.
+    #               ah_start_tol = 1e-8;  ah_conv_tol = 1e-10
+    # * Classic AH can be simulated by setting eg
+    #               ah_start_tol = 1e-7
+    #               max_stepsize = 1.5
+    #               ah_grad_trust_region = 1e6
+    # ah_grad_trust_region allow gradients being increased in AH optimization
+        self.ah_start_tol = getattr(__config__, 'mcscf_LASSCF_ah_start_tol', 2.5)
+        self.ah_start_cycle = getattr(__config__, 'mcscf_LASSCF_ah_start_cycle', 3)
+        self.ah_grad_trust_region = getattr(__config__, 'mcscf_LASSCF_ah_grad_trust_region', 3.0)
+        self.kf_interval = getattr(__config__, 'mcscf_LASSCF_kf_interval', 4)
+        self.kf_trust_region = getattr(__config__, 'mcscf_LASSCF_kf_trust_region', 3.0)
+
+
         self.max_cycle_macro = 50
         self.max_cycle_micro = 5
         self.min_cycle_macro = 0

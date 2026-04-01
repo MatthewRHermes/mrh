@@ -2,7 +2,7 @@ from pyscf import gto, scf, lib, symm
 from pyscf.mcscf import mc_ao2mo, mc1step
 from pyscf.mcscf import df as mc_df
 from mrh.my_pyscf.fci.csfstring import ImpossibleCIvecError
-from mrh.my_pyscf.mcscf import _DFLASCI, lasci, lasscf_guess
+from mrh.my_pyscf.mcscf import _DFLASCI, lasci, lasscf_guess, mc_ciah
 from scipy.sparse import linalg as sparse_linalg
 from mrh.my_pyscf.df.sparse_df import sparsedf_array
 from scipy import linalg 
@@ -175,7 +175,7 @@ def kernel (las, mo_coeff=None, ci0=None, casdm0_fr=None, conv_tol_grad=1e-4,
                     last_x[0] = x
                 raise MicroIterInstabilityException ("|x[i]| > pi/2")
             norm_x = linalg.norm (x)
-            if first_norm_x[0] is None:
+            if (first_norm_x[0] is None) or (first_norm_x[0]==0):
                 first_norm_x[0] = norm_x
             elif norm_x > 10*first_norm_x[0]:
                 raise MicroIterInstabilityException ("||x(n)|| > 10*||x(0)||")
@@ -183,9 +183,9 @@ def kernel (las, mo_coeff=None, ci0=None, casdm0_fr=None, conv_tol_grad=1e-4,
 
         my_tol = max (conv_tol_grad, norm_gx/10)
         try:
-            x = sparse_linalg.cg (H_op, -g_vec, x0=x0, atol=my_tol,
-                                  maxiter=las.max_cycle_micro, callback=my_callback,
-                                  M=prec_op)[0]
+            x = mc_ciah.davidson_cc (las, H_op, g_vec, x0, prec_op, tol=my_tol,
+                                     callback=my_callback, verbose=log.verbose,
+                                     conv_tol_grad=conv_tol_grad)[0]
             t1 = log.timer ('LASSCF {} microcycles'.format (microit[0]), *t1)
             mo_coeff, ci1, h2eff_sub = H_op.update_mo_ci_eri (x, h2eff_sub)
             t1 = log.timer ('LASSCF Hessian update', *t1)
@@ -1304,6 +1304,16 @@ class LASSCF_HessianOperator (sparse_linalg.LinearOperator):
         return np.concatenate ([self._get_Horb_diag ()] + self._get_Hci_diag ())
 
     def update_mo_ci_eri (self, x, h2eff_sub):
+        if isinstance (x, (list,tuple)) and not isinstance (x, np.ndarray):
+            mo0 = self.mo_coeff
+            ci0 = self.ci
+            for xi in x:
+                mo1, ci1, h2eff_sub = self.update_mo_ci_eri (xi, h2eff_sub)
+                self.mo_coeff = mo1
+                self.ci = ci1
+            self.mo_coeff = mo0
+            self.ci = ci0
+            return mo1, ci1, h2eff_sub
         log = lib.logger.new_logger(self.las, self.las.verbose)
         t0 = (lib.logger.process_clock(), lib.logger.perf_counter())
         kappa, dci = self.ugg.unpack (x)
