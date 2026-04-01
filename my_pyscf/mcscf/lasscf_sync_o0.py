@@ -122,7 +122,7 @@ def kernel (las, mo_coeff=None, ci0=None, casdm0_fr=None, conv_tol_grad=1e-4,
         norm_gorb = linalg.norm (g_vec[:ugg.nvar_orb]) if ugg.nvar_orb else 0.0
         norm_gci = linalg.norm (g_vec[ugg.nvar_orb:]) if ugg.ncsf_sub.sum () else 0.0
         norm_gx = linalg.norm (gx) if gx.size else 0.0
-        x0 = prec_op._matvec (-g_vec)
+        x0 = prec_op (-g_vec)
         norm_xorb = linalg.norm (x0[:ugg.nvar_orb]) if ugg.nvar_orb else 0.0
         norm_xci = linalg.norm (x0[ugg.nvar_orb:]) if ugg.ncsf_sub.sum () else 0.0
         lib.logger.info (
@@ -1275,12 +1275,13 @@ class LASSCF_HessianOperator (sparse_linalg.LinearOperator):
                        ndeg_unstable, ndeg, g_unst)
         else:
             log.warn ('LASSCF encountered an unmaskable instability; calculation may not converge')
-        def prec_op (x):
+        def prec_op (x, e=0):
             t0 = (lib.logger.process_clock(), lib.logger.perf_counter())
-            Mx = x/Hdiag
+            Mx = x/(Hdiag-e)
             log.timer ('LASSCF sync preconditioner call', *t0)
             return Mx
-        return sparse_linalg.LinearOperator (self.shape,matvec=prec_op,dtype=self.dtype)
+        return prec_op
+        #return sparse_linalg.LinearOperator (self.shape,matvec=prec_op,dtype=self.dtype)
 
     def _get_Horb_diag (self):
         fock = np.stack ([np.diag (h) for h in list (self.h1s)], axis=0)
