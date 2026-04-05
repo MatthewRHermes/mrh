@@ -335,47 +335,34 @@ def gen_g_hop(mc, mo_coeff, mo_phase, u, casdm1, casdm2, eris):
     # hdm2_ref += numpy.einsum('pwxq,wuxv->puqv', paap, casdm2)
     # hdm2_ref += numpy.einsum('pwxq,uwxv->puqv', paap, casdm2)
 
-    jkcaa = np.zeros((nkpts, nocc, ncas), dtype=complex)
-
     for k1, k2, k3 in kpts_helper.loop_kkk(nkpts):
         k4 = kconserv[k1, k2, k3]
         # jkcaa term
         if (k1 == k2 == k3):
-            #for k in range(nkpts):
             ppaa = eris.ppaa(k1, k2, k3)  # (k1, k2, k3, k4)
             papa = eris.papa(k1, k2, k3)  # (k1, k2, k3, k4)
-            jkcaa[k1] += 6.0 * np.einsum('iuiv,uv->iu', papa[:nocc, :, ncore:nocc, :], casdm1_kpts[k1])
-            jkcaa[k1] -= 2.0 * np.einsum('iiuv,uv->iu', ppaa[:nocc, ncore:nocc, :, :], casdm1_kpts[k1])
+            for i in range(nocc):
+                jkcaa[k1, i] += 6.0 * np.einsum('uiv,uv->i', papa[i][:, ncore:nocc, :], casdm1_kpts[k1])
+                jkcaa[k1, i] -= 2.0 * np.einsum('iuv,uv->i', ppaa[i][ncore:nocc, :, :], casdm1_kpts[k1])
 
-    for k1, k2, k3 in kpts_helper.loop_kkk(nkpts):
-        k4 = kconserv[k1, k2, k3]
-
+        # hdm2: J-term
         for kw in range(nkpts):
             kx = kconserv[k1, k3, kw]
             if kconserv[kw, kx, k2] == k4:
                 ppaa = eris.ppaa(k1, k3, kw)      # (k1, k3, kw, kx)
                 dm2_blk = casdm2_kpts[kw, kx, k2] # (kw, kx, k2, k4)
                 hdm2[k1, k2, k3] += (1.0 / nkpts) * np.einsum('pqwx,wxuv->puqv', ppaa, dm2_blk, optimize=True)
-
-    for k1, k2, k3 in kpts_helper.loop_kkk(nkpts):
-        k4 = kconserv[k1, k2, k3]
-
+        
+        # hdm2: K-term
         for kw in range(nkpts):
             kx = kconserv[kw, k2, k4]
             if kconserv[k1, kw, kx] == k3:
                 paap = eris.paap(k1, kw, kx)      # (k1, kw, kx, k3)
                 dm2_blk = casdm2_kpts[kw, k2, kx] # (kw, k2, kx, k4)
                 hdm2[k1, k2, k3] += (1.0 / nkpts) * np.einsum('pwxq,wuxv->puqv', paap, dm2_blk, optimize=True)
-
-    for k1, k2, k3 in kpts_helper.loop_kkk(nkpts):
-        k4 = kconserv[k1, k2, k3]
-
-        for kw in range(nkpts):
-            kx = kconserv[kw, k2, k4]
-            if kconserv[k1, kw, kx] == k3:
-                paap = eris.paap(k1, kw, kx)      # (k1, kw, kx, k3) = (p, w, x, q)
                 dm2_blk = casdm2_kpts[k2, kw, kx] # (k2, kw, kx, k4) = (u, w, x, v)
                 hdm2[k1, k2, k3] += (1.0 / nkpts) * np.einsum('pwxq,uwxv->puqv', paap, dm2_blk, optimize=True)
+    
     ppaa = papa = jtmp = temp = None
 
     # After the construction of the hdm2 and jkcaa, I can construct the hessian diagonal.
@@ -385,46 +372,32 @@ def gen_g_hop(mc, mo_coeff, mo_phase, u, casdm1, casdm2, eris):
     hdiag = np.zeros((nkpts, nmo, nmo), dtype=dtype)
 
     for k in range(nkpts):
-        # Confirmed
         temp = np.einsum('ii,jj->ij', h1e_mo[k], dm1[k])
         temp -= h1e_mo[k] * dm1[k]
         hdiag[k] = temp + temp.conj().T
 
-        # Confirmed
         g_diag = g[k].diagonal() 
         hdiag[k] -= g_diag.conj() + g_diag.reshape(-1, 1)
-
-        # Confirmed
         idx = np.arange(nmo)
         hdiag[k][idx, idx] += 2.0 * g_diag
-
-        # Confirmed
         v_diag = vhf_ca[k].diagonal()
         hdiag[k][:, :ncore] += 2.0 * v_diag.reshape(-1, 1)
         hdiag[k][:ncore] += 2.0 * v_diag
-
-        # Confirmed
         idx = np.arange(ncore)
         hdiag[k][idx, idx] -= 4.0 * v_diag[:ncore]
-
-        # Confirmed
         tmp = np.einsum('ii,jj->ij', eris.vhf_c[k], casdm1_kpts[k])
         hdiag[k][:, ncore:nocc] += tmp
         hdiag[k][ncore:nocc, :] += tmp.conj().T
-        
-        # Confirmed
         tmp = -eris.vhf_c[k][ncore:nocc,ncore:nocc] * casdm1_kpts[k]
         hdiag[k][ncore:nocc,ncore:nocc] += tmp + tmp.conj().T
        
-        # Confirmed: Remember to divide the eris.j_pc and eris.k_pc by nkpts, 
+        # TODO: Remember to divide the eris.j_pc and eris.k_pc by nkpts, 
         # because they are summed over the k-points in the eris generation.
         tmp = 6 * eris.k_pc[k] - 2 * eris.j_pc[k]
         tmp /= nkpts
         hdiag[k][ncore:,:ncore] += tmp[ncore:]
         hdiag[k][:ncore,ncore:] += tmp[ncore:].conj().T
         
-        # "Uptill everything looks good.")
-        # Confirmed: jkcaa term have an extra loop: will check later.
         hdiag[k][:nocc,ncore:nocc] -= jkcaa[k]
         hdiag[k][ncore:nocc,:nocc] -= jkcaa[k].conj().T
        
