@@ -330,42 +330,52 @@ def gen_g_hop(mc, mo_coeff, mo_phase, u, casdm1, casdm2, eris):
     # jkcaa -= 2.0 * numpy.einsum('iiuv,uv->iu',ppaa[:nocc, :nocc, :, :], casdm1)
 
     # hdm2: which is the 2e part of the hessian diagonal. It have the contraction of 2e integrals with 2-RDMs.
-    # The above dot products in the einsum format is written as the
-    # hdm2 = numpy.einsum('pqwx,wxuv->puqv', eris.ppaa, casdm2) # J
-    # hdm2 += numpy.einsum('pwqx,uwxv->puqv', eris.papa, casdm2) # K1
-    # hdm2 += numpy.einsum('pwqx,wuxv->puqv', eris.papa, casdm2) # K2
+    # After a lot of days: I think this is right contractions.
+    # hdm2_ref = numpy.einsum('pqwx, wxuv->puqv', ppaa, casdm2)
+    # hdm2_ref += numpy.einsum('pwxq,wuxv->puqv', paap, casdm2)
+    # hdm2_ref += numpy.einsum('pwxq,uwxv->puqv', paap, casdm2)
+
+    jkcaa = np.zeros((nkpts, nocc, ncas), dtype=complex)
+
+    for k1, k2, k3 in kpts_helper.loop_kkk(nkpts):
+        k4 = kconserv[k1, k2, k3]
+        # jkcaa term
+        if (k1 == k2 == k3):
+            #for k in range(nkpts):
+            ppaa = eris.ppaa(k1, k2, k3)  # (k1, k2, k3, k4)
+            papa = eris.papa(k1, k2, k3)  # (k1, k2, k3, k4)
+            jkcaa[k1] += 6.0 * np.einsum('iuiv,uv->iu', papa[:nocc, :, ncore:nocc, :], casdm1_kpts[k1])
+            jkcaa[k1] -= 2.0 * np.einsum('iiuv,uv->iu', ppaa[:nocc, ncore:nocc, :, :], casdm1_kpts[k1])
 
     for k1, k2, k3 in kpts_helper.loop_kkk(nkpts):
         k4 = kconserv[k1, k2, k3]
 
-        # jkcaa term
-        if (k1 == k2 == k3 == k4):
-            ppaa = eris.ppaa(k1, k2, k3)  # (k1, k2, k3, k4)
-            papa = eris.papa(k1, k2, k3)  # (k1, k2, k3, k4)
-            jkcaa[k1] += 6.0 * np.einsum('iuiv,uv->iu', papa[:nocc, :, :nocc, :], casdm1_kpts[k1])
-            jkcaa[k1] -= 2.0 * np.einsum('iiuv,uv->iu', ppaa[:nocc, :nocc, :, :], casdm1_kpts[k1])
-
-        # hdm2: J term
         for kw in range(nkpts):
             kx = kconserv[k1, k3, kw]
             if kconserv[kw, kx, k2] == k4:
-                ppaa = eris.ppaa(k1, k3, kw)  # (k1, k3, kw, kx)
-                dm2_blk  = casdm2_kpts[kw, kx, k2] # (kw, kx, k2, k4)
+                ppaa = eris.ppaa(k1, k3, kw)      # (k1, k3, kw, kx)
+                dm2_blk = casdm2_kpts[kw, kx, k2] # (kw, kx, k2, k4)
                 hdm2[k1, k2, k3] += (1.0 / nkpts) * np.einsum('pqwx,wxuv->puqv', ppaa, dm2_blk, optimize=True)
 
-        # hdm2: K1 term
+    for k1, k2, k3 in kpts_helper.loop_kkk(nkpts):
+        k4 = kconserv[k1, k2, k3]
+
         for kw in range(nkpts):
-            kx = kconserv[k1, kw, k3]
-            papa = eris.papa(k1, kw, k3) # (k1, kw, k3, kx)
-
-            if kconserv[k2, kw, kx] == k4:
-                dm2_blk = casdm2_kpts[k2, kw, kx] # (k2, kw, kx, k4)
-                hdm2[k1, k2, k3] += (1.0 / nkpts) * np.einsum('pwqx,uwxv->puqv', papa, dm2_blk, optimize=True)
-
-            if kconserv[kw, k2, kx] == k4:
+            kx = kconserv[kw, k2, k4]
+            if kconserv[k1, kw, kx] == k3:
+                paap = eris.paap(k1, kw, kx)      # (k1, kw, kx, k3)
                 dm2_blk = casdm2_kpts[kw, k2, kx] # (kw, k2, kx, k4)
-                hdm2[k1, k2, k3] += (1.0 / nkpts) * np.einsum('pwqx,wuxv->puqv', papa, dm2_blk, optimize=True)
-        
+                hdm2[k1, k2, k3] += (1.0 / nkpts) * np.einsum('pwxq,wuxv->puqv', paap, dm2_blk, optimize=True)
+
+    for k1, k2, k3 in kpts_helper.loop_kkk(nkpts):
+        k4 = kconserv[k1, k2, k3]
+
+        for kw in range(nkpts):
+            kx = kconserv[kw, k2, k4]
+            if kconserv[k1, kw, kx] == k3:
+                paap = eris.paap(k1, kw, kx)      # (k1, kw, kx, k3) = (p, w, x, q)
+                dm2_blk = casdm2_kpts[k2, kw, kx] # (k2, kw, kx, k4) = (u, w, x, v)
+                hdm2[k1, k2, k3] += (1.0 / nkpts) * np.einsum('pwxq,uwxv->puqv', paap, dm2_blk, optimize=True)
     ppaa = papa = jtmp = temp = None
 
     # After the construction of the hdm2 and jkcaa, I can construct the hessian diagonal.
@@ -373,38 +383,51 @@ def gen_g_hop(mc, mo_coeff, mo_phase, u, casdm1, casdm2, eris):
     # are only allowed within the same k-point !
 
     hdiag = np.zeros((nkpts, nmo, nmo), dtype=dtype)
+
     for k in range(nkpts):
+        # Confirmed
         temp = np.einsum('ii,jj->ij', h1e_mo[k], dm1[k])
         temp -= h1e_mo[k] * dm1[k]
         hdiag[k] = temp + temp.conj().T
 
-        g_diag = g[k].diagonal()
-        hdiag[k] -= g_diag + g_diag.reshape(-1, 1)
-        
+        # Confirmed
+        g_diag = g[k].diagonal() 
+        hdiag[k] -= g_diag.conj() + g_diag.reshape(-1, 1)
+
+        # Confirmed
         idx = np.arange(nmo)
         hdiag[k][idx, idx] += 2.0 * g_diag
 
-        v_diag = vhf_ca[k].diagonal() 
+        # Confirmed
+        v_diag = vhf_ca[k].diagonal()
         hdiag[k][:, :ncore] += 2.0 * v_diag.reshape(-1, 1)
         hdiag[k][:ncore] += 2.0 * v_diag
 
+        # Confirmed
         idx = np.arange(ncore)
         hdiag[k][idx, idx] -= 4.0 * v_diag[:ncore]
 
+        # Confirmed
         tmp = np.einsum('ii,jj->ij', eris.vhf_c[k], casdm1_kpts[k])
         hdiag[k][:, ncore:nocc] += tmp
         hdiag[k][ncore:nocc, :] += tmp.conj().T
-
+        
+        # Confirmed
         tmp = -eris.vhf_c[k][ncore:nocc,ncore:nocc] * casdm1_kpts[k]
         hdiag[k][ncore:nocc,ncore:nocc] += tmp + tmp.conj().T
-
+       
+        # Confirmed: Remember to divide the eris.j_pc and eris.k_pc by nkpts, 
+        # because they are summed over the k-points in the eris generation.
         tmp = 6 * eris.k_pc[k] - 2 * eris.j_pc[k]
+        tmp /= nkpts
         hdiag[k][ncore:,:ncore] += tmp[ncore:]
         hdiag[k][:ncore,ncore:] += tmp[ncore:].conj().T
-
+        
+        # "Uptill everything looks good.")
+        # Confirmed: jkcaa term have an extra loop: will check later.
         hdiag[k][:nocc,ncore:nocc] -= jkcaa[k]
         hdiag[k][ncore:nocc,:nocc] -= jkcaa[k].conj().T
-
+       
         v_diag = np.einsum('ijij->ij', hdm2[k, k, k])
         hdiag[k][ncore:nocc,:] += v_diag.conj().T
         hdiag[k][:,ncore:nocc] += v_diag
@@ -902,7 +925,7 @@ class PBCCASSCF(casci.PBCCASBASE):
 
         mo_phase = get_mo_coeff_k2R(self._scf, mo_coeff, self.ncore, self.ncas)[-1]
 
-        print('Start 1-step CASSCF optimization')
+        # print('Start 1-step CASSCF optimization')
         self.converged, self.e_tot, self.e_cas, self.ci, \
                 self.mo_coeff, self.mo_energy = \
                 _kern(self, mo_coeff, mo_phase,
@@ -982,7 +1005,13 @@ class PBCCASSCF(casci.PBCCASBASE):
         idx = self.uniq_var_indices(nmo, self.ncore, self.ncas, self.frozen)
         return mat[idx]
     
-    def unpack_uniq_var(self, v):
+    def unpack_uniq_var(self, v, hermi=2):
+        '''
+        Unpack the unique variables into a full matrix.
+        hermi: int
+            1: Hermitian
+            2: Anti-Hermitian
+        '''
         v = np.asarray(v)
         nmo = self.mo_coeff[0].shape[1]
         nkpts = self.nkpts
@@ -993,21 +1022,24 @@ class PBCCASSCF(casci.PBCCASBASE):
         # Decide whether the input is for a single k-point or for all k-points.
         assert v.size == uniq_idx or v.size == self.nkpts * uniq_idx
 
-        def _unpack_uniq_var(v):
+        def _unpack_uniq_var(v, hermi=2):
             # For a single k-point.
             mat = np.zeros((nmo,nmo), dtype=dtype)
             mat[idx] = v
-            return mat - mat.conj().T
-    
+            if hermi == 1:
+                return mat + mat.conj().T
+            elif hermi == 2:
+                return mat - mat.conj().T
+
         if v.size == uniq_idx:
-            return _unpack_uniq_var(v)
+            return _unpack_uniq_var(v, hermi=hermi)
 
         elif v.size == nkpts * uniq_idx:
             mats = np.zeros((nkpts, nmo, nmo), dtype=dtype)
             for k in range(nkpts):
                 p0 = k * uniq_idx
                 p1 = (k + 1) * uniq_idx
-                mats[k] = _unpack_uniq_var(v[p0:p1])
+                mats[k] = _unpack_uniq_var(v[p0:p1], hermi=hermi)
             return scipy.linalg.block_diag(*mats)
 
     def update_rotate_matrix(self, dx, u0=1):
@@ -1301,7 +1333,7 @@ class PBCCASSCF(casci.PBCCASBASE):
         return self._gen_g_hop_test(mo_coeff, casdm1_casdm2=casdm1_casdm2, eris=eris)[1]
 
     def get_hessian_diag(self, mo_coeff=None, casdm1_casdm2=None, eris=None):
-        return self._get_hessian_diag(mo_coeff, casdm1_casdm2=casdm1_casdm2, eris=eris)[2]
+        return self._gen_g_hop_test(mo_coeff, casdm1_casdm2=casdm1_casdm2, eris=eris)[3]
 
     def _exact_paaa(self, mo_kpts, u_kpts, out=None):
         '''
