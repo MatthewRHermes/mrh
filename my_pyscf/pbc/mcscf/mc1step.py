@@ -413,12 +413,18 @@ def gen_g_hop(mc, mo_coeff, mo_phase, u, casdm1, casdm2, eris):
         
     # Step-4: Hessian-vector product
     def h_op(x):
-        # Since the orbital optimization is done for one giant matrix, so
+        '''
+        Compute the Hessian-vector product. Basically, for a given rotation vector x, 
+        compute the H*x, which is of the same shape as gradient.
+        '''
+        # TODO: since the orbital optimization is done for one giant matrix, so
         # I need to unpack this. When I will implement the k-CIAH for the orbital 
         # optimization below won't be required.
+        
         nmopack = mc.pack_uniq_var(np.zeros((nmo, nmo))).shape[0]
         x = x.reshape(nkpts, nmopack)
         x2 = np.empty((nkpts, nmo, nmo), dtype=dtype)
+        
         for k in range(nkpts):
             x1 = mc.unpack_uniq_var(x[k]) # (k, k)
             x2[k] = reduce(np.dot, (h1e_mo[k], x1, dm1[k])) # (k, k)
@@ -426,21 +432,21 @@ def gen_g_hop(mc, mo_coeff, mo_phase, u, casdm1, casdm2, eris):
             x2[k][:ncore] += 2.0 * reduce(np.dot, (x1[:ncore,ncore:], vhf_ca[k][ncore:])) # (k, k)
             x2[k][ncore:nocc] += reduce(np.dot, (casdm1_kpts[k], x1[ncore:nocc], eris.vhf_c[k])) # (k, k)
 
-            for k3 in range(nkpts):
-                k4 = kconserv[k, k, k3]
-                if k4 != k3: continue
-                hdm2temp = hdm2[k, k, k3]
-                x1temp = mc.unpack_uniq_var(x[k3]) # (k3, k3)
-                x2[k][:, ncore:nocc] += np.einsum('purv,rv->pu', hdm2temp, x1temp[:, ncore:nocc], optimize=True)
+            # I think this term corresponds to fact that how does the current orbitals will be affected by
+            # rotation in some other block.
+            for k1, k2, k3 in kpts_helper.loop_kkk(nkpts):
+                k4 = kconserv[k1, k2, k3]
+                if (k == k1 == k2) and (k3 == k4):
+                    hdm2temp = hdm2[k, k, k3]
+                    x1temp = mc.unpack_uniq_var(x[k3]) # (k3, k3)
+                    x2[k][:, ncore:nocc] += np.einsum('purv,rv->pu', hdm2temp, x1temp[:, ncore:nocc], optimize=True)
 
             if ncore > 0:
-                # I need to modify this function: mc.update_jk_in_ah as well.
                 va, vc = mc.update_jk_in_ah(mo_coeff[k], x1, casdm1_kpts[k], eris, k)
                 x2[k][ncore:nocc] += va
                 x2[k][:ncore,ncore:] += vc
             
             x2[k] = x2[k] - x2[k].conj().T
-        
         
         x1temp = hdm2temp = None
 
@@ -1032,6 +1038,11 @@ class PBCCASSCF(casci.PBCCASBASE):
         return eris
     
     def update_jk_in_ah(self, mo_k, r_k, casdm1_k, eris, kptindx):
+        '''
+        Update the J and K matrices in the auxiliary Hamiltonian.
+        Using the rotation matrix, rotate the mo_coeff then construct the density matrix
+        from that get the potential and then rotate those potential back to mo_basis.
+        '''
         cell = self._scf.cell
         kpts = self._scf.kpts
         ncore = self.ncore
@@ -1042,16 +1053,23 @@ class PBCCASSCF(casci.PBCCASBASE):
         assert casdm1_k.ndim == 2
         assert mo_k.ndim == 2
 
-        dm3 = reduce(np.dot, (mo_k[:,:ncore], r_k[:ncore,ncore:], mo_k[:,ncore:].conj().T))
+        def _get_jk_core_or_act(dm_k):
+            vj, vk = self.get_jk(cell, dm_k, kpts_band=kpts[kptindx], hermi=1, with_j=True,
+                                 with_k=True, exxdiv=None)
+            if vj.ndim == 3: vj = vj[0]
+            if vk.ndim == 3: vk = vk[0]
+            return vj, vk
+        
+        dm3 = reduce(np.dot, (mo_k[:,:ncore], r_k[:ncore,ncore:], mo_k[:,ncore:].conj().T)) # nao, nao
         dm3 = dm3 + dm3.conj().T
         
-        dm4 = reduce(np.dot, (mo_k[:,ncore:nocc], casdm1_k, r_k[ncore:nocc], mo_k.T))
+        dm4 = reduce(np.dot, (mo_k[:,ncore:nocc], casdm1_k, r_k[ncore:nocc], mo_k.conj().T)) # nao, nao
         dm4 = dm4 + dm4.conj().T
 
-        vj, vk  = self.get_jk(self._scf.cell, dm3, kpts_band=kpts[kptindx])
+        vj, vk  = _get_jk_core_or_act(dm3)
         va = reduce(np.dot, (casdm1_k, mo_k[:,ncore:nocc].conj().T, vj * 2.0 - vk, mo_k))
 
-        vj, vk = self.get_jk(cell, dm3*2.0 + dm4, kpts_band=kpts[kptindx])
+        vj, vk = _get_jk_core_or_act(dm3*2.0 + dm4)
         vc = reduce(np.dot, (mo_k[:,:ncore].conj().T, vj*2.0 - vk, mo_k[:,ncore:]))
         return va, vc
     
