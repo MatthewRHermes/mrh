@@ -32,7 +32,6 @@ def generate_kappa(nkpts, nmo, scale=1e-3, seed=12):
         kappa_k[k] = kappa
     return kappa_k
 
-
 def compute_kRHF_hess_diag(kmf, mo_ref):
     '''
     Compute the kRHF orbital Hessian diagonal in matrix form. Orbital Hessian is useful 
@@ -246,6 +245,7 @@ class KnownValues(unittest.TestCase):
 
         for a, b in zip(hess_diag_cas.flatten(), hess_diag_khf.flatten()):
             self.assertAlmostEqual(a, b, places=7)
+
 if __name__ == "__main__":
     # Orbital gradient test for k-CASSCF.
     unittest.main()

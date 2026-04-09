@@ -304,7 +304,7 @@ def gen_g_hop(mc, mo_coeff, mo_phase, u, casdm1, casdm2, eris):
             ra4 = (u[k4] - np.eye(nmo, dtype=dtype))[:, ncore:nocc]
             p1aa = 1/nkpts * np.einsum('pr,tq,rquv->ptuv', u[k1].conj().T, ua.T, ppaa, optimize=True)
             pa1a = 1/nkpts * np.einsum('pr,ruqv,qt->putv', u[k1].conj().T, papa, ra3.conj(), optimize=True)
-            paa1 = 1/nkpts * np.einsum('pr,rvuq,qt->pvtu',u[k1].conj().T,paap, ra4, optimize=True)
+            paa1 = 1/nkpts * np.einsum('pr,rvuq,qt->pvtu', u[k1].conj().T, paap, ra4, optimize=True)
             p1aa = p1aa + pa1a + paa1
 
             dm2_k = _get_casdm2_kpts(casdm2, mo_phase1, (k1, k2, k3, k4))
@@ -314,7 +314,7 @@ def gen_g_hop(mc, mo_coeff, mo_phase, u, casdm1, casdm2, eris):
         papa = ppaa = paap = p1aa = paa1 = pa1a = dm2_k = None
 
         return np.hstack([mc.pack_uniq_var(g[k] - g[k].conj().T) for k in range(nkpts)])    
-    
+
     # Step-3: Hessian diagonal
     jkcaa = np.zeros((nkpts, nocc, ncas), dtype=dtype)
     # TODO: Should host the hdm2 on the disk.
@@ -335,6 +335,7 @@ def gen_g_hop(mc, mo_coeff, mo_phase, u, casdm1, casdm2, eris):
     # hdm2_ref += numpy.einsum('pwxq,wuxv->puqv', paap, casdm2)
     # hdm2_ref += numpy.einsum('pwxq,uwxv->puqv', paap, casdm2)
 
+    I = np.eye(ncas, dtype=mo_coeff[0].dtype)
     for k1, k2, k3 in kpts_helper.loop_kkk(nkpts):
         k4 = kconserv[k1, k2, k3]
         # jkcaa term
@@ -342,32 +343,43 @@ def gen_g_hop(mc, mo_coeff, mo_phase, u, casdm1, casdm2, eris):
             ppaa = eris.ppaa(k1, k2, k3)  # (k1, k2, k3, k4)
             papa = eris.papa(k1, k2, k3)  # (k1, k2, k3, k4)
             for i in range(nocc):
-                jkcaa[k1, i] += 6.0 * np.einsum('uiv,uv->i', papa[i][:, ncore:nocc, :], casdm1_kpts[k1])
-                jkcaa[k1, i] -= 2.0 * np.einsum('iuv,uv->i', ppaa[i][ncore:nocc, :, :], casdm1_kpts[k1])
+                jkcaa[k1, i] += 6.0/nkpts * np.einsum('uiv,uv->i', papa[i][:, ncore:nocc, :], casdm1_kpts[k1])
+                jkcaa[k1, i] -= 2.0/nkpts * np.einsum('iuv,uv->i', ppaa[i][ncore:nocc, :, :], casdm1_kpts[k1])
 
-        # hdm2: J-term
+        # hdm2: J-term: Debugged.
         for kw in range(nkpts):
             kx = kconserv[k1, k3, kw]
             if kconserv[kw, kx, k2] == k4:
                 ppaa = eris.ppaa(k1, k3, kw)      # (k1, k3, kw, kx)
                 dm2_blk = casdm2_kpts[kw, kx, k2] # (kw, kx, k2, k4)
                 hdm2[k1, k2, k3] += (1.0 / nkpts) * np.einsum('pqwx,wxuv->puqv', ppaa, dm2_blk, optimize=True)
-        
-        # hdm2: K-term
-        for kw in range(nkpts):
-            kx = kconserv[kw, k2, k4]
-            if kconserv[k1, kw, kx] == k3:
-                paap = eris.paap(k1, kw, kx)      # (k1, kw, kx, k3)
-                dm2_blk = casdm2_kpts[kw, k2, kx] # (kw, k2, kx, k4)
-                hdm2[k1, k2, k3] += (1.0 / nkpts) * np.einsum('pwxq,wuxv->puqv', paap, dm2_blk, optimize=True)
-                dm2_blk = casdm2_kpts[k2, kw, kx] # (k2, kw, kx, k4) = (u, w, x, v)
-                hdm2[k1, k2, k3] += (1.0 / nkpts) * np.einsum('pwxq,uwxv->puqv', paap, dm2_blk, optimize=True)
-    
-    ppaa = papa = jtmp = temp = None
+                
+        # Above code worked for hess diag, but I think there is a mistake in that code, due to which it's not 
+        # passing the hop tests. Again rewriting this code:
+        # for kw in range(nkpts):
+        #     kx = kconserv[kw, k2, k4]
+        #     if kconserv[k1, kw, kx] == k3:
+        #         paap = eris.paap(k1, kw, kx)      # (k1, kw, kx, k3)
+        #         dm2_blk = casdm2_kpts[kw, k2, kx] # (kw, k2, kx, k4)
+        #         hdm2[k1, k2, k3] += (1.0 / nkpts) * np.einsum('pwxq,wuxv->puqv', paap, dm2_blk, optimize=True)
+        #         dm2_blk = casdm2_kpts[k2, kw, kx] # (k2, kw, kx, k4) = (u, w, x, v)
+        #         hdm2[k1, k2, k3] += (1.0 / nkpts) * np.einsum('pwxq,uwxv->puqv', paap, dm2_blk, optimize=True)
 
-    # After the construction of the hdm2 and jkcaa, I can construct the hessian diagonal.
-    # Note: I think hessian diagonal would be block diagonal in k-space, because the orbital rotations 
-    # are only allowed within the same k-point !
+
+    # In the single reference limit.
+    hdm2_K = np.zeros((nkpts, nkpts, nkpts, nmo, ncas, nmo, ncas), dtype=dtype)
+    for k1, k2, k3 in kpts_helper.loop_kkk(nkpts):
+        k4 = kconserv[k1, k2, k3]
+        if k4 == k2 and k3 == k1:
+            for kt in range(nkpts):
+                hdm2_K[k1, k2, k3] += (-2.0 / nkpts) * np.einsum('pttq,uv->puqv', eris.paap(k1, kt, kt), I, optimize=True)
+        hdm2_K[k1, k2, k3] +=  (-2.0 / nkpts) * eris.papa(k1, k4, k3).transpose(0, 3, 2, 1).conj()
+        hdm2_K[k1, k2, k3] +=  (4.0 / nkpts) *  eris.paap(k1, k2, k4).transpose(0,1,3,2)
+        hdm2_K[k1, k2, k3] +=  (4.0 / nkpts) *  eris.papa(k1, k2, k3).conj()
+        
+    hdm2 += hdm2_K
+
+    ppaa = papa = jtmp = temp = None
 
     hdiag = np.zeros((nkpts, nmo, nmo), dtype=dtype)
 
@@ -410,7 +422,7 @@ def gen_g_hop(mc, mo_coeff, mo_phase, u, casdm1, casdm2, eris):
                        for k in range(nkpts)])
     h_diag = np.hstack([mc.pack_uniq_var(hdiag[k]) 
                         for k in range(nkpts)])
-        
+
     # Step-4: Hessian-vector product
     def h_op(x):
         '''
@@ -420,13 +432,21 @@ def gen_g_hop(mc, mo_coeff, mo_phase, u, casdm1, casdm2, eris):
         # TODO: since the orbital optimization is done for one giant matrix, so
         # I need to unpack this. When I will implement the k-CIAH for the orbital 
         # optimization below won't be required.
-        
+
         nmopack = mc.pack_uniq_var(np.zeros((nmo, nmo))).shape[0]
-        x = x.reshape(nkpts, nmopack)
+        x = np.array([x[i*nmopack:(i+1)*nmopack] 
+                      for i in range(nkpts)], dtype=dtype) # (nkpts, nmopack)
+
         x2 = np.empty((nkpts, nmo, nmo), dtype=dtype)
+        np.set_printoptions(precision=3, suppress=True)
+        
+        if ncore > 0:
+            x1 = np.array([mc.unpack_uniq_var(x[k]) 
+                           for k in range(nkpts)])
+            va, vc = mc.update_jk_in_ah(mo_coeff, x1, casdm1_kpts, eris)
         
         for k in range(nkpts):
-            x1 = mc.unpack_uniq_var(x[k]) # (k, k)
+            x1 = mc.unpack_uniq_var(x[k].copy()) # (k, k)
             x2[k] = reduce(np.dot, (h1e_mo[k], x1, dm1[k])) # (k, k)
             x2[k] -= 0.5 * np.dot((g[k] + g[k].conj().T), x1) # (k, k)
             x2[k][:ncore] += 2.0 * reduce(np.dot, (x1[:ncore,ncore:], vhf_ca[k][ncore:])) # (k, k)
@@ -434,24 +454,18 @@ def gen_g_hop(mc, mo_coeff, mo_phase, u, casdm1, casdm2, eris):
 
             # I think this term corresponds to fact that how does the current orbitals will be affected by
             # rotation in some other block.
-            for k1, k2, k3 in kpts_helper.loop_kkk(nkpts):
-                k4 = kconserv[k1, k2, k3]
-                if (k == k1 == k2) and (k3 == k4):
-                    hdm2temp = hdm2[k, k, k3]
-                    x1temp = mc.unpack_uniq_var(x[k3]) # (k3, k3)
-                    x2[k][:, ncore:nocc] += np.einsum('purv,rv->pu', hdm2temp, x1temp[:, ncore:nocc], optimize=True)
-
+            for kr in range(nkpts):
+                hdm2temp = hdm2[k, k, kr]
+                x1temp = mc.unpack_uniq_var(x[kr].copy())
+                x2[k][:, ncore:nocc] += np.einsum('purv,rv->pu', hdm2temp, x1temp[:, ncore:nocc], optimize=True)
+                
             if ncore > 0:
-                va, vc = mc.update_jk_in_ah(mo_coeff[k], x1, casdm1_kpts[k], eris, k)
-                x2[k][ncore:nocc] += va
-                x2[k][:ncore,ncore:] += vc
+                x2[k][ncore:nocc] += va[k]
+                x2[k][:ncore,ncore:] += vc[k]
             
-            x2[k] = x2[k] - x2[k].conj().T
-        
-        x1temp = hdm2temp = None
+        x1temp = hdm2temp = va = vc = None
+        return np.hstack([mc.pack_uniq_var(x2_ - x2_.conj().T) for x2_ in x2])
 
-        return np.hstack([mc.pack_uniq_var(x2_) for x2_ in x2])
-    
     return g_orb, gorb_update, h_op, h_diag
 
 #TODO: make mo_coeff as tagged array then mo_phase can be added to it.
@@ -1037,7 +1051,54 @@ class PBCCASSCF(casci.PBCCASBASE):
         eris = _ERIS(self, mo_coeff, method='direct')
         return eris
     
-    def update_jk_in_ah(self, mo_k, r_k, casdm1_k, eris, kptindx):
+    def update_jk_in_ah(self, mo_coeff, r_k, casdm1_k, eris):
+        '''
+        Update the J and K matrices in the auxiliary Hamiltonian.
+        Using the rotation matrix, rotate the mo_coeff then construct the density matrix
+        from that get the potential and then rotate those potential back to mo_basis.
+        '''
+        cell = self._scf.cell
+        kpts = self._scf.kpts
+        nkpts = self.nkpts
+        ncore = self.ncore
+        ncas = self.ncas
+        nocc = ncore + ncas
+        
+        # Make sure they are for a single k-point.
+        assert casdm1_k.ndim == 3 and casdm1_k.shape[0] == nkpts
+        assert mo_coeff.ndim == 3 and mo_coeff.shape[0] == nkpts
+
+        mo_k = np.array(mo_coeff).copy() # (nkpts, nao, nmo)
+
+        def _get_jk_core_or_act(dm_k):
+            vj, vk = self._scf.get_jk(cell, dm_k, kpts=kpts, hermi=1, with_j=True,
+                                 with_k=True, exxdiv=None)
+            return vj, vk
+        
+        dm3temp = np.array([reduce(np.dot, (mo_k[k][:,:ncore], 
+                                            (r_k[k][:ncore,ncore:] @ mo_k[k][:,ncore:].conj().T))) 
+                                            for k in range(nkpts)]) # (nkpts, nao, nao)
+        dm3 = np.array([dm3temp[k] + dm3temp[k].conj().T 
+                        for k in range(nkpts)])
+
+        dm4temp = np.array([reduce(np.dot, (mo_k[k][:,ncore:nocc], casdm1_k[k], 
+                                        (r_k[k][ncore:nocc] @ mo_k[k].conj().T))) 
+                                        for k in range(nkpts)]) # (nkpts, nao, nao)
+        
+        dm4 = np.array([dm4temp[k] + dm4temp[k].conj().T 
+                        for k in range(nkpts)])
+        
+        vj, vk  = _get_jk_core_or_act(dm3)
+        va = np.array([reduce(np.dot, (casdm1_k[k], (mo_k[k][:,ncore:nocc].conj().T @ 
+                                                     (vj[k] * 2.0 - vk[k]) @ mo_k[k]))) 
+                                                     for k in range(nkpts)])
+
+        vj, vk = _get_jk_core_or_act(dm3*2.0 + dm4)
+        vc = np.array([reduce(np.dot, (mo_k[k][:,:ncore].conj().T, vj[k]*2.0 - vk[k], mo_k[k][:,ncore:]))
+                       for k in range(nkpts)])
+        return va, vc
+    
+    def _update_jk_in_ah(self, mo_k, r_k, casdm1_k, eris, kptindx):
         '''
         Update the J and K matrices in the auxiliary Hamiltonian.
         Using the rotation matrix, rotate the mo_coeff then construct the density matrix
@@ -1052,7 +1113,6 @@ class PBCCASSCF(casci.PBCCASBASE):
         # Make sure they are for a single k-point.
         assert casdm1_k.ndim == 2
         assert mo_k.ndim == 2
-
         def _get_jk_core_or_act(dm_k):
             vj, vk = self.get_jk(cell, dm_k, kpts_band=kpts[kptindx], hermi=1, with_j=True,
                                  with_k=True, exxdiv=None)
@@ -1062,10 +1122,8 @@ class PBCCASSCF(casci.PBCCASBASE):
         
         dm3 = reduce(np.dot, (mo_k[:,:ncore], r_k[:ncore,ncore:], mo_k[:,ncore:].conj().T)) # nao, nao
         dm3 = dm3 + dm3.conj().T
-        
         dm4 = reduce(np.dot, (mo_k[:,ncore:nocc], casdm1_k, r_k[ncore:nocc], mo_k.conj().T)) # nao, nao
         dm4 = dm4 + dm4.conj().T
-
         vj, vk  = _get_jk_core_or_act(dm3)
         va = reduce(np.dot, (casdm1_k, mo_k[:,ncore:nocc].conj().T, vj * 2.0 - vk, mo_k))
 
@@ -1323,6 +1381,9 @@ class PBCCASSCF(casci.PBCCASBASE):
     def get_grad_update(self, mo_coeff=None, casdm1_casdm2=None, eris=None):
         return self._gen_g_hop_test(mo_coeff, casdm1_casdm2=casdm1_casdm2, eris=eris)[1]
 
+    def get_hessian_op(self, mo_coeff=None, casdm1_casdm2=None, eris=None):
+        return self._gen_g_hop_test(mo_coeff, casdm1_casdm2=casdm1_casdm2, eris=eris)[2]
+    
     def get_hessian_diag(self, mo_coeff=None, casdm1_casdm2=None, eris=None):
         return self._gen_g_hop_test(mo_coeff, casdm1_casdm2=casdm1_casdm2, eris=eris)[3]
 
