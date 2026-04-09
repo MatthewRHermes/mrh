@@ -49,11 +49,11 @@ class GradientDebugger (object):
         g_vec = np.atleast_1d (g_vec)
         self.g_vec = g_vec
         self.x = g_vec.copy () 
-        self.n = len (g_vec)
+        self.shape = g_vec.shape
         self.dtype = g_vec.dtype
         self.__dict__.update (**kwargs)
         self.x = np.atleast_1d (self.x).astype (self.dtype)
-        if not hasattr (self, 'f0'): f0 = f_op (np.zeros (self.n, dtype=self.dtype))
+        if not hasattr (self, 'f0'): f0 = f_op (np.zeros (self.shape, dtype=self.dtype))
         self.f_op = lambda x: np.squeeze (f_op (x) - f0)
         if not hasattr (self, 'divs'): self.set_divrange_()
 

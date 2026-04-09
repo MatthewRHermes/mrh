@@ -4,6 +4,7 @@ from scipy import linalg
 import itertools
 import matplotlib.pyplot as plt
 from mrh.util.debugging import gradients
+from scipy.sparse import linalg as sparse_linalg
 
 def epstable (f_op, j_op, x, divs):
     '''Convergence table for evaluating analytical gradient functions using the error measure
@@ -41,15 +42,25 @@ def epstable (f_op, j_op, x, divs):
     return table
 
 class HessianDebugger (gradients.GradientDebugger):
-    def __init__(self, f_op, j_op, n, dtype=float, **kwargs):
-        self.n = n
-        self.dtype = dtype
+    def __init__(self, f_op, j_op, shape=None, dtype=float, **kwargs):
+        if not isinstance (j_op, sparse_linalg.LinearOperator):
+            j_op = sparse_linalg.LinearOperator (
+                shape=shape,
+                dtype=dtype,
+                matvec=j_op
+            )
+        self.shape = j_op.shape
+        self.dtype = j_op.dtype
         if 'f0' not in kwargs:
-            f0 = f_op (np.zeros (self.n, dtype=self.dtype))
+            f0 = f_op (np.zeros (self.shape[0], dtype=self.dtype))
         else:
             f0 = kwargs['f0']
         self.x = f0.copy ()
-        self.f_op = lambda x: np.squeeze (f_op (x) - f0)
+        self.f_op = sparse_linalg.LinearOperator (
+            shape=self.shape,
+            dtype=self.dtype,
+            matvec=lambda x: np.squeeze (f_op (x) - f0)
+        )
         self.j_op = j_op
         self.__dict__.update (**kwargs)
         self.x = np.atleast_1d (self.x).astype (self.dtype)
@@ -60,10 +71,10 @@ class HessianDebugger (gradients.GradientDebugger):
         return t
 
 if __name__=='__main__':
-    dbg = HessianDebugger (np.sin, lambda x:x, 1, x=1, exps=range(5,20)).run ()
+    dbg = HessianDebugger (np.sin, lambda x:x, shape=(1,1), x=1, exps=range(5,20)).run ()
     print (dbg.error, dbg.slope)
     dbg.plot ('correct.eps')
-    dbg = HessianDebugger (np.sin, lambda x:1.0001*x, 1, x=1).run ()
+    dbg = HessianDebugger (np.sin, lambda x:1.0001*x, shape=(1,1), x=1).run ()
     print (dbg.error, dbg.slope)
     dbg.plot ('incorrect.eps')
 
