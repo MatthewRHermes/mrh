@@ -365,7 +365,6 @@ def gen_g_hop(mc, mo_coeff, mo_phase, u, casdm1, casdm2, eris):
         #         dm2_blk = casdm2_kpts[k2, kw, kx] # (k2, kw, kx, k4) = (u, w, x, v)
         #         hdm2[k1, k2, k3] += (1.0 / nkpts) * np.einsum('pwxq,uwxv->puqv', paap, dm2_blk, optimize=True)
 
-
     # In the single reference limit.
     hdm2_K = np.zeros((nkpts, nkpts, nkpts, nmo, ncas, nmo, ncas), dtype=dtype)
     for k1, k2, k3 in kpts_helper.loop_kkk(nkpts):
@@ -378,6 +377,7 @@ def gen_g_hop(mc, mo_coeff, mo_phase, u, casdm1, casdm2, eris):
         hdm2_K[k1, k2, k3] +=  (4.0 / nkpts) *  eris.papa(k1, k2, k3).conj()
         
     hdm2 += hdm2_K
+
 
     ppaa = papa = jtmp = temp = None
 
