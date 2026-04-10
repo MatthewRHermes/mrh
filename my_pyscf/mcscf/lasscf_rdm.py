@@ -5,8 +5,8 @@
 import time
 import numpy as np
 from scipy import linalg, sparse
-from mrh.my_pyscf.mcscf import lasscf_sync_o0, laspscf, laspscf_sync, _DFLASCI, addons, lasci
-from mrh.my_pyscf.mcscf.laspscf_sync import MicroIterInstabilityException
+from mrh.my_pyscf.mcscf import lasscf_sync_o0, _DFLASCI, addons, lasci
+from mrh.my_pyscf.mcscf.lasscf_sync_o0 import MicroIterInstabilityException
 from mrh.my_pyscf.fci import csf_solver
 from pyscf import lib, gto, ao2mo
 from pyscf.fci.direct_spin1 import _unpack_nelec
@@ -126,7 +126,7 @@ def rdm_cycle (las, mo_coeff, casdm1frs, veff, h2eff_sub, log, max_cycle_rdmjk=3
         my_veff = las.get_veff (dm=las.make_rdm1s (mo_coeff=mo_coeff, casdm1s_sub=casdm1fs))
         return my_veff
     converged = False
-    e_cas, fakeci = laspscf_sync.ci_cycle (las, mo_coeff, None, veff, h2eff_sub, casdm1frs, log)
+    e_cas, fakeci = lasscf_sync_o0.ci_cycle (las, mo_coeff, None, veff, h2eff_sub, casdm1frs, log)
     casdm1frs = [f[0] for f in fakeci]
     casdm2fr = [f[1] for f in fakeci]
     veff = get_veff (casdm1frs)
@@ -137,7 +137,7 @@ def rdm_cycle (las, mo_coeff, casdm1frs, veff, h2eff_sub, log, max_cycle_rdmjk=3
         casdm1frs_old = casdm1frs
         casdm2fr_old = casdm2fr
         e_old = e_tot
-        e_cas, fakeci = laspscf_sync.ci_cycle (las, mo_coeff, None, veff, h2eff_sub, casdm1frs, log)
+        e_cas, fakeci = lasscf_sync_o0.ci_cycle (las, mo_coeff, None, veff, h2eff_sub, casdm1frs, log)
         casdm1frs = [f[0] for f in fakeci]
         casdm2fr = [f[1] for f in fakeci]
         veff = get_veff (casdm1frs)
@@ -334,7 +334,7 @@ def canonicalize (las, mo_coeff=None, casdm1frs=None, casdm2fr=None, natorb_casd
     return mo_coeff, mo_ene, mo_occ, casdm1frs, casdm2fr, h2eff_sub
 
 
-# From laspscf_sync.ci_cycle and laspscf.get_init_guess ci, I deduce that
+# From lasscf_sync_o0.ci_cycle and lasscf_sync_o0.get_init_guess ci, I deduce that
 # the fcibox class should have the following members:
 #   callable "_get_nelec"
 #   callable "kernel"
@@ -529,7 +529,7 @@ def LASSCF (mf_or_mol, ncas_sub, nelecas_sub, **kwargs):
     else:
         las = LASSCFNoSymm (mf, ncas_sub, nelecas_sub, **kwargs)
     if getattr (mf, 'with_df', None):
-        las = laspscf.density_fit (las, with_df = mf.with_df) 
+        las = lasci.density_fit (las, with_df = mf.with_df) 
     return las
 
 

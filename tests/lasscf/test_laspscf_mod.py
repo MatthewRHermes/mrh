@@ -22,7 +22,7 @@ from pyscf.tools import molden
 from c2h4n4_struct import structure as struct
 from mrh.my_dmet import localintegrals, dmet, fragments
 from mrh.my_dmet.fragments import make_fragment_atom_list, make_fragment_orb_list
-from mrh.my_pyscf.mcscf.laspscf_sync import LASPSCF_HessianOperator, LASPSCF_UnitaryGroupGenerators
+from mrh.my_pyscf.mcscf.laspscf import LASPSCF_HessianOperator, LASPSCF_UnitaryGroupGenerators
 topdir = os.path.abspath (os.path.join (__file__, '..'))
 
 def build (mf, m1=0, m2=0, ir1=0, ir2=0, CASlist=None, active_first=False, calcname='c2h4n4', **kwargs):
@@ -74,7 +74,7 @@ def setUpModule():
     global mol, mf, dmet, ugg, h_op, x
     dr_nn = 2.0
     mol = struct (dr_nn, dr_nn, '6-31g', symmetry=False)
-    mol.verbose = lib.logger.DEBUG 
+    mol.verbose = 0#lib.logger.DEBUG 
     mol.output = '/dev/null'
     mol.spin = 0 
     mol.build ()
@@ -110,10 +110,14 @@ class KnownValues(unittest.TestCase):
         grad0 = np.append (gorb0, gci0)
         grad1 = h_op.get_grad ()
         gx1 = h_op.get_gx ()
-        self.assertAlmostEqual (lib.fp (grad0), 0.011661604981096854, 8)
-        self.assertAlmostEqual (lib.fp (grad1), 0.011661604981096854, 8)
-        self.assertAlmostEqual (lib.fp (gx0), -0.0005604501808183955, 8)
-        self.assertAlmostEqual (lib.fp (gx1), -0.0005604501808183955, 8)
+        with self.subTest ('grad0'):
+            self.assertAlmostEqual (lib.fp (grad0), 0.011661604981096854, 8)
+        with self.subTest ('grad1'):
+            self.assertAlmostEqual (lib.fp (grad1), 0.011661604981096854, 8)
+        with self.subTest ('gx0'):
+            self.assertAlmostEqual (lib.fp (gx0), -0.0005604501808183955, 8)
+        with self.subTest ('gx1'):
+            self.assertAlmostEqual (lib.fp (gx1), -0.0005604501808183955, 8)
 
     def test_hessian (self):
         hx = h_op._matvec (x)

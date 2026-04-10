@@ -1,4 +1,5 @@
 import os
+import tempfile
 import unittest
 import numpy as np
 from pyscf.pbc import gto, scf, df
@@ -34,7 +35,7 @@ def get_cell2(basis='gth-SZV', pseudo = 'gth-pade'):
     return cell
 
 def precomputed_gdf(cell):
-    cderifile = 'pdmet_unittest.h5'
+    cderifile = tempfile.NamedTemporaryFile ().name
     gdf = df.GDF(cell)
     gdf._cderi_to_save=cderifile
     gdf.build()
@@ -93,9 +94,6 @@ class KnownValues(unittest.TestCase):
                                density_fit=density_fit)[0]
             e_check = dmet_mf.e_tot
             del cell, mf, dmet_mf
-            egdffile = 'pdmet_unittest_df.h5'
-            for f in [gdffile, egdffile]:
-                if os.path.exists(f): os.remove(f)
             self.assertAlmostEqual(e_ref, e_check, 6)
 
         # ROHF
@@ -112,10 +110,6 @@ class KnownValues(unittest.TestCase):
             e_check = dmet_mf.e_tot
             del cell, mf, dmet_mf
 
-            # Don't forget to remove emb gdf
-            egdffile = 'pdmet_unittest_df.h5'
-            for f in [gdffile, egdffile]:
-                if os.path.exists(f): os.remove(f)
             self.assertAlmostEqual(e_ref, e_check, 6)
         
 if __name__ == "__main__":

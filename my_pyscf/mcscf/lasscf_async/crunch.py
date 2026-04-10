@@ -5,7 +5,7 @@ from pyscf import gto, scf, mcscf, ao2mo, lib, df
 from pyscf.lib import logger
 from pyscf.fci.direct_spin1 import _unpack_nelec
 from pyscf.mcscf.addons import _state_average_mcscf_solver
-from mrh.my_pyscf.mcscf import _DFLASCI, laspscf_sync, laspscf, lasci
+from mrh.my_pyscf.mcscf import _DFLASCI, laspscf, lasci
 import copy, json
 
 class ImpurityMole (gto.Mole):
@@ -929,15 +929,15 @@ class ImpurityCASSCF (mcscf.mc1step.CASSCF, ImpuritySolver):
 
         return g_orb, my_gorb_update, my_h_op, h_diag
 
-class ImpurityLASPSCF_HessianOperator (laspscf_sync.LASPSCF_HessianOperator):
+class ImpurityLASPSCF_HessianOperator (laspscf.LASPSCF_HessianOperator):
     def _init_dms_(self, casdm1frs, casdm2fr):
-        laspscf_sync.LASPSCF_HessianOperator._init_dms_(self, casdm1frs, casdm2fr)
+        laspscf.LASPSCF_HessianOperator._init_dms_(self, casdm1frs, casdm2fr)
         ncore, nocc, nroots = self.ncore, self.nocc, self.nroots
         self.dm1rs = np.stack ([self.dm1s,]*nroots, axis=0)
         self.dm1rs[:,:,ncore:nocc,ncore:nocc] = self.casdm1rs
 
     def _init_ham_(self, h2eff_sub, veff):
-        laspscf_sync.LASPSCF_HessianOperator._init_ham_(self, h2eff_sub, veff)
+        laspscf.LASPSCF_HessianOperator._init_ham_(self, h2eff_sub, veff)
         las, mo_coeff, ncore, nocc = self.las, self.mo_coeff, self.ncore, self.nocc
         h1rs = np.dot (las.get_hcore_rs (), mo_coeff)
         h1rs = np.tensordot (mo_coeff.conj (), h1rs, axes=((0),(2))).transpose (1,2,0,3)
@@ -957,7 +957,7 @@ class ImpurityLASPSCF_HessianOperator (laspscf_sync.LASPSCF_HessianOperator):
 
     def _init_orb_(self):
         ncore, nocc = self.ncore, self.nocc
-        laspscf_sync.LASPSCF_HessianOperator._init_orb_(self)
+        laspscf.LASPSCF_HessianOperator._init_orb_(self)
         for w, h1s, casdm1s in zip (self.weights, self.h1rs, self.casdm1rs):
             dh1s = h1s[:,ncore:nocc,ncore:nocc] - self.h1s[:,ncore:nocc,ncore:nocc]
             self.fock1[:,ncore:nocc] += w * (dh1s[0] @ casdm1s[0] + dh1s[1] @ casdm1s[1])
@@ -967,7 +967,7 @@ class ImpurityLASPSCF_HessianOperator (laspscf_sync.LASPSCF_HessianOperator):
         Hdiag = 0
         for w, h, d in zip (self.weights, self.h1rs, self.dm1rs):
             with lib.temporary_env (self, h1s=h, dm1s=d):
-                Hdiag += w * laspscf_sync.LASPSCF_HessianOperator._get_Horb_diag (self)
+                Hdiag += w * laspscf.LASPSCF_HessianOperator._get_Horb_diag (self)
         return Hdiag
 
     def ci_response_offdiag (self, kappa1, h1frs_prime):
@@ -980,11 +980,11 @@ class ImpurityLASPSCF_HessianOperator (laspscf_sync.LASPSCF_HessianOperator):
             j = sum (ncas_sub[:i])
             k = j + ncas_sub[i]
             h1rs[:,:,:,:] += dh1_core[:,:,j:k,j:k]
-        return laspscf_sync.LASPSCF_HessianOperator.ci_response_offdiag (
+        return laspscf.LASPSCF_HessianOperator.ci_response_offdiag (
             self, kappa1, h1frs_prime)
 
     def orbital_response (self, kappa1, odm1s, ocm2, tdm1rs, tcm2, veff_prime):
-        kappa2 = laspscf_sync.LASPSCF_HessianOperator.orbital_response (
+        kappa2 = laspscf.LASPSCF_HessianOperator.orbital_response (
             self, kappa1, odm1s, ocm2, tdm1rs, tcm2, veff_prime
         )
         h1rs = self.h1rs - self.h1s[None,:,:,:]

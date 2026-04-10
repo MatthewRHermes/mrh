@@ -33,7 +33,7 @@ def _localize (las, frags_orbs, mo_coeff, spin, lo_coeff, fock, ao_ovlp, freeze_
     space. Beware that unless freeze_cas_spaces=True, frozen orbitals will not be preserved.
 
     Args:
-        las: LASSCF or LASPSCF object
+        las: LASSCF or LASCI object
         frags_orbs: list of length nfrags
             Contains list of AO indices formally defining the fragments
             into which the active orbitals are to be localized

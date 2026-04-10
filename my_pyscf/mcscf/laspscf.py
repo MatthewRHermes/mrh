@@ -1,336 +1,344 @@
-from pyscf.scf.rohf import get_roothaan_fock
-from pyscf import fci
-from pyscf.fci import cistring
-from pyscf.mcscf import casci, casci_symm, df
-from pyscf.tools import dump_mat
-from pyscf import symm, gto, scf, ao2mo, lib
-from pyscf.fci.direct_spin1 import _unpack_nelec
-from mrh.my_pyscf.mcscf.addons import state_average_n_mix, get_h1e_zipped_fcisolver, las2cas_civec
-from mrh.my_pyscf.mcscf import laspscf_sync, _DFLASCI, lasscf_guess, las_ao2mo
-from mrh.my_pyscf.fci import csf_solver
-from mrh.my_pyscf.df.sparse_df import sparsedf_array
-from mrh.my_pyscf.mcscf import chkfile, lasci
-from mrh.my_pyscf.mcscf.productstate import ImpureProductStateFCISolver, state_average_fcisolver
-from mrh.util.la import matrix_svd_control_options
-from itertools import combinations, permutations, product
-from scipy.sparse import linalg as sparse_linalg
-from scipy import linalg
 import numpy as np
-import copy
+from scipy import linalg
+from mrh.util.la import matrix_svd_control_options
+from mrh.my_pyscf.mcscf import lasscf_sync_o0, _DFLASCI
+from mrh.my_pyscf.mcscf import lasscf_guess
+from pyscf import gto, scf, symm, lib
+from pyscf.mcscf import mc1step
+from pyscf.lo import orth
+from pyscf.lib import tag_array, with_doc, logger
+from functools import partial
 
-# TODO: clean up
-density_fit = lasci.density_fit
+localize_init_guess=lasscf_guess._localize # backwards compatibility
+
+class LASPSCF_UnitaryGroupGenerators (lasscf_sync_o0.LASSCF_UnitaryGroupGenerators):
+
+    def _init_orb (self, las, mo_coeff, ci):
+        lasscf_sync_o0.LASSCF_UnitaryGroupGenerators._init_nonfrozen_orb (self, las)
+        idx = self.nfrz_orb_idx.copy ()
+        ncore, nocc = las.ncore, las.ncore + las.ncas
+        idx[ncore:nocc,:ncore] = False # no inactive -> active
+        idx[nocc:,ncore:nocc] = False # no active -> virtual
+        # No external rotations of active orbitals
+        self.uniq_orb_idx = idx
+
+class LASPSCFSymm_UnitaryGroupGenerators (LASPSCF_UnitaryGroupGenerators):
+    __init__ = lasscf_sync_o0.LASSCFSymm_UnitaryGroupGenerators.__init__
+    _init_ci = lasscf_sync_o0.LASSCFSymm_UnitaryGroupGenerators._init_ci
+    def _init_orb (self, las, mo_coeff, ci, orbsym):
+        LASPSCF_UnitaryGroupGenerators._init_orb (self, las, mo_coeff, ci)
+        self.symm_forbid = (orbsym[:,None] ^ orbsym[None,:]).astype (np.bool_)
+        self.uniq_orb_idx[self.symm_forbid] = False
+        self.nfrz_orb_idx[self.symm_forbid] = False
+
+class LASPSCF_HessianOperator (lasscf_sync_o0.LASSCF_HessianOperator):
+    # Required modifications for Hx: [I forgot about 3) at first]
+    #   1) cache CASSCF-type eris and paaa - init_eri
+    #   2) increase range of ocm2 - make_odm1s2c_sub
+    #   3) extend veff to active-unactive sector - split_veff
+    #   4) dot the above three together - orbital_response
+    #   5) TODO: get_veff using DF needs to be extended as well
+    # Required modifications for API:
+    #   6) broader ERI rotation - update_mo_ci_eri
+    # Possible modifications:
+    #   7) current prec may not be "good enough" - get_prec
+    #   8) define "gx" in this context - get_gx 
+
+    _init_eri_ = lasscf_sync_o0._init_df_
+
+    def get_veff (self, dm1s_mo=None):
+        '''THIS FUNCTION IS OVERWRITTEN WITH A CALL TO LAS.GET_VEFF IN THE LASSCF_O0 CLASS. IT IS
+        ONLY RELEVANT TO THE "LASSCF" STEP OF THE OLDER, DEPRECATED, DMET-BASED ALGORITHM.
+
+        Compute the effective potential from a 1-RDM in the MO basis (presumptively the first-order
+        effective 1-RDM which is proportional to a step vector in MO and CI rotation coordinates).
+        If density fitting is used, the effective potential is approximate: it omits the
+        unoccupied-unoccupied lower-diagonal block.
+
+        Kwargs:
+            dm1s_mo : ndarray of shape (2,nmo,nmo)
+                Contains spin-separated 1-RDM
+
+        Returns:
+            veff_mo : ndarray of shape (nmo,nmo)
+                Spin-symmetric effective potential in the MO basis
+        '''
+
+        mo = self.mo_coeff
+        moH = mo.conjugate ().T
+        nmo = mo.shape[-1]
+        dm1_mo = dm1s_mo.sum (0)
+        if self.las.use_gpu or (getattr(self, 'bPpj', None) is None):
+            dm1_ao=np.dot(mo,np.dot(dm1_mo,moH))
+            veff_ao=np.squeeze(self.las.get_veff(dm=dm1_ao))
+            return np.dot(moH,np.dot(veff_ao,mo))
+        ncore, nocc, ncas = self.ncore, self.nocc, self.ncas
+        # vj
+        t0 = (lib.logger.process_clock (), lib.logger.perf_counter ())
+        veff_mo = np.zeros_like (dm1_mo) 
+        dm1_rect = dm1_mo + dm1_mo.T
+        dm1_rect[ncore:nocc,ncore:nocc] /= 2
+        dm1_rect = dm1_rect[:,:nocc]
+        rho = np.tensordot (self.bPpj, dm1_rect, axes=2)
+        vj_pj = np.tensordot (rho, self.bPpj, axes=((0),(0)))
+        t1 = lib.logger.timer (self.las, 'vj_mo in microcycle', *t0)
+        dm_bj = dm1_mo[ncore:,:nocc]
+        vPpj = np.ascontiguousarray (self.las.cderi_ao2mo (mo, mo[:,ncore:]@dm_bj, compact=False))
+        # Don't ask my why this is faster than doing the two degrees of freedom separately...
+        t1 = lib.logger.timer (self.las, 'vk_mo vPpj in microcycle', *t1)
+        
+        # vk (aa|ii), (uv|xy), (ua|iv), (au|vi)
+        vPbj = vPpj[:,ncore:,:] #np.dot (self.bPpq[:,ncore:,ncore:], dm_ai)
+        vk_bj = np.tensordot (vPbj, self.bPpj[:,:nocc,:], axes=((0,2),(0,1)))
+        t1 = lib.logger.timer (self.las, 'vk_mo (bb|jj) in microcycle', *t1)
+        # vk (ai|ai), (ui|av)
+        dm_ai = dm1_mo[nocc:,:ncore]
+        vPji = vPpj[:,:nocc,:ncore] #np.dot (self.bPpq[:,:nocc, nocc:], dm_ai)
+        # I think this works only because there is no dm_ui in this case, so I've eliminated all
+        # the dm_uv by choosing this range
+        bPbi = self.bPpj[:,ncore:,:ncore]
+        vk_bj += np.tensordot (bPbi, vPji, axes=((0,2),(0,2)))
+        t1 = lib.logger.timer (self.las, 'vk_mo (bi|aj) in microcycle', *t1)
+        t0 = lib.logger.timer (self.las, 'vj and vk mo', *t0)
+
+        # veff
+        vj_bj = vj_pj[ncore:,:]
+        veff_mo[ncore:,:nocc] = vj_bj - 0.5*vk_bj
+        veff_mo[:nocc,ncore:] = veff_mo[ncore:,:nocc].T
+        #vj_ai = vj_bj[ncas:,:ncore]
+        #vk_ai = vk_bj[ncas:,:ncore]
+        #veff_mo[ncore:,:nocc] = vj_bj
+        #veff_mo[:ncore,nocc:] = vj_ai.T
+        #veff_mo[ncore:,:nocc] -= vk_bj/2
+        #veff_mo[:ncore,nocc:] -= vk_ai.T/2
+        return veff_mo
+
+    def split_veff (self, veff_mo, dm1s_mo):
+        # This function seems orphaned? Is it used anywhere?
+        veff_c = veff_mo.copy ()
+        ncore = self.ncore
+        nocc = self.nocc
+        dm1s_cas = dm1s_mo[:,ncore:nocc,ncore:nocc]
+        sdm = dm1s_cas[0] - dm1s_cas[1]
+        vk_aa = -np.tensordot (self.eri_cas, sdm, axes=((1,2),(0,1))) / 2
+        veff_s = np.zeros_like (veff_c)
+        veff_s[ncore:nocc, ncore:nocc] = vk_aa
+        veffa = veff_c + veff_s
+        veffb = veff_c - veff_s
+        return np.stack ([veffa, veffb], axis=0)
+
+    orbital_response = lasscf_sync_o0.LASSCF_HessianOperator.orbital_response_1cum
+
+    def _update_h2eff_sub (self, mo1, umat, h2eff_sub):
+        ncore, ncas, nocc, nmo = self.ncore, self.ncas, self.nocc, self.nmo
+        ucas = umat[ncore:nocc, ncore:nocc]
+        bmPu = None
+        if hasattr (h2eff_sub, 'bmPu'):bmPu = h2eff_sub.bmPu
+        h2eff_sub = h2eff_sub.reshape (nmo*ncas, ncas*(ncas+1)//2)
+        h2eff_sub = lib.numpy_helper.unpack_tril (h2eff_sub)
+        h2eff_sub = h2eff_sub.reshape (nmo, ncas, ncas, ncas)
+        h2eff_sub = np.tensordot (ucas, h2eff_sub, axes=((0),(1))) # bpaa
+        h2eff_sub = np.tensordot (umat, h2eff_sub, axes=((0),(1))) # qbaa
+        h2eff_sub = np.tensordot (h2eff_sub, ucas, axes=((2),(0))) # qbab
+        h2eff_sub = np.tensordot (h2eff_sub, ucas, axes=((2),(0))) # qbbb
+        ix_i, ix_j = np.tril_indices (ncas)
+        h2eff_sub = h2eff_sub.reshape (nmo, ncas, ncas*ncas)
+        h2eff_sub = h2eff_sub[:,:,(ix_i*ncas)+ix_j]
+        h2eff_sub = h2eff_sub.reshape (nmo, -1)
+        if bmPu is not None:
+            bmPu = np.dot (bmPu, ucas)
+            h2eff_sub = lib.tag_array (h2eff_sub, bmPu = bmPu)
+        return h2eff_sub
+
+    def _update_h2eff_sub (self, mo1, umat, h2eff_sub):
+        return self.las.ao2mo (mo1)
+
+class LASPSCFNoSymm (lasscf_sync_o0.LASSCFNoSymm):
+    _ugg = LASPSCF_UnitaryGroupGenerators
+    _hop = LASPSCF_HessianOperator
+    def dump_flags (self, verbose=None, _method_name='LASPSCF'):
+        lasscf_sync_o0.LASSCFNoSymm.dump_flags (self, verbose=verbose, _method_name=_method_name)
+    
+class LASPSCFSymm (lasscf_sync_o0.LASSCFSymm):
+    _ugg = LASPSCFSymm_UnitaryGroupGenerators    
+    _hop = LASPSCF_HessianOperator
+    dump_flags = LASPSCFNoSymm.dump_flags
+
 def LASPSCF (mf_or_mol, ncas_sub, nelecas_sub, **kwargs):
+    # try grabbing gpu handle from mf_or_mol instead of additional argument
+    use_gpu = kwargs.get('use_gpu', None)
+    
     if isinstance(mf_or_mol, gto.Mole):
         mf = scf.RHF(mf_or_mol)
-    else:
+    elif isinstance (mf_or_mol, scf.hf.SCF):
         mf = mf_or_mol
+    else:
+        raise RuntimeError ("LASSCF constructor requires molecule or SCF instance")
     if mf.mol.symmetry: 
         las = LASPSCFSymm (mf, ncas_sub, nelecas_sub, **kwargs)
     else:
         las = LASPSCFNoSymm (mf, ncas_sub, nelecas_sub, **kwargs)
     if getattr (mf, 'with_df', None):
-        las = density_fit (las, with_df = mf.with_df) 
+        las = lasscf_sync_o0.density_fit (las, with_df = mf.with_df)
     return las
 
-def get_grad (las, mo_coeff=None, ci=None, ugg=None, h1eff_sub=None, h2eff_sub=None,
-              veff=None, dm1s=None):
-    '''Return energy gradient for orbital rotation and CI relaxation.
 
-    Args:
-        las : instance of :class:`LASPSCFNoSymm`
+if __name__ == '__main__':
+    from pyscf import scf, lib, tools, mcscf
+    import os
+    class cd:
+        """Context manager for changing the current working directory"""
+        def __init__(self, newPath):
+            self.newPath = os.path.expanduser(newPath)
 
-    Kwargs:
-        mo_coeff : ndarray of shape (nao,nmo)
-            Contains molecular orbitals
-        ci : list (length=nfrags) of list (length=nroots) of ndarray
-            Contains CI vectors
-        ugg : instance of :class:`LASPSCF_UnitaryGroupGenerators`
-        h1eff_sub : list (length=nfrags) of list (length=nroots) of ndarray
-            Contains effective one-electron Hamiltonians experienced by each fragment
-            in each state
-        h2eff_sub : ndarray of shape (nmo,ncas**2*(ncas+1)/2)
-            Contains ERIs (p1a1|a2a3), lower-triangular in the a2a3 indices
-        veff : ndarray of shape (2,nao,nao)
-            Spin-separated, state-averaged 1-electron mean-field potential in the AO basis
-        dm1s : ndarray of shape (2,nao,nao)
-            Spin-separated, state-averaged 1-RDM in the AO basis
+        def __enter__(self):
+            self.savedPath = os.getcwd()
+            os.chdir(self.newPath)
 
-    Returns:
-        gorb : ndarray of shape (ugg.nvar_orb,)
-            Orbital rotation gradients as a flat array
-        gci : ndarray of shape (sum(ugg.ncsf_sub),)
-            CI relaxation gradients as a flat array
-        gx : ndarray
-            Orbital rotation gradients for temporarily frozen orbitals in the "LASPSCF" problem
-    '''
-    if mo_coeff is None: mo_coeff = las.mo_coeff
-    if ci is None: ci = las.ci
-    if ugg is None: ugg = las.get_ugg (mo_coeff, ci)
-    if dm1s is None: dm1s = las.make_rdm1s (mo_coeff=mo_coeff, ci=ci)
-    if h2eff_sub is None: h2eff_sub = las.get_h2eff (mo_coeff)
-    if veff is None:
-        veff = las.get_veff (dm = dm1s)
-    if h1eff_sub is None: h1eff_sub = las.get_h1eff (mo_coeff, ci=ci, veff=veff,
-                                                     h2eff_sub=h2eff_sub)
+        def __exit__(self, etype, value, traceback):
+            os.chdir(self.savedPath)
+    from mrh.tests.lasscf.me2n2_struct import structure as struct
+    from mrh.my_pyscf.fci import csf_solver
+    with cd ("/home/herme068/gits/mrh/tests/lasscf"):
+        mol = struct (2.0, '6-31g')
+    mol.output = 'lasscf_sync_o0.log'
+    mol.verbose = lib.logger.DEBUG
+    mol.build ()
+    mf = scf.RHF (mol).run ()
+    mo_coeff = mf.mo_coeff.copy ()
+    mc = mcscf.CASSCF (mf, 4, 4)
+    mc.fcisolver = csf_solver (mol, smult=1)
+    mc.kernel ()
+    #mo_coeff = mc.mo_coeff.copy ()
+    print (mc.converged, mc.e_tot)
+    las = LASSCFNoSymm (mf, (4,), ((2,2),), spin_sub=(1,))
+    las.kernel (mo_coeff)
 
-    if callable (getattr (las, 'get_grad_orb', None)):
-        gorb = las.get_grad_orb (mo_coeff=mo_coeff, ci=ci, h2eff_sub=h2eff_sub, veff=veff, dm1s=dm1s)
-    else:
-        gorb = get_grad_orb (las, mo_coeff=mo_coeff, ci=ci, h2eff_sub=h2eff_sub, veff=veff, dm1s=dm1s)
-    if callable (getattr (las, 'get_grad_ci', None)):
-        gci = las.get_grad_ci (mo_coeff=mo_coeff, ci=ci, h1eff_sub=h1eff_sub, h2eff_sub=h2eff_sub,
-                               veff=veff)
-    else:
-        gci = get_grad_ci (las, mo_coeff=mo_coeff, ci=ci, h1eff_sub=h1eff_sub, h2eff_sub=h2eff_sub,
-                           veff=veff)
+    mc.mo_coeff = mo_coeff.copy ()
+    las.mo_coeff = mo_coeff.copy ()
+    las.ci = [[mc.ci.copy ()]]
 
-    idx = ugg.get_gx_idx ()
-    gx = gorb[idx]
-    gint = ugg.pack (gorb, gci)
-    gorb = gint[:ugg.nvar_orb]
-    gci = gint[ugg.nvar_orb:]
-    return gorb, gci, gx.ravel ()
-
-def get_grad_orb (las, mo_coeff=None, ci=None, h2eff_sub=None, veff=None, dm1s=None, hermi=-1):
-    '''Return energy gradient for orbital rotation.
-
-    Args:
-        las : instance of :class:`LASPSCFNoSymm`
-
-    Kwargs:
-        mo_coeff : ndarray of shape (nao,nmo)
-            Contains molecular orbitals
-        ci : list (length=nfrags) of list (length=nroots) of ndarray
-            Contains CI vectors
-        h2eff_sub : ndarray of shape (nmo,ncas**2*(ncas+1)/2)
-            Contains ERIs (p1a1|a2a3), lower-triangular in the a2a3 indices
-        veff : ndarray of shape (2,nao,nao)
-            Spin-separated, state-averaged 1-electron mean-field potential in the AO basis
-        dm1s : ndarray of shape (2,nao,nao)
-            Spin-separated, state-averaged 1-RDM in the AO basis
-        hermi : integer
-            Control (anti-)symmetrization. 0 means to return the effective Fock matrix,
-            F1 = h.D + g.d. -1 means to return the true orbital-rotation gradient, which is skew-
-            symmetric: gorb = F1 - F1.T. +1 means to return the symmetrized effective Fock matrix,
-            (F1 + F1.T) / 2. The factor of 2 difference between hermi=-1 and the other two options
-            is intentional and necessary.
-
-    Returns:
-        gorb : ndarray of shape (nmo,nmo)
-            Orbital rotation gradients as a square antihermitian array
-    '''
-    if mo_coeff is None: mo_coeff = las.mo_coeff
-    if ci is None: ci = las.ci
-    if dm1s is None: dm1s = las.make_rdm1s (mo_coeff=mo_coeff, ci=ci)
-    if h2eff_sub is None: h2eff_sub = las.get_h2eff (mo_coeff)
-    if veff is None:
-        veff = las.get_veff (dm = dm1s)
     nao, nmo = mo_coeff.shape
-    ncore = las.ncore
-    ncas = las.ncas
-    nocc = las.ncore + las.ncas
-    smo_cas = las._scf.get_ovlp () @ mo_coeff[:,ncore:nocc]
-    smoH_cas = smo_cas.conj ().T
+    ncore, ncas = mc.ncore, mc.ncas
+    nocc = ncore + ncas
+    eris = mc.ao2mo ()
+    from pyscf.mcscf.newton_casscf import gen_g_hop, _pack_ci_get_H
+    g_all_cas, g_update_cas, h_op_cas, hdiag_all_cas = gen_g_hop (mc, mo_coeff, mc.ci, eris)
+    _pack_ci, _unpack_ci = _pack_ci_get_H (mc, mo_coeff, mc.ci)[-2:]
+    nvar_orb_cas = np.count_nonzero (mc.uniq_var_indices (nmo, mc.ncore, mc.ncas, mc.frozen))
+    nvar_tot_cas = g_all_cas.size
+    def pack_cas (kappa, ci1):
+        return np.append (mc.pack_uniq_var (kappa), _pack_ci (ci1))
+    def unpack_cas (x):
+        return mc.unpack_uniq_var (x[:nvar_orb_cas]), _unpack_ci (x[nvar_orb_cas:])
 
-    # The orbrot part
-    h1s = las.get_hcore ()[None,:,:] + veff
-    f1 = h1s[0] @ dm1s[0] + h1s[1] @ dm1s[1]
-    f1 = mo_coeff.conjugate ().T @ f1 @ las._scf.get_ovlp () @ mo_coeff
-    # ^ I need the ovlp there to get dm1s back into its correct basis
-    casdm2 = las.make_casdm2 (ci=ci)
-    casdm1s = np.stack ([smoH_cas @ d @ smo_cas for d in dm1s], axis=0)
-    casdm1 = casdm1s.sum (0)
-    casdm2 -= np.multiply.outer (casdm1, casdm1)
-    casdm2 += np.multiply.outer (casdm1s[0], casdm1s[0]).transpose (0,3,2,1)
-    casdm2 += np.multiply.outer (casdm1s[1], casdm1s[1]).transpose (0,3,2,1)
-    eri = h2eff_sub.reshape (nmo*ncas, ncas*(ncas+1)//2)
-    eri = lib.numpy_helper.unpack_tril (eri).reshape (nmo, ncas, ncas, ncas)
-    f1[:,ncore:nocc] += np.tensordot (eri, casdm2, axes=((1,2,3),(1,2,3)))
+    ugg = las.get_ugg (las.mo_coeff, las.ci)
+    h_op_las = las.get_hop (ugg=ugg)
 
-    if hermi == -1:
-        return f1 - f1.T
-    elif hermi == 1:
-        return .5*(f1+f1.T)
-    elif hermi == 0:
-        return f1
-    else:
-        raise ValueError ("kwarg 'hermi' must = -1, 0, or +1")
+    print ("Total # variables: {} CAS ; {} LAS".format (nvar_tot_cas, ugg.nvar_tot))
+    print ("# orbital variables: {} CAS ; {} LAS".format (nvar_orb_cas, ugg.nvar_orb))
 
-def get_grad_ci (las, mo_coeff=None, ci=None, h1eff_sub=None, h2eff_sub=None, veff=None):
-    '''Return energy gradient for CI relaxation.
+    gorb_cas, gci_cas = unpack_cas (g_all_cas)
+    gorb_las, gci_las = ugg.unpack (h_op_las.get_grad ())
+    gorb_cas /= 2.0 # Newton-CASSCF multiplies orb-grad terms by 2 so as to exponentiate kappa instead of kappa/2
 
-    Args:
-        las : instance of :class:`LASPSCFNoSymm`
+    # For orb degrees of freedom, gcas = 2 glas and therefore 2 xcas = xlas
+    print (" ")
+    print ("Orbital gradient norms: {} CAS ; {} LAS".format (linalg.norm (gorb_cas), linalg.norm (gorb_las)))
+    print ("Orbital gradient disagreement:", linalg.norm (gorb_cas-gorb_las))
+    print ("CI gradient norms: {} CAS ; {} LAS".format (linalg.norm (gci_cas), linalg.norm (gci_las)))
+    print ("CI gradient disagreement:", linalg.norm (gci_cas[0]-gci_las[0][0]))
+                
 
-    Kwargs:
-        mo_coeff : ndarray of shape (nao,nmo)
-            Contains molecular orbitals
-        ci : list (length=nfrags) of list (length=nroots) of ndarray
-            Contains CI vectors
-        h1eff_sub : list (length=nfrags) of list (length=nroots) of ndarray
-            Contains effective one-electron Hamiltonians experienced by each fragment
-            in each state
-        h2eff_sub : ndarray of shape (nmo,ncas**2*(ncas+1)/2)
-            Contains ERIs (p1a1|a2a3), lower-triangular in the a2a3 indices
-        veff : ndarray of shape (2,nao,nao)
-            Spin-separated, state-averaged 1-electron mean-field potential in the AO basis
-
-    Returns:
-        gci : list (length=nfrags) of list (length=nroots) of ndarray
-            CI relaxation gradients in the shape of CI vectors
-    '''
-    if mo_coeff is None: mo_coeff = las.mo_coeff
-    if ci is None: ci = las.ci
-    if h2eff_sub is None: h2eff_sub = las.get_h2eff (mo_coeff)
-    if h1eff_sub is None: h1eff_sub = las.get_h1eff (mo_coeff, ci=ci, veff=veff,
-                                                     h2eff_sub=h2eff_sub)
-    gci = []
-    for isub, (fcibox, h1e, ci0, ncas, nelecas) in enumerate (zip (
-            las.fciboxes, h1eff_sub, ci, las.ncas_sub, las.nelecas_sub)):
-        eri_cas = las.get_h2eff_slice (h2eff_sub, isub, compact=8)
-        linkstrl = fcibox.states_gen_linkstr (ncas, nelecas, True)
-        linkstr  = fcibox.states_gen_linkstr (ncas, nelecas, False)
-        h2eff = fcibox.states_absorb_h1e(h1e, eri_cas, ncas, nelecas, .5)
-        hc0 = fcibox.states_contract_2e(h2eff, ci0, ncas, nelecas, link_index=linkstrl)
-        hc0 = [hc.ravel () for hc in hc0]
-        ci0 = [c.ravel () for c in ci0]
-        gci.append ([2.0 * (hc - c * (c.dot (hc))) for c, hc in zip (ci0, hc0)])
-    return gci
-
-class LASPSCFNoSymm (lasci.LASCINoSymm):
-
-    get_grad = get_grad
-    get_grad_orb = get_grad_orb
-    get_grad_ci = get_grad_ci
-    _hop = laspscf_sync.LASPSCF_HessianOperator
-    _kern = laspscf_sync.kernel
-    def get_hop (self, mo_coeff=None, ci=None, ugg=None, **kwargs):
-        if mo_coeff is None: mo_coeff = self.mo_coeff
-        if ci is None: ci = self.ci
-        if ugg is None: ugg = self.get_ugg ()
-        return self._hop (self, ugg, mo_coeff=mo_coeff, ci=ci, **kwargs)
-
-    def kernel(self, mo_coeff=None, ci0=None, casdm0_fr=None, conv_tol_grad=None,
-            assert_no_dupes=False, verbose=None, _kern=None):
-        if mo_coeff is None:
-            mo_coeff = self.mo_coeff
+    np.random.seed (0)
+    x = np.random.rand (ugg.nvar_tot)
+    xorb, xci = ugg.unpack (x)
+    def examine_sector (sector, xorb_inp, xci_inp):
+        xorb = np.zeros_like (xorb_inp)
+        xci = [[np.zeros_like (xci_inp[0][0])]]
+        ij = {'core': (0,ncore),
+              'active': (ncore,nocc),
+              'virtual': (nocc,nmo)}
+        if sector.upper () == 'CI':
+            xci[0][0] = xci_inp[0][0].copy ()
         else:
-            self.mo_coeff = mo_coeff
-        if ci0 is None: ci0 = self.ci
-        if verbose is None: verbose = self.verbose
-        if conv_tol_grad is None: conv_tol_grad = self.conv_tol_grad
-        if _kern is None: _kern = self._kern
-        log = lib.logger.new_logger(self, verbose)
+            bra, ket = sector.split ('-')
+            i, j = ij[bra]
+            k, l = ij[ket]
+            xorb[i:j,k:l] = xorb_inp[i:j,k:l]
+            xorb[k:l,i:j] = xorb_inp[k:l,i:j]
 
-        if self.verbose >= lib.logger.WARN:
-            self.check_sanity()
-        self.dump_flags(log)
+        # Compensate for PySCF's failure to intermediate-normalize
+        cx = mc.ci.ravel ().dot (xci[0][0].ravel ())
+        xci_cas = [xci[0][0] - (cx * mc.ci.ravel ())]
+       
+        x_las = ugg.pack (xorb, xci)
+        x_cas = pack_cas (xorb, xci_cas) 
+        hx_orb_las, hx_ci_las = ugg.unpack (h_op_las._matvec (x_las))
+        hx_orb_cas, hx_ci_cas = unpack_cas (h_op_cas (x_cas))
 
-        for fcibox in self.fciboxes:
-            fcibox.verbose = self.verbose
-            fcibox.stdout = self.stdout
-            fcibox.nroots = self.nroots
-            fcibox.weights = self.weights
-        # TODO: local excitations and locally-impure states in LASSCF kernel
-        do_warn=False
-        if ci0 is not None:
-            for i, ci0_i in enumerate (ci0):
-                if ci0_i is None: continue
-                for j, ci0_ij in enumerate (ci0_i):
-                    if ci0_ij is None: continue
-                    if np.asarray (ci0_ij).ndim>2:
-                        do_warn=True
-                        ci0_i[j] = ci0_ij[0]
-        if do_warn: log.warn ("Discarding all but the first root of guess CI vectors!")
+        # Subtract the level shift that I put in there on purpose
+        dhx_orb_las, dhx_ci_las = ugg.unpack (las.ah_level_shift * np.abs (x_las))
+        hx_orb_las -= dhx_orb_las
+        hx_ci_las[0][0] -= dhx_ci_las[0][0]
 
-        self.converged, self.e_tot, self.e_states, self.mo_energy, self.mo_coeff, self.e_cas, \
-                self.ci, h2eff_sub, veff = _kern(mo_coeff=mo_coeff, ci0=ci0, verbose=verbose, \
-                casdm0_fr=casdm0_fr, conv_tol_grad=conv_tol_grad, assert_no_dupes=assert_no_dupes)
+        hx_orb_cas /= 2.0
+        if sector.upper () != 'CI':
+            hx_ci_cas[0] /= 2.0 
+            # g_orb (PySCF) = 2 * g_orb (LASSCF) ; hx_orb (PySCF) = 2 * hx_orb (LASSCF)
+            # This means that x_orb (PySCF) = 0.5 * x_orb (LASSCF), which must have been worked into the
+            # derivation of the (h_co x_o) sector of hx. Passing the same numbers into the newton_casscf
+            # hx calculator will involve orbital distortions which are twice as intense as my hx 
+            # hx calculator, and the newton_casscf CI sector of the hx will be twice as large
 
-        self._finalize ()
-        return self.e_tot, self.e_cas, self.ci, self.mo_coeff, self.mo_energy, h2eff_sub, veff
+        # More intermediate normalization
+        ci_norm = np.dot (hx_ci_las[0][0].ravel (), hx_ci_las[0][0].ravel ())
+        chx_cas = mc.ci.ravel ().dot (hx_ci_cas[0].ravel ())
+        hx_ci_cas[0] -= chx_cas * mc.ci.ravel ()
 
-    _ugg = laspscf_sync.LASPSCF_UnitaryGroupGenerators
-    def get_ugg (self, mo_coeff=None, ci=None):
-        if mo_coeff is None: mo_coeff = self.mo_coeff
-        if ci is None: ci = self.ci
-        return self._ugg (self, mo_coeff, ci)
+        print (" ")
+        for osect in ('core-virtual', 'active-virtual', 'core-active'):
+            bra, ket = osect.split ('-')
+            i, j = ij[bra]
+            k, l = ij[ket]
+            print ("{} - {} Hessian sector".format (osect, sector))
+            print ("Hx norms: {} CAS ; {} LAS".format (linalg.norm (hx_orb_cas[i:j,k:l]), linalg.norm (hx_orb_las[i:j,k:l])))
+            print ("Hx disagreement:".format (osect, sector),
+                linalg.norm (hx_orb_cas[i:j,k:l]-hx_orb_las[i:j,k:l]))
+        print ("CI - {} Hessian sector".format (sector))
+        print ("Hx norms: {} CAS ; {} LAS".format (linalg.norm (hx_ci_cas), linalg.norm (hx_ci_las)))
+        print ("Hx disagreement:", linalg.norm (hx_ci_las[0][0]-hx_ci_cas[0]), np.dot (hx_ci_las[0][0].ravel (), hx_ci_cas[0].ravel ()) / ci_norm)
+        chx_cas = mc.ci.ravel ().dot (hx_ci_cas[0].ravel ())
+        chx_las = mc.ci.ravel ().dot (hx_ci_las[0][0].ravel ())
+        print ("CI intermediate normalization check: {} CAS ; {} LAS".format (chx_cas, chx_las))
 
-    def fast_veffa (self, casdm1s_sub, bmPu, mo_coeff=None, ci=None):
-        '''Compute the effective potential exerted by active electrons on the whole orbital space
-        using integrals and density matrices stored in the MO basis. This only makes sense to
-        do if density fitting is used and is not implemented with GPUs at present.
 
-        Args:
-            casdm1s_sub : list of ndarray of shape (2,nlas,nlas)
-            bmPu : ndarray of shape (nao,naux,ncas) or None
-                Cholesky vectors with one AO index transformed into active orbitals
+    examine_sector ('core-virtual', xorb, xci)
+    examine_sector ('active-virtual', xorb, xci)
+    examine_sector ('core-active', xorb, xci)
+    examine_sector ('CI', xorb, xci)
+    print ("\nNotes:")
+    print ("1) Newton_casscf.py multiplies all orb grad terms by 2 and exponentiates by kappa as opposed to kappa/2. This is accounted for in the above.")
+    print ("2) Newton_casscf.py has a bug in the H_cc component that breaks intermediate normalization, which almost never matters but which I've compensated for above anyway.")
+    print ("3) My preconditioner is obviously wrong, but in such a way that it suppresses CI vector evolution, which means stuff still converges if the CI vector isn't super sensitive to the orbital rotations.")
 
-        Kwargs:
-            mo_coeff : ndarray of shape (nao,nmo)
-            ci : nested list of ndarrays
+    from mrh.tests.lasscf.c2h4n4_struct import structure as struct
+    mo0 = np.loadtxt ('/home/herme068/gits/mrh/tests/lasscf/test_lasscf_sync_o0_mo.dat')
+    ci00 = np.loadtxt ('/home/herme068/gits/mrh/tests/lasscf/test_lasscf_sync_o0_ci0.dat')
+    ci01 = np.loadtxt ('/home/herme068/gits/mrh/tests/lasscf/test_lasscf_sync_o0_ci1.dat')
+    ci0 = None #[[ci00], [-ci01.T]]
+    dr_nn = 3.0
+    mol = struct (dr_nn, dr_nn, '6-31g', symmetry=False)
+    mol.verbose = lib.logger.DEBUG
+    mol.output = 'lasscf_sync_o0_c2n4h4.log'
+    mol.spin = 0 
+    #mol.symmetry = 'Cs'
+    mol.build ()
+    mf = scf.RHF (mol).run ()
+    mc = LASSCFNoSymm (mf, (4,4), ((4,0),(4,0)), spin_sub=(5,5))
+    mc.ah_level_shift = 1e-4
+    mo = mc.localize_init_guess ((list(range(3)),list(range(7,10))))
+    tools.molden.from_mo (mol, 'localize_init_guess.molden', mo)
+    mc.kernel (mo)
+    tools.molden.from_mo (mol, 'c2h4n4_opt.molden', mc.mo_coeff)
 
-        Returns:
-            veff : ndarray of shape (2,nao,nao)
-        '''
-        if mo_coeff is None: mo_coeff = self.mo_coeff
-        if ci is None: ci = self.ci
-        ncore = self.ncore
-        ncas_sub = self.ncas_sub
-        ncas = sum (ncas_sub)
-        nocc = ncore + ncas
-        nao, nmo = mo_coeff.shape
-        gpu=self.use_gpu
-        mo_cas = mo_coeff[:,ncore:nocc]
-        moH_cas = mo_cas.conjugate ().T
-        moH_coeff = mo_coeff.conjugate ().T
-        dma = linalg.block_diag (*[dm[0] for dm in casdm1s_sub])
-        dmb = linalg.block_diag (*[dm[1] for dm in casdm1s_sub])
-        casdm1s = np.stack ([dma, dmb], axis=0)
-        if (bmPu is None) or gpu or not (isinstance (self, _DFLASCI)):
-            dm1s = np.dot (mo_cas, np.dot (casdm1s, moH_cas)).transpose (1,0,2)
-            return self.get_veff (dm = dm1s)
-        casdm1 = casdm1s.sum (0)
-        dm1 = np.dot (mo_cas, np.dot (casdm1, moH_cas))
-        bPmn = sparsedf_array (self.with_df._cderi)
-
-        # vj
-        dm_tril = dm1 + dm1.T - np.diag (np.diag (dm1.T))
-        rho = np.dot (bPmn, lib.pack_tril (dm_tril))
-        vj = lib.unpack_tril (np.dot (rho, bPmn))
-
-        # vk
-        vmPsu = np.dot (bmPu, casdm1s)
-        vk = np.tensordot (vmPsu, bmPu, axes=((1,3),(1,2))).transpose (1,0,2)
-        return vj[None,:,:] - vk
-
-    lasci = lasci_ = lasci.LASCINoSymm.kernel
-
-    def dump_flags (self, verbose=None, _method_name='LASPSCF'):
-        super().dump_flags (verbose=verbose, _method_name=_method_name)
-
-    def check_sanity (self):
-        super().check_sanity ()
-        self.get_ugg () # constructor encounters impossible states and raises error
-
-class LASPSCFSymm (lasci.LASCISymm, LASPSCFNoSymm):
-
-    get_veff = LASPSCFNoSymm.get_veff
-    _ugg = laspscf_sync.LASPSCFSymm_UnitaryGroupGenerators
-
-    def kernel(self, mo_coeff=None, ci0=None, casdm0_fr=None, verbose=None, assert_no_dupes=False):
-        if mo_coeff is None:
-            mo_coeff = self.mo_coeff
-        if ci0 is None:
-            ci0 = self.ci
-
-        # Initialize/overwrite mo_coeff.orbsym. Don't pass ci0 because it's not the right shape
-        lib.logger.info (self, ("LASPSCF lazy hack note: lines below reflect the point-group "
-                                "symmetry of the whole molecule but not of the individual "
-                                "subspaces"))
-        mo_coeff = self.mo_coeff = self.label_symmetry_(mo_coeff)
-        return LASPSCFNoSymm.kernel(self, mo_coeff=mo_coeff, ci0=ci0,
-            casdm0_fr=casdm0_fr, verbose=verbose, assert_no_dupes=assert_no_dupes)
-
- 

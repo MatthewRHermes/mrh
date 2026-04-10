@@ -18,7 +18,7 @@ from pyscf.fci import addons as fci_addons
 from itertools import product
 from mrh.exploratory.citools import fockspace, addons
 from mrh.exploratory.unitary_cc.uccsd_sym1 import get_uccs_op
-from mrh.my_pyscf.mcscf.laspscf_sync import all_nonredundant_idx
+from mrh.my_pyscf.mcscf.lasscf_sync_o0 import all_nonredundant_idx
 from mrh.my_pyscf.fci import csf_solver
 from itertools import product
 

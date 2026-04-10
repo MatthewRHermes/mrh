@@ -64,7 +64,7 @@ def approx_keyframe_ovlp (las, kf1, kf2):
     '''Evaluate the similarity of two keyframes in terms of orbital and CI vector overlaps.
 
     Args:
-        las : object of :class:`LASPSCFNoSymm`
+        las : object of :class:`LASCINoSymm`
         kf1 : object of :class:`LASKeyframe`
         kf2 : object of :class:`LASKeyframe`
 
@@ -98,7 +98,7 @@ def orbital_block_svd (las, kf1, kf2):
     of each fragment, and virtual.
 
     Args:
-        las : object of :class:`LASPSCFNoSymm`
+        las : object of :class:`LASCINoSymm`
         kf1 : object of :class:`LASKeyframe`
         kf2 : object of :class:`LASKeyframe`
 
@@ -166,7 +166,7 @@ def count_common_orbitals (las, kf1, kf2, verbose=None):
     '''Evaluate how many orbitals in each subspace two keyframes have in common
 
     Args:
-        las : object of :class:`LASPSCFNoSymm`
+        las : object of :class:`LASCINoSymm`
         kf1 : object of :class:`LASKeyframe`
         kf2 : object of :class:`LASKeyframe`
 
@@ -256,7 +256,7 @@ def get_kappa (las, kf1, kf2):
     If it doesn't, maybe try solving for rmat[n] to second order in each cycle?
 
     Args:
-        las : object of :class:`LASPSCFNoSymm`
+        las : object of :class:`LASCINoSymm`
         kf1 : object of :class:`LASKeyframe`
         kf2 : object of :class:`LASKeyframe`
 
@@ -340,7 +340,7 @@ def democratic_matrix (las, mat, frags, mo_coeff):
     '''Weight a matrix in the "democratic DMET" way
 
     Args:
-        las : object of :class:`LASPSCFNoSymm`
+        las : object of :class:`LASCINoSymm`
         mat : ndarray of shape (nmo, nmo)
             In basis of mo_coeff
         frags : sequence of integers

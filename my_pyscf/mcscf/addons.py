@@ -289,7 +289,7 @@ def debug_lasscf_hessian_(las, check_horb_matvec=False, perfect_orbital_precondi
     too much.
 
     Args:
-        las : instance of :class:`LASPSCFNoSymm`
+        las : instance of :class:`LASSCFNoSymm`
             The method object to debug. Modified in-place!
 
     Kwargs:
@@ -304,7 +304,7 @@ def debug_lasscf_hessian_(las, check_horb_matvec=False, perfect_orbital_precondi
             inner CG iteration will still take multiple cycles to converge in general.
 
     Returns:
-        las : instance of :class:`LASPSCFNoSymm`
+        las : instance of :class:`LASSCFNoSymm`
             Same as arg, after in-place modification.
         parent_hop : class
             The original value of the overwritten las._hop. Reassign it (las._hop = parent_hop) to

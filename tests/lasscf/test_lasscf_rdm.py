@@ -15,6 +15,7 @@
 
 import copy
 import unittest
+import tempfile
 import numpy as np
 from pyscf import lib, gto, scf
 from mrh.my_pyscf.mcscf.lasscf_o0 import LASSCF as LASSCFRef
@@ -30,9 +31,9 @@ def setUpModule():
         verbose=lib.logger.INFO)
     mf = scf.RHF (mol).run ()
     las_ref = LASSCFRef (mf, (2,2), (2,2), spin_sub=(1,1))
-    las_ref.chkfile = 'lasscf_rdm_ref.chk'
+    las_ref.chkfile = tempfile.NamedTemporaryFile ().name
     las_test = LASSCFTest (mf, (2,2), (2,2), spin_sub=(1,1))
-    las_test.chkfile = 'lasscf_rdm_test.chk'
+    las_test.chkfile = tempfile.NamedTemporaryFile ().name
     mo_loc = las_ref.localize_init_guess (((0,1),(2,3)), mf.mo_coeff)
 
 def tearDownModule():
