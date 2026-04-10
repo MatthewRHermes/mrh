@@ -113,6 +113,7 @@ class GradientDebugger (object):
         self.errors = []
         self.slopes = []
         for i in range (1, self.epstable.shape[1]):
+            errfit = [np.nan * np.ones (3), np.inf * np.ones ((3,3))]
             try:
                 self.fits.append (scipy.optimize.curve_fit (
                     fit_fn,
@@ -123,8 +124,7 @@ class GradientDebugger (object):
                     sigma=self.epstable[:,0]/100
                 ))
             except RuntimeError as err:
-                print (self.epstable)
-                raise (err) from None
+                self.fits.append (errfit)
             self.errors.append (self.fits[i-1][0][2])
             self.slopes.append (self.fits[i-1][0][1])
         self.fit = self.fits[0]
