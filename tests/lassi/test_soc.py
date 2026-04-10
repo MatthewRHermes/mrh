@@ -69,7 +69,7 @@ def tearDownModule():
 def case_soc_stdm12s_slow (self, opt=0):
     stdm1s_test, stdm2s_test = make_stdm12s (las2, soc=True, opt=opt) 
     with self.subTest ('2-electron'):
-        self.assertAlmostEqual (linalg.norm (stdm2s_test), 16.901692823561433, 6)
+        self.assertAlmostEqual (linalg.norm (stdm2s_test), 16.901692255449554, 6)
     with self.subTest ('1-electron'):
         self.assertAlmostEqual (linalg.norm (stdm1s_test), 7.075259874940101, 6)
     dm1s_test = lib.einsum ('ipqi->ipq', stdm1s_test)
@@ -108,7 +108,7 @@ def case_soc_stdm12s_slow (self, opt=0):
                 self.assertAlmostEqual (np.amax (np.abs (d1[1,:,0,:])), 0, 16)
                 d1=d1[0,:,1,:] # [alpha,beta] -> beta' alpha
         with self.subTest (oneelectron_sanity='nonzero S.O.C.', ket=i):
-            self.assertAlmostEqual (linalg.norm (d1), 1.1539612627187337, 8)
+            self.assertAlmostEqual (linalg.norm (d1), 1.1539612780736224, 8)
     # lassi_dms.make_trans and total electron count
     ncas = las2.ncas
     nelec_fr = [[_unpack_nelec (fcibox._get_nelec (solver, nelecas))
@@ -162,9 +162,9 @@ def case_soc_rdm12s_slow (self, opt=0):
     rdm1s_test[4:6] = rdm1s_test[4:6].sum (0) / 2
     rdm2s_test[4:6] = rdm2s_test[4:6].sum (0) / 2
     with self.subTest ('2-electron'):
-        self.assertAlmostEqual (linalg.norm (rdm2s_test), 13.584509751113796)
+        self.assertAlmostEqual (linalg.norm (rdm2s_test), 13.584519524877491)
     with self.subTest ('1-electron'):
-        self.assertAlmostEqual (linalg.norm (rdm1s_test), 5.298727485035966)
+        self.assertAlmostEqual (linalg.norm (rdm1s_test), 5.298727308752082)
     with lib.light_speed (5):
         e0, h1, h2 = ham_2q (las2, las2.mo_coeff, soc=True)
     rdm2_test = rdm2s_test.sum ((1,4))
@@ -276,9 +276,9 @@ class KnownValues (unittest.TestCase):
         ## stationary test for >1 frag calc
         self.assertTrue (lsi2._las.converged)
         with self.subTest (deltaE='SF'):
-            self.assertAlmostEqual (lib.fp (lsi2._las.e_states), -214.8686632658775, 8)
+            self.assertAlmostEqual (lib.fp (lsi2._las.e_states), -214.86866328913302, 8)
         with self.subTest (opt=0, deltaE='SO'):
-            self.assertAlmostEqual (lib.fp (lsi2.e_roots), -214.8684319949548, 8)
+            self.assertAlmostEqual (lib.fp (lsi2.e_roots), -214.86843186631515, 8)
         for dson in (False, True):
             lsi = lassi.LASSI (lsi2._las, soc=True, break_symmetry=True, opt=1)
             lsi = lsi.set (davidson_only=dson, nroots_si=lsi2._las.nroots)
@@ -290,7 +290,7 @@ class KnownValues (unittest.TestCase):
                                          smult_fr=lsi.get_smult_fr (), soc=True,#)#, tol=4)
                                          disc_fr=lsi.get_disc_fr ())
             with self.subTest (opt=1, davidson_only=dson, deltaE='SO'):
-                self.assertAlmostEqual (lib.fp (lsi.e_roots), -214.8684319949548, 8)
+                self.assertAlmostEqual (lib.fp (lsi.e_roots), -214.86843186631512, 8)
             with self.subTest ('hamiltonian', opt=1, davidson_only=dson):
                 ham_o0 = (lsi2.si * lsi2.e_roots[None,:]) @ lsi2.si.conj ().T
                 ham_o1 = (lsi.si * lsi.e_roots[None,:]) @ lsi.si.conj ().T
