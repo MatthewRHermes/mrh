@@ -89,7 +89,7 @@ class HessianDebugger (gradients.GradientDebugger):
                 r, s = slicesy[j:j+2].copy ()
                 myname = None
                 if labelsx is not None:
-                    myname = labelsx[i] + ',' + labelsy[i]
+                    myname = labelsx[i] + ',' + labelsy[j]
                 subproblems.append (self.subproblem (p, q, r, s, name=myname))
         return subproblems
 
