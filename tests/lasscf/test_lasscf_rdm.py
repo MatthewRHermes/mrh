@@ -46,7 +46,9 @@ class KnownValues(unittest.TestCase):
         las_ref.ah_level_shift = 1e-4
         las_ref.max_cycle_macro = 50
         las_ref.kernel (mo_loc)
+        self.assertTrue (las_ref.converged)
         las_test.kernel (mo_loc)
+        self.assertTrue (las_test.converged)
         self.assertAlmostEqual (las_test.e_tot, las_ref.e_tot, 6)
 
     def test_derivs (self):

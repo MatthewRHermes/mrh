@@ -50,6 +50,7 @@ def tearDownModule():
 class KnownValues(unittest.TestCase):
     def test_energy_slow (self):
         las = LASSCF (mf, (4,), (4,), spin_sub=(1,)).set (conv_tol_grad=1e-5).run ()
+        self.assertTrue (las.converged)
         self.assertAlmostEqual (las.e_tot, mc.e_tot, 6)
         with self.subTest ('chkfile'):
             las2 = LASSCF (mf, (4,), (4,), spin_sub=(1,)).set (max_cycle_macro=1)
@@ -57,18 +58,22 @@ class KnownValues(unittest.TestCase):
                 las.dump_chk (chkfile=chkfile.name)
                 las2.load_chk_(chkfile=chkfile.name)
             las2.kernel ()
+            self.assertTrue (las2.converged)
             self.assertAlmostEqual (las.e_tot, las2.e_tot, 8)
 
     def test_energy_df_slow (self):
         las = LASSCF (mf_df, (4,), (4,), spin_sub=(1,)).set (conv_tol_grad=1e-5).run ()
+        self.assertTrue (las.converged)
         self.assertAlmostEqual (las.e_tot, mc_df.e_tot, 6)
 
     def test_energy_hs (self):
         las = LASSCF (mf_hs, (4,), ((4,0),), spin_sub=(5,)).set (conv_tol_grad=1e-5).run ()
+        self.assertTrue (las.converged)
         self.assertAlmostEqual (las.e_tot, mf_hs.e_tot, 8)
 
     def test_energy_hs_df (self):
         las = LASSCF (mf_hs_df, (4,), ((4,0),), spin_sub=(5,)).set (conv_tol_grad=1e-5).run ()
+        self.assertTrue (las.converged)
         self.assertAlmostEqual (las.e_tot, mf_hs_df.e_tot, 8)
 
     def test_derivatives (self):

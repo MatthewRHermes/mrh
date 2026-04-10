@@ -42,12 +42,14 @@ class KnownValues(unittest.TestCase):
         las = LASSCF (mf, (4,4), (4,4), spin_sub=(1,1))
         mo_coeff = las.localize_init_guess (frags)
         las.kernel (mo_coeff)
+        self.assertTrue (las.converged)
         self.assertAlmostEqual (las.e_tot, -295.44779578419946, 7)
 
     def test_symm_df (self):
         las = LASSCF (mf_df, (4,4), (4,4), spin_sub=(1,1))
         mo_coeff = las.localize_init_guess (frags)
         las.kernel (mo_coeff)
+        self.assertTrue (las.converged)
         self.assertAlmostEqual (las.e_tot, -295.44716017803967, 7)
         
 

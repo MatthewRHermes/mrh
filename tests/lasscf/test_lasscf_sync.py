@@ -33,6 +33,8 @@ mf = scf.RHF (mol).run ()
 las = LASSCF (mf, (4,4), ((3,1),(1,3)), spin_sub=(3,3))
 las.max_cycle_macro = 1
 las.kernel ()
+# TODO: fix?
+#assert (las.converged)
 las.mo_coeff = np.loadtxt (os.path.join (topdir, 'test_lasci_mo.dat'))
 las.ci = [[np.loadtxt (os.path.join (topdir, 'test_lasci_ci0.dat'))],
           [-np.loadtxt (os.path.join (topdir, 'test_lasci_ci1.dat')).T]]
