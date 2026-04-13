@@ -205,7 +205,7 @@ def kernel (las, mo_coeff=None, casdm1frs=None, casdm2fr=None, conv_tol_grad=1e-
         prec = prec_op (np.ones_like (g_vec)) # Check for divergences
         norm_gorb = linalg.norm (g_vec) if g_vec.size else 0.0
         norm_gx = linalg.norm (gx) if gx.size else 0.0
-        x0 = prec_op._matvec (-g_vec)
+        x0 = prec_op (-g_vec)
         norm_xorb = linalg.norm (x0) if x0.size else 0.0
         lib.logger.info (las, 'LASSCF macro %d : E = %.15g ; |g_int| = %.15g ; |g_x| = %.15g',
             it, H_op.e_tot, norm_gorb, norm_gx)
