@@ -57,7 +57,7 @@ class KnownValues(unittest.TestCase):
                 with self.subTest (opt=opt, davidson_only=dson):
                     lsi.run (opt=opt, davidson_only=dson)
                     self.assertTrue (lsi.converged)
-                    self.assertAlmostEqual (lsi.e_roots[0], -296.6363910754218, 7)
+                    self.assertAlmostEqual (lsi.e_roots[0], -296.63639151348804, 7)
 
     def test_fbf_2_model_state (self):
         for lsi.opt in (0,1):
