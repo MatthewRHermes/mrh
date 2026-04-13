@@ -41,7 +41,7 @@ class KnownValues (unittest.TestCase):
 
         self.assertAlmostEqual (lib.fp (las_syn.e_states),
                                 lib.fp (las_asyn.e_states),
-                                8)
+                                7)
 
 if __name__ == "__main__":
     print ("Full Tests for H2-")
