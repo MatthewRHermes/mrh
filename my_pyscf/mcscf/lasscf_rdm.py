@@ -82,7 +82,7 @@ class LASSCF_HessianOperator (lasscf_sync_o0.LASSCF_HessianOperator):
         # LEVEL SHIFT!!
         kappa3 = self.ugg.unpack (self.ah_level_shift * np.abs (x))
         kappa2 += kappa3
-        return self.ugg.pack (kappa2)
+        return self.ugg.pack (kappa2/2)
 
     def get_veff_prime (self, odm1s):
         # Spoof away CI by wrapping call

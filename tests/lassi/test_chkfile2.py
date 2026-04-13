@@ -37,6 +37,7 @@ def setUpModule():
     las = LASSCF (mf, (2,2), (2,2))
     mo = las.localize_init_guess (([0,1],[2,3]), mc.mo_coeff, freeze_cas_spaces=True)
     las.kernel (mo)
+    assert (las.converged)
     lsi = lassi.LASSIrq (las, r=2, q=2).run ()
     with tempfile.NamedTemporaryFile() as chkfile:
         lsi.dump_chk (chkfile=chkfile.name)

@@ -43,15 +43,17 @@ def tearDownModule():
 
 class KnownValues(unittest.TestCase):
     def test_etot (self):
-        las_ref.ah_level_shift = 1e-4
+        las_ref.ah_level_shift = 1e-8
         las_ref.max_cycle_macro = 50
-        las_ref.kernel (mo_loc)
-        las_test.kernel (mo_loc)
+        las_ref.kernel ()
+        self.assertTrue (las_ref.converged)
+        las_test.kernel ()
+        self.assertTrue (las_test.converged)
         self.assertAlmostEqual (las_test.e_tot, las_ref.e_tot, 6)
 
     def test_derivs (self):
         las_ref.ah_level_shift = 1e-8
-        las_ref.max_cycle_macro = 3
+        las_ref.max_cycle_macro = 5
         las_ref.kernel (mo_loc, None)
         ugg_ref = las_ref.get_ugg ()
         hop_ref = las_ref.get_hop (ugg=ugg_ref)

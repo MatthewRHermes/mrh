@@ -31,9 +31,10 @@ class KnownValues(unittest.TestCase):
         frag_atom_list = ([0, 1] , [2, 3])
         mo0 = mc.localize_init_guess (frag_atom_list)
         mc.kernel(mo0)
+        self.assertTrue (mc.converged)
         elas = mc.e_mcscf[0]
         epdft = mc.e_tot
-        self.assertAlmostEqual (mc.e_tot, -2.285617754797544, 7)
+        self.assertAlmostEqual (mc.e_tot, -2.285624019555543, 7)
 
         # Making sure asyncLASSCF also gives the same energy
         las = asyncLASSCF(mf, (2, 2), (2, 2), spin_sub=(1,1))

@@ -53,6 +53,7 @@ def setUpModule ():
     las = LASSCF (mf, (2,2), (2,2), spin_sub=(1,1))
     mo_coeff = las.localize_init_guess ([[1,2],[3,4]])
     las.kernel (mo_coeff)
+    assert (las.converged)
     for i in range (2): las = all_single_excitations (las)
     charges, spins, smults, wfnsyms = get_space_info (las)
     lroots = 4 - smults

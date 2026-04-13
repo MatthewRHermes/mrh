@@ -44,6 +44,7 @@ def setUpModule ():
     las = LASSCF (mf, (5,5), ((3,2),(2,3)), spin_sub=(2,2))
     mo_coeff = las.localize_init_guess ((list (range (5)), list (range (5,10))))
     las.kernel (mo_coeff)
+    assert (las.converged)
     lsi_o1 = LASSIS (las).run (nroots_si=3)
     assert (lsi_o1.opt==1)
     assert (not lsi_o1.sisolver.davidson_only)

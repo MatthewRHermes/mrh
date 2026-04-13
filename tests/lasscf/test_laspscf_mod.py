@@ -121,7 +121,7 @@ class KnownValues(unittest.TestCase):
 
     def test_hessian (self):
         hx = h_op._matvec (x)
-        self.assertAlmostEqual (lib.fp (hx), 179.48768166752396, 7)
+        self.assertAlmostEqual (lib.fp (hx), 89.10410326302467, 7)
 
     def test_hc2 (self):
         xp = x.copy ()
@@ -133,30 +133,30 @@ class KnownValues(unittest.TestCase):
         xp = x.copy ()
         xp[:-16] = 0.0
         hx = h_op._matvec (xp)[-32:-16]
-        self.assertAlmostEqual (lib.fp (hx), 0.0013399490448726629, 7)
+        self.assertAlmostEqual (lib.fp (hx), 0.001339949044872548, 7)
 
     def test_hco (self):
         xp = x.copy ()
         xp[-32:] = 0.0
         hx = h_op._matvec (xp)[-32:]
-        self.assertAlmostEqual (lib.fp (hx), 0.17136526120875378, 7)
+        self.assertAlmostEqual (lib.fp (hx), 0.08745278810729933, 7)
 
     def test_hoc (self):
         xp = x.copy ()
         xp[:-32] = 0.0
         hx = h_op._matvec (xp)[:-32]
-        self.assertAlmostEqual (lib.fp (hx), -0.2701194485663053, 7)
+        self.assertAlmostEqual (lib.fp (hx), -0.3107152725863126, 7)
 
     def test_hoo (self):
         xp = x.copy ()
         xp[-32:] = 0.0
         hx = h_op._matvec (xp)[:-32]
-        self.assertAlmostEqual (lib.fp (hx), 182.07818989609675, 7)
+        self.assertAlmostEqual (lib.fp (hx), 91.03909494322775, 7)
 
     def test_prec (self):
         M_op = h_op.get_prec ()
         Mx = M_op._matvec (x)
-        self.assertAlmostEqual (lib.fp (Mx), 2.940197014418852, 7)
+        self.assertAlmostEqual (lib.fp (Mx), 5.620403603286931, 7)
 
 
 if __name__ == "__main__":

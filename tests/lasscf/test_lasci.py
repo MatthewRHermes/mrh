@@ -75,15 +75,19 @@ def setUpModule():
 
 def _check_():
     if not las.converged: las.kernel (mo)
+    assert (las.converged)
     if not las_symm.converged: las_symm.kernel (mo_symm)
+    assert (las_symm.converged)
     if las_ref[0] is None:
         las_ref[0] = las.state_average (weights=weights, **states)
         las_ref[0].frozen = range (mo.shape[1])
         las_ref[0].kernel ()
+        assert (las_ref[0].converged)
     if las_ref[1] is None:
         las_ref[1] = las_symm.state_average (weights=weights, **states_symm)
         las_ref[1].frozen = range (mo_symm.shape[1])
         las_ref[1].kernel ()
+        assert (las_ref[1].converged)
         
 def _lrootsout (las):
     lout = np.zeros_like (lroots)

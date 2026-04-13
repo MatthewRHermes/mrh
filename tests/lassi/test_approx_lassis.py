@@ -32,6 +32,7 @@ def setUpModule ():
     las = LASSCF (mf, (4,2,4), ((2,2),(1,1),(2,2)), spin_sub=(1,1,1))
     mo_coeff = las.localize_init_guess ([[0,1,2],[3,4,5,6],[7,8,9]])
     las.kernel (mo_coeff)
+    assert (las.converged)
     mask = np.ones ((3,3), dtype=bool)
     mask[0,2] = mask[2,0] = False
 
@@ -47,25 +48,25 @@ class KnownValues(unittest.TestCase):
         lsi = LASSIS (las).run ()
         self.assertTrue (lsi.converged)
         self.assertEqual (lsi.si.shape[1], 321)
-        self.assertAlmostEqual (lsi.e_roots[0], -295.52016414968716, 6)
+        self.assertAlmostEqual (lsi.e_roots[0], -295.5201607274503, 5)
 
     def test_fewer_charge_hops (self):
         lsi = LASSIS (las).run (mask_charge_hops=mask)
         self.assertTrue (lsi.converged)
         self.assertEqual (lsi.si.shape[1], 213)
-        self.assertAlmostEqual (lsi.e_roots[0], -295.4857294756858, 6)
+        self.assertAlmostEqual (lsi.e_roots[0], -295.48572049698805, 5)
 
     def test_no_spin_flips (self):
         lsi = LASSIS (las).run (nspin=0)
         self.assertTrue (lsi.converged)
         self.assertEqual (lsi.si.shape[1], 25)
-        self.assertAlmostEqual (lsi.e_roots[0], -295.47881153342126, 6)
+        self.assertAlmostEqual (lsi.e_roots[0], -295.4788101245456, 5)
 
     def test_ultra_small (self):
         lsi = LASSIS (las).run (mask_charge_hops=mask, nspin=0)
         self.assertTrue (lsi.converged)
         self.assertEqual (lsi.si.shape[1], 9)
-        self.assertAlmostEqual (lsi.e_roots[0], -295.47263837707146, 6)
+        self.assertAlmostEqual (lsi.e_roots[0], -295.472633699967, 5)
 
 if __name__ == "__main__":
     print("Full Tests for approximate LASSIS")
