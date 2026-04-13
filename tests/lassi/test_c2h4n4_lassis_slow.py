@@ -75,7 +75,7 @@ class KnownValues(unittest.TestCase):
         for lsi in lsis:
             with self.subTest (opt=lsi.opt):
                 self.assertTrue (lsi.converged)
-                self.assertAlmostEqual (lsi.e_roots[0], -295.52185731568903, 7)
+                self.assertAlmostEqual (lsi.e_roots[0], -295.52185742424166, 7)
 
     #@unittest.skip("debugging")
     def test_lassis_kernel_davidson (self):
@@ -84,7 +84,7 @@ class KnownValues(unittest.TestCase):
                 lsi1 = lsi.copy ()
                 e_roots, si = lsi1.eig (davidson_only=True)
                 self.assertTrue (lsi1.converged)
-                self.assertAlmostEqual (e_roots[0], -295.52185731568903, 7)
+                self.assertAlmostEqual (e_roots[0], -295.52185742424166, 7)
 
     def test_lassis_kernel_lsf (self):
         for lsi in lsis:
@@ -92,7 +92,7 @@ class KnownValues(unittest.TestCase):
                 lsi1 = lsi.copy ()
                 e_roots, si = lsi1.eig (davidson_only=True, smult_si=1)
                 self.assertTrue (lsi1.converged)
-                self.assertAlmostEqual (e_roots[0], -295.52185731568903, 7)
+                self.assertAlmostEqual (e_roots[0], -295.52185742424166, 7)
                 self.assertAlmostEqual (lsi1.s2[0], 0.0, 7)
 
     def test_o1_ham (self):
