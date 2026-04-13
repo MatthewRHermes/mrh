@@ -1282,8 +1282,8 @@ class LASSCF_HessianOperator (sparse_linalg.LinearOperator):
             Mx = x/(Hdiag-e)
             log.timer ('LASSCF sync preconditioner call', *t0)
             return Mx
-        return prec_op
-        #return sparse_linalg.LinearOperator (self.shape,matvec=prec_op,dtype=self.dtype)
+        #return prec_op
+        return sparse_linalg.LinearOperator (self.shape,matvec=prec_op,dtype=self.dtype)
 
     def _get_Horb_diag_presymm_fock (self):
         ncore, nocc = self.ncore, self.nocc
