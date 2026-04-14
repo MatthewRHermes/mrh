@@ -1262,7 +1262,7 @@ class LASSCF_HessianOperator (sparse_linalg.LinearOperator):
         probe_x0 = b/Hdiag
         log.debug ('|probe_x0| / ndeg = %g', linalg.norm (probe_x0) / len (probe_x0))
         ndeg = len (probe_x0)
-        idx_unstable = np.abs (probe_x0) > np.inf
+        idx_unstable = np.abs (probe_x0) > np.pi*.5
         # We can't mask everything, because that behavior would obfuscate the problem
         # If NO stable D.O.F. exist, then keyframe is just bad and it has to be handled upstream
         ndeg_unstable = np.count_nonzero (idx_unstable)
