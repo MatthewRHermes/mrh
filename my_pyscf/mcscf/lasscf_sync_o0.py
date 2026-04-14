@@ -1257,14 +1257,14 @@ class LASSCF_HessianOperator (sparse_linalg.LinearOperator):
         Hdiag[np.abs (Hdiag)<1e-8] = 1e-8
         # The quadratic power series is a bad approximation if the magnitude of the gradient in
         # the current keyframe is such that we will tend to predict steps with magnitude greater
-        # than .5*pi (a step of exactly .5*pi transposes two states). This preconditioner should
+        # than pi (a step of exactly pi transposes two states). This preconditioner should
         # mask out the corresponding degrees of freedom
         g_vec = self.get_grad ()
         b = linalg.norm (g_vec)
         probe_x0 = b/Hdiag
         log.debug ('|probe_x0| / ndeg = %g', linalg.norm (probe_x0) / len (probe_x0))
         ndeg = len (probe_x0)
-        idx_unstable = np.abs (probe_x0) > np.inf
+        idx_unstable = np.abs (probe_x0) > np.pi
         # We can't mask everything, because that behavior would obfuscate the problem
         # If NO stable D.O.F. exist, then keyframe is just bad and it has to be handled upstream
         ndeg_unstable = np.count_nonzero (idx_unstable)
