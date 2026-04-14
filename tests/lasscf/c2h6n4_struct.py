@@ -3,7 +3,7 @@ import numpy as np
 from pyscf import gto
 topdir = os.path.abspath (os.path.join (__file__, '..'))
 
-def structure (dnn1=0, dnn2=0, basis='6-31g', symmetry=False):
+def structure (dnn1=0, dnn2=0, basis='6-31g', symmetry=False, **kwargs):
     with open (os.path.join (topdir, 'c2h6n4.xyz'), 'r') as f:
         equilgeom = f.read ()
     mol = gto.M (atom = equilgeom, basis = basis, symmetry=True, unit='au')
@@ -25,6 +25,6 @@ def structure (dnn1=0, dnn2=0, basis='6-31g', symmetry=False):
     dummymol = gto.M (atom = carts, basis=basis, symmetry=True)
     newcoords = dummymol.atom_coords ()
     carts = [[atoms[i]] + list(newcoords[i,:]) for i in range(12)]
-    return gto.M (atom = carts, basis=basis, symmetry=symmetry, unit='au')
+    return gto.M (atom = carts, basis=basis, symmetry=symmetry, unit='au', **kwargs)
 
 
