@@ -75,7 +75,7 @@ def davidson_cc (mc, h_op, g_all, x0_guess, precond, tol=None, g_update=None, ca
                             mc.max_cycle_micro-int(np.log(norm_gkf+1e-7)*2))
             log.debug1('Set max_cycle %d', max_cycle)
             ikf += 1
-            if stat.imic > 0 and norm_gall > norm_gkf*mc.ah_grad_trust_region:
+            if stat.imic > 3 and norm_gall > norm_gkf*mc.ah_grad_trust_region:
                 g_all = g_all - hdxi
                 dr -= dxi
                 norm_gall = np.linalg.norm(g_all)

@@ -22,12 +22,14 @@ class KnownValues (unittest.TestCase):
         las = lassi_spaces.spin_shuffle (las)
         las.weights = [1.0/las.nroots,]*las.nroots
         las.kernel (mo)
+        self.assertTrue (las.converged)
         for i in range (len (las.e_states)):
             las1 = las.get_single_state_las (state=i)
             las1.lasci ()
             self.assertAlmostEqual (las1.e_tot, las.e_states[i], 6)
             e_lasci = las1.e_tot
             las1.kernel ()
+            self.assertTrue (las1.converged)
             self.assertLessEqual (las1.e_tot, las.e_states[i])
 
 if __name__ == "__main__":

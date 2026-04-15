@@ -22,6 +22,7 @@ def setUpModule():
     las = LASSCF (mf, (2,2), (2,2), spin_sub=(1,1))
     mo = las.localize_init_guess (([0,1],[2,3]), mc.mo_coeff, freeze_cas_spaces=True)
     las.kernel (mo)
+    assert (las.converged)
     las.state_average_(weights=[.2,.2,.2,.2,.2],
                        spins=[[0,0],[2,0],[-2,0],[0,2],[0,-2]],
                        smults=[[1,1],[3,1],[3,1],[1,3],[1,3]])
@@ -69,7 +70,8 @@ def _perturb_wfn (imc):
     kappa -= kappa.T
     umat = linalg.expm (kappa)
     imc.mo_coeff = imc.mo_coeff @ umat
-    return imc.run ()
+    imc.kernel ()
+    return imc
 
 class KnownValues (unittest.TestCase):
 
@@ -77,6 +79,7 @@ class KnownValues (unittest.TestCase):
         imc = _make_imc (self)
         _test_results (self, imc, 'construction')
         imc = _perturb_wfn (imc)
+        self.assertTrue (imc.converged)
         _test_results (self, imc, 'optimization')
 
 if __name__ == "__main__":

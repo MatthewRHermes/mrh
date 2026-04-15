@@ -40,6 +40,7 @@ def setUpModule ():
     las = LASSCF (mf, (4,4), ((2,2),(2,2)), spin_sub=(1,1))
     mo_coeff = las.localize_init_guess ((list (range (3)), list (range (9,12))))
     las.kernel (mo_coeff)
+    assert (las.converged)
     lsi = LASSIS (las).run (nroots_si=3)
 
 def tearDownModule():
@@ -56,7 +57,7 @@ class KnownValues(unittest.TestCase):
                 with self.subTest (opt=opt, davidson_only=dson):
                     lsi.run (opt=opt, davidson_only=dson)
                     self.assertTrue (lsi.converged)
-                    self.assertAlmostEqual (lsi.e_roots[0], -296.6363910754218, 7)
+                    self.assertAlmostEqual (lsi.e_roots[0], -296.63639151348804, 7)
 
     def test_fbf_2_model_state (self):
         for lsi.opt in (0,1):

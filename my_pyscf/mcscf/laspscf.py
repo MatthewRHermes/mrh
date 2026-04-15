@@ -153,6 +153,16 @@ class LASPSCF_HessianOperator (lasscf_sync_o0.LASSCF_HessianOperator):
     def _update_h2eff_sub (self, mo1, umat, h2eff_sub):
         return self.las.ao2mo (mo1)
 
+    def _get_Horb_diag_presymm (self):
+        fock = np.stack ([np.diag (h) for h in list (self.h1s)], axis=0)
+        num = np.stack ([np.diag (d) for d in list (self.dm1s)], axis=0)
+        Horb_diag = sum ([np.multiply.outer (f,n) for f,n in zip (fock, num)])
+        Horb_diag -= np.diag (self.fock1)[None,:]
+        # This is where I stop unless I want to add the split-c and split-x terms
+        # Split-c and split-x, for inactive-external rotations, requires I calculate a bunch
+        # of extra eris (g^aa_ii, g^ai_ai)
+        return Horb_diag
+
 class LASPSCFNoSymm (lasscf_sync_o0.LASSCFNoSymm):
     _ugg = LASPSCF_UnitaryGroupGenerators
     _hop = LASPSCF_HessianOperator

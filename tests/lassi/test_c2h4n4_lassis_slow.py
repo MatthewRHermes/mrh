@@ -44,6 +44,7 @@ def setUpModule ():
     las = LASSCF (mf, (5,5), ((3,2),(2,3)), spin_sub=(2,2))
     mo_coeff = las.localize_init_guess ((list (range (5)), list (range (5,10))))
     las.kernel (mo_coeff)
+    assert (las.converged)
     lsi_o1 = LASSIS (las).run (nroots_si=3)
     assert (lsi_o1.opt==1)
     assert (not lsi_o1.sisolver.davidson_only)
@@ -74,7 +75,7 @@ class KnownValues(unittest.TestCase):
         for lsi in lsis:
             with self.subTest (opt=lsi.opt):
                 self.assertTrue (lsi.converged)
-                self.assertAlmostEqual (lsi.e_roots[0], -295.52185731568903, 7)
+                self.assertAlmostEqual (lsi.e_roots[0], -295.52185684940287, 7)
 
     #@unittest.skip("debugging")
     def test_lassis_kernel_davidson (self):
@@ -83,7 +84,7 @@ class KnownValues(unittest.TestCase):
                 lsi1 = lsi.copy ()
                 e_roots, si = lsi1.eig (davidson_only=True)
                 self.assertTrue (lsi1.converged)
-                self.assertAlmostEqual (e_roots[0], -295.52185731568903, 7)
+                self.assertAlmostEqual (e_roots[0], -295.52185684940287, 7)
 
     def test_lassis_kernel_lsf (self):
         for lsi in lsis:
@@ -91,7 +92,7 @@ class KnownValues(unittest.TestCase):
                 lsi1 = lsi.copy ()
                 e_roots, si = lsi1.eig (davidson_only=True, smult_si=1)
                 self.assertTrue (lsi1.converged)
-                self.assertAlmostEqual (e_roots[0], -295.52185731568903, 7)
+                self.assertAlmostEqual (e_roots[0], -295.52185684940287, 7)
                 self.assertAlmostEqual (lsi1.s2[0], 0.0, 7)
 
     def test_o1_ham (self):
