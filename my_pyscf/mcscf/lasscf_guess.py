@@ -161,6 +161,15 @@ def _localize (las, frags_orbs, mo_coeff, spin, lo_coeff, fock, ao_ovlp, freeze_
         if has_orbsym:
             mo_orbsym[:ncore] = mo_proj.orbsym[:ncore]
             mo_orbsym[nocc:] = mo_proj.orbsym[ncore:]
+    elif nocc < mo_coeff.shape[1]:
+        mo_virt = tag_array (mo_coeff[:,nocc:], orbsym=mo_orbsym[nocc:])
+        mocc_virt = mo_occ[nocc:]
+        mo_proj, sval, mo_virt, mocc_virt = las._svd (null_coeff, mo_virt, s=ao_ovlp,
+                                                      mo_occ=mocc_virt)
+        mo_coeff[:,nocc:] = mo_proj[:,:]
+        if has_orbsym:
+            mo_orbsym[nocc:] = mo_proj.orbsym[:]
+
     mo_coeff = tag_array (mo_coeff, orbsym=mo_orbsym)
 
     # Canonicalize for good init CI guess and visualization
