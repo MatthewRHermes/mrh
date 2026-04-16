@@ -1,3 +1,4 @@
+
 import sys
 import numpy as np
 import scipy
@@ -335,7 +336,6 @@ def gen_g_hop(mc, mo_coeff, mo_phase, u, casdm1, casdm2, eris):
     # hdm2_ref += numpy.einsum('pwxq,wuxv->puqv', paap, casdm2)
     # hdm2_ref += numpy.einsum('pwxq,uwxv->puqv', paap, casdm2)
 
-    I = np.eye(ncas, dtype=mo_coeff[0].dtype)
     for k1, k2, k3 in kpts_helper.loop_kkk(nkpts):
         k4 = kconserv[k1, k2, k3]
         # jkcaa term
@@ -353,31 +353,33 @@ def gen_g_hop(mc, mo_coeff, mo_phase, u, casdm1, casdm2, eris):
                 ppaa = eris.ppaa(k1, k3, kw)      # (k1, k3, kw, kx)
                 dm2_blk = casdm2_kpts[kw, kx, k2] # (kw, kx, k2, k4)
                 hdm2[k1, k2, k3] += (1.0 / nkpts) * np.einsum('pqwx,wxuv->puqv', ppaa, dm2_blk, optimize=True)
-                
-        # Above code worked for hess diag, but I think there is a mistake in that code, due to which it's not 
-        # passing the hop tests. Again rewriting this code:
-        # for kw in range(nkpts):
-        #     kx = kconserv[kw, k2, k4]
-        #     if kconserv[k1, kw, kx] == k3:
-        #         paap = eris.paap(k1, kw, kx)      # (k1, kw, kx, k3)
-        #         dm2_blk = casdm2_kpts[kw, k2, kx] # (kw, k2, kx, k4)
-        #         hdm2[k1, k2, k3] += (1.0 / nkpts) * np.einsum('pwxq,wuxv->puqv', paap, dm2_blk, optimize=True)
-        #         dm2_blk = casdm2_kpts[k2, kw, kx] # (k2, kw, kx, k4) = (u, w, x, v)
-        #         hdm2[k1, k2, k3] += (1.0 / nkpts) * np.einsum('pwxq,uwxv->puqv', paap, dm2_blk, optimize=True)
 
-    # In the single reference limit.
-    hdm2_K = np.zeros((nkpts, nkpts, nkpts, nmo, ncas, nmo, ncas), dtype=dtype)
-    for k1, k2, k3 in kpts_helper.loop_kkk(nkpts):
-        k4 = kconserv[k1, k2, k3]
-        if k4 == k2 and k3 == k1:
-            for kt in range(nkpts):
-                hdm2_K[k1, k2, k3] += (-2.0 / nkpts) * np.einsum('pttq,uv->puqv', eris.paap(k1, kt, kt), I, optimize=True)
-        hdm2_K[k1, k2, k3] +=  (-2.0 / nkpts) * eris.papa(k1, k4, k3).transpose(0, 3, 2, 1).conj()
-        hdm2_K[k1, k2, k3] +=  (4.0 / nkpts) *  eris.paap(k1, k2, k4).transpose(0,1,3,2)
-        hdm2_K[k1, k2, k3] +=  (4.0 / nkpts) *  eris.papa(k1, k2, k3).conj()
-        
-    hdm2 += hdm2_K
+        # hdm2: K1-term: Debugged
+        for kw in range(nkpts):
+            kx_papa = kconserv[k2, kw, k4]
+            papa = eris.papa(k1, kw, k3).conj()
+            dm2_papa = casdm2_kpts[kw, k2, kx_papa]
+            hdm2[k1, k2, k3] += (1.0 / nkpts) * np.einsum('pwqx,wuxv->puqv', papa, dm2_papa, optimize=True)          
+    
+    # paap_ppmm is stored as: (kp, kw, kx) -> [p, w, x, q]   i.e. ++--
+    paap_ppmm = np.empty((nkpts, nkpts, nkpts, nmo, ncas, ncas, nmo), dtype=dtype)
+    for kp, kw, kx in kpts_helper.loop_kkk(nkpts):
+        kq = kconserv[kp, kx, kw]
+        buf = mc._scf.with_df.ao2mo([mo_coeff[kp], mo_coeff[kx][:, ncore:nocc], 
+                                     mo_coeff[kw][:, ncore:nocc], mo_coeff[kq]],
+                                     [kpts[i] for i in (kp, kx, kw, kq)], compact=False).reshape(nmo, ncas, ncas, nmo)
+        paap_ppmm[kp, kw, kx] = buf.transpose(0, 2, 1, 3)
 
+
+    # output stored as p u q v  ( ++-- )
+    hdm2_ppmm = np.zeros((nkpts, nkpts, nkpts, nmo, ncas, nmo, ncas), dtype=dtype)
+    for kp, ku, kq in kpts_helper.loop_kkk(nkpts):
+        for kw in range(nkpts):
+            kx = kconserv[kp, kq, kw]
+            eri_ppmm = paap_ppmm[kp, kw, kx]
+            assert kconserv[kp, kq, ku] == kconserv[ku, kw, kx]
+            dm2_pmmp = casdm2_kpts[ku, kw, kx]
+            hdm2_ppmm[kp, ku, kq] += (1.0 / nkpts) * np.einsum('pwxq,uwxv->pvqu', eri_ppmm, dm2_pmmp, optimize=True).conj().transpose(0, 3, 2, 1)
 
     ppaa = papa = jtmp = temp = None
 
@@ -402,7 +404,7 @@ def gen_g_hop(mc, mo_coeff, mo_phase, u, casdm1, casdm2, eris):
         hdiag[k][ncore:nocc, :] += tmp.conj().T
         tmp = -eris.vhf_c[k][ncore:nocc,ncore:nocc] * casdm1_kpts[k]
         hdiag[k][ncore:nocc,ncore:nocc] += tmp + tmp.conj().T
-       
+    
         # TODO: Remember to divide the eris.j_pc and eris.k_pc by nkpts, 
         # because they are summed over the k-points in the eris generation.
         tmp = 6 * eris.k_pc[k] - 2 * eris.j_pc[k]
@@ -412,14 +414,14 @@ def gen_g_hop(mc, mo_coeff, mo_phase, u, casdm1, casdm2, eris):
         
         hdiag[k][:nocc,ncore:nocc] -= jkcaa[k]
         hdiag[k][ncore:nocc,:nocc] -= jkcaa[k].conj().T
-       
+    
         v_diag = np.einsum('ijij->ij', hdm2[k, k, k])
         hdiag[k][ncore:nocc,:] += v_diag.conj().T
         hdiag[k][:,ncore:nocc] += v_diag
 
     # Pack the gradients and hessian diagonal    
     g_orb = np.hstack([mc.pack_uniq_var(g[k] - g[k].conj().T) 
-                       for k in range(nkpts)])
+                    for k in range(nkpts)])
     h_diag = np.hstack([mc.pack_uniq_var(hdiag[k]) 
                         for k in range(nkpts)])
 
@@ -435,14 +437,14 @@ def gen_g_hop(mc, mo_coeff, mo_phase, u, casdm1, casdm2, eris):
 
         nmopack = mc.pack_uniq_var(np.zeros((nmo, nmo))).shape[0]
         x = np.array([x[i*nmopack:(i+1)*nmopack] 
-                      for i in range(nkpts)], dtype=dtype) # (nkpts, nmopack)
+                    for i in range(nkpts)], dtype=dtype) # (nkpts, nmopack)
 
         x2 = np.empty((nkpts, nmo, nmo), dtype=dtype)
         np.set_printoptions(precision=3, suppress=True)
         
         if ncore > 0:
             x1 = np.array([mc.unpack_uniq_var(x[k]) 
-                           for k in range(nkpts)])
+                        for k in range(nkpts)])
             va, vc = mc.update_jk_in_ah(mo_coeff, x1, casdm1_kpts, eris)
         
         for k in range(nkpts):
@@ -458,6 +460,8 @@ def gen_g_hop(mc, mo_coeff, mo_phase, u, casdm1, casdm2, eris):
                 hdm2temp = hdm2[k, k, kr]
                 x1temp = mc.unpack_uniq_var(x[kr].copy())
                 x2[k][:, ncore:nocc] += np.einsum('purv,rv->pu', hdm2temp, x1temp[:, ncore:nocc], optimize=True)
+                assert kconserv[kr, k, k] == kr
+                x2[k][:, ncore:nocc] += np.einsum('purv,pv->ru', hdm2_ppmm[kr, k, k], x1temp[:, ncore:nocc], optimize=True).conj()
                 
             if ncore > 0:
                 x2[k][ncore:nocc] += va[k]
