@@ -214,13 +214,6 @@ def _do_ao2mo_disk(kcasscf, mo_kpts, nkpts, ncore, ncas, nmo, level=1):
     paap = zij_12 = zkl_34 = None
     t3 = log.timer('density fitting ao2mo paap', *t2)
 
-    # for kp, kw, kx in kpts_helper.loop_kkk(nkpts):
-    #     kq = kconserv[kp, kx, kw]
-    #     buf = mydf.ao2mo([mo_kpts[kp], mo_kpts[kx][:, ncore:nocc], 
-    #                                  mo_kpts[kw][:, ncore:nocc], mo_kpts[kq]],
-    #                                  [kpts[i] for i in (kp, kx, kw, kq)], compact=False).reshape(nmo, ncas, ncas, nmo)
-    #     paap_ppmm[kp, kw, kx] = buf.transpose(0, 2, 1, 3)
-
     # Step-5: Construct the paap_ppmm integrals:
     for k1, k2, k3 in kpts_helper.loop_kkk(nkpts):
         k4 = kconserv[k1, k3, k2]
