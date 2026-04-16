@@ -20,6 +20,17 @@ localize_init_guess=lasscf_guess._localize
 class MicroIterInstabilityException (Exception):
     pass
 
+def get_level_shift (trust_radius, prec_op, g, tol=1e-8):
+    x = prec_op (-g)
+    sign = x.dot (g) / np.sqrt (linalg.norm (x) * linalg.norm (g))
+    g = linalg.norm (g)
+    x = linalg.norm (x)
+    if x <= trust_radius: return 0
+    x0 = trust_radius 
+    shift = (g/x) + (g/x0)
+    assert (shift>=0), "{} {} {} {}".format (g, x, x0, shift)
+    return shift
+
 def kernel (las, mo_coeff=None, ci0=None, casdm0_fr=None, conv_tol_grad=1e-4, 
         assert_no_dupes=False, verbose=lib.logger.NOTE):
     from mrh.my_pyscf.mcscf.lasci import _eig_inactive_virtual
@@ -118,7 +129,13 @@ def kernel (las, mo_coeff=None, ci0=None, casdm0_fr=None, conv_tol_grad=1e-4,
             assert (err < 1e-5), '{}'.format (err)
         gx = H_op.get_gx ()
         prec_op = H_op.get_prec ()
-        prec = prec_op (np.ones_like (g_vec)) # Check for divergences
+        floating_level_shift = get_level_shift (las.trust_radius, prec_op, g_vec)
+        if floating_level_shift > 0:
+            log.debug ('Applying a floating level shift of %e', floating_level_shift)
+        prec_op.Hdiag += floating_level_shift
+        H_op.level_shift += floating_level_shift
+        err = get_level_shift (las.trust_radius, prec_op, g_vec)
+        assert (err < 1e-8), '{} {}'.format (floating_level_shift, err)
         norm_gorb = linalg.norm (g_vec[:ugg.nvar_orb]) if ugg.nvar_orb else 0.0
         norm_gci = linalg.norm (g_vec[ugg.nvar_orb:]) if ugg.ncsf_sub.sum () else 0.0
         norm_gx = linalg.norm (gx) if gx.size else 0.0
@@ -188,7 +205,7 @@ def kernel (las, mo_coeff=None, ci0=None, casdm0_fr=None, conv_tol_grad=1e-4,
             return g1
         my_tol = max (conv_tol_grad, norm_gx/10)
         try:
-            x = mc_ciah.davidson_cc (las, H_op, g_vec, x0, prec_op, tol=my_tol,
+            x = mc_ciah.davidson_cc (las, H_op, g_vec, x0, prec_op.var_shift, tol=my_tol,
                                      callback=my_callback, verbose=log.verbose,
                                      conv_tol_grad=conv_tol_grad,
                                      g_update=g_update)[0]
@@ -583,7 +600,7 @@ class LASSCF_HessianOperator (sparse_linalg.LinearOperator):
             separately called.
 
     Attributes:
-        ah_level_shift : float
+        level_shift : float
             Shift added to the diagonal of the Hessian to improve convergence. Default = 1e-8.
         ncas : int
             Total number of active orbitals
@@ -658,7 +675,7 @@ class LASSCF_HessianOperator (sparse_linalg.LinearOperator):
             ncas_sub=ncas_sub, nelecas_sub=nelecas_sub)
         if h2eff_sub is None: h2eff_sub = las.get_h2eff (mo_coeff)
         self.las = las
-        self.ah_level_shift = las.ah_level_shift
+        self.level_shift = las.ah_level_shift
         self.ugg = ugg
         self.mo_coeff = mo_coeff
         self.ci = ci = [[c.ravel () for c in cr] for cr in ci] 
@@ -1046,7 +1063,7 @@ class LASSCF_HessianOperator (sparse_linalg.LinearOperator):
         t1 = extra_timer ('LASSCF sync Hessian operator 6: (Hx)_CI diag', *t1)
 
         # LEVEL SHIFT!!
-        kappa3, ci3 = self.ugg.unpack (self.ah_level_shift * np.abs (x))
+        kappa3, ci3 = self.ugg.unpack (self.level_shift * x)
         kappa2 += kappa3
         ci2 = [[x+y for x,y in zip (xr, yr)] for xr, yr in zip (ci2, ci3)]
         t1 = extra_timer ('LASSCF sync Hessian operator 7: level shift', *t1)
@@ -1253,7 +1270,7 @@ class LASSCF_HessianOperator (sparse_linalg.LinearOperator):
                 Approximately the inverse of the Hessian
         '''
         log = lib.logger.new_logger (self.las, self.las.verbose)
-        Hdiag = self._get_Hdiag () + self.ah_level_shift
+        Hdiag = self._get_Hdiag () + self.level_shift
         Hdiag[np.abs (Hdiag)<1e-8] = 1e-8
         # The quadratic power series is a bad approximation if the magnitude of the gradient in
         # the current keyframe is such that we will tend to predict steps with magnitude greater
@@ -1277,13 +1294,21 @@ class LASSCF_HessianOperator (sparse_linalg.LinearOperator):
                        ndeg_unstable, ndeg, g_unst)
         else:
             log.warn ('LASSCF encountered an unmaskable instability; calculation may not converge')
-        def prec_op (x, e=0):
+        return self.PrecOp (Hdiag, log)
+
+    class PrecOp (sparse_linalg.LinearOperator):
+        def __init__(self, Hdiag, log):
+            self.Hdiag = Hdiag
+            self.log = log
+            self.shape = (len (Hdiag), len (Hdiag))
+            self.dtype = Hdiag.dtype
+        def var_shift (self, x, e=0):
             t0 = (lib.logger.process_clock(), lib.logger.perf_counter())
-            Mx = x/(Hdiag-e)
-            log.timer ('LASSCF sync preconditioner call', *t0)
+            Mx = x/(self.Hdiag-e)
+            self.log.timer ('LASSCF sync preconditioner call', *t0)
             return Mx
-        #return prec_op
-        return sparse_linalg.LinearOperator (self.shape,matvec=prec_op,dtype=self.dtype)
+        def _matvec (self, x):
+            return self.var_shift (x)
 
     def _get_Horb_diag_presymm_fock (self):
         ncore, nocc = self.ncore, self.nocc

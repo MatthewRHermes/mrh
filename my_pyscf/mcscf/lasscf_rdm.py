@@ -46,7 +46,7 @@ class LASSCF_HessianOperator (lasscf_sync_o0.LASSCF_HessianOperator):
         if nelecas_sub is None: nelecas_sub = las.nelecas_sub
         if h2eff_sub is None: h2eff_sub = las.get_h2eff (mo_coeff)
         self.las = las
-        self.ah_level_shift = las.ah_level_shift
+        self.level_shift = las.ah_level_shift
         self.ugg = ugg
         self.mo_coeff = mo_coeff
         self.ncore = ncore
@@ -80,7 +80,7 @@ class LASSCF_HessianOperator (lasscf_sync_o0.LASSCF_HessianOperator):
         kappa2 = self.orbital_response (kappa1, odm1s, ocm2, veff_prime)
 
         # LEVEL SHIFT!!
-        kappa3 = self.ugg.unpack (self.ah_level_shift * np.abs (x))
+        kappa3 = self.ugg.unpack (self.level_shift * np.abs (x))
         kappa2 += kappa3
         return self.ugg.pack (kappa2/2)
 
