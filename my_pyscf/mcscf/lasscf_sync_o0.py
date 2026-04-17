@@ -1423,7 +1423,6 @@ class LASSCF_HessianOperator (sparse_linalg.LinearOperator):
             mo0 = self.mo_coeff
             ci0 = self.ci
             for i, xi in enumerate (x):
-                log.info ('vector {}'.format (i))
                 mo1, ci1, h2eff_sub = self.update_mo_ci_eri (xi, h2eff_sub)
                 self.mo_coeff = mo1
                 self.ci = ci1
