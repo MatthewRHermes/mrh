@@ -493,12 +493,11 @@ def gen_g_hop(mc, mo_coeff, mo_phase, u, casdm1, casdm2, eris):
 
             # I think this term corresponds to fact that how does the current orbitals will be affected by
             # rotation in some other block.
-            if True:
-                for kr in range(nkpts):
-                    hdm2temp = hdm2[k, k, kr]
-                    x1temp = mc.unpack_uniq_var(x[kr].copy())
-                    x2[k][:, ncore:nocc] += np.einsum('purv,rv->pu', hdm2temp, x1temp[:, ncore:nocc], optimize=True).conj()
-                    x2[k][:, ncore:nocc] += np.einsum('purv,pv->ru', hdm2_ppmm[kr, k, k], x1temp[:, ncore:nocc], optimize=True) #.conj()
+            for kr in range(nkpts):
+                hdm2temp = hdm2[k, k, kr]
+                x1temp = mc.unpack_uniq_var(x[kr].copy())
+                x2[k][:, ncore:nocc] += np.einsum('purv,rv->pu', hdm2temp, x1temp[:, ncore:nocc], optimize=True).conj()
+                x2[k][:, ncore:nocc] += np.einsum('purv,pv->ru', hdm2_ppmm[kr, k, k], x1temp[:, ncore:nocc], optimize=True) #.conj()
                
             if ncore > 0:
                 x2[k][ncore:nocc] += va[k]
