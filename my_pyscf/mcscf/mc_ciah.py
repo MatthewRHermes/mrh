@@ -121,10 +121,13 @@ def davidson_cc (mc, h_op, g_all, x0_guess, precond, tol=None, g_update=None, ca
                     log.debug ('Hessian breakdown; iterate')
                     break
                 else:
-                    g_all = g_all - hdxi
-                    dr -= dxi
+                    if stat.imic > 1:
+                        g_all = g_all - hdxi
+                        dr -= dxi
+                        log.debug('Out of trust region. Restore previouse step')
+                    else:
+                        log.debug('Out of trust region but I need at least one step')
                     norm_gall = norm_gkf = np.linalg.norm(g_all)
-                    log.debug('Out of trust region. Restore previouse step')
                     break
 
             if callable (callback):
