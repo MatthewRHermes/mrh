@@ -494,16 +494,15 @@ def gen_g_hop(mc, mo_coeff, mo_phase, u, casdm1, casdm2, eris):
             # I think this term corresponds to fact that how does the current orbitals will be affected by
             # rotation in some other block.
             for kr in range(nkpts):
-                hdm2temp = hdm2[k, k, kr]
                 x1temp = mc.unpack_uniq_var(x[kr].copy())
-                x2[k][:, ncore:nocc] += np.einsum('purv,rv->pu', hdm2temp, x1temp[:, ncore:nocc], optimize=True).conj()
-                x2[k][:, ncore:nocc] += np.einsum('purv,pv->ru', hdm2_ppmm[kr, k, k], x1temp[:, ncore:nocc], optimize=True) #.conj()
+                x2[k][:, ncore:nocc] += np.einsum('purv,rv->pu', hdm2[k, k, kr], x1temp[:, ncore:nocc], optimize=True).conj()
+                x2[k][:, ncore:nocc] += np.einsum('purv,pv->ru', hdm2_ppmm[kr, k, k], x1temp[:, ncore:nocc], optimize=True)
                
             if ncore > 0:
                 x2[k][ncore:nocc] += va[k]
                 x2[k][:ncore,ncore:] += vc[k]
             
-        x1temp = hdm2temp = va = vc = None
+        x1temp = va = vc = None
         return np.hstack([mc.pack_uniq_var(x2_ - x2_.conj().T) for x2_ in x2])
 
     return g_orb, gorb_update, h_op, h_diag
@@ -1137,40 +1136,7 @@ class PBCCASSCF(casci.PBCCASBASE):
         vc = np.array([reduce(np.dot, (mo_k[k][:,:ncore].conj().T, vj[k]*2.0 - vk[k], mo_k[k][:,ncore:]))
                        for k in range(nkpts)])
         return va, vc
-    
-    def _update_jk_in_ah(self, mo_k, r_k, casdm1_k, eris, kptindx):
-        '''
-        Update the J and K matrices in the auxiliary Hamiltonian.
-        Using the rotation matrix, rotate the mo_coeff then construct the density matrix
-        from that get the potential and then rotate those potential back to mo_basis.
-        '''
-        cell = self._scf.cell
-        kpts = self._scf.kpts
-        ncore = self.ncore
-        ncas = self.ncas
-        nocc = ncore + ncas
-        
-        # Make sure they are for a single k-point.
-        assert casdm1_k.ndim == 2
-        assert mo_k.ndim == 2
-        def _get_jk_core_or_act(dm_k):
-            vj, vk = self.get_jk(cell, dm_k, kpts_band=kpts[kptindx], hermi=1, with_j=True,
-                                 with_k=True, exxdiv=None)
-            if vj.ndim == 3: vj = vj[0]
-            if vk.ndim == 3: vk = vk[0]
-            return vj, vk
-        
-        dm3 = reduce(np.dot, (mo_k[:,:ncore], r_k[:ncore,ncore:], mo_k[:,ncore:].conj().T)) # nao, nao
-        dm3 = dm3 + dm3.conj().T
-        dm4 = reduce(np.dot, (mo_k[:,ncore:nocc], casdm1_k, r_k[ncore:nocc], mo_k.conj().T)) # nao, nao
-        dm4 = dm4 + dm4.conj().T
-        vj, vk  = _get_jk_core_or_act(dm3)
-        va = reduce(np.dot, (casdm1_k, mo_k[:,ncore:nocc].conj().T, vj * 2.0 - vk, mo_k))
-
-        vj, vk = _get_jk_core_or_act(dm3*2.0 + dm4)
-        vc = reduce(np.dot, (mo_k[:,:ncore].conj().T, vj*2.0 - vk, mo_k[:,ncore:]))
-        return va, vc
-    
+ 
     def update_casdm(self, mo, u, fcivec, e_cas, eris, envs={}):
         np.set_printoptions(precision=3, suppress=True)
         nkpts = self.nkpts
