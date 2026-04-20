@@ -56,7 +56,16 @@ def _get_casdm2_kpts(casdm2, mo_phase1, klabel):
 
 class hdm2Handler:
     '''
-    Wrapper class to hold the hdm2 on the disk.
+    Wrapper class for I/O purposes for the hdm2 on the disk.
+    hdm2 is product of contraction of 2e integrals with 2-RDM.
+    It's shape is (nkpts, nkpts, nkpts, nmo, ncas, nmo, ncas) in the block orbital basis.
+    There are three types of hdm2 depending on the type of contraction with 2e integrals,
+        1. hdm2_ppaa: pqwx(+-+-), wxvu(+-+-) -> puqv(++--)
+        2. hdm2_papa: pwxq(+-+-) uwxv(+-+-) -> puqv (+--+)
+        3. hdm2_pmmp: pwxq(+-+-) uwxv(+-+-) -> puqv (+--+)
+    Here, +- signs in the parentheses indicate the momentum conservation for the 
+    corresponding indices.
+    Instead of keeping these arrays in the memory, I have decided to keep them on the disk.
     '''
     def __init__(self, hdm2file):
         self.hdm2file = hdm2file
@@ -352,8 +361,6 @@ def gen_g_hop(mc, mo_coeff, mo_phase, u, casdm1, casdm2, eris):
         return np.hstack([mc.pack_uniq_var(g[k] - g[k].conj().T) for k in range(nkpts)])    
 
     # Step-3: Hessian diagonal
-    jkcaa = np.zeros((nkpts, nocc, ncas), dtype=dtype)
-    # TODO: Should host the hdm2 on the disk.
     # This code is benchmarked on the molecular code.
     # ppaa = eris.ppaa
     # papa = eris.papa
@@ -370,20 +377,23 @@ def gen_g_hop(mc, mo_coeff, mo_phase, u, casdm1, casdm2, eris):
     hdm2fie.require_group("hdm2_ppaa")
     hdm2fie.require_group("hdm2_papa")
     hdm2fie.require_group("hdm2_pmmp")
-
     # hdm2_papa = np.zeros((nkpts, nkpts, nkpts, nmo, ncas, nmo, ncas), dtype=dtype)
     # hdm2_ppaa = np.zeros((nkpts, nkpts, nkpts, nmo, ncas, nmo, ncas), dtype=dtype)
     # hdm2_pmmp = np.zeros((nkpts, nkpts, nkpts, nmo, ncas, nmo, ncas), dtype=dtype)
 
+    jkcaa = np.zeros((nkpts, nocc, ncas), dtype=dtype)
     for k1, k2, k3 in kpts_helper.loop_kkk(nkpts):
         k4 = kconserv[k1, k2, k3]
-        # jkcaa term
-        if (k1 == k2 == k3):
-            ppaa = eris.ppaa(k1, k2, k3)  # (k1, k2, k3, k4)
-            papa = eris.papa(k1, k2, k3)  # (k1, k2, k3, k4)
-            for i in range(nocc):
-                jkcaa[k1, i] += 6.0/nkpts * np.einsum('uiv,uv->i', papa[i][:, ncore:nocc, :], casdm1_kpts[k1])
-                jkcaa[k1, i] -= 2.0/nkpts * np.einsum('iuv,uv->i', ppaa[i][ncore:nocc, :, :], casdm1_kpts[k1])
+        if k1 == k2:
+            assert k3 == k4
+            ppaa = eris.ppaa(k1, k2, k3)[:nocc, :nocc, :, :]
+            jkcaa[k1] += (-2.0 / nkpts) * np.einsum('ppuv,uv->pu',ppaa,casdm1_kpts[k3],optimize=True)
+
+        # K term
+        if k1 == k4:
+            assert k2 == k3
+            paap = eris.paap(k1, k2, k3)[:nocc, :, :, :nocc].conj()
+            jkcaa[k1] += (6.0 / nkpts) * np.einsum('puvp,uv->pu',paap,casdm1_kpts[k2],optimize=True) #
 
         # hdm2: K1-term: Debugged  
         # # pwqx(+-+-) uwvx(+-+-) - > puqv (+-+-)
@@ -399,7 +409,7 @@ def gen_g_hop(mc, mo_coeff, mo_phase, u, casdm1, casdm2, eris):
         hdm2fie[f"hdm2_papa/{k1}_{k2}_{k3}"] = term
         term = None
 
-    # # pqwx(+-+-), wxvu(+-+-)->puqv(++--)
+    # # pqwx(+-+-), wxvu(+-+-) -> puqv(++--)
     for k1, k2, k3 in kpts_helper.loop_kkk(nkpts):
         k4 = kconserv[k1, k3, k2]
         term = np.zeros((nmo, ncas, nmo, ncas), dtype=dtype)
@@ -413,7 +423,7 @@ def gen_g_hop(mc, mo_coeff, mo_phase, u, casdm1, casdm2, eris):
         hdm2fie[f"hdm2_ppaa/{k1}_{k2}_{k3}"] = term
     term = None
     
-    # pwxq(+-+-) uwxv(+-+-) - > puqv (+--+)
+    # pwxq(+-+-) uwxv(+-+-) -> puqv (+--+)
     for kp, ku, kq in kpts_helper.loop_kkk(nkpts):
         term = np.zeros((nmo, ncas, nmo, ncas), dtype=dtype)
         for kw in range(nkpts):
@@ -426,22 +436,24 @@ def gen_g_hop(mc, mo_coeff, mo_phase, u, casdm1, casdm2, eris):
         # hdm2_pmmp[kp, ku, kq] += term
         hdm2fie[f"hdm2_pmmp/{kp}_{ku}_{kq}"] = term
 
-    ppaa = papa = jtmp = temp = None
-
+    ppaa = papa = temp = None
+    
     hdiag = np.zeros((nkpts, nmo, nmo), dtype=dtype)
-
     for k in range(nkpts):
         temp = np.einsum('ii,jj->ij', h1e_mo[k], dm1[k])
         temp -= h1e_mo[k] * dm1[k]
         hdiag[k] = temp + temp.conj().T
 
-        g_diag = g[k].diagonal() 
-        hdiag[k] -= g_diag.conj() + g_diag.reshape(-1, 1)
+        g_diag = g[k].diagonal()
+        # hdiag[k] -= g_diag.conj() + g_diag.reshape(-1, 1)
+        hdiag[k] -= g_diag + g_diag.reshape(-1, 1)
         idx = np.arange(nmo)
         hdiag[k][idx, idx] += 2.0 * g_diag
+
         v_diag = vhf_ca[k].diagonal()
         hdiag[k][:, :ncore] += 2.0 * v_diag.reshape(-1, 1)
         hdiag[k][:ncore] += 2.0 * v_diag
+
         idx = np.arange(ncore)
         hdiag[k][idx, idx] -= 4.0 * v_diag[:ncore]
         tmp = np.einsum('ii,jj->ij', eris.vhf_c[k], casdm1_kpts[k])
@@ -460,11 +472,13 @@ def gen_g_hop(mc, mo_coeff, mo_phase, u, casdm1, casdm2, eris):
         hdiag[k][:nocc,ncore:nocc] -= jkcaa[k]
         hdiag[k][ncore:nocc,:nocc] -= jkcaa[k].conj().T
     
-        v_diag = np.einsum('ijij->ij', hdm2.get_papa(k, k, k))
+        v_diag = np.einsum('ijij->ij', hdm2.get_papa(k, k, k)).conj()
+        v_diag += np.einsum('ijij->ij', hdm2.get_ppaa(k, k, k)) #@.conj()
+        v_diag += np.einsum('ijij->ij', hdm2.get_pmmp(k, k, k)) #.conj()
         hdiag[k][ncore:nocc,:] += v_diag.conj().T
         hdiag[k][:,ncore:nocc] += v_diag
 
-    # Pack the gradients and hessian diagonal    
+    # Pack the gradients and hessian diagonal
     g_orb = np.hstack([mc.pack_uniq_var(g[k] - g[k].conj().T) 
                     for k in range(nkpts)])
     h_diag = np.hstack([mc.pack_uniq_var(hdiag[k]) 
