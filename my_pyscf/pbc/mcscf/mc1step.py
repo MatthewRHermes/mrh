@@ -54,6 +54,33 @@ def _get_casdm2_kpts(casdm2, mo_phase1, klabel):
                         mo_phase1[k3].conj(), mo_phase1[k4])
     return dm2_k
 
+class hdm2Handler:
+    '''
+    Wrapper class to hold the hdm2 on the disk.
+    '''
+    def __init__(self, hdm2file):
+        self.hdm2file = hdm2file
+        self.ppaa = lambda k1, k2, k3: self.get_ppaa(k1, k2, k3)
+        self.papa = lambda k1, k2, k3: self.get_papa(k1, k2, k3)
+        self.pmmp = lambda k1, k2, k3: self.get_pmmp(k1, k2, k3)
+
+    @staticmethod
+    def _kkey(k1, k2, k3):
+        return f"{int(k1)}_{int(k2)}_{int(k3)}"
+
+    def _get(self, name, k1, k2, k3):
+        return self.hdm2file[f"{name}/{self._kkey(k1, k2, k3)}"][()]
+
+    def get_ppaa(self, k1, k2, k3):
+        return self._get("hdm2_ppaa", k1, k2, k3)
+
+    def get_papa(self, k1, k2, k3):
+        return self._get("hdm2_papa", k1, k2, k3)
+
+    def get_pmmp(self, k1, k2, k3):
+        return self._get("hdm2_pmmp", k1, k2, k3)
+
+
 def gen_g_hop(mc, mo_coeff, mo_phase, u, casdm1, casdm2, eris):
     '''
     To solve the second order or quasi-second order CASSCF equations, we need to 
@@ -336,8 +363,18 @@ def gen_g_hop(mc, mo_coeff, mo_phase, u, casdm1, casdm2, eris):
     # hdm2 = (ktmp.reshape(nmo,nmo,ncas,ncas)+jtmp).transpose(0,2,1,3) # nmo, ncas, nmo, ncas
     # jkcaa  = 6.0 * numpy.einsum('iuiv,uv->iu', papa[:nocc, :, :nocc, :], casdm1)
     # jkcaa -= 2.0 * numpy.einsum('iiuv,uv->iu',ppaa[:nocc, :nocc, :, :], casdm1)
-    hdm2 = np.zeros((nkpts, nkpts, nkpts, nmo, ncas, nmo, ncas), dtype=dtype)
-    hdm2_ppaa = np.zeros((nkpts, nkpts, nkpts, nmo, ncas, nmo, ncas), dtype=dtype)
+
+    hdm2fie = lib.H5TmpFile()
+    hdm2 = hdm2Handler(hdm2fie)
+
+    hdm2fie.require_group("hdm2_ppaa")
+    hdm2fie.require_group("hdm2_papa")
+    hdm2fie.require_group("hdm2_pmmp")
+
+    # hdm2_papa = np.zeros((nkpts, nkpts, nkpts, nmo, ncas, nmo, ncas), dtype=dtype)
+    # hdm2_ppaa = np.zeros((nkpts, nkpts, nkpts, nmo, ncas, nmo, ncas), dtype=dtype)
+    # hdm2_pmmp = np.zeros((nkpts, nkpts, nkpts, nmo, ncas, nmo, ncas), dtype=dtype)
+
     for k1, k2, k3 in kpts_helper.loop_kkk(nkpts):
         k4 = kconserv[k1, k2, k3]
         # jkcaa term
@@ -350,34 +387,44 @@ def gen_g_hop(mc, mo_coeff, mo_phase, u, casdm1, casdm2, eris):
 
         # hdm2: K1-term: Debugged  
         # # pwqx(+-+-) uwvx(+-+-) - > puqv (+-+-)
+        term = np.zeros((nmo, ncas, nmo, ncas), dtype=dtype)
         for kw in range(nkpts):
             kx = kconserv[k1, kw, k3]
             if kconserv[k2,kw,k4] !=kx:
                 continue
             papa = eris.papa(k1, kw, k3)
             dm2_blk = casdm2_kpts[k2, kw, k4]
-            hdm2[k1, k2, k3] += (1.0 / nkpts) * np.einsum('pwqx,uwvx->pvqu', papa, dm2_blk, optimize=True).transpose(0, 3, 2, 1).conj()
-    
+            term += (1.0 / nkpts) * np.einsum('pwqx,uwvx->pvqu', papa, dm2_blk, optimize=True).transpose(0, 3, 2, 1).conj()
+        # hdm2_papa[k1, k2, k3] += term
+        hdm2fie[f"hdm2_papa/{k1}_{k2}_{k3}"] = term
+        term = None
+
     # # pqwx(+-+-), wxvu(+-+-)->puqv(++--)
     for k1, k2, k3 in kpts_helper.loop_kkk(nkpts):
         k4 = kconserv[k1, k3, k2]
+        term = np.zeros((nmo, ncas, nmo, ncas), dtype=dtype)
         for kw in range(nkpts):
             kx = kconserv[k1, k3, kw]
             assert kconserv[kw, kx, k4] == k2
             ppaa = eris.ppaa(k1, k3, kw)      # (k1, k3, kw, kx)
             dm2_blk = casdm2_kpts[kw, kx, k4] #.conj() # (kw, kx, k2, k4)
-            hdm2_ppaa[k1, k2, k3] += (1.0 / nkpts) * np.einsum('pqwx,wxvu->pquv', ppaa, dm2_blk, optimize=True).transpose(0, 2, 1, 3).conj()
-
-    hdm2_pmmp = np.zeros_like(hdm2)
+            term += (1.0 / nkpts) * np.einsum('pqwx,wxvu->pquv', ppaa, dm2_blk, optimize=True).transpose(0, 2, 1, 3).conj()
+        # hdm2_ppaa[k1, k2, k3] += term
+        hdm2fie[f"hdm2_ppaa/{k1}_{k2}_{k3}"] = term
+    term = None
+    
     # pwxq(+-+-) uwxv(+-+-) - > puqv (+--+)
     for kp, ku, kq in kpts_helper.loop_kkk(nkpts):
+        term = np.zeros((nmo, ncas, nmo, ncas), dtype=dtype)
         for kw in range(nkpts):
             kx = kconserv[kw, kp, kq]
             paap = eris.paap(kp, kw, kx)
             assert kconserv[kq, kp, ku] == kconserv[ku, kw, kx]
             dm2_pmmp = casdm2_kpts[ku, kw, kx]
-            hdm2_pmmp[kp, ku, kq] += (1.0 / nkpts) * np.einsum('pwxq,uwxv->pquv', paap, 
-                                                            dm2_pmmp, optimize=True).transpose(0, 2, 1, 3).conj()
+            term += (1.0 / nkpts) * np.einsum('pwxq,uwxv->pquv', paap, 
+                                            dm2_pmmp, optimize=True).transpose(0, 2, 1, 3).conj()
+        # hdm2_pmmp[kp, ku, kq] += term
+        hdm2fie[f"hdm2_pmmp/{kp}_{ku}_{kq}"] = term
 
     ppaa = papa = jtmp = temp = None
 
@@ -413,7 +460,7 @@ def gen_g_hop(mc, mo_coeff, mo_phase, u, casdm1, casdm2, eris):
         hdiag[k][:nocc,ncore:nocc] -= jkcaa[k]
         hdiag[k][ncore:nocc,:nocc] -= jkcaa[k].conj().T
     
-        v_diag = np.einsum('ijij->ij', hdm2[k, k, k])
+        v_diag = np.einsum('ijij->ij', hdm2.get_papa(k, k, k))
         hdiag[k][ncore:nocc,:] += v_diag.conj().T
         hdiag[k][:,ncore:nocc] += v_diag
 
@@ -455,9 +502,12 @@ def gen_g_hop(mc, mo_coeff, mo_phase, u, casdm1, casdm2, eris):
             # rotation in some other block.
             for kr in range(nkpts):
                 x1temp = mc.unpack_uniq_var(x[kr].copy())
-                x2[k][:, ncore:nocc] += np.einsum('purv,rv->pu', hdm2[k, k, kr], x1temp[:, ncore:nocc], optimize=True).conj()
-                x2[k][:, ncore:nocc] += np.einsum('purv,ru->pv', hdm2_ppaa[k, kr, kr].conj(), x1temp[:, ncore:nocc], optimize=True)
-                x2[k][:, ncore:nocc] += np.einsum('purv,pu->rv', hdm2_pmmp[kr, kr, k], x1temp[:, ncore:nocc], optimize=True)
+                hdm2_blk = hdm2.get_papa(k, k, kr)
+                x2[k][:, ncore:nocc] += np.einsum('purv,rv->pu', hdm2_blk, x1temp[:, ncore:nocc], optimize=True).conj()
+                hdm2_blk = hdm2.get_ppaa(k, kr, kr).conj()
+                x2[k][:, ncore:nocc] += np.einsum('purv,ru->pv', hdm2_blk, x1temp[:, ncore:nocc], optimize=True)
+                hdm2_blk = hdm2.get_pmmp(kr, kr, k)
+                x2[k][:, ncore:nocc] += np.einsum('purv,pu->rv', hdm2_blk, x1temp[:, ncore:nocc], optimize=True)
 
             if ncore > 0:
                 x2[k][ncore:nocc] += va[k]
