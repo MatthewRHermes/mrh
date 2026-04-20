@@ -70,7 +70,7 @@ def h1e_for_cas(mc, mo_coeff=None, ncas=None, ncore=None):
     nkpts = mc.nkpts
     mo_core_kpts = [mo[:, :ncore] for mo in mo_coeff]
 
-    h1ao_k = mc.get_hcore()
+    h1ao_k = mc.get_hcore().astype(dtype)
 
     # Remember, I am multiplying by nkpts here because total energy would be divided by nkpts later.
     ecore = mc.energy_nuc() * nkpts
