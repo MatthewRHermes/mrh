@@ -60,11 +60,14 @@ def _do_ao2mo_direct(kcasscf, mo_kpts, nkpts, ncore, ncas, nmo, level=1):
     t3 = log.timer('density fitting ao2mo paap', *t2)
 
     # This is very naive implementation, would require a lot of optimization.
+
     if level == 1:
         if ncore == 0:
             j_pc = np.zeros((nkpts, nmo, ncore), dtype=dtype)
             k_pc = np.zeros((nkpts, nmo, ncore), dtype=dtype)
         else:
+            # Note I need this: kpc_2 and k_pc are two different exchange channels.
+            #  tmp = 4 * eris.k_pc2[k] - 2 * eris.j_pc[k] + 2 * eris.k_pc[k]
             j_pc = np.empty((nkpts, nmo, ncore), dtype=dtype)
             k_pc = np.empty((nkpts, nmo, ncore), dtype=dtype)
             for k in range(nkpts):
@@ -73,7 +76,10 @@ def _do_ao2mo_direct(kcasscf, mo_kpts, nkpts, ncore, ncas, nmo, level=1):
                 j_pc[k] = np.einsum('ppjj->pj', temp)
                 mo_papa = [mo_kpts[k], mo_kpts[k][:, :ncore], mo_kpts[k], mo_kpts[k][:, :ncore]]
                 temp = mydf.ao2mo(mo_papa, [kpts[k]]*4, compact=False).reshape(nmo, ncore, nmo, ncore)
-                k_pc[k] = np.einsum('pjpj->pj', temp)
+                k_pc[k] = 1/3 *np.einsum('pjpj->pj', temp)
+                mo_paap = [mo_kpts[k], mo_kpts[k][:, :ncore], mo_kpts[k][:, :ncore], mo_kpts[k]]
+                temp = mydf.ao2mo(mo_paap, [kpts[k]]*4, compact=False).reshape(nmo, ncore, ncore, nmo)
+                k_pc[k] += 2/3 * np.einsum('pjjp->pj', temp).conj()
     else:
         j_pc = k_pc = None
     log.timer('density fitting ao2mo j_pc, k_pc', *t2)
