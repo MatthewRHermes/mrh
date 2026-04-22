@@ -391,6 +391,7 @@ def gen_g_hop(mc, mo_coeff, mo_phase, u, casdm1, casdm2, eris):
         jkcaa[k] += (2.0 / nkpts) * np.einsum('pupv,uv->pv',papa,casdm1_kpts[k],optimize=True)
 
     for k1, k2, k3 in kpts_helper.loop_kkk(nkpts):
+        k4 = kconserv[k1,k2,k3]
         # hdm2: K1-term: Debugged  
         # # pwqx(+-+-) uwvx(+-+-) - > puqv (+-+-)
         term = np.zeros((nmo, ncas, nmo, ncas), dtype=dtype)
