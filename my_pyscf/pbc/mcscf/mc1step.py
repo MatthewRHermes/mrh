@@ -386,9 +386,9 @@ def gen_g_hop(mc, mo_coeff, mo_phase, u, casdm1, casdm2, eris):
         ppaa = eris.ppaa(k, k, k)[:nocc, :nocc, :, :]
         jkcaa[k] += (-2.0 / nkpts) * np.einsum('ppuv,uv->pu',ppaa,casdm1_kpts[k],optimize=True)
         paap = eris.paap(k, k, k)[:nocc, :, :, :nocc]
-        jkcaa[k] += (4.0 / nkpts) * np.einsum('puvp,uv->pu',paap,casdm1_kpts[k],optimize=True).conj()
+        jkcaa[k] += (4.0 / nkpts) * np.einsum('puvp,uv->pu',paap,casdm1_kpts[k],optimize=True)
         papa = eris.papa(k, k, k)[:nocc, :, :nocc, :]
-        jkcaa[k] += (2.0 / nkpts) * np.einsum('pupv,uv->pu',papa,casdm1_kpts[k],optimize=True)
+        jkcaa[k] += (2.0 / nkpts) * np.einsum('pupv,uv->pv',papa,casdm1_kpts[k],optimize=True)
 
     for k1, k2, k3 in kpts_helper.loop_kkk(nkpts):
         # hdm2: K1-term: Debugged  
