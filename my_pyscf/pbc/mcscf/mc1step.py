@@ -382,19 +382,15 @@ def gen_g_hop(mc, mo_coeff, mo_phase, u, casdm1, casdm2, eris):
     # hdm2_pmmp = np.zeros((nkpts, nkpts, nkpts, nmo, ncas, nmo, ncas), dtype=dtype)
 
     jkcaa = np.zeros((nkpts, nocc, ncas), dtype=dtype)
+    for k in range(nkpts):
+        ppaa = eris.ppaa(k, k, k)[:nocc, :nocc, :, :]
+        jkcaa[k] += (-2.0 / nkpts) * np.einsum('ppuv,uv->pu',ppaa,casdm1_kpts[k],optimize=True)
+        paap = eris.paap(k, k, k)[:nocc, :, :, :nocc]
+        jkcaa[k] += (4.0 / nkpts) * np.einsum('puvp,uv->pu',paap,casdm1_kpts[k],optimize=True).conj()
+        papa = eris.papa(k, k, k)[:nocc, :, :nocc, :]
+        jkcaa[k] += (2.0 / nkpts) * np.einsum('pupv,uv->pu',papa,casdm1_kpts[k],optimize=True)
+
     for k1, k2, k3 in kpts_helper.loop_kkk(nkpts):
-        k4 = kconserv[k1, k2, k3]
-        if k1 == k2:
-            assert k3 == k4
-            ppaa = eris.ppaa(k1, k2, k3)[:nocc, :nocc, :, :]
-            jkcaa[k1] += (-2.0 / nkpts) * np.einsum('ppuv,uv->pu',ppaa,casdm1_kpts[k3],optimize=True)
-
-        # K term
-        if k1 == k4:
-            assert k2 == k3
-            paap = eris.paap(k1, k2, k3)[:nocc, :, :, :nocc]#.conj()
-            jkcaa[k1] += (6.0 / nkpts) * np.einsum('pvup,uv->pu',paap,casdm1_kpts[k2],optimize=True) #
-
         # hdm2: K1-term: Debugged  
         # # pwqx(+-+-) uwvx(+-+-) - > puqv (+-+-)
         term = np.zeros((nmo, ncas, nmo, ncas), dtype=dtype)
@@ -465,14 +461,15 @@ def gen_g_hop(mc, mo_coeff, mo_phase, u, casdm1, casdm2, eris):
     
         # TODO: Remember to divide the eris.j_pc and eris.k_pc by nkpts, 
         # because they are summed over the k-points in the eris generation.
-        # tmp = 6 * eris.k_pc[k] - 2 * eris.j_pc[k]
-        # # tmp /= nkpts
-        # hdiag[k][ncore:,:ncore] += tmp[ncore:]
-        # hdiag[k][:ncore,ncore:] += tmp[ncore:].conj().T
+        # tmp = 4 * eris.k_pc2[k] - 2 * eris.j_pc[k] + 2 * eris.k_pc[k]
+        tmp = 6 * eris.k_pc[k] - 2 * eris.j_pc[k]
+        tmp /= nkpts
+        hdiag[k][ncore:,:ncore] += tmp[ncore:]
+        hdiag[k][:ncore,ncore:] += tmp[ncore:].conj().T
         
-        # hdiag[k][:nocc,ncore:nocc] -= jkcaa[k]
-        # hdiag[k][ncore:nocc,:nocc] -= jkcaa[k].conj().T
-    
+        hdiag[k][:nocc,ncore:nocc] -= jkcaa[k]
+        hdiag[k][ncore:nocc,:nocc] -= jkcaa[k].conj().T
+
         v_diag = np.einsum('ijij->ij', hdm2.get_papa(k, k, k)).conj()
         v_diag += np.einsum('ijij->ij', hdm2.get_ppaa(k, k, k))
         v_diag += np.einsum('ijij->ij', hdm2.get_pmmp(k, k, k))
@@ -525,10 +522,9 @@ def gen_g_hop(mc, mo_coeff, mo_phase, u, casdm1, casdm2, eris):
                 x2[k][:, ncore:nocc] += np.einsum('purv,pu->rv', hdm2_blk, x1temp[:, ncore:nocc], optimize=True)
 
             if ncore > 0:
-                # x2[k][ncore:nocc] += va[k]
-                # x2[k][:ncore,ncore:] += vc[k]
-                pass
-                 
+                x2[k][ncore:nocc] += va[k]
+                x2[k][:ncore,ncore:] += vc[k]
+
         x1temp = va = vc = None
         return np.hstack([mc.pack_uniq_var(x2k - x2k.conj().T) for x2k in x2])
 
@@ -1137,7 +1133,7 @@ class PBCCASSCF(casci.PBCCASBASE):
         mo_k = np.array(mo_coeff).copy() # (nkpts, nao, nmo)
 
         def _get_jk_core_or_act(dm_k):
-            vj, vk = self._scf.get_jk(cell, dm_k, kpts=kpts, hermi=1, with_j=True,
+            vj, vk = self._scf.get_jk(cell, dm_k, kpt=kpts, hermi=1, with_j=True,
                                  with_k=True, exxdiv=None)
             return vj, vk
         
