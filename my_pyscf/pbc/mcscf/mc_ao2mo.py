@@ -214,7 +214,8 @@ def _do_ao2mo_disk(kcasscf, mo_kpts, nkpts, ncore, ncas, nmo, level=1):
             zij = grp[f"{k}_{k}"][()]
             bufd = np.einsum('pii->pi', zij)
             j_pc_kpts[k] = np.einsum('pi,pj->ij', bufd, bufd[:,:ncore])
-            k_cp = np.einsum('kij,kij->ij', zij[:,:ncore], zij[:,:ncore])
+            k_cp = 1.0/3.0 *np.einsum('kij,kij->ij', zij[:,:ncore], zij[:,:ncore]) 
+            k_cp += 2.0/3.0 * np.einsum('kij,kji->ij', zij[:,:ncore], zij[:, :, :ncore])
             k_pc_kpts[k] = k_cp.conj().T
         
         bufd = zij =  k_cp = None
