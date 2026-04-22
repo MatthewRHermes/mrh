@@ -64,6 +64,7 @@ class KnownValues(unittest.TestCase):
         las = LASSCF (mf, (4,2,4), ((2,2),(1,1),(2,2)), spin_sub=(1,1,1))
         mo_coeff = las.localize_init_guess ([[0,1,2],[3,4,5,6],[7,8,9]])
         las.kernel (mo_coeff)
+        self.assertTrue (las.converged)
         lsi = lassi.LASSIS (las).run ()
         e_str = lsi.e_roots[0]
         with self.subTest ('str converged'):
@@ -79,6 +80,7 @@ class KnownValues(unittest.TestCase):
         mo_coeff = las.sort_mo ([7,8,16,18,22,23,24,26,33,34])
         mo_coeff = las.localize_init_guess ([[0,1,2],[3,4,5,6],[7,8,9]], mo_coeff=mo_coeff)
         las.kernel (mo_coeff)
+        self.assertTrue (las.converged)
         lsi = lassi.LASSIS (las).run ()
         e_equil = lsi.e_roots[0]
         with self.subTest ('equil converged'):
@@ -98,6 +100,7 @@ class KnownValues(unittest.TestCase):
         las = LASSCF (mf, (4,2,4), ((2,2),(1,1),(2,2)), spin_sub=(1,1,1))
         mo_coeff = las.localize_init_guess ([[0,1,2],[3,4,5,6],[7,8,9]])
         las.kernel (mo_coeff)
+        self.assertTrue (las.converged)
         lsi = lassi.LASSIS (las).run (davidson_only=True)
         e_str = lsi.e_roots[0]
         with self.subTest ('str converged'):
@@ -113,6 +116,7 @@ class KnownValues(unittest.TestCase):
         mo_coeff = las.sort_mo ([7,8,16,18,22,23,24,26,33,34])
         mo_coeff = las.localize_init_guess ([[0,1,2],[3,4,5,6],[7,8,9]], mo_coeff=mo_coeff)
         las.kernel (mo_coeff)
+        self.assertTrue (las.converged)
         lsi = lassi.LASSIS (las).run (davidson_only=True)
         e_equil = lsi.e_roots[0]
         with self.subTest ('equil converged'):
@@ -132,6 +136,7 @@ class KnownValues(unittest.TestCase):
         las = LASSCF (mf, (4,2,4), ((2,2),(1,1),(2,2)), spin_sub=(1,1,1))
         mo_coeff = las.localize_init_guess ([[0,1,2],[3,4,5,6],[7,8,9]])
         las.kernel (mo_coeff)
+        self.assertTrue (las.converged)
         lsi = lassi.LASSIS (las).run (davidson_only=True, smult_si=1)
         e_str = lsi.e_roots[0]
         with self.subTest ('str converged'):
@@ -148,6 +153,7 @@ class KnownValues(unittest.TestCase):
         mo_coeff = las.sort_mo ([7,8,16,18,22,23,24,26,33,34])
         mo_coeff = las.localize_init_guess ([[0,1,2],[3,4,5,6],[7,8,9]], mo_coeff=mo_coeff)
         las.kernel (mo_coeff)
+        self.assertTrue (las.converged)
         lsi = lassi.LASSIS (las).run (davidson_only=True, smult_si=1)
         e_equil = lsi.e_roots[0]
         with self.subTest ('equil converged'):
@@ -173,6 +179,7 @@ class KnownValues(unittest.TestCase):
             wfnsyms=[[0,0],[0,0]])
         mo = las.set_fragments_((list (range (5)), list (range (5,10))))
         las.kernel (mo)
+        self.assertTrue (las.converged)
         mo_coeff = las.mo_coeff
         las = lasscf_async.LASSCF (mf, (5,5), ((3,2),(2,3)))
         las.lasci_(mo_coeff)
@@ -196,6 +203,7 @@ class KnownValues(unittest.TestCase):
         mo = las.sort_mo ([7,8,16,18,22,23,24,26,33,34])
         mo = las.set_fragments_((list (range (5)), list (range (5,10))), mo)
         las.kernel (mo)
+        self.assertTrue (las.converged)
         mo_coeff = las.mo_coeff
         las = lasscf_async.LASSCF (mf, (5,5), ((3,2),(2,3)))
         las.lasci_(mo_coeff)
@@ -223,6 +231,7 @@ class KnownValues(unittest.TestCase):
             wfnsyms=[[0,0],[0,0]])
         mo = las.set_fragments_((list (range (5)), list (range (5,10))))
         las.kernel (mo)
+        self.assertTrue (las.converged)
         mo_coeff = las.mo_coeff
         las = lasscf_async.LASSCF (mf, (5,5), ((3,2),(2,3)))
         las.lasci_(mo_coeff)
@@ -246,6 +255,7 @@ class KnownValues(unittest.TestCase):
         mo = las.sort_mo ([7,8,16,18,22,23,24,26,33,34])
         mo = las.set_fragments_((list (range (5)), list (range (5,10))), mo)
         las.kernel (mo)
+        self.assertTrue (las.converged)
         mo_coeff = las.mo_coeff
         las = lasscf_async.LASSCF (mf, (5,5), ((3,2),(2,3)))
         las.lasci_(mo_coeff)
@@ -309,6 +319,7 @@ class KnownValues(unittest.TestCase):
         las.weights = [1.0/las.nroots,]*las.nroots # set equal weights
         nroots_ref = las.nroots
         las.kernel (mo_coeff) # optimize orbitals
+        self.assertTrue (las.converged)
         mo_coeff = las.mo_coeff
         las = LASSCF(mf,(6,6),((3,0),(0,3)),spin_sub=(4,4))
         las.lasci_(mo_coeff)

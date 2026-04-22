@@ -40,6 +40,7 @@ def setUpModule ():
     las = LASSCF (mf, (4,4), ((2,2),(2,2)), spin_sub=(1,1))
     mo_coeff = las.localize_init_guess ((list (range (3)), list (range (9,12))))
     las.kernel (mo_coeff)
+    assert (las.converged)
     lsi = LASSIS (las).run (nroots_si=3)
 
 def tearDownModule():

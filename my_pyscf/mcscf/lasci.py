@@ -893,9 +893,10 @@ class LASCINoSymm (casci.CASCI):
         self.max_cycle_macro = 50
         self.max_cycle_micro = 5
         self.min_cycle_macro = 0
+        self.trust_radius = np.pi
         keys = set(('e_states', 'fciboxes', 'nroots', 'weights', 'ncas_sub', 'nelecas_sub',
                     'conv_tol_grad', 'conv_tol_self', 'max_cycle_macro', 'max_cycle_micro',
-                    'ah_level_shift', 'states_converged', 'chkfile', 'e_lexc'))
+                    'ah_level_shift', 'states_converged', 'chkfile', 'e_lexc', 'trust_radius'))
         self._keys = set(self.__dict__.keys()).union(keys)
         self.fciboxes = []
         if isinstance(spin_sub,int):

@@ -20,6 +20,17 @@ localize_init_guess=lasscf_guess._localize
 class MicroIterInstabilityException (Exception):
     pass
 
+def get_level_shift (trust_radius, prec_op, g, tol=1e-8):
+    x = prec_op (-g)
+    sign = x.dot (g) / np.sqrt (linalg.norm (x) * linalg.norm (g))
+    g = linalg.norm (g)
+    x = linalg.norm (x)
+    if x <= trust_radius: return 0
+    x0 = trust_radius 
+    shift = (g/x) + (g/x0)
+    assert (shift>=0), "{} {} {} {}".format (g, x, x0, shift)
+    return shift
+
 def kernel (las, mo_coeff=None, ci0=None, casdm0_fr=None, conv_tol_grad=1e-4, 
         assert_no_dupes=False, verbose=lib.logger.NOTE):
     from mrh.my_pyscf.mcscf.lasci import _eig_inactive_virtual
@@ -118,7 +129,13 @@ def kernel (las, mo_coeff=None, ci0=None, casdm0_fr=None, conv_tol_grad=1e-4,
             assert (err < 1e-5), '{}'.format (err)
         gx = H_op.get_gx ()
         prec_op = H_op.get_prec ()
-        prec = prec_op (np.ones_like (g_vec)) # Check for divergences
+        floating_level_shift = get_level_shift (las.trust_radius, prec_op, g_vec)
+        if floating_level_shift > 0:
+            log.debug ('Applying a floating level shift of %e', floating_level_shift)
+        prec_op.Hdiag += floating_level_shift
+        H_op.level_shift += floating_level_shift
+        err = get_level_shift (las.trust_radius, prec_op, g_vec)
+        assert (err < 1e-8), '{} {}'.format (floating_level_shift, err)
         norm_gorb = linalg.norm (g_vec[:ugg.nvar_orb]) if ugg.nvar_orb else 0.0
         norm_gci = linalg.norm (g_vec[ugg.nvar_orb:]) if ugg.ncsf_sub.sum () else 0.0
         norm_gx = linalg.norm (gx) if gx.size else 0.0
@@ -577,7 +594,7 @@ class LASSCF_HessianOperator (sparse_linalg.LinearOperator):
             separately called.
 
     Attributes:
-        ah_level_shift : float
+        level_shift : float
             Shift added to the diagonal of the Hessian to improve convergence. Default = 1e-8.
         ncas : int
             Total number of active orbitals
@@ -652,7 +669,7 @@ class LASSCF_HessianOperator (sparse_linalg.LinearOperator):
             ncas_sub=ncas_sub, nelecas_sub=nelecas_sub)
         if h2eff_sub is None: h2eff_sub = las.get_h2eff (mo_coeff)
         self.las = las
-        self.ah_level_shift = las.ah_level_shift
+        self.level_shift = las.ah_level_shift
         self.ugg = ugg
         self.mo_coeff = mo_coeff
         self.ci = ci = [[c.ravel () for c in cr] for cr in ci] 
@@ -710,12 +727,14 @@ class LASSCF_HessianOperator (sparse_linalg.LinearOperator):
             h2eff_sub.reshape (nmo*ncas, ncas*(ncas+1)//2)).reshape (nmo, ncas,
             ncas, ncas)
         self.eri_cas = eri_cas = eri_paaa[ncore:nocc,:,:,:]
-        h1s = las.get_hcore ()[None,:,:] + veff
+        hcore = las.get_hcore ()
+        h1s = hcore[None,:,:] + veff
         h1s = np.dot (h1s, mo_coeff)
         self.h1s = np.dot (moH_coeff, h1s).transpose (1,0,2)
         self.h1s_cas = self.h1s[:,:,ncore:nocc].copy ()
         self.h1s_cas -= np.tensordot (eri_paaa, casdm1, axes=2)[None,:,:]
         self.h1s_cas += np.tensordot (self.casdm1s, eri_paaa, axes=((1,2),(2,1)))
+        self.hcore = moH_coeff @ hcore @ mo_coeff
 
         self.h1frs = [np.zeros ((self.nroots, 2, nlas, nlas)) for nlas in ncas_sub]
         for ix, h1rs in enumerate (self.h1frs):
@@ -733,7 +752,7 @@ class LASSCF_HessianOperator (sparse_linalg.LinearOperator):
                 h1s_sub[:,:,:] -= np.tensordot (dm1s, eri_cas, axes=((1,2),(2,1)))[:,i:j,i:j]
 
         # Total energy (for callback)
-        h1 = (self.h1s + (moH_coeff @ las.get_hcore () @ mo_coeff)[None,:,:]) / 2
+        h1 = (self.h1s + self.hcore[None,:,:]) / 2
         self.e_tot = (las.energy_nuc ()
             + np.dot (h1.ravel (), self.dm1s.ravel ())
             + np.tensordot (self.eri_cas, self.cascm2, axes=4) / 2)
@@ -923,7 +942,7 @@ class LASSCF_HessianOperator (sparse_linalg.LinearOperator):
         ncore, nocc, nroots = self.ncore, self.nocc, self.nroots
         tdm1s_sa = np.einsum ('rspq,r->spq', tdm1rs, self.weights)
         dm1s_mo = odm1s + odm1s.transpose (0,2,1)
-        dm1s_mo[:,ncore:nocc,ncore:nocc] += tdm1s_sa
+        dm1s_mo[:,ncore:nocc,ncore:nocc] += 2*tdm1s_sa
         mo = self.mo_coeff
         moH = mo.conjugate ().T
         t1 = lib.logger.timer (self.las, 'LASSCF get_veff_Heff 1', *t0)
@@ -1030,7 +1049,7 @@ class LASSCF_HessianOperator (sparse_linalg.LinearOperator):
         t1 = extra_timer ('LASSCF sync Hessian operator 3: effective potentials', *t1)
 
         # Responses!
-        kappa2 = self.orbital_response (kappa1, odm1s, ocm2, tdm1rs, tcm2, veff_prime)
+        kappa2 = self.orbital_response (kappa1, odm1s, ocm2, tdm1rs*2, tcm2*2, veff_prime)
         t1 = extra_timer ('LASSCF sync Hessian operator 4: (Hx)_orb', *t1)
         ci2 = self.ci_response_offdiag (kappa1, h1s_prime)
         t1 = extra_timer ('LASSCF sync Hessian operator 5: (Hx)_CI offdiag', *t1)
@@ -1038,12 +1057,12 @@ class LASSCF_HessianOperator (sparse_linalg.LinearOperator):
         t1 = extra_timer ('LASSCF sync Hessian operator 6: (Hx)_CI diag', *t1)
 
         # LEVEL SHIFT!!
-        kappa3, ci3 = self.ugg.unpack (self.ah_level_shift * np.abs (x))
+        kappa3, ci3 = self.ugg.unpack (self.level_shift * x)
         kappa2 += kappa3
         ci2 = [[x+y for x,y in zip (xr, yr)] for xr, yr in zip (ci2, ci3)]
         t1 = extra_timer ('LASSCF sync Hessian operator 7: level shift', *t1)
 
-        Hx = self.ugg.pack (kappa2, ci2)
+        Hx = self.ugg.pack (kappa2/2, ci2)
         t1 = extra_timer ('LASSCF sync Hessian operator 8: pack', *t1)
         t0 = log.timer ('LASSCF sync Hessian operator total', *t0)
         return Hx
@@ -1245,18 +1264,18 @@ class LASSCF_HessianOperator (sparse_linalg.LinearOperator):
                 Approximately the inverse of the Hessian
         '''
         log = lib.logger.new_logger (self.las, self.las.verbose)
-        Hdiag = self._get_Hdiag () + self.ah_level_shift
+        Hdiag = self._get_Hdiag () + self.level_shift
         Hdiag[np.abs (Hdiag)<1e-8] = 1e-8
         # The quadratic power series is a bad approximation if the magnitude of the gradient in
         # the current keyframe is such that we will tend to predict steps with magnitude greater
-        # than .5*pi (a step of exactly .5*pi transposes two states). This preconditioner should
+        # than pi (a step of exactly pi transposes two states). This preconditioner should
         # mask out the corresponding degrees of freedom
         g_vec = self.get_grad ()
         b = linalg.norm (g_vec)
         probe_x0 = b/Hdiag
         log.debug ('|probe_x0| / ndeg = %g', linalg.norm (probe_x0) / len (probe_x0))
         ndeg = len (probe_x0)
-        idx_unstable = np.abs (probe_x0) > np.pi*.5
+        idx_unstable = np.abs (probe_x0) > np.pi
         # We can't mask everything, because that behavior would obfuscate the problem
         # If NO stable D.O.F. exist, then keyframe is just bad and it has to be handled upstream
         ndeg_unstable = np.count_nonzero (idx_unstable)
@@ -1269,23 +1288,110 @@ class LASSCF_HessianOperator (sparse_linalg.LinearOperator):
                        ndeg_unstable, ndeg, g_unst)
         else:
             log.warn ('LASSCF encountered an unmaskable instability; calculation may not converge')
-        def prec_op (x):
-            t0 = (lib.logger.process_clock(), lib.logger.perf_counter())
-            Mx = x/Hdiag
-            log.timer ('LASSCF sync preconditioner call', *t0)
-            return Mx
-        return sparse_linalg.LinearOperator (self.shape,matvec=prec_op,dtype=self.dtype)
+        return self.PrecOp (Hdiag, log)
 
-    def _get_Horb_diag (self):
+    class PrecOp (sparse_linalg.LinearOperator):
+        def __init__(self, Hdiag, log):
+            self.Hdiag = Hdiag
+            self.log = log
+            self.shape = (len (Hdiag), len (Hdiag))
+            self.dtype = Hdiag.dtype
+        def _matvec (self, x):
+            t0 = (lib.logger.process_clock(), lib.logger.perf_counter())
+            Mx = x/self.Hdiag
+            self.log.timer ('LASSCF sync preconditioner call', *t0)
+            return Mx
+
+    def _get_Horb_diag_presymm_fock (self):
+        ncore, nocc = self.ncore, self.nocc
         fock = np.stack ([np.diag (h) for h in list (self.h1s)], axis=0)
         num = np.stack ([np.diag (d) for d in list (self.dm1s)], axis=0)
         Horb_diag = sum ([np.multiply.outer (f,n) for f,n in zip (fock, num)])
         Horb_diag -= np.diag (self.fock1)[None,:]
-        Horb_diag += Horb_diag.T
         # This is where I stop unless I want to add the split-c and split-x terms
         # Split-c and split-x, for inactive-external rotations, requires I calculate a bunch
         # of extra eris (g^aa_ii, g^ai_ai)
-        return Horb_diag[self.ugg.uniq_orb_idx]
+        return Horb_diag
+
+    def _get_Horb_diag_presymm_eri_F2aaaa (self):
+        nmo, ncore, nocc = self.nmo, self.ncore, self.nocc
+        h2 = self.eri_paaa[ncore:nocc]
+        d1s = self.casdm1s
+        d2 = self.casdm2
+        fock2 = lib.einsum ('pqij,rsij->prqs', h2, d2)
+        fock2 += lib.einsum ('piqj,risj->prqs', h2, d2)
+        fock2 += lib.einsum ('pjiq,rjis->prqs', h2, d2)
+        Horb_aa = np.diagonal (fock2, axis1=0, axis2=2).copy ()
+        Horb_aa -= np.diagonal (fock2, axis1=0, axis2=3)
+        Horb_aa = np.diagonal (Horb_aa, axis1=0, axis2=1).copy ()
+        # We double-counted g Da Da. Gotta subtract
+        v1s = -lib.einsum ('skl,kjil->sij', d1s, h2)
+        v1s += lib.einsum ('ijkl,kl->ij', h2, d1s.sum (0))[None,:,:]
+        fock = np.stack ([np.diag (h) for h in list (v1s)], axis=0)
+        num = np.stack ([np.diag (d) for d in list (d1s)], axis=0)
+        Horb_aa -= sum ([np.multiply.outer (f,n) for f,n in zip (fock, num)])
+        Horb_diag = np.zeros ((nmo, nmo), dtype=self.dtype)
+        Horb_diag[ncore:nocc,ncore:nocc] = Horb_aa
+        return Horb_diag
+
+    def _get_Horb_diag_presymm_eri_F2ujuj (self):
+        nmo, ncore, nocc = self.nmo, self.ncore, self.nocc
+        d1s = self.casdm1s
+        d1 = d1s.sum (0)
+        d1_ubub = 2*lib.einsum ('ab,ac->bca', d1, d1)
+        d1_uubb = -lib.einsum ('sab,sac->bca', d1s, d1s)
+        d1_ubub += d1_uubb
+        d2 = self.cascm2
+        d2T = d2 + d2.transpose (0,1,3,2)
+        d2_aabb = np.diagonal (d2,axis1=0,axis2=1) + d1_uubb
+        d2_abab = np.diagonal (d2T,axis1=0,axis2=2) + d1_ubub
+        Horb_diag = np.zeros ((nmo, nmo), dtype=self.dtype)
+        j_pc = self.cas_type_eris.j_pc
+        k_pc = self.cas_type_eris.k_pc
+        # F2pipi
+        Horb_diag[:,:ncore] = 6*k_pc - 2*j_pc
+        # F2uaua
+        Horb_ua = Horb_diag[:,ncore:nocc]
+        for u in range (nmo):
+            if (u>=ncore) and (u<nocc): continue
+            uubb = self.cas_type_eris.ppaa[u][u]
+            ubub = self.cas_type_eris.papa[u][:,u]
+            Horb_ua[u] = lib.einsum ('bc,bca->a',uubb,d2_aabb)
+            Horb_ua[u] += lib.einsum ('bc,bca->a',ubub,d2_abab)
+        return Horb_diag
+
+    def _get_Horb_diag_presymm_eri_F2aiia (self):
+        # Both indices must have nonzero density matrix for this term
+        nmo, ncore, nocc = self.nmo, self.ncore, self.nocc
+        Horb_diag = np.zeros ((nmo, nmo), dtype=self.dtype)
+        dm1_cas = self.dm1s[:,ncore:nocc,ncore:nocc].sum (0)
+        Horb_pa = Horb_diag[:,ncore:nocc]
+        for i in range (ncore):
+            iibb = self.cas_type_eris.ppaa[i][i]
+            ibib = self.cas_type_eris.papa[i][:,i]
+            # 1 factor of 2 from ERI permutations
+            # 1 factor of 2 from rdm1 of core orbitals
+            Horb_pa[i] += 4*lib.einsum ('ab,ab->a',ibib,dm1_cas)
+            # 1 factor of 2 from ERI permutations
+            Horb_pa[i] -= lib.einsum ('ab,ab->a',ibib+iibb,dm1_cas)
+        # electron1 <-> electron2
+        # not to be confused with the final p,q <-> q,p symmetrization
+        # This is just to fill out the nonzero elements of the pre-symmetrized object
+        Horb_diag += Horb_diag.T
+        return Horb_diag
+
+    def _get_Horb_diag_presymm (self):
+        Horb_diag = self._get_Horb_diag_presymm_fock ()
+        self._init_eri_()
+        Horb_diag += self._get_Horb_diag_presymm_eri_F2aaaa ()
+        Horb_diag += self._get_Horb_diag_presymm_eri_F2ujuj ()
+        Horb_diag -= self._get_Horb_diag_presymm_eri_F2aiia ()
+        return Horb_diag
+
+    def _get_Horb_diag (self):
+        Horb_diag = self._get_Horb_diag_presymm ()
+        Horb_diag += Horb_diag.T
+        return Horb_diag[self.ugg.uniq_orb_idx]*.5
 
     def _get_Hci_diag (self):
         Hci_diag = []

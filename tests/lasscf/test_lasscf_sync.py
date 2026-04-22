@@ -33,9 +33,12 @@ mf = scf.RHF (mol).run ()
 las = LASSCF (mf, (4,4), ((3,1),(1,3)), spin_sub=(3,3))
 las.max_cycle_macro = 1
 las.kernel ()
+# TODO: fix?
+#assert (las.converged)
 las.mo_coeff = np.loadtxt (os.path.join (topdir, 'test_lasci_mo.dat'))
 las.ci = [[np.loadtxt (os.path.join (topdir, 'test_lasci_ci0.dat'))],
           [-np.loadtxt (os.path.join (topdir, 'test_lasci_ci1.dat')).T]]
+
 ugg = las.get_ugg ()
 h_op = las.get_hop (ugg=ugg)
 nmo, ncore, nocc = h_op.nmo, h_op.ncore, h_op.nocc
@@ -74,7 +77,24 @@ class KnownValues(unittest.TestCase):
 
     def test_hessian (self):
         hx = h_op._matvec (x)
-        self.assertAlmostEqual (lib.fp (hx), 179.27239294630812, 7)
+        self.assertAlmostEqual (lib.fp (hx), 90.0628112105026, 7)
+
+    def test_horb_diag (self):
+        hdiag = itsec (*ugg.unpack (h_op._get_Hdiag ()))
+        #refs = np.zeros_like (x)
+        #xp = x.copy ()
+        #for i in range (len (x)):
+        #    xp[:] = 0
+        #    xp[i] = 1
+        #    refs[i] = h_op (xp)[i]
+        #refs = itsec (*ugg.unpack (refs))
+        refs = [1.8702702560469948,
+                0.33670049827960724,
+                7.600706629982519,
+                -1.2913164221503841]
+        for sec, test, ref in zip (sectors, hdiag, refs):
+            with self.subTest (sector=sec):
+                self.assertAlmostEqual (lib.fp (test), ref, 6)
 
     def test_hc2 (self):
         xp = x.copy ()
@@ -98,20 +118,20 @@ class KnownValues(unittest.TestCase):
         xp = x.copy ()
         xp[:offs_ci1] = 0.0
         hx = h_op._matvec (xp)[:offs_ci1]
-        self.assertAlmostEqual (lib.fp (hx), 0.9964025176759721, 9)
+        self.assertAlmostEqual (lib.fp (hx), 0.9964025176759711, 9)
 
     def test_hoo (self):
         xp = x.copy ()
         xp[offs_ci1:] = 0.0
         hx = h_op._matvec (xp)[:offs_ci1]
-        self.assertAlmostEqual (lib.fp (hx), 178.41916344898377, 7)
+        self.assertAlmostEqual (lib.fp (hx), 89.20958173580503, 7)
 
     def test_h_xcv (self):
         xorb0 = xorb.copy ()
         xorb0[ncore:nocc,:] = xorb0[:,ncore:nocc] = 0.0
         xp = ugg.pack (xorb0, xci0)
         hxorb, hxci = ugg.unpack (h_op._matvec (xp))
-        refs = [-0.06544076804895266,0.20492877852377767,-76.54148711825971,0.001430987773399131,-0.023324408608589215,0.011004024379865151]
+        refs = [-0.03272038396141794,0.10246438926696706,-38.2707435632963,0.0007154936336222634,-0.023324408608589215,0.011004024379865151]
         for sec, test, ref in zip (sectors, itsec (hxorb,hxci), refs):
             with self.subTest (sector=sec):
                 self.assertAlmostEqual (lib.fp (test), ref, 7)
@@ -121,7 +141,7 @@ class KnownValues(unittest.TestCase):
         xorb0[ncore:nocc,ncore:nocc] = xorb[ncore:nocc,ncore:nocc] 
         xp = ugg.pack (xorb0, xci0)
         hxorb, hxci = ugg.unpack (h_op._matvec (xp))
-        refs = [0.23685465500076336,1.036052308111469,0.13584422544065847,0.09072092665879812,0.0015574081837203407,-0.0028940907410843902]
+        refs = [0.11842732747281545,0.5180261540565698,0.06792211271902979,0.045360463403717376,0.0015574081837203407,-0.0028940907410843902]
         for sec, test, ref in zip (sectors, itsec (hxorb,hxci), refs):
             with self.subTest (sector=sec):
                 self.assertAlmostEqual (lib.fp (test), ref, 9)
@@ -132,7 +152,7 @@ class KnownValues(unittest.TestCase):
         xorb0[:,ncore:nocc] = xorb[:,ncore:nocc] 
         xp = ugg.pack (xorb0, xci0)
         hxorb, hxci = ugg.unpack (h_op._matvec (xp))
-        refs = [32.59486557852766,0.8505552949164717,-1.5790308710536478,-2.7650296786870276,-0.09445253579668796,0.12861532657269764]
+        refs = [16.297432789939652,0.4252776476293889,-0.789515435859487,-1.382514838664916,-0.09445253579668796,0.12861532657269764]
         for sec, test, ref in zip (sectors, itsec (hxorb,hxci), refs):
             with self.subTest (sector=sec):
                 self.assertAlmostEqual (lib.fp (test), ref, 8)
@@ -140,7 +160,7 @@ class KnownValues(unittest.TestCase):
     def test_prec (self):
         M_op = h_op.get_prec ()
         Mx = M_op._matvec (x)
-        self.assertAlmostEqual (lib.fp (Mx), 0.6376305050505824, 6)
+        self.assertAlmostEqual (lib.fp (Mx), 4.4223425940525, 6)
 
 
 if __name__ == "__main__":

@@ -36,6 +36,7 @@ def setUpModule():
     las = LASSCF (mf, (2,2), (2,2))
     mo = las.localize_init_guess (([0,1],[2,3]), mc.mo_coeff, freeze_cas_spaces=True)
     las.kernel (mo)
+    assert (las.converged)
     las = las.state_average_(weights=[1,0,0,0,0],
                              charges=[[0,0],[1,-1],[1,-1],[-1,1],[-1,1]],
                              spins=[[0,0],[1,-1],[-1,1],[1,-1],[-1,1]],

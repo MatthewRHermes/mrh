@@ -23,12 +23,18 @@ CONV_TOL_SELF = getattr (__config__, 'lassi_excitations_conv_tol_self', 1e-8)
 
 def lowest_refovlp_eigpair (ham_pq, p=1, ovlp_thresh=LOWEST_REFOVLP_EIGVAL_THRESH, log=None):
     ''' Identify the lowest-energy eigenpair for which the eigenvector has nonzero overlap with
-    the first p basis functions. '''
+    the reference wave function. '''
     e_all, u_all = linalg.eigh (ham_pq)
     w_pp = (u_all[:p,:].conj () * u_all[:p,:]).sum (0) / p
     w_q0q0 = u_all[p,:].conj () * u_all[p,:]
     w_pq0 = np.abs (u_all[:p,:].conj () * u_all[p,:][None,:]).sum (0)
-    idx_valid = w_q0q0 > 0.1
+    for i in range (8):
+        idx_valid = w_q0q0 > 10**-(i+1)
+        if np.count_nonzero (idx_valid) > 0:
+            break
+    if np.count_nonzero (idx_valid) == 0:
+        log.error ("weights of the reference wfn: %s", str (w_q0q0))
+        raise RuntimeError ("No eigenstate w/ w>1e-8 reference wfn detected")
     e_valid = e_all[idx_valid]
     u_valid = u_all[:,idx_valid]
     idx_choice = np.argmin (e_valid)

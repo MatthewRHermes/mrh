@@ -4,6 +4,7 @@ from scipy import linalg
 from pyscf import gto, scf, lib, mcscf
 from pyscf.fci.direct_spin1 import _unpack_nelec
 from mrh.tests.lasscf.c2h6n4_struct import structure as struct
+from mrh.tests.lassi.addons import case_contract_op_si
 from mrh.my_pyscf.fci import csf_solver
 from mrh.my_pyscf.lassi import dms as lassi_dms
 from mrh.my_pyscf.mcscf.soc_int import compute_hso, amfi_dm
@@ -19,12 +20,13 @@ def setUpModule():
     from mrh.my_pyscf.lassi.op_o1 import frag
     oldvars['SCREEN_THRESH'] = frag.SCREEN_THRESH
     frag.SCREEN_THRESH = 1e-32
+    lib.logger.TIMER_LEVEL = lib.logger.DEBUG2
     mol1 = gto.M (atom="""
         O  0.000000  0.000000  0.000000
         H  0.758602  0.000000  0.504284
         H  -0.758602  0.000000  0.504284
     """, basis='631g',symmetry=True,
-    output='debug_soc1.log',
+    output='test_soc1.log',
     verbose=lib.logger.DEBUG)
     mf1 = scf.RHF (mol1).run ()
    
@@ -34,8 +36,8 @@ def setUpModule():
     # to be reproduced on any computer. Calculations that don't converge can't be used
     # as test cases for this reason.
     mol2 = struct (2.0, 2.0, '6-31g', symmetry=False)
-    mol2.output = 'debug_soc2.log'
-    mol2.verbose = lib.logger.DEBUG
+    mol2.output = '/dev/null' #'test_soc2.log'
+    mol2.verbose = 0 #lib.logger.DEBUG
     mol2.build ()
     mf2 = scf.RHF (mol2).run ()
     las2 = LASSCF (mf2, (4,4), (4,4), spin_sub=(1,1))
@@ -182,7 +184,6 @@ class KnownValues (unittest.TestCase):
     # a separate file. Therefore, for now, we can only compare results from non-relativistic basis sets between
     # the two codes, until we implement Douglass-Kroll ourselves.
 
-    @unittest.skip('debugging')
     def test_soc_int (self):
         # Obtained from OpenMolcas v22.02
         int_ref = 2*np.array ([0.0000000185242348, 0.0000393310222742, 0.0000393310222742, 0.0005295974407740]) 
@@ -192,7 +193,6 @@ class KnownValues (unittest.TestCase):
         amfi_int = np.sort (amfi_int.imag)
         self.assertAlmostEqual (lib.fp (amfi_int), lib.fp (int_ref), 8)
 
-    @unittest.skip('debugging')
     def test_soc_1frag (self):
         # References obtained from OpenMolcas v22.10 (locally-modified to enable changing the speed of light,
         # see https://gitlab.com/MatthewRHermes/OpenMolcas/-/tree/amfi_speed_of_light)
@@ -207,7 +207,25 @@ class KnownValues (unittest.TestCase):
         hso_ref[6,2] = -10524.501 + 0j # T(-1)
         hso_ref[5,0] =  0 - 18916.659j # T(0) < testing both this and T(+-1) is the reason I did 2 triplets
         
-        las = LASSCF (mf1, (6,), (8,), spin_sub=(1,), wfnsym_sub=('A1',)).run (conv_tol_grad=1e-7)
+        las = LASSCF (mf1, (6,), (8,), spin_sub=(1,), wfnsym_sub=('A1',))#.run (conv_tol_grad=1e-7)
+        las.lasci ()
+        ugg = las.get_ugg ()
+        print (ugg.nvar_orb)
+        H_op = las.get_hop ()
+        Hdiag = H_op._get_Hdiag ()
+        Hdiag_ref = np.zeros_like (Hdiag)
+        x = np.zeros_like (Hdiag)
+        for i in range (len (Hdiag)):
+            x[:] = 0
+            x[i] = 1
+            Hdiag_ref[i] = H_op (x)[i]
+        np.save ('Hdiag_test.npy', Hdiag)
+        np.save ('Hdiag_ref.npy', Hdiag_ref)
+        with self.subTest ('Hdiag'):
+            self.assertAlmostEqual (lib.fp (Hdiag[:ugg.nvar_orb]), lib.fp (Hdiag_ref[:ugg.nvar_orb]), 7)
+        self.assertTrue (las.converged)
+        las.run (conv_tol_grad=1e-7, max_cycle_macro=300)
+        self.assertTrue (las.converged)
         las.state_average_(weights=[1,0,0,0,0,0,0],
                            spins=[[0,],[2,],[0,],[-2,],[2,],[0,],[-2,],],
                            smults=[[1,],[3,],[3,],[3,],[3,],[3,],[3,],],
@@ -280,7 +298,13 @@ class KnownValues (unittest.TestCase):
         for dson in (False, True):
             lsi = lassi.LASSI (lsi2._las, soc=True, break_symmetry=True, opt=1)
             lsi = lsi.set (davidson_only=dson, nroots_si=lsi2._las.nroots)
-            with lib.light_speed (5): lsi.kernel (opt=1)
+            with lib.light_speed (5):
+                lsi.kernel (opt=1)
+                if dson:
+                    h0, h1, h2 = ham_2q (lsi2._las, lsi2.mo_coeff, soc=True)
+                    case_contract_op_si (self, lsi, h1, h2, lsi.ci, lsi.get_nelec_frs (),
+                                         smult_fr=lsi.get_smult_fr (), soc=True,#)#, tol=4)
+                                         disc_fr=lsi.get_disc_fr ())
             with self.subTest (opt=1, davidson_only=dson, deltaE='SO'):
                 self.assertAlmostEqual (lib.fp (lsi.e_roots), -214.8684319949548, 8)
             with self.subTest ('hamiltonian', opt=1, davidson_only=dson):
@@ -288,11 +312,9 @@ class KnownValues (unittest.TestCase):
                 ham_o1 = (lsi.si * lsi.e_roots[None,:]) @ lsi.si.conj ().T
                 self.assertAlmostEqual (lib.fp (ham_o1), lib.fp (ham_o0), 8)
 
-    @unittest.skip('debugging')
     def test_soc_stdm12s_slow_o0 (self):
         case_soc_stdm12s_slow (self, opt=0)
 
-    @unittest.skip('debugging')
     def test_soc_stdm12s_slow_o1 (self):
         case_soc_stdm12s_slow (self, opt=1)
         d_test = make_stdm12s (las2, soc=True, opt=1)
@@ -303,11 +325,9 @@ class KnownValues (unittest.TestCase):
                     self.assertAlmostEqual (lib.fp (d_test[r][i,...,j]),
                                             lib.fp (d_ref[r][i,...,j]), 8)
 
-    @unittest.skip('debugging')
     def test_soc_rdm12s_slow_o0 (self):
         case_soc_rdm12s_slow (self, opt=0)
 
-    @unittest.skip('debugging')
     def test_soc_rdm12s_slow_o1 (self):
         case_soc_rdm12s_slow (self, opt=1)
         d_test = roots_make_rdm12s (las2, las2.ci, lsi2.si, opt=1)
