@@ -89,6 +89,7 @@ def h1e_for_cas(mc, mo_coeff=None, ncas=None, ncore=None):
     phase, mo_coeff_R = get_mo_coeff_k2R(mc._scf, mo_coeff, ncore, ncas)[1:3]
     h1ao_R = np.einsum('Rk,kij,Sk->RiSj', phase, h1ao_k, phase.conj())
     h1ao_R = h1ao_R.reshape(nkpts*nao, nkpts*nao)
+
     h1eff_R = _basis_transformation(h1ao_R, mo_coeff_R)
     return h1eff_R, ecore
 
@@ -278,9 +279,17 @@ def kernel(mc, mo_coeff=None, ci0=None, verbose=logger.NOTE, envs=None):
     h1eff, energy_core = mc.get_h1eff(mo_coeff)
     log.debug('core energy = %.15g', energy_core.real)
     max_memory = max(4000, mc.max_memory-lib.current_memory()[0])
-    
+
     assert eri_cas.shape == (nkpts*ncas, nkpts*ncas, nkpts*ncas, nkpts*ncas)
     assert h1eff.shape == (nkpts*ncas, nkpts*ncas)
+
+    if log.verbose >= logger.DEBUG1:
+        assert np.linalg.norm(h1eff - h1eff.conj().T) < 1e-10,\
+            "1e Hamiltonian hermiticity error"
+        assert np.linalg.norm(eri_cas - eri_cas.transpose(2, 3, 0, 1)) < 1e-10,\
+            "ERI permutation symmetry error"
+        assert np.linalg.norm(eri_cas - eri_cas.conj().transpose(1, 0, 3, 2)) < 1e-10,\
+            "ERI hermiticity error"
 
     e_tot, fcivec = mc.fcisolver.kernel(h1eff, eri_cas, 
                                            nkpts*ncas, (nkpts*nelecas[0],nkpts*nelecas[1]), 
