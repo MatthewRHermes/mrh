@@ -13,3 +13,14 @@ set_target_properties (clib_mrh_pbc_fci_rdms PROPERTIES
     CLEAN_DIRECT_OUTPUT 1
     LIBRARY_OUTPUT_DIRECTORY ${PROJECT_SOURCE_DIR}
     OUTPUT_NAME "pbc_fci_rdms")
+
+
+include_directories(${PYSCFLIB}/mcscf)
+set (PBC_FCI_CONTRACT_NOSYM_SOURCE_FILES "pbc_fci_contract_nosym.c")
+add_library (clib_mrh_pbc_fci_contract_nosym SHARED ${PBC_FCI_CONTRACT_NOSYM_SOURCE_FILES})
+target_link_libraries(clib_mrh_pbc_fci_contract_nosym ${FCI_LIBRARY} ${LAPACK_LIBRARIES})
+set_target_properties (clib_mrh_pbc_fci_contract_nosym PROPERTIES
+    LINKER_LANGUAGE C
+    CLEAN_DIRECT_OUTPUT 1
+    LIBRARY_OUTPUT_DIRECTORY ${PROJECT_SOURCE_DIR}
+    OUTPUT_NAME "pbc_fci_contract_nosym")
