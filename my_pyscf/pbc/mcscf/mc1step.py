@@ -1283,11 +1283,12 @@ class PBCCASSCF(casci.PBCCASBASE):
             h2_R = aa11_R + a1a1_R
             aa11_R = a1a1_R = None
     
-        ecore = np.sum([np.einsum('pq,qp->', h1e_mo[k] + eris.vhf_c[k], ddm[k]) 
+        ecore = np.sum([np.einsum('pq,pq->', h1e_mo[k] + eris.vhf_c[k], ddm[k]) 
                         for k in range(nkpts)])
-        ecore -= self.energy_nuc() * nkpts
+        # ecore += self.energy_nuc() * nkpts
 
-        ci1, g = self.solve_approx_ci(h1_R, h2_R, fcivec, ecore, e_cas, envs)
+        # Remember, the e_cas was divided by nkpts in the casci step.
+        ci1, g = self.solve_approx_ci(h1_R, h2_R, fcivec, ecore, e_cas*nkpts, envs)
 
         # In case of external CI solvers like DMRG, or even for the state-average condition
         # we won't need this.
@@ -1331,16 +1332,7 @@ class PBCCASSCF(casci.PBCCASBASE):
             hc = self.fcisolver.contract_2e(h2eff, c, ncastot, nelecastot)
             return hc.ravel()
 
-        def energy_ci(c):
-            hc = contract_2e(c)
-            e_ci = np.vdot(c.ravel(), hc)
-            return e_ci
-        
-        # THis is not accurate, but for time being using the more accurate way to compute the 
-        # e_ci.
-        # e_ci = e_cas - ecore
-        e_ci = energy_ci(ci0)
-
+        e_ci = e_cas - ecore
         hc = contract_2e(ci0)
 
         g = hc - e_ci * ci0.ravel()
