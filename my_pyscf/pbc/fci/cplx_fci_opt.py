@@ -83,14 +83,7 @@ def contract_2e_spin0(eri, fcivec, norb, nelec, link_index=None):
     fcivec = np.asarray(fcivec, dtype=np.complex128, order='C')
     eri = np.asarray(eri, dtype=np.complex128, order='C')
 
-    # fcimat = fcivec.reshape(na, na)
-    # fcimat = 0.5 * (fcimat + fcimat.T)
-
-    # fcivec = np.asarray(fcimat.ravel(), dtype=np.complex128, order='C')
-    # fcimat = None
-    # fcimat = fcivec.reshape(na, na)
-    # assert np.allclose(fcimat, fcimat.T, atol=1e-10)
-    # fcimat = None
+    # TODO: Symmetry check for the incoming fcivec.
     out_CI = np.zeros_like(fcivec)
     
     # Choosing the strb_blksize.
