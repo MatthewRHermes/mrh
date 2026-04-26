@@ -8,7 +8,7 @@ from mrh.lib.helper import load_library
 
 
 libpbcfci = load_library('libpbc_fci_contract_nosym')
-
+libpbcfcispin0 = load_library('libpbc_fci_contract_spin0')
 
 def contract_2e(eri, fcivec, norb, nelec, link_index=None):
     direct_spin1.contract_2e.__doc__ + '''
@@ -60,3 +60,54 @@ def contract_2e(eri, fcivec, norb, nelec, link_index=None):
 class FCISolver(direct_spin1_cplx_FCISolver):
     def contract_2e(self, eri, fcivec, norb, nelec, link_index=None):
         return contract_2e(eri, fcivec, norb, nelec, link_index)
+
+def contract_2e_spin0(eri, fcivec, norb, nelec, link_index=None):
+    contract_2e.__doc__ + '''
+    This is the optimized contract_2e function for the spin0 case.
+    Note, in the spin0 case, I can only take advantage of the symmetry of the HC term, since the 
+    eri doesn't have the full 8 fold symmetries.
+    '''
+
+    link_indexa, link_indexb = _unpack(norb, nelec, link_index)
+    na, nlinka = link_indexa.shape[:2]
+    nb, nlinkb = link_indexb.shape[:2]
+
+    # Some Sanity Checks
+    assert na == nb, 'You should use the direct_spin1, this is not the singlet spin case'
+    assert nlinka == nlinkb
+    assert fcivec.size == na * na
+    assert eri.dtype == fcivec.dtype == np.complex128
+
+    fcivec = np.asarray(fcivec, dtype=np.complex128, order='C')
+    eri = np.asarray(eri, dtype=np.complex128, order='C')
+
+    # fcimat = fcivec.reshape(na, na)
+    # assert np.allclose(fcimat, fcimat.T, atol=1e-10)
+    # fcimat = None
+    out_CI = np.zeros_like(fcivec)
+    
+    # Choosing the strb_blksize.
+    # TODO: use the mem to decide this.
+    if nb < 1000:
+        strb_blksize = nb
+    else:
+        x = int(np.ceil(nb / 1000.0))
+        strb_blksize = int(np.ceil(nb / x))
+
+    libpbcfcispin0.FCIcontract_2es1_zgemm_spin0_blksize(
+            eri.ctypes.data_as(ctypes.c_void_p),
+            fcivec.ctypes.data_as(ctypes.c_void_p),
+            out_CI.ctypes.data_as(ctypes.c_void_p),
+            ctypes.c_int(norb),
+            ctypes.c_int(na),
+            ctypes.c_int(nlinka),
+            link_indexa.ctypes.data_as(ctypes.c_void_p),
+            ctypes.c_int(strb_blksize),
+        )
+    out_CI = out_CI.reshape(na, na)
+    out_CI = out_CI + out_CI.T
+    return out_CI.ravel().view(direct_spin1.FCIvector)
+
+class FCISolverSpin0(direct_spin1_cplx_FCISolver):
+    def contract_2e(self, eri, fcivec, norb, nelec, link_index=None):
+        return contract_2e_spin0(eri, fcivec, norb, nelec, link_index)
