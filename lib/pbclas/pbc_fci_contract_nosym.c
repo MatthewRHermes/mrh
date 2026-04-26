@@ -189,16 +189,24 @@ static void ctr_rhf2e_kern_zgemm(double complex *eri,
         }
 }
 
-void FCIcontract_2es1_zgemm(double complex *eri,
-                            double complex *ci0,
-                            double complex *ci1,
-                            int norb, int na, int nb,
-                            int nlinka, int nlinkb,
-                            int *link_indexa,
-                            int *link_indexb)
+void FCIcontract_2es1_zgemm_blksize(double complex *eri,
+                                    double complex *ci0,
+                                    double complex *ci1,
+                                    int norb, int na, int nb,
+                                    int nlinka, int nlinkb,
+                                    int *link_indexa,
+                                    int *link_indexb,
+                                    int strb_blksize)
 {
         const int nnorb = norb * norb;
         const size_t ndet = ((size_t)na) * nb;
+
+        if (strb_blksize <= 0) {
+                strb_blksize = STRB_BLKSIZE;
+        }
+        if (strb_blksize > nb) {
+                strb_blksize = nb;
+        }
 
         _LinkT *clinka = malloc(sizeof(_LinkT) * nlinka * na);
         _LinkT *clinkb = malloc(sizeof(_LinkT) * nlinkb * nb);
@@ -222,27 +230,27 @@ void FCIcontract_2es1_zgemm(double complex *eri,
 
 #pragma omp parallel default(none) \
         shared(eri, ci0R, ci0I, ci1, norb, na, nb, nnorb, nlinka, nlinkb, \
-               clinka, clinkb, n_zgemm_call_total, n_skip_total)
+               clinka, clinkb, n_zgemm_call_total, n_skip_total, strb_blksize)
 {
         int strk, ib, blen;
 
         long long n_zgemm_call_private = 0;
         long long n_skip_private = 0;
 
-        double *t1R = malloc(sizeof(double) * STRB_BLKSIZE * nnorb);
-        double *t1I = malloc(sizeof(double) * STRB_BLKSIZE * nnorb);
+        double *t1R = malloc(sizeof(double) * strb_blksize * nnorb);
+        double *t1I = malloc(sizeof(double) * strb_blksize * nnorb);
 
         double complex *t1Z =
-                malloc(sizeof(double complex) * STRB_BLKSIZE * nnorb);
+                malloc(sizeof(double complex) * strb_blksize * nnorb);
 
         double complex *vt1Z =
-                malloc(sizeof(double complex) * STRB_BLKSIZE * nnorb);
+                malloc(sizeof(double complex) * strb_blksize * nnorb);
 
         double complex *ci1buf =
-                malloc(sizeof(double complex) * (((size_t)na) * STRB_BLKSIZE + 2));
+                malloc(sizeof(double complex) * (((size_t)na) * strb_blksize + 2));
 
-        for (ib = 0; ib < nb; ib += STRB_BLKSIZE) {
-                blen = MIN(STRB_BLKSIZE, nb-ib);
+        for (ib = 0; ib < nb; ib += strb_blksize) {
+                blen = MIN(strb_blksize, nb-ib);
 
                 zset0(ci1buf, ((size_t)na) * blen);
 
@@ -290,3 +298,19 @@ void FCIcontract_2es1_zgemm(double complex *eri,
         free(clinkb);
 
 }
+
+void FCIcontract_2es1_zgemm(double complex *eri,
+                            double complex *ci0,
+                            double complex *ci1,
+                            int norb, int na, int nb,
+                            int nlinka, int nlinkb,
+                            int *link_indexa,
+                            int *link_indexb)
+{
+        FCIcontract_2es1_zgemm_blksize(eri, ci0, ci1,
+                                       norb, na, nb,
+                                       nlinka, nlinkb,
+                                       link_indexa, link_indexb,
+                                       STRB_BLKSIZE);
+}
+
