@@ -1,7 +1,7 @@
 import ctypes
 import numpy as np
 
-from pyscf.fci import direct_spin1
+from pyscf.fci import direct_spin1, cistring
 
 from mrh.my_pyscf.pbc.fci.direct_spin1_cplx import _unpack, FCISolver as direct_spin1_cplx_FCISolver
 from mrh.lib.helper import load_library
@@ -62,7 +62,9 @@ class FCISolver(direct_spin1_cplx_FCISolver):
         return contract_2e(eri, fcivec, norb, nelec, link_index)
 
 def contract_2e_spin0(eri, fcivec, norb, nelec, link_index=None):
-    contract_2e.__doc__ + '''
+    '''
+    See above contract_2e for more details.
+
     This is the optimized contract_2e function for the spin0 case.
     Note, in the spin0 case, I can only take advantage of the symmetry of the HC term, since the 
     eri doesn't have the full 8 fold symmetries.
@@ -82,6 +84,11 @@ def contract_2e_spin0(eri, fcivec, norb, nelec, link_index=None):
     eri = np.asarray(eri, dtype=np.complex128, order='C')
 
     # fcimat = fcivec.reshape(na, na)
+    # fcimat = 0.5 * (fcimat + fcimat.T)
+
+    # fcivec = np.asarray(fcimat.ravel(), dtype=np.complex128, order='C')
+    # fcimat = None
+    # fcimat = fcivec.reshape(na, na)
     # assert np.allclose(fcimat, fcimat.T, atol=1e-10)
     # fcimat = None
     out_CI = np.zeros_like(fcivec)
@@ -94,7 +101,7 @@ def contract_2e_spin0(eri, fcivec, norb, nelec, link_index=None):
         x = int(np.ceil(nb / 1000.0))
         strb_blksize = int(np.ceil(nb / x))
 
-    libpbcfcispin0.FCIcontract_2es1_zgemm_spin0_blksize(
+    libpbcfci.FCIcontract_2es1_zgemm_spin0_blksize(
             eri.ctypes.data_as(ctypes.c_void_p),
             fcivec.ctypes.data_as(ctypes.c_void_p),
             out_CI.ctypes.data_as(ctypes.c_void_p),
@@ -109,5 +116,30 @@ def contract_2e_spin0(eri, fcivec, norb, nelec, link_index=None):
     return out_CI.ravel().view(direct_spin1.FCIvector)
 
 class FCISolverSpin0(direct_spin1_cplx_FCISolver):
+
+    def get_init_guess(self, norb, nelec, nroots, hdiag):
+        '''
+        In case of singlet case, I would need to symmetrize the initial guess CI coefficients matrix, 
+        which is originally generated for the spin1 case, to make it suitable for the spin0 case.
+        '''
+        init_ci = super().get_init_guess(norb, nelec, nroots, hdiag)
+        neleca, nelecb = direct_spin1._unpack_nelec(nelec)
+        assert neleca == nelecb
+        na = cistring.num_strings(norb, neleca)
+        if nroots > 1:
+            sym_init_ci = []
+            for ci in init_ci:
+                ci = np.asarray(ci, dtype=np.complex128, order='C')
+                ci_mat = ci.reshape(na, na)
+                # Symmetrize the CI coefficients matrix to make it suitable for the spin0 case.
+                ci_mat = 0.5 * (ci_mat + ci_mat.T) # Note it's not conjugate.
+                sym_init_ci.append(ci_mat.ravel())
+            return np.array(sym_init_ci, dtype=init_ci.dtype)
+        else:
+            ci = np.asarray(init_ci, dtype=np.complex128, order='C')
+            ci_mat = ci.reshape(na, na)
+            ci_mat = 0.5 * (ci_mat + ci_mat.T)
+            return ci_mat.ravel().view(direct_spin1.FCIvector)
+
     def contract_2e(self, eri, fcivec, norb, nelec, link_index=None):
         return contract_2e_spin0(eri, fcivec, norb, nelec, link_index)
