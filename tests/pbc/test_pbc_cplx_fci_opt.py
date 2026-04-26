@@ -41,7 +41,7 @@ def gen_hermi_ham(norb):
     return h1, h2
 
 class KnownValues(unittest.TestCase):
-    def test_cplx_fci_opt(self):
+    def test_cplx_fci_opt1(self):
         # Doing the calculation of (4o, 4e)
         norb = 4
         nelecas = (2, 2)
@@ -67,6 +67,57 @@ class KnownValues(unittest.TestCase):
         msg = "There is the mismatch in the contract_2e outputs between the optimized and the reference code."
         self.assertTrue(np.allclose(sigma_ref, sigma_com, atol=1e-8), msg=msg)
 
+    def test_cplx_fci_opt2(self):
+        # Doing the calculation of (4o, 4e)
+        norb = 4
+        nelecas = (3, 1)
+        h1, h2 = gen_hermi_ham(norb)
+        
+        # Reference values
+        cisolver1 = direct_spin1_cplx.FCISolver()
+        eref, ciref = cisolver1.kernel(h1, h2, norb, nelecas)
+        
+        # My computed values
+        cisolver2 = cplx_fci_opt.FCISolver()
+        e_com = cisolver2.kernel(h1, h2, norb, nelecas)[0]
+        msg = "There is the mismatch in the FCI energies between the optimized and the reference code."
+        self.assertAlmostEqual(eref, e_com, places=8, msg=msg)
+
+        # Also comparing the contract_2e function outputs
+        h2eff = h2
+        ci0 = np.random.random(ciref.shape) + 1j * np.random.random(ciref.shape)
+        ci0 = ci0.astype(np.complex128)
+        ci0 /= np.linalg.norm(ci0)
+        sigma_ref = cisolver1.contract_2e(h2eff, ci0, norb, nelecas)
+        sigma_com = cisolver2.contract_2e(h2eff, ci0, norb, nelecas)
+        msg = "There is the mismatch in the contract_2e outputs between the optimized and the reference code."
+        self.assertTrue(np.allclose(sigma_ref, sigma_com, atol=1e-8), msg=msg)
+
+    def test_cplx_fci_opt3(self):
+        # Doing the calculation of (4o, 4e)
+        norb = 4
+        nelecas = (4, 0)
+        h1, h2 = gen_hermi_ham(norb)
+        
+        # Reference values
+        cisolver1 = direct_spin1_cplx.FCISolver()
+        eref, ciref = cisolver1.kernel(h1, h2, norb, nelecas)
+        
+        # My computed values
+        cisolver2 = cplx_fci_opt.FCISolver()
+        e_com = cisolver2.kernel(h1, h2, norb, nelecas)[0]
+        msg = "There is the mismatch in the FCI energies between the optimized and the reference code."
+        self.assertAlmostEqual(eref, e_com, places=8, msg=msg)
+
+        # Also comparing the contract_2e function outputs
+        h2eff = h2
+        ci0 = np.random.random(ciref.shape) + 1j * np.random.random(ciref.shape)
+        ci0 = ci0.astype(np.complex128)
+        ci0 /= np.linalg.norm(ci0)
+        sigma_ref = cisolver1.contract_2e(h2eff, ci0, norb, nelecas)
+        sigma_com = cisolver2.contract_2e(h2eff, ci0, norb, nelecas)
+        msg = "There is the mismatch in the contract_2e outputs between the optimized and the reference code."
+        self.assertTrue(np.allclose(sigma_ref, sigma_com, atol=1e-8), msg=msg)
 
 if __name__ == "__main__":
     unittest.main()
