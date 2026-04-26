@@ -24,3 +24,12 @@ set_target_properties (clib_mrh_pbc_fci_contract_nosym PROPERTIES
     CLEAN_DIRECT_OUTPUT 1
     LIBRARY_OUTPUT_DIRECTORY ${PROJECT_SOURCE_DIR}
     OUTPUT_NAME "pbc_fci_contract_nosym")
+
+set (PBC_FCI_CONTRACT_SPIN0_SOURCE_FILES "pbc_fci_contract_spin0.c")
+add_library (clib_mrh_pbc_fci_contract_spin0 SHARED ${PBC_FCI_CONTRACT_SPIN0_SOURCE_FILES})
+target_link_libraries(clib_mrh_pbc_fci_contract_spin0 ${FCI_LIBRARY} ${LAPACK_LIBRARIES})
+set_target_properties (clib_mrh_pbc_fci_contract_spin0 PROPERTIES
+    LINKER_LANGUAGE C
+    CLEAN_DIRECT_OUTPUT 1
+    LIBRARY_OUTPUT_DIRECTORY ${PROJECT_SOURCE_DIR}
+    OUTPUT_NAME "pbc_fci_contract_spin0")
