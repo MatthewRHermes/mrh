@@ -189,6 +189,79 @@ static void ctr_rhf2e_kern_zgemm(double complex *eri,
         }
 }
 
+
+/*
+ * Spin0 triangular half-kernel.
+ *
+ * This follows the PySCF direct_spin0 triangular CI-space logic, but keeps
+ * the full orbital-pair basis nnorb = norb*norb and normal _LinkT because
+ * the Hamiltonian/integrals are not assumed to have tril pair symmetry.
+ *
+ * Python-side post-processing required:
+ *     out_CI = out_CI.reshape(na, na)
+ *     out_CI = out_CI + out_CI.T
+ *
+ * Use plain transpose, not conjugate transpose, and no factor of 0.5.
+ */
+static void ctr_rhf2e_kern_zgemm_spin0(double complex *eri,
+                                        double *ci0R, double *ci0I,
+                                        double complex *ci1,
+                                        double complex *ci1buf,
+                                        double *t1R, double *t1I,
+                                        double complex *t1Z,
+                                        double complex *vt1Z,
+                                        int bcount_for_spread_a,
+                                        int ncol_ci1buf,
+                                        int bcount,
+                                        int stra_id,
+                                        int strb_id,
+                                        int norb,
+                                        int na,
+                                        int nlink,
+                                        _LinkT *clink,
+                                        long long *n_zgemm_call,
+                                        long long *n_skip)
+{
+        const char TRANS_N = 'N';
+        const double complex Z0 = 0.0 + 0.0 * I;
+        const double complex Z1 = 1.0 + 0.0 * I;
+        const int nnorb = norb * norb;
+
+        double csumR, csumI;
+
+        NPdset0(t1R, ((size_t)nnorb) * bcount);
+        NPdset0(t1I, ((size_t)nnorb) * bcount);
+
+        csumR = FCI_t1ci_sf(ci0R, t1R, bcount, stra_id, strb_id,
+                            norb, na, na, nlink, nlink,
+                            clink, clink);
+
+        csumI = FCI_t1ci_sf(ci0I, t1I, bcount, stra_id, strb_id,
+                            norb, na, na, nlink, nlink,
+                            clink, clink);
+
+        if (csumR > CSUMTHR || csumI > CSUMTHR) {
+                pack_z_from_ri(t1Z, t1R, t1I, (size_t)nnorb * bcount);
+
+                zgemm_(&TRANS_N, &TRANS_N, &nnorb, &bcount, &nnorb,
+                       &Z1, eri, &nnorb,
+                       t1Z, &nnorb,
+                       &Z0, vt1Z, &nnorb);
+
+                spread_b_t1_z(ci1, vt1Z, bcount, stra_id, strb_id,
+                              norb, na, nlink, clink);
+
+                spread_a_t1_z(ci1buf, vt1Z, bcount_for_spread_a,
+                              stra_id, 0,
+                              norb, ncol_ci1buf, nlink,
+                              clink);
+
+                *n_zgemm_call += 1;
+        } else {
+                *n_skip += 1;
+        }
+}
+
 void FCIcontract_2es1_zgemm_blksize(double complex *eri,
                                     double complex *ci0,
                                     double complex *ci1,
@@ -314,3 +387,153 @@ void FCIcontract_2es1_zgemm(double complex *eri,
                                        STRB_BLKSIZE);
 }
 
+
+
+/*
+ * Explicit spin0 triangular half-contraction with runtime beta-string block size.
+ *
+ * This uses spin0 CI-space symmetry only.  It does not use tril orbital-pair
+ * symmetry: nnorb remains norb*norb and the link table remains _LinkT.
+ *
+ * Python-side post-processing required:
+ *     out_CI = out_CI.reshape(na, na)
+ *     out_CI = out_CI + out_CI.T
+ *
+ * Use plain transpose, not conjugate transpose, and no factor of 0.5.
+ */
+void FCIcontract_2es1_zgemm_spin0_blksize(double complex *eri,
+                                          double complex *ci0,
+                                          double complex *ci1,
+                                          int norb, int na,
+                                          int nlink,
+                                          int *link_index,
+                                          int strb_blksize)
+{
+        const int nnorb = norb * norb;
+        const size_t ndet = ((size_t)na) * na;
+
+        if (strb_blksize <= 0) {
+                strb_blksize = STRB_BLKSIZE;
+        }
+        if (strb_blksize > na) {
+                strb_blksize = na;
+        }
+
+        _LinkT *clink = malloc(sizeof(_LinkT) * nlink * na);
+
+        FCIcompress_link(clink, link_index, norb, na, nlink);
+
+        double *ci0R = malloc(sizeof(double) * ndet);
+        double *ci0I = malloc(sizeof(double) * ndet);
+
+        unpack_z_to_ri(ci0, ci0R, ci0I, ndet);
+
+        zset0(ci1, ndet);
+
+        long long n_zgemm_call_total = 0;
+        long long n_skip_total = 0;
+
+#pragma omp parallel default(none) \
+        shared(eri, ci0R, ci0I, ci1, norb, na, nnorb, nlink, \
+               clink, n_zgemm_call_total, n_skip_total, strb_blksize)
+{
+        int strk, ib, blen, bcount_for_spread_a, bcount;
+
+        long long n_zgemm_call_private = 0;
+        long long n_skip_private = 0;
+
+        double *t1R = malloc(sizeof(double) * strb_blksize * nnorb);
+        double *t1I = malloc(sizeof(double) * strb_blksize * nnorb);
+
+        double complex *t1Z =
+                malloc(sizeof(double complex) * strb_blksize * nnorb);
+
+        double complex *vt1Z =
+                malloc(sizeof(double complex) * strb_blksize * nnorb);
+
+        double complex *ci1buf =
+                malloc(sizeof(double complex) * (((size_t)na) * strb_blksize + 2));
+
+        for (ib = 0; ib < na; ib += strb_blksize) {
+                blen = MIN(strb_blksize, na - ib);
+
+                zset0(ci1buf, ((size_t)na) * blen);
+
+/*
+ * strk starts from ib, following PySCF direct_spin0 logic.
+ * Rows with strk < ib belong to the transpose-complement of blocks that
+ * have already been computed.
+ */
+#pragma omp for schedule(static)
+                for (strk = ib; strk < na; strk++) {
+/*
+ * For rows inside the current diagonal block, only compute columns up to
+ * the diagonal for the beta-side spread.  The alpha-side spread uses one
+ * fewer column, matching PySCF direct_spin0:
+ *
+ *   bcount_for_spread_a = MIN(blen, strk - ib)
+ *   bcount              = MIN(blen, strk + 1 - ib)
+ *
+ * For rows below the current beta block, both become blen.
+ */
+                        bcount_for_spread_a = MIN(blen, strk - ib);
+                        bcount              = MIN(blen, strk + 1 - ib);
+
+                        ctr_rhf2e_kern_zgemm_spin0(eri,
+                                                   ci0R, ci0I,
+                                                   ci1,
+                                                   ci1buf,
+                                                   t1R, t1I,
+                                                   t1Z, vt1Z,
+                                                   bcount_for_spread_a,
+                                                   blen,
+                                                   bcount,
+                                                   strk, ib,
+                                                   norb, na,
+                                                   nlink,
+                                                   clink,
+                                                   &n_zgemm_call_private,
+                                                   &n_skip_private);
+                }
+
+#pragma omp critical
+                {
+                        axpy2d_z(ci1+ib, ci1buf, na, na, blen);
+                }
+
+#pragma omp barrier
+        }
+
+        free(ci1buf);
+        free(vt1Z);
+        free(t1Z);
+        free(t1I);
+        free(t1R);
+
+#pragma omp atomic
+        n_zgemm_call_total += n_zgemm_call_private;
+
+#pragma omp atomic
+        n_skip_total += n_skip_private;
+}
+
+        free(ci0R);
+        free(ci0I);
+        free(clink);
+}
+
+
+/* Explicit spin0 triangular half-contraction with default STRB_BLKSIZE. */
+void FCIcontract_2es1_zgemm_spin0(double complex *eri,
+                                  double complex *ci0,
+                                  double complex *ci1,
+                                  int norb, int na,
+                                  int nlink,
+                                  int *link_index)
+{
+        FCIcontract_2es1_zgemm_spin0_blksize(eri, ci0, ci1,
+                                             norb, na,
+                                             nlink,
+                                             link_index,
+                                             STRB_BLKSIZE);
+}
