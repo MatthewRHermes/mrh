@@ -11,7 +11,7 @@ from pyscf.pbc import gto as pgto, scf
 from pyscf.pbc.lib import kpts_helper
 from pyscf.pbc.tools import k2gamma
 
-from mrh.my_pyscf.pbc.fci import direct_spin1_cplx, cplx_fci_opt
+from mrh.my_pyscf.pbc.fci import direct_spin1_cplx, direct_spin1_cplx_opt, direct_spin0_cplx
 from mrh.my_pyscf.pbc.mcscf.k2R import get_mo_coeff_k2R
 
 
@@ -54,7 +54,7 @@ class KnownValues(unittest.TestCase):
         eref, ciref = cisolver1.kernel(h1, h2, norb, nelecas)
         
         # My computed values
-        cisolver2 = cplx_fci_opt.FCISolver()
+        cisolver2 = direct_spin1_cplx_opt.FCISolver()
         e_com = cisolver2.kernel(h1.copy(), h2.copy(), norb, nelecas)[0]
         msg = "There is the mismatch in the FCI energies between the optimized and the reference code."
         self.assertAlmostEqual(eref, e_com, places=8, msg=msg)
@@ -80,7 +80,7 @@ class KnownValues(unittest.TestCase):
         eref, ciref = cisolver_ref.kernel(h1, h2, norb, nelecas)
 
         # Optimized spin0 complex solver
-        cisolver_spin0 = cplx_fci_opt.FCISolverSpin0()
+        cisolver_spin0 = direct_spin0_cplx.FCISolver()
         e_spin0, ci_spin0 = cisolver_spin0.kernel(h1.copy(), h2.copy(), norb, nelecas)
 
         msg = (
@@ -127,7 +127,7 @@ class KnownValues(unittest.TestCase):
         eref, ciref = cisolver1.kernel(h1, h2, norb, nelecas)
         
         # My computed values
-        cisolver2 = cplx_fci_opt.FCISolver()
+        cisolver2 = direct_spin1_cplx_opt.FCISolver()
         e_com = cisolver2.kernel(h1, h2, norb, nelecas)[0]
         msg = "There is the mismatch in the FCI energies between the optimized and the reference code."
         self.assertAlmostEqual(eref, e_com, places=8, msg=msg)
@@ -153,7 +153,7 @@ class KnownValues(unittest.TestCase):
         eref, ciref = cisolver1.kernel(h1, h2, norb, nelecas)
         
         # My computed values
-        cisolver2 = cplx_fci_opt.FCISolver()
+        cisolver2 = direct_spin1_cplx_opt.FCISolver()
         e_com = cisolver2.kernel(h1, h2, norb, nelecas)[0]
         msg = "There is the mismatch in the FCI energies between the optimized and the reference code."
         self.assertAlmostEqual(eref, e_com, places=8, msg=msg)
