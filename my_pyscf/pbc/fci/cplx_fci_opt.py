@@ -6,9 +6,7 @@ from pyscf.fci import direct_spin1, cistring
 from mrh.my_pyscf.pbc.fci.direct_spin1_cplx import _unpack, FCISolver as direct_spin1_cplx_FCISolver
 from mrh.lib.helper import load_library
 
-
 libpbcfci = load_library('libpbc_fci_contract_nosym')
-libpbcfcispin0 = load_library('libpbc_fci_contract_spin0')
 
 def contract_2e(eri, fcivec, norb, nelec, link_index=None):
     direct_spin1.contract_2e.__doc__ + '''
