@@ -1,7 +1,6 @@
 import numpy as np
 import ctypes
 import scipy
-import warnings
 
 from pyscf import lib
 from pyscf import __config__
@@ -13,6 +12,10 @@ from pyscf.lib.numpy_helper import tag_array
 from pyscf.csf_fci.csfstring import count_all_csfs
 
 from mrh.my_pyscf.pbc.fci import direct_spin1_cplx
+from mrh.my_pyscf.pbc.fci import direct_spin1_cplx_opt
+
+
+# Author: Bhavnesh Jangid
 
 libfci = lib.load_library('libfci')
 
@@ -684,7 +687,7 @@ class cplxCSFFCISolver:
                        hdiag_csf=hdiag_csf, npsp=npsp, max_memory=max_memory)
 
 # Good chance to learn Inheritance, and MRO Method:
-class FCISolver(cplxCSFFCISolver, direct_spin1_cplx.FCISolver):
+class FCISolver(cplxCSFFCISolver, direct_spin1_cplx_opt.FCISolver):
     '''
     Complex FCI in CSFSolver. 
     '''
