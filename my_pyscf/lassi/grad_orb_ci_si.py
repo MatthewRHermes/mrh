@@ -217,10 +217,11 @@ def get_grad (lsi, mo_coeff=None, ci=None, si=None, state=None, weights=None, op
         gsi : ndarray of shape (nprods,nroots_si)
             SI rotation gradients, ignoring weights and state-averaging
     '''
-    gorb = get_grad_orb (lsi, mo_coeff=mo_coeff, ci=ci, si=si, state=state, weights=weights,
-                         opt=opt)
-    gci = get_grad_ci (lsi, mo_coeff=mo_coeff, ci=ci, si=si, state=state, weights=weights,
-                       opt=opt)
-    gsi = get_grad_si (lsi, mo_coeff=mo_coeff, ci=ci, si=si, opt=opt)
+    with lsi._o1_chk_off_env ():
+        gorb = get_grad_orb (lsi, mo_coeff=mo_coeff, ci=ci, si=si, state=state, weights=weights,
+                             opt=opt)
+        gci = get_grad_ci (lsi, mo_coeff=mo_coeff, ci=ci, si=si, state=state, weights=weights,
+                           opt=opt)
+        gsi = get_grad_si (lsi, mo_coeff=mo_coeff, ci=ci, si=si, opt=opt)
     return gorb, gci, gsi
 

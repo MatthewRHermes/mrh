@@ -591,9 +591,11 @@ def ham (las, h1, h2, ci, nelec_frs, smult_fr=None, disc_fr=None, soc=0, nlas=No
         h1, h2, ci, nelec_frs, smult_fr, soc, nlas)
 
     # First pass: single-fragment intermediates
+    chkfile = kwargs.get ('chkfile', None)
+    chkkey = kwargs.get ('chkkey', None)
     ints, lroots = frag.make_ints (las, ci, nelec_frs, nlas=nlas, smult_fr=smult_fr,
                                    mask_ints=mask_ints, discriminator=discriminator,
-                                   verbose=verbose)
+                                   chkfile=chkfile, chkkey=chkkey, verbose=verbose)
     nstates = np.sum (np.prod (lroots, axis=0))
         
     # Memory check

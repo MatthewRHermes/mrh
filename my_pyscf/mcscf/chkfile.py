@@ -15,6 +15,17 @@ def load_las_(mc, chkfile=None, method_key='las',
     data = load (chkfile, method_key)
     if data is None: raise KeyError ('{} record not in chkfile'.format (method_key.upper()))
 
+    mc = _load_las_1_(mc, data,
+                      keys_config=keys_config,
+                      keys_saconstr=keys_saconstr,
+                      keys_results=keys_results)
+    mc = _load_las_ci_(mc, data)
+    return mc
+
+def _load_las_1_(mc, data, 
+                 keys_config=KEYS_CONFIG_LASSCF,
+                 keys_saconstr=KEYS_SACONSTR_LASSCF,
+                 keys_results=KEYS_RESULTS_LASSCF):
     # conditionals for backwards compatibility with older chkfiles that
     # only stored mo_coeff and ci
     for key in keys_config:
@@ -39,14 +50,6 @@ def load_las_(mc, chkfile=None, method_key='las',
         if key in data:
             setattr (mc, key, data[key])
     if 'frags_orbs' in data: mc.frags_orbs = data['frags_orbs']
-    # special handling for ragged CI vector
-    ci = data['ci']
-    mc.ci = []
-    for i in range (mc.nfrags):
-        mc.ci.append ([])
-        cii = ci[str(i)]
-        for j in range (mc.nroots):
-            mc.ci[-1].append (cii[str(j)])
     # special handling for ragged frags_orbs
     if 'frags_orbs' in data:
         mc.frags_orbs = []
@@ -60,6 +63,17 @@ def load_las_(mc, chkfile=None, method_key='las',
         mc.mo_coeff = tag_array (mc.mo_coeff, orbsym=data['mo_coeff_orbsym'])
     return mc
 
+def _load_las_ci_(mc, data): 
+    # special handling for ragged CI vector
+    ci = data['ci']
+    mc.ci = []
+    for i in range (mc.nfrags):
+        mc.ci.append ([])
+        cii = ci[str(i)]
+        for j in range (mc.nroots):
+            mc.ci[-1].append (cii[str(j)])
+    return mc
+
 def dump_las (mc, chkfile=None, method_key='las', mo_coeff=None, ci=None,
               overwrite_mol=True, keys_config=KEYS_CONFIG_LASSCF,
               keys_saconstr=KEYS_SACONSTR_LASSCF,
@@ -71,6 +85,14 @@ def dump_las (mc, chkfile=None, method_key='las', mo_coeff=None, ci=None,
     kwargs['mo_coeff'] = mo_coeff
     if ci is None: ci = mc.ci
 
+    data = _dump_las_get_data (mc, keys_config, keys_saconstr, keys_results, **kwargs)
+    with h5py.File (chkfile, 'a') as fh5:
+        chkdata = _dump_las_get_chkdata (mc, fh5, overwrite_mol, method_key)
+        _dump_las_1_(mc, chkdata, data, mo_coeff)
+        _dump_las_ci_(mc, chkdata, ci)
+    return mc
+
+def _dump_las_get_data (mc, keys_config, keys_saconstr, keys_results, **kwargs):
     keys = keys_config + keys_results
     data = {key: kwargs.get (key, getattr (mc, key)) for key in keys}
     from mrh.my_pyscf.mcscf.lasci import get_space_info
@@ -78,34 +100,37 @@ def dump_las (mc, chkfile=None, method_key='las', mo_coeff=None, ci=None,
     data_saconstr = [mc.weights,] + list (data_saconstr)
     for key, val in zip (keys_saconstr, data_saconstr):
         data[key] = kwargs.get (key, val)
+    return data
 
-    with h5py.File (chkfile, 'a') as fh5:
-        if 'mol' not in fh5:
-            fh5['mol'] = mc.mol.dumps()
-        elif overwrite_mol:
-            del (fh5['mol'])
-            fh5['mol'] = mc.mol.dumps()
-        if method_key in fh5:
-            del (fh5[method_key])
-        chkdata = fh5.create_group (method_key)
+def _dump_las_get_chkdata (mc, fh5, overwrite_mol, method_key):
+    if 'mol' not in fh5:
+        fh5['mol'] = mc.mol.dumps()
+    elif overwrite_mol:
+        del (fh5['mol'])
+        fh5['mol'] = mc.mol.dumps()
+    if method_key in fh5:
+        del (fh5[method_key])
+    chkdata = fh5.create_group (method_key)
+    return chkdata
 
-        for key, val in data.items (): chkdata[key] = val
-        # special handling for ragged CI vector
-        for i, cii in enumerate (ci):
-            chkdata_ci_i = chkdata.create_group ('ci/'+str(i))
-            for j, ciij in enumerate (cii):
-                chkdata_ci_i[str(j)] = ciij
-        # special handling for ragged frags_orbs
-        if getattr (mc, 'frags_orbs', None) is not None:
-            chkdata_frags_orbs = chkdata.create_group ('frags_orbs')
-            for i, frag_orbs in enumerate (mc.frags_orbs):
-                chkdata_frags_orbs[str(i)] = frag_orbs
-        # if mo_coeff has tagged orbsym, save it, in case someone decides
-        # to change PySCF symmetry convention again
-        if getattr (mo_coeff, 'orbsym', None) is not None:
-            chkdata['mo_coeff_orbsym'] = mo_coeff.orbsym
-    return mc
+def _dump_las_1_(mc, chkdata, data, mo_coeff):
+    for key, val in data.items (): chkdata[key] = val
+    # special handling for ragged frags_orbs
+    if getattr (mc, 'frags_orbs', None) is not None:
+        chkdata_frags_orbs = chkdata.create_group ('frags_orbs')
+        for i, frag_orbs in enumerate (mc.frags_orbs):
+            chkdata_frags_orbs[str(i)] = frag_orbs
+    # if mo_coeff has tagged orbsym, save it, in case someone decides
+    # to change PySCF symmetry convention again
+    if getattr (mo_coeff, 'orbsym', None) is not None:
+        chkdata['mo_coeff_orbsym'] = mo_coeff.orbsym
 
+def _dump_las_ci_(mc, chkdata, ci):
+    # special handling for ragged CI vector
+    for i, cii in enumerate (ci):
+        chkdata_ci_i = chkdata.create_group ('ci/'+str(i))
+        for j, ciij in enumerate (cii):
+            chkdata_ci_i[str(j)] = ciij
 
 if __name__=='__main__':
     from pyscf import gto, scf, mcscf

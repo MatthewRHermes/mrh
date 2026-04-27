@@ -76,6 +76,41 @@ def get_init_guess (sisolver, hdiag, nroots, si1, log=None, penalty=None):
         ))
     return si0
 
+def project_init_guess (sisolver, si0, raw2orth, s2_op, ovlp_op):
+    log = logger.new_logger (sisolver, sisolver.verbose)
+    t0 = (logger.process_clock (), logger.perf_counter ())
+    si0 = np.asarray (si0).reshape (raw2orth.shape[1],-1)
+    x0 = raw2orth (ovlp_op (si0))
+    x_norm = linalg.norm (x0, axis=0)
+    idx0 = x_norm < 1e-3
+    if np.count_nonzero (idx0) == 0: return x0
+    if getattr (raw2orth, 'smult', None) is not None:
+        s = si0
+        s = lib.einsum ('ij,ij->j', s.conj (), s2_op (s))
+        s = (np.sqrt (1+(4*s)) - 1) / 2
+        s = np.around ((2*s) + 1).astype (int)
+        idx1 = (idx0
+                & (s > 0) # In principle, if the vector differed in other symmetries, s would be 0
+                & (s != raw2orth.smult)
+                )
+        #if idx1.any ():
+        #    s = s[idx1]
+        #    idx = np.where (idx1)[0]
+        #    log.error ('Smult of guess vector(s) {} = {} != {}'.format (
+        #        idx, s, raw2orth.smult
+        #    ))
+        #    raise NotImplementedError ("projection of guess SI vectors between total spins")
+        for other_smult in np.unique (s[idx1]):
+            idx2 = (s==other_smult)
+            shift_op = basis.SmultShifter (raw2orth, other_smult)
+            x0[:,idx2] = shift_op (si0[:,idx2])
+        x_norm = linalg.norm (x0, axis=0)
+        idx0 = x_norm < 1e-3
+    if np.count_nonzero (idx0) > 0:
+        raise RuntimeError ("Can't project initial guess SI vectors")
+    log.timer ("SI vector initial guess projection", *t0)
+    return x0
+
 class SISolver (lib.StreamObject):
     '''Class for diagonalizing a LASSI model space Hamiltonian matrix
 
@@ -116,10 +151,12 @@ class SISolver (lib.StreamObject):
     '''
 
     def __init__(self, las, soc=0, opt=1, davidson_only=False, nroots=NROOTS,
-                 max_memory=param.MAX_MEMORY):
+                 chkfile=None, max_memory=param.MAX_MEMORY):
+        if chkfile is None: chkfile = getattr (las, 'chkfile', None)
         self.las = las # I need this because op_o? fns need this
         self.verbose = las.verbose
         self.stdout = las.stdout
+        self.chkfile = chkfile
         self.max_memory = max_memory
         self.davidson_only = davidson_only
         self.max_cycle = MAX_CYCLE
@@ -132,10 +169,15 @@ class SISolver (lib.StreamObject):
         self.nroots = nroots
         self.smult = None
         self.converged = False
+        if callable (getattr (las, 'get_o1_chk_key', None)):
+            self.get_method_key = las.get_o1_chk_key
+        else:
+            self.get_method_key = lambda *args: None
         self._keys = set((self.__dict__.keys()))
 
     kernel = kernel
     get_init_guess = get_init_guess
+    project_init_guess = project_init_guess
 
     def dump_flags (self, verbose=None):
         if verbose is None: verbose = self.verbose
@@ -173,9 +215,10 @@ def kernel_Davidson (sisolver, e0, h1, h2, norb_f, ci_fr, nelec_frs, smult_fr, d
     screen_thresh = getattr (sisolver, 'davidson_screen_thresh', DAVIDSON_SCREEN_THRESH)
     pspace_size = getattr (sisolver, 'pspace_size', PSPACE_SIZE)
     smult = getattr (sisolver, 'smult', None)
+    chkfile = getattr (sisolver, 'chkfile', None)
     h_op_raw, s2_op, ovlp_op, hdiag_raw, _get_ovlp = op[opt].gen_contract_op_si_hdiag (
         sisolver.las, h1, h2, ci_fr, nelec_frs, smult_fr=smult_fr, soc=soc, disc_fr=disc_fr,
-        screen_thresh=screen_thresh
+        screen_thresh=screen_thresh, chkfile=chkfile, chkkey=sisolver.get_method_key ()
     )
     if verbose >= logger.DEBUG:
         # The sort is slow
@@ -218,7 +261,7 @@ def kernel_Davidson (sisolver, e0, h1, h2, norb_f, ci_fr, nelec_frs, smult_fr, d
     else:
         precond_op = lib.make_diag_precond (hdiag_orth, level_shift=level_shift)
     if si0 is not None:
-        x0 = raw2orth (ovlp_op (si0))
+        x0 = sisolver.project_init_guess (si0, raw2orth, s2_op, ovlp_op)
     else:
         x0 = None
     x0 = sisolver.get_init_guess (hdiag_orth, nroots, x0, log=log, penalty=hdiag_penalty)
@@ -297,8 +340,10 @@ def kernel_incore (sisolver, e0, h1, h2, norb_f, ci_fr, nelec_frs, smult_fr, soc
     # TODO: simplify
     t0 = (logger.process_clock (), logger.perf_counter ())
      
+    chkfile = getattr (sisolver, 'chkfile', None)
     ham_blk, s2_blk, ovlp_blk, _get_ovlp = op[opt].ham (
-        sisolver.las, h1, h2, ci_fr, nelec_frs, smult_fr=smult_fr, soc=soc)
+        sisolver.las, h1, h2, ci_fr, nelec_frs, smult_fr=smult_fr, soc=soc,
+        chkfile=chkfile, chkkey=sisolver.get_method_key ())
     t0 = logger.timer (sisolver, 'LASSI H build', *t0)
 
     # Error catch: linear dependencies in basis
@@ -325,4 +370,5 @@ def kernel_incore (sisolver, e0, h1, h2, norb_f, ci_fr, nelec_frs, smult_fr, soc
     c = raw2orth.H (c)
     s2_blk = ((s2_blk @ c) * c.conj ()).sum (0)
     return True, e, c, s2_blk
+
 

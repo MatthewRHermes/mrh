@@ -10,6 +10,7 @@ from itertools import product, combinations, combinations_with_replacement
 from mrh.my_pyscf.lassi.citools import get_lroots, get_rootaddr_fragaddr, get_unique_roots
 from mrh.my_pyscf.lassi.citools import _get_unique_roots_with_spin
 from mrh.my_pyscf.lassi.op_o1.utilities import *
+from mrh.my_pyscf.lassi.op_o1 import chkfile as chk
 from mrh.my_pyscf.fci.rdm import trans_rdm1ha_des, trans_rdm1hb_des #make_rdm1_spin1
 from mrh.my_pyscf.fci.rdm import trans_rdm13ha_des, trans_rdm13hb_des #is make_rdm12_spin1
 from mrh.my_pyscf.fci.rdm import trans_sfddm1, trans_hhdm ##trans_sfddm1 is make_rdm12_spin1, trans_hhdm is make_rdm12_spin1
@@ -128,7 +129,7 @@ class FragTDMInt (object):
                  rootaddr, fragaddr, idx_frag, mask_ints, smult_r=None,
                  dtype=np.float64, discriminator=None,
                  pt_order=None, do_pt_order=None, screen_linequiv=DO_SCREEN_LINEQUIV,
-                 verbose=None):
+                 chkfile=None, chkkey=None, verbose=None):
         # TODO: if it actually helps, cache the "linkstr" arrays
         if verbose is None: verbose = las.verbose
         if smult_r is None: smult_r = [None for n in nelec_rs]
@@ -150,7 +151,8 @@ class FragTDMInt (object):
         self.idx_frag = idx_frag
         self.mask_ints = mask_ints
         self.discriminator = discriminator
-
+        self.chkfile = chkfile
+        self.chkkey = chkkey
 
         if pt_order is None: pt_order = np.zeros (nroots, dtype=int)
         self.pt_order = pt_order
@@ -234,7 +236,7 @@ class FragTDMInt (object):
         except Exception as e:
             errstr = 'frag {} failure to get element {},{}'.format (self.idx_frag, ir, jr)
             errstr = errstr + '\nhopping_index entry: {}'.format (self.hopping_index[:,ir,jr])
-            raise RuntimeError (errstr)
+            raise RuntimeError (errstr) from e
 
     def try_get_tdm (self, tag, s, i, j, uroot_idx=False, highm=False):
         tab = self.mats[tag]
@@ -457,6 +459,11 @@ class FragTDMInt (object):
                 timestamp of entry into this function, for profiling by caller
         '''
         t0 = (lib.logger.process_clock (), lib.logger.perf_counter ())
+        if bool (self.chkkey):
+            if chk.has_chk (self.chkfile, with_record=self.chkkey):
+                if self.load_chk_():
+                    return t0
+
         ci = self.ci
         ndeta, ndetb = self.ndeta_r, self.ndetb_r
         if self.mask_ints is not None:
@@ -509,15 +516,6 @@ class FragTDMInt (object):
             self.spman_inter_uroot_map[j,i,:] = [q,p]
             self.spman_inter_uniq[q,p] = True
 
-        self.mats = {}
-        self.mats['ovlp'] = [[None for i in range (nuroots)] for j in range (nuroots)]
-        self.mats['h'] = [[[None for i in range (nuroots)] for j in range (nuroots)] for s in (0,1)]
-        self.mats['hh'] = [[[None for i in range (nuroots)] for j in range (nuroots)] for s in (-1,0,1)] 
-        self.mats['phh'] = [[[None for i in range (nuroots)] for j in range (nuroots)] for s in (0,1)]
-        self.mats['sm'] = [[None for i in range (nuroots)] for j in range (nuroots)]
-        self.mats['dm1'] = [[None for i in range (nuroots)] for j in range (nuroots)]
-        self.mats['dm2'] = [[None for i in range (nuroots)] for j in range (nuroots)]
-
         # Characterize the matrix elements involving these fragment states
         nelec_frs = np.asarray ([list(self.nelec_r[i]) for i in self.uroot_addr])[None,:,:]
         self.hopping_index = hopping_index = lst_hopping_index (nelec_frs)[0]
@@ -543,8 +541,84 @@ class FragTDMInt (object):
                         self.mask_ints[:,i], self.mask_ints[:,j]
                     )
 
+        nuroots = self.nuroots
+        self.mats = {}
+        self.mats['ovlp'] = [[None for i in range (nuroots)] for j in range (nuroots)]
+        self.mats['h'] = [[[None for i in range (nuroots)] for j in range (nuroots)] for s in (0,1)]
+        self.mats['hh'] = [[[None for i in range (nuroots)] for j in range (nuroots)] for s in (-1,0,1)] 
+        self.mats['phh'] = [[[None for i in range (nuroots)] for j in range (nuroots)] for s in (0,1)]
+        self.mats['sm'] = [[None for i in range (nuroots)] for j in range (nuroots)]
+        self.mats['dm1'] = [[None for i in range (nuroots)] for j in range (nuroots)]
+        self.mats['dm2'] = [[None for i in range (nuroots)] for j in range (nuroots)]
+
         t1 = self._make_dms_()
+
+        if bool (self.chkkey) and chk.has_chk (self.chkfile):
+            self.dump_chk ()
+
         return t0
+
+    chkconfig = ['norb',
+                 'nroots',
+                 'nelec_r',
+                 'spins_r',
+                 'smult_r',
+                 'rootaddr',
+                 'fragaddr',
+                 'discriminator',
+                 'idx_frag']
+
+    chkdata = ['mask_ints',
+               'root_unique',
+               'unique_root',
+               'umat_root',
+               'nuroots',
+               'uroot_idx',
+               'uroot_addr',
+               'spman',
+               'nspman',
+               'spman_inter_uniq',
+               'spman_inter_uroot_map',
+               'hopping_index',
+               'hopidx_null',
+               'hopidx_1c',
+               'hopidx_1s',
+               'hopidx_2c',
+               'mats']
+
+    def dump_chk (self):
+        key = '{}/dtype'.format (self.chkkey)
+        chk.dump (self.chkfile, key, str (self.dtype))
+        for field in self.chkconfig + self.chkdata:
+            key = '{}/{}'.format (self.chkkey, field)
+            value = getattr (self, field)
+            if value is None: value = np.empty (0)
+            chk.dump (self.chkfile, key, value)
+
+    def load_chk_(self):
+        # First, check for consistency with my setup data
+        key = '{}/dtype'.format (self.chkkey)
+        dtype = chk.load (self.chkfile, key)
+        if str (self.dtype) != dtype:
+            return False
+        loaded = {}
+        for field in self.chkconfig:
+            key = '{}/{}'.format (self.chkkey, field)
+            value = chk.load (self.chkfile, key)
+            loaded[field] = value
+        for key, val in loaded:
+            ref = np.asarray (getattr (self, key))
+            test = np.asarray (val).astype (ref.dtype)
+            if (ref!=test).any ():
+                return False
+        # Only if I survive this do I load the rest of the data
+        loaded = {}
+        for field in self.chkdata:
+            key = '{}/{}'.format (self.chkkey, field)
+            value = chk.load (self.chkfile, key)
+            loaded[field] = value
+        self.__dict__.update (**loaded)
+        return True
 
     def update_ci_(self, iroot, ci):
         for i, civec in zip (iroot, ci):
@@ -552,7 +626,6 @@ class FragTDMInt (object):
             self.ci[i] = civec.reshape (-1, self.ndeta_r[i], self.ndetb_r[i])
         t0 = self._make_dms_(screen=iroot)
         self.log.timer ('Update density matrices of fragment intermediate', *t0)
-    
 
     def _trans_rdm12s_loop(self, bravecs, ketvecs, norb, nelec, linkstr):
         tdm1s = np.zeros ((bravecs.shape[0],ketvecs.shape[0],2,norb,norb), dtype=self.dtype)
@@ -1286,7 +1359,7 @@ class HamTerm:
 
 def make_ints (las, ci, nelec_frs, smult_fr=None, screen_linequiv=DO_SCREEN_LINEQUIV, nlas=None,
                _FragTDMInt_class=FragTDMInt, mask_ints=None, discriminator=None, disc_fr=None,
-               pt_order=None, do_pt_order=None, verbose=None):
+               pt_order=None, do_pt_order=None, chkfile=None, chkkey=None, verbose=None):
     ''' Build fragment-local intermediates (`FragTDMInt`) for LASSI o1
 
     Args:
@@ -1335,6 +1408,7 @@ def make_ints (las, ci, nelec_frs, smult_fr=None, screen_linequiv=DO_SCREEN_LINE
     ints = []
 
     for ifrag in range (nfrags):
+        chkkey1 = '{}/frag{}'.format (chkkey, ifrag) if bool (chkkey) else chkkey
         m0 = lib.current_memory ()[0]
         tdmint = _FragTDMInt_class (las, ci[ifrag],
                                     nlas[ifrag], nroots, nelec_frs[ifrag], rootaddr,
@@ -1343,6 +1417,7 @@ def make_ints (las, ci, nelec_frs, smult_fr=None, screen_linequiv=DO_SCREEN_LINE
                                     discriminator=list(zip(discriminator,disc_fr[ifrag])),
                                     screen_linequiv=screen_linequiv,
                                     pt_order=pt_order, do_pt_order=do_pt_order,
+                                    chkfile=chkfile, chkkey=chkkey1,
                                     verbose=verbose)
         m1 = lib.current_memory ()[0]
         log.debug ('LAS-state TDM12s fragment %d uses %f MB of %f MB total used',

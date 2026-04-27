@@ -1174,8 +1174,10 @@ def make_stdm12s (las, ci, nelec_frs, **kwargs):
         ncas = ncas * 2
 
     # First pass: single-fragment intermediates
+    chkfile = kwargs.get ('chkfile', None)
+    chkkey = kwargs.get ('chkkey', None)
     ints, lroots = frag.make_ints (las, ci, nelec_frs, smult_fr=smult_fr, disc_fr=disc_fr,
-                                   nlas=nlas)
+                                   nlas=nlas, chkfile=chkfile, chkkey=chkkey, verbose=verbose)
     nstates = np.sum (np.prod (lroots, axis=0))
 
     # Memory check
