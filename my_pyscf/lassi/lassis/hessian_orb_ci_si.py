@@ -44,7 +44,6 @@ class HessianOperator (sparse_linalg.LinearOperator):
         self.h2_paaa = []
         for i in range (self.nmo):
             self.h2_paaa.append (self.eris.ppaa[i][ncore:nocc])
-        
         self.casdm1, self.casdm2 = lsi.make_casdm12 (
             ci=self.ci, si=self.si, opt=self.opt
         )
@@ -247,11 +246,12 @@ class HessianOperator (sparse_linalg.LinearOperator):
         return (fx - fx.T) / 2
 
     def hoa (self, ci1, si0, si1):
-        casdm1, casdm2 = self.lsi.trans_casdm12 (ci=ci1, si_bra=si0, si_ket=si1,
-                                                 spaces=self.spaces*(self.nfrags+1),
-                                                 pt_order=self.pt_order,
-                                                 do_pt_order=(0,1),
-                                                 opt=self.opt)
+        with self.lsi._o1_chk_off_env ():
+            casdm1, casdm2 = self.lsi.trans_casdm12 (ci=ci1, si_bra=si0, si_ket=si1,
+                                                     spaces=self.spaces*(self.nfrags+1),
+                                                     pt_order=self.pt_order,
+                                                     do_pt_order=(0,1),
+                                                     opt=self.opt)
         casdm1 += casdm1.T
         casdm2 += casdm2.transpose (1,0,3,2)
         fx = self.get_fock1 (self.h1, self.h2_paaa, casdm1, casdm2, _coreocc=0)

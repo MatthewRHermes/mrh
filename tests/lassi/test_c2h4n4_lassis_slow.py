@@ -139,18 +139,19 @@ class KnownValues(unittest.TestCase):
         for dson in (False, True):
             with self.subTest (davidson_only=dson):
                 # TODO: copy method for LASSIS that does all this
-                lsi_scanner = lsis[1].copy ().as_scanner ()
-                mol2 = struct (1.9, 1.9, '6-31g', symmetry=False)
-                mol2.verbose = 0
-                mol2.output = '/dev/null'
-                mol2.build ()
-                lsi_scanner (mol2)
-                self.assertTrue (lsi_scanner.converged)
+                with lsis[1]._o1_chk_off_env ():
+                    lsi_scanner = lsis[1].copy ().as_scanner ()
+                    mol2 = struct (1.9, 1.9, '6-31g', symmetry=False)
+                    mol2.verbose = 0
+                    mol2.output = '/dev/null'
+                    mol2.build ()
+                    lsi_scanner (mol2)
+                    self.assertTrue (lsi_scanner.converged)
                 mf2 = scf.RHF (mol2).run ()
                 las2 = LASSCF (mf2, (5,5), ((3,2),(2,3)), spin_sub=(2,2))
                 las2.mo_coeff = lsi_scanner.mo_coeff
                 las2.lasci ()
-                lsi2 = LASSIS (las2).run (davidson_only=dson)
+                lsi2 = LASSIS (las2).run (davidson_only=dson, _do_o1_chk=False)
                 assert (lsi2.opt==1)
                 self.assertTrue (lsi2.converged)
                 self.assertAlmostEqual (lsi_scanner.e_roots[0], lsi2.e_roots[0], 5)

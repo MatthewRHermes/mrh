@@ -14,6 +14,7 @@
 # limitations under the License.
 import copy
 import unittest
+import tempfile
 import numpy as np
 from scipy import linalg
 from pyscf import lib, gto, scf, mcscf, ao2mo
@@ -319,6 +320,14 @@ class KnownValues(unittest.TestCase):
                     fdm1 = make_fdm1 (iroot, ifrag)
                     sdm1 = make_sdm1 (lsi, iroot, ifrag)
                     self.assertAlmostEqual (lib.fp (fdm1), lib.fp (sdm1), 7)
+
+    def test_lassis_chkfile (self):
+        with tempfile.NamedTemporaryFile() as chkfile:
+            lsis[1].dump_chk (chkfile)
+            lsis1 = lassis.LASSIS (lsis[1]._las)
+            lsis1.load_chk_(chkfile)
+        lsis1.eig ()
+        self.assertAlmostEqual (lsis1.e_roots[0], lsis[1].e_roots[0], 7)
 
 if __name__ == "__main__":
     print("Full Tests for LASSI of random 2,2 system")

@@ -108,8 +108,7 @@ class KnownValues(unittest.TestCase):
             )
             las1.ci = ci2
             ci2 = [[ci_ref[ifrag], ci1[ifrag]] for ifrag in range (las.nfrags)]
-            las1.ci = ci2
-            lsi1 = LASSI (las1)
+            lsi1 = LASSI (las1, do_o1_chk=False)
             e_roots1, si1 = lsi1.kernel ()
             ham_pq = (si1 * e_roots1[None,:]) @ si1.conj ().T
             w = si1[-1].conj () * si1[-1]
@@ -222,7 +221,7 @@ class KnownValues(unittest.TestCase):
             las1.ci = ci2
             ci2 = [ci_ref[ifrag]+[ci1[ifrag],] for ifrag in range (las.nfrags)]
             las1.ci = ci2
-            lsi1 = LASSI (las1)
+            lsi1 = LASSI (las1, do_o1_chk=False)
             e_roots1, si1 = lsi1.kernel ()
             ham_pq = (si1 * e_roots1[None,:]) @ si1.conj ().T
             w = si1[-1].conj () * si1[-1]

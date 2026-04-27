@@ -167,17 +167,18 @@ def get_grad (lsi, mo_coeff=None, ci_ref=None, ci_sf=None, ci_ch=None, si=None, 
     if ci_sf is None: ci_sf = lsi.ci_spin_flips
     if ci_ch is None: ci_ch = lsi.ci_charge_hops
     if si is None: si = lsi.si
-    ci = lsi.prepare_model_states (ci_ref, ci_sf, ci_ch)[0].ci
-    gorb = get_grad_orb (lsi, mo_coeff=mo_coeff, ci=ci, si=si, state=state, weights=weights,
-                         opt=opt)
-    gci_ref, gci_sf, gci_ch = get_grad_ci (lsi, mo_coeff=mo_coeff, ci=ci, si=si, state=state,
-                                           weights=weights, opt=opt)
-    gsi = get_grad_si (lsi, mo_coeff=mo_coeff, ci=ci, si=si, opt=opt)
-    if state is not None: gsi = gsi[:,state]
-    if state is not None: si = si[:,state] 
-    if pack:
-        ugg = coords.UnitaryGroupGenerators (lsi, mo_coeff, ci_ref, ci_sf, ci_ch, si)
-        return ugg.pack (gorb, gci_ref, gci_sf, gci_ch, gsi)
-    else:
-        return gorb, gci_ref, gci_sf, gci_ch, gsi
+    with lsi._o1_chk_off_env ():
+        ci = lsi.prepare_model_states (ci_ref, ci_sf, ci_ch)[0].ci
+        gorb = get_grad_orb (lsi, mo_coeff=mo_coeff, ci=ci, si=si, state=state, weights=weights,
+                             opt=opt)
+        gci_ref, gci_sf, gci_ch = get_grad_ci (lsi, mo_coeff=mo_coeff, ci=ci, si=si, state=state,
+                                               weights=weights, opt=opt)
+        gsi = get_grad_si (lsi, mo_coeff=mo_coeff, ci=ci, si=si, opt=opt)
+        if state is not None: gsi = gsi[:,state]
+        if state is not None: si = si[:,state] 
+        if pack:
+            ugg = coords.UnitaryGroupGenerators (lsi, mo_coeff, ci_ref, ci_sf, ci_ch, si)
+            return ugg.pack (gorb, gci_ref, gci_sf, gci_ch, gsi)
+        else:
+            return gorb, gci_ref, gci_sf, gci_ch, gsi
 

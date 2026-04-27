@@ -672,11 +672,16 @@ def roots_trans_rdm12s (las, ci, nelec_frs, si_bra, si_ket, **kwargs):
         ncas = ncas * 2
 
     # First pass: single-fragment intermediates
+    chkfile = kwargs.get ('chkfile', None)
+    chkkey = kwargs.get ('chkkey', None)
     ints, lroots = frag.make_ints (las, ci, nelec_frs, nlas=nlas, smult_fr=smult_fr,
                                    disc_fr=disc_fr,
                                    _FragTDMInt_class=FragTDMInt,
                                    pt_order=pt_order,
-                                   do_pt_order=do_pt_order)
+                                   do_pt_order=do_pt_order,
+                                   chkfile=chkfile,
+                                   chkkey=chkkey,
+                                   verbose=verbose)
     nstates = np.sum (np.prod (lroots, axis=0))
     
     # Memory check

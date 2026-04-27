@@ -1,6 +1,7 @@
 import sys
 import numpy as np
 import time
+import hashlib
 from scipy import linalg
 from mrh.my_pyscf.lassi import op_o0
 from mrh.my_pyscf.lassi import op_o1
@@ -549,6 +550,10 @@ def roots_trans_rdm12s (las, ci, si_bra, si_ket, orbsym=None, soc=None, break_sy
     o0_memcheck = op_o0.memcheck (las, ci, soc=soc)
     if opt == 0 and o0_memcheck == False:
         raise RuntimeError ('Insufficient memory to use o0 LASSI algorithm')
+    if callable (getattr (las, 'get_o1_chk_key', None)):
+        chkkey = las.get_o1_chk_key ()
+    else:
+        chkkey = None
 
     # Initialize matrices
     norb = las.ncas
@@ -611,7 +616,7 @@ def roots_trans_rdm12s (las, ci, si_bra, si_ket, orbsym=None, soc=None, break_sy
                 smult_fr = smult_blk
             d1s, d2s = op[opt].roots_trans_rdm12s (las1, ci_blk, nelec_blk, sib_blk, sik_blk,
                                                    smult_fr=smult_fr, orbsym=orbsym, wfnsym=wfnsym,
-                                                   **kwargs)
+                                                   chkfile=las.chkfile, chkkey=chkkey, **kwargs)
             t0 = lib.logger.timer (las, 'LASSI trans_rdm12s rootsym {}'.format (sym), *t0)
         idx_int = np.where (idx_si)[0]
         for (i,a) in enumerate (idx_int):
@@ -771,12 +776,14 @@ class LASSI(lib.StreamObject):
     LASSI Method class
     '''
     def __init__(self, las, mo_coeff=None, ci=None, soc=False, break_symmetry=False, opt=1,
-                 davidson_only=False, nroots_si=None, **kwargs):
+                 davidson_only=False, nroots_si=None, chkfile=None, do_o1_chk=None, **kwargs):
         from mrh.my_pyscf.mcscf.lasci import LASCINoSymm
         if isinstance(las, LASCINoSymm): self._las = las
         else: raise RuntimeError("LASSI requires las instance")
         if mo_coeff is None: mo_coeff = las.mo_coeff
         if ci is None: ci = las.ci
+        if chkfile is None: chkfile = las.chkfile
+        self.chkfile = chkfile
         self.mo_coeff, self.ci = mo_coeff, ci
         # indiscriminate "dict update" from las is bad practice. not doing that anymore
         # Wave function configuration data from las parent
@@ -801,11 +808,34 @@ class LASSI(lib.StreamObject):
         self.break_symmetry = break_symmetry
         self.soc = soc
         self.opt = opt
+        if do_o1_chk is not None: self._do_o1_chk = do_o1_chk
         self.sisolver = SISolver (self, soc=soc, opt=opt, davidson_only=davidson_only,
-                                  max_memory=self.max_memory)
+                                  max_memory=self.max_memory, chkfile=chkfile)
         if nroots_si is not None:
             self.sisolver.nroots = nroots_si
         self._keys = set((self.__dict__.keys())).union(keys)
+
+    _method_key = 'lsi'
+
+    def get_o1_chk_hash (self):
+        m = hashlib.sha256 ()
+        m.update (np.asarray ([self.ncore,] + self.ncas_sub).astype (int).tobytes ())
+        m.update (self.get_nelec_frs ().tobytes ())
+        m.update (self.get_smult_fr ().tobytes ())
+        m.update (self.get_sym_fr ().tobytes ())
+        m.update (self.get_lroots ().tobytes ())
+        return m
+    
+    def get_o1_chk_key (self):
+        if self._do_o1_chk:
+            fp = self.get_o1_chk_hash ().hexdigest ()
+            return '{}/o1/{}'.format (self._method_key, fp)
+        else:
+            return False
+
+    _do_o1_chk = getattr (__config__, 'lassi_do_o1_chk', True)
+    def _o1_chk_off_env (self):
+        return lib.temporary_env (self, _do_o1_chk=False)
 
     @property
     def converged_si (self):
@@ -996,11 +1026,15 @@ class LASSI(lib.StreamObject):
         from mrh.my_pyscf.lassi.sitools import analyze
         return analyze (self, self.si, state=state, **kwargs)
 
+    def _reset_o1_chk (self):
+        return chkfile.clear
     def reset (self, mol=None):
         if mol is not None:
             self.mol = mol
         self._las.reset (mol)
+        self._reset_o1_chk ()
 
+    _reset_o1_chk = chkfile.clear_o1
     dump_chk = chkfile.dump_lsi
     load_chk = load_chk_ = chkfile.load_lsi_
 
@@ -1018,7 +1052,6 @@ class LASSI(lib.StreamObject):
         log.warn (("LASSI nroots_si is deprecated. Set "
                    "sisolver.nroots in the future"))
         self.sisolver.nroots = x
-        print ("right after setting", self.nroots_si)
 
     @property
     def davidson_only (self): return self.sisolver.davidson_only

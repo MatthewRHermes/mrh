@@ -80,6 +80,7 @@ class LASSIrq_Scanner(lib.SinglePointScanner):
 
 
 class LASSIrq (LASSI):
+    _method_key = 'lsirq'
     def __init__(self, las, r=0, q=1, opt=1, **kwargs):
         self.r = r
         self.q = q
@@ -87,6 +88,7 @@ class LASSIrq (LASSI):
 
     def prepare_states_(self):
         self.converged, las = self.prepare_states ()
+        self._reset_o1_chk ()
         #self.__dict__.update(las.__dict__) # Unsafe
         self.fciboxes = las.fciboxes
         self.ci = las.ci
@@ -109,6 +111,7 @@ class LASSIrq (LASSI):
 
 
 class LASSIrqCT (LASSIrq):
+    _method_key = 'lsirqct'
     def make_lroots (self, las, q=None):
         lroots = LASSIrq.make_lroots (self, las, q=q)
         charges_fr = get_space_info (las)[0].T
