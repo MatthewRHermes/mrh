@@ -1,6 +1,7 @@
+import itertools
 import numpy as np
 from functools import reduce
-import itertools
+
 from pyscf import lib
 from pyscf.ao2mo import _ao2mo
 from pyscf.pbc.lib import kpts_helper
@@ -11,7 +12,16 @@ _mo_as_complex = df_ao2mo._mo_as_complex
 _conc_mos = df_ao2mo._conc_mos
 logger = lib.logger
 
-# The 2e integrals transformation to MO basis for the orbital optimization.mk
+# Author: Bhavnesh Jangid
+
+'''
+This file handles the 2e integral transformation required for the orbital optimization for the k-CASSCF.
+There are two options
+1. Disk Method: Will compute the AO2MO transformation using DF integrals and then store the required integrals on the disk.
+        This will be much more memory efficient.
+2. Direct Method: In this case, I will be using the with_df.ao2mo infrastructure to directly compute the required integrals
+    and store them in memory.
+'''
 
 def get_nauxlist(mydf, kpts, nkpts):
     nauxlist = {}
@@ -356,7 +366,7 @@ if __name__ == "__main__":
     cell.build()
 
     t0 = (lib.logger.process_clock(), lib.logger.perf_counter())
-    kmesh = [2, 2, 2]
+    kmesh = [2, 1, 2]
     kpts = cell.make_kpts(kmesh)
     
     kmf = scf.KRHF(cell, kpts).density_fit()
