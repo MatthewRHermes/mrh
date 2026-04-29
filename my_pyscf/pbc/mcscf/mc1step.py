@@ -165,7 +165,8 @@ def gen_g_hop(mc, mo_coeff, mo_phase, u, casdm1, casdm2, eris):
     dtype = casdm1.dtype
 
     kpts = kmf.kpts
-    
+    kmesh = mc.kmesh
+
     ncastot = nkpts*ncas
 
     kconserv = kpts_helper.get_kconserv(cell, kpts)
@@ -283,7 +284,7 @@ def gen_g_hop(mc, mo_coeff, mo_phase, u, casdm1, casdm2, eris):
 
         mo1 = np.array([np.dot(mo_coeff[k], u[k]) 
                         for k in range(nkpts)], dtype=dtype) # (nkpts, nao, nmo)
-        mo_phase1 = get_mo_coeff_k2R(kmf, mo1, ncore, ncas)[-1]
+        mo_phase1 = get_mo_coeff_k2R(kmf, mo1, ncore, ncas, kmesh=kmesh)[-1]
 
         # Compute the RDMs        
         ncastot = nkpts * ncas
@@ -812,7 +813,7 @@ def kernel(casscf, mo_coeff, mo_phase, tol=1e-7, conv_tol_grad=None,
                     newvecs.append(subvec)
             fcivec = newvecs
 
-        mo_phase = get_mo_coeff_k2R(casscf._scf, mo, ncore, ncas)[-1]
+        mo_phase = get_mo_coeff_k2R(casscf._scf, mo, ncore, ncas, kmesh=casscf.kmesh)[-1]
         e_tot, e_cas, fcivec = casscf.casci(mo, mo_phase=mo_phase, ci0=fcivec, eris=eris, verbose=log, envs=locals())
 
         casdm1, casdm2 = casscf.fcisolver.make_rdm12(fcivec, nkpts*ncas, (nkpts*nelecas[0], nkpts*nelecas[1]))
@@ -979,7 +980,7 @@ class PBCCASSCF(casci.PBCCASBASE):
         self.check_sanity()
         self.dump_flags()
 
-        mo_phase = get_mo_coeff_k2R(self._scf, mo_coeff, self.ncore, self.ncas)[-1]
+        mo_phase = get_mo_coeff_k2R(self._scf, mo_coeff, self.ncore, self.ncas, kmesh=self.kmesh)[-1]
 
         # print('Start 1-step CASSCF optimization')
         self.converged, self.e_tot, self.e_cas, self.ci, \
@@ -1194,7 +1195,7 @@ class PBCCASSCF(casci.PBCCASBASE):
             vj, vk = self._scf.get_jk(self._scf.cell, dm_core, kpt=kpts, with_j=True,
                                  with_k=True, exxdiv=None)
 
-            mo_phase1 = get_mo_coeff_k2R(self._scf, mo1, ncore, ncas)[-1]
+            mo_phase1 = get_mo_coeff_k2R(self._scf, mo1, ncore, ncas, kmesh=self.kmesh)[-1]
 
             # h1e for active space.
             h1 = np.empty((nkpts, ncas, ncas), dtype=dtype)
@@ -1212,7 +1213,7 @@ class PBCCASSCF(casci.PBCCASBASE):
             # h1e
             mo1 = np.array([np.dot(mo[k], u[k]) 
                             for k in range(nkpts)])
-            mo_phase1 = get_mo_coeff_k2R(self._scf, mo1, ncore, ncas)[-1]
+            mo_phase1 = get_mo_coeff_k2R(self._scf, mo1, ncore, ncas, kmesh=self.kmesh)[-1]
             h1 = np.empty((nkpts, ncas, ncas), dtype=dtype)
             kconserv = kpts_helper.get_kconserv(self._scf.cell, kpts)
             for k in range(nkpts):
@@ -1384,7 +1385,7 @@ class PBCCASSCF(casci.PBCCASBASE):
         if eris is None: eris = self.ao2mo(mo_coeff)
         # The mo_phase is needed for the transformation of the integrals to R-space. 
         # I will just compute it here.
-        mo_phase = get_mo_coeff_k2R(self._scf, mo_coeff, self.ncore, self.ncas)[-1]
+        mo_phase = get_mo_coeff_k2R(self._scf, mo_coeff, self.ncore, self.ncas, kmesh=self.kmesh)[-1]
         if casdm1_casdm2 is None:
             nkpts = self.nkpts
             ncastot = nkpts * self.ncas
@@ -1421,7 +1422,7 @@ class PBCCASSCF(casci.PBCCASBASE):
         ncas = self.ncas
         nocc = ncore + ncas
         mo1 = [np.dot(mo, u) for mo, u in zip(mo_kpts, u_kpts)]
-        mo_phase1 = get_mo_coeff_k2R(kmf, mo1, ncore, ncas)[-1]
+        mo_phase1 = get_mo_coeff_k2R(kmf, mo1, ncore, ncas, kmesh=self.kmesh)[-1]
         mo_cas_kpts = np.array([mo1[k][:, ncore:nocc] for k in range(nkpts)])
         eri_k = kmf.with_df.ao2mo_7d(mo_cas_kpts, kpts=kpts)
         kconserv = kpts_helper.get_kconserv(cell, kpts)
