@@ -86,7 +86,7 @@ def h1e_for_cas(mc, mo_coeff=None, ncas=None, ncore=None):
 
     h1ao_k += corevhf_kpts
 
-    phase, mo_coeff_R = get_mo_coeff_k2R(mc._scf, mo_coeff, ncore, ncas)[1:3]
+    phase, mo_coeff_R = get_mo_coeff_k2R(mc._scf, mo_coeff, ncore, ncas, kmesh=mc.kmesh)[1:3]
     h1ao_R = np.einsum('Rk,kij,Sk->RiSj', phase, h1ao_k, phase.conj())
     h1ao_R = h1ao_R.reshape(nkpts*nao, nkpts*nao)
 
@@ -121,7 +121,7 @@ def get_fock(mc, mo_coeff=None, ci=None, eris=None, casdm1=None, verbose=None):
     hcore_k = mc.get_hcore()
     fock = np.empty_like(hcore_k, dtype=dtype)
 
-    mo_phase = get_mo_coeff_k2R(kmf, mo_coeff, ncore, ncas)[-1]
+    mo_phase = get_mo_coeff_k2R(kmf, mo_coeff, ncore, ncas, kmesh=mc.kmesh)[-1]
     
     dm_k = np.empty_like(dm_core)
 
@@ -188,7 +188,7 @@ def canonicalize(mc, mo_coeff=None, ci=None, eris=None, sort=False,
     
     fock_ao = get_fock(mc, mo_coeff=mo_coeff, ci=ci, casdm1=casdm1, verbose=verbose)
 
-    mo_phase = get_mo_coeff_k2R(kmf, mo_coeff, ncore, ncas)[-1]
+    mo_phase = get_mo_coeff_k2R(kmf, mo_coeff, ncore, ncas, kmesh=mc.kmesh)[-1]
 
     if cas_natorb:
         # Currently not implemented.
@@ -370,13 +370,14 @@ class PBCCASBASE(mcscf.casci.CASBase):
         'natorb', 'canonicalization', 'sorting_mo_energy', 'cell', 'max_memory',
         'ncas', 'nelecas', 'ncore', 'fcisolver', 'frozen', 'extrasym',
         'e_tot', 'e_cas', 'ci', 'mo_coeff', 'mo_energy', 'mo_occ', 'converged',
-        'nkpts', 'scell'
+        'nkpts', 'scell', 'kmesh'
     }
 
     def __init__(self, kmf, ncas=0, nelecas=0, ncore=None):
         cell = kmf.cell
         self.cell = cell
         self.nkpts = len(kmf.kpts)
+        self.kmesh = None
         self._scf = kmf
         self.verbose = cell.verbose
         self.stdout = cell.stdout
@@ -583,8 +584,8 @@ class PBCCASBASE(mcscf.casci.CASBase):
             ncore = self.ncore
 
         nkpts = self.nkpts
-        
-        mo_phase = get_mo_coeff_k2R(self._scf, mo_coeff, ncore, ncas)[-1]
+        kmesh = self.kmesh
+        mo_phase = get_mo_coeff_k2R(self._scf, mo_coeff, ncore, ncas, kmesh=kmesh)[-1]
         nao = mo_coeff[0].shape[0]
         casdm1a, casdm1b = self.fcisolver.make_rdm1s(ci, nkpts*ncas, (nkpts*nelecas[0], nkpts*nelecas[1]))
         
@@ -619,7 +620,7 @@ class PBCCASBASE(mcscf.casci.CASBase):
         nao = mo_coeff[0].shape[0]
 
         casdm1 = self.fcisolver.make_rdm1(ci, nkpts*ncas, (nkpts*nelecas[0], nkpts*nelecas[1]))
-        mo_phase = get_mo_coeff_k2R(self._scf, mo_coeff, ncore, ncas)[-1]
+        mo_phase = get_mo_coeff_k2R(self._scf, mo_coeff, ncore, ncas, kmesh=self.kmesh)[-1]
 
         dm1 = np.empty((nkpts, nao, nao), dtype=casdm1.dtype)
         for k in range(nkpts):
@@ -663,7 +664,7 @@ class PBCCASCI(PBCCASBASE):
         if mo_coeff is None:
             mo_coeff = self.mo_coeff
         
-        mo_phase = get_mo_coeff_k2R(kmf, mo_coeff, ncore, ncas)[-1]
+        mo_phase = get_mo_coeff_k2R(kmf, mo_coeff, ncore, ncas, kmesh=self.kmesh)[-1]
         
         kconserv = kpts_helper.get_kconserv(kmf.cell, kmf.kpts)
         kpts = kmf.kpts
