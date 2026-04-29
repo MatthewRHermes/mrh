@@ -40,6 +40,7 @@ def _do_ao2mo_direct(kcasscf, mo_kpts, nkpts, ncore, ncas, nmo, level=1):
     nocc = ncore + ncas
     dtype = mo_kpts[0].dtype
     assert len(mo_kpts) == nkpts
+    assert nkpts >= 1
     log = lib.logger.Logger(kcasscf.stdout, kcasscf.verbose)
     t1 = t0 = (logger.process_clock(), logger.perf_counter())
 
@@ -50,21 +51,24 @@ def _do_ao2mo_direct(kcasscf, mo_kpts, nkpts, ncore, ncas, nmo, level=1):
     kconserv = kpts_helper.get_kconserv(cell, kpts)
     for k1, k2, k3 in kpts_helper.loop_kkk(nkpts):
         k4 = kconserv[k1, k2, k3]
-        ppaa[k1, k2, k3] = mydf.ao2mo([mo_kpts[k1], mo_kpts[k2], mo_kpts[k3][:, ncore:nocc], mo_kpts[k4][:, ncore:nocc]],
+        mo_coeff_tr = [mo_kpts[k1], mo_kpts[k2], mo_kpts[k3][:, ncore:nocc], mo_kpts[k4][:, ncore:nocc]]
+        ppaa[k1, k2, k3] = 1/nkpts * mydf.ao2mo(mo_coeff_tr,
                           [kpts[i] for i in (k1, k2, k3, k4)], 
                           compact=False).reshape(nmo, nmo, ncas, ncas)
     t1 = log.timer('density fitting ao2mo ppaa', *t0)
 
     for k1, k2, k3 in kpts_helper.loop_kkk(nkpts):
         k4 = kconserv[k1, k2, k3]
-        papa[k1, k2, k3] = mydf.ao2mo([mo_kpts[k1], mo_kpts[k2][:, ncore:nocc], mo_kpts[k3], mo_kpts[k4][:, ncore:nocc]],
+        mo_coeff_tr = [mo_kpts[k1], mo_kpts[k2][:, ncore:nocc], mo_kpts[k3], mo_kpts[k4][:, ncore:nocc]]
+        papa[k1, k2, k3] = 1/nkpts * mydf.ao2mo(mo_coeff_tr,
                         [kpts[i] for i in (k1, k2, k3, k4)],
                         compact=False).reshape(nmo, ncas, nmo, ncas)
     t2 = log.timer('density fitting ao2mo papa', *t1)
 
     for k1, k2, k3 in kpts_helper.loop_kkk(nkpts):
         k4 = kconserv[k1, k2, k3]
-        paap[k1, k2, k3] = mydf.ao2mo([mo_kpts[k1], mo_kpts[k2][:, ncore:nocc], mo_kpts[k3][:, ncore:nocc], mo_kpts[k4]],
+        mo_coeff_tr = [mo_kpts[k1], mo_kpts[k2][:, ncore:nocc], mo_kpts[k3][:, ncore:nocc], mo_kpts[k4]]
+        paap[k1, k2, k3] = 1/nkpts * mydf.ao2mo(mo_coeff_tr,
                         [kpts[i] for i in (k1, k2, k3, k4)],
                         compact=False).reshape(nmo, ncas, ncas, nmo)
     t3 = log.timer('density fitting ao2mo paap', *t2)
@@ -83,13 +87,13 @@ def _do_ao2mo_direct(kcasscf, mo_kpts, nkpts, ncore, ncas, nmo, level=1):
             for k in range(nkpts):
                 mo_ppaa = [mo_kpts[k], mo_kpts[k], mo_kpts[k][:, :ncore], mo_kpts[k][:, :ncore]]
                 temp = mydf.ao2mo(mo_ppaa, [kpts[k]]*4, compact=False).reshape(nmo, nmo, ncore, ncore)
-                j_pc[k] = np.einsum('ppjj->pj', temp)
+                j_pc[k] = 1/nkpts * np.einsum('ppjj->pj', temp)
                 mo_papa = [mo_kpts[k], mo_kpts[k][:, :ncore], mo_kpts[k], mo_kpts[k][:, :ncore]]
                 temp = mydf.ao2mo(mo_papa, [kpts[k]]*4, compact=False).reshape(nmo, ncore, nmo, ncore)
-                k_pc[k] = 1/3 *np.einsum('pjpj->pj', temp)
+                k_pc[k] = 1/(3*nkpts) * np.einsum('pjpj->pj', temp)
                 mo_paap = [mo_kpts[k], mo_kpts[k][:, :ncore], mo_kpts[k][:, :ncore], mo_kpts[k]]
                 temp = mydf.ao2mo(mo_paap, [kpts[k]]*4, compact=False).reshape(nmo, ncore, ncore, nmo)
-                k_pc[k] += 2/3 * np.einsum('pjjp->pj', temp).conj()
+                k_pc[k] += 2/(3*nkpts) * np.einsum('pjjp->pj', temp).conj()
     else:
         j_pc = k_pc = None
     log.timer('density fitting ao2mo j_pc, k_pc', *t2)
@@ -183,7 +187,7 @@ def _do_ao2mo_disk(kcasscf, mo_kpts, nkpts, ncore, ncas, nmo, level=1):
         zkl_34 = zkl_34.reshape(-1, nmo*ncas)
         sign = grp2[f"{k1}_{k2}"][()]
         lib.dot(zij_12.T, zkl_34, sign, papa, 1)
-        erifile[f"papa/{k1}_{k2}_{k3}"] = papa.reshape(nmo, ncas, nmo, ncas)
+        erifile[f"papa/{k1}_{k2}_{k3}"] = 1/nkpts * papa.reshape(nmo, ncas, nmo, ncas)
 
     papa = zij_12 = zkl_34 = None
     t2 = log.timer('density fitting ao2mo papa', *t1)
@@ -198,7 +202,7 @@ def _do_ao2mo_disk(kcasscf, mo_kpts, nkpts, ncore, ncas, nmo, level=1):
         zkl_34 = zkl_34.reshape(-1, ncas*ncas)
         sign = grp2[f"{k1}_{k2}"][()]
         lib.dot(zij_12.T, zkl_34, sign, ppaa, 1)
-        erifile[f"ppaa/{k1}_{k2}_{k3}"] = ppaa.reshape(nmo, nmo, ncas, ncas)
+        erifile[f"ppaa/{k1}_{k2}_{k3}"] = 1/nkpts * ppaa.reshape(nmo, nmo, ncas, ncas)
 
     ppaa = zij_12 = zkl_34 = None
     t2 = log.timer('density fitting ao2mo ppaa', *t2)
@@ -213,7 +217,7 @@ def _do_ao2mo_disk(kcasscf, mo_kpts, nkpts, ncore, ncas, nmo, level=1):
         zkl_34 = zkl_34.reshape(-1, ncas*nmo)
         sign = grp2[f"{k1}_{k2}"][()]
         lib.dot(zij_12.T, zkl_34, sign, paap, 1)
-        erifile[f"paap/{k1}_{k2}_{k3}"] = paap.reshape(nmo, ncas, ncas, nmo)
+        erifile[f"paap/{k1}_{k2}_{k3}"] = 1/nkpts * paap.reshape(nmo, ncas, ncas, nmo)
     paap = zij_12 = zkl_34 = None
     t3 = log.timer('density fitting ao2mo paap', *t2)
 
@@ -223,9 +227,9 @@ def _do_ao2mo_disk(kcasscf, mo_kpts, nkpts, ncore, ncas, nmo, level=1):
         for k in range(nkpts):
             zij = grp[f"{k}_{k}"][()]
             bufd = np.einsum('pii->pi', zij)
-            j_pc_kpts[k] = np.einsum('pi,pj->ij', bufd, bufd[:,:ncore])
-            k_cp = 1.0/3.0 *np.einsum('kij,kij->ij', zij[:,:ncore], zij[:,:ncore]) 
-            k_cp += 2.0/3.0 * np.einsum('kij,kji->ij', zij[:,:ncore], zij[:, :, :ncore])
+            j_pc_kpts[k] = 1/nkpts * np.einsum('pi,pj->ij', bufd, bufd[:,:ncore])
+            k_cp = 1.0/(3.0*nkpts) *np.einsum('kij,kij->ij', zij[:,:ncore], zij[:,:ncore]) 
+            k_cp += 2.0/(3.0*nkpts) * np.einsum('kij,kji->ij', zij[:,:ncore], zij[:, :, :ncore])
             k_pc_kpts[k] = k_cp.conj().T
         
         bufd = zij =  k_cp = None
