@@ -20,24 +20,6 @@ logger = lib.logger
 # Author: Bhavnesh Jangid
 
 '''
-I think these reference are utmost useful, if anyone is trying to implement the CASSCF.
-1. Chem Phy. 1980, 48, 157-173
-2. Phys. Scripta, 1980, 21, 323-327
-3. Theo Chem Acc 1997, 97, 88-95
-4. CPL 2017, 683, 291-299
-5. JCP 2019, 150, 194106
-6. JCP 2019, 152, 074102
-7. IJQC, 2009, 109, 2178-2190 (For DIIS)
-8. JCC. 2018, 40, 1463-1470 (For DIIS)
-'''
-
-'''
-Steps
-1. Generalize the gen_g_hop, heassian_op and hessian_diag functions to the k-point case.
-2. Integrate the above functions with k-point CIAH solver.
-'''
-
-'''
 #TODOs:
 1. Normalize the 2e integrals in mc_ao2mo generation only.
 2. 
@@ -236,14 +218,14 @@ def gen_g_hop(mc, mo_coeff, mo_phase, u, casdm1, casdm2, eris):
         ppaa = eris.ppaa(k1, k2, k3) # (k1, k2, k3, k4)
 
         if (k1 == k2) and (k3==k4):
-            vhf_a[k1] +=  1.0/nkpts * np.einsum('pquv,uv->pq', ppaa, casdm1_kpts[k3]) # (k1,k1)
+            vhf_a[k1] += np.einsum('pquv,uv->pq', ppaa, casdm1_kpts[k3]) # (k1,k1)
 
         if (k1 == k4) and (k2 == k3):
             paap = eris.paap(k1, k2, k3) # (k1, k2, k3, k4)
-            vhf_a[k1] -= 0.5/nkpts * np.einsum('puvq,uv->pq', paap, casdm1_kpts[k2]) # (k1,k1)
+            vhf_a[k1] -= 0.5 * np.einsum('puvq,uv->pq', paap, casdm1_kpts[k2]) # (k1,k1)
             
         # dm2_blk = casdm2_kpts[k1, k2, k3]   # (k1, k2, k3, k4)
-        # jtmp = 1/nkpts * np.einsum('pqvw,tuvw->pqut', ppaa[:, ncore:nocc, :, :], dm2_blk)
+        # jtmp = np.einsum('pqvw,tuvw->pqut', ppaa[:, ncore:nocc, :, :], dm2_blk)
         # g_dm2[k1] += np.einsum('puuv->pv', jtmp)
 
         # TODO: Optimize it.
@@ -252,7 +234,7 @@ def gen_g_hop(mc, mo_coeff, mo_phase, u, casdm1, casdm2, eris):
             if k1==k4 and k2==k3:
                 ppaa = eris.ppaa(k1, k2, kv)
                 dm2_blk = casdm2_kpts[k1, k2, kv]
-                g_dm2[k1] += 1/nkpts * np.einsum('puvw,tuvw->pt', ppaa[:, ncore:nocc, :, :], dm2_blk)
+                g_dm2[k1] += np.einsum('puvw,tuvw->pt', ppaa[:, ncore:nocc, :, :], dm2_blk)
                
     ppaa = dm2_blk = paap = jtmp = None
     
@@ -348,9 +330,9 @@ def gen_g_hop(mc, mo_coeff, mo_phase, u, casdm1, casdm2, eris):
             ua  = u[k2][:, ncore:nocc]
             ra3 = (u[k3] - np.eye(nmo, dtype=dtype))[:, ncore:nocc]
             ra4 = (u[k4] - np.eye(nmo, dtype=dtype))[:, ncore:nocc]
-            p1aa = 1/nkpts * np.einsum('pr,tq,rquv->ptuv', u[k1].conj().T, ua.T, ppaa, optimize=True)
-            pa1a = 1/nkpts * np.einsum('pr,ruqv,qt->putv', u[k1].conj().T, papa, ra3.conj(), optimize=True)
-            paa1 = 1/nkpts * np.einsum('pr,rvuq,qt->pvtu', u[k1].conj().T, paap, ra4, optimize=True)
+            p1aa = np.einsum('pr,tq,rquv->ptuv', u[k1].conj().T, ua.T, ppaa, optimize=True)
+            pa1a = np.einsum('pr,ruqv,qt->putv', u[k1].conj().T, papa, ra3.conj(), optimize=True)
+            paa1 = np.einsum('pr,rvuq,qt->pvtu', u[k1].conj().T, paap, ra4, optimize=True)
             p1aa = p1aa + pa1a + paa1
 
             dm2_k = _get_casdm2_kpts(casdm2, mo_phase1, (k1, k2, k3, k4))
@@ -385,11 +367,11 @@ def gen_g_hop(mc, mo_coeff, mo_phase, u, casdm1, casdm2, eris):
     jkcaa = np.zeros((nkpts, nocc, ncas), dtype=dtype)
     for k in range(nkpts):
         ppaa = eris.ppaa(k, k, k)[:nocc, :nocc, :, :]
-        jkcaa[k] += (-2.0 / nkpts) * np.einsum('ppuv,uv->pu',ppaa,casdm1_kpts[k],optimize=True)
+        jkcaa[k] += (-2.0) * np.einsum('ppuv,uv->pu',ppaa,casdm1_kpts[k],optimize=True)
         paap = eris.paap(k, k, k)[:nocc, :, :, :nocc]
-        jkcaa[k] += (4.0 / nkpts) * np.einsum('puvp,uv->pu',paap,casdm1_kpts[k],optimize=True)
+        jkcaa[k] += (4.0) * np.einsum('puvp,uv->pu',paap,casdm1_kpts[k],optimize=True)
         papa = eris.papa(k, k, k)[:nocc, :, :nocc, :]
-        jkcaa[k] += (2.0 / nkpts) * np.einsum('pupv,uv->pv',papa,casdm1_kpts[k],optimize=True)
+        jkcaa[k] += (2.0) * np.einsum('pupv,uv->pv',papa,casdm1_kpts[k],optimize=True)
 
     for k1, k2, k3 in kpts_helper.loop_kkk(nkpts):
         k4 = kconserv[k1,k2,k3]
@@ -402,7 +384,7 @@ def gen_g_hop(mc, mo_coeff, mo_phase, u, casdm1, casdm2, eris):
                 continue
             papa = eris.papa(k1, kw, k3)
             dm2_blk = casdm2_kpts[k2, kw, k4]
-            term += (1.0 / nkpts) * np.einsum('pwqx,uwvx->pvqu', papa, dm2_blk, optimize=True).transpose(0, 3, 2, 1).conj()
+            term += np.einsum('pwqx,uwvx->pvqu', papa, dm2_blk, optimize=True).transpose(0, 3, 2, 1).conj()
         # hdm2_papa[k1, k2, k3] += term
         hdm2file[f"hdm2_papa/{k1}_{k2}_{k3}"] = term
         term = None
@@ -416,7 +398,7 @@ def gen_g_hop(mc, mo_coeff, mo_phase, u, casdm1, casdm2, eris):
             assert kconserv[kw, kx, k4] == k2
             ppaa = eris.ppaa(k1, k3, kw)      # (k1, k3, kw, kx)
             dm2_blk = casdm2_kpts[kw, kx, k4] #.conj() # (kw, kx, k2, k4)
-            term += (1.0 / nkpts) * np.einsum('pqwx,wxvu->pquv', ppaa, dm2_blk, optimize=True).transpose(0, 2, 1, 3).conj()
+            term += np.einsum('pqwx,wxvu->pquv', ppaa, dm2_blk, optimize=True).transpose(0, 2, 1, 3).conj()
         # hdm2_ppaa[k1, k2, k3] += term
         hdm2file[f"hdm2_ppaa/{k1}_{k2}_{k3}"] = term
     term = None
@@ -429,8 +411,8 @@ def gen_g_hop(mc, mo_coeff, mo_phase, u, casdm1, casdm2, eris):
             paap = eris.paap(kp, kw, kx)
             assert kconserv[kq, kp, ku] == kconserv[ku, kw, kx]
             dm2_pmmp = casdm2_kpts[ku, kw, kx]
-            term += (1.0 / nkpts) * np.einsum('pwxq,uwxv->pquv', paap, 
-                                            dm2_pmmp, optimize=True).transpose(0, 2, 1, 3).conj()
+            term += np.einsum('pwxq,uwxv->pquv', paap, 
+                              dm2_pmmp, optimize=True).transpose(0, 2, 1, 3).conj()
         # hdm2_pmmp[kp, ku, kq] += term
         hdm2file[f"hdm2_pmmp/{kp}_{ku}_{kq}"] = term
 
@@ -465,7 +447,6 @@ def gen_g_hop(mc, mo_coeff, mo_phase, u, casdm1, casdm2, eris):
         # because they are summed over the k-points in the eris generation.
         # tmp = 4 * eris.k_pc2[k] - 2 * eris.j_pc[k] + 2 * eris.k_pc[k]
         tmp = 6 * eris.k_pc[k] - 2 * eris.j_pc[k]
-        tmp /= nkpts
         hdiag[k][ncore:,:ncore] += tmp[ncore:]
         hdiag[k][:ncore,ncore:] += tmp[ncore:].conj().T
         
@@ -1241,7 +1222,6 @@ class PBCCASSCF(casci.PBCCASBASE):
                 out = np.einsum('auR,bvS,abcuvwt,cwT,abctU->RSTU',
                             mo_phase1.conj(), mo_phase1, eri_k, mo_phase1.conj(), 
                             mo_ks, optimize=True)
-                out *= 1.0/nkpts
                 return out
             
             aa11 = np.zeros((nkpts, nkpts, nkpts, ncas, ncas, ncas, ncas), dtype=dtype)
@@ -1583,7 +1563,6 @@ def _fake_h_for_fast_casci(casscf, mo, mo_phase, eris):
     
     eri_cas = np.einsum('auR,bvS,abcuvwt,cwT,abctU->RSTU',
                          mo_phase.conj(), mo_phase, eri_k, mo_phase.conj(), mo_ks, optimize=True)
-    eri_cas *= 1.0/nkpts
     mc.get_h2eff = lambda *args: eri_cas
     return mc
 
