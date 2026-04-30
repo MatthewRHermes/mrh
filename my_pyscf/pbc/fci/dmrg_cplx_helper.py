@@ -26,6 +26,20 @@ except ImportError:
 
 
 def write_hcore(fout, h, ncas, tol=TOL, float_format=DEFAULT_FLOAT_FORMAT):
+    '''
+    Write the one-electron integrals to the FCIDUMP file.
+    args:
+        fout: file object 
+            to write the integrals
+        h: 2D array of shape (ncas, ncas) (np.complex128)
+            the one-electron integrals in the wannier orbital basis.
+        ncas: int
+            the number of active orbitals. (ncas * nkpts)
+        tol: float
+            the tolerance for writing the integrals. 
+        float_format: str
+            the format for writing the real and imaginary parts of the integrals.
+    '''
     h = h.reshape(ncas, ncas)
     output_format = f"{float_format} {float_format}  %4d  %4d  0  0\n"
     for i in range(ncas):
