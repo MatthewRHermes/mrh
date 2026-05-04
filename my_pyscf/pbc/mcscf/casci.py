@@ -32,9 +32,6 @@ k-space mo-coeff: -> h1, h2 in r-space: do ci: -> back transform the mo_coeff to
 in case of rdm also, since the ci are in r-space, construct the 1-RDM and 2-RDM and backtransform it.
 '''
 
-def _basis_transformation(operator, mo):
-    return reduce(np.dot, (mo.conj().T, operator, mo))
-
 def h1e_for_cas(mc, mo_coeff=None, ncas=None, ncore=None):
     '''
     Compute the 1e Hamiltonian for CAS space and core energy.
@@ -88,7 +85,8 @@ def h1e_for_cas(mc, mo_coeff=None, ncas=None, ncore=None):
     h1ao_R = np.einsum('Rk,kij,Sk->RiSj', phase, h1ao_k, phase.conj())
     h1ao_R = h1ao_R.reshape(nkpts*nao, nkpts*nao)
 
-    h1eff_R = _basis_transformation(h1ao_R, mo_coeff_R)
+    # h1eff_R = _basis_transformation(h1ao_R, mo_coeff_R)
+    h1eff_R = reduce(np.dot, (mo_coeff_R.conj().T, h1ao_R, mo_coeff_R))
     return h1eff_R, ecore
 
 @lib.with_doc(mcscf.casci.get_fock.__doc__)
