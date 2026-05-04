@@ -716,4 +716,34 @@ class FCISolver(cplxCSFFCISolver, direct_spin1_cplx_opt.FCISolver):
 
     check_transformer_cache = realFCISolver.check_transformer_cache
 
+# Currently I just copied the above code here. But there will be better way
+from mrh.my_pyscf.pbc.fci import direct_spin0_cplx
+class FCISolverSpin0(cplxCSFFCISolver, direct_spin0_cplx.FCISolver):
+    '''
+    Complex FCI in CSFSolver. 
+    '''
+    def get_init_guess(self, norb, nelec, nroots, hdiag_csf, **kwargs):
+        '''
+        Get the initial guess for the FCI calculation in the CSF basis.
+        '''
+        self.norb = norb
+        self.nelec = nelec
+        self.check_transformer_cache ()
+        return get_init_guess (norb, nelec, nroots, hdiag_csf, self.transformer)
+        
+    def kernel(self, h1e, eri, norb, nelec, ci0=None, **kwargs):
+        self.norb = norb
+        self.nelec = nelec
+        self.smult = kwargs.pop('smult', self.smult)
+        self.check_transformer_cache ()
+        self.log_transformer_cache (lib.logger.DEBUG)
+
+        e, c = kernel (self, h1e, eri, norb, nelec, smult=self.smult,
+                       idx_sym=None, ci0=ci0, transformer=self.transformer,
+                       **kwargs)
+
+        self.eci, self.ci = e, c
+        return e, c
+
+    check_transformer_cache = realFCISolver.check_transformer_cache
  

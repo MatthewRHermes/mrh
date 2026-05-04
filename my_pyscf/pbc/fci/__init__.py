@@ -13,6 +13,8 @@ def solver(cell, singlet, symm=None):
     # Will add the singlet and symm options later.
     return direct_spin1_cplx.FCISolver(cell)
 
-
 def csf_solver(cell, smult, symm=None):
-    return csf_cplx.FCISolver(cell, smult)
+    if smult == 1:
+        return csf_cplx.FCISolverSpin0(cell, smult)
+    else:
+        return csf_cplx.FCISolver(cell, smult)
