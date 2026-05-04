@@ -45,7 +45,7 @@ def h1e_for_cas(mc, mo_coeff=None, ncas=None, ncore=None):
         ncore : int
             number of core orbitals in unit cell (i.e. at each k-point).
     Returns:
-        h1e_cas : np.ndarray [nk, ncas, ncas]
+        h1e_cas : np.ndarray [nk*ncas, nk*ncas]
             The one-electron Hamiltonian in CAS space, still in k-point basis.
         ecore : np.complex128
             The core energy.
