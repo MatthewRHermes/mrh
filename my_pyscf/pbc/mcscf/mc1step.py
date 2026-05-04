@@ -437,8 +437,6 @@ def gen_g_hop(mc, mo_coeff, mo_phase, u, casdm1, casdm2, eris):
         tmp = -eris.vhf_c[k][ncore:nocc,ncore:nocc] * casdm1_kpts[k]
         hdiag[k][ncore:nocc,ncore:nocc] += tmp + tmp.conj().T
     
-        # TODO: Remember to divide the eris.j_pc and eris.k_pc by nkpts, 
-        # because they are summed over the k-points in the eris generation.
         # tmp = 4 * eris.k_pc2[k] - 2 * eris.j_pc[k] + 2 * eris.k_pc[k]
         tmp = 6 * eris.k_pc[k] - 2 * eris.j_pc[k]
         hdiag[k][ncore:,:ncore] += tmp[ncore:]
@@ -1232,7 +1230,7 @@ class PBCCASSCF(casci.PBCCASBASE):
             aaaa_R = _convert_to_R_space(aaaa)
             
             aa11_R = aa11_R + aa11_R.transpose(2,3,0,1) - aaaa_R
-            _sym_check_eri(aa11_R)
+            # _sym_check_eri(aa11_R)
 
             a1a1 = np.zeros_like(aaaa)
             for k1, k2, k3 in kpts_helper.loop_kkk(nkpts):
@@ -1252,7 +1250,7 @@ class PBCCASSCF(casci.PBCCASBASE):
 
             a1a1_R = a1a1_R + a1a1_R.transpose(0, 1, 3, 2).conj()
             a1a1_R = a1a1_R - a1a1_R.transpose(2, 3, 0, 1).conj()
-            _sym_check_eri(a1a1_R)
+            # _sym_check_eri(a1a1_R)
 
             # Combine the J and K type integrals
             h2_R = aa11_R + a1a1_R
@@ -1260,7 +1258,6 @@ class PBCCASSCF(casci.PBCCASBASE):
     
         ecore = np.sum([np.einsum('pq,pq->', h1e_mo[k] + eris.vhf_c[k], ddm[k]) 
                         for k in range(nkpts)])
-        # ecore += self.energy_nuc() * nkpts
 
         # Remember, the e_cas was divided by nkpts in the casci step.
         ci1, g = self.solve_approx_ci(h1_R, h2_R, fcivec, ecore, e_cas*nkpts, envs)
