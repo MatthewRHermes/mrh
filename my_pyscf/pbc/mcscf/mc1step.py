@@ -19,12 +19,6 @@ logger = lib.logger
 
 # Author: Bhavnesh Jangid
 
-'''
-#TODOs:
-1. Normalize the 2e integrals in mc_ao2mo generation only.
-2. 
-'''
-
 def _get_casdm2_kpts(casdm2, mo_phase1, klabel):
     '''
     Compute the 2RDM for a given k-point configuration.
