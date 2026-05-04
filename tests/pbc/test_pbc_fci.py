@@ -1,7 +1,7 @@
 #!/bin/bash
 import unittest
 import numpy as np
-from ase import Atoms
+
 from functools import reduce
 
 from pyscf import ao2mo, fci
@@ -25,37 +25,61 @@ Unit tests for the complex FCI implementation in the PBC context.
 #         Also, compared the -ms and +ms states for the triplet. I am expecting them to be degenerate.
 '''
 
+def make_h2_2D_numpy(intraH=1.0, interH=1.5, nx=1, ny=1, vacuum=17.5):
+    """
+    Build a 2D periodic H2 lattice.
 
-def make_h2_2D(intraH=1.0, interH=1.5, nx=1, ny=1, vacuum=17.5):
-    # This function will give the H2 molecule in 2D plane.
-    ax = nx * (intraH + interH)
-    by = ny * (intraH + interH)
+    Returns
+    -------
+    symbols : list[str]
+        Atomic symbols.
+    positions : np.ndarray, shape (natm, 3)
+        Atomic positions in Angstrom.
+    cell : np.ndarray, shape (3, 3)
+        Lattice vectors in Angstrom.
+    """
+    period = intraH + interH
+
+    ax = nx * period
+    by = ny * period
     cz = vacuum
+
     cell = np.diag([ax, by, cz])
-    
+
     positions = []
     symbols = []
+
     for ix in range(nx):
         for iy in range(ny):
-            x0 = ix * (intraH + interH)
-            y0 = iy * (intraH + interH)
-            positions.append([x0, y0, vacuum / 2.0])
-            positions.append([x0 + intraH, y0, vacuum / 2.0])
-            symbols += ['H', 'H']
+            x0 = ix * period
+            y0 = iy * period
+            z0 = vacuum / 2.0
 
-    atoms = Atoms(symbols, positions=positions, cell=cell, pbc=True)
-    atoms.center()
-    return atoms
+            positions.append([x0, y0, z0])
+            positions.append([x0 + intraH, y0, z0])
 
-def get_cell(basis='STO-6G', pseudo=None, maxMem=1000, verbose=0):
-    atoms2D = make_h2_2D(intraH=0.74, interH=1.5, nx = 1, ny = 1, vacuum=17.5)
+            symbols += ["H", "H"]
+
+    positions = np.array(positions, dtype=float)
+    min_pos = positions.min(axis=0)
+    max_pos = positions.max(axis=0)
+    current_center = 0.5 * (min_pos + max_pos)
+    target_center = 0.5 * np.array([ax, by, cz])
+
+    shift = target_center - current_center
+    positions += shift
+
+    return symbols, positions, cell
+
+def get_cell(basis="STO-6G", pseudo=None, maxMem=1000, verbose=0):
+    symbols, positions, lattice = make_h2_2D_numpy( intraH=0.74, interH=1.5, nx=1, ny=1, vacuum=17.5)
+
     cell = pgto.Cell()
-    cell.a = atoms2D.cell.array
-    pos = atoms2D.get_positions()
-    sym = atoms2D.get_chemical_symbols()
-    cell.atom = [(sym[i], tuple(pos[i])) for i in range(len(sym))]
+    cell.a = lattice
+    cell.atom = [(symbols[i], tuple(positions[i])) 
+                 for i in range(len(symbols))]
     cell.basis = basis
-    cell.unit = 'Angstrom'
+    cell.unit = "Angstrom"
     cell.max_memory = maxMem
     cell.ke_cutoff = 100
     cell.pseudo = pseudo
