@@ -13,8 +13,6 @@ from pyscf.pbc.lib import kpts_helper
 from mrh.my_pyscf.pbc import fci as pbc_fci
 from mrh.my_pyscf.pbc.mcscf.k2R import  get_mo_coeff_k2R
 
-# Global variable to store the 2e integrals
-_CDERI_CACHE_PATH = getattr(__config__, 'pbc_mcscf_casci_CASCI_cderi_cache_path', None)
 WITH_META_LOWDIN = getattr(__config__, 'mcscf_analyze_with_meta_lowdin', True)
 PENALTY = getattr(__config__, 'mcscf_casci_CASCI_fix_spin_shift', 0.2)
 
@@ -654,9 +652,7 @@ class PBCCASCI(PBCCASBASE):
         '''
         The mo_coeff are in k-space, while the eris returned by this function is in r-space.
         '''
-        global _CDERI_CACHE_PATH
 
-        from pyscf.pbc import scf
         kmf = self._scf
         ncore = self.ncore
         ncas = self.ncas
@@ -694,28 +690,6 @@ class PBCCASCI(PBCCASBASE):
                          mo_phase.conj(), mo_phase, eri_k, mo_phase.conj(), mo_ks, optimize=True)
         eris *= 1.0/nkpts
         
-        # # Currently, I am relaying on generating one-more eris, because I didn't go through the
-        # # math to transform the eris from k-space to r-space.
-        # mf = scf.RHF(scell).density_fit(kmf.with_df.auxbasis)
-        # # # During a cycle of CASCI, the get_h2eff is called multiple times, 
-        # # and building the cderi object is the most expensive step. So I am caching the cderi object to avoid 
-        # # rebuilding it multiple times. The integrals are stored on the disk.
-        # if _CDERI_CACHE_PATH is not None and \
-        #     os.path.isfile(_CDERI_CACHE_PATH) and \
-        #           os.path.getsize(_CDERI_CACHE_PATH) > 0:
-        #     mf.with_df._cderi = _CDERI_CACHE_PATH
-        # else:
-        #     fd, cderi_path = tempfile.mkstemp(dir=lib.param.TMPDIR, prefix="pyscf_cderi_", suffix=".h5")
-        #     os.close(fd)
-        #     try:
-        #         os.remove(cderi_path)
-        #     except FileNotFoundError:
-        #         pass
-        #     mf.with_df._cderi_to_save = cderi_path
-        #     mf.with_df.build()
-        #     _CDERI_CACHE_PATH = cderi_path
-        # eri = mf.with_df.ao2mo(mo_coeff_R,)
-        # eris = eri.reshape(nkpts*ncas, nkpts*ncas, nkpts*ncas, nkpts*ncas)
         assert eris.shape == (nkpts*ncas, nkpts*ncas, nkpts*ncas, nkpts*ncas)
         return eris
     
