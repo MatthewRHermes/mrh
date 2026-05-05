@@ -540,7 +540,8 @@ class PBCCASBASE(mcscf.casci.CASBase):
             else:
                 for i, e in enumerate(self.e_cas):
                     try:
-                        ss = self.fcisolver.spin_square(self.ci[i], nkpts*self.ncas, nkpts*self.nelecas)
+                        nelecastot = (nkpts*self.nelecas[0], nkpts*self.nelecas[1])
+                        ss = self.fcisolver.spin_square(self.ci[i], nkpts*self.ncas, nelecastot)
                         log.note('CASCI E (per k-point) state %3d  E = %#.15g  E(CI) = %#.15g  S^2 = %.7f',
                                  i, self.e_tot[i].real, e.real, ss[0])
                     except NotImplementedError:
