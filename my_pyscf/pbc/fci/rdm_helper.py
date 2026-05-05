@@ -1,5 +1,7 @@
 import ctypes
 import numpy as np
+
+from pyscf import lib
 from pyscf.fci import cistring
 
 from mrh.lib.helper import load_library
@@ -54,46 +56,63 @@ def make_rdm12_spin1(fname, cibra, ciket, norb, nelec, link_index=None, symm=0):
     rdm1 = np.empty((norb,norb), dtype=np.complex128, order='C')
     rdm2 = np.empty((norb,norb,norb,norb), dtype=np.complex128, order='C')
 
-    libpbcrdm.FCIrdm12_drv_cplx(getattr(libpbcrdm, fname),
-                        rdm1.ctypes.data_as(ctypes.c_void_p),
-                        rdm2.ctypes.data_as(ctypes.c_void_p),
-                        cibra.ctypes.data_as(ctypes.c_void_p),
-                        ciket.ctypes.data_as(ctypes.c_void_p),
-                        ctypes.c_int(norb),
-                        ctypes.c_int(na), ctypes.c_int(nb),
-                        ctypes.c_int(nlinka), ctypes.c_int(nlinkb),
-                        link_indexa.ctypes.data_as(ctypes.c_void_p),
-                        link_indexb.ctypes.data_as(ctypes.c_void_p),
-                        ctypes.c_int(symm))
+    # In case I don't set the one of the OMP_THREADS or MKL_NUM_THREADS env variables to one
+    # there is nested parallelization which slows down the code.
+    with lib.with_omp_threads(1):
+        libpbcrdm.FCIrdm12_drv_cplx(getattr(libpbcrdm, fname),
+                            rdm1.ctypes.data_as(ctypes.c_void_p),
+                            rdm2.ctypes.data_as(ctypes.c_void_p),
+                            cibra.ctypes.data_as(ctypes.c_void_p),
+                            ciket.ctypes.data_as(ctypes.c_void_p),
+                            ctypes.c_int(norb),
+                            ctypes.c_int(na), ctypes.c_int(nb),
+                            ctypes.c_int(nlinka), ctypes.c_int(nlinkb),
+                            link_indexa.ctypes.data_as(ctypes.c_void_p),
+                            link_indexb.ctypes.data_as(ctypes.c_void_p),
+                            ctypes.c_int(symm))
     return rdm1.conj().T, rdm2
 
-def make_rdm1s_cplx(fcivec, norb, nelec, link_index=None):
+def make_rdm1s_py(fcivec, norb, nelec, link_index=None):
+    '''
+    Python implementation of spin-separated 1-RDMs for a complex FCI vector.
+    args:
+        fcivec: np.ndarray of shape (na*nb, )
+            complex FCI vector
+        norb: int
+            number of orbitals (ncas * nkpts)
+        nelec: tuple of ints
+            number of alpha and beta electrons (na, nb)
+        link_index: tuple of np.ndarray
+            link indices for alpha and beta strings
+    returns:
+        rdm1a, rdm1b: np.ndarray of shape (norb, norb)
+            spin-separated 1-RDMs for alpha and beta spins
+    '''
     dtype = fcivec.dtype
     neleca, nelecb = _unpack_nelec(nelec)
-    na = cistring.num_strings(norb, neleca)
-    nb = cistring.num_strings(norb, nelecb)
-    C = np.asarray(fcivec).reshape(na, nb)
-
     link_indexa, link_indexb = _unpack(norb, nelec, link_index)
 
+    na = cistring.num_strings(norb, neleca)
+    nb = cistring.num_strings(norb, nelecb)
+
+    civec = np.asarray(fcivec).reshape(na, nb)
+    
     rdm1a = np.zeros((norb, norb), dtype=dtype)
     rdm1b = np.zeros((norb, norb), dtype=dtype)
 
     for a0, tab in enumerate(link_indexa):
         for p, i, a1, sign in tab:
-            if sign == 0:
-                break
-            rdm1a[p, i] += sign * np.vdot(C[a0, :], C[a1, :])
+            if sign == 0: break
+            rdm1a[p, i] += sign * np.vdot(civec[a0, :], civec[a1, :])
 
     for b0, tab in enumerate(link_indexb):
         for p, i, b1, sign in tab:
-            if sign == 0:
-                break
-            rdm1b[p, i] += sign * np.vdot(C[:, b0], C[:, b1])
+            if sign == 0: break
+            rdm1b[p, i] += sign * np.vdot(civec[:, b0], civec[:, b1])
 
     return (rdm1a, rdm1b)
 
-def make_rdm12s_cplx(fcivec, norb, nelec, link_index=None, reorder=True):
+def make_rdm12s_py(fcivec, norb, nelec, link_index=None, reorder=True):
     
     fcivec /= np.linalg.norm(fcivec)
     na, nb = nelec
@@ -177,17 +196,3 @@ def make_rdm12s_cplx(fcivec, norb, nelec, link_index=None, reorder=True):
     dm2aa = dm2aa.transpose(0, 2, 1, 3).conj()
     dm2bb = dm2bb.transpose(0, 2, 1, 3).conj()
     return (dm1a, dm1b), (dm2aa, dm2ab, dm2bb)
-
-def make_rdm1_cplx(fcivec, norb, nelec, link_index=None):
-    (dm1a, dm1b) = make_rdm1s_cplx(fcivec, norb, nelec, link_index=link_index)
-    rdm1 = dm1a + dm1b
-    return rdm1.conj().T
-
-def make_rdm12_cplx(fcivec, norb, nelec, link_index=None, reorder=True):
-    (dm1a, dm1b), (dm2aa, dm2ab, dm2bb) = \
-        make_rdm12s_cplx(fcivec, norb, nelec, link_index=link_index, reorder=reorder)
-    rdm1 = dm1a + dm1b
-    dm2ba = dm2ab.conj().transpose(1,0,3,2)
-    rdm2 = dm2aa + dm2bb + dm2ab + dm2ba
-    rdm2 = 0.5*(rdm2 + rdm2.conj().transpose(1,0,3,2))
-    return rdm1.conj().T, rdm2
