@@ -291,8 +291,9 @@ def make_hdiag(h1e, eri, norb, nelec, compress=False):
     return hdiag
 
 def make_rdm1s(fcivec, norb, nelec, link_index=None):
-    make_rdm1s.__doc__ = direct_spin1.make_rdm1s.__doc__
-    neleca, nelecb = _unpack_nelec(nelec)
+    make_rdm1s.__doc__ = direct_spin1.make_rdm1s.__doc__ + '''
+    Compute the spin-separated 1-RDMs for a complex FCI vector using the backend C function.
+    '''
     link_index = _unpack(norb, nelec, link_index)
     rdm1a = rdm_helper.make_rdm1_spin1('FCImake_rdm1a_cplx', fcivec, fcivec,
                                 norb, nelec, link_index)
@@ -301,13 +302,19 @@ def make_rdm1s(fcivec, norb, nelec, link_index=None):
     return (rdm1a, rdm1b)
 
 def make_rdm1(fcivec, norb, nelec, link_index=None):
-    make_rdm1.__doc__ = direct_spin1.make_rdm1.__doc__
+    make_rdm1.__doc__ = direct_spin1.make_rdm1.__doc__ + '''
+    Spin-summed 1-RDM for a complex FCI vector.
+    #TODO: Implemented the spins-summed excitation operator in backend C code.
+    '''
+
     rdm1a, rdm1b = make_rdm1s(fcivec, norb, nelec, link_index)
     rdm1 = rdm1a + rdm1b
     return rdm1.conj().T
 
 def make_rdm12s(fcivec, norb, nelec, link_index=None, reorder=True):
-    make_rdm12s.__doc__ = direct_spin1.make_rdm12s.__doc__
+    make_rdm12s.__doc__ = direct_spin1.make_rdm12s.__doc__ + '''
+    Compute the spin-separated 1-RDMs and 2-RDMs for a complex FCI vector using the backend C function.
+    '''
     dm1a, dm2aa = rdm_helper.make_rdm12_spin1('FCIrdm12kern_a_cplx', fcivec, fcivec,
                                        norb, nelec, link_index, 1)
     dm1b, dm2bb = rdm_helper.make_rdm12_spin1('FCIrdm12kern_b_cplx', fcivec, fcivec,
@@ -330,13 +337,13 @@ def make_rdm12(fcivec, norb, nelec, link_index=None, reorder=True):
     dm1, dm2 = rdm_helper.make_rdm12_cplx(fcivec, norb, nelec, link_index, 1,)
     return dm1, dm2
 
-def make_rdm1_py(fcivec, norb, nelec, link_index=None):
-    rdm1 = rdm_helper.make_rdm1_cplx(fcivec, norb, nelec, link_index)
-    return rdm1
-
 def make_rdm1s_py(fcivec, norb, nelec, link_index=None):
     rdm1a, rdm1b = rdm_helper.make_rdm1s_cplx(fcivec, norb, nelec, link_index)
     return rdm1a, rdm1b
+
+def make_rdm1_py(fcivec, norb, nelec, link_index=None):
+    rdm1 = rdm_helper.make_rdm1_cplx(fcivec, norb, nelec, link_index)
+    return rdm1
 
 def make_rdm12s_py(fcivec, norb, nelec, link_index=None, reorder=True):
     (dm1a, dm1b), (dm2aa, dm2ab, dm2bb) = \
