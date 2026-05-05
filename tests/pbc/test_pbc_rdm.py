@@ -17,14 +17,14 @@ from mrh.my_pyscf.pbc.fci import direct_spin1_cplx
 # 3. Spin-summed RDMs should be consistent with spin-separated RDMs.
 
 
-def compute_real_space_rdm12(cell, fcivec, norb, nelec):
+def compute_real_space_rdm12(cell, fcivec, norb, nelec, reorder=True):
     '''
     Compute the spin-summed and spin-separated 1-RDM and 2-RDM using the 
     direct_spin1 implementation.
     '''
     cisolver = direct_spin1.FCISolver(cell)
-    rdm1, rdm2 = cisolver.make_rdm12(fcivec.real, norb, nelec, reorder=True)
-    (dm1a, dm1b), (dm2aa, dm2ab, dm2bb) = cisolver.make_rdm12s(fcivec.real, norb, nelec, reorder=True)
+    rdm1, rdm2 = cisolver.make_rdm12(fcivec.real, norb, nelec, reorder=reorder)
+    (dm1a, dm1b), (dm2aa, dm2ab, dm2bb) = cisolver.make_rdm12s(fcivec.real, norb, nelec, reorder=reorder)
     return (rdm1, rdm2), (dm1a, dm1b), (dm2aa, dm2ab, dm2bb)
 
 def dummy_cell():
@@ -97,14 +97,23 @@ class KnownValues(unittest.TestCase):
                 np.testing.assert_allclose(np.trace(dm1b), nelecas[1], atol=1e-10, rtol=1e-10)
                 np.testing.assert_allclose(np.trace(rdm1), sum(nelecas), atol=1e-10, rtol=1e-10)
 
-                # Compare the hermiticity of RDMs
+                # Check the hermiticity of RDMs
                 np.testing.assert_allclose(dm1a, dm1a.conj().T, atol=1e-10, rtol=1e-10)
                 np.testing.assert_allclose(dm1b, dm1b.conj().T, atol=1e-10, rtol=1e-10)
                 np.testing.assert_allclose(rdm1, rdm1.conj().T, atol=1e-10, rtol=1e-10)
                 np.testing.assert_allclose(dm2aa, dm2aa.transpose(1,0,3,2).conj(), atol=1e-10, rtol=1e-10)
                 np.testing.assert_allclose(dm2bb, dm2bb.transpose(1,0,3,2).conj(), atol=1e-10, rtol=1e-10)
                 np.testing.assert_allclose(dm2ab, dm2ab.transpose(1,0,3,2).conj(), atol=1e-10, rtol=1e-10)
+
+                np.testing.assert_allclose(dm2aa - dm2aa.conj().transpose(2,3,0,1), 0, atol=1e-8)
+                np.testing.assert_allclose(dm2bb - dm2bb.conj().transpose(2,3,0,1), 0, atol=1e-8)
                 
+                # Compare the trace of 2-RDM with the number of electron pairs
+                np.testing.assert_allclose(np.einsum("ppqq->", dm2aa, optimize=True), nelecas[0]*(nelecas[0]-1), atol=1e-6)
+                np.testing.assert_allclose(np.einsum("ppqq->", dm2bb, optimize=True), nelecas[1]*(nelecas[1]-1), atol=1e-6)
+                np.testing.assert_allclose(np.einsum("ppqq->", dm2ab, optimize=True), nelecas[0]*nelecas[1], atol=1e-6)
+
+
 
 if __name__ == "__main__":
     print("Full Tests for RDM construction")
