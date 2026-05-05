@@ -48,7 +48,7 @@ def _check_RDM_and_RDMs_thoroughly(rdm1, rdm2, rdm1a, rdm1b, rdm2aa, rdm2ab, rdm
                                    rdm1_from_make_rdm1, rdm1a_from_make_rdm1s, rdm1b_from_make_rdm1s,
                                    nelecas):
     dm1 = rdm1a + rdm1b
-    dm2 = rdm2aa + rdm2bb + rdm2ab + rdm2ab.transpose(2,3,0,1).conj()
+    dm2 = rdm2aa + rdm2bb + rdm2ab + rdm2ab.transpose(2,3,0,1)
 
     # Check the consistency of make_rdm1s_py and make_rdm12s_py
     np.testing.assert_allclose(rdm1a, rdm1a_from_make_rdm1s, atol=1e-10, rtol=1e-10)
@@ -137,7 +137,6 @@ class KnownValues(unittest.TestCase):
                 np.testing.assert_allclose(dm2aa, dm2aa_ref, atol=1e-10, rtol=1e-10)
                 np.testing.assert_allclose(dm2ab, dm2ab_ref, atol=1e-10, rtol=1e-10)
                 np.testing.assert_allclose(dm2bb, dm2bb_ref, atol=1e-10, rtol=1e-10)
-     
                 # Compare the trace of 1-RDM with the number of electrons
                 np.testing.assert_allclose(np.trace(dm1a), nelecas[0], atol=1e-10, rtol=1e-10)
                 np.testing.assert_allclose(np.trace(dm1b), nelecas[1], atol=1e-10, rtol=1e-10)
