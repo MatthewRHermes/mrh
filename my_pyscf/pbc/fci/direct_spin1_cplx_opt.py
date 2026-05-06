@@ -1,6 +1,7 @@
 import ctypes
 import numpy as np
 
+from pyscf import lib
 from pyscf.fci import direct_spin1
 
 from mrh.lib.helper import load_library
@@ -45,15 +46,16 @@ def contract_2e(eri, fcivec, norb, nelec, link_index=None):
         x = int(np.ceil(nb / 1000.0))
         strb_blksize = int(np.ceil(nb / x))
 
-    libpbcfci.FCIcontract_2es1_zgemm_blksize(eri.ctypes.data_as(ctypes.c_void_p),
-                                fcivec.ctypes.data_as(ctypes.c_void_p),
-                                out_CI.ctypes.data_as(ctypes.c_void_p),
-                                ctypes.c_int(norb),
-                                ctypes.c_int(na), ctypes.c_int(nb),
-                                ctypes.c_int(nlinka), ctypes.c_int(nlinkb),
-                                link_indexa.ctypes.data_as(ctypes.c_void_p),
-                                link_indexb.ctypes.data_as(ctypes.c_void_p),
-                                ctypes.c_int(strb_blksize))
+    with lib.with_omp_threads(1):
+        libpbcfci.FCIcontract_2es1_zgemm_blksize(eri.ctypes.data_as(ctypes.c_void_p),
+                                    fcivec.ctypes.data_as(ctypes.c_void_p),
+                                    out_CI.ctypes.data_as(ctypes.c_void_p),
+                                    ctypes.c_int(norb),
+                                    ctypes.c_int(na), ctypes.c_int(nb),
+                                    ctypes.c_int(nlinka), ctypes.c_int(nlinkb),
+                                    link_indexa.ctypes.data_as(ctypes.c_void_p),
+                                    link_indexb.ctypes.data_as(ctypes.c_void_p),
+                                    ctypes.c_int(strb_blksize))
     return out_CI.view(direct_spin1.FCIvector)
 
 class FCISolver(direct_spin1_cplx_FCISolver):
