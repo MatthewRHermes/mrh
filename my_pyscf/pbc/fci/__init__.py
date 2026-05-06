@@ -14,7 +14,8 @@ def solver(cell, singlet, symm=None):
     return direct_spin1_cplx.FCISolver(cell)
 
 def csf_solver(cell, smult, symm=None):
-    if smult == 1:
-        return csf_cplx.FCISolverSpin0(cell, smult)
-    else:
-        return csf_cplx.FCISolver(cell, smult)
+    # TODO: A separate FCISolver is causing the problem in CASSCF. Fix it later.
+    # if smult == 1:
+    #     return csf_cplx.FCISolverSpin0(cell, smult)
+    # else:
+    return csf_cplx.FCISolver(cell, smult)
