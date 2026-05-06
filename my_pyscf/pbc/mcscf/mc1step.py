@@ -988,8 +988,7 @@ class PBCCASSCF(casci.PBCCASBASE):
             e_cas = e_cas[0]
 
         if envs is not None and log.verbose >= logger.INFO:
-            log.debug('CAS space CI energy = %#.15g', e_cas)
-
+            log.debug('CAS space CI energy = %#.15g', e_cas.real)
             if getattr(self.fcisolver, 'spin_square', None):
                 try:
                     norb = self.nkpts * self.ncas
