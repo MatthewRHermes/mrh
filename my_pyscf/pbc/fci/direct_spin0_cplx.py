@@ -1,7 +1,7 @@
 import ctypes
 import numpy as np
 
-from pyscf import lib
+from pyscf import lib, __config__
 from pyscf.fci import direct_spin1, cistring
 
 from mrh.lib.helper import load_library
@@ -9,6 +9,8 @@ from mrh.my_pyscf.pbc.fci.direct_spin1_cplx import _unpack
 from mrh.my_pyscf.pbc.fci.direct_spin1_cplx import FCISolver as direct_spin1_cplx_FCISolver
 
 libpbcfci = load_library('libpbc_fci_contract_opt')
+
+contract_2e_threads = getattr(__config__, 'pbc_contract_2e_threads', None)
 
 def contract_2e_spin0(eri, fcivec, norb, nelec, link_index=None):
     '''
@@ -43,7 +45,7 @@ def contract_2e_spin0(eri, fcivec, norb, nelec, link_index=None):
         x = int(np.ceil(nb / 1000.0))
         strb_blksize = int(np.ceil(nb / x))
 
-    with lib.with_omp_threads(1):
+    with lib.with_omp_threads(contract_2e_threads):
         libpbcfci.FCIcontract_2es1_zgemm_spin0_blksize(
                 eri.ctypes.data_as(ctypes.c_void_p),
                 fcivec.ctypes.data_as(ctypes.c_void_p),
