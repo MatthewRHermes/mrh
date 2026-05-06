@@ -251,7 +251,7 @@ def canonicalize(mc, mo_coeff=None, ci=None, eris=None, sort=False,
         for k in range(nkpts):
             log.debug('k-point %d', k)
             for i in range(nmo):
-                    log.debug('i = %d  <i|F|i> = %12.8f', i+1, mo_energy[k][i])
+                    log.debug('i = %d  <i|F|i> = %12.8f', i+1, mo_energy[k][i].real)
 
     return mo_coeff1, ci, mo_energy
 
@@ -550,11 +550,11 @@ class PBCCASBASE(mcscf.casci.CASBase):
 
         else:
             if isinstance(self.e_cas, (np.complex128, np.float64)):
-                log.note('CASCI E (per k-point)= %#.15g  E(CI) = %#.15g', self.e_tot, self.e_cas)
+                log.note('CASCI E (per k-point)= %#.15g  E(CI) = %#.15g', self.e_tot.real, self.e_cas.real)
             else:
                 for i, e in enumerate(self.e_cas):
                     log.note('CASCI E (per k-point) state %3d  E = %#.15g  E(CI) = %#.15g',
-                             i, self.e_tot[i], e)
+                             i, self.e_tot[i].real, e.real)
         return self
 
     def kernel(**kwargs):
