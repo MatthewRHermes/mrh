@@ -1,7 +1,13 @@
 
+import sys
 import numpy as np
+
+from pyscf import lib
 from pyscf.fci.spin_op import contract_ss
 
+# Author: Bhavnesh Jangid
+
+# Spin operators for complex FCI vectors.
 
 def contract_ss0(fcivec, norb, nelec, **kwargs):
     '''
@@ -26,6 +32,7 @@ def spin_square0(fcivec, norb, nelec, **kwargs):
     '''
     assert fcivec.dtype == np.complex128
     verbose = kwargs.get('verbose', 0)
+    log = lib.logger.Logger(sys.stdout, verbose)
 
     def s2(ci1, ci2):
         ci1ssket = contract_ss(ci1, norb, nelec)
@@ -36,20 +43,20 @@ def spin_square0(fcivec, norb, nelec, **kwargs):
     
     ssimag = (s2(fcivec.real, fcivec.imag) 
               - s2(fcivec.imag, fcivec.real))
-    
+
     if abs(ssimag) > 1e-3:
-        print ("Warning: Spin square is not real. Imaginary part =", ssimag)
-    
+        log.warn("Spin square is not real. Imaginary part = %s", ssimag)
+
     ss = ssreal
     s = np.sqrt(ss + 0.25) - 0.5
     multip = 2*s + 1
 
     # Although, I can take the sqrt for the complex numbers as well.
-    if verbose > 5:
+    if verbose >= lib.logger.DEBUG:
         sstot = ssreal + 1j*ssimag
         stot = np.sqrt(sstot + 0.25) - 0.5
         multip_tot = 2*stot + 1
-        print("Spin expectation value including the complex part")
-        print("Spin square =", sstot, "Spin =", stot, "Multiplicity =", multip_tot)
+        log.debug("Spin expectation value including the complex part")
+        log.debug("Spin square = %s, Spin = %s, Multiplicity = %s", sstot, stot, multip_tot)
 
     return ss, multip
