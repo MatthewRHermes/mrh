@@ -13,7 +13,7 @@ Atomic valence active orbitals (AVAS)
 Ref. J. Chem. Theory Comput. 2017, 13, 4063−4078
 
 Here, I have adapting the AVAS algorithm for the selection of active space 
-with the PBC MCSCF. Probably with the k-point sampling as well!. 
+with the PBC MCSCF (k-point sampling as well). 
 
 I can not use the molecular AVAS off the shelf because the AVAS uses AOs which are defined 
 for the molecule and not for the periodic system, second the overlap is also computed for 
@@ -54,11 +54,13 @@ def _kernel(avas_obj, mf, mo_coeff, mo_occ, mo_energy, ovlp, log, baslst, pcell,
     '''
     General kernel for the p-AVAS.
     '''
-    if isinstance(mf, scf.uhf.UHF):
+    
+    if isinstance(mf, scf.kuhf.KUHF):
         log.note('UHF/UKS object is found.  AVAS takes alpha orbitals only')
         mo_coeff = np.asarray(mo_coeff[0])
         mo_occ = np.asarray(mo_occ[0])
         mo_energy = np.asarray(mo_energy[0])
+        print('mo_coeff shape', mo_coeff.shape)
     else:
         mo_coeff = np.asarray(mo_coeff)
         mo_occ = np.asarray(mo_occ)
@@ -245,15 +247,22 @@ def _kernelKpoints(avas_obj):
         return mf.get_ovlp(cell, kpts[k])
     
     for k in range(nkpts):
-        ncas, nelecas, mo, occ_weights, vir_weights = \
-            _kernel(avas_obj, mf, mf.mo_coeff[k], mf.mo_occ[k], 
-                    mf.mo_energy[k], _get_ovlp_k(k), log, baslst, pcell, cell, kpts=kpts, k=k)
+        if isinstance(mf, scf.kuhf.KUHF):
+            ncas, nelecas, mo, occ_weights, vir_weights = \
+                _kernel(avas_obj, mf, mf.mo_coeff[:, k], mf.mo_occ[:, k], 
+                        mf.mo_energy[:, k], _get_ovlp_k(k), log, baslst, pcell, cell, kpts=kpts, k=k)
+        else:
+            ncas, nelecas, mo, occ_weights, vir_weights = \
+                _kernel(avas_obj, mf, mf.mo_coeff[k], mf.mo_occ[k],
+                        mf.mo_energy[k], _get_ovlp_k(k), log, baslst, pcell, cell, kpts=kpts, k=k)
         ncas_list.append(ncas)
         nelecas_list.append(nelecas)
         mo_list.append(mo)
         occ_weights_list.append(occ_weights)
         vir_weights_list.append(vir_weights)
-
+    
+    # The mo_list should be returned as np array, as that would be easier to handle in kCASSCF code.
+    mo_list = np.array(mo_list)
     return ncas_list, nelecas_list, mo_list, occ_weights_list, vir_weights_list
 
 @lib.with_doc(kernel.__doc__)
