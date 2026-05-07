@@ -19,12 +19,12 @@ except ImportError:
 
 def solver(cell, singlet, symm=None):
     # Will add the singlet and symm options later.
-    if symm is not None:
+    if symm is not None and symm is not False:
         raise NotImplementedError("Symmetry is not implemented for FCI in PBC yet.")
     return direct_spin1_cplx.FCISolver(cell)
 
 def csf_solver(cell, smult, symm=None):
-    if symm is not None:
+    if symm is not None and symm is not False:
         raise NotImplementedError("Symmetry is not implemented for CSF-FCI in PBC yet.")
     if smult == 1:
         return csf_cplx.FCISolverSpin0(cell, smult)

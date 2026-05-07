@@ -8,9 +8,15 @@ from mrh.lib.helper import load_library
 from mrh.my_pyscf.pbc.fci.direct_spin1_cplx import _unpack
 from mrh.my_pyscf.pbc.fci.direct_spin1_cplx import FCISolver as direct_spin1_cplx_FCISolver
 
-libpbcfci = load_library('libpbc_fci_contract_opt')
 
+# Author: Bhavnesh Jangid
+
+#TODO: 
+# 1. Implement the make_rdm function for spin0 case.
+
+libpbcfci = load_library('libpbc_fci_contract_opt')
 contract_2e_threads = getattr(__config__, 'pbc_contract_2e_threads', None)
+
 
 def contract_2e_spin0(eri, fcivec, norb, nelec, link_index=None):
     '''
