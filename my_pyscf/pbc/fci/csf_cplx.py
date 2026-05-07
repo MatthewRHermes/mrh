@@ -332,8 +332,8 @@ def pspace(fci, h1e, eri, norb, nelec, transformer,
     h0 = h0real.astype(h1e.dtype)
     h0.real = h0real
     h0.imag = _build_h0tril(h1e_a.imag, h1e_b.imag, g2e_aa.imag, g2e_ab.imag, g2e_bb.imag)
+
     # Note, imaginary part of the Hamiltonian will be anti-hermitian.
-    # print("Is it antihermitian:", np.allclose(h0.imag, -h0.imag.conj().T)) # True
     h0real = None
 
     # Fill the diagonal elements.
@@ -642,6 +642,7 @@ class cplxCSFFCISolver:
         self.cell = cell
         self.smult = smult
         self.transformer = None
+        self.stdout = cell.stdout
         super().__init__ (**args)
 
     def make_hdiag_csf(self, h1e, eri, norb, nelec, hdiag_det=None, smult=None, max_memory=None):
@@ -706,7 +707,6 @@ class FCISolver(cplxCSFFCISolver, direct_spin1_cplx_opt.FCISolver):
         self.smult = kwargs.pop('smult', self.smult)
         self.check_transformer_cache ()
         self.log_transformer_cache (lib.logger.DEBUG)
-
         e, c = kernel (self, h1e, eri, norb, nelec, smult=self.smult,
                        idx_sym=None, ci0=ci0, transformer=self.transformer,
                        **kwargs)
@@ -737,7 +737,7 @@ class FCISolverSpin0(cplxCSFFCISolver, direct_spin0_cplx.FCISolver):
         self.smult = kwargs.pop('smult', self.smult)
         self.check_transformer_cache ()
         self.log_transformer_cache (lib.logger.DEBUG)
-
+        
         e, c = kernel (self, h1e, eri, norb, nelec, smult=self.smult,
                        idx_sym=None, ci0=ci0, transformer=self.transformer,
                        **kwargs)
