@@ -434,6 +434,21 @@ class PBCCASBASE(mcscf.casci.CASBase):
         self._ncore = value
 
     def dump_flags(self, verbose=None):
+        if self.mo_coeff is None:
+            log.error('MO coefficients are not set')
+        mo_coeff_backup = self.mo_coeff.copy()
+        self.mo_coeff = self.mo_coeff[0] # Because the dump_flags in molecular code only works for one set of mo_coeff
+        mcscf.casci.CASBase.dump_flags(self, verbose)
+        self.mo_coeff = mo_coeff_backup
+        del mo_coeff_backup
+        if (getattr(self._scf, 'with_solvent', None) and
+            not getattr(self, 'with_solvent', None)): raise NotImplementedError
+        log = logger.new_logger(self, verbose)
+        log.info('nkpts = %d', self.nkpts)
+        return self
+    
+
+    def _dump_flags(self, verbose=None):
         log = logger.new_logger(self, verbose)
         log.info('')
         log.info('******** %s ********', self.__class__)
@@ -481,24 +496,10 @@ class PBCCASBASE(mcscf.casci.CASBase):
         self._scf.reset(cell)
         return self
     
-    def get_veff(self, cell=None, dm=None, hermi=1, kpt=None):
+    def get_veff(self, cell=None, dm=None, hermi=1, kpt=None, **kwargs):
         # Note this would be in k-space: would need transformation
         # before its direct use.
-        return self._scf.get_veff(cell=cell, dm=dm, hermi=hermi, kpt=kpt)
-    
-    # Defining all of these functions here to initialize it. Do we really need it?
-    def _eig(self, h, *args):
-        from pyscf import scf
-        return scf.hf.eig(h, None)
-
-    def get_h2cas(**kwargs):
-        pass
-
-    def get_h2eff(**kwargs):
-        pass
-    
-    def ao2mo(**kwargs):
-        pass
+        return self._scf.get_veff(cell=cell, dm=dm, hermi=hermi, kpt=kpt, **kwargs)
     
     def get_hcore(self, **kwargs):
         '''
@@ -571,8 +572,8 @@ class PBCCASBASE(mcscf.casci.CASBase):
                              i, self.e_tot[i].real, e.real)
         return self
 
-    def kernel(**kwargs):
-        pass
+    # def kernel(**kwargs):
+    #     pass
     
     get_fock = get_fock
 
