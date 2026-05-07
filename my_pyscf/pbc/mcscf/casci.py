@@ -1,5 +1,5 @@
+# !/usr/bin/env python
 
-import os
 import sys
 import numpy as np
 from functools import reduce
@@ -9,6 +9,7 @@ from pyscf.lib import logger
 from pyscf.pbc import scf
 from pyscf.fci.addons import _unpack_nelec
 from pyscf.pbc.lib import kpts_helper
+from pyscf.pbc.x2c import sfx2c1e
 
 from mrh.my_pyscf.pbc import fci as pbc_fci
 from mrh.my_pyscf.pbc.mcscf.k2R import  get_mo_coeff_k2R
@@ -26,11 +27,9 @@ else:
 # Author: Bhavnesh Jangid <jangidbhavnesh@uchicago.edu>
 #
 
-'''
-Structure is as follow:
-k-space mo-coeff: -> h1, h2 in r-space: do ci: -> back transform the mo_coeff to k-space:
-in case of rdm also, since the ci are in r-space, construct the 1-RDM and 2-RDM and backtransform it.
-'''
+#TODO:
+# 1. Implement the CASNatorb function.
+# 2.
 
 def h1e_for_cas(mc, mo_coeff=None, ncas=None, ncore=None):
     '''
@@ -91,7 +90,26 @@ def h1e_for_cas(mc, mo_coeff=None, ncas=None, ncore=None):
 
 @lib.with_doc(mcscf.casci.get_fock.__doc__)
 def get_fock(mc, mo_coeff=None, ci=None, eris=None, casdm1=None, verbose=None):
-    
+    '''
+    Constructing the Generalized Fock matrix for a given casdm1.
+    args:
+        mc : pbc.mcscf.CASCI
+            The CASCI object.
+        mo_coeff : np.ndarray [nk, nao, nmo_k]
+            orbitals at each k-point.
+        ci : list or np.ndarray
+            CI vector(s) representing the wavefunction in the CAS space.
+        eris : np.ndarray
+            Two-electron integrals in the CAS space. This is not used currently, 
+            but I am keeping it for consistency with molecular CASCI.
+        casdm1 : np.ndarray [nk*ncas, nk*ncas]
+            The 1-particle density matrix in the CAS space, still in k-point basis.
+        verbose : int
+            Verbosity level for logging and output control.
+    returns:
+        fock : np.ndarray [nk, nao, nao]
+            The generalized Fock matrix at each k-point in AO basis.
+    '''
     if ci is None: 
         ci = mc.ci
     if mo_coeff is None: 
@@ -128,11 +146,10 @@ def get_fock(mc, mo_coeff=None, ci=None, eris=None, casdm1=None, verbose=None):
         dm_k[k] = dm
     
     veff = mc._scf.get_veff(cell, dm_k, hermi=1)
-        
-    for k in range(nkpts):
-        fock[k] = hcore_k[k] + veff[k]
+
+    fock = np.array([hcore_k[k] + veff[k] for k in range(nkpts)], dtype=dtype)
     
-    hcore_k = dm_core = mo_core_kpts = None
+    hcore_k = dm_core = mo_core_kpts = veff = None
 
     return fock
 
@@ -194,8 +211,6 @@ def canonicalize(mc, mo_coeff=None, ci=None, eris=None, sort=False,
         log.info('Density matrix diagonal elements')
         for k in range(nkpts):
             dm_k = mo_phase[k] @ casdm1 @ mo_phase[k].conj().T
-            # TODO: add an option to check whether the imaginary part of the density matrix is small, 
-            # and if so, print only the real part.
             log.info("k-point %d, only real diagonal = %s",
                      k,
                      np.array2string(np.diag(dm_k).real, precision=5, floatmode='fixed', separator=', '))
@@ -412,6 +427,7 @@ class PBCCASBASE(mcscf.casci.CASBase):
             return ncorelec // 2
         else: return self._ncore
     
+    # Removing this is causing problem.
     @ncore.setter
     def ncore(self, value):
         assert value is None or isinstance(value, (int, np.integer)) or value >=0
@@ -464,9 +480,6 @@ class PBCCASBASE(mcscf.casci.CASBase):
             self.fcisolver.cell = cell
         self._scf.reset(cell)
         return self
-
-    def energy_nuc(self):
-        return self._scf.energy_nuc()
     
     def get_veff(self, cell=None, dm=None, hermi=1, kpt=None):
         # Note this would be in k-space: would need transformation
@@ -495,9 +508,6 @@ class PBCCASBASE(mcscf.casci.CASBase):
             self._scf.cell.verbose = 0
             return self._scf.get_hcore(**kwargs)
 
-    def get_h1cas(**kwargs):
-        pass
-    
     def get_h1cas(self, mo_coeff=None, ncas=None, ncore=None):
         '''An alias of get_h1eff method'''
         return self.get_h1eff(mo_coeff, ncas, ncore)
@@ -507,11 +517,15 @@ class PBCCASBASE(mcscf.casci.CASBase):
     @lib.with_doc(scf.hf.get_jk.__doc__)
     def get_jk(self, cell, dm, hermi=1, vhfopt=None, kpt=np.zeros(3),
            kpts_band=None, with_j=True, with_k=True, omega=None, **kwargs):
+        '''
+        Compute the J and K matrices for the given density matrix.
+        Basically, this is wrapper around RHF function. See that function 
+        for more details.
+        '''
         return self._scf.get_jk(cell=cell, dm=dm, hermi=hermi, vhfopt=vhfopt, 
                                 kpt=kpt, kpts_band=kpts_band, with_j=with_j, 
                                 with_k=with_k, omega=omega, **kwargs)
     
-
     canonicalize = canonicalize
 
     @lib.with_doc(canonicalize.__doc__)
@@ -559,26 +573,35 @@ class PBCCASBASE(mcscf.casci.CASBase):
 
     def kernel(**kwargs):
         pass
-
-    def get_fock(self, mo_coeff=None, ci=None, eris=None, casdm1=None,
-                 verbose=None):
-        return get_fock(self, mo_coeff, ci, eris, casdm1, verbose)
+    
+    get_fock = get_fock
 
     def make_rdm1s(self, mo_coeff=None, ci=None, ncas=None, nelecas=None,
                    ncore=None, **kwargs):
         '''
         Spin-separated one-particle density matrices for alpha and beta spin on AO basis
+        args:
+            mo_coeff : np.ndarray [nk, nao, nmo_k]
+                orbitals at each k-point.
+            ci : list or np.ndarray
+                CI vector(s) representing the wavefunction in the CAS space.
+            ncas : int
+                number of active space orbitals in unit cell (i.e. at each k-point).
+            nelecas : int or tuple
+                number of active electrons in unit cell (i.e. at each k-point).
+            ncore : int
+                number of core orbitals in unit cell (i.e. at each k-point).
+        returns:
+            dm1a : np.ndarray [nk, nao, nao]
+                Alpha spin one-particle density matrix in AO basis for each k-point.
+            dm1b : np.ndarray [nk, nao, nao]
+                Beta spin one-particle density matrix in AO basis for each k-point.
         '''
-        if mo_coeff is None: 
-            mo_coeff = self.mo_coeff
-        if ci is None: 
-            ci = self.ci
-        if ncas is None:
-            ncas = self.ncas
-        if nelecas is None:
-            nelecas = self.nelecas
-        if ncore is None:
-            ncore = self.ncore
+        if mo_coeff is None: mo_coeff = self.mo_coeff
+        if ci is None: ci = self.ci
+        if ncas is None: ncas = self.ncas
+        if nelecas is None: nelecas = self.nelecas
+        if ncore is None: ncore = self.ncore
 
         nkpts = self.nkpts
         kmesh = self.kmesh
@@ -593,25 +616,31 @@ class PBCCASBASE(mcscf.casci.CASBase):
             mocore = mo_coeff[k][:,:ncore]
             mocas = mo_coeff[k][:,ncore:ncore+ncas]
             dm1b[k] = np.dot(mocore, mocore.conj().T)
-            dm1a[k] = dm1b[k] + reduce(np.dot, (mocas, mo_phase[k], casdm1a, mo_phase[k].conj().T,mocas.conj().T))
-            dm1b[k] += reduce(np.dot, (mocas, mo_phase[k], casdm1b, mo_phase[k].conj().T,mocas.conj().T))
+            # dm1a[k] = dm1b[k] + reduce(np.dot, (mocas, mo_phase[k], casdm1a, mo_phase[k].conj().T,mocas.conj().T))
+            # dm1b[k] += reduce(np.dot, (mocas, mo_phase[k], casdm1b, mo_phase[k].conj().T,mocas.conj().T))
+            umat = mocas @ mo_phase[k]
+            dm1a[k] = dm1b[k] + reduce(np.dot, (umat, casdm1a, umat.conj().T))
+            dm1b[k] += reduce(np.dot, (umat, casdm1b, umat.conj().T))
+        
+        casdm1a = casdm1b = None  # Free memory
+        umat = None  # Free memory
         return dm1a, dm1b
     
     def make_rdm1(self, mo_coeff=None, ci=None, ncas=None, nelecas=None,
                   ncore=None, **kwargs):
         '''
         Spin-summed one-particle density matrix in AO representation
+        args:
+            See above make_rdm1s function.
+        returns:
+            dm1 : np.ndarray [nk, nao, nao]
+                Spin-summed one-particle density matrix in AO basis for each k-point.
         '''
-        if mo_coeff is None:
-            mo_coeff = self.mo_coeff
-        if ci is None:
-            ci = self.ci
-        if ncas is None:
-            ncas = self.ncas
-        if nelecas is None:
-            nelecas = self.nelecas
-        if ncore is None:
-            ncore = self.ncore
+        if mo_coeff is None: mo_coeff = self.mo_coeff
+        if ci is None: ci = self.ci
+        if ncas is None: ncas = self.ncas
+        if nelecas is None: nelecas = self.nelecas
+        if ncore is None: ncore = self.ncore
 
         nkpts = self.nkpts
         nao = mo_coeff[0].shape[0]
@@ -624,7 +653,12 @@ class PBCCASBASE(mcscf.casci.CASBase):
             mocore = mo_coeff[k][:,:ncore]
             mocas = mo_coeff[k][:,ncore:ncore+ncas]
             dm1[k] = np.dot(mocore, mocore.conj().T) * 2
-            dm1[k] += reduce(np.dot, (mocas, mo_phase[k], casdm1, mo_phase[k].conj().T,mocas.conj().T))
+            # dm1[k] += reduce(np.dot, (mocas, mo_phase[k], casdm1, mo_phase[k].conj().T,mocas.conj().T))
+            umat = mocas @ mo_phase[k]
+            dm1[k] += reduce(np.dot, (umat, casdm1, umat.conj().T))
+        
+        casdm1 = mo_phase = umat = None  # Free memory
+
         return dm1
 
     @lib.with_doc(mcscf.casci.CASBase.fix_spin.__doc__)
@@ -634,13 +668,9 @@ class PBCCASBASE(mcscf.casci.CASBase):
         return self
     
     fix_spin = fix_spin_
-
-    def sfx2c1e(self):
-        '''
-        Pointing to the sfx2c1e object for the PBC system.
-        '''
-        from pyscf.pbc.x2c import sfx2c1e
-        return sfx2c1e.sfx2c1e(self)
+    
+    # Pointing to the sfx2c1e object for the PBC system.
+    sfx2c1e = sfx2c1e.sfx2c1e
 
 class PBCCASCI(PBCCASBASE):
     '''
