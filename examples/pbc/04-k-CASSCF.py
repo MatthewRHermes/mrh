@@ -57,3 +57,4 @@ kmf.kernel()
 kmc = mcscf.CASSCF(kmf, 2, 2)
 kmc.kernel(kmf.mo_coeff)
 
+# Different FCISolvers can be plugged in too.

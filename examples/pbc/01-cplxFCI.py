@@ -6,7 +6,6 @@ from mrh.my_pyscf.pbc.fci import direct_spin1_cplx
 
 
 # An example to run the complex FCI solver.
-
 mol = gto.Mole(atom='H 0 0 0; F 0 0 1.1', 
                basis='STO-6G',
                spin = 0,
