@@ -65,7 +65,6 @@ class hdm2Handler:
     def get_pmmp(self, k1, k2, k3):
         return self._get("hdm2_pmmp", k1, k2, k3)
 
-
 def gen_g_hop(mc, mo_coeff, mo_phase, u, casdm1, casdm2, eris):
     '''
     To solve the second order or quasi-second order CASSCF equations, we need to 
@@ -368,8 +367,7 @@ def gen_g_hop(mc, mo_coeff, mo_phase, u, casdm1, casdm2, eris):
         jkcaa[k] += (2.0) * np.einsum('pupv,uv->pv',papa,casdm1_kpts[k],optimize=True)
 
     for k1, k2, k3 in kpts_helper.loop_kkk(nkpts):
-        k4 = kconserv[k1,k2,k3]
-        # hdm2: K1-term: Debugged  
+        k4 = kconserv[k1,k2,k3] 
         # # pwqx(+-+-) uwvx(+-+-) - > puqv (+-+-)
         term = np.zeros((nmo, ncas, nmo, ncas), dtype=dtype)
         for kw in range(nkpts):
@@ -955,7 +953,6 @@ class PBCCASSCF(casci.PBCCASBASE):
 
         mo_phase = get_mo_coeff_k2R(self._scf, mo_coeff, self.ncore, self.ncas, kmesh=self.kmesh)[-1]
 
-        # print('Start 1-step CASSCF optimization')
         self.converged, self.e_tot, self.e_cas, self.ci, \
                 self.mo_coeff, self.mo_energy = \
                 _kern(self, mo_coeff, mo_phase,

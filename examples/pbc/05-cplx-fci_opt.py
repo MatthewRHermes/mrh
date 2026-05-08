@@ -113,9 +113,9 @@ print(f"Direct Spin0 Complex FCI Energy          : {e3.real:.12f}")
 
 
 # Case-2: for (14e, 14o)
-# direct_spin1_cplx takes    :  980.45 seconds (CPU time)
-# direct_spin1_cplx_opt takes:  438.56 seconds (CPU time)
-# direct_spin0_cplx takes    :  254.5 seconds (CPU time)
+# direct_spin1_cplx takes    :  1307.45 seconds (CPU time)
+# direct_spin1_cplx_opt takes:  388.26 seconds (CPU time)
+# direct_spin0_cplx takes    :  214.01 seconds (CPU time)
 
 # Molecular code for the same size of active space
 # direct_spin1 takes    :  194.41 seconds (CPU time)
