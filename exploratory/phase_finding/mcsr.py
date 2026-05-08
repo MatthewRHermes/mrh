@@ -28,7 +28,21 @@ class MCSRState:
         self.err = linalg.norm (av)
 
 class MonteCarloSignRecoverer:
-    def __init__(self, a_op, a_diag, amps, maxiter=20, conv_tol=1e-10, log=print, num_tol=1e-16):
+    '''
+    Args:
+        a_op : LinearOperator of shape (n,n)
+        a_diag : ndarray of shape (n,)
+        amps : ndarray of shape (n,)
+            Contains nonnegative probability amplitudes
+
+    Returns:
+        w : float
+            "eigenvalue"
+        v : ndarray of shape (n,)
+            Contains "eigenvector" with amplitudes given by amps but with signs determined by
+            the iterative algorithm
+    '''
+    def __init__(self, a_op, a_diag, amps, maxiter=200, conv_tol=1e-10, log=print, num_tol=1e-16):
         if (log is None) or (log==False): log = lambda * args: None
         self.a_op = a_op
         self.a_diag = a_diag
@@ -63,7 +77,7 @@ class MonteCarloSignRecoverer:
         idx_j = (np.sign (vai) == np.sign (vav))
         mask = self.non0 & (idx_i | idx_j)
         mask[i] = False
-        assert (np.count_nonzero (mask) > 0), '{} {} {} {}'.format (i, vai, vav, non0)
+        assert (np.count_nonzero (mask) > 0)
         j = select (vav, mask)
         return i, j
 
@@ -72,15 +86,21 @@ class MonteCarloSignRecoverer:
             self.log (self.it, self.state.w, self.state.err)
             if self.state.err < self.conv_tol:
                 break
-            i, j = self.get_element ()
-            state_i = self.get_step (i)
-            state_j = self.get_step (j)
-            if (state_i.err > self.state.err) and (state_j.err > self.state.err):
-                pass
-            elif state_i.err < state_j.err:
-                self.state = state_i
-            elif state_j.err < state_i.err:
-                self.state = state_j
+            try:
+                i, j = self.get_element ()
+                state_i = self.get_step (i)
+                state_j = self.get_step (j)
+                self.log ('{:3d} {:3d} {:10.3e} {:10.3e}'.format (
+                    i, j, state_i.err, state_j.err
+                ))
+                if (state_i.err > self.state.err) and (state_j.err > self.state.err):
+                    pass
+                elif state_i.err < state_j.err:
+                    self.state = state_i
+                elif state_j.err < state_i.err:
+                    self.state = state_j
+            except AssertionError as err:
+                continue
         return self.state.w, self.state.v
 
 
@@ -105,14 +125,28 @@ def find_phase_matrix (hmat):
     w, v = linalg.eigh (hmat)
     h_diag = hmat.diagonal ()
     h_op = sparse_linalg.aslinearoperator (hmat)
+    fmt_str = '{:2d} {:10.3e} {:10.3e} {:10.3e} {:4d}'
     for i in range (len (w)):
         f = MonteCarloSignRecoverer (h_op, h_diag, np.abs (v[:,i]), log=False)
         w_test, v_test = f ()
-        print ("result", i, w[i], w_test, np.dot (v[:,i].conj (), v_test), f.state.err, f.it)
+        print (fmt_str.format (i, w_test-w[i], np.dot (v[:,i].conj (), v_test), f.state.err, f.it))
+
+def find_phase_matrix (hmat):
+    w, v = linalg.eigh (hmat)
+    h_diag = hmat.diagonal ()
+    h_op = sparse_linalg.aslinearoperator (hmat)
+    for i in range (len (w)):
+        f = MonteCarloSignRecoverer (h_op, h_diag, np.abs (v[:,i]), log=False)
+        w_test, v_test = f ()
+        print (fmt_str.format (i, w_test-w[i], np.dot (v[:,i].conj (), v_test), f.state.err, f.it))
 
 if __name__=='''__main__''':
+    from mrh.exploratory.phase_finding import random_fci
+    fmt_str = '{:2d} {:10.3e} {:10.3e} {:10.3e} {:4d}'
     for i in range (100):
-        hmat = (2*rng.random ((3,3))) - 1
-        hmat += hmat.T
-        find_phase_matrix (hmat)
+        w, v, h_op, h_diag = random_fci.get (4, 4)
+        for j in range (len (w)):
+            f = MonteCarloSignRecoverer (h_op, h_diag, np.abs (v[:,j]), log=False)
+            w_test, v_test = f ()
+            print (fmt_str.format (j, w_test-w[j], np.dot (v[:,j].conj (), v_test), f.state.err, f.it))
 
