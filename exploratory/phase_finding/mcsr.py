@@ -20,6 +20,13 @@ def _select (vec):
     idx = np.where (offs > card)[0][0]
     return idx
 
+class MCSRState:
+    def __init__(self, v, av):
+        self.v = v.copy ()
+        self.w = w = np.dot (v.conj ().T, av)
+        self.av = av = av - (w*v)
+        self.err = linalg.norm (av)
+
 class MonteCarloSignRecoverer:
     def __init__(self, a_op, a_diag, amps, maxiter=20, conv_tol=1e-10, log=print, num_tol=1e-16):
         if (log is None) or (log==False): log = lambda * args: None
@@ -29,33 +36,29 @@ class MonteCarloSignRecoverer:
         self.maxiter = maxiter
         self.conv_tol = conv_tol
         self.log = log
-        self.v = v = amps.copy ()
-        self.av = av = a_op (v)
-        self.w = w = np.dot (v.conj ().T, av)
-        self.av = av = av - (w*v)
-        self.err = linalg.norm (av)
+        self.state = MCSRState (amps, a_op (amps))
         self.non0 = np.abs (amps) > num_tol
-        self.v1 = v.copy ()
         self.it = 0
+        self.vbuf = np.empty_like (amps)
 
     def get_ai (self, i):
-        self.v1[:] = 0
-        self.v1[i] = self.v[i]
-        return self.a_op (self.v1)
+        v1 = self.vbuf
+        v1[:] = 0
+        v1[i] = self.state.v[i]
+        return self.a_op (v1)
 
     def get_step (self, i):
-        self.v1[:] = self.v
-        self.v1[i] *= -1
-        av1 = self.a_op (self.v1)
-        w1 = np.dot (self.v1.conj (), av1)
-        av1 = av1 - w1*self.v1
-        return av1, w1
+        v1 = self.vbuf
+        v1[:] = self.state.v
+        v1[i] *= -1
+        return MCSRState (v1, self.a_op (v1))
 
     def get_element (self):
-        i = select (self.av, self.non0)
-        ai = self.get_ai (i) - self.w*self.v[i]
-        vai = self.v * ai
-        vav = self.v * self.av
+        i = select (self.state.av, self.non0)
+        v, w, av = self.state.v, self.state.w, self.state.av
+        ai = self.get_ai (i) - w*v[i]
+        vai = v * ai
+        vav = v * av
         idx_i = (np.sign (vai) == np.sign (vav[i]))
         idx_j = (np.sign (vai) == np.sign (vav))
         mask = self.non0 & (idx_i | idx_j)
@@ -65,29 +68,20 @@ class MonteCarloSignRecoverer:
         return i, j
 
     def __call__(self):
-        i = j = err_i = err_j = None
         for self.it in range (self.maxiter):
-            self.log (self.it, self.w, self.err, i, err_i, j, err_j)
-            if self.err < self.conv_tol:
+            self.log (self.it, self.state.w, self.state.err)
+            if self.state.err < self.conv_tol:
                 break
             i, j = self.get_element ()
-            av_i, w_i = self.get_step (i)
-            av_j, w_j = self.get_step (j)
-            err_i = linalg.norm (av_i)
-            err_j = linalg.norm (av_j)
-            if (err_i > self.err) and (err_j > self.err):
+            state_i = self.get_step (i)
+            state_j = self.get_step (j)
+            if (state_i.err > self.state.err) and (state_j.err > self.state.err):
                 pass
-            elif err_i < err_j:
-                self.av[:] = av_i
-                self.err = err_i
-                self.w = w_i
-                self.v[i] *= -1
-            elif err_j < err_i:
-                self.av = av_j
-                self.err = err_j
-                self.w = w_j
-                self.v[j] *= -1
-        return self.w, self.v
+            elif state_i.err < state_j.err:
+                self.state = state_i
+            elif state_j.err < state_i.err:
+                self.state = state_j
+        return self.state.w, self.state.v
 
 
 def find_phase (*args, **kwargs):
@@ -114,7 +108,7 @@ def find_phase_matrix (hmat):
     for i in range (len (w)):
         f = MonteCarloSignRecoverer (h_op, h_diag, np.abs (v[:,i]), log=False)
         w_test, v_test = f ()
-        print ("result", i, w[i], w_test, np.dot (v[:,i].conj (), v_test), f.err, f.it)
+        print ("result", i, w[i], w_test, np.dot (v[:,i].conj (), v_test), f.state.err, f.it)
 
 if __name__=='''__main__''':
     for i in range (100):
