@@ -1289,7 +1289,11 @@ class PBCCASSCF(casci.PBCCASBASE):
         else: tol = None
 
         if getattr(self.fcisolver, 'approx_kernel', None):
-            raise NotImplementedError('approx_kernel is not tested/implemented for direct_spin1_cplx')
+            fn = self.fcisolver.approx_kernel
+            e, ci1 = fn(h1, h2, ncastot, nelecastot, ecore=ecore, ci0=ci0,
+                        tol=tol, max_memory=self.max_memory)
+            return ci1, None
+        
         elif not (getattr(self.fcisolver, 'contract_2e', None) and 
                   getattr(self.fcisolver, 'absorb_h1e', None)):
             raise NotImplementedError('direct kernel is not tested/implemented for direct_spin1_cplx')
