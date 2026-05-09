@@ -263,7 +263,7 @@ class DMRGCICPLX(lib.StreamObject):
         '''
         Make 1-RDM from a given CI vector. Basically, we will use the 2-RDM to reconstruct the 1-RDM.
         '''
-        return self.make_rdm12(self, civec, norb, nelec, **kwargs)[0]
+        return self.make_rdm12(civec, norb, nelec, **kwargs)[0]
 
     def make_rdm12(self, civec, norb, nelec, **kwargs):
         '''
@@ -285,7 +285,7 @@ class DMRGCICPLX(lib.StreamObject):
         '''
         neleca, nelecb = _unpack_nele(nelec, self.spin)
 
-        dm1, dm2 = self.make_rdm12(ci=civec, norb=norb, nelec=nelec, **kwargs)
+        dm1, dm2 = self.make_rdm12(civec=civec, norb=norb, nelec=nelec, **kwargs)
         nelec = neleca + nelecb
         S = 0.5 * (neleca - nelecb)
         
@@ -345,12 +345,25 @@ if __name__ == "__main__":
     )
     e_casscf = mc.kernel()[0]
     
+    mo_coeff = mc.mo_coeff
+    rdm1 = mc.fcisolver.make_rdm1(mc.ci, norb=mc.ncas, nelec=mc.nelecas)
+    rdm1a, rdm1b = mc.fcisolver.make_rdm1s(mc.ci, norb=mc.ncas, nelec=mc.nelecas)
+    rdm1_, rdm2 = mc.fcisolver.make_rdm12(mc.ci, norb=mc.ncas, nelec=mc.nelecas)
 
     from pyscf.csf_fci import csf_solver
-    mc = mcscf.CASSCF(mf, 8, (4,4))
+    mc = mcscf.CASCI(mf, 8, (4,4))
     mc.fcisolver = csf_solver(mol, smult=1)
-    e_casscf_csf = mc.kernel()[0]
+    e_casscf_csf = mc.kernel(mo_coeff)[0]
+
+    rdm1_ref = mc.fcisolver.make_rdm1(mc.ci, norb=mc.ncas, nelec=mc.nelecas)
+    rdm2_ref = mc.fcisolver.make_rdm12(mc.ci, norb=mc.ncas, nelec=mc.nelecas)[1]
+    rdm1a_ref, rdm1b_ref = mc.fcisolver.make_rdm1s(mc.ci, norb=mc.ncas, nelec=mc.nelecas)
 
     print("DMRG-CASSCF energy =", e_casscf)
     print("CSF-CASSCF energy =", e_casscf_csf)
-    print("Energy difference between DMRG-CASSCF and CSF-CASSCF =", e_casscf - e_casscf_csf) 
+    print("Energy difference between DMRG-CASSCF and CSF-CASSCF =", e_casscf - e_casscf_csf)
+
+    print("1-RDM difference between DMRG-CASSCF and CSF-CASSCF =", np.linalg.norm(rdm1 - rdm1_ref))
+    print("2-RDM difference between DMRG-CASSCF and CSF-CASSCF =", np.linalg.norm(rdm2 - rdm2_ref))
+    print("Spin-separated 1-RDM difference between DMRG-CASSCF and CSF-CASSCF =", np.linalg.norm(rdm1a - rdm1a_ref) + np.linalg.norm(rdm1b - rdm1b_ref))
+    print("1-RDM difference between DMRG-CASSCF and CSF-CASSCF =", np.linalg.norm(rdm1_ - rdm1_ref))
