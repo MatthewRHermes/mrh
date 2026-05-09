@@ -11,11 +11,11 @@ from mrh.my_pyscf.pbc.fci import addons
 # 2. Add the point group symmetry option.
 
 try:
-    from pyscf import dmrgscf
-    from mrh.my_pyscf.pbc.fci import dmrgci_cplx_helper
-    DMRGCIComplex = dmrgci_cplx_helper.DMRGCIComplex
+    from mrh.my_pyscf.pbc.fci import dmrg_cplx_helper
+    DMRGCICPLX = dmrg_cplx_helper.DMRGCICPLX
 except ImportError:
-    pass
+        raise ImportError("DMRGCI with complex integrals is not available. " \
+        "Please install the DMRGCI module from GitHub.")
 
 def solver(cell, singlet, symm=None):
     # Will add the singlet and symm options later.
