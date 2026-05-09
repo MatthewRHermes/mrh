@@ -147,7 +147,7 @@ class DMRGCICPLX(lib.StreamObject):
     DMRG-CI wrapper to be used with block2.
     '''
     def __init__(self, cell, num_thrds=lib.num_threads(), 
-                 symm_type=SymmetryTypes.SU2,
+                 symm_type=SymmetryTypes.SU2|SymmetryTypes.CPX,
                  maxM=252, tol=1e-7):
         self.cell = cell
         if cell is None:
@@ -246,7 +246,7 @@ class DMRGCICPLX(lib.StreamObject):
             # check hermiticity
             assert np.linalg.norm(h1e - h1e.conj().T) < TOL, \
                 "h1e is not hermitian. Error = {}".format(np.linalg.norm(h1e - h1e.conj().T))
-            assert np.linalg.norm(eri - eri.conj().transpose(2, 3, 0, 1)) < TOL, \
+            assert np.linalg.norm(eri - eri.transpose(2, 3, 0, 1)) < TOL, \
                 "eri is not symmetric. Error = {}".format(np.linalg.norm(eri -eri.conj().transpose(2, 3, 0, 1)))
             return h1e, eri
 
