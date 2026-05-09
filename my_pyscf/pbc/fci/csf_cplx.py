@@ -78,7 +78,7 @@ def get_init_guess(norb, nelec, nroots, hdiag_csf, transformer):
     return ciout
 
 def make_hdiag_det (fci, h1e, eri, norb, nelec):
-    '''
+    r'''
     hdiag = <\psi_I|H_real + i*H_imag|\psi_I> = <\psi_I|H_real|\psi_I> + i*<\psi_I|H_imag|\psi_I>.
     For the Hermitian Hamiltonian, the diagoan elements are real. Still the output array would be
     complex to avoid any datatype bug in any other part of the code.
