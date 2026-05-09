@@ -10,12 +10,16 @@ from mrh.my_pyscf.pbc.fci import addons
 # 1. Add the option of direct_spin0 during the initialization.
 # 2. Add the point group symmetry option.
 
+class DMRGCICPLX:
+    def __init__(self, **kwargs):
+        raise ImportError("DMRGCI with complex integrals is not available. " \
+    "Please install the DMRGCI module from GitHub.")
+    
 try:
-    from mrh.my_pyscf.pbc.fci import dmrg_cplx_helper
+    from . import dmrg_cplx_helper
     DMRGCICPLX = dmrg_cplx_helper.DMRGCICPLX
 except ImportError:
-        raise ImportError("DMRGCI with complex integrals is not available. " \
-        "Please install the DMRGCI module from GitHub.")
+    pass
 
 def solver(cell, singlet, symm=None):
     # Will add the singlet and symm options later.
