@@ -136,6 +136,7 @@ def generate_schedule(maxM, tol=1e-7, startM=None, restart=False):
     maxIter = twodot_to_onedot + 8
 
     return (
+        tuple(scheduleSweeps),
         tuple(scheduleMaxMs),
         tuple(scheduleNoises),
         tuple(scheduleTols),
@@ -169,7 +170,8 @@ class DMRGCICPLX(lib.StreamObject):
         self.stack_mem = int(4e9) # Reset this if you what you are doing.!!
         self.symm_type = symm_type
         self.conv_tol = tol
-        self.bond_dims, self.noises, self.thrds, self.n_sweeps = generate_schedule(maxM=maxM, tol=tol)
+        self.maxM = maxM
+        self.scheduleSweeps, self.bond_dims, self.noises, self.thrds, self.n_sweeps = generate_schedule(maxM=self.maxM, tol=tol)
 
         self.clean_scratch = True
         self.iprint = 1
@@ -196,7 +198,7 @@ class DMRGCICPLX(lib.StreamObject):
         log.info("integralFile           = %s", os.path.join(runtimeDir, self.integralFile))
         log.info("outputFile             = %s", os.path.join(runtimeDir, self.outputFile))
         log.info("maxIter                = %d", self.n_sweeps)
-        log.info("scheduleSweeps         = %s", str(list(range(len(self.bond_dims)))))
+        log.info("scheduleSweeps         = %s", str(list(self.scheduleSweeps)))
         log.info("scheduleMaxMs          = %s", str(self.bond_dims))
         log.info("scheduleTols           = %s", str(self.thrds))
         log.info("scheduleNoises         = %s", str(self.noises))
@@ -346,7 +348,7 @@ class DMRGCICPLX(lib.StreamObject):
         approx_tol = getattr(self, "approx_tol", max(self.conv_tol * 100.0, 1e-6))
         approx_maxIter = getattr(self, "approx_maxIter", 6)
 
-        bond_dims, noises, thrds, n_sweeps = generate_schedule(maxM=approx_maxM, tol=approx_tol, startM=None, restart=fciRestart)
+        scheduleSweeps,bond_dims, noises, thrds, n_sweeps = generate_schedule(maxM=approx_maxM, tol=approx_tol, startM=None, restart=fciRestart)
 
         if approx_maxIter is not None:
             n_sweeps = min(int(n_sweeps), int(approx_maxIter))
