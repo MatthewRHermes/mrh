@@ -61,48 +61,125 @@ def redirect_stdout_stderr_to_file(filename, mode="a"):
         os.close(old_stdout)
         os.close(old_stderr)
 
+def generate_schedule(maxM, tol=1e-7, startM=None, restart=False):
+    '''
+    Generating DMRG schedule from maxM.
+    Referece: dmrgscf/dmrgci.generate_schedule()
+    args:
+        maxM : int
+            Maximum bond dimension to be used in the DMRG calculation.
+        tol : float
+            Convergence tolerance for the DMRG calculation. Default is 1e-7.
+        startM : int or None
+            Starting bond dimension for the DMRG calculation. If None, it will be set to 50 if maxM < 200, 
+            otherwise it will be set to 200.
+        restart : bool
+            Whether this is a restart calculation. If True, the initial tolerance will be set to tol/10.0, 
+            otherwise it will be set to 1.0e-4.
+    returns:
+        bond_dims: tuple[int]
+        noises: tuple[float]
+        thrds: tuple[float]
+        n_sweeps : int
+    '''
+
+    if startM is None:
+        if maxM < 200:
+            startM = 50
+        else:
+            startM = 200
+
+    scheduleSweeps = []
+    scheduleMaxMs = []
+    scheduleTols = []
+    scheduleNoises = []
+
+    N_sweep = 0
+
+    if restart:
+        Tol = tol / 10.0
+    else:
+        Tol = 1.0e-4
+
+    # Increase bond dimension by factors of 2 until maxM
+    M = int(startM)
+    while M < int(maxM):
+        scheduleSweeps.append(N_sweep)
+        N_sweep += 4
+
+        scheduleMaxMs.append(M)
+        scheduleTols.append(Tol)
+        scheduleNoises.append(Tol)
+
+        M *= 2
+
+    # At fixed maxM, tighten tolerance/noise
+    while Tol > float(tol):
+        scheduleSweeps.append(N_sweep)
+        N_sweep += 2
+
+        scheduleMaxMs.append(int(maxM))
+        scheduleTols.append(Tol)
+        scheduleNoises.append(Tol)
+
+        Tol /= 10.0
+
+    # Final zero-noise stage
+    scheduleSweeps.append(N_sweep)
+    N_sweep += 2
+
+    scheduleMaxMs.append(int(maxM))
+    scheduleTols.append(float(tol) / 10.0)
+    scheduleNoises.append(0.0)
+
+    twodot_to_onedot = N_sweep + 2
+    maxIter = twodot_to_onedot + 8
+
+    return (
+        tuple(scheduleMaxMs),
+        tuple(scheduleNoises),
+        tuple(scheduleTols),
+        int(maxIter),
+    )
+
 class DMRGCICPLX(lib.StreamObject):
     '''
     DMRG-CI wrapper to be used with block2.
     '''
-    def __init__(self, scratchDirectory=None, runtimeDir=None, n_threads=8, n_mkl_threads=1, 
-                 stack_mem=int(4e9), symm_type=SymmetryTypes.SU2, 
-                 bond_dims=(200, 400, 800), noises=(1e-4, 1e-5, 0.0), 
-                 thrds=(1e-6, 1e-7, 1e-8), n_sweeps=20, conv_tol=1e-8, clean_scratch=True,
-                 verbose=4, iprint=1):
+    def __init__(self, cell, num_thrds=lib.num_threads(), 
+                 symm_type=SymmetryTypes.SU2,
+                 maxM=252, tol=1e-7):
+        self.cell = cell
+        if cell is None:
+            self.stdout = sys.stdout
+            self.verbose = logger.NOTE
+        else:
+            self.stdout = cell.stdout
+            self.verbose = cell.verbose
         
-        self.verbose = verbose
-        self.stdout = None
         self.max_memory = 4000
-        if scratchDirectory is None: scratchDirectory = lib.param.TMPDIR
-        self.scratchDirectory = scratchDirectory
-        self.runtimeDir = runtimeDir if runtimeDir is not None else scratchDirectory
+        self.scratchDirectory = lib.param.TMPDIR + "/DMRGScratch"
+        self.restart_dir = lib.param.TMPDIR + "/DMRGRestart"
+        self.runtimeDir = lib.param.TMPDIR + "/DMRGScratch"
         self.outputFile = "DMRG.log"
         self.integralFile = "FCIDUMP"
-        self.n_threads = n_threads
-        self.n_mkl_threads = n_mkl_threads
-        self.stack_mem = stack_mem
+
+        self.n_threads = num_thrds
+        self.n_mkl_threads = 1 # Reset this if you what you are doing.!!
+        self.stack_mem = int(4e9) # Reset this if you what you are doing.!!
         self.symm_type = symm_type
-        self.bond_dims = list(bond_dims)
-        self.noises = list(noises)
-        self.thrds = list(thrds)
-        self.n_sweeps = n_sweeps
-        self.conv_tol = conv_tol
-        self.clean_scratch = clean_scratch
-        self.iprint = iprint
+        self.conv_tol = tol
+        self.bond_dims, self.noises, self.thrds, self.n_sweeps = generate_schedule(maxM=maxM, tol=tol)
+
+        self.clean_scratch = True
+        self.iprint = 1
 
         self.wfnsym = None
         self.orbsym = None
         self.spin = None
         self.nroots = 1
 
-        self.driver = None
-        self.mpo = None
-        self.ci = None
         self.e_tot = None
-        self.norb = None
-        self.nelec = None
-        self.ecore = None
 
     def dump_flags(self, verbose=None):
         log = logger.new_logger(self, verbose)
@@ -114,10 +191,10 @@ class DMRGCICPLX(lib.StreamObject):
         log.info("******** Block2 DMRGCI flags ********")
         log.info("executable             = %s", executable)
         log.info("scratchDirectory       = %s", self.scratchDirectory)
+        log.info("restart_dir            = %s", self.restart_dir)
         log.info("runtimeDir             = %s", runtimeDir)
         log.info("integralFile           = %s", os.path.join(runtimeDir, self.integralFile))
         log.info("outputFile             = %s", os.path.join(runtimeDir, self.outputFile))
-
         log.info("maxIter                = %d", self.n_sweeps)
         log.info("scheduleSweeps         = %s", str(list(range(len(self.bond_dims)))))
         log.info("scheduleMaxMs          = %s", str(self.bond_dims))
@@ -125,7 +202,7 @@ class DMRGCICPLX(lib.StreamObject):
         log.info("scheduleNoises         = %s", str(self.noises))
         log.info("symm_type              = %s", str(self.symm_type))
         log.info("stack_mem              = %s", str(self.stack_mem))
-        log.info("n_threads              = %d", self.n_threads)
+        log.info("num_thrds              = %d", self.n_threads)
         log.info("n_mkl_threads          = %d", self.n_mkl_threads)
         log.info("conv_tol               = %g", self.conv_tol)
         log.info("maxM                   = %d", max(self.bond_dims))
@@ -135,9 +212,6 @@ class DMRGCICPLX(lib.StreamObject):
         log.info("orbsym                 = %s", self.orbsym)
         log.info("spin                   = %s", self.spin)
         log.info("nroots                 = %s", self.nroots)
-        log.info("norb                   = %s", self.norb)
-        log.info("nelec                  = %s", str(self.nelec))
-        log.info("ecore                  = %s", str(self.ecore))
         log.info("")
         return self
 
@@ -149,22 +223,23 @@ class DMRGCICPLX(lib.StreamObject):
         n_elec = int(nelec)
         return n_elec, n_elec % 2
 
-    def _make_driver(self, scratch):
+    def _make_driver(self, scratch, restart_dir=None):
         os.makedirs(scratch, exist_ok=True)
-        self.driver = DMRGDriver(scratch=scratch, clean_scratch=self.clean_scratch, 
+        driver = DMRGDriver(scratch=scratch, clean_scratch=self.clean_scratch, 
                                  stack_mem=self.stack_mem, symm_type=self.symm_type,
-                                 n_threads=self.n_threads, n_mkl_threads=self.n_mkl_threads)
-        return self.driver
+                                 n_threads=self.n_threads, n_mkl_threads=self.n_mkl_threads, restart_dir=restart_dir)
+        return driver
 
     def processIntegral(self, h1e, eri, norb):
         '''
         Process the 1e and 2e integrals
         '''
         assert h1e.shape == (norb, norb)
-        assert eri.shape == (norb, norb, norb, norb)
+        
 
         # If complex symmetry:
         if self.symm_type & SymmetryTypes.CPX:
+            assert eri.shape == (norb, norb, norb, norb)
             h1e = h1e.astype(np.complex128)
             eri = eri.astype(np.complex128)
 
@@ -175,6 +250,10 @@ class DMRGCICPLX(lib.StreamObject):
                 "eri is not symmetric. Error = {}".format(np.linalg.norm(eri -eri.conj().transpose(2, 3, 0, 1)))
             return h1e, eri
 
+        if eri.ndim == 2:
+            from pyscf import ao2mo
+            eri = ao2mo.restore(1, eri, norb).reshape(norb, norb, norb, norb)
+        assert eri.shape == (norb, norb, norb, norb)
         h1e = h1e.astype(np.float64)
         eri = eri.astype(np.float64)
         assert np.linalg.norm(h1e - h1e.T) < TOL, \
@@ -187,20 +266,19 @@ class DMRGCICPLX(lib.StreamObject):
         '''
         Kernel function to perform the DMRG-CI calculation.
         '''
-        self.norb = int(norb)
-        self.nelec = nelec
-        self.ecore = ecore
-
         n_elec, spin = self._unpack_nelec_spin(nelec)
         self.spin = spin
 
-        h1e, eri = self.processIntegral(h1e, eri, self.norb)
+        h1e, eri = self.processIntegral(h1e, eri, norb)
 
         if os.path.exists(self.scratchDirectory):
             shutil.rmtree(self.scratchDirectory)
-
+        
         # Create the scratch directory
         os.makedirs(self.scratchDirectory, exist_ok=True)
+        os.makedirs(self.runtimeDir, exist_ok=True)
+
+        # Save the current directory as the restart directory for future restarts.
         kernel_log = os.path.join(self.runtimeDir, self.outputFile)
 
         # I am using this function to redirect the stdout and stderr of block2 DMRG calculation.
@@ -208,10 +286,10 @@ class DMRGCICPLX(lib.StreamObject):
             # Make the driver
             driver = self._make_driver(self.scratchDirectory)
             # Initialize the system in block2
-            driver.initialize_system(n_sites=self.norb, n_elec=n_elec, spin=spin, 
+            driver.initialize_system(n_sites=norb, n_elec=n_elec, spin=spin, 
                                      orb_sym=self.orbsym)
             # Prepare the Hamiltonian
-            self.mpo = driver.get_qc_mpo( h1e=h1e, g2e=eri, ecore=ecore, iprint=self.iprint)
+            mpo = driver.get_qc_mpo( h1e=h1e, g2e=eri, ecore=ecore, iprint=self.iprint)
 
             # Write the FCIDUMP file for reference
             driver.write_fcidump(h1e, eri, ecore, 
@@ -222,7 +300,7 @@ class DMRGCICPLX(lib.StreamObject):
                                          bond_dim=self.bond_dims[0], nroots=self.nroots, )
 
             # Perform the DMRG calculation
-            energy = driver.dmrg( self.mpo, ket, n_sweeps=self.n_sweeps, bond_dims=self.bond_dims, 
+            energy = driver.dmrg(mpo, ket, n_sweeps=self.n_sweeps, bond_dims=self.bond_dims, 
                                  noises=self.noises, thrds=self.thrds, iprint=self.iprint, )
 
             # In case of multiple roots
@@ -234,7 +312,98 @@ class DMRGCICPLX(lib.StreamObject):
             # Save the 2-RDM
             self._save_2rdm(driver, ket, iprint=self.iprint)
 
-        return self.e_tot, self.ci
+        if os.path.exists(self.restart_dir):
+            shutil.rmtree(self.restart_dir)
+        shutil.copytree(self.scratchDirectory, self.restart_dir)
+
+        return self.e_tot, None
+
+    def approx_kernel(self, h1e, eri, norb, nelec, fciRestart=None, ecore=0.0, **kwargs):
+        """
+        Approximate/restart DMRG-CI kernel. During the second order CASSCF optimization, in micro iterations,
+        we can solve the approx. DMRGCI problem with a shorter DMRG schedule and restart from the previous 
+        DMRG-CI calculation.
+        """
+
+        if "orbsym" in kwargs:
+            self.orbsym = kwargs["orbsym"]
+
+        fciRestart = True
+        n_elec, spin = self._unpack_nelec_spin(nelec)
+        self.spin = spin
+
+        h1e, eri = self.processIntegral(h1e, eri, norb)
+
+        # Save full schedule
+        old_bond_dims = self.bond_dims
+        old_noises = self.noises
+        old_thrds = self.thrds
+        old_n_sweeps = self.n_sweeps
+        old_clean_scratch = self.clean_scratch
+
+        # Build approximate schedule
+        approx_maxM = getattr(self, "approx_maxM", min(max(old_bond_dims), 512))
+        approx_tol = getattr(self, "approx_tol", max(self.conv_tol * 100.0, 1e-6))
+        approx_maxIter = getattr(self, "approx_maxIter", 6)
+
+        bond_dims, noises, thrds, n_sweeps = generate_schedule(maxM=approx_maxM, tol=approx_tol, startM=None, restart=fciRestart)
+
+        if approx_maxIter is not None:
+            n_sweeps = min(int(n_sweeps), int(approx_maxIter))
+
+        try:
+            # We don't need to delete the restart/output directories.
+            self.clean_scratch = False
+            if not os.path.exists(self.restart_dir):
+                 raise RuntimeError("No previous DMRG-CI checkpoint found for restart. " \
+                 "Please run the full DMRG-CI kernel first.")
+            
+            os.makedirs(self.restart_dir, exist_ok=True)
+            os.makedirs(self.runtimeDir, exist_ok=True)
+
+            kernel_log = os.path.join(self.runtimeDir, self.outputFile)
+            if os.path.exists(self.scratchDirectory):
+                shutil.rmtree(self.scratchDirectory)
+            os.makedirs(self.scratchDirectory, exist_ok=True)
+
+            with redirect_stdout_stderr_to_file(kernel_log, mode="a"):
+                # Initialize the drive but this time using the restart directory.
+                driver = self._make_driver(scratch=self.scratchDirectory, restart_dir=self.restart_dir)
+                
+                driver.initialize_system(n_sites=norb, n_elec=n_elec, spin=spin, orb_sym=self.orbsym)
+                mpo = driver.get_qc_mpo(h1e=h1e, g2e=eri, ecore=ecore, iprint=self.iprint)
+
+                # Save the integrals
+                driver.write_fcidump(h1e, eri, ecore, filename=os.path.join(self.runtimeDir, self.integralFile))
+
+                # I am not sure, if or how I can use the previously converged MPS as the intial
+                # guess, so I am just getting a new random MPS.
+                ket = driver.get_random_mps(tag="KET", bond_dim=self.bond_dims[0], nroots=self.nroots)
+
+                energy = driver.dmrg(mpo, ket, n_sweeps=n_sweeps, bond_dims=bond_dims, noises=noises, 
+                                     thrds=thrds, iprint=self.iprint)
+
+                if isinstance(energy, (list, tuple, np.ndarray)):
+                    energy = energy[0]
+
+                self.e_tot = float(np.real(energy))
+                
+                self._save_2rdm(driver, ket, iprint=self.iprint)
+
+            # Update restart checkpoint using the newly converged approximate scratch.
+            if os.path.exists(self.restart_dir):
+                shutil.rmtree(self.restart_dir)
+            shutil.copytree(self.scratchDirectory, self.restart_dir)
+            
+        finally:
+            # Restore full schedule
+            self.bond_dims = old_bond_dims
+            self.noises = old_noises
+            self.thrds = old_thrds
+            self.n_sweeps = old_n_sweeps
+            self.clean_scratch = old_clean_scratch
+
+        return self.e_tot, None
 
     def _save_2rdm(self, driver, ket, iprint=0):
         '''
@@ -271,8 +440,9 @@ class DMRGCICPLX(lib.StreamObject):
         '''
         neleca, nelecb = _unpack_nele(nelec, self.spin)
         nelectron = neleca + nelecb
+        assert nelectron > 1
         dm2 = self.make_rdm2(civec=civec, norb=norb, nelec=nelec, **kwargs)
-        dm1 = np.einsum('pqrr->pq', dm2, optimize=True) / float(nelectron - 1)
+        dm1 = np.einsum('pqrr->pq', dm2, optimize=True) / float(nelectron - 1 + 1e-20)
         return dm1, dm2
 
     def make_rdm1s(self, civec, norb, nelec, **kwargs):
@@ -332,27 +502,57 @@ if __name__ == "__main__":
 
     mf = scf.RHF(mol).run()
 
-    mc = mcscf.CASSCF(mf, 8, (4,4))
-    mc.fcisolver = DMRGCICPLX(
-        n_threads=8,
-        bond_dims=(200, 500, 1000, 2000),
-        noises=(1e-5, 1e-6, 1e-7, 0.0),
-        thrds=(1e-8, 1e-9, 1e-10, 1e-11),
-        n_sweeps=40,
-        clean_scratch=True,
+    mc = mcscf.CASSCF(mf,4, (2,2))
+    mc.fcisolver = DMRGCICPLX(mol,
+        num_thrds=1,
+        maxM=4096,
         symm_type=SymmetryTypes.SU2,
-        runtimeDir="./dmrg_casscf_test",
     )
+    mc.fcisolver.runtimeDir = "./dmrg_casscf_test"
+    # mc
     e_casscf = mc.kernel()[0]
-    
     mo_coeff = mc.mo_coeff
+    
+    del mc
+    mc = mcscf.CASCI(mf,4, (2,2))
+    mc.fcisolver = DMRGCICPLX(mol,
+        num_thrds=1,
+        maxM=4096,
+        symm_type=SymmetryTypes.SU2,
+    )
+    # mc.fcisolver.runtimeDir = "./dmrg_casci_test"
+    mc.fcisolver.spin = 0
+    e_casscf = mc.kernel(mo_coeff)[0]
+
     rdm1 = mc.fcisolver.make_rdm1(mc.ci, norb=mc.ncas, nelec=mc.nelecas)
     rdm1a, rdm1b = mc.fcisolver.make_rdm1s(mc.ci, norb=mc.ncas, nelec=mc.nelecas)
     rdm1_, rdm2 = mc.fcisolver.make_rdm12(mc.ci, norb=mc.ncas, nelec=mc.nelecas)
 
+    from pyscf import dmrgscf
+    def get_dmrgsolver(mol, spin=None, Mvalue=500):
+        solver = dmrgscf.DMRGCI(mol, maxM=Mvalue)
+        solver.memory = int(mol.max_memory/1000)
+        solver.nroots = 1
+        solver.scratchDirectory = lib.param.TMPDIR
+        solver.runtimeDir = lib.param.TMPDIR
+        solver.threads = lib.num_threads()
+        if spin is not None:
+            solver.spin = spin
+        return solver
+
     from pyscf.csf_fci import csf_solver
-    mc = mcscf.CASCI(mf, 8, (4,4))
+
+    mc = mcscf.CASCI(mf,4, (2,2))
     mc.fcisolver = csf_solver(mol, smult=1)
+    e_casscf = mc.kernel(mo_coeff)[0]
+
+    rdm1 = mc.fcisolver.make_rdm1(mc.ci, norb=mc.ncas, nelec=mc.nelecas)
+    rdm1a, rdm1b = mc.fcisolver.make_rdm1s(mc.ci, norb=mc.ncas, nelec=mc.nelecas)
+    rdm1_, rdm2 = mc.fcisolver.make_rdm12(mc.ci, norb=mc.ncas, nelec=mc.nelecas)
+
+
+    mc = mcscf.CASCI(mf,4, (2,2))
+    mc.fcisolver = get_dmrgsolver(mol, spin=0, Mvalue=4096)
     e_casscf_csf = mc.kernel(mo_coeff)[0]
 
     rdm1_ref = mc.fcisolver.make_rdm1(mc.ci, norb=mc.ncas, nelec=mc.nelecas)
