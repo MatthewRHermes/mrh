@@ -9,8 +9,11 @@ import numpy as np
 from pyscf import lib
 from pyscf import gto, scf, mcscf, ao2mo
 
-import pyblock2
-from pyblock2.driver.core import DMRGDriver, SymmetryTypes
+try:
+    import pyblock2
+    from pyblock2.driver.core import DMRGDriver, SymmetryTypes
+except ImportError:
+    raise ImportError("block2 is not installed. Please install pyblock2 with USECOMPLEX=ON to use this code.")
 
 # Integral symm check tolerance
 TOL = 1e-10
