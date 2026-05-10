@@ -283,15 +283,19 @@ def gen_g_hop(mc, mo_coeff, mo_phase, u, casdm1, casdm2, eris):
 
         # Now compute the vj and vk for the core and active density matrices separately, 
         # then contract with the mo1 to get the vhf in the mo1 basis.
-        vj_k, vk_k = mc._scf.get_jk(cell, dm_kpts=dm_core_kpts, hermi=1, 
-                                    with_j=True, with_k=True, kpts=kpts, exxdiv=None)
+        # vj_k, vk_k = mc._scf.get_jk(cell, dm_kpts=dm_core_kpts, hermi=1, 
+        #                             with_j=True, with_k=True, kpts=kpts, exxdiv=None)
+        vj_k, vk_k = mc.get_jk(cell, dm_kpts=dm_core_kpts, hermi=1,
+                               with_j=True, with_k=True, kpts=kpts, exxdiv=None)
 
         vhf_c = np.array([reduce(
             np.dot, (mo1[k].conj().T, vj_k[k]-vk_k[k]*0.5, mo1[k][:,:nocc])) 
             for k in range(nkpts)], dtype=dtype)
         
-        vj_k, vk_k = mc._scf.get_jk(cell, dm_kpts=dm_act_kpts, hermi=1, 
-                                    kpts=kpts, with_j=True, with_k=True,exxdiv=None)
+        # vj_k, vk_k = mc._scf.get_jk(cell, dm_kpts=dm_act_kpts, hermi=1, 
+        #                             kpts=kpts, with_j=True, with_k=True,exxdiv=None)
+        vj_k, vk_k = mc.get_jk(cell, dm_kpts=dm_act_kpts, hermi=1, 
+                               kpts=kpts, with_j=True, with_k=True,exxdiv=None)
         vhf_a = np.array([reduce(
             np.dot, (mo1[k].conj().T, vj_k[k]-vk_k[k]*0.5, mo1[k][:,:nocc])) 
             for k in range(nkpts)], dtype=dtype)
@@ -1104,7 +1108,9 @@ class PBCCASSCF(casci.PBCCASBASE):
         mo_k = np.array(mo_coeff).copy() # (nkpts, nao, nmo)
 
         def _get_jk_core_or_act(dm_k):
-            vj, vk = self._scf.get_jk(cell, dm_k, kpt=kpts, hermi=1, with_j=True,
+            # vj, vk = self._scf.get_jk(cell, dm_k, kpt=kpts, hermi=1, with_j=True,
+            #                      with_k=True, exxdiv=None)
+            vj, vk = self.get_jk(cell, dm_k, kpts=kpts, hermi=1, with_j=True,
                                  with_k=True, exxdiv=None)
             return vj, vk
         
@@ -1161,9 +1167,11 @@ class PBCCASSCF(casci.PBCCASBASE):
            
             dm_core = np.array([np.dot(mo1[k][:,:ncore], mo1[k][:,:ncore].conj().T) * 2.0
                                  for k in range(nkpts)])
-            vj, vk = self._scf.get_jk(self._scf.cell, dm_core, kpt=kpts, with_j=True,
+            # vj, vk = self._scf.get_jk(self._scf.cell, dm_core, kpt=kpts, with_j=True,
+            #                      with_k=True, exxdiv=None)
+            vj, vk = self.get_jk(self._scf.cell, dm_core, kpts=kpts, with_j=True,
                                  with_k=True, exxdiv=None)
-
+            
             mo_phase1 = get_mo_coeff_k2R(self._scf, mo1, ncore, ncas, kmesh=self.kmesh)[-1]
 
             # h1e for active space.
