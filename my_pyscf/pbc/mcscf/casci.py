@@ -7,10 +7,10 @@ from functools import reduce
 from pyscf import lib, mcscf, __config__
 from pyscf.lib import logger
 from pyscf.pbc import scf
-from pyscf.fci.addons import _unpack_nelec
 from pyscf.pbc.lib import kpts_helper
 from pyscf.pbc.x2c import sfx2c1e
 
+from mrh.my_pyscf.pbc.fci.addons import _unpack_nelec
 from mrh.my_pyscf.pbc import fci as pbc_fci
 from mrh.my_pyscf.pbc.mcscf.k2R import  get_mo_coeff_k2R
 
