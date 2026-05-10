@@ -73,7 +73,8 @@ def h1e_for_cas(mc, mo_coeff=None, ncas=None, ncore=None):
     else:
         coredm_kpts = np.asarray([2.0 * (mo_core_kpts[k] @ mo_core_kpts[k].conj().T) 
                                   for k in range(nkpts)], dtype=dtype)
-        corevhf_kpts = mc._scf.get_veff(cell, coredm_kpts, hermi=1)
+        # corevhf_kpts = mc._scf.get_veff(cell, coredm_kpts, hermi=1)
+        corevhf_kpts = mc.get_veff(cell, coredm_kpts, hermi=1, kpts=mc._scf.kpts)
         fock = h1ao_k + 0.5 * corevhf_kpts
         ecore += sum(np.einsum('ij,ji', coredm_kpts[k], fock[k]) for k in range(nkpts))
         fock = None  # Free memory
@@ -145,7 +146,8 @@ def get_fock(mc, mo_coeff=None, ci=None, eris=None, casdm1=None, verbose=None):
         dm += reduce(np.dot, (mocas, mo_phase[k], casdm1, mo_phase[k].conj().T @ mocas.conj().T))
         dm_k[k] = dm
     
-    veff = mc._scf.get_veff(cell, dm_k, hermi=1)
+    # veff = mc._scf.get_veff(cell, dm_k, hermi=1)
+    veff = mc.get_veff(cell, dm_k, hermi=1, kpts=kmf.kpts)
 
     fock = np.array([hcore_k[k] + veff[k] for k in range(nkpts)], dtype=dtype)
     
@@ -496,10 +498,13 @@ class PBCCASBASE(mcscf.casci.CASBase):
         self._scf.reset(cell)
         return self
     
-    def get_veff(self, cell=None, dm=None, hermi=1, kpt=None, **kwargs):
+    def get_veff(self, cell=None, dm_kpts=None, hermi=1, kpts=None, **kwargs):
         # Note this would be in k-space: would need transformation
         # before its direct use.
-        return self._scf.get_veff(cell=cell, dm=dm, hermi=hermi, kpt=kpt, **kwargs)
+        vj,vk = self.get_jk(cell, dm_kpts, hermi, kpts, **kwargs)
+        veff = vj - 0.5 * vk
+        return veff
+        #return self._scf.get_veff(cell=cell, dm_kpts=dm_kpts, hermi=hermi, kpts=kpts, **kwargs)
     
     def get_hcore(self, **kwargs):
         '''
@@ -516,16 +521,22 @@ class PBCCASBASE(mcscf.casci.CASBase):
     get_h1eff = h1e_for_cas = h1e_for_cas
 
     @lib.with_doc(scf.hf.get_jk.__doc__)
-    def get_jk(self, cell, dm, hermi=1, vhfopt=None, kpt=np.zeros(3),
+    def get_jk(self, cell, dm_kpts, hermi=1, vhfopt=None, kpts=np.zeros(3),
            kpts_band=None, with_j=True, with_k=True, omega=None, **kwargs):
         '''
         Compute the J and K matrices for the given density matrix.
         Basically, this is wrapper around RHF function. See that function 
         for more details.
         '''
-        return self._scf.get_jk(cell=cell, dm=dm, hermi=hermi, vhfopt=vhfopt, 
-                                kpt=kpt, kpts_band=kpts_band, with_j=with_j, 
+        vj, vk = self._scf.get_jk(cell=cell, dm_kpts=dm_kpts, hermi=hermi, vhfopt=vhfopt, 
+                                kpts=kpts, kpts_band=kpts_band, with_j=with_j, 
                                 with_k=with_k, omega=omega, **kwargs)
+        assert vj.shape[0] == dm_kpts.shape[0]
+        assert vk.shape[0] == dm_kpts.shape[0]
+        # In case of ROHF mean-field, two J matrices are returned.
+        if vj.ndim == 4 and vj.shape[1] == 2:
+            vj = vj[:, 0] + vj[:, 1]
+        return vj, vk
     
     canonicalize = canonicalize
 
