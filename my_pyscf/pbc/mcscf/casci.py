@@ -506,8 +506,8 @@ class PBCCASBASE(mcscf.casci.CASBase):
         Wrapper to avoid printing a huge output for computing the hcore.
         '''
         with lib.temporary_env(self._scf, verbose=0):
-            self._scf.cell.verbose = 0
-            return self._scf.get_hcore(**kwargs)
+            with lib.temporary_env(self._scf.cell, verbose=0):
+                return self._scf.get_hcore(**kwargs)
 
     def get_h1cas(self, mo_coeff=None, ncas=None, ncore=None):
         '''An alias of get_h1eff method'''
