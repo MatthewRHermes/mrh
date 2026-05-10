@@ -24,10 +24,10 @@ def _get_casdm2_kpts(casdm2, mo_phase1, klabel):
     Compute the 2RDM for a given k-point configuration.
     '''
     k1, k2, k3, k4 = klabel
-    dm2_k = np.einsum('iP, jQ, PQRS, kR, lS->ijkl', 
+    dm2_k = np.einsum('iP,jQ,PQRS,kR,lS->ijkl', 
                         mo_phase1[k1].conj(), mo_phase1[k2], 
                         casdm2, 
-                        mo_phase1[k3].conj(), mo_phase1[k4])
+                        mo_phase1[k3].conj(), mo_phase1[k4], optimize=True)
     return dm2_k
 
 class hdm2Handler:
@@ -145,7 +145,6 @@ def gen_g_hop(mc, mo_coeff, mo_phase, u, casdm1, casdm2, eris):
     ncastot = nkpts*ncas
 
     kconserv = kpts_helper.get_kconserv(cell, kpts)
-
     log = logger.new_logger(mc, mc.verbose)
 
     if log.verbose >= logger.DEBUG:
@@ -158,13 +157,13 @@ def gen_g_hop(mc, mo_coeff, mo_phase, u, casdm1, casdm2, eris):
     dm1 = np.zeros((nkpts, nmo, nmo), dtype=casdm1.dtype)
     casdm1_kpts = np.zeros((nkpts, ncas, ncas), dtype=dtype)
     idx = np.arange(ncore)
-    
+
     for k in range(nkpts):
         dm1[k][idx, idx] = 2.0
         casdm1_k = reduce(np.dot, (mo_phase[k], casdm1, mo_phase[k].conj().T))
         dm1[k][ncore:nocc, ncore:nocc] = casdm1_k
         casdm1_kpts[k] = casdm1_k
-    
+
     casdm2_kpts = np.zeros((nkpts, nkpts, nkpts, ncas, ncas, ncas, ncas), dtype=dtype)
 
     for k1, k2, k3 in kpts_helper.loop_kkk(nkpts):
@@ -228,14 +227,15 @@ def gen_g_hop(mc, mo_coeff, mo_phase, u, casdm1, casdm2, eris):
                 ppaa = eris.ppaa(k1, k2, kv)
                 dm2_blk = casdm2_kpts[k1, k2, kv]
                 g_dm2[k1] += np.einsum('puvw,tuvw->pt', ppaa[:, ncore:nocc, :, :], dm2_blk)
-               
+
     ppaa = dm2_blk = paap = jtmp = None
     
     # Now assemble the pieces and construct the gradient.    
     hcore = mc.get_hcore() # (nkpts, nao, nao)
-    
+
     vhf_ca = np.array([eris.vhf_c[k] + vhf_a[k] 
                        for k in range(nkpts)], dtype=dtype) # (nkpts, nmo, nmo) (block orbital basis)
+
     h1e_mo = np.array([reduce(np.dot, (mo_coeff[k].conj().T, hcore[k], mo_coeff[k])) 
                        for k in range(nkpts)], dtype=dtype) # (nkpts, nmo, nmo) (block orbital MO basis)
     hcore = None
