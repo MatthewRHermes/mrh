@@ -96,8 +96,15 @@ def _do_ao2mo_direct(kcasscf, mo_kpts, nkpts, ncore, ncas, nmo, level=1):
                 k_pc[k] += 2/(3*nkpts) * np.einsum('pjjp->pj', temp).conj()
     else:
         j_pc = k_pc = None
-    log.timer('density fitting ao2mo j_pc, k_pc', *t2)
-    return ppaa, papa, paap, j_pc, k_pc
+    t4 = log.timer('density fitting ao2mo j_pc, k_pc', *t3)
+
+    # Generation of hcore takes a significant amount of time, there is no meaning of generating it for every micro/macro iteration.
+    # so I am generating it once here and storing it as an attribute.
+    hcore = None
+    hcore = kcasscf.get_hcore()
+    assert hcore.shape[0] == nkpts
+    log.timer('hcore generation', *t4)
+    return ppaa, papa, paap, j_pc, k_pc, hcore
 
 def _do_ao2mo_disk(kcasscf, mo_kpts, nkpts, ncore, ncas, nmo, level=1):
     cell = kcasscf._scf.cell
@@ -236,8 +243,14 @@ def _do_ao2mo_disk(kcasscf, mo_kpts, nkpts, ncore, ncas, nmo, level=1):
     else:
         j_pc_kpts = None
         k_pc_kpts = None
-    log.timer('density fitting ao2mo j_pc and k_pc', *t3)
+    t4 = log.timer('density fitting ao2mo j_pc and k_pc', *t3)
     fxpp.close()
+
+    hcore = None
+    hcore = kcasscf.get_hcore()
+    assert hcore.shape[0] == nkpts
+    log.timer('hcore generation', *t4)
+
     return erifile, j_pc_kpts, k_pc_kpts
 
 def _mem_usage(nkpts, ncore, ncas, nmo):
@@ -308,11 +321,11 @@ class _ERIS:
               mem_incore, mem_now, kcasscf.max_memory)
         if (method == 'direct' and mem_now + mem_incore < 0.9 * kcasscf.max_memory):
             log.debug('Using direct ERI transformation.')
-            self.ppaa_kpts, self.papa_kpts, self.paap_kpts, self.j_pc, self.k_pc = _do_ao2mo_direct(kcasscf, mo_kpts, nkpts, ncore, ncas, nmo, level=level)
+            self.ppaa_kpts, self.papa_kpts, self.paap_kpts, self.j_pc, self.k_pc, self.hcore = _do_ao2mo_direct(kcasscf, mo_kpts, nkpts, ncore, ncas, nmo, level=level)
             t1 = log.timer('direct ao2mo', *t1)
         else:
             log.debug('Using disk ERI transformation.')
-            self.erifile, self.j_pc, self.k_pc = _do_ao2mo_disk(kcasscf, mo_kpts, nkpts, ncore, ncas, nmo, level=level)
+            self.erifile, self.j_pc, self.k_pc, self.hcore = _do_ao2mo_disk(kcasscf, mo_kpts, nkpts, ncore, ncas, nmo, level=level)
             t1 = log.timer('disk ao2mo', *t1)
         # To access the ppaa and papa integrals: I am bifurcating the code based on whether 
         # we are using disk or direct method. If we are using direct method, 

@@ -230,8 +230,11 @@ def gen_g_hop(mc, mo_coeff, mo_phase, u, casdm1, casdm2, eris):
 
     ppaa = dm2_blk = paap = jtmp = None
     
-    # Now assemble the pieces and construct the gradient.    
-    hcore = mc.get_hcore() # (nkpts, nao, nao)
+    # Now assemble the pieces and construct the gradient.
+    if getattr(eris, 'hcore', None) is not None:
+        hcore = eris.hcore
+    else:  
+        hcore = mc.get_hcore() # (nkpts, nao, nao)
 
     vhf_ca = np.array([eris.vhf_c[k] + vhf_a[k] 
                        for k in range(nkpts)], dtype=dtype) # (nkpts, nmo, nmo) (block orbital basis)
@@ -1151,7 +1154,10 @@ class PBCCASSCF(casci.PBCCASBASE):
         # u = np.array([np.eye(nmo, dtype=dtype) for u_k in u], dtype=dtype) # (nkpts, nmo, nmo)
         rmat = np.array([umat - np.eye(nmo, dtype=dtype) for umat in u], dtype=dtype) # (nkpts, nmo, nmo)
 
-        hcore = self.get_hcore()
+        if getattr(eris, 'hcore', None) is not None:
+            hcore = eris.hcore
+        else:
+            hcore = self.get_hcore()
         ddm = np.empty((nkpts, nmo, nmo), dtype=dtype)
 
         h1e_mo = np.empty((nkpts, nmo, nmo), dtype=dtype)
@@ -1538,7 +1544,10 @@ def _fake_h_for_fast_casci(casscf, mo, mo_phase, eris):
     core_dm = [np.dot(mo_core[k], mo_core[k].conj().T) * 2 
                for k in range(nkpts)]
     
-    hcore = casscf.get_hcore()
+    if getattr(eris, 'hcore', None) is None:
+        hcore = casscf.get_hcore()
+    else:
+        hcore = eris.hcore
     energy_core = nkpts * casscf.energy_nuc() # Remember energy would be divided by nkpts in the end.
     energy_core += sum([np.einsum('ij,ji', core_dm[k], hcore[k]) 
                         for k in range(nkpts)])
