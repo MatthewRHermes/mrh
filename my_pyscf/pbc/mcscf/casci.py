@@ -501,7 +501,7 @@ class PBCCASBASE(mcscf.casci.CASBase):
     def get_veff(self, cell=None, dm_kpts=None, hermi=1, kpts=None, **kwargs):
         # Note this would be in k-space: would need transformation
         # before its direct use.
-        vj,vk = self.get_jk(cell, dm_kpts, hermi, kpts, **kwargs)
+        vj,vk = self.get_jk(cell, dm_kpts, hermi=hermi, kpts=kpts, **kwargs)
         veff = vj - 0.5 * vk
         return veff
         #return self._scf.get_veff(cell=cell, dm_kpts=dm_kpts, hermi=hermi, kpts=kpts, **kwargs)
