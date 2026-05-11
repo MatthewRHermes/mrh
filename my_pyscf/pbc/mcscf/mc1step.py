@@ -210,23 +210,23 @@ def gen_g_hop(mc, mo_coeff, mo_phase, u, casdm1, casdm2, eris):
         ppaa = eris.ppaa(k1, k2, k3) # (k1, k2, k3, k4)
 
         if (k1 == k2) and (k3==k4):
-            vhf_a[k1] += np.einsum('pquv,uv->pq', ppaa, casdm1_kpts[k3]) # (k1,k1)
+            vhf_a[k1] += np.einsum('pquv,vu->pq', ppaa, casdm1_kpts[k3]) # (k1,k1)
 
         if (k1 == k4) and (k2 == k3):
             paap = eris.paap(k1, k2, k3) # (k1, k2, k3, k4)
             vhf_a[k1] -= 0.5 * np.einsum('puvq,uv->pq', paap, casdm1_kpts[k2]) # (k1,k1)
             
-        # dm2_blk = casdm2_kpts[k1, k2, k3]   # (k1, k2, k3, k4)
-        # jtmp = np.einsum('pqvw,tuvw->pqut', ppaa[:, ncore:nocc, :, :], dm2_blk)
-        # g_dm2[k1] += np.einsum('puuv->pv', jtmp)
+        dm2_blk = casdm2_kpts[k1, k2, k3]   # (k1, k2, k3, k4)
+        jtmp = np.einsum('pqvw,tuvw->pqut', ppaa[:, ncore:nocc, :, :], dm2_blk)
+        g_dm2[k1] += np.einsum('puuv->pv', jtmp)
 
-        # TODO: Optimize it.
-        for kv in range(nkpts):
-            kw = kconserv[k1, k2, kv]
-            if k1==k4 and k2==k3:
-                ppaa = eris.ppaa(k1, k2, kv)
-                dm2_blk = casdm2_kpts[k1, k2, kv]
-                g_dm2[k1] += np.einsum('puvw,tuvw->pt', ppaa[:, ncore:nocc, :, :], dm2_blk)
+        # # TODO: Optimize it.
+        # for kv in range(nkpts):
+        #     kw = kconserv[k1, k2, kv]
+        #     if k1==k4 and k2==k3:
+        #         ppaa = eris.ppaa(k1, k2, kv)
+        #         dm2_blk = casdm2_kpts[k1, k2, kv]
+        #         g_dm2[k1] += np.einsum('puvw,tuvw->pt', ppaa[:, ncore:nocc, :, :], dm2_blk)
 
     ppaa = dm2_blk = paap = jtmp = None
     
@@ -246,7 +246,7 @@ def gen_g_hop(mc, mo_coeff, mo_phase, u, casdm1, casdm2, eris):
     g = np.zeros((nkpts,nmo,nmo), dtype=dtype)
     for k in range(nkpts):
         g[k][:,:ncore] = 2.0 * (h1e_mo[k][:,:ncore] + vhf_ca[k][:,:ncore])
-        g[k][:,ncore:nocc] = np.dot(h1e_mo[k][:, ncore:nocc] + eris.vhf_c[k][:, ncore:nocc], casdm1_kpts[k])
+        g[k][:,ncore:nocc] = np.dot(h1e_mo[k][:, ncore:nocc] + eris.vhf_c[k][:, ncore:nocc], casdm1_kpts[k].conj().T)
         g[k][:,ncore:nocc] += g_dm2[k]
 
     # Step-2: Gradient update function
@@ -579,7 +579,8 @@ def rotate_orb_cc(casscf, mo_coeff, mo_phase, fcivec, fcasdm1, fcasdm2,
                             tol=casscf.ah_conv_tol, max_cycle=casscf.ah_max_cycle,
                             lindep=casscf.ah_lindep, verbose=log):
     
-        norm_residual = np.mean([np.linalg.norm(residual_) for residual_ in residual])
+        # norm_residual = np.mean([np.linalg.norm(residual_) for residual_ in residual])
+        norm_residual = np.linalg.norm(residual)
         if (ah_end or ihop == casscf.ah_max_cycle or 
             ((norm_residual < casscf.ah_start_tol) and 
              (ihop >= casscf.ah_start_cycle)) or (seig < casscf.ah_lindep)):
@@ -648,11 +649,11 @@ def rotate_orb_cc(casscf, mo_coeff, mo_phase, fcivec, fcasdm1, fcasdm2,
                 t3m = log.timer('gen h_op', *t3m)
                 g_orb = g_kf = g_kf1
                 norm_gorb = norm_gkf = norm_gkf1
-                dr = [np.zeros_like(dr_) for dr_ in dr]
+                # dr = [np.zeros_like(dr_) for dr_ in dr]
+                dr = np.zeros_like(dr)
     
     u = casscf.update_rotate_matrix(dr, u)
     yield u, g_kf, ihop+jkcount, dxi
-
 
 def kernel(casscf, mo_coeff, mo_phase, tol=1e-7, conv_tol_grad=None,
            ci0=None, callback=None, verbose=logger.NOTE, dump_chk=True):
@@ -722,6 +723,7 @@ def kernel(casscf, mo_coeff, mo_phase, tol=1e-7, conv_tol_grad=None,
         for u, g_orb, njk, r0 in rota:
             imicro += 1
             norm_gorb = np.linalg.norm(g_orb)
+
             if imicro == 1:
                 norm_gorb0 = norm_gorb
             norm_t = np.linalg.norm(u - np.eye(nkpts*nmo))
