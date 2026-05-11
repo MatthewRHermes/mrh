@@ -51,10 +51,10 @@ def get_mo_coeff_k2R(kmf, mo_coeff_kpts, ncore, ncas, kmesh=None):
     mo_coeff_k = np.array([mo[:, ncore:ncore+ncas] 
                            for mo in mo_coeff_kpts], dtype=dtype)
     
-    mo_energy_k = np.hstack([kmf.mo_energy[k][ncore:ncore+ncas] 
-                             for k in range(len(kpts))], dtype=dtype)
+    # mo_energy_k = np.hstack([kmf.mo_energy[k][ncore:ncore+ncas] 
+    #                          for k in range(len(kpts))], dtype=dtype)
 
-    E_g = np.hstack(mo_energy_k)
+    # E_g = np.hstack(mo_energy_k)
     C_k = np.asarray(mo_coeff_k)
     Nk, nao, nmo = C_k.shape
 
@@ -63,14 +63,15 @@ def get_mo_coeff_k2R(kmf, mo_coeff_kpts, ncore, ncas, kmesh=None):
     NR = phase.shape[0]
 
     assert Nk==NR, "Please use the kmesh in the k-CASSCF"
-    k_conj_groups = group_by_conj_pairs(cell, kpts, return_kpts_pairs=False)
     k_phase = np.eye(Nk, dtype=dtype)
-    r2x2 = np.array([[1., 1j], 
-                     [1., -1j]]) * 0.5**0.5
-    pairs = [[k, k_conj] for k, k_conj in k_conj_groups
-             if k_conj is not None and k != k_conj]
-    for idx in np.array(pairs):
-        k_phase[idx[:,None],idx] = r2x2
+    # k_conj_groups = group_by_conj_pairs(cell, kpts, return_kpts_pairs=False)
+
+    # r2x2 = np.array([[1., 1j], 
+    #                  [1., -1j]]) * 0.5**0.5
+    # pairs = [[k, k_conj] for k, k_conj in k_conj_groups
+    #          if k_conj is not None and k != k_conj]
+    # for idx in np.array(pairs):
+    #     k_phase[idx[:,None],idx] = r2x2
 
     # Complex supercell (real-space) MOs
     # mo_coeff_R = np.einsum('Rk,kum,kS->RuSm', phase, C_k, k_phase)
@@ -78,10 +79,10 @@ def get_mo_coeff_k2R(kmf, mo_coeff_kpts, ncore, ncas, kmesh=None):
     mo_coeff_R = np.dot(phase, (C_k[:, :, :, None] * k_phase[:, None, None, :]).reshape(Nk, -1)).reshape(NR, nao, nmo, NR)
     mo_coeff_R = mo_coeff_R.transpose(0, 1, 3, 2).reshape(NR*nao, NR*nmo)
 
-    # sort by energy
-    E_sort_idx = np.argsort(E_g, kind='stable')
-    E_g = E_g[E_sort_idx]
-    mo_coeff_R = mo_coeff_R[:, E_sort_idx]
+    # # sort by energy
+    # E_sort_idx = np.argsort(E_g, kind='stable')
+    # E_g = E_g[E_sort_idx]
+    # mo_coeff_R = mo_coeff_R[:, E_sort_idx]
 
     # mo_phase can be computed with the (possibly complex) mo_coeff_R
     s_k = kmf.get_ovlp(kpts=kpts)
