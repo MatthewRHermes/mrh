@@ -21,6 +21,9 @@ class _kCASSCF:
         self.verbose = kmf.verbose
         self.max_memory = kmf.max_memory
 
+    def get_hcore(self):
+        return self._scf.get_hcore()
+    
 def get_diamond_cell(basis='gth-szv', pseudo='gth-pade'):
     cell = gto.Cell()
     cell.atom = '''

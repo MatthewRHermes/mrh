@@ -251,7 +251,7 @@ def _do_ao2mo_disk(kcasscf, mo_kpts, nkpts, ncore, ncas, nmo, level=1):
     assert hcore.shape[0] == nkpts
     log.timer('hcore generation', *t4)
 
-    return erifile, j_pc_kpts, k_pc_kpts
+    return erifile, j_pc_kpts, k_pc_kpts, hcore
 
 def _mem_usage(nkpts, ncore, ncas, nmo):
     basic = nkpts**3 * nmo**2 * ncas**2 * 16 / 1e6
