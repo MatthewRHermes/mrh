@@ -2203,8 +2203,8 @@ class LASCINoSymm (casci.CASCI):
         svals = svals[idx]
         k = len (idx)
         mo_occ1[:k] = mo_occ1[:k][idx]
-        mo_lvecs = mo_lvecs[:,:k]
-        mo_lvecs = mo_lvecs[:,idx[:mo_lvecs[:,:k].shape[1]]]
+        k1 = len (mo_lvecs[:,:k])
+        mo_lvecs[:,:k] = mo_lvecs[:,:k][:,idx[:k1]]
         mo_rvecs[:,:k] = mo_rvecs[:,:k][:,idx]
         return mo_lvecs, svals, mo_rvecs, mo_occ1
 
