@@ -2188,6 +2188,7 @@ class LASCINoSymm (casci.CASCI):
             l, sv, r = self._svd1 (mo_lspace, mo_rspace[:,idx], s=s, rng=rngs[int(round(m))],
                                    **kwargs)
             k = min (len (sv), np.count_nonzero (idx))
+            assert (l.shape == mo_lspace.shape), '{} {} {} {}'.format (m, l.shape, mo_lspace.shape, k)
             mo_lvecs = l
             svals.append (sv[:k])
             mo_rvecs.append (r[:,:k])
