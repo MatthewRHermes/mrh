@@ -2175,6 +2175,7 @@ class LASCINoSymm (casci.CASCI):
     localize_init_guess=lasscf_guess.localize_init_guess
 
     def _svd (self, mo_lspace, mo_rspace, s=None, mo_occ=None, rngs=None, **kwargs):
+        log = lib.logger.new_logger (self, self.verbose)
         # if mo_occ is nontrivial, then I don't care about the lvecs
         if mo_occ is None: mo_occ = np.ones (mo_rspace.shape[1], dtype=int)
         if rngs is None: rngs = [None,None,None]
@@ -2205,6 +2206,8 @@ class LASCINoSymm (casci.CASCI):
         k = len (idx)
         mo_occ1[:k] = mo_occ1[:k][idx]
         k1 = len (mo_lvecs[:,:k])
+        if k1 != k:
+            log.warn ("Fewer AOs than MOs! Did you indicate the correct atoms?")
         mo_lvecs[:,:k] = mo_lvecs[:,:k][:,idx[:k1]]
         mo_rvecs[:,:k] = mo_rvecs[:,:k][:,idx]
         return mo_lvecs, svals, mo_rvecs, mo_occ1
