@@ -90,3 +90,4 @@ def get_mo_coeff_k2R(kmf, mo_coeff_kpts, ncore, ncas, kmesh=None):
     # mo_phase = lib.einsum('kum,kuv,vi->kmi', C_k.conj(), s_k_g, mo_coeff_R)
     mo_phase = lib.einsum('kum,kui->kmi', C_k.conj(), np.dot(s_k_g, mo_coeff_R))
     return scell, phase, mo_coeff_R, mo_phase
+

@@ -194,17 +194,7 @@ def gen_g_hop(mc, mo_coeff, mo_phase, u, casdm1, casdm2, eris):
     # equals to momentum of the output entity.
     # I think we should not loop over nmo, because it will be solved for 
     # a given k-point, means the number of orbitals would be way small than total system. 
-    # To remove the loop over nmo, as done in the molecular code, I have first converted 
-    # that (molecular) code without for loop, matched it with loop.
-    # That code is:
-    # ppaa = eris.ppaa
-    # papa = eris.papa
-    # vhf_a = numpy.einsum('pquv,uv->pq', ppaa, casdm1)
-    # vhf_a -= 0.5*numpy.einsum('puqv,uv->pq', papa, casdm1)
-    # jtmp = lib.dot(ppaa.reshape(nmo*nmo,-1), casdm2.reshape(ncas*ncas,-1))
-    # jtmp = jtmp.reshape(nmo,nmo,ncas,ncas) # nmo, nmo, ncas, ncas
-    # g_dm2 = numpy.einsum('puuv->pv', jtmp[:, ncore:nocc])
-
+ 
     for k1, k2, k3 in kpts_helper.loop_kkk(nkpts):
         k4 = kconserv[k1, k2, k3]
         ppaa = eris.ppaa(k1, k2, k3) # (k1, k2, k3, k4)
@@ -219,14 +209,6 @@ def gen_g_hop(mc, mo_coeff, mo_phase, u, casdm1, casdm2, eris):
         dm2_blk = casdm2_kpts[k1, k2, k3]   # (k1, k2, k3, k4)
         jtmp = np.einsum('pqvw,tuvw->pqut', ppaa[:, ncore:nocc, :, :], dm2_blk)
         g_dm2[k1] += np.einsum('puuv->pv', jtmp)
-
-        # # TODO: Optimize it.
-        # for kv in range(nkpts):
-        #     kw = kconserv[k1, k2, kv]
-        #     if k1==k4 and k2==k3:
-        #         ppaa = eris.ppaa(k1, k2, kv)
-        #         dm2_blk = casdm2_kpts[k1, k2, kv]
-        #         g_dm2[k1] += np.einsum('puvw,tuvw->pt', ppaa[:, ncore:nocc, :, :], dm2_blk)
 
     ppaa = dm2_blk = paap = jtmp = None
     
@@ -314,14 +296,6 @@ def gen_g_hop(mc, mo_coeff, mo_phase, u, casdm1, casdm2, eris):
         # 2e part of the gradient update.
         # These objects would be insanly huge. Instead of creating them and storing, I think I should 
         # compute them on the fly whenever they are required.
-        # Benchmarked on the molecular code.
-        # ppaa = eris.ppaa
-        # papa = eris.papa
-        # p1aa = numpy.einsum('pr, tq, rquv-> ptuv', u.T, ua.T, ppaa)
-        # paa1 = numpy.einsum('pr, ruvq, qt -> puvt', u.T, papa.transpose(0,1,3,2), ra)
-        # p1aa += paa1
-        # p1aa += paa1.transpose(0,1,3,2)
-        # g[:, :ncore:nocc] += np.einsum('puwx, wxuv->pu', p1aa, casdm2)
         for k1, k2, k3 in kpts_helper.loop_kkk(nkpts):
             k4 = kconserv[k1, k2, k3]
             ppaa = eris.ppaa(k1, k2, k3)
@@ -344,25 +318,12 @@ def gen_g_hop(mc, mo_coeff, mo_phase, u, casdm1, casdm2, eris):
         return np.hstack([mc.pack_uniq_var(g[k] - g[k].conj().T) for k in range(nkpts)])    
 
     # Step-3: Hessian diagonal
-    # This code is benchmarked on the molecular code.
-    # ppaa = eris.ppaa
-    # papa = eris.papa
-    # jtmp = lib.dot(ppaa.reshape(nmo*nmo,-1), casdm2.reshape(ncas*ncas,-1))
-    # jtmp = jtmp.reshape(nmo,nmo,ncas,ncas) # nmo, nmo, ncas, ncas
-    # ktmp = lib.dot(papa.transpose(0,2,1,3).reshape(nmo*nmo,-1), dm2tmp) # nmo, nmo, ncas, ncas
-    # hdm2 = (ktmp.reshape(nmo,nmo,ncas,ncas)+jtmp).transpose(0,2,1,3) # nmo, ncas, nmo, ncas
-    # jkcaa  = 6.0 * numpy.einsum('iuiv,uv->iu', papa[:nocc, :, :nocc, :], casdm1)
-    # jkcaa -= 2.0 * numpy.einsum('iiuv,uv->iu',ppaa[:nocc, :nocc, :, :], casdm1)
-
     hdm2file = lib.H5TmpFile()
     hdm2 = hdm2Handler(hdm2file)
 
     hdm2file.require_group("hdm2_ppaa")
     hdm2file.require_group("hdm2_papa")
     hdm2file.require_group("hdm2_pmmp")
-    # hdm2_papa = np.zeros((nkpts, nkpts, nkpts, nmo, ncas, nmo, ncas), dtype=dtype)
-    # hdm2_ppaa = np.zeros((nkpts, nkpts, nkpts, nmo, ncas, nmo, ncas), dtype=dtype)
-    # hdm2_pmmp = np.zeros((nkpts, nkpts, nkpts, nmo, ncas, nmo, ncas), dtype=dtype)
 
     jkcaa = np.zeros((nkpts, nocc, ncas), dtype=dtype)
     for k in range(nkpts):
