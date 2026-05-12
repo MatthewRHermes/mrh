@@ -11,7 +11,7 @@ from mrh.my_pyscf.pbc.fci import addons
 # 2. Add the point group symmetry option.
 
 class DMRGCICPLX:
-    def __init__(self, **kwargs):
+    def __init__(self, cell, **kwargs):
         raise ImportError("DMRGCI with complex integrals is not available. " \
     "Please install the DMRGCI module from GitHub.")
     
