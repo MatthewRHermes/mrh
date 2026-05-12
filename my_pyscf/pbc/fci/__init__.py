@@ -13,7 +13,8 @@ from mrh.my_pyscf.pbc.fci import addons
 class DMRGCICPLX:
     def __init__(self, cell, **kwargs):
         raise ImportError("DMRGCI with complex integrals is not available. " \
-    "Please install the DMRGCI module from GitHub.")
+    "Please install the block2 module. " \
+    "See: https://block2.readthedocs.io/en/latest/user/installation.html")
     
 try:
     from . import dmrg_cplx_helper
