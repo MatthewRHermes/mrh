@@ -3,7 +3,6 @@ import unittest
 import numpy as np
 
 from pyscf.pbc import gto, scf, df
-from pyscf import lib
 
 from mrh.my_pyscf.pbc.mcscf.mc_ao2mo import _ERIS
 

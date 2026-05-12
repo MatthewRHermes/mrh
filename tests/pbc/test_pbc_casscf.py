@@ -1,7 +1,9 @@
 import unittest
 import numpy as np
+
 from pyscf.pbc import gto as pgto
 from pyscf.pbc import scf
+
 from mrh.my_pyscf.pbc import mcscf
 from mrh.my_pyscf.pbc.mcscf import avas
 
@@ -118,7 +120,6 @@ class KnownValues(unittest.TestCase):
         mo_coeff = avas.kernel(kmf, ['Be 2s', 'Be 2p'], minao=cell.basis)[2]
         mo_coeff = np.array(mo_coeff)
 
-        # mo_coeff = mo_coeff[None, :, :]
         kmc = mcscf.CASSCF(kmf, 4, (1, 1))
         e_cas = kmc.kernel(mo_coeff)[0]
 

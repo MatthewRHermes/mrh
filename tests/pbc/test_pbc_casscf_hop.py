@@ -29,7 +29,6 @@ def get_cell():
         atom="Ne 0.0 0.0 0.0",
         basis="6-31G",
         unit="Angstrom",
-        max_memory=100000,
         ke_cutoff=50,
         precision=1e-12,
         verbose=0,
