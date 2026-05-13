@@ -34,6 +34,8 @@ jobs:
           curl
         python -m pip install --upgrade pip
         python -m pip install flake8 pytest pyscf 
+
+        # python -m pip install flake8 pytest "git+https://github.com/pyscf/pyscf@master"
         # python -m pip install -r pyscf_version.txt
         # TODO: figure out how to actually patch a more recent github commit over a pip wheel.
         # 'pip install -r pyscf_version.txt' does nothing by itself because the version number
