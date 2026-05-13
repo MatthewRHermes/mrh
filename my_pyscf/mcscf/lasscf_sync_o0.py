@@ -776,6 +776,7 @@ class LASSCF_HessianOperator (sparse_linalg.LinearOperator):
 
     def _init_eri_(self):
         _init_df_(self)
+        log = lib.logger.new_logger(self.las, self.las.verbose)
         if isinstance (self.las, _DFLASCI):
             self.cas_type_eris = mc_df._ERIS (self.las, self.mo_coeff, self.with_df)
         else:
@@ -789,7 +790,7 @@ class LASSCF_HessianOperator (sparse_linalg.LinearOperator):
         for p in range (self.nmo):
             paaa_test[p] = self.cas_type_eris.ppaa[p][ncore:nocc]
         if not np.allclose (paaa_test, self.eri_paaa):
-            logger.warn (self.las, 'possible (pa|aa) inconsistency; max err = %e',
+            log.warn(self.las, 'possible (pa|aa) inconsistency; max err = %e',
                          np.amax (np.abs (paaa_test-self.eri_paaa)))
 
     @property
