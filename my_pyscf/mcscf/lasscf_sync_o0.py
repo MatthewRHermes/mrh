@@ -789,7 +789,7 @@ class LASSCF_HessianOperator (sparse_linalg.LinearOperator):
         for p in range (self.nmo):
             paaa_test[p] = self.cas_type_eris.ppaa[p][ncore:nocc]
         if not np.allclose (paaa_test, self.eri_paaa):
-            logger.warn (self.las, 'possible (pa|aa) inconsistency; max err = %e',
+            lib.logger.warn(self.las, 'possible (pa|aa) inconsistency; max err = %e',
                          np.amax (np.abs (paaa_test-self.eri_paaa)))
 
     @property
