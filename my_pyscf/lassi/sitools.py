@@ -409,7 +409,7 @@ def average_metrics_over_spin_polarization (las, weights, navg, maxw, entr):
                     idx = c[:,ifrag]==tc
                     idx &= s[:,ifrag]==ts
                     idx &= ~idx_omitted
-                    if np.any (idx):
+                    if np.any (idx) and (sum (weights[idx])>0):
                         d = data[:,ifrag][idx]
                         w = weights[idx]
                         line += ' {:10.3e}'.format (np.average (d, weights=w))
