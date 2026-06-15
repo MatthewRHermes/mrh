@@ -4343,7 +4343,7 @@ void Device::compute_rdm12kern_sf_v2(int na, int nb, int nlinka, int nlinkb, int
   ml->memset(dd->d_buf1, &zero, &bits_buf); 
   ml->memset(dd->d_tdm1, &zero, &bits_tdm1);
   ml->memset(dd->d_tdm2, &zero, &bits_tdm2);
-  double * h_buf3 = (double *)pm->dev_malloc_host(final_size_buf*sizeof(double));
+  //double * h_buf3 = (double *)pm->dev_malloc_host(final_size_buf*sizeof(double));
 
   for (int stra_id = 0; stra_id<na; stra_id += buf_batch_size){
     num_buf_batches = _MIN(buf_batch_size, na-stra_id);
