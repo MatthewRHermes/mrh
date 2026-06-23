@@ -40,7 +40,7 @@ def eval_svqe_energy (fcisolver, u1, h1, u2, h2, ci, nelec):
         ci1 = transform_ci_for_orbital_rotation (ci.copy (), norb, nelec, u)
         return fcisolver.make_rdm1 (ci1, norb, nelec).diagonal ()
     e1, e2 = 0, 0
-    e1 += np.dot (h1, n_ci (u))
+    e1 += np.dot (h1, n_ci (u1))
     for u, h in zip (u2, h2):
         e2 += (np.dot (h, n_ci (u))**2) / 2
     e = e1 + e2
