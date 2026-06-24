@@ -118,6 +118,26 @@ def eval_svqe_energy_broken (fcisolver, r1, h1, r2, h2, ci, nelec):
     e = e1 + e2
     return e, e1, e2
 
+def nonunitary_fuzz (r, mag=1e-5, rng=None):
+    if rng is None:
+        rng = np.random.default_rng ()
+    dr = mag * (2*rng.random (r.shape) - 1)
+    return r + dr
+
+def unitary_fuzz (r, mag=1e-5, rng=None):
+    if rng is None:
+        rng = np.random.default_rng ()
+    old_shape = r.shape
+    r = r.reshape (*((-1,) + r.shape[-2:]))
+    assert (r.shape[1]==r.shape[2])
+    r1 = r.copy ()
+    for k in range (len (r)):
+        u = mag * (2*rng.random (r.shape[1:]) - 1)
+        u -= u.conj ().T
+        u = linalg.expm (u)
+        r1[k] = r[k] @ u
+    return r1.reshape (*old_shape)
+
 if __name__=='__main__':
     from pyscf import gto, scf, fci
     xyz = '''O 0.0000000 0.0000000 -0.3893611
@@ -143,9 +163,25 @@ if __name__=='__main__':
     print ("sVQE@FCI energy:", e_fci)
     print ("sVQE@HF energy:", e_hf)
     print ("Using the incorrect energy expression:")
-    e_fci = eval_svqe_energy_broken (fcisolver, r1, h1, r2, h2, ci, nelec)[0] + h0
-    e_hf = eval_svqe_energy_broken (fcisolver, r1, h1, r2, h2, ci_hf, nelec)[0] + h0
-    print ("sVQE@FCI energy:", e_fci)
-    print ("sVQE@HF energy:", e_hf)
+    e_fci_b = eval_svqe_energy_broken (fcisolver, r1, h1, r2, h2, ci, nelec)[0] + h0
+    e_hf_b = eval_svqe_energy_broken (fcisolver, r1, h1, r2, h2, ci_hf, nelec)[0] + h0
+    print ("sVQE@FCI energy:", e_fci_b)
+    print ("sVQE@HF energy:", e_hf_b)
+    print ("Using rotation operators with nonunitary fuzz:")
+    rng = np.random.default_rng ()
+    r1f = nonunitary_fuzz (r1, rng=rng)
+    r2f = nonunitary_fuzz (r2, rng=rng)
+    e_fci_f = eval_svqe_energy (fcisolver, r1f, h1, r2f, h2, ci, nelec)[0] + h0
+    e_hf_f = eval_svqe_energy (fcisolver, r1f, h1, r2f, h2, ci_hf, nelec)[0] + h0
+    print ("sVQE@FCI energy:", e_fci_f, e_fci_f - e_fci)
+    print ("sVQE@HF energy:", e_hf_f, e_hf_f - e_hf)
+    print ("Using rotation operators with unitary fuzz:")
+    rng = np.random.default_rng ()
+    r1f = unitary_fuzz (r1, rng=rng)
+    r2f = unitary_fuzz (r2, rng=rng)
+    e_fci_f = eval_svqe_energy (fcisolver, r1f, h1, r2f, h2, ci, nelec)[0] + h0
+    e_hf_f = eval_svqe_energy (fcisolver, r1f, h1, r2f, h2, ci_hf, nelec)[0] + h0
+    print ("sVQE@FCI energy:", e_fci_f, e_fci_f - e_fci)
+    print ("sVQE@HF energy:", e_hf_f, e_hf_f - e_hf)
 
 
