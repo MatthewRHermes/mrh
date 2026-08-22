@@ -9,6 +9,7 @@ from types import SimpleNamespace
 import numpy as np
 
 from mrh.my_pyscf.pbc.mcpdft import klaspdft_helper
+from mrh.my_pyscf.pbc.mcpdft import klaspdft
 
 
 class _RecordingFragmentSolver:
@@ -292,6 +293,142 @@ class KLASPDFTKBlockTests(unittest.TestCase):
             klaspdft_helper.make_klas_rdms_kpts(
                 casdm1s, casdm2, mo_phase, np.zeros((2, 2), dtype=int),
             )
+
+
+class KLASPDFTEnergyRoutingTests(unittest.TestCase):
+
+    def test_mixin_uses_kLAS_specific_energy_and_rdm_methods(self):
+        self.assertIs(
+            klaspdft._kLASPDFT.make_one_casdm1s,
+            klaspdft_helper.make_one_casdm1s_klas,
+        )
+        self.assertIs(
+            klaspdft._kLASPDFT.make_one_casdm2,
+            klaspdft_helper.make_one_casdm2_klas,
+        )
+        self.assertIs(
+            klaspdft._kLASPDFT.energy_mcwfn,
+            klaspdft.energy_mcwfn_klas,
+        )
+        self.assertIs(
+            klaspdft._kLASPDFT.energy_dft,
+            klaspdft.energy_dft_klas,
+        )
+        self.assertIs(
+            klaspdft._kLASPDFT.energy_tot,
+            klaspdft.energy_tot_klas,
+        )
+
+    def test_total_energy_builds_and_shares_one_rdm_and_phase_set(self):
+        casdm1s = np.zeros((2, 2, 2), dtype=complex)
+        casdm2 = np.zeros((2, 2, 2, 2), dtype=complex)
+        mo_phase = np.eye(2, dtype=complex).reshape(2, 1, 2)
+        ot = SimpleNamespace(otxc="tPBE", reset=mock.Mock())
+        mc = SimpleNamespace(
+            otfnal=ot,
+            mol="mol",
+            mo_coeff="mo",
+            ci="ci",
+            verbose=0,
+            energy_mcwfn=mock.Mock(return_value=1.25),
+            energy_dft=mock.Mock(return_value=0.5),
+        )
+        with mock.patch.object(
+                klaspdft_helper, "make_one_casdm12_klas",
+                return_value=(casdm1s, casdm2)) as make_rdms, \
+             mock.patch.object(
+                klaspdft_helper, "get_klas_mo_phase",
+                return_value=mo_phase) as get_phase:
+            result = klaspdft.energy_tot_klas(mc, state=1)
+
+        self.assertEqual(result, (1.75, 0.5))
+        ot.reset.assert_called_once_with(mol="mol")
+        make_rdms.assert_called_once_with(mc, ci="ci", state=1)
+        get_phase.assert_called_once_with(mc, mo_coeff="mo")
+        for evaluator in (mc.energy_mcwfn, mc.energy_dft):
+            self.assertIs(evaluator.call_args.kwargs["casdm1s"], casdm1s)
+            self.assertIs(evaluator.call_args.kwargs["casdm2"], casdm2)
+            self.assertIs(evaluator.call_args.kwargs["mo_phase"], mo_phase)
+
+    def test_on_top_energy_reuses_shared_kspace_backend(self):
+        casdm1s = np.zeros((2, 2, 2), dtype=complex)
+        casdm2 = np.zeros((2, 2, 2, 2), dtype=complex)
+        mo_phase = np.eye(2, dtype=complex).reshape(2, 1, 2)
+        prepared_dm1s = np.zeros((2, 2, 1, 1), dtype=complex)
+        prepared_cm2 = np.zeros((2, 2, 2, 1, 1, 1, 1), dtype=complex)
+        kconserv = _make_kconserv(2)
+        mc = SimpleNamespace(
+            otfnal="ot",
+            mo_coeff="mo",
+            ci="ci",
+            max_memory=1234,
+            kconserv=kconserv,
+            ncore=1,
+        )
+        with mock.patch.object(
+                klaspdft_helper, "make_klas_rdms_kpts",
+                return_value=(prepared_dm1s, prepared_cm2)) as prepare, \
+             mock.patch.object(
+                klaspdft, "_energy_ot_from_kpts",
+                return_value=0.75) as evaluate:
+            result = klaspdft.energy_dft_klas(
+                mc,
+                mo_coeff="mo",
+                ci="ci",
+                ot="ot",
+                casdm1s=casdm1s,
+                casdm2=casdm2,
+                mo_phase=mo_phase,
+            )
+
+        self.assertEqual(result, 0.75)
+        prepare.assert_called_once_with(
+            casdm1s, casdm2, mo_phase, kconserv,
+        )
+        evaluate.assert_called_once_with(
+            "ot", prepared_dm1s, prepared_cm2, "mo", 1, kconserv,
+            max_memory=1234, hermi=1,
+        )
+
+    def test_wavefunction_energy_uses_kLAS_phase_and_integrals(self):
+        casdm1s = np.zeros((2, 2, 2), dtype=complex)
+        casdm2 = np.zeros((2, 2, 2, 2), dtype=complex)
+        mo_phase = np.eye(2, dtype=complex).reshape(2, 1, 2)
+        h2eff = np.zeros((2, 2, 2, 2), dtype=complex)
+        mc = SimpleNamespace(
+            mo_coeff="mo",
+            ci="ci",
+            get_h2cas=mock.Mock(return_value=h2eff),
+        )
+        with mock.patch.object(
+                klaspdft.kmcpdft, "energy_mcwfn",
+                return_value=1.5) as evaluate:
+            result = klaspdft.energy_mcwfn_klas(
+                mc,
+                mo_coeff="mo",
+                ci="ci",
+                ot="ot",
+                state=1,
+                casdm1s=casdm1s,
+                casdm2=casdm2,
+                mo_phase=mo_phase,
+                verbose=4,
+            )
+
+        self.assertEqual(result, 1.5)
+        mc.get_h2cas.assert_called_once_with("mo")
+        evaluate.assert_called_once_with(
+            mc,
+            mo_coeff="mo",
+            ci="ci",
+            ot="ot",
+            state=1,
+            casdm1s=casdm1s,
+            casdm2=casdm2,
+            verbose=4,
+            mo_phase=mo_phase,
+            h2eff=h2eff,
+        )
 
 
 if __name__ == "__main__":
