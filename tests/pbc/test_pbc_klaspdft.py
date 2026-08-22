@@ -3,6 +3,7 @@
 """Unit tests for periodic kLAS-PDFT adapters."""
 
 import unittest
+from unittest import mock
 from types import SimpleNamespace
 
 import numpy as np
@@ -114,6 +115,62 @@ class KLASPDFTRDMTests(unittest.TestCase):
         klas.ci[1][0] = None
         with self.assertRaisesRegex(ValueError, "Fragment 1 CI vector"):
             klaspdft_helper.make_one_casdm12_klas(klas, state=0)
+
+
+class KLASPDFTPhaseTests(unittest.TestCase):
+
+    @staticmethod
+    def _make_phase_context():
+        return SimpleNamespace(
+            _scf=object(),
+            kmesh=(2, 1, 1),
+            kpts=np.zeros((2, 3)),
+            ncore=1,
+            ncas=1,
+            ncas_sub=np.asarray([1, 1]),
+            mo_coeff=np.asarray([
+                [[10.0, 1.0, 20.0], [30.0, 2.0, 40.0]],
+                [[50.0, 3.0, 60.0], [70.0, 4.0, 80.0]],
+            ], dtype=np.complex128),
+        )
+
+    def test_phase_uses_the_kLAS_wannier_active_orbitals(self):
+        klas = self._make_phase_context()
+        mo_phase = np.asarray([
+            [[1.0, 0.0]],
+            [[0.0, 1.0]],
+        ], dtype=np.complex128)
+
+        with mock.patch.object(
+                klaspdft_helper, "get_wannier_orbs",
+                return_value=("wannier", "indices", mo_phase)) as get_phase:
+            result = klaspdft_helper.get_klas_mo_phase(klas)
+
+        np.testing.assert_array_equal(result, mo_phase)
+        self.assertIs(get_phase.call_args.args[0], klas._scf)
+        self.assertEqual(get_phase.call_args.args[1], klas.kmesh)
+        np.testing.assert_array_equal(
+            get_phase.call_args.args[2],
+            klas.mo_coeff[:, :, 1:2],
+        )
+
+    def test_nonunitary_phase_is_rejected(self):
+        klas = self._make_phase_context()
+        bad_phase = np.ones((2, 1, 2), dtype=np.complex128)
+        with mock.patch.object(
+                klaspdft_helper, "get_wannier_orbs",
+                return_value=(None, None, bad_phase)):
+            with self.assertRaisesRegex(ValueError, "must be unitary"):
+                klaspdft_helper.get_klas_mo_phase(klas)
+
+    def test_phase_dimensions_are_validated_before_wannierization(self):
+        klas = self._make_phase_context()
+        klas.ncas_sub = np.asarray([1])
+        with mock.patch.object(
+                klaspdft_helper, "get_wannier_orbs") as get_phase:
+            with self.assertRaisesRegex(ValueError, r"sum\(ncas_sub\)"):
+                klaspdft_helper.get_klas_mo_phase(klas)
+        get_phase.assert_not_called()
 
 
 if __name__ == "__main__":
