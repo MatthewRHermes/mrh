@@ -8,9 +8,14 @@ from types import SimpleNamespace
 
 import numpy as np
 
+from pyscf import lib
+from pyscf.pbc import gto, scf
+
 from mrh.my_pyscf.pbc.mcpdft import klaspdft_helper
 from mrh.my_pyscf.pbc.mcpdft import klaspdft
 from mrh.my_pyscf.pbc import mcpdft as pbc_mcpdft
+from mrh.my_pyscf.pbc import mcscf as pbc_mcscf
+from mrh.my_pyscf.pbc.mcscf import avas
 from mrh.my_pyscf.pbc.mcscf.klasci import PBCLASCINoSymm
 from mrh.my_pyscf.pbc.mcscf.klasscf import PBCLASSCFNoSymm
 
@@ -518,6 +523,90 @@ class KLASPDFTPublicRoutingTests(unittest.TestCase):
         self.assertEqual(pdft.grids.level, 4)
         pdft.optimize_mcscf_()
         self.assertEqual(pdft.e_mcscf, -1.25)
+
+
+class KLASPDFTEndToEndTests(unittest.TestCase):
+
+    @classmethod
+    def setUpClass(cls):
+        cell = gto.Cell()
+        cell.a = np.diag([4.0, 10.0, 10.0])
+        cell.atom = "H 0 0 0; H 1.5 0 0"
+        cell.basis = "sto-3g"
+        cell.unit = "Angstrom"
+        cell.precision = 1e-10
+        cell.ke_cutoff = 20
+        cell.verbose = lib.logger.QUIET
+        cell.build()
+
+        cls.kmesh = (2, 1, 1)
+        kpts = cell.make_kpts(cls.kmesh, wrap_around=True)
+        kmf = scf.KRHF(cell, kpts=kpts).density_fit()
+        kmf.exxdiv = None
+        kmf.max_cycle = 0
+        kmf.kernel()
+        mo_avas = avas.kernel(kmf, ["H 1s"], minao=cell.basis)[2]
+
+        klas = pbc_mcscf.KLASCI(
+            kmf, 2, (1, 1), kmesh=cls.kmesh, trans_sym=False,
+        )
+        mo_guess = klas.localize_init_guess(
+            ["H 1s"], mo_coeff=mo_avas,
+        )
+        klas.kernel(mo_guess)
+        cls.klas = klas
+
+        klasscf = pbc_mcscf.KLASSCF(
+            kmf, 2, (1, 1), kmesh=cls.kmesh, trans_sym=False,
+        )
+        klasscf.max_cycle_macro = 0
+        klasscf.kernel(np.array(mo_guess, copy=True))
+        cls.klasscf = klasscf
+
+    def test_klasci_pdft_functional_coverage(self):
+        references = {
+            "tLDA": -0.9015232976311289,
+            "tPBE": -1.0085601356590703,
+            "tPBE0": -0.9663974749640505,
+        }
+        mo_before = np.array(self.klas.mo_coeff, copy=True)
+        e_klas_before = self.klas.e_tot
+
+        for otxc, reference in references.items():
+            pdft = pbc_mcpdft.KLASCI(
+                self.klas, otxc, grids_level=1,
+            )
+            result = pdft.kernel()
+            self.assertAlmostEqual(pdft.e_tot.real, reference, 7)
+            self.assertAlmostEqual(result[0].real, reference, 7)
+            self.assertLess(abs(pdft.e_tot.imag), 1e-12)
+
+        np.testing.assert_allclose(self.klas.mo_coeff, mo_before)
+        np.testing.assert_allclose(self.klas.e_tot, e_klas_before)
+
+    def test_klasscf_intake_runs_fixed_wavefunction_pdft(self):
+        pdft = pbc_mcpdft.KLASSCF(
+            self.klasscf, "tLDA", grids_level=1,
+        )
+        result = pdft.kernel()
+
+        self.assertTrue(np.isfinite(result[0]))
+        self.assertTrue(np.isfinite(result[1]))
+        np.testing.assert_allclose(pdft.e_mcscf, self.klasscf.e_tot)
+        self.assertLess(abs(pdft.e_tot.imag), 1e-12)
+
+    def test_product_state_rdm_electron_traces(self):
+        casdm1s, casdm2 = klaspdft_helper.make_one_casdm12_klas(
+            self.klas,
+        )
+        ncastot = np.prod(self.kmesh) * self.klas.ncas
+
+        self.assertEqual(casdm1s.shape, (2, ncastot, ncastot))
+        self.assertEqual(casdm2.shape, (ncastot,) * 4)
+        self.assertAlmostEqual(np.trace(casdm1s[0]).real, 2.0, 10)
+        self.assertAlmostEqual(np.trace(casdm1s[1]).real, 2.0, 10)
+        self.assertLess(abs(np.trace(casdm1s[0]).imag), 1e-12)
+        self.assertLess(abs(np.trace(casdm1s[1]).imag), 1e-12)
 
 
 if __name__ == "__main__":
