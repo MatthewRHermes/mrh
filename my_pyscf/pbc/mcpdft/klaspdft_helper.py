@@ -12,6 +12,11 @@ from numbers import Integral
 import numpy as np
 
 from mrh.my_pyscf.pbc.mcscf.productstate import PBCProductStateFCISolver
+from mrh.my_pyscf.pbc.mcscf.mc1step import (
+    _get_casdm2_kpts as _basis_transform_casdm2_kpts,
+)
+from mrh.my_pyscf.pbc.mcpdft._dms import dm2_cumulant_complex
+from mrh.my_pyscf.pbc.mcpdft import kmcpdft_helper
 from mrh.my_pyscf.pbc.util.wannier import get_wannier_orbs
 
 
@@ -266,3 +271,89 @@ def get_klas_mo_phase(klas, mo_coeff=None):
             )):
         raise ValueError("stacked kLAS mo_phase must be unitary")
     return mo_phase
+
+
+def make_klas_rdms_kpts(casdm1s, casdm2, mo_phase, kconserv):
+    """Transform kLAS Wannier RDMs into periodic MC-PDFT k blocks.
+
+    The spin 1-RDM is transformed directly to one active-orbital block per
+    k-point.  The complex two-body cumulant is formed in the Wannier basis and
+    transformed only for momentum-conserving ``(k1, k2, k3, k4)`` tuples.
+    The returned tensors are ready for the shared periodic on-top evaluator.
+
+    Parameters
+    ----------
+    casdm1s : ndarray
+        Spin-separated Wannier-basis active 1-RDMs with shape
+        ``(2, ncastot, ncastot)``.
+    casdm2 : ndarray
+        Spin-summed Wannier-basis active 2-RDM with shape ``(ncastot,) * 4``.
+    mo_phase : ndarray
+        Bloch-to-Wannier transformation with shape
+        ``(nkpts, ncas, ncastot)``.
+    kconserv : ndarray
+        Momentum-conservation lookup with shape ``(nkpts, nkpts, nkpts)``.
+
+    Returns
+    -------
+    casdm1s_kpts : ndarray
+        Spin 1-RDM blocks with shape ``(2, nkpts, ncas, ncas)``.
+    cascm2_kpts : ndarray
+        Cumulant blocks with shape
+        ``(nkpts, nkpts, nkpts, ncas, ncas, ncas, ncas)``.
+    """
+    mo_phase = np.asarray(mo_phase)
+    if mo_phase.ndim != 3:
+        raise ValueError(
+            "mo_phase must have shape (nkpts, ncas, ncastot)",
+        )
+    nkpts, ncas, ncastot = mo_phase.shape
+    if ncastot != nkpts * ncas:
+        raise ValueError(
+            "mo_phase must map a square stacked active-orbital space",
+        )
+    if not np.all(np.isfinite(mo_phase)):
+        raise ValueError("mo_phase must contain only finite values")
+
+    _, _, kconserv = kmcpdft_helper._validate_kspace_layout(
+        nkpts, ncas, kconserv=kconserv,
+    )
+    casdm1s = np.asarray(casdm1s)
+    casdm2 = np.asarray(casdm2)
+    expected_dm1_shape = (2, ncastot, ncastot)
+    expected_dm2_shape = (ncastot,) * 4
+    if casdm1s.shape != expected_dm1_shape:
+        raise ValueError(
+            f"Expected kLAS spin 1-RDM shape {expected_dm1_shape}; "
+            f"got {casdm1s.shape}",
+        )
+    if casdm2.shape != expected_dm2_shape:
+        raise ValueError(
+            f"Expected kLAS 2-RDM shape {expected_dm2_shape}; "
+            f"got {casdm2.shape}",
+        )
+    if not np.all(np.isfinite(casdm1s)) or not np.all(np.isfinite(casdm2)):
+        raise ValueError("kLAS density matrices must contain only finite values")
+
+    casdm1s_kpts = np.einsum(
+        "kap,spq,kbq->skab",
+        mo_phase,
+        casdm1s,
+        mo_phase.conj(),
+        optimize=True,
+    )
+    cascm2 = dm2_cumulant_complex(casdm2, casdm1s)
+    dtype = np.result_type(cascm2.dtype, mo_phase.dtype)
+    cascm2_kpts = np.empty(
+        (nkpts, nkpts, nkpts, ncas, ncas, ncas, ncas),
+        dtype=dtype,
+    )
+    for k1 in range(nkpts):
+        for k2 in range(nkpts):
+            for k3 in range(nkpts):
+                k4 = int(kconserv[k1, k2, k3])
+                cascm2_kpts[k1, k2, k3] = \
+                    _basis_transform_casdm2_kpts(
+                        cascm2, mo_phase, (k1, k2, k3, k4),
+                    )
+    return casdm1s_kpts, cascm2_kpts

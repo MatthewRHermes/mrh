@@ -173,5 +173,126 @@ class KLASPDFTPhaseTests(unittest.TestCase):
         get_phase.assert_not_called()
 
 
+def _make_kconserv(nkpts):
+    """Return a cyclic momentum-conservation table for test meshes."""
+    return np.fromfunction(
+        lambda k1, k2, k3: (k1 - k2 + k3) % nkpts,
+        (nkpts, nkpts, nkpts),
+        dtype=int,
+    ).astype(int)
+
+
+class KLASPDFTKBlockTests(unittest.TestCase):
+
+    def test_wannier_rdms_are_transformed_to_expected_k_blocks(self):
+        rng = np.random.default_rng(24)
+        nkpts, ncas = 2, 2
+        ncastot = nkpts * ncas
+        phase_matrix = np.linalg.qr(
+            rng.normal(size=(ncastot, ncastot))
+            + 1j * rng.normal(size=(ncastot, ncastot)),
+        )[0]
+        mo_phase = phase_matrix.reshape(nkpts, ncas, ncastot)
+        casdm1s = (
+            rng.normal(size=(2, ncastot, ncastot))
+            + 1j * rng.normal(size=(2, ncastot, ncastot))
+        )
+        casdm1s += casdm1s.swapaxes(-1, -2).conj()
+        casdm2 = (
+            rng.normal(size=(ncastot,) * 4)
+            + 1j * rng.normal(size=(ncastot,) * 4)
+        )
+        kconserv = _make_kconserv(nkpts)
+
+        casdm1s_kpts, cascm2_kpts = \
+            klaspdft_helper.make_klas_rdms_kpts(
+                casdm1s, casdm2, mo_phase, kconserv,
+            )
+
+        self.assertEqual(casdm1s_kpts.shape, (2, 2, 2, 2))
+        self.assertEqual(cascm2_kpts.shape, (2, 2, 2, 2, 2, 2, 2))
+        expected_dm1s = np.stack([
+            np.stack([
+                mo_phase[k] @ dm1 @ mo_phase[k].conj().T
+                for k in range(nkpts)
+            ])
+            for dm1 in casdm1s
+        ])
+        np.testing.assert_allclose(casdm1s_kpts, expected_dm1s)
+
+        cascm2 = klaspdft_helper.dm2_cumulant_complex(casdm2, casdm1s)
+        for k1 in range(nkpts):
+            for k2 in range(nkpts):
+                for k3 in range(nkpts):
+                    k4 = kconserv[k1, k2, k3]
+                    expected = np.einsum(
+                        "ap,bq,pqrs,cr,ds->abcd",
+                        mo_phase[k1].conj(),
+                        mo_phase[k2],
+                        cascm2,
+                        mo_phase[k3].conj(),
+                        mo_phase[k4],
+                        optimize=True,
+                    )
+                    np.testing.assert_allclose(
+                        cascm2_kpts[k1, k2, k3], expected,
+                    )
+
+    def test_k_blocks_are_invariant_to_wannier_gauge_rotation(self):
+        rng = np.random.default_rng(91)
+        nkpts, ncas = 2, 1
+        ncastot = nkpts * ncas
+        phase = np.linalg.qr(
+            rng.normal(size=(ncastot, ncastot))
+            + 1j * rng.normal(size=(ncastot, ncastot)),
+        )[0]
+        gauge = np.linalg.qr(
+            rng.normal(size=(ncastot, ncastot))
+            + 1j * rng.normal(size=(ncastot, ncastot)),
+        )[0]
+        dm1s = (
+            rng.normal(size=(2, ncastot, ncastot))
+            + 1j * rng.normal(size=(2, ncastot, ncastot))
+        )
+        dm1s += dm1s.swapaxes(-1, -2).conj()
+        dm2 = (
+            rng.normal(size=(ncastot,) * 4)
+            + 1j * rng.normal(size=(ncastot,) * 4)
+        )
+        kconserv = _make_kconserv(nkpts)
+
+        reference = klaspdft_helper.make_klas_rdms_kpts(
+            dm1s, dm2, phase.reshape(nkpts, ncas, ncastot), kconserv,
+        )
+        dm1s_rot = np.einsum(
+            "pi,spq,qj->sij",
+            gauge, dm1s, gauge.conj(),
+            optimize=True,
+        )
+        dm2_rot = np.einsum(
+            "pi,qj,pqrs,rk,sl->ijkl",
+            gauge.conj(), gauge, dm2, gauge.conj(), gauge,
+            optimize=True,
+        )
+        phase_rot = (phase @ gauge.conj()).reshape(
+            nkpts, ncas, ncastot,
+        )
+        rotated = klaspdft_helper.make_klas_rdms_kpts(
+            dm1s_rot, dm2_rot, phase_rot, kconserv,
+        )
+
+        np.testing.assert_allclose(rotated[0], reference[0], atol=1e-11)
+        np.testing.assert_allclose(rotated[1], reference[1], atol=1e-11)
+
+    def test_k_block_layout_is_validated(self):
+        casdm1s = np.zeros((2, 2, 2))
+        casdm2 = np.zeros((2, 2, 2, 2))
+        mo_phase = np.eye(2).reshape(2, 1, 2)
+        with self.assertRaisesRegex(ValueError, "kconserv shape"):
+            klaspdft_helper.make_klas_rdms_kpts(
+                casdm1s, casdm2, mo_phase, np.zeros((2, 2), dtype=int),
+            )
+
+
 if __name__ == "__main__":
     unittest.main()
