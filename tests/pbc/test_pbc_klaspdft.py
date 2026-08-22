@@ -10,6 +10,9 @@ import numpy as np
 
 from mrh.my_pyscf.pbc.mcpdft import klaspdft_helper
 from mrh.my_pyscf.pbc.mcpdft import klaspdft
+from mrh.my_pyscf.pbc import mcpdft as pbc_mcpdft
+from mrh.my_pyscf.pbc.mcscf.klasci import PBCLASCINoSymm
+from mrh.my_pyscf.pbc.mcscf.klasscf import PBCLASSCFNoSymm
 
 
 class _RecordingFragmentSolver:
@@ -429,6 +432,92 @@ class KLASPDFTEnergyRoutingTests(unittest.TestCase):
             mo_phase=mo_phase,
             h2eff=h2eff,
         )
+
+
+def _make_bare_klas(klas_class):
+    """Create an uninitialized typed kLAS object for routing tests."""
+    klas = object.__new__(klas_class)
+    klas._scf = SimpleNamespace(kpts=np.zeros((2, 3)))
+    klas.nroots = 1
+    klas.ncas = 1
+    klas.ncas_sub = np.asarray([1, 1])
+    klas.mo_coeff = np.zeros((2, 1, 1), dtype=complex)
+    klas.ci = [[np.asarray([[1.0]])], [np.asarray([[1.0]])]]
+    return klas
+
+
+class KLASPDFTPublicRoutingTests(unittest.TestCase):
+
+    def test_klasci_accepts_only_existing_klasci(self):
+        klas = _make_bare_klas(PBCLASCINoSymm)
+        sentinel = object()
+        with mock.patch.object(
+                klaspdft, "get_klas_mcpdft_child_class",
+                return_value=sentinel) as wrap:
+            result = pbc_mcpdft.KLASCI(klas, "tPBE")
+
+        self.assertIs(result, sentinel)
+        wrap.assert_called_once_with(klas, "tPBE")
+        with self.assertRaisesRegex(TypeError, "existing KLASCI"):
+            pbc_mcpdft.KLASCI(SimpleNamespace(), "tPBE")
+
+    def test_klasscf_accepts_only_existing_klasscf(self):
+        klasscf = _make_bare_klas(PBCLASSCFNoSymm)
+        sentinel = object()
+        with mock.patch.object(
+                klaspdft, "get_klas_mcpdft_child_class",
+                return_value=sentinel) as wrap:
+            result = pbc_mcpdft.KLASSCF(klasscf, "tPBE")
+
+        self.assertIs(result, sentinel)
+        wrap.assert_called_once_with(klasscf, "tPBE")
+        with self.assertRaisesRegex(TypeError, "existing KLASCI"):
+            pbc_mcpdft.KLASCI(klasscf, "tPBE")
+
+    def test_initial_public_scope_rejects_multiple_roots(self):
+        klas = _make_bare_klas(PBCLASCINoSymm)
+        klas.nroots = 2
+        with self.assertRaisesRegex(NotImplementedError, "supports one root"):
+            pbc_mcpdft.KLASCI(klas, "tPBE")
+
+    def test_child_factory_copies_state_without_running_parent_init(self):
+        class FakeKLAS:
+            """Minimal completed kLAS-like object for factory testing."""
+
+            def kernel(self):
+                raise AssertionError("The parent kernel must not run")
+
+        original = FakeKLAS()
+        original._keys = {"original"}
+        original._scf = SimpleNamespace()
+        original.e_tot = -1.25
+        original.mo_coeff = "mo"
+        original.ci = "ci"
+        original.e_cas = -0.5
+        original.mo_energy = "mo-energy"
+        original.max_memory = 500
+        original.verbose = 0
+
+        def initialize_grids(pdft, ot, grids_attr=None):
+            pdft.otfnal = SimpleNamespace(
+                name=ot,
+                grids=SimpleNamespace(**(grids_attr or {})),
+            )
+
+        with mock.patch.object(
+                klaspdft._kLASPDFT, "_init_ot_grids",
+                initialize_grids):
+            pdft = klaspdft.get_klas_mcpdft_child_class(
+                original, "ot", grids_level=4,
+            )
+
+        self.assertIsNot(pdft, original)
+        self.assertEqual(pdft.mo_coeff, "mo")
+        self.assertEqual(pdft.ci, "ci")
+        self.assertEqual(pdft.e_mcscf, -1.25)
+        self.assertEqual(pdft.grids.level, 4)
+        pdft.optimize_mcscf_()
+        self.assertEqual(pdft.e_mcscf, -1.25)
 
 
 if __name__ == "__main__":

@@ -243,3 +243,68 @@ def LASSCFPDFT(mc_or_mf, ot, ncas_sub=None, nelecas_sub=None, ncore=None,
 
 
 LASSCF = LASSCFPDFT
+
+
+def _validate_klas_pdft_input(klas, method):
+    """Validate an intake-only periodic LASCI or LASSCF PDFT request."""
+    from mrh.my_pyscf.pbc.mcscf.klasci import (
+        PBCLASCINoSymm,
+        PBCLASCITransSymm,
+    )
+    from mrh.my_pyscf.pbc.mcscf.klasscf import PBCLASSCFNoSymm
+
+    if method == "KLASCI":
+        valid = isinstance(klas, PBCLASCINoSymm) and not isinstance(
+            klas, PBCLASSCFNoSymm,
+        )
+    elif method == "KLASSCF":
+        valid = isinstance(klas, PBCLASSCFNoSymm)
+    else:
+        raise ValueError(f"Unknown kLAS-PDFT method: {method}")
+    if not valid:
+        raise TypeError(
+            f"mcpdft.{method} requires an existing {method} object",
+        )
+    if isinstance(klas, PBCLASCITransSymm) or getattr(
+            klas, "trans_sym", False):
+        raise NotImplementedError(
+            "translation-packed kLAS-PDFT is not implemented",
+        )
+    if int(getattr(klas, "nroots", 0)) != 1:
+        raise NotImplementedError(
+            "The initial kLAS-PDFT implementation supports one root",
+        )
+    if getattr(klas, "mo_coeff", None) is None:
+        raise ValueError("The kLAS object has no molecular orbitals")
+    if getattr(klas, "ci", None) is None:
+        raise ValueError("The kLAS object has no CI vectors")
+
+    nkpts = len(klas.kpts)
+    ncastot = nkpts * int(klas.ncas)
+    if int(sum(klas.ncas_sub)) != ncastot:
+        raise ValueError(
+            "sum(ncas_sub) must equal nkpts * ncas for kLAS-PDFT",
+        )
+    return klas
+
+
+def kLASCIPDFT(klas, ot, **kwargs):
+    """Create a fixed-wavefunction PDFT evaluator from an existing KLASCI."""
+    from mrh.my_pyscf.pbc.mcpdft.klaspdft import (
+        get_klas_mcpdft_child_class,
+    )
+    _validate_klas_pdft_input(klas, "KLASCI")
+    return get_klas_mcpdft_child_class(klas, ot, **kwargs)
+
+
+def kLASSCFPDFT(klas, ot, **kwargs):
+    """Create a fixed-wavefunction PDFT evaluator from an existing KLASSCF."""
+    from mrh.my_pyscf.pbc.mcpdft.klaspdft import (
+        get_klas_mcpdft_child_class,
+    )
+    _validate_klas_pdft_input(klas, "KLASSCF")
+    return get_klas_mcpdft_child_class(klas, ot, **kwargs)
+
+
+KLASCI = kLASCIPDFT
+KLASSCF = kLASSCFPDFT
