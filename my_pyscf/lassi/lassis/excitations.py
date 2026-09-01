@@ -204,16 +204,34 @@ class ExcitationPSFCISolver (ProductStateFCISolver):
             self.excited_frags = [self.excited_frags[i] for i in idx]
             self.fcisolvers = [self.fcisolvers[i] for i in idx]
 
-    def space_delta (self, ci0, si0_p, ci1, si1_p, nroots):
+    def space_delta (self, ci0, si0_p, si0_q, ci1, si1_p, si1_q, nroots):
         delta = 0
-        for c0, c1 in zip (ci0, ci1):
+        ovlps = []
+        self.log.debug ('ExcitationPSFCISolver step analysis:')
+        for ifrag, (c0, c1) in enumerate (zip (ci0, ci1)):
             x0 = np.asarray (c0[:nroots]).reshape (nroots,-1) 
             x1 = np.asarray (c1[:nroots]).reshape (nroots,-1) 
             ovlp = x0.conj () @ x1.T
+            ovlps.append (ovlp)
+            if self.log.verbose >= logger.DEBUG:
+                svals = linalg.svd (ovlp)[1]
+                self.log.debug (f'F{ifrag} svals: {svals}')
             ovlp = ovlp * si1_p[None,:]
             ovlp = ovlp.conj () * ovlp
             ovlp -= np.diag (si1_p.conj () * si1_p)
             delta = max (delta, ovlp.sum ())
+        assert (len (ovlps) == 2)
+        if self.log.verbose >= logger.DEBUG:
+            ovlp = ovlps[0] * si1_p[None,:]
+            ovlp = (ovlp * ovlps[1]).sum (1)
+            ovlp_p = np.dot (ovlp, si0_p.conj ())
+            ovlp_si_p = np.dot (si0_p.conj (), si1_p)
+            ovlp_q = np.dot (si0_q.conj (), si1_q)
+            self.log.debug (f'<si0_p|si1_p> = {ovlp_si_p}')
+            self.log.debug (f'<Psi0_p|Psi1_p> = {ovlp_p}')
+            self.log.debug (f'<Psi0_q|Psi1_q> = {ovlp_q}')
+            ovlp = ovlp_p + ovlp_q
+            self.log.debug (f'<Psi0|Psi1> = {ovlp}')
         delta = max (delta, np.amax (np.abs (si1_p-si0_p)))
         return delta
 
@@ -243,15 +261,15 @@ class ExcitationPSFCISolver (ProductStateFCISolver):
         ci1 = self.truncrot_ci (ci0, u, vh)
         hci_pspace_diag = self.op_ham_pp_diag (h1, h2, ci1, norb_f, nelec_f)
         tdm1s_f = self.get_tdm1s_f (ci1, ci1, norb_f, nelec_f)
-        e, eprime, eprime_last, si0_p = 0, 0, 0, si_p
+        e, eprime, eprime_last, si0_p, si0_q = 0, 0, 0, si_p, si_q
         wprime = 0
         disc_sval_max = max (list(disc_svals)+[0.0,])
         converged = False
         log.info ('Entering product-state fixed-point CI iteration')
         for it in range (max_cycle):
             e_last = e
-            space_delta = self.space_delta (ci0, si0_p, ci1, si_p, nroots)
-            ci0, si0_p = ci1, si_p
+            space_delta = self.space_delta (ci0, si0_p, si0_q, ci1, si_p, si_q, nroots)
+            ci0, si0_p, si0_q = ci1, si_p, si_q
             # Re-diagonalize in truncated space
             e, si, w = self.eig1 (ham_pq, ci0)
             _, u, si_p, si_q, vh = self.schmidt_trunc (si, ci0, nroots=nroots)
