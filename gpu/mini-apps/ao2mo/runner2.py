@@ -27,11 +27,11 @@ import time
 DEBUG = True
 PERFORMANCE = False
 nruns=20
-if gpu_run:gpu = libgpu.init()
+if gpu_run:lib.param.use_gpu = libgpu.init()
 lib.logger.TIMER_LEVEL=lib.logger.INFO
 
 nfrags=4;basis='631g';
-if gpu_run:mol=gto.M(use_gpu=gpu, atom=generator(nfrags),basis=basis)#,verbose=4,output=outputfile,max_memory=160000)
+if gpu_run:mol=gto.M(atom=generator(nfrags),basis=basis)#,verbose=4,output=outputfile,max_memory=160000)
 #else: mol=gto.M(atom=generator(nfrags),basis=basis)
 mf=scf.RHF(mol)
 mf=mf.density_fit()#auxbasis='weigend')
@@ -133,24 +133,24 @@ def init_eri_gpu_v4 (mo, casscf, with_df):
     k_cp = numpy.zeros((ncore,nmo))
     ppaa = numpy.zeros((nmo, nmo, ncas,ncas))
     papa = numpy.zeros((nmo, ncas, nmo,ncas))
-    if gpu:
+    if lib.param.use_gpu:
         arg = numpy.array([-1, -1, -1, -1], dtype=numpy.int32)
-        libgpu.get_dfobj_status(gpu, id(with_df), arg)
+        libgpu.get_dfobj_status(lib.param.use_gpu, id(with_df), arg)
         if arg[2] > -1: load_eri = False
-    libgpu.push_mo_coeff(gpu, mo, nao*nmo)
-    libgpu.init_jk_ao2mo(gpu, ncore, nmo) 
-    libgpu.init_ppaa_papa_ao2mo(gpu, nmo, ncas) 
+    libgpu.push_mo_coeff(lib.param.use_gpu, mo, nao*nmo)
+    libgpu.init_jk_ao2mo(lib.param.use_gpu, ncore, nmo) 
+    libgpu.init_ppaa_papa_ao2mo(lib.param.use_gpu, nmo, ncas) 
     count = 0
     for k, eri1 in enumerate(with_df.loop(blksize)):
         naux = eri1.shape[0]
         b0+=naux
     for count in range(k+1):
         arg = numpy.array([-1, -1, count, -1], dtype = numpy.int32)
-        libgpu.get_dfobj_status(gpu, id(with_df),arg)
+        libgpu.get_dfobj_status(lib.param.use_gpu, id(with_df),arg)
         naux = arg[0]
-        libgpu.df_ao2mo_v4(gpu,blksize,nmo,nao,ncore,ncas,naux,count,id(with_df)) 
-    libgpu.pull_jk_ao2mo_v4 (gpu, j_pc, k_cp, nmo, ncore)
-    libgpu.pull_ppaa_papa_ao2mo_v4(gpu, ppaa, papa, nmo, ncas) #pull ppaa
+        libgpu.df_ao2mo_v4(lib.param.use_gpu,blksize,nmo,nao,ncore,ncas,naux,count,id(with_df)) 
+    libgpu.pull_jk_ao2mo_v4 (lib.param.use_gpu, j_pc, k_cp, nmo, ncore)
+    libgpu.pull_ppaa_papa_ao2mo_v4(lib.param.use_gpu, ppaa, papa, nmo, ncas) #pull ppaa
     k_pc = k_cp.T.copy()
 
     return j_pc,k_pc, ppaa, papa
@@ -167,26 +167,26 @@ def init_eri_gpu_v3 (mo, casscf, with_df):
     k_cp = numpy.zeros((ncore,nmo))
     ppaa = numpy.zeros((nmo, nmo, ncas,ncas))
     papa = numpy.zeros((nmo, ncas, nmo,ncas))
-    if gpu:
+    if lib.param.use_gpu:
         arg = numpy.array([-1, -1, -1, -1], dtype=numpy.int32)
-        libgpu.get_dfobj_status(gpu, id(with_df), arg)
+        libgpu.get_dfobj_status(lib.param.use_gpu, id(with_df), arg)
         if arg[2] > -1: load_eri = False
-    libgpu.push_mo_coeff(gpu, mo, nao*nmo)
-    libgpu.init_jk_ao2mo(gpu, ncore, nmo) # initializes j_pc and k_pc to be pulled
-    libgpu.init_ints_ao2mo_v3(gpu, naoaux, nmo, ncas) #initializes bufpa on pinned memory
-    libgpu.init_ppaa_ao2mo(gpu, nmo, ncas) #initializes ppaa on pinned memory
+    libgpu.push_mo_coeff(lib.param.use_gpu, mo, nao*nmo)
+    libgpu.init_jk_ao2mo(lib.param.use_gpu, ncore, nmo) # initializes j_pc and k_pc to be pulled
+    libgpu.init_ints_ao2mo_v3(lib.param.use_gpu, naoaux, nmo, ncas) #initializes bufpa on pinned memory
+    libgpu.init_ppaa_ao2mo(lib.param.use_gpu, nmo, ncas) #initializes ppaa on pinned memory
     count = 0
     for k, eri1 in enumerate(with_df.loop(blksize)):
         naux = eri1.shape[0]
         b0+=naux
     for count in range(k+1):
         arg = numpy.array([-1, -1, count, -1], dtype = numpy.int32)
-        libgpu.get_dfobj_status(gpu, id(with_df),arg)
+        libgpu.get_dfobj_status(lib.param.use_gpu, id(with_df),arg)
         naux = arg[0]
-        libgpu.df_ao2mo_v3(gpu,blksize,nmo,nao,ncore,ncas,naux,eri1,count,id(with_df)) 
-    libgpu.pull_jk_ao2mo (gpu, j_pc, k_cp, nmo, ncore)
-    libgpu.pull_ints_ao2mo_v3(gpu, bufpa, blksize, naoaux, nmo, ncas)
-    libgpu.pull_ppaa_ao2mo(gpu, ppaa, nmo, ncas) #pull ppaa
+        libgpu.df_ao2mo_v3(lib.param.use_gpu,blksize,nmo,nao,ncore,ncas,naux,eri1,count,id(with_df)) 
+    libgpu.pull_jk_ao2mo (lib.param.use_gpu, j_pc, k_cp, nmo, ncore)
+    libgpu.pull_ints_ao2mo_v3(lib.param.use_gpu, bufpa, blksize, naoaux, nmo, ncas)
+    libgpu.pull_ppaa_ao2mo(lib.param.use_gpu, ppaa, nmo, ncas) #pull ppaa
     k_pc = k_cp.T.copy()
 
     for p0, p1 in prange(0, nmo, blksize):

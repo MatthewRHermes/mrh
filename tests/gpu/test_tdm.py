@@ -19,28 +19,33 @@ def tearDownModule():
     del nfrags, basis
 
 def _run_mod(gpu_run, norb, nelec, link_index, cibra, ciket):
+    from pyscf.lib import param
     if gpu_run: 
         from mrh.my_pyscf.gpu import libgpu
         from gpu4mrh import patch_pyscf
         gpu = libgpu.init()
-        mol = gto.M(use_gpu = gpu, atom=generator(nfrags), basis = basis)
-        from pyscf.lib import param
         param.use_gpu = gpu
     else:
+        param.use_gpu = None
+    try:
         mol = gto.M(atom=generator(nfrags), basis = basis)
-    mf = scf.RHF(mol)
-    mf=mf.density_fit()
-    mf.with_df.auxbasis = pyscf.df.make_auxbasis(mol)
-    mf.max_cycle=1
-    mf.kernel()
-    
-    rdm1a = rdm.make_rdm1_spin1('FCItrans_rdm1a', cibra, ciket, norb, nelec, link_index)
-    rdm1b = rdm.make_rdm1_spin1('FCItrans_rdm1b', cibra, ciket, norb, nelec, link_index)
-    rdm1aa, rdm2aa = rdm.make_rdm12_spin1('FCItdm12kern_a', cibra, ciket, norb, nelec, link_index)
-    rdm1bb, rdm2bb = rdm.make_rdm12_spin1('FCItdm12kern_b', cibra, ciket, norb, nelec, link_index)
-    _, rdm2ab = rdm.make_rdm12_spin1('FCItdm12kern_ab', cibra, ciket, norb, nelec, link_index) 
-    rdm1sf, rdm2sf = rdm.make_rdm12_spin1('FCItdm12kern_sf', cibra, ciket, norb, nelec, link_index)
-    return rdm1a, rdm1b, rdm1aa, rdm2aa, rdm1bb, rdm2bb, rdm2ab, rdm1sf, rdm2sf
+        mf = scf.RHF(mol)
+        mf=mf.density_fit()
+        mf.with_df.auxbasis = pyscf.df.make_auxbasis(mol)
+        mf.max_cycle=1
+        mf.kernel()
+        
+        rdm1a = rdm.make_rdm1_spin1('FCItrans_rdm1a', cibra, ciket, norb, nelec, link_index)
+        rdm1b = rdm.make_rdm1_spin1('FCItrans_rdm1b', cibra, ciket, norb, nelec, link_index)
+        rdm1aa, rdm2aa = rdm.make_rdm12_spin1('FCItdm12kern_a', cibra, ciket, norb, nelec, link_index)
+        rdm1bb, rdm2bb = rdm.make_rdm12_spin1('FCItdm12kern_b', cibra, ciket, norb, nelec, link_index)
+        _, rdm2ab = rdm.make_rdm12_spin1('FCItdm12kern_ab', cibra, ciket, norb, nelec, link_index)
+        rdm1sf, rdm2sf = rdm.make_rdm12_spin1('FCItdm12kern_sf', cibra, ciket, norb, nelec, link_index)
+        return rdm1a, rdm1b, rdm1aa, rdm2aa, rdm1bb, rdm2bb, rdm2ab, rdm1sf, rdm2sf
+    finally:
+        if gpu_run:
+            libgpu.destroy_device(gpu)
+            param.use_gpu = None
 
 
 

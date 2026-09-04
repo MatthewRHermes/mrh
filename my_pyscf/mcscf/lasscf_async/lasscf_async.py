@@ -321,9 +321,13 @@ class LASSCFSymm (lasscf_sync_o0.LASSCFSymm):
     dump_flags = LASSCFNoSymm.dump_flags
 
 def LASSCF (mf_or_mol, ncas_sub, nelecas_sub, **kwargs):
-    # try grabbing gpu handle from mf_or_mol instead of additional argument
-    use_gpu = kwargs.get('use_gpu', None)
-    
+    if 'use_gpu' in kwargs:
+        import warnings
+        warnings.warn(
+            "Passing use_gpu as an argument to LASSCF is deprecated. "
+            "The GPU handle is now set automatically via gto.M(use_gpu=gpu).",
+            DeprecationWarning, stacklevel=2
+        )
     from pyscf import gto, scf
     if isinstance(mf_or_mol, gto.Mole):
         mf = scf.RHF(mf_or_mol)

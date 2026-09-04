@@ -61,18 +61,17 @@ def test_matvecs(m, k, n_max, counts, iters= 2):
     vec_loc += vec_c.size
 
   for _ in range(2):
-    libgpu.push_op(gpu, np.ascontiguousarray(op), m, k)
-    instruction_list = np.empty(( len(n_array),6), dtype=np.int32)
+    libgpu.push_op(gpu, np.ascontiguousarray(op), m, k, len(n_array))
+    instruction_list = np.empty(( len(n_array),4), dtype=np.int32)
     for i, n in enumerate(n_array):
       vec_loc, vec_size = vec_table[i]
       ox1_loc = i*n_max*m
-      ox1_size = n*m
       #fac = (-1,1)[i%2]  
       fac = 1
-      instruction_list[i] = n, vec_loc, vec_size, ox1_loc, ox1_size, fac
+      instruction_list[i] = vec_loc, vec_size, ox1_loc, fac
     #print(instruction_list)
     libgpu.push_instruction_list(gpu, instruction_list, len(n_array))
-    libgpu.compute_sivecs_full(gpu, m, k, len(n_array))
+    libgpu.compute_sivecs_full(gpu, m, k, len(n_array), 0)
     libgpu.add_ox1_pinned(gpu, ox1_gpu, states) 
   libgpu.finalize_ox1_pinned(gpu, ox1_gpu, states) 
 
@@ -86,10 +85,12 @@ def test_matvecs(m, k, n_max, counts, iters= 2):
     
 
 if __name__=='__main__':
+  counts = 1
   if gpu_run:
     gpu = libgpu.init()
     from pyscf.lib import param
     param.use_gpu = gpu
+    counts = libgpu.get_num_devices(gpu)
   lib.logger.TIMER_LEVEL=lib.logger.INFO
 
   geom = ''' K 0 0 0;
@@ -99,8 +100,7 @@ if __name__=='__main__':
            K 0 0 10;
            K 0 0 12;'''
   basis = 'def2tzvp'
-  if gpu_run: mol = gto.M(use_gpu = gpu, atom=geom, basis=basis, verbose=1)
-  else: mol = gto.M(atom=geom, basis=basis, verbose=1)
+  mol = gto.M(atom=geom, basis=basis, verbose=1)
 
   mol.output='test.log'
   mol.build()
@@ -114,7 +114,6 @@ if __name__=='__main__':
   m_max=10
   k=5
   n_max = 10
-  counts = 4
   
-  test_matvecs(m, k, n_max, counts)
+  test_matvecs(m_max, k, n_max, counts)
    

@@ -40,6 +40,9 @@ def kernel (las, mo_coeff=None, ci0=None, casdm0_fr=None, conv_tol_grad=1e-4,
     t0 = (lib.logger.process_clock(), lib.logger.perf_counter())
     log.debug('Start LASSCF')
     gpu=las.use_gpu
+    # NB: no DF guard here. The active-active pair subproblem built by
+    # combine.combine_pair -> crunch.get_pair_laspscf (inherit_df=False) carries use_gpu
+    # but deliberately has no with_df; get_h2eff falls back to exact ERIs for it.
     h2eff_sub = las.get_h2eff (mo_coeff)
     t1 = log.timer('integral transformation to LAS space', *t0)
 
@@ -117,14 +120,12 @@ def kernel (las, mo_coeff=None, ci0=None, casdm0_fr=None, conv_tol_grad=1e-4,
                 log.debug ('GRADIENT IMPLEMENTATION TEST: |D g_orb| = %.15g', err)
                 assert (err < 1e-5), '{}'.format (err)
             for isub in range (len (ugg.ncsf_sub)):
-                # TODO: double-check that this code works in SA-LASSCF
                 i = ugg.ncsf_sub[:isub].sum ()
                 j = i + ugg.ncsf_sub[isub].sum ()
                 k = i + ugg.nvar_orb
                 l = j + ugg.nvar_orb
                 log.debug ('GRADIENT IMPLEMENTATION TEST: |D g_ci({})| = %.15g'.format (isub), 
                            linalg.norm (g_ci_test[i:j] - g_vec[k:l]))
-            # TODO: figure out why this fails in intermediate combined laspscfs in lasscf_async
             err = linalg.norm (g_ci_test - g_vec[ugg.nvar_orb:])
             assert (err < 1e-5), '{}'.format (err)
         gx = H_op.get_gx ()
@@ -160,7 +161,7 @@ def kernel (las, mo_coeff=None, ci0=None, casdm0_fr=None, conv_tol_grad=1e-4,
         # ^ This is down here to save time in case I am already converged at initialization
         t1 = log.timer ('LASSCF Hessian constructor', *t1)
         microit = [0]
-        last_x = [0]
+        last_x = [None]
         first_norm_x = [None]
         def my_callback (x):
             microit[0] += 1
@@ -187,7 +188,7 @@ def kernel (las, mo_coeff=None, ci0=None, casdm0_fr=None, conv_tol_grad=1e-4,
                 log.info ('LASSCF micro %d : |x_orb| = %.15g ; |x_ci| = %.15g', microit[0],
                           norm_xorb, norm_xci)
             if abs(x_max)>.5: # Nonphysical step vector element
-                if last_x[0] is 0:
+                if last_x[0] is None:
                     x[np.abs (x)>.5*np.pi] = 0
                     last_x[0] = x
                 raise MicroIterInstabilityException ("|x[i]| > pi/2")
@@ -294,7 +295,7 @@ def ci_cycle (las, mo, ci0, veff, h2eff_sub, casdm1frs, log):
     for isub, (fcibox, ncas, nelecas, h1e, fcivec) in enumerate (zip (las.fciboxes, las.ncas_sub,
                                                                       las.nelecas_sub, h1eff_sub,
                                                                       ci0)):
-        eri_cas = las.get_h2eff_slice (h2eff_sub, isub, compact=8)
+        eri_cas = las.get_h2eff_slice (h2eff_sub, isub)
         max_memory = max(400, las.max_memory-lib.current_memory()[0])
         orbsym = getattr (mo, 'orbsym', None)
         if orbsym is not None:
@@ -1139,39 +1140,43 @@ class LASSCF_HessianOperator (sparse_linalg.LinearOperator):
         ncore, nocc, nmo = self.ncore, self.nocc, self.nmo
         f1_prime = np.zeros ((self.nmo, self.nmo), dtype=self.dtype)
         # (H.x_va)_pp, (H.x_ac)_pp sector
-        if self.las.use_gpu:
-            from mrh.my_pyscf.gpu import libgpu
-            g_f1_prime = np.zeros ((self.nmo, self.nmo), dtype=self.dtype)
-            libgpu.orbital_response(self.las.use_gpu,
-                                           g_f1_prime, # gorb + (f1_prime - f1_prime.T)
-                                           self.cas_type_eris.ppaa, self.cas_type_eris.papa, self.eri_paaa,
-                                           ocm2, tcm2, gorb,
-                                           ncore, nocc, nmo)
-            return g_f1_prime
-        else:
-            for p, f1 in enumerate (f1_prime):
-                praa = self.cas_type_eris.ppaa[p]
-                para = self.cas_type_eris.papa[p]
-                paaa = praa[ncore:nocc]
-                # g_pabc d_qabc + g_prab d_qrab + g_parb d_qarb + g_pabr d_qabr (Formal)
-                #        d_cbaq          d_abqr          d_aqbr          d_qabr (Symmetry of ocm2)
-                # g_pcba d_abcq + g_prab d_abqr + g_parc d_aqcr + g_pbcr d_qbcr (Relabel)
-                #                                                 g_pbrc        (Symmetry of eri)
-                # g_pcba d_abcq + g_prab d_abqr + g_parc d_aqcr + g_pbrc d_qbcr (Final)
-                for i, j in ((0, ncore), (nocc, nmo)): # Don't double-count
-                    ra, ar, cm = praa[i:j], para[:,i:j], ocm2[:,:,:,i:j]
-                    f1[i:j] += np.tensordot (paaa, cm, axes=((0,1,2),(2,1,0))) # last index external
-                    f1[ncore:nocc] += np.tensordot (ra, cm, axes=((0,1,2),(3,0,1))) # third index external
-                    f1[ncore:nocc] += np.tensordot (ar, cm, axes=((0,1,2),(0,3,2))) # second index external
-                    f1[ncore:nocc] += np.tensordot (ar, cm, axes=((0,1,2),(1,3,2))) # first index external
+        # DEPRECATED: use_gpu path (legacy integral engine libgpu.orbital_response) is
+        # commented out for the time being -- the C++ binding was removed (see
+        # refactor_plan.md). The CPU (numpy) path below is now always used;
+        # self.las.use_gpu is ignored here until the GPU engine is restored.
+        #if self.las.use_gpu:
+        #    from mrh.my_pyscf.gpu import libgpu
+        #    g_f1_prime = np.zeros ((self.nmo, self.nmo), dtype=self.dtype)
+        #    libgpu.orbital_response(self.las.use_gpu,
+        #                                   g_f1_prime, # gorb + (f1_prime - f1_prime.T)
+        #                                   self.cas_type_eris.ppaa, self.cas_type_eris.papa, self.eri_paaa,
+        #                                   ocm2, tcm2, gorb,
+        #                                   ncore, nocc, nmo)
+        #    return g_f1_prime
+        #else:
+        for p, f1 in enumerate (f1_prime):
+            praa = self.cas_type_eris.ppaa[p]
+            para = self.cas_type_eris.papa[p]
+            paaa = praa[ncore:nocc]
+            # g_pabc d_qabc + g_prab d_qrab + g_parb d_qarb + g_pabr d_qabr (Formal)
+            #        d_cbaq          d_abqr          d_aqbr          d_qabr (Symmetry of ocm2)
+            # g_pcba d_abcq + g_prab d_abqr + g_parc d_aqcr + g_pbcr d_qbcr (Relabel)
+            #                                                 g_pbrc        (Symmetry of eri)
+            # g_pcba d_abcq + g_prab d_abqr + g_parc d_aqcr + g_pbrc d_qbcr (Final)
+            for i, j in ((0, ncore), (nocc, nmo)): # Don't double-count
+                ra, ar, cm = praa[i:j], para[:,i:j], ocm2[:,:,:,i:j]
+                f1[i:j] += np.tensordot (paaa, cm, axes=((0,1,2),(2,1,0))) # last index external
+                f1[ncore:nocc] += np.tensordot (ra, cm, axes=((0,1,2),(3,0,1))) # third index external
+                f1[ncore:nocc] += np.tensordot (ar, cm, axes=((0,1,2),(0,3,2))) # second index external
+                f1[ncore:nocc] += np.tensordot (ar, cm, axes=((0,1,2),(1,3,2))) # first index external
 
-            # (H.x_aa)_va, (H.x_aa)_ac
-            ocm2 = ocm2[:,:,:,ncore:nocc] + ocm2[:,:,:,ncore:nocc].transpose (1,0,3,2)
-            ocm2 += ocm2.transpose (2,3,0,1)
-            ecm2 = ocm2 + tcm2
-            f1_prime[:ncore,ncore:nocc] += np.tensordot (self.eri_paaa[:ncore], ecm2, axes=((1,2,3),(1,2,3)))
-            f1_prime[nocc:,ncore:nocc] += np.tensordot (self.eri_paaa[nocc:], ecm2, axes=((1,2,3),(1,2,3)))
-            return gorb + (f1_prime - f1_prime.T)
+        # (H.x_aa)_va, (H.x_aa)_ac
+        ocm2 = ocm2[:,:,:,ncore:nocc] + ocm2[:,:,:,ncore:nocc].transpose (1,0,3,2)
+        ocm2 += ocm2.transpose (2,3,0,1)
+        ecm2 = ocm2 + tcm2
+        f1_prime[:ncore,ncore:nocc] += np.tensordot (self.eri_paaa[:ncore], ecm2, axes=((1,2,3),(1,2,3)))
+        f1_prime[nocc:,ncore:nocc] += np.tensordot (self.eri_paaa[nocc:], ecm2, axes=((1,2,3),(1,2,3)))
+        return gorb + (f1_prime - f1_prime.T)
 
 
     def ci_response_offdiag (self, kappa1, h1frs_prime):
@@ -1424,6 +1429,8 @@ class LASSCF_HessianOperator (sparse_linalg.LinearOperator):
         ci1 = self._update_ci (dci)
         t0=log.timer('update_ci',*t0)
         gpu=self.las.use_gpu
+        # NB: no DF guard here. update_h2eff_sub only rotates an already-built h2eff_sub
+        # by umat, so it is valid whether h2eff_sub came from DF or exact ERIs.
         if self.las.verbose>=lib.logger.DEBUG and gpu:
             h2eff_sub_c = h2eff_sub.copy()
             h2eff_sub2 = self._update_h2eff_sub_debug (mo1, umat, h2eff_sub_c) 
@@ -1433,7 +1440,7 @@ class LASSCF_HessianOperator (sparse_linalg.LinearOperator):
                 #print('H2eff test passed')
             else:
                 log.debug('H2eff gpu kernel is not working')
-                lib.logger.debug(np.max((h2eff_sub-h2eff_sub2)*(h2eff_sub-h2eff_sub2)))
+                log.debug('H2eff diff: %s', np.max((h2eff_sub-h2eff_sub2)*(h2eff_sub-h2eff_sub2)))
                 exit()
         # TODO: debug or remove
         #elif gpu:
@@ -1522,6 +1529,13 @@ def _init_df_(h_op):
 
 density_fit = lasci.density_fit
 def LASSCF (mf_or_mol, ncas_sub, nelecas_sub, **kwargs):
+    if 'use_gpu' in kwargs:
+        import warnings
+        warnings.warn(
+            "Passing use_gpu as an argument to LASSCF is deprecated. "
+            "The GPU handle is now set automatically via gto.M(use_gpu=gpu).",
+            DeprecationWarning, stacklevel=2
+        )
     if isinstance(mf_or_mol, gto.Mole):
         mf = scf.RHF(mf_or_mol)
     else:
@@ -1689,7 +1703,7 @@ def get_grad_ci (las, mo_coeff=None, ci=None, h1eff_sub=None, h2eff_sub=None, ve
     gci = []
     for isub, (fcibox, h1e, ci0, ncas, nelecas) in enumerate (zip (
             las.fciboxes, h1eff_sub, ci, las.ncas_sub, las.nelecas_sub)):
-        eri_cas = las.get_h2eff_slice (h2eff_sub, isub, compact=8)
+        eri_cas = las.get_h2eff_slice (h2eff_sub, isub)
         linkstrl = fcibox.states_gen_linkstr (ncas, nelecas, True)
         linkstr  = fcibox.states_gen_linkstr (ncas, nelecas, False)
         h2eff = fcibox.states_absorb_h1e(h1e, eri_cas, ncas, nelecas, .5)

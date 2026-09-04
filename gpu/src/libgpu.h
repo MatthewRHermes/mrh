@@ -3,7 +3,7 @@
 #ifndef LIBGPU_H
 #define LIBGPU_H
 
-#include "device.h"
+#include "device/device.h"
 
 #include <pybind11/pybind11.h>
 #include <pybind11/numpy.h>
@@ -25,7 +25,6 @@ extern "C"
 
   void libgpu_barrier(void *);
 
-  void libgpu_disable_eri_cache_(void *);
   void libgpu_set_update_dfobj_(void *, int);
   void libgpu_get_dfobj_status(void *, size_t, py::array_t<int>);
   
@@ -45,7 +44,7 @@ extern "C"
   void libgpu_push_mo_coeff(void *, 
 			    py::array_t<double>, int);
   void libgpu_extract_mo_cas(void *, 
-			    int, int, int);
+			    int, int, int, int);
   
   void libgpu_init_jk_ao2mo(void *, 
                             int, int);
@@ -58,12 +57,13 @@ extern "C"
                             py::array_t<double>, py::array_t<double>,int, int);
   void libgpu_pull_ppaa_papa_ao2mo_v4(void *, 
 			      py::array_t<double>,py::array_t<double>, int, int);
+  // DEPRECATED: legacy integral engine (orbital_response) -- commented out.
   //ORBITAL RESPONSE
-  void libgpu_orbital_response(void *,
-			       py::array_t<double>,
-			       py::array_t<double>, py::array_t<double>, py::array_t<double>,
-			       py::array_t<double>, py::array_t<double>, py::array_t<double>,
-			       int, int, int); 
+  //void libgpu_orbital_response(void *,
+  //			       py::array_t<double>,
+  //			       py::array_t<double>, py::array_t<double>, py::array_t<double>,
+  //			       py::array_t<double>, py::array_t<double>, py::array_t<double>,
+  //			       int, int, int); 
   //UPDATE H2EFF
   void libgpu_update_h2eff_sub(void *, 
                                int, int, int, int, 
@@ -240,8 +240,6 @@ PYBIND11_MODULE(libgpu, m) {
   m.def("set_device", &libgpu_set_device, "select device");
   m.def("barrier", &libgpu_barrier, "wait for all GPUs to complete queued work");
   
-  m.def("disable_eri_cache_", &libgpu_disable_eri_cache_, "disable caching eri blocks to reduce memory usage for get_jk");
-
   m.def("compute_get_jk", &libgpu_compute_get_jk, "pyscf/df/df_jk.py::get_jk()");
   m.def("init_get_jk", &libgpu_init_get_jk, "alloc for get_jk()");
   m.def("pull_get_jk", &libgpu_pull_get_jk, "retrieve vj & vk from get_jk()");
@@ -274,7 +272,8 @@ PYBIND11_MODULE(libgpu, m) {
   m.def("compute_rho_to_Pi", &libgpu_compute_rho_to_Pi, "pyscf/mcpdft/otfnal.py::energy_ot part 0.3");
   m.def("compute_Pi", &libgpu_compute_Pi, "pyscf/mcpdft/otfnal.py::energy_ot part 0.4");
   m.def("pull_Pi", &libgpu_pull_Pi, "pyscf/mcpdft/otfnal.py::energy_ot part final");
-  m.def("orbital_response", &libgpu_orbital_response, "mrh/lasscf_sync_o0.py::orbital_response");
+  // DEPRECATED: legacy integral engine (orbital_response) -- commented out.
+  //m.def("orbital_response", &libgpu_orbital_response, "mrh/lasscf_sync_o0.py::orbital_response");
   // RDM can be used from previously made JKs
   m.def("init_tdm1",&libgpu_init_tdm1, "pyscf/fci/rdm.py::allocate rdm1 space");
   m.def("init_tdm2",&libgpu_init_tdm2, "pyscf/fci/rdm.py::allocate rdm2 space");

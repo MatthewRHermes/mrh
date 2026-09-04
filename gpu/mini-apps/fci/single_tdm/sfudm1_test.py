@@ -31,8 +31,7 @@ geom = ''' Mg 0 0 0;
            Mg 0 0 24;
            O  0 0 26;'''
 
-if gpu_run: mol = gto.M(use_gpu = gpu, atom=geom, basis='def2-SVP', verbose=4)
-#else: mol = gto.M(atom=geom, basis='631g', verbose=1)
+mol = gto.M(atom=geom, basis='def2-SVP', verbose=4)
 
 mol.output='test.log'
 mol.build()

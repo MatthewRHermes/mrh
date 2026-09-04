@@ -15,6 +15,7 @@ CMakeCache.txt
 CMakeFiles
 Makefile
 *.o
+*.d
 
 # Example file outputs
 *.molden
@@ -43,6 +44,7 @@ test_all.sh
 *.ods
 *.tab
 *.txt
+!**/CMakeLists.txt
 
 # Integral files
 *.gdf

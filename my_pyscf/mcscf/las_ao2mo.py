@@ -81,7 +81,7 @@ def get_h2eff_gpu (las,mo_coeff):
     nocc = ncore + ncas
     mo_cas = mo_coeff[:,ncore:nocc]
     libgpu.push_mo_coeff(gpu,mo_coeff.copy(),mo_coeff.size)
-    libgpu.extract_mo_cas(gpu,ncas, ncore, nao)
+    libgpu.extract_mo_cas(gpu,ncas, ncore, nao, nmo)
     naux = las.with_df.get_naoaux ()
     blksize = las.with_df.blockdim
     eri = 0
@@ -128,7 +128,7 @@ def get_h2eff_gpu_v2 (las,mo_coeff):
     mo_cas = mo_coeff[:,ncore:nocc]
     libgpu.push_mo_coeff(gpu,mo_coeff.copy(),mo_coeff.size)
     libgpu.init_eri_h2eff(gpu, nmo, ncas)
-    libgpu.extract_mo_cas(gpu,ncas, ncore, nao)
+    libgpu.extract_mo_cas(gpu,ncas, ncore, nao, nmo)
     naux = las.with_df.get_naoaux ()
     blksize = las.with_df.blockdim
     eri =np.zeros((nmo,  int(ncas*ncas*(ncas+1)/2)))
@@ -220,10 +220,11 @@ def get_h2eff_slice (las, h2eff, idx, compact=None):
     j = ncas_cum[idx+1]
     ncore = las.ncore
     nocc = ncore + las.ncas
-    eri = h2eff[ncore:nocc,:].reshape (las.ncas*las.ncas, -1)
-    ix_i, ix_j = np.tril_indices (las.ncas)
-    eri = eri[(ix_i*las.ncas)+ix_j,:]
-    eri = ao2mo.restore (1, eri, las.ncas)[i:j,i:j,i:j,i:j]
+    ncas = las.ncas
+    npair = ncas * (ncas + 1) // 2
+    eri = lib.numpy_helper.unpack_tril (
+        h2eff[ncore:nocc,:].reshape (ncas*ncas, npair)
+    ).reshape (ncas, ncas, ncas, ncas)[i:j,i:j,i:j,i:j]
     if compact: eri = ao2mo.restore (compact, eri, j-i)
     return eri
 
