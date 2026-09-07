@@ -44,7 +44,7 @@ def lowest_refovlp_eigpair (ham_pq, p=1, si0=None, ovlp_thresh=LOWEST_REFOVLP_EI
             break
     if np.count_nonzero (idx_valid) == 0:
         log.error ("weights of the reference wfn: %s", str (w_q0q0))
-        raise RuntimeError ("No eigenstate w/ w>1e-8 reference wfn detected")
+        raise RuntimeError (f'No eigenstate w/ w>{floating_thresh} reference wfn detected')
     w_q0q0 = w_q0q0[idx_valid]
     e_valid = e_all[idx_valid]
     u_valid = u_all[:,idx_valid]
