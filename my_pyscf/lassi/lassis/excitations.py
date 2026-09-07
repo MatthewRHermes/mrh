@@ -33,15 +33,24 @@ def lowest_refovlp_eigpair (ham_pq, p=1, si0=None, ovlp_thresh=LOWEST_REFOVLP_EI
     w_pp = (u_all[:p,:].conj () * u_all[:p,:]).sum (0) / p
     w_q0q0 = u_all[p,:].conj () * u_all[p,:]
     w_pq0 = np.abs (u_all[:p,:].conj () * u_all[p,:][None,:]).sum (0)
-    floating_thresh = min (float_max, ovlp_thresh * 10**float_oom)
     assert (ovlp_thresh > 0)
-    for i in range (float_oom+1):
-        idx_valid = w_q0q0 > floating_thresh
-        if np.count_nonzero (idx_valid) > 0:
-            break
-        floating_thresh = floating_thresh / 10
-        if floating_thresh < (ovlp_thresh / 5):
-            break
+    idx_valid = np.zeros (len (e_all), dtype=bool)
+    if si0 is not None:
+        ovlp_01 = np.abs (np.dot (si0.conj (), u_all))
+        idx = np.argmax (ovlp_01)
+        if w_q0q0[idx] < ovlp_thresh:
+            log.warn (f"refovlp eigenvector w < {ovlp_thresh}; discarding...")
+        else:
+            idx_valid[idx] = True
+    if np.count_nonzero (idx_valid) == 0:
+        floating_thresh = min (float_max, ovlp_thresh * 10**float_oom)
+        for i in range (float_oom+1):
+            idx_valid = w_q0q0 > floating_thresh
+            if np.count_nonzero (idx_valid) > 0:
+                break
+            floating_thresh = floating_thresh / 10
+            if floating_thresh < (ovlp_thresh / 5):
+                break
     if np.count_nonzero (idx_valid) == 0:
         log.error ("weights of the reference wfn: %s", str (w_q0q0))
         raise RuntimeError (f'No eigenstate w/ w>{floating_thresh} reference wfn detected')
