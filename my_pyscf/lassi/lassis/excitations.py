@@ -272,7 +272,7 @@ class ExcitationPSFCISolver (ProductStateFCISolver):
         hci_pspace_diag = self.op_ham_pp_diag (h1, h2, ci1, norb_f, nelec_f)
         tdm1s_f = self.get_tdm1s_f (ci1, ci1, norb_f, nelec_f)
         e, eprime, eprime_last, si0_p, si0_q = 0, 0, 0, si_p, si_q
-        wprime = 0
+        wprime, siprime = 0, None
         disc_sval_max = max (list(disc_svals)+[0.0,])
         converged = False
         log.info ('Entering product-state fixed-point CI iteration')
@@ -281,7 +281,7 @@ class ExcitationPSFCISolver (ProductStateFCISolver):
             space_delta = self.space_delta (ci0, si0_p, si0_q, ci1, si_p, si_q, nroots)
             ci0, si0_p, si0_q = ci1, si_p, si_q
             # Re-diagonalize in truncated space
-            e, si, w = self.eig1 (ham_pq, ci0)
+            e, si, w = self.eig1 (ham_pq, ci0, si0=si)
             _, u, si_p, si_q, vh = self.schmidt_trunc (si, ci0, nroots=nroots)
 
             log.debug ('Singular values in truncated space: {}'.format (si_p))
@@ -319,8 +319,8 @@ class ExcitationPSFCISolver (ProductStateFCISolver):
                                          tdm1s_f, norb_f, nelec_f)
             # Diagonalize and truncate
             eprime_last = eprime
-            eprime, si, wprime = self.eig1 (ham_pq, ci1)
-            disc_svals, u, si_p, si_q, vh = self.schmidt_trunc (si, ci1, nroots=nroots)
+            eprime, siprime, wprime = self.eig1 (ham_pq, ci1, si0=siprime)
+            disc_svals, u, si_p, si_q, vh = self.schmidt_trunc (siprime, ci1, nroots=nroots)
             ham_pq = self.truncrot_ham_pq (ham_pq, u, vh)
             ci1 = self.truncrot_ci (ci1, u, vh)
             hci_pspace_diag = self.truncrot_hci_pspace_diag (hci_pspace_diag, u, vh)
@@ -672,7 +672,7 @@ class ExcitationPSFCISolver (ProductStateFCISolver):
             self._linkstr_cache[(ifrag,norb,nelec)] = linkstr
         return linkstr
 
-    def eig1 (self, ham_pq, ci0, ovlp_thresh=1e-3):
+    def eig1 (self, ham_pq, ci0, si0=None, ovlp_thresh=LOWEST_REFOVLP_EIGVAL_THRESH):
         '''Diagonalize the coupled Hamiltonian for the lowest-energy eigensolution with substantial
         overlap on the reference state.
 
@@ -695,7 +695,7 @@ class ExcitationPSFCISolver (ProductStateFCISolver):
 
         lroots = get_lroots (ci0)
         p = np.prod (lroots)
-        e, si, w = lowest_refovlp_eigpair (ham_pq, p=p, ovlp_thresh=ovlp_thresh, log=self.log)
+        e, si, w = lowest_refovlp_eigpair (ham_pq, p=p, si0=si0, ovlp_thresh=ovlp_thresh, log=self.log)
         return e, si, w
 
     def schmidt_trunc (self, si, ci0, nroots=1):
