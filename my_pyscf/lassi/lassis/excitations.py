@@ -23,7 +23,7 @@ MAX_CYCLE = getattr (__config__, 'lassi_excitations_max_cycle', 50)
 CONV_TOL_SPACE = getattr (__config__, 'lassi_excitations_conv_tol_space', 1e-4)
 CONV_TOL_SELF = getattr (__config__, 'lassi_excitations_conv_tol_self', 1e-8)
 
-def lowest_refovlp_eigpair (ham_pq, p=1, ovlp_thresh=LOWEST_REFOVLP_EIGVAL_THRESH, 
+def lowest_refovlp_eigpair (ham_pq, p=1, si0=None, ovlp_thresh=LOWEST_REFOVLP_EIGVAL_THRESH, 
                             float_oom=LOWEST_REFOVLP_FLOATING_THRESH_OOM, 
                             float_max=LOWEST_REFOVLP_FLOATING_THRESH_MAX,
                             log=None):
@@ -59,15 +59,15 @@ def lowest_refovlp_eigpair (ham_pq, p=1, ovlp_thresh=LOWEST_REFOVLP_EIGVAL_THRES
             log.debug1 (line)
     return e_valid[idx_choice], u_valid[:,idx_choice], w_q0q0[idx_choice]
 
-def lowest_refovlp_eigval (ham_pq, p=1, ovlp_thresh=LOWEST_REFOVLP_EIGVAL_THRESH):
+def lowest_refovlp_eigval (ham_pq, p=1, si0=None, ovlp_thresh=LOWEST_REFOVLP_EIGVAL_THRESH):
     ''' Return the lowest eigenvalue of the matrix ham_pq, whose corresponding
     eigenvector has nonzero overlap with the first basis p basis functions. '''
-    return lowest_refovlp_eigpair (ham_pq, p=p, ovlp_thresh=ovlp_thresh)[0]
+    return lowest_refovlp_eigpair (ham_pq, p=p, si0=si0, ovlp_thresh=ovlp_thresh)[0]
 
-def lowest_refovlp_eigvec (ham_pq, p=1, ovlp_thresh=LOWEST_REFOVLP_EIGVAL_THRESH):
+def lowest_refovlp_eigvec (ham_pq, p=1, si0=None, ovlp_thresh=LOWEST_REFOVLP_EIGVAL_THRESH):
     ''' Return the eigenvector corresponding to the lowest eigenvalue of the matrix ham_pq
     which has nonzero overlap with the first basis p basis functions. '''
-    return lowest_refovlp_eigpair (ham_pq, p=p, ovlp_thresh=ovlp_thresh)[1]
+    return lowest_refovlp_eigpair (ham_pq, p=p, si0=si0, ovlp_thresh=ovlp_thresh)[1]
 
 class ExcitationPSFCISolver (ProductStateFCISolver):
     '''Minimize the energy of a normalized wave function of the form
