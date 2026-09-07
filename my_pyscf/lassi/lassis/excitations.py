@@ -17,20 +17,30 @@ from pyscf import __config__
 op = (op_o0, op_o1)
 
 LOWEST_REFOVLP_EIGVAL_THRESH = getattr (__config__, 'lassi_excitations_refovlp_eigval_thresh', 1e-9)
+LOWEST_REFOVLP_FLOATING_THRESH_OOM = getattr (__config__, 'lassi_excitations_refovlp_floating_thresh_oom', 6)
+LOWEST_REFOVLP_FLOATING_THRESH_MAX = getattr (__config__, 'lassi_excitations_refovlp_floating_thresh_max', 1e-3)
 MAX_CYCLE = getattr (__config__, 'lassi_excitations_max_cycle', 50)
 CONV_TOL_SPACE = getattr (__config__, 'lassi_excitations_conv_tol_space', 1e-4)
 CONV_TOL_SELF = getattr (__config__, 'lassi_excitations_conv_tol_self', 1e-8)
 
-def lowest_refovlp_eigpair (ham_pq, p=1, ovlp_thresh=LOWEST_REFOVLP_EIGVAL_THRESH, log=None):
+def lowest_refovlp_eigpair (ham_pq, p=1, ovlp_thresh=LOWEST_REFOVLP_EIGVAL_THRESH, 
+                            float_oom=LOWEST_REFOVLP_FLOATING_THRESH_OOM, 
+                            float_max=LOWEST_REFOVLP_FLOATING_THRESH_MAX,
+                            log=None):
     ''' Identify the lowest-energy eigenpair for which the eigenvector has nonzero overlap with
     the reference wave function. '''
     e_all, u_all = linalg.eigh (ham_pq)
     w_pp = (u_all[:p,:].conj () * u_all[:p,:]).sum (0) / p
     w_q0q0 = u_all[p,:].conj () * u_all[p,:]
     w_pq0 = np.abs (u_all[:p,:].conj () * u_all[p,:][None,:]).sum (0)
-    for i in range (2,8):
-        idx_valid = w_q0q0 > 10**-(i+1)
+    floating_thresh = min (float_max, ovlp_thresh * 10**float_oom)
+    assert (ovlp_thresh > 0)
+    for i in range (float_oom+1):
+        idx_valid = w_q0q0 > floating_thresh
         if np.count_nonzero (idx_valid) > 0:
+            break
+        floating_thresh = floating_thresh / 10
+        if floating_thresh < (ovlp_thresh / 5):
             break
     if np.count_nonzero (idx_valid) == 0:
         log.error ("weights of the reference wfn: %s", str (w_q0q0))
