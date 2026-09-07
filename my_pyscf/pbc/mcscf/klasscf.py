@@ -1,6 +1,7 @@
 #!/usr/bin/env python
 
 import numpy as np
+from pyscf import lib
 from pyscf.pbc.lib import kpts_helper
 
 from mrh.my_pyscf.pbc.fci import cplx_csf_helper
@@ -11,6 +12,7 @@ from mrh.my_pyscf.pbc.mcscf.klasci import (
 )
 from mrh.my_pyscf.pbc.mcscf.mc1step import _get_casdm2_kpts
 from mrh.my_pyscf.pbc.util.wannier import get_wannier_orbs
+from mrh.util.la import safe_svd_warner
 
 # Author: Bhavnesh Jangid
 
@@ -75,6 +77,9 @@ class ActiveActiveRotationMap:
             Absolute singular-value cutoff used to determine the rank of the
             pair map. By default, a dimension- and precision-scaled cutoff is
             used.
+        verbose : int or :class:`pyscf.lib.logger.Logger`, optional
+            PySCF verbosity level or logger. The retained numerical rank is
+            reported at debug verbosity.
 
     Attributes:
         pair_map : ndarray
@@ -92,10 +97,13 @@ class ActiveActiveRotationMap:
     """
 
     def __init__(self, mo_phase, ncas_sub, bloch_pair_mask=None,
-                 svd_tol=None):
+                 svd_tol=None, verbose=None):
 
         mo_phase = np.asarray(mo_phase)
         ncas_sub = np.asarray(ncas_sub, dtype=int).reshape(-1)
+        if verbose is None:
+            verbose = lib.logger.QUIET
+        log = lib.logger.new_logger(None, verbose)
 
         if mo_phase.ndim != 3:
             msg = ("mo_phase must have shape (nkpts, ncas, ncastot); "
@@ -166,10 +174,18 @@ class ActiveActiveRotationMap:
             self.singular_values = np.empty(0, dtype=float)
             self.svd_tol = 0.0 if svd_tol is None else float(svd_tol)
             self.basis = np.empty((nbloch_pair, 0), dtype=basis_dtype)
+            log.debug(
+                "Active-active Bloch rotation map: retained 0 of 0 "
+                "singular values (shape %s)", self.pair_map.shape,
+            )
             # Return early if no valid pairs are found
             return
 
-        left, singular_values, _ = np.linalg.svd(
+        # The dense SVD interface also computes right singular vectors, even
+        # though only the left image is needed here. safe_svd_warner retries
+        # with Hermitian eigensolvers if the BLAS/LAPACK SVD fails.
+        safe_svd = safe_svd_warner(log.warn)
+        left, singular_values, _ = safe_svd(
             self.pair_map, full_matrices=False,
         )
 
@@ -179,11 +195,16 @@ class ActiveActiveRotationMap:
                 * np.finfo(singular_values.dtype).eps
                 * singular_values[0]
             )
+        retain = singular_values > svd_tol
+        rank = int(np.count_nonzero(retain))
+        log.debug(
+            "Active-active Bloch rotation map: retained %d of %d singular "
+            "values above %.3g (shape %s)",
+            rank, singular_values.size, svd_tol, self.pair_map.shape,
+        )
         self.singular_values = singular_values
         self.svd_tol = svd_tol
-        self.basis = np.asarray(
-            left[:, singular_values > svd_tol], dtype=basis_dtype,
-        )
+        self.basis = np.asarray(left[:, retain], dtype=basis_dtype)
 
     @property
     def nvar(self):
@@ -394,6 +415,9 @@ class KLASSCF_UnitaryGroupGenerators:
         self.active_active_map = ActiveActiveRotationMap(
             self.mo_phase, klas.ncas_sub,
             bloch_pair_mask=active_pair_mask,
+            verbose=lib.logger.new_logger(
+                klas, getattr(klas, "verbose", lib.logger.QUIET),
+            ),
         )
         self.frozen_ci = set(getattr(klas, "frozen_ci", None) or [])
         self.ci = ci
