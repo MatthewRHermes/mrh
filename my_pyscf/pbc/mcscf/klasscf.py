@@ -173,17 +173,17 @@ class ActiveActiveRotationMap:
             self.pair_map, full_matrices=False,
         )
 
-        # Simplify this.
         if svd_tol is None:
-            real_dtype = np.empty((), dtype=self.pair_map.real.dtype).dtype
-            svd_tol = (max(self.pair_map.shape) * np.finfo(real_dtype).eps
+            svd_tol = (
+                max(self.pair_map.shape)
+                * np.finfo(singular_values.dtype).eps
                 * singular_values[0]
             )
-        svd_tol = float(svd_tol)
-        rank = int(np.count_nonzero(singular_values > svd_tol))
         self.singular_values = singular_values
         self.svd_tol = svd_tol
-        self.basis = np.asarray(left[:, :rank], dtype=basis_dtype)
+        self.basis = np.asarray(
+            left[:, singular_values > svd_tol], dtype=basis_dtype,
+        )
 
     @property
     def nvar(self):
