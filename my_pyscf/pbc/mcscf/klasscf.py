@@ -41,7 +41,7 @@ class ActiveActiveRotationMap:
     """Map inter-fragment Wannier rotations to Bloch-MO rotations.
 
     The periodic orbital optimizer represents active rotations as independent
-    lower-triangular pairs within each k-point block. The LAS fragment
+    lower-triangular pairs within each k-point Bloch sector. The LAS fragment
     partition instead identifies nonredundant active-active rotations between
     Wannier fragments. This class constructs the linear map between those two
     representations and compresses its image to an orthonormal basis.
@@ -67,7 +67,7 @@ class ActiveActiveRotationMap:
             fragment partition.
 
     Kwargs:
-        block_pair_mask : ndarray of bool, optional
+        bloch_pair_mask : ndarray of bool, optional
             Mask of shape (nkpts, ncas, ncas) selecting the strictly
             lower-triangular Bloch active pairs available to the optimizer.
             By default, every strictly lower-triangular pair is selected.
@@ -91,7 +91,7 @@ class ActiveActiveRotationMap:
             If mo_phase does not define a unitary transformation.
     """
 
-    def __init__(self, mo_phase, ncas_sub, block_pair_mask=None, 
+    def __init__(self, mo_phase, ncas_sub, bloch_pair_mask=None,
                  svd_tol=None):
 
         mo_phase = np.asarray(mo_phase)
@@ -108,7 +108,7 @@ class ActiveActiveRotationMap:
 
         self.nkpts, self.ncas, self.ncastot = mo_phase.shape
         if self.ncastot != self.nkpts * self.ncas:
-            msg = ("mo_phase must map a square stacked block-active space; "
+            msg = ("mo_phase must map a square stacked Bloch-active space; "
                 f"got nkpts*ncas={self.nkpts * self.ncas} and "
                 f"ncastot={self.ncastot}")
             raise ValueError(msg)
@@ -132,40 +132,40 @@ class ActiveActiveRotationMap:
         fragment = np.repeat(np.arange(ncas_sub.size), ncas_sub)
         self.wannier_pair_idx = np.where(fragment[:, None] > fragment[None, :])
 
-        if block_pair_mask is None:
-            block_pair_mask = np.broadcast_to(
+        if bloch_pair_mask is None:
+            bloch_pair_mask = np.broadcast_to(
                 np.tril(np.ones((self.ncas, self.ncas), dtype=bool), -1),
                 (self.nkpts, self.ncas, self.ncas),
             )
             
-        block_pair_mask = np.asarray(block_pair_mask, dtype=bool)
+        bloch_pair_mask = np.asarray(bloch_pair_mask, dtype=bool)
         _check_shape(
-            block_pair_mask, (self.nkpts, self.ncas, self.ncas),
-            label="block_pair_mask",
+            bloch_pair_mask, (self.nkpts, self.ncas, self.ncas),
+            label="bloch_pair_mask",
         )
-        self.block_pair_mask = np.array(block_pair_mask, copy=True)
-        self.block_pair_idx = np.where(self.block_pair_mask)
+        self.bloch_pair_mask = np.array(bloch_pair_mask, copy=True)
+        self.bloch_pair_idx = np.where(self.bloch_pair_mask)
 
-        block_k, block_row, block_col = self.block_pair_idx
+        bloch_k, bloch_row, bloch_col = self.bloch_pair_idx
         wannier_row, wannier_col = self.wannier_pair_idx
 
         self.pair_map = (
             self.mo_phase[
-                block_k[:, None], block_row[:, None],
+                bloch_k[:, None], bloch_row[:, None],
                 wannier_row[None, :],
             ]
             * self.mo_phase[
-                block_k[:, None], block_col[:, None],
+                bloch_k[:, None], bloch_col[:, None],
                 wannier_col[None, :],
             ].conj()
         )
 
-        nblock_pair, nwannier_pair = self.pair_map.shape
+        nbloch_pair, nwannier_pair = self.pair_map.shape
         basis_dtype = np.result_type(self.mo_phase.dtype, np.complex128)
-        if nblock_pair == 0 or nwannier_pair == 0:
+        if nbloch_pair == 0 or nwannier_pair == 0:
             self.singular_values = np.empty(0, dtype=float)
             self.svd_tol = 0.0 if svd_tol is None else float(svd_tol)
-            self.basis = np.empty((nblock_pair, 0), dtype=basis_dtype)
+            self.basis = np.empty((nbloch_pair, 0), dtype=basis_dtype)
             # Return early if no valid pairs are found
             return
 
@@ -190,8 +190,8 @@ class ActiveActiveRotationMap:
         """int: Number of independent active-active coordinates."""
         return self.basis.shape[1]
 
-    def block_to_wannier(self, kappa_active):
-        """Transform a block-diagonal Bloch matrix to the Wannier basis.
+    def bloch_to_wannier(self, kappa_active):
+        """Transform k-diagonal Bloch matrices to the Wannier basis.
 
         Args:
             kappa_active : ndarray of shape (nkpts, ncas, ncas)
@@ -211,8 +211,8 @@ class ActiveActiveRotationMap:
             self.mo_phase, optimize=True,
         )
 
-    def wannier_to_block(self, kappa_wannier):
-        """Transform a Wannier matrix to its k-diagonal Bloch blocks.
+    def wannier_to_bloch(self, kappa_wannier):
+        """Transform a Wannier matrix to its k-diagonal Bloch matrices.
 
         Args:
             kappa_wannier : ndarray of shape (ncastot, ncastot)
@@ -220,11 +220,11 @@ class ActiveActiveRotationMap:
 
         Returns:
             ndarray of shape (nkpts, ncas, ncas)
-                K-diagonal active-space blocks in the Bloch-MO basis.
+                K-diagonal active-space matrices in the Bloch-MO basis.
 
         Notes:
             Components that couple different k-points are omitted from the
-            returned block representation.
+            returned Bloch representation.
         """
         kappa_wannier = np.asarray(kappa_wannier)
         _check_shape(
@@ -242,7 +242,7 @@ class ActiveActiveRotationMap:
         Args:
             kappa_active : ndarray of shape (nkpts, ncas, ncas)
                 Active-space rotation matrix for each k-point. Only entries
-                selected by block_pair_mask are read.
+                selected by bloch_pair_mask are read.
 
         Returns:
             ndarray of shape (nvar,)
@@ -253,8 +253,8 @@ class ActiveActiveRotationMap:
             kappa_active, (self.nkpts, self.ncas, self.ncas),
             label="kappa_active",
         )
-        block_pairs = np.asarray(kappa_active[self.block_pair_idx])
-        return np.asarray(self.basis.conj().T @ block_pairs).reshape(-1)
+        bloch_pairs = np.asarray(kappa_active[self.bloch_pair_idx])
+        return np.asarray(self.basis.conj().T @ bloch_pairs).reshape(-1)
 
     def unpack(self, coordinates):
         """Expand independent coordinates into Bloch rotation matrices.
@@ -282,7 +282,7 @@ class ActiveActiveRotationMap:
         kappa_active = np.zeros(
             (self.nkpts, self.ncas, self.ncas), dtype=dtype,
         )
-        kappa_active[self.block_pair_idx] = self.basis @ coordinates
+        kappa_active[self.bloch_pair_idx] = self.basis @ coordinates
         return kappa_active - kappa_active.conj().transpose(0, 2, 1)
 
 
@@ -393,7 +393,7 @@ class KLASSCF_UnitaryGroupGenerators:
         active_pair_mask &= active_nonfrozen[None, None, :]
         self.active_active_map = ActiveActiveRotationMap(
             self.mo_phase, klas.ncas_sub,
-            block_pair_mask=active_pair_mask,
+            bloch_pair_mask=active_pair_mask,
         )
         self.frozen_ci = set(getattr(klas, "frozen_ci", None) or [])
         self.ci = ci
@@ -416,7 +416,7 @@ class KLASSCF_UnitaryGroupGenerators:
 
     @property
     def nvar_orb_external(self):
-        """int: Number of ordinary block-diagonal orbital variables."""
+        """int: Number of ordinary k-diagonal Bloch orbital variables."""
         return int(np.count_nonzero(self.uniq_orb_idx))
 
     @property
@@ -711,7 +711,7 @@ def get_grad_ci(
             matrices used to build h1eff when it is not supplied.
         h1eff : sequence, optional
             Effective one-electron Hamiltonians for each fragment, with each
-            block shaped (nroots, 2, ncas_frag, ncas_frag).
+            array shaped (nroots, 2, ncas_frag, ncas_frag).
         h2eff : ndarray of shape (ncastot,)*4, optional
             Two-electron integrals in the complete Wannier active space.
 
@@ -754,7 +754,7 @@ def get_grad_ci(
         )
     if len(h1eff) != len(ncas_sub):
         raise ValueError(
-            "h1eff must contain one block for every fragment/cell"
+            "h1eff must contain one entry for every fragment/cell"
         )
 
     gradient = []
@@ -789,7 +789,7 @@ def get_grad_orb(
 
     The one-body contribution is formed independently at each k-point. The
     active-space two-body cumulant is transformed from the Wannier basis to
-    momentum-conserving Bloch blocks and contracted with the paaa AO2MO
+    momentum-conserving Bloch components and contracted with the paaa AO2MO
     intermediates.
 
     Args:
