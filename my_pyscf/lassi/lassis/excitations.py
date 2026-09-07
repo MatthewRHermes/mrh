@@ -28,7 +28,7 @@ def lowest_refovlp_eigpair (ham_pq, p=1, ovlp_thresh=LOWEST_REFOVLP_EIGVAL_THRES
     w_pp = (u_all[:p,:].conj () * u_all[:p,:]).sum (0) / p
     w_q0q0 = u_all[p,:].conj () * u_all[p,:]
     w_pq0 = np.abs (u_all[:p,:].conj () * u_all[p,:][None,:]).sum (0)
-    for i in range (8):
+    for i in range (2,8):
         idx_valid = w_q0q0 > 10**-(i+1)
         if np.count_nonzero (idx_valid) > 0:
             break
