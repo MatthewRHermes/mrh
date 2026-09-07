@@ -22,6 +22,8 @@ def _check_shape(mat, shape, label="array"):
             Object whose shape is checked.
         shape : tuple of int
             Required shape.
+
+    Kwargs:
         label : str, optional
             Name used to identify mat in the error message.
 
@@ -63,6 +65,8 @@ class ActiveActiveRotationMap:
             Numbers of active orbitals assigned to the LAS fragments. Their
             sum must equal ncastot; their order defines the Wannier
             fragment partition.
+
+    Kwargs:
         block_pair_mask : ndarray of bool, optional
             Mask of shape (nkpts, ncas, ncas) selecting the strictly
             lower-triangular Bloch active pairs available to the optimizer.
@@ -87,56 +91,53 @@ class ActiveActiveRotationMap:
             If mo_phase does not define a unitary transformation.
     """
 
-    def __init__(
-            self, mo_phase, ncas_sub, block_pair_mask=None, svd_tol=None):
+    def __init__(self, mo_phase, ncas_sub, block_pair_mask=None, 
+                 svd_tol=None):
+
         mo_phase = np.asarray(mo_phase)
         ncas_sub = np.asarray(ncas_sub, dtype=int).reshape(-1)
+
         if mo_phase.ndim != 3:
-            msg = (
-                "mo_phase must have shape (nkpts, ncas, ncastot); "
-                f"got {mo_phase.shape}"
-            )
+            msg = ("mo_phase must have shape (nkpts, ncas, ncastot); "
+                f"got {mo_phase.shape}")
             raise ValueError(msg)
-        mo_phase = np.asarray(
-            mo_phase, dtype=np.result_type(mo_phase.dtype, np.complex128),
-        )
-        if svd_tol is not None:
-            svd_tol = float(svd_tol)
+        dtype = np.result_type(mo_phase.dtype, np.complex128)
+        mo_phase = np.asarray(mo_phase, dtype=dtype)
+
+        if svd_tol is not None: svd_tol = float(svd_tol)
 
         self.nkpts, self.ncas, self.ncastot = mo_phase.shape
         if self.ncastot != self.nkpts * self.ncas:
-            msg = (
-                "mo_phase must map a square stacked block-active space; "
+            msg = ("mo_phase must map a square stacked block-active space; "
                 f"got nkpts*ncas={self.nkpts * self.ncas} and "
-                f"ncastot={self.ncastot}"
-            )
+                f"ncastot={self.ncastot}")
             raise ValueError(msg)
+        
         stacked_phase = mo_phase.reshape(self.ncastot, self.ncastot)
+
         if not np.allclose(
                 stacked_phase.conj().T @ stacked_phase,
                 np.eye(self.ncastot, dtype=mo_phase.dtype),
-                rtol=1e-10, atol=1e-10,
-        ):
+                rtol=1e-10, atol=1e-10,):
             raise ValueError("mo_phase must be unitary")
+        
         if int(ncas_sub.sum()) != self.ncastot:
-            msg = (
-                f"sum(ncas_sub)={int(ncas_sub.sum())}; expected "
-                f"ncastot={self.ncastot}"
-            )
+            msg = (f"sum(ncas_sub)={int(ncas_sub.sum())}; expected "
+                f"ncastot={self.ncastot}")
             raise ValueError(msg)
+        
         self.mo_phase = mo_phase
         self.ncas_sub = ncas_sub
 
         fragment = np.repeat(np.arange(ncas_sub.size), ncas_sub)
-        self.wannier_pair_idx = np.where(
-            fragment[:, None] > fragment[None, :]
-        )
+        self.wannier_pair_idx = np.where(fragment[:, None] > fragment[None, :])
 
         if block_pair_mask is None:
             block_pair_mask = np.broadcast_to(
                 np.tril(np.ones((self.ncas, self.ncas), dtype=bool), -1),
                 (self.nkpts, self.ncas, self.ncas),
             )
+            
         block_pair_mask = np.asarray(block_pair_mask, dtype=bool)
         _check_shape(
             block_pair_mask, (self.nkpts, self.ncas, self.ncas),
@@ -147,6 +148,7 @@ class ActiveActiveRotationMap:
 
         block_k, block_row, block_col = self.block_pair_idx
         wannier_row, wannier_col = self.wannier_pair_idx
+
         self.pair_map = (
             self.mo_phase[
                 block_k[:, None], block_row[:, None],
@@ -170,10 +172,11 @@ class ActiveActiveRotationMap:
         left, singular_values, _ = np.linalg.svd(
             self.pair_map, full_matrices=False,
         )
+
+        # Simplify this.
         if svd_tol is None:
             real_dtype = np.empty((), dtype=self.pair_map.real.dtype).dtype
-            svd_tol = (
-                max(self.pair_map.shape) * np.finfo(real_dtype).eps
+            svd_tol = (max(self.pair_map.shape) * np.finfo(real_dtype).eps
                 * singular_values[0]
             )
         svd_tol = float(svd_tol)
@@ -297,6 +300,8 @@ class KLASSCF_UnitaryGroupGenerators:
         klas : object
             Periodic LAS object supplying the orbital-space dimensions,
             fragment solvers, electron counts, and optional frozen variables.
+
+    Kwargs:
         mo_coeff : ndarray of shape (nkpts, nao, nmo), optional
             Bloch-MO coefficients. Defaults to klas.mo_coeff.
         ci : sequence, optional
@@ -593,7 +598,19 @@ class KLASSCF_UnitaryGroupGenerators:
         return ci
 
     def pack(self, kappa, ci):
-        """Pack orbital and CI variables into one complex vector."""
+        """Pack orbital and CI variables into one complex vector.
+
+        Args:
+            kappa : ndarray of shape (nkpts, nmo, nmo)
+                Bloch orbital-rotation matrices.
+            ci : sequence
+                Nested [fragment][root] determinant-basis CI vectors.
+
+        Returns:
+            ndarray of shape (nvar_tot,)
+                Packed complex vector containing the orbital variables
+                followed by the CI variables.
+        """
         x_orb = self.pack_orb(kappa)
         x_ci = self.pack_ci(ci)
         dtype = np.result_type(x_orb.dtype, x_ci.dtype)
@@ -603,7 +620,21 @@ class KLASSCF_UnitaryGroupGenerators:
         return x
 
     def unpack(self, x):
-        """Unpack a combined vector into orbital and CI variables."""
+        """Unpack a combined vector into orbital and CI variables.
+
+        Args:
+            x : array-like of shape (nvar_tot,)
+                Packed complex orbital and CI coordinates.
+
+        Returns:
+            tuple
+                Anti-Hermitian Bloch orbital-rotation matrices and nested
+                [fragment][root] determinant-basis CI vectors.
+
+        Raises:
+            ValueError
+                If the number of coordinates differs from :attr:`nvar_tot`.
+        """
         x = np.asarray(x).reshape(-1)
         if x.size != self.nvar_tot:
             msg = (
@@ -626,6 +657,8 @@ def get_ugg(klas, mo_coeff=None, ci=None, mo_phase=None):
     Args:
         klas : object
             Periodic LAS object for which the parameterization is built.
+
+    Kwargs:
         mo_coeff : ndarray of shape (nkpts, nao, nmo), optional
             Bloch-MO coefficients. Defaults to klas.mo_coeff in the
             generator constructor.
@@ -663,6 +696,8 @@ def get_grad_ci(
         klas : object
             Periodic LAS object supplying fragment solvers and active-space
             integral builders.
+
+    Kwargs:
         mo_coeff : ndarray of shape (nkpts, nao, nmo), optional
             Bloch-MO coefficients. Defaults to klas.mo_coeff.
         ci : sequence, optional
@@ -761,6 +796,8 @@ def get_grad_orb(
         klas : object
             Periodic LAS object supplying density matrices, integrals, and
             k-point metadata.
+
+    Kwargs:
         mo_coeff_kpts : ndarray of shape (nkpts, nao, nmo), optional
             Bloch-MO coefficients. Defaults to klas.mo_coeff.
         ci : sequence, optional
@@ -896,6 +933,8 @@ def get_grad(
     Args:
         klas : object
             Periodic LAS object providing the gradient methods.
+
+    Kwargs:
         mo_coeff : ndarray of shape (nkpts, nao, nmo), optional
             Bloch-MO coefficients. Defaults to klas.mo_coeff.
         ci : sequence, optional
