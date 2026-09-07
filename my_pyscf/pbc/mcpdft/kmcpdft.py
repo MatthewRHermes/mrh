@@ -1,20 +1,69 @@
 import numpy as np
-from functools import reduce
 
 from pyscf.lib import logger
-from pyscf.mcpdft.mcpdft import _PDFT
 from pyscf.mcpdft import _dms
-from pyscf.pbc.dft import gen_grid as pbc_gen_grid
 
-from mrh.my_pyscf.pbc.mcpdft.otfnalperiodic import get_pbc_otfnal_kpts
-from mrh.my_pyscf.pbc.mcscf.k2R import get_mo_coeff_k2R
-from mrh.my_pyscf.pbc.mcpdft._dms import dm2_cumulant_complex
+from mrh.my_pyscf.pbc.mcpdft.otfnalperiodic import (
+    _prepare_kpts_rdms,
+    get_pbc_otfnal_kpts,
+    otfnalperiodic_kpts,
+)
+from mrh.my_pyscf.pbc.mcscf.casci import get_h2eff_kpts
+from mrh.my_pyscf.pbc.mcpdft.mcpdft import _PeriodicMCPDFT
+from mrh.my_pyscf.pbc.mcpdft import _dms as pbc_dms
+
 '''
 Author: Bhavnesh Jangid
 k-MC-PDFT for periodic systems at the gamma point or k-points.
 '''
 
 _get_fcisolver = _dms._get_fcisolver
+
+
+def _select_charged_kcas_result(mc, target_k=None):
+    """Select one stored charged KCASCI momentum-sector result."""
+    results = list(getattr(mc, "charged_results", ()))
+    target_k = getattr(mc, "target_k", None) if target_k is None else target_k
+    if target_k is None:
+        if len(results) == 1: return results[0]
+        raise ValueError("target_k is required when multiple charged KCASCI sectors "
+            "are available",)
+
+    target_k = int(target_k) % mc.nkpts
+
+    result = next((
+        item for item in results
+        if int(item["target_k"]) % mc.nkpts == target_k
+    ), None)
+
+    if result is None:
+        raise ValueError(f"No charged KCASCI result is available for target_k={target_k}",)
+    return result
+
+
+def _get_charged_kcas_rdm_context(mc, ci=None, state=0, target_k=None):
+    """Resolve RDM arguments after selecting a charged momentum sector."""
+    result = _select_charged_kcas_result(mc, target_k=target_k)
+    return pbc_dms._get_charged_kcas_rdm_context(
+        mc, result, ci=ci, state=state,
+    )
+
+
+def make_one_casdm1s_charged_kcas(mc, ci=None, state=0, target_k=None):
+    """Build a charged kCASCI 1-RDM for one selected momentum sector."""
+    result = _select_charged_kcas_result(mc, target_k=target_k)
+    return pbc_dms.make_one_casdm1s_charged_kcas(
+        mc, result, ci=ci, state=state,
+    )
+
+
+def make_one_casdm2_charged_kcas(mc, ci=None, state=0, target_k=None):
+    """Build a charged kCASCI 2-RDM for one selected momentum sector."""
+    result = _select_charged_kcas_result(mc, target_k=target_k)
+    return pbc_dms.make_one_casdm2_charged_kcas(
+        mc, result, ci=ci, state=state,
+    )
+
 
 # Need to redefine the casdm1s and casdm2 because of shape mismatch.
 def make_one_casdm1s (mc, ci, state=0):
@@ -47,142 +96,169 @@ def make_one_casdm2 (mc, ci, state=0):
         _, casdm2 = fcisolver.make_rdm12 (ci, ncastot, nelecastot)
     return casdm2
 
-def energy_mcwfn(mc, mo_coeff=None, ci=None, ot=None, state=0, casdm1s=None,
-                casdm2=None, verbose=None):
-    # See pyscf.mcpdft.mcpdft.energy_mcwfn for details.
+def _energy_mcwfn_from_kpts(mc, casdm1s_kpts, cascm2_kpts, mo_coeff=None,
+                            ot=None, verbose=None):
+    """Compute the MC wavefunction energy from k-point active-space RDMs."""
+    if ot is None:
+        ot = mc.otfnal
+    if mo_coeff is None:
+        mo_coeff = mc.mo_coeff
+    if verbose is None:
+        verbose = mc.verbose
 
-    if ot is None: ot = mc.otfnal
-    if mo_coeff is None: mo_coeff = mc.mo_coeff
-    if ci is None: ci = mc.ci
-    if verbose is None: verbose = mc.verbose
-    if casdm1s is None: casdm1s = mc.make_one_casdm1s(ci=ci, state=state)
-    if casdm2 is None: casdm2 = mc.make_one_casdm2(ci=ci, state=state)
-    
-    cell = mc._scf.cell
+    mo_coeff = np.asarray(mo_coeff)
     nkpts = mc.nkpts
-    ncore = mc.ncore
-    ncas = mc.ncas
-    kmesh = mc.kmesh
+    dm1s_kpts = pbc_dms.casdm1s_kpts_to_dm1s(
+        mc, casdm1s_kpts, mo_coeff, mc.ncore,
+    )
+    dm1_kpts = dm1s_kpts[0] + dm1s_kpts[1]
 
-    # Get the MO_PHASE:
-    mo_phase = get_mo_coeff_k2R(mc._scf, mo_coeff, ncore, ncas, kmesh=kmesh)[-1]
     log = logger.new_logger(mc, verbose=verbose)
-
-    # First, transform the casdm1s to dm1s for each k-point.
-    dm1s_kpts = []
-    for k in range(nkpts):
-        casdm1s_k = [reduce(np.dot, (mo_phase[k], casdm1s_, mo_phase[k].conj().T)) 
-                    for casdm1s_ in casdm1s]
-        dm1s =_dms.casdm1s_to_dm1s (ot, casdm1s_k, mo_coeff=mo_coeff[k], ncore=ncore, 
-                                        ncas=ncas)
-        dm1s_kpts.append(dm1s)
-    
-    # Making sure the tagging the dm1s doesn't create the weird problems
-    # for pbc.
-    dm1s_kpts = np.stack([np.asarray(dm1s) 
-                          for dm1s in dm1s_kpts], axis=1,)
-    
-    hyb_x, hyb_c = ot._numint.rsh_and_hybrid_coeff(ot.otxc, mc.mol.spin)[2]
-
-    Vnn = mc.energy_nuc()
-    h1e_kpts = mc.get_hcore(kpts=mc.kpts)
-    
-    assert h1e_kpts.ndim == 3 and dm1s_kpts.ndim == 4 and \
-        h1e_kpts.shape == dm1s_kpts[0].shape == dm1s_kpts[1].shape, \
-            'h1e_kpts and dm1s_kpts must have shape (nkpts,nao,nao)'
-
-    dm1_kpts = np.array([dm1s_kpts[0][i] + dm1s_kpts[1][i] 
-                         for i in range(nkpts)])
-    
-    if log.verbose >= logger.DEBUG or abs(hyb_x) > 1e-10:
-        vj_kpts, vk_kpts = mc._scf.get_jk(cell, dm_kpts=dm1s_kpts, kpts=mc.kpts)
-        vj_kpts = vj_kpts[0] + vj_kpts[1] # (nkpts, nao, nao)
-    else:
-        vj_kpts = mc._scf.get_jk(cell, dm_kpts=dm1_kpts, kpts=mc.kpts, 
-                                 hermi=1, with_k=False)[0]
-        
-        
-    Te_Vne = 1./nkpts * np.einsum('kij,kji->', h1e_kpts, dm1_kpts)
-    E_j = 1./nkpts * np.einsum('kij,kji->',vj_kpts, dm1_kpts) * 0.5
-
-    log.debug('CAS energy decomposition:')
-    log.debug('Vnn = %s', Vnn)
-    log.debug('Te + Vne = %s', Te_Vne)
-    log.debug('E_j = %s', E_j)
-
-    # Keeping this warning as it is.
-    if abs(hyb_x - hyb_c) > 1e-10:
-        log.warn("exchange and correlation hybridization differ")
-        log.warn("may lead to unphysical results, see https://github.com/pyscf/pyscf-forge/issues/128")
-
-    # Note: this is not the true exchange energy, but just the HF-like exchange
-    E_x = 0.0
-    if log.verbose >= logger.DEBUG or abs(hyb_x) > 1e-10:
-        # (vk_a * dm_a) + (vk_b * dm_b)
-        E_x = -1/nkpts * (np.einsum('kij,kji->', vk_kpts[0], dm1s_kpts[0]) +
-                         np.einsum('kij,kji->', vk_kpts[1], dm1s_kpts[1]))
-        E_x /= 2.0
-        log.debug("E_x = %s", E_x)
-        log.debug("Adding (%s) * E_x = %s", hyb_x, hyb_x * E_x)
-
-    # This is not correlation, but the 2-body cumulant tensored with the eri's:
-    # g_pqrs * l_pqrs / 2
-    E_c = 0.0
-    if log.verbose >= logger.DEBUG or abs(hyb_c) > 1e-10:
-        # Now compute the cascm2:
-        cascm2 = dm2_cumulant_complex(casdm2, casdm1s)
-        aeri = mc.get_h2eff(mo_coeff = mo_coeff)
-        ncastot = mc.ncas * mc.nkpts
-        assert aeri.ndim == 4 and aeri.shape == (ncastot,)*4
-        E_c = np.tensordot(aeri, cascm2, axes=4) / (2 * nkpts)
-        log.debug("E_c = %s", E_c)
-        log.debug("Adding (%s) * E_c = %s", hyb_c, hyb_c * E_c)
-
-    e_mcwfn = Vnn + Te_Vne + E_j + (hyb_x * E_x) + (hyb_c * E_c)
-    
-    return e_mcwfn
-
-
-class _kMCPDFT(_PDFT):
-    '''
-    k-MC-PDFT for periodic systems at the gamma point or k-points.
-    This class is adding or replacing the functionalities which are not 
-    compatible with periodic systems are throwing NotImplementedError. 
-    '''
-
-    def _init_ot_grids(self, my_ot, grids_attr=None):
-        '''
-        Initialization of on-top functional and grids for periodic systems.
-        '''
-        if grids_attr is None:
-            grids_attr = {}
-
-        old_grids = getattr(self, 'grids', None)
-
-        if isinstance(my_ot, (str, np.bytes_)):
-            # Note: I have changed the input arg. for below function.
-            self.otfnal = get_pbc_otfnal_kpts(self._scf, my_ot)
-        else:
-            self.otfnal = my_ot
-
-        pbc_grid_types = (
-            pbc_gen_grid.UniformGrids,
-            pbc_gen_grid.BeckeGrids,
+    hyb_x, hyb_c = ot._numint.rsh_and_hybrid_coeff(
+        ot.otxc, mc.cell.spin,
+    )[2]
+    h1e_kpts = np.asarray(mc.get_hcore(kpts=mc.kpts))
+    with_exchange = log.verbose >= logger.DEBUG or abs(hyb_x) > 1e-10
+    if with_exchange:
+        vj_spin, vk_kpts = mc._scf.get_jk(
+            mc.cell, dm_kpts=dm1s_kpts, kpts=mc.kpts,
         )
+        vj_kpts = vj_spin[0] + vj_spin[1]
+    else:
+        vj_kpts = mc._scf.get_jk(
+            mc.cell, dm_kpts=dm1_kpts, kpts=mc.kpts,
+            hermi=1, with_k=False,
+        )[0]
+        vk_kpts = None
 
-        if isinstance(old_grids, pbc_grid_types):
-            self.otfnal.grids = old_grids
-        else:
-            self.otfnal.grids = pbc_gen_grid.BeckeGrids(self.cell,)
+    energy_one = np.einsum("kij,kji->", h1e_kpts, dm1_kpts) / nkpts
+    energy_j = 0.5 * np.einsum("kij,kji->", vj_kpts, dm1_kpts,) / nkpts
 
-        self.otfnal.grids.__dict__.update(grids_attr)
+    # This part is basically copied and kept same as in molecular MC-PDFT code.
+    if abs(hyb_x - hyb_c) > 1e-10:
+        msg = (
+            "exchange and correlation hybridization differ "
+            "may lead to unphysical results, see "
+            "https://github.com/pyscf/pyscf-forge/issues/128",
+        )
+        log.warn(msg)
 
-        for key, value in grids_attr.items():
-            assert getattr(self.otfnal.grids, key, None) == value
+    energy_x = 0.0
+    if with_exchange:
+        energy_x = -0.5 * (np.einsum("kij,kji->", vk_kpts[0], dm1s_kpts[0])
+                           + np.einsum("kij,kji->", vk_kpts[1], dm1s_kpts[1])) / nkpts
 
-        self.otfnal.verbose = self.verbose
-        self.otfnal.stdout = self.stdout    
-    
+    energy_c = 0.0
+    if log.verbose >= logger.DEBUG or abs(hyb_c) > 1e-10:
+        energy_c = np.einsum(
+            "abcuvxy,abcuvxy->",
+            get_h2eff_kpts(mc, mo_coeff), cascm2_kpts,
+            optimize=True,
+        ) / (2 * nkpts)
+
+    energy_nuc = mc.energy_nuc()
+    for label, value in (("Vnn", energy_nuc), ("Te + Vne", energy_one),
+                         ("E_j", energy_j), ("E_x", energy_x),
+                         ("E_c", energy_c)):
+        log.debug("%s = %s", label, value)
+    return (
+        energy_nuc + energy_one + energy_j
+        + hyb_x * energy_x + hyb_c * energy_c
+    )
+
+
+def energy_mcwfn(mc, mo_coeff=None, ci=None, ot=None, state=0,
+                 casdm1s=None, casdm2=None, verbose=None,
+                 rdm_representation=None, momentum_tol=1e-8):
+    """Evaluate the periodic MC wavefunction energy."""
+    mo_coeff = mc.mo_coeff if mo_coeff is None else mo_coeff
+    ci = mc.ci if ci is None else ci
+    if casdm1s is None:
+        casdm1s = mc.make_one_casdm1s(ci=ci, state=state)
+    if casdm2 is None:
+        casdm2 = mc.make_one_casdm2(ci=ci, state=state)
+
+    if rdm_representation is None:
+        rdm_representation = mc._mcwfn_rdm_representation
+    casdm1s_kpts, cascm2_kpts, _ = _prepare_kpts_rdms(
+        mc, casdm1s, casdm2, mo_coeff, mc.ncore,
+        rdm_representation, momentum_tol,
+    )
+    return _energy_mcwfn_from_kpts(
+        mc, casdm1s_kpts, cascm2_kpts, mo_coeff=mo_coeff,
+        ot=ot, verbose=verbose,
+    )
+
+
+def energy_dft_kcas(mc, mo_coeff=None, ci=None, ot=None, state=0,
+                    casdm1s=None, casdm2=None, max_memory=None, hermi=1,
+                    momentum_tol=1e-8):
+    """Evaluate the on-top functional directly from momentum kCAS RDMs."""
+    if ot is None:
+        ot = mc.otfnal
+    if mo_coeff is None:
+        mo_coeff = mc.mo_coeff
+    if ci is None:
+        ci = mc.ci
+    if casdm1s is None:
+        casdm1s = mc.make_one_casdm1s(ci, state=state)
+    if casdm2 is None:
+        casdm2 = mc.make_one_casdm2(ci, state=state)
+    if max_memory is None:
+        max_memory = mc.max_memory
+    return ot.energy_ot(
+        casdm1s, casdm2, mo_coeff, mc.ncore,
+        max_memory=max_memory, hermi=hermi,
+        rdm_representation="bloch",
+        momentum_tol=momentum_tol,
+    )
+
+
+def energy_tot_charged_kcas(mc, mo_coeff=None, ci=None, ot=None, state=0,
+                            target_k=None, verbose=None):
+    """Evaluate MC-PDFT for one charged KCASCI momentum sector and root."""
+    result = _select_charged_kcas_result(mc, target_k=target_k)
+    target_k = int(result["target_k"]) % int(mc.nkpts)
+    if ot is None:
+        ot = mc.otfnal
+    ot.reset(mol=mc.mol)
+    if mo_coeff is None:
+        mo_coeff = mc.mo_coeff
+    if ci is None:
+        ci = result.get("ci")
+    if verbose is None:
+        verbose = mc.verbose
+
+    casdm1s = mc.make_one_casdm1s(
+        ci=ci, state=state, target_k=target_k,
+    )
+    casdm2 = mc.make_one_casdm2(
+        ci=ci, state=state, target_k=target_k,
+    )
+    e_mcwfn = mc.energy_mcwfn(
+        ot=ot, mo_coeff=mo_coeff, casdm1s=casdm1s,
+        casdm2=casdm2, verbose=verbose,
+    )
+    e_ot = mc.energy_dft(
+        ot=ot, mo_coeff=mo_coeff, casdm1s=casdm1s,
+        casdm2=casdm2,
+    )
+    e_tot = (e_mcwfn + e_ot).real
+    logger.note(
+        mc,
+        "MC-PDFT charged target_k %d state %d E = %s, Eot(%s) = %s",
+        target_k, state, e_tot, ot.otxc, e_ot,
+    )
+    return e_tot, e_ot
+
+
+class _MCPDFTCPLX(_PeriodicMCPDFT):
+    """MC-PDFT for conventional complex k-point CASCI/CASSCF."""
+
+    momentum_resolved = False
+    _mcwfn_rdm_representation = "wannier"
+    _get_pbc_otfnal = staticmethod(get_pbc_otfnal_kpts)
+
     def multi_state(self, method='Lin'):
         raise NotImplementedError(f"StateAverageMix not available for {method}")
 
@@ -190,27 +266,155 @@ class _kMCPDFT(_PDFT):
     make_one_casdm2 = make_one_casdm2
     energy_mcwfn = energy_mcwfn
 
+    def energy_tot(self, *args, **kwargs):
+        e_tot, e_ot = super().energy_tot(*args, **kwargs)
+        return e_tot.real, e_ot
+
     def dump_chk(self, *args, **kwargs):
         logger.warn(self, "dump_chk is not supported for k-MC-PDFT")
         pass
 
-    def nuc_grad_method(self):
-        raise NotImplementedError("Nuclear gradients are not implemented for k-MC-PDFT")
-    
-    def dip_moment(self):
-        raise NotImplementedError("Dipole moment is not implemented for k-MC-PDFT")
-    
     def get_energy_decomposition(self, *args, **kwargs):
         raise NotImplementedError("Energy decomposition is not implemented for k-MC-PDFT")
 
     def update_from_chk(self, chkfile=None, **kwargs):
         raise NotImplementedError("update_from_chk is not implemented for k-MC-PDFT")
-    
-def get_mcpdft_child_class(kmc, ot, **kwargs):
+
+
+class _kCASPDFT(_MCPDFTCPLX):
+    """k-MC-PDFT specialization for one total-momentum kCAS sector."""
+
+    momentum_resolved = True
+    _mcwfn_rdm_representation = "bloch"
+
+    make_one_casdm1s = pbc_dms.make_one_casdm1s_kcas
+    make_one_casdm2 = pbc_dms.make_one_casdm2_kcas
+    energy_dft = energy_dft_kcas
+
+
+class _kChargedCASPDFT(_kCASPDFT):
+    """k-MC-PDFT specialization for charged KCASCI momentum sectors."""
+
+    make_one_casdm1s = make_one_casdm1s_charged_kcas
+    make_one_casdm2 = make_one_casdm2_charged_kcas
+    energy_tot = energy_tot_charged_kcas
+
+    def compute_pdft_energy_(self, mo_coeff=None, ci=None, ot=None,
+                             otxc=None, grids_level=None, grids_attr=None,
+                             dump_chk=False, verbose=None, target_k=None,
+                             **kwargs):
+        """Evaluate MC-PDFT independently for each charged k sector."""
+        del kwargs
+        if dump_chk:
+            raise ValueError("dump_chk is not supported for k-MC-PDFT")
+        if mo_coeff is not None:
+            self.mo_coeff = mo_coeff
+        if ot is not None:
+            self.otfnal = ot
+        if otxc is not None:
+            self.otxc = otxc
+        if grids_attr is None:
+            grids_attr = {}
+        if grids_level is not None:
+            grids_attr["level"] = grids_level
+        if grids_attr:
+            self.grids.__dict__.update(grids_attr)
+        if verbose is None:
+            verbose = self.verbose
+        self.verbose = self.otfnal.verbose = verbose
+
+        if target_k is None:
+            target_k = self.target_k
+        if target_k is None:
+            results = list(self.charged_results)
+        else:
+            results = [_select_charged_kcas_result(
+                self, target_k=target_k,
+            )]
+        if not results:
+            raise ValueError("No charged KCASCI results are available")
+        if len(results) > 1 and ci is not None and not isinstance(ci, dict):
+            raise ValueError(
+                "ci for multiple charged sectors must be a dict keyed by "
+                "target_k",
+            )
+
+        nroots = int(getattr(self.fcisolver, "nroots", 1))
+        pdft_results = []
+        for result in results:
+            sector = int(result["target_k"]) % int(self.nkpts)
+            if isinstance(ci, dict):
+                sector_ci = ci.get(sector)
+            elif ci is None:
+                sector_ci = result.get("ci")
+            else:
+                sector_ci = ci
+            epdft = [
+                self.energy_tot(
+                    mo_coeff=self.mo_coeff, ci=sector_ci, state=state,
+                    target_k=sector, verbose=verbose,
+                )
+                for state in range(nroots)
+            ]
+            e_tot = [energy for energy, _ in epdft]
+            e_ot = [energy for _, energy in epdft]
+            if nroots == 1:
+                e_tot = e_tot[0]
+                e_ot = e_ot[0]
+            pdft_results.append({
+                "target_k": sector,
+                "charge": result.get("charge", self.charge),
+                "nkpts": result.get("nkpts", self.nkpts),
+                "e_mcscf": result.get("e_tot"),
+                "e_tot": e_tot,
+                "e_ot": e_ot,
+            })
+
+        self.charged_pdft_results = pdft_results
+        if len(pdft_results) == 1:
+            self.e_tot = pdft_results[0]["e_tot"]
+            self.e_ot = pdft_results[0]["e_ot"]
+        else:
+            self.e_tot = np.asarray([
+                result["e_tot"] for result in pdft_results
+            ])
+            self.e_ot = np.asarray([
+                result["e_ot"] for result in pdft_results
+            ])
+        return self.e_tot, self.e_ot, self.charged_pdft_results
+
+    def band_energies(self, reference_energy, root=None, kpts=None,
+                      per_cell=False, reference_target_k=None):
+        """Return quasiparticle energies from charged MC-PDFT results."""
+        from mrh.my_pyscf.pbc.mcscf import kcasci
+
+        if not self.charged_pdft_results:
+            raise ValueError("No charged KCASCI-PDFT results are available")
+        if kpts is None:
+            kpts = getattr(self._scf, "kpts", None)
+        return kcasci.compute_band_energies(
+            self.charged_pdft_results,
+            reference_energy,
+            charge=self.charge,
+            root=root,
+            kpts=kpts,
+            nkpts=self.nkpts,
+            per_cell=per_cell,
+            reference_target_k=reference_target_k,
+            kmom=kcasci._get_kmom_for_kcasci(self),
+            cell=self.cell,
+            kconserv=getattr(self, "kconserv", None),
+        )
+
+    get_band_energy = band_energies
+    band_energy = band_energies
+
+
+def _get_mcpdft_child_class(kmc, ot, pdft_base, **kwargs):
     mc_doc = (kmc.__class__.__doc__ or 'No docstring for MC-SCF parent method')
 
-    class PDFT(_kMCPDFT, kmc.__class__):
-        __doc__ = mc_doc + '\n\n' + _kMCPDFT.__doc__
+    class PDFT(pdft_base, kmc.__class__):
+        __doc__ = mc_doc + '\n\n' + pdft_base.__doc__
         _mc_class = kmc.__class__
 
         # MC-PDFT object requires mol object in ot.reset functions
@@ -220,18 +424,42 @@ def get_mcpdft_child_class(kmc, ot, **kwargs):
                                  grids_level=None, grids_attr=None, dump_chk=False, **kwargs):
             # Some sanity checks:
             if ot is not None:
-                assert isinstance(ot, _kMCPDFT.__class__)
+                assert isinstance(ot, otfnalperiodic_kpts)
                 cell_kpts_info = [getattr(ot, 'kmesh', None), 
                                   getattr(ot, 'kpts', None), 
                                   getattr(ot, 'cell', None)]
-                assert None not in cell_kpts_info, \
+                assert all(value is not None for value in cell_kpts_info), \
                     "The kmesh and kpts attributes should be set in the otfnal object"
             assert dump_chk is False, "dump_chk is not supported for k-MC-PDFT"
-            return _kMCPDFT.compute_pdft_energy_(self, mo_coeff=mo_coeff, ci=ci, ot=ot, otxc=otxc,
+            return pdft_base.compute_pdft_energy_(self, mo_coeff=mo_coeff, ci=ci, ot=ot, otxc=otxc,
                     grids_level=grids_level, grids_attr=grids_attr, dump_chk=False, **kwargs)
      
     pdft = PDFT(kmc._scf, kmc.ncas, kmc.nelecas, my_ot=ot, **kwargs)
     _keys = pdft._keys.copy()
     pdft.__dict__.update(kmc.__dict__)
     pdft._keys = pdft._keys.union(_keys)
+    pdft._keys.add("momentum_resolved")
+    return pdft
+
+
+def get_mcpdft_child_class(kmc, ot, **kwargs):
+    """Wrap a conventional periodic CAS object with k-MC-PDFT methods."""
+    return _get_mcpdft_child_class(kmc, ot, _MCPDFTCPLX, **kwargs)
+
+
+def get_kcas_mcpdft_child_class(kmc, ot, **kwargs):
+    """Wrap a momentum-resolved kCASCI object with k-MC-PDFT methods."""
+    pdft = _get_mcpdft_child_class(kmc, ot, _kCASPDFT, **kwargs)
+    if getattr(kmc, "converged", False):
+        pdft.e_mcscf = kmc.e_tot
+    return pdft
+
+
+def get_charged_kcas_mcpdft_child_class(kmc, ot, **kwargs):
+    """Wrap charged KCASCI results with sector-aware k-MC-PDFT methods."""
+    pdft = _get_mcpdft_child_class(kmc, ot, _kChargedCASPDFT, **kwargs)
+    pdft._keys.add("charged_pdft_results")
+    pdft.charged_pdft_results = []
+    if getattr(kmc, "converged", False):
+        pdft.e_mcscf = kmc.e_tot
     return pdft

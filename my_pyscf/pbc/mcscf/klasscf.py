@@ -1,7 +1,6 @@
 #!/usr/bin/env python
 
 import numpy as np
-from scipy import linalg
 from pyscf.pbc.lib import kpts_helper
 
 from mrh.my_pyscf.mcscf.lasscf_sync_o0 import (
@@ -16,6 +15,7 @@ from mrh.my_pyscf.pbc.mcscf.klasci import (
 )
 from mrh.my_pyscf.pbc.mcscf.mc1step import _get_casdm2_kpts
 from mrh.my_pyscf.pbc.util.wannier import get_wannier_orbs
+from mrh.util.la import safe_svd_warner
 
 # Author: Bhavnesh Jangid
 
@@ -27,6 +27,8 @@ def _check_shape(mat, shape, label="array"):
             Object whose shape is checked.
         shape : tuple of int
             Required shape.
+
+    Kwargs:
         label : str, optional
             Name used to identify mat in the error message.
 
@@ -44,7 +46,7 @@ class ActiveActiveRotationMap:
     """Map inter-fragment Wannier rotations to Bloch-MO rotations.
 
     The periodic orbital optimizer represents active rotations as independent
-    lower-triangular pairs within each k-point block. The LAS fragment
+    lower-triangular pairs within each k-point Bloch sector. The LAS fragment
     partition instead identifies nonredundant active-active rotations between
     Wannier fragments. This class constructs the linear map between those two
     representations and compresses its image to an orthonormal basis.
@@ -68,7 +70,9 @@ class ActiveActiveRotationMap:
             Numbers of active orbitals assigned to the LAS fragments. Their
             sum must equal ncastot; their order defines the Wannier
             fragment partition.
-        block_pair_mask : ndarray of bool, optional
+
+    Kwargs:
+        bloch_pair_mask : ndarray of bool, optional
             Mask of shape (nkpts, ncas, ncas) selecting the strictly
             lower-triangular Bloch active pairs available to the optimizer.
             By default, every strictly lower-triangular pair is selected.
@@ -76,6 +80,9 @@ class ActiveActiveRotationMap:
             Absolute singular-value cutoff used to determine the rank of the
             pair map. By default, a dimension- and precision-scaled cutoff is
             used.
+        verbose : int or :class:`pyscf.lib.logger.Logger`, optional
+            PySCF verbosity level or logger. The retained numerical rank is
+            reported at debug verbosity.
 
     Attributes:
         pair_map : ndarray
@@ -86,103 +93,129 @@ class ActiveActiveRotationMap:
             columns is :attr:`nvar`.
         singular_values : ndarray
             Singular values of pair_map in descending order.
+
+    Raises:
+        ValueError
+            If mo_phase does not define a unitary transformation.
     """
 
-    def __init__(
-            self, mo_phase, ncas_sub, block_pair_mask=None, svd_tol=None):
+    def __init__(self, mo_phase, ncas_sub, bloch_pair_mask=None,
+                 svd_tol=None, verbose=None):
+
         mo_phase = np.asarray(mo_phase)
         ncas_sub = np.asarray(ncas_sub, dtype=int).reshape(-1)
+        if verbose is None:
+            verbose = lib.logger.QUIET
+        log = lib.logger.new_logger(None, verbose)
+
         if mo_phase.ndim != 3:
-            msg = (
-                "mo_phase must have shape (nkpts, ncas, ncastot); "
-                f"got {mo_phase.shape}"
-            )
+            msg = ("mo_phase must have shape (nkpts, ncas, ncastot); "
+                f"got {mo_phase.shape}")
             raise ValueError(msg)
-        mo_phase = np.asarray(
-            mo_phase, dtype=np.result_type(mo_phase.dtype, np.complex128),
-        )
-        if svd_tol is not None:
-            svd_tol = float(svd_tol)
+        dtype = np.result_type(mo_phase.dtype, np.complex128)
+        mo_phase = np.asarray(mo_phase, dtype=dtype)
+
+        if svd_tol is not None: svd_tol = float(svd_tol)
 
         self.nkpts, self.ncas, self.ncastot = mo_phase.shape
         if self.ncastot != self.nkpts * self.ncas:
-            msg = (
-                "mo_phase must map a square stacked block-active space; "
+            msg = ("mo_phase must map a square stacked Bloch-active space; "
                 f"got nkpts*ncas={self.nkpts * self.ncas} and "
-                f"ncastot={self.ncastot}"
-            )
+                f"ncastot={self.ncastot}")
             raise ValueError(msg)
+        
+        stacked_phase = mo_phase.reshape(self.ncastot, self.ncastot)
+
+        if not np.allclose(
+                stacked_phase.conj().T @ stacked_phase,
+                np.eye(self.ncastot, dtype=mo_phase.dtype),
+                rtol=1e-10, atol=1e-10,):
+            raise ValueError("mo_phase must be unitary")
+        
         if int(ncas_sub.sum()) != self.ncastot:
-            msg = (
-                f"sum(ncas_sub)={int(ncas_sub.sum())}; expected "
-                f"ncastot={self.ncastot}"
-            )
+            msg = (f"sum(ncas_sub)={int(ncas_sub.sum())}; expected "
+                f"ncastot={self.ncastot}")
             raise ValueError(msg)
+        
         self.mo_phase = mo_phase
         self.ncas_sub = ncas_sub
 
         fragment = np.repeat(np.arange(ncas_sub.size), ncas_sub)
-        self.wannier_pair_idx = np.where(
-            fragment[:, None] > fragment[None, :]
-        )
+        self.wannier_pair_idx = np.where(fragment[:, None] > fragment[None, :])
 
-        if block_pair_mask is None:
-            block_pair_mask = np.broadcast_to(
+        if bloch_pair_mask is None:
+            bloch_pair_mask = np.broadcast_to(
                 np.tril(np.ones((self.ncas, self.ncas), dtype=bool), -1),
                 (self.nkpts, self.ncas, self.ncas),
             )
-        block_pair_mask = np.asarray(block_pair_mask, dtype=bool)
+            
+        bloch_pair_mask = np.asarray(bloch_pair_mask, dtype=bool)
         _check_shape(
-            block_pair_mask, (self.nkpts, self.ncas, self.ncas),
-            label="block_pair_mask",
+            bloch_pair_mask, (self.nkpts, self.ncas, self.ncas),
+            label="bloch_pair_mask",
         )
-        self.block_pair_mask = np.array(block_pair_mask, copy=True)
-        self.block_pair_idx = np.where(self.block_pair_mask)
+        self.bloch_pair_mask = np.array(bloch_pair_mask, copy=True)
+        self.bloch_pair_idx = np.where(self.bloch_pair_mask)
 
-        block_k, block_row, block_col = self.block_pair_idx
+        bloch_k, bloch_row, bloch_col = self.bloch_pair_idx
         wannier_row, wannier_col = self.wannier_pair_idx
+
         self.pair_map = (
             self.mo_phase[
-                block_k[:, None], block_row[:, None],
+                bloch_k[:, None], bloch_row[:, None],
                 wannier_row[None, :],
             ]
             * self.mo_phase[
-                block_k[:, None], block_col[:, None],
+                bloch_k[:, None], bloch_col[:, None],
                 wannier_col[None, :],
             ].conj()
         )
 
-        nblock_pair, nwannier_pair = self.pair_map.shape
+        nbloch_pair, nwannier_pair = self.pair_map.shape
         basis_dtype = np.result_type(self.mo_phase.dtype, np.complex128)
-        if nblock_pair == 0 or nwannier_pair == 0:
+        if nbloch_pair == 0 or nwannier_pair == 0:
             self.singular_values = np.empty(0, dtype=float)
             self.svd_tol = 0.0 if svd_tol is None else float(svd_tol)
-            self.basis = np.empty((nblock_pair, 0), dtype=basis_dtype)
+            self.basis = np.empty((nbloch_pair, 0), dtype=basis_dtype)
+            log.debug(
+                "Active-active Bloch rotation map: retained 0 of 0 "
+                "singular values (shape %s)", self.pair_map.shape,
+            )
             # Return early if no valid pairs are found
             return
 
-        left, singular_values, _ = np.linalg.svd(
+        # The dense SVD interface also computes right singular vectors, even
+        # though only the left image is needed here. safe_svd_warner retries
+        # with Hermitian eigensolvers if the BLAS/LAPACK SVD fails.
+        safe_svd = safe_svd_warner(log.warn)
+        left, singular_values, _ = safe_svd(
             self.pair_map, full_matrices=False,
         )
+
         if svd_tol is None:
-            real_dtype = np.empty((), dtype=self.pair_map.real.dtype).dtype
             svd_tol = (
-                max(self.pair_map.shape) * np.finfo(real_dtype).eps
+                max(self.pair_map.shape)
+                * np.finfo(singular_values.dtype).eps
                 * singular_values[0]
             )
-        svd_tol = float(svd_tol)
-        rank = int(np.count_nonzero(singular_values > svd_tol))
+        retain = singular_values > svd_tol
+        rank = int(np.count_nonzero(retain))
+        log.debug(
+            "Active-active Bloch rotation map: retained %d of %d singular "
+            "values above %.3g (shape %s)",
+            rank, singular_values.size, svd_tol, self.pair_map.shape,
+        )
         self.singular_values = singular_values
         self.svd_tol = svd_tol
-        self.basis = np.asarray(left[:, :rank], dtype=basis_dtype)
+        self.basis = np.asarray(left[:, retain], dtype=basis_dtype)
 
     @property
     def nvar(self):
         """int: Number of independent active-active coordinates."""
         return self.basis.shape[1]
 
-    def block_to_wannier(self, kappa_active):
-        """Transform a block-diagonal Bloch matrix to the Wannier basis.
+    def bloch_to_wannier(self, kappa_active):
+        """Transform k-diagonal Bloch matrices to the Wannier basis.
 
         Args:
             kappa_active : ndarray of shape (nkpts, ncas, ncas)
@@ -202,8 +235,8 @@ class ActiveActiveRotationMap:
             self.mo_phase, optimize=True,
         )
 
-    def wannier_to_block(self, kappa_wannier):
-        """Transform a Wannier matrix to its k-diagonal Bloch blocks.
+    def wannier_to_bloch(self, kappa_wannier):
+        """Transform a Wannier matrix to its k-diagonal Bloch matrices.
 
         Args:
             kappa_wannier : ndarray of shape (ncastot, ncastot)
@@ -211,11 +244,11 @@ class ActiveActiveRotationMap:
 
         Returns:
             ndarray of shape (nkpts, ncas, ncas)
-                K-diagonal active-space blocks in the Bloch-MO basis.
+                K-diagonal active-space matrices in the Bloch-MO basis.
 
         Notes:
             Components that couple different k-points are omitted from the
-            returned block representation.
+            returned Bloch representation.
         """
         kappa_wannier = np.asarray(kappa_wannier)
         _check_shape(
@@ -233,7 +266,7 @@ class ActiveActiveRotationMap:
         Args:
             kappa_active : ndarray of shape (nkpts, ncas, ncas)
                 Active-space rotation matrix for each k-point. Only entries
-                selected by block_pair_mask are read.
+                selected by bloch_pair_mask are read.
 
         Returns:
             ndarray of shape (nvar,)
@@ -244,8 +277,8 @@ class ActiveActiveRotationMap:
             kappa_active, (self.nkpts, self.ncas, self.ncas),
             label="kappa_active",
         )
-        block_pairs = np.asarray(kappa_active[self.block_pair_idx])
-        return np.asarray(self.basis.conj().T @ block_pairs).reshape(-1)
+        bloch_pairs = np.asarray(kappa_active[self.bloch_pair_idx])
+        return np.asarray(self.basis.conj().T @ bloch_pairs).reshape(-1)
 
     def unpack(self, coordinates):
         """Expand independent coordinates into Bloch rotation matrices.
@@ -273,7 +306,7 @@ class ActiveActiveRotationMap:
         kappa_active = np.zeros(
             (self.nkpts, self.ncas, self.ncas), dtype=dtype,
         )
-        kappa_active[self.block_pair_idx] = self.basis @ coordinates
+        kappa_active[self.bloch_pair_idx] = self.basis @ coordinates
         return kappa_active - kappa_active.conj().transpose(0, 2, 1)
 
 
@@ -291,6 +324,8 @@ class KLASSCF_UnitaryGroupGenerators:
         klas : object
             Periodic LAS object supplying the orbital-space dimensions,
             fragment solvers, electron counts, and optional frozen variables.
+
+    Kwargs:
         mo_coeff : ndarray of shape (nkpts, nao, nmo), optional
             Bloch-MO coefficients. Defaults to klas.mo_coeff.
         ci : sequence, optional
@@ -382,7 +417,10 @@ class KLASSCF_UnitaryGroupGenerators:
         active_pair_mask &= active_nonfrozen[None, None, :]
         self.active_active_map = ActiveActiveRotationMap(
             self.mo_phase, klas.ncas_sub,
-            block_pair_mask=active_pair_mask,
+            bloch_pair_mask=active_pair_mask,
+            verbose=lib.logger.new_logger(
+                klas, getattr(klas, "verbose", lib.logger.QUIET),
+            ),
         )
         self.frozen_ci = set(getattr(klas, "frozen_ci", None) or [])
         self.ci = ci
@@ -405,7 +443,7 @@ class KLASSCF_UnitaryGroupGenerators:
 
     @property
     def nvar_orb_external(self):
-        """int: Number of ordinary block-diagonal orbital variables."""
+        """int: Number of ordinary k-diagonal Bloch orbital variables."""
         return int(np.count_nonzero(self.uniq_orb_idx))
 
     @property
@@ -587,7 +625,19 @@ class KLASSCF_UnitaryGroupGenerators:
         return ci
 
     def pack(self, kappa, ci):
-        """Pack orbital and CI variables into one complex vector."""
+        """Pack orbital and CI variables into one complex vector.
+
+        Args:
+            kappa : ndarray of shape (nkpts, nmo, nmo)
+                Bloch orbital-rotation matrices.
+            ci : sequence
+                Nested [fragment][root] determinant-basis CI vectors.
+
+        Returns:
+            ndarray of shape (nvar_tot,)
+                Packed complex vector containing the orbital variables
+                followed by the CI variables.
+        """
         x_orb = self.pack_orb(kappa)
         x_ci = self.pack_ci(ci)
         dtype = np.result_type(x_orb.dtype, x_ci.dtype)
@@ -597,7 +647,21 @@ class KLASSCF_UnitaryGroupGenerators:
         return x
 
     def unpack(self, x):
-        """Unpack a combined vector into orbital and CI variables."""
+        """Unpack a combined vector into orbital and CI variables.
+
+        Args:
+            x : array-like of shape (nvar_tot,)
+                Packed complex orbital and CI coordinates.
+
+        Returns:
+            tuple
+                Anti-Hermitian Bloch orbital-rotation matrices and nested
+                [fragment][root] determinant-basis CI vectors.
+
+        Raises:
+            ValueError
+                If the number of coordinates differs from :attr:`nvar_tot`.
+        """
         x = np.asarray(x).reshape(-1)
         if x.size != self.nvar_tot:
             msg = (
@@ -620,6 +684,8 @@ def get_ugg(klas, mo_coeff=None, ci=None, mo_phase=None):
     Args:
         klas : object
             Periodic LAS object for which the parameterization is built.
+
+    Kwargs:
         mo_coeff : ndarray of shape (nkpts, nao, nmo), optional
             Bloch-MO coefficients. Defaults to klas.mo_coeff in the
             generator constructor.
@@ -657,6 +723,8 @@ def get_grad_ci(
         klas : object
             Periodic LAS object supplying fragment solvers and active-space
             integral builders.
+
+    Kwargs:
         mo_coeff : ndarray of shape (nkpts, nao, nmo), optional
             Bloch-MO coefficients. Defaults to klas.mo_coeff.
         ci : sequence, optional
@@ -670,7 +738,7 @@ def get_grad_ci(
             matrices used to build h1eff when it is not supplied.
         h1eff : sequence, optional
             Effective one-electron Hamiltonians for each fragment, with each
-            block shaped (nroots, 2, ncas_frag, ncas_frag).
+            array shaped (nroots, 2, ncas_frag, ncas_frag).
         h2eff : ndarray of shape (ncastot,)*4, optional
             Two-electron integrals in the complete Wannier active space.
 
@@ -713,7 +781,7 @@ def get_grad_ci(
         )
     if len(h1eff) != len(ncas_sub):
         raise ValueError(
-            "h1eff must contain one block for every fragment/cell"
+            "h1eff must contain one entry for every fragment/cell"
         )
 
     gradient = []
@@ -748,13 +816,15 @@ def get_grad_orb(
 
     The one-body contribution is formed independently at each k-point. The
     active-space two-body cumulant is transformed from the Wannier basis to
-    momentum-conserving Bloch blocks and contracted with the paaa AO2MO
+    momentum-conserving Bloch components and contracted with the paaa AO2MO
     intermediates.
 
     Args:
         klas : object
             Periodic LAS object supplying density matrices, integrals, and
             k-point metadata.
+
+    Kwargs:
         mo_coeff_kpts : ndarray of shape (nkpts, nao, nmo), optional
             Bloch-MO coefficients. Defaults to klas.mo_coeff.
         ci : sequence, optional
@@ -890,6 +960,8 @@ def get_grad(
     Args:
         klas : object
             Periodic LAS object providing the gradient methods.
+
+    Kwargs:
         mo_coeff : ndarray of shape (nkpts, nao, nmo), optional
             Bloch-MO coefficients. Defaults to klas.mo_coeff.
         ci : sequence, optional

@@ -169,7 +169,7 @@ class UnitaryGroupGeneratorTests(unittest.TestCase):
             0.0,
             atol=1e-13,
         )
-        wannier_rotation = ugg.active_active_map.block_to_wannier(
+        wannier_rotation = ugg.active_active_map.bloch_to_wannier(
             active_rotation,
         )
         np.testing.assert_allclose(
