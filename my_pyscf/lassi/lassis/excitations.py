@@ -31,9 +31,10 @@ class TrialState:
         self.lroots = get_lroots (ci)
 
 def project_trial_state_ci (ci1, ts0=None):
+    ''' Project an SI vector from a trial state into the space of new CI vectors '''
     if ts0 is None:
         return None
-    lroots = get_lroots (ci)
+    lroots = get_lroots (ci1)
     ci0, si0 = ts0.ci, ts0.si
     p = np.prod (ts0.lroots)
     si_p = si0[:p].reshape (ts0.lroots, order='F')
@@ -44,7 +45,7 @@ def project_trial_state_ci (ci1, ts0=None):
         x0 = ci0[i].reshape (ts0.lroots[i],-1)
         x1 = ci1[i].reshape (lroots[i],-1)
         ovlp = x0 @ x1.conj ().T
-        si_p = np.tensordot (si_p, ovlp, axes==((i,),(0,)))
+        si_p = np.tensordot (si_p, ovlp, axes=((0,),(0,)))
         # This changes it to row-major order internally but that shouldn't matter...
     return np.append (np.ravel (si_p, order='F'), si_q)
     
@@ -730,10 +731,7 @@ class ExcitationPSFCISolver (ProductStateFCISolver):
 
         lroots = get_lroots (ci1)
         p = np.prod (lroots)
-        if ts0 is not None:
-            si0 = ts0.si
-        else:
-            si0 = None
+        si0 = project_trial_state_ci (ci1, ts0=ts0)
         e, si1, w = lowest_refovlp_eigpair (ham_pq, p=p, si0=si0, ovlp_thresh=ovlp_thresh, log=self.log)
         ts = TrialState (ci1, si1)
         return e, ts, w
