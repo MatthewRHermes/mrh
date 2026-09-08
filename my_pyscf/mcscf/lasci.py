@@ -1522,7 +1522,8 @@ class LASCINoSymm (casci.CASCI):
             casdm2s[0][i:j, k:l, k:l, i:j] -= np.tensordot (weights, d2exc_aa, axes=1)
             casdm2s[2][i:j, k:l, k:l, i:j] -= np.tensordot (weights, d2exc_bb, axes=1)
             for spin in [0,2]:
-                casdm2s[spin][k:l, i:j, i:j, k:l] = casdm2s[spin][i:j, k:l, k:l, i:j].transpose (1,0,3,2)
+                # Making it compatible with complex CI.
+                casdm2s[spin][k:l, i:j, i:j, k:l] = casdm2s[spin][i:j, k:l, k:l, i:j].conj ().transpose (1,0,3,2)
         return casdm2s
 
 
@@ -1571,7 +1572,8 @@ class LASCINoSymm (casci.CASCI):
         ncas = sum (ncas_sub)
         ncas_cum = np.cumsum ([0] + ncas_sub.tolist ())
         weights = self.weights
-        casdm2 = np.zeros ((ncas,ncas,ncas,ncas))
+        dtype = np.result_type(*casdm2f, *casdm1frs)
+        casdm2 = np.zeros ((ncas,ncas,ncas,ncas), dtype=dtype)
         # Diagonal 
         for isub, dm2 in enumerate (casdm2f):
             i = ncas_cum[isub]
@@ -1594,7 +1596,8 @@ class LASCINoSymm (casci.CASCI):
             d2exc = (lib.einsum ('rij,rkl->rilkj', dma1r, dma2r)
                    + lib.einsum ('rij,rkl->rilkj', dmb1r, dmb2r))
             casdm2[i:j, k:l, k:l, i:j] -= np.tensordot (weights, d2exc, axes=1)
-            casdm2[k:l, i:j, i:j, k:l] = casdm2[i:j, k:l, k:l, i:j].transpose (1,0,3,2)
+            # Making it compatible with complex CI.
+            casdm2[k:l, i:j, i:j, k:l] = casdm2[i:j, k:l, k:l, i:j].conj ().transpose (1,0,3,2)
             # IDU my eqn says [2,3,0,1] --> it's same!
         return casdm2
 
