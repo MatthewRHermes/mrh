@@ -23,6 +23,32 @@ MAX_CYCLE = getattr (__config__, 'lassi_excitations_max_cycle', 50)
 CONV_TOL_SPACE = getattr (__config__, 'lassi_excitations_conv_tol_space', 1e-4)
 CONV_TOL_SELF = getattr (__config__, 'lassi_excitations_conv_tol_self', 1e-8)
 
+class TrialState:
+    ''' Object to keep the CI and SI vectors of a given trial state together '''
+    def __init__(self, ci, si):
+        self.ci = ci
+        self.si = si
+        self.lroots = get_lroots (ci)
+
+def project_trial_state_ci (ci1, ts0=None):
+    if ts0 is None:
+        return None
+    lroots = get_lroots (ci)
+    ci0, si0 = ts0.ci, ts0.si
+    p = np.prod (ts0.lroots)
+    si_p = si0[:p].reshape (ts0.lroots, order='F')
+    # fragments in col-major order!!
+    si_q = si0[p:]
+    assert (len (ci1) == len (ci0))
+    for i in range (len (ci0)):
+        x0 = ci0[i].reshape (ts0.lroots[i],-1)
+        x1 = ci1[i].reshape (lroots[i],-1)
+        ovlp = x0 @ x1.conj ().T
+        si_p = np.tensordot (si_p, ovlp, axes==((i,),(0,)))
+        # This changes it to row-major order internally but that shouldn't matter...
+    return np.append (np.ravel (si_p, order='F'), si_q)
+    
+
 def lowest_refovlp_eigpair (ham_pq, p=1, si0=None, ovlp_thresh=LOWEST_REFOVLP_EIGVAL_THRESH, 
                             float_oom=LOWEST_REFOVLP_FLOATING_THRESH_OOM, 
                             float_max=LOWEST_REFOVLP_FLOATING_THRESH_MAX,
@@ -274,14 +300,14 @@ class ExcitationPSFCISolver (ProductStateFCISolver):
                   nroots, len (norb_f), self.get_nq ())
         ci0 = self.get_init_guess (ci0, norb_f, nelec_f, h1, h2, nroots=3*nroots)
         ham_pq = self.get_ham_pq (h0, h1, h2, ci0)
-        e, si, w = self.eig1 (ham_pq, ci0)
-        disc_svals, u, si_p, si_q, vh = self.schmidt_trunc (si, ci0, nroots=nroots)
+        e, ts, w = self.eig1 (ham_pq, ci0)
+        disc_svals, u, si_p, si_q, vh = self.schmidt_trunc (ts, nroots=nroots)
         ham_pq = self.truncrot_ham_pq (ham_pq, u, vh)
         ci1 = self.truncrot_ci (ci0, u, vh)
         hci_pspace_diag = self.op_ham_pp_diag (h1, h2, ci1, norb_f, nelec_f)
         tdm1s_f = self.get_tdm1s_f (ci1, ci1, norb_f, nelec_f)
         e, eprime, eprime_last, si0_p, si0_q = 0, 0, 0, si_p, si_q
-        wprime, siprime, si = 0, None, None
+        wprime, tsprime, ts = 0, None, None
         disc_sval_max = max (list(disc_svals)+[0.0,])
         converged = False
         log.info ('Entering product-state fixed-point CI iteration')
@@ -290,8 +316,8 @@ class ExcitationPSFCISolver (ProductStateFCISolver):
             space_delta = self.space_delta (ci0, si0_p, si0_q, ci1, si_p, si_q, nroots)
             ci0, si0_p, si0_q = ci1, si_p, si_q
             # Re-diagonalize in truncated space
-            e, si, w = self.eig1 (ham_pq, ci0, si0=si)
-            _, u, si_p, si_q, vh = self.schmidt_trunc (si, ci0, nroots=nroots)
+            e, ts, w = self.eig1 (ham_pq, ci0, ts0=ts)
+            _, u, si_p, si_q, vh = self.schmidt_trunc (ts, nroots=nroots)
 
             log.debug ('Singular values in truncated space: {}'.format (si_p))
             ci1 = self.truncrot_ci (ci0, u, vh)
@@ -328,8 +354,8 @@ class ExcitationPSFCISolver (ProductStateFCISolver):
                                          tdm1s_f, norb_f, nelec_f)
             # Diagonalize and truncate
             eprime_last = eprime
-            eprime, siprime, wprime = self.eig1 (ham_pq, ci1, si0=siprime)
-            disc_svals, u, si_p, si_q, vh = self.schmidt_trunc (siprime, ci1, nroots=nroots)
+            eprime, tsprime, wprime = self.eig1 (ham_pq, ci1, ts0=tsprime)
+            disc_svals, u, si_p, si_q, vh = self.schmidt_trunc (tsprime, nroots=nroots)
             ham_pq = self.truncrot_ham_pq (ham_pq, u, vh)
             ci1 = self.truncrot_ci (ci1, u, vh)
             hci_pspace_diag = self.truncrot_hci_pspace_diag (hci_pspace_diag, u, vh)
@@ -681,14 +707,14 @@ class ExcitationPSFCISolver (ProductStateFCISolver):
             self._linkstr_cache[(ifrag,norb,nelec)] = linkstr
         return linkstr
 
-    def eig1 (self, ham_pq, ci0, si0=None, ovlp_thresh=LOWEST_REFOVLP_EIGVAL_THRESH):
+    def eig1 (self, ham_pq, ci1, ts0=None, ovlp_thresh=LOWEST_REFOVLP_EIGVAL_THRESH):
         '''Diagonalize the coupled Hamiltonian for the lowest-energy eigensolution with substantial
         overlap on the reference state.
 
         Args:
             ham_pq: ndarray of shape (p+q,p+q)
                 Hamiltonian matrix including both P and Q spaces
-            ci0: list of ndarray of shape (p[i],ndeta[i],ndetb[i])
+            ci1: list of ndarray of shape (p[i],ndeta[i],ndetb[i])
                 CI vectors describing the P states of ham_pq
 
         Kwargs:
@@ -698,24 +724,27 @@ class ExcitationPSFCISolver (ProductStateFCISolver):
         Returns:
             e: float
                 Total energy
-            si: ndarray of shape (p+q,)
-                SI vector corresponding to e
+            ts: instance of class `TrialState`
+                SI and CI vectors corresponding to e
         '''
 
-        lroots = get_lroots (ci0)
+        lroots = get_lroots (ci1)
         p = np.prod (lroots)
-        e, si, w = lowest_refovlp_eigpair (ham_pq, p=p, si0=si0, ovlp_thresh=ovlp_thresh, log=self.log)
-        return e, si, w
+        if ts0 is not None:
+            si0 = ts0.si
+        else:
+            si0 = None
+        e, si1, w = lowest_refovlp_eigpair (ham_pq, p=p, si0=si0, ovlp_thresh=ovlp_thresh, log=self.log)
+        ts = TrialState (ci1, si1)
+        return e, ts, w
 
-    def schmidt_trunc (self, si, ci0, nroots=1):
+    def schmidt_trunc (self, ts, nroots=1):
         '''Perform the Schmidt decomposition on the P-space part of an si vector, truncate all but
         the highest nroots singular values, and correspondingly transform various intermediates.
 
         Args:
-            si: ndarray of shape (p+?+q,)
-                SI vector
-            ci0: list of ndarray of shape (nroots+?,ndeta[i],ndetb[i])
-                CI vectors describing the P states of ham_pq
+            ts: instance of class `TrialState`
+                SI and CI vectors
 
         Kwargs:
             nroots: integer
@@ -733,10 +762,12 @@ class ExcitationPSFCISolver (ProductStateFCISolver):
             vh: ndarray of shape (nroots,nroots+?)
                 nroots right-singular vectors
         '''
+        si = ts.si
+        ci = ts.ci
         t0 = lib.logger.process_clock (), lib.logger.perf_counter ()
-        nfrags = len (ci0)
+        nfrags = len (ci)
         assert (nfrags==2)
-        lroots = get_lroots (ci0)
+        lroots = get_lroots (ci)
         p = np.prod (lroots)
         schmidt_vec = si[:p].reshape (lroots[1],lroots[0])
         u, svals, vh = linalg.svd (schmidt_vec)
