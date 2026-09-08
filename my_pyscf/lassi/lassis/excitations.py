@@ -281,7 +281,7 @@ class ExcitationPSFCISolver (ProductStateFCISolver):
         hci_pspace_diag = self.op_ham_pp_diag (h1, h2, ci1, norb_f, nelec_f)
         tdm1s_f = self.get_tdm1s_f (ci1, ci1, norb_f, nelec_f)
         e, eprime, eprime_last, si0_p, si0_q = 0, 0, 0, si_p, si_q
-        wprime, siprime = 0, None
+        wprime, siprime, si = 0, None, None
         disc_sval_max = max (list(disc_svals)+[0.0,])
         converged = False
         log.info ('Entering product-state fixed-point CI iteration')
