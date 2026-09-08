@@ -400,7 +400,6 @@ class LASSCF_UnitaryGroupGenerators (object):
         self.nmo = mo_coeff.shape[-1]
         self.frozen = las.frozen
         self.frozen_ci = las.frozen_ci
-        self.ci = ci
         self._init_orb (las, mo_coeff, ci)
         self._init_ci (las, mo_coeff, ci)
 
@@ -492,12 +491,17 @@ class LASSCF_UnitaryGroupGenerators (object):
                 x_ci.size, self.nvar_ci))
         ci_sub = []
         offset = 0
-        for ix, (trans_frag, ci_ref_frag) in enumerate (
-                zip (self.ci_transformers, self.ci)):
+        ci_reference = getattr (self, 'ci', None)
+        for ix, trans_frag in enumerate (self.ci_transformers):
+            if ci_reference is None:
+                ci_ref_frag = [None] * len (trans_frag)
+            else:
+                ci_ref_frag = ci_reference[ix]
             ci_frag = []
             for transformer, ci_ref in zip (trans_frag, ci_ref_frag):
                 if ix in self.frozen_ci:
-                    dtype = np.result_type (ci_ref, x_ci.dtype)
+                    dtype = (x_ci.dtype if ci_ref is None else
+                             np.result_type (ci_ref, x_ci.dtype))
                     ci_frag.append (self._zero_ci (
                         transformer, ci_ref, dtype))
                     continue
@@ -581,7 +585,6 @@ class LASSCFSymm_UnitaryGroupGenerators (LASSCF_UnitaryGroupGenerators):
         self.nmo = mo_coeff.shape[-1]
         self.frozen = las.frozen
         self.frozen_ci = las.frozen_ci
-        self.ci = ci
         if getattr (mo_coeff, 'orbsym', None) is None:
             mo_coeff = las.label_symmetry_(mo_coeff)
         orbsym = mo_coeff.orbsym
