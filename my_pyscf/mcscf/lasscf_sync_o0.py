@@ -400,6 +400,7 @@ class LASSCF_UnitaryGroupGenerators (object):
         self.nmo = mo_coeff.shape[-1]
         self.frozen = las.frozen
         self.frozen_ci = las.frozen_ci
+        self.ci = ci
         self._init_orb (las, mo_coeff, ci)
         self._init_ci (las, mo_coeff, ci)
 
@@ -440,36 +441,93 @@ class LASSCF_UnitaryGroupGenerators (object):
                 tf_list.append (solver.transformer)
             self.ci_transformers.append (tf_list)
 
-    def pack (self, kappa, ci_sub):
-        x = kappa[self.uniq_orb_idx]
-        for ix, (trans_frag, ci_frag) in enumerate (zip (self.ci_transformers, ci_sub)):
+    def pack_orb (self, kappa):
+        return np.asarray (kappa[self.uniq_orb_idx]).reshape (-1)
+
+    def unpack_orb (self, x_orb):
+        x_orb = np.asarray (x_orb).reshape (-1)
+        if x_orb.size != self.nvar_orb:
+            raise ValueError ("orbital vector has size {}; expected {}".format (
+                x_orb.size, self.nvar_orb))
+        kappa = np.zeros (self.uniq_orb_idx.shape, dtype=x_orb.dtype)
+        kappa[self.uniq_orb_idx] = x_orb
+        return kappa - kappa.conj ().T
+
+    def _det2csf (self, transformer, ci):
+        return transformer.vec_det2csf (ci, normalize=False)
+
+    def _csf2det (self, transformer, ci):
+        return transformer.vec_csf2det (ci, normalize=False)
+
+    def _zero_ci (self, transformer, ci_ref, dtype):
+        return np.zeros (transformer.ndeta * transformer.ndetb, dtype=dtype)
+
+    def _format_ci (self, transformer, ci, ci_ref):
+        return ci
+
+    def pack_ci (self, ci_sub):
+        vectors = []
+        dtypes = []
+        if len (ci_sub) != len (self.ci_transformers):
+            raise ValueError ("CI input must contain one entry per fragment")
+        for ix, (trans_frag, ci_frag) in enumerate (
+                zip (self.ci_transformers, ci_sub)):
+            if len (ci_frag) != len (trans_frag):
+                raise ValueError ("fragment {} has {} CI vectors; expected {}".format (
+                    ix, len (ci_frag), len (trans_frag)))
+            dtypes.extend (np.asarray (ci).dtype for ci in ci_frag)
             if ix in self.frozen_ci: continue
             for transformer, ci in zip (trans_frag, ci_frag):
-                x = np.append (x, transformer.vec_det2csf (ci, normalize=False))
-        assert (x.shape[0] == self.nvar_tot)
+                vectors.append (np.asarray (
+                    self._det2csf (transformer, ci)).reshape (-1))
+        if vectors:
+            return np.concatenate (vectors)
+        dtype = np.result_type (*dtypes) if dtypes else float
+        return np.empty (0, dtype=dtype)
+
+    def unpack_ci (self, x_ci):
+        x_ci = np.asarray (x_ci).reshape (-1)
+        if x_ci.size != self.nvar_ci:
+            raise ValueError ("CI vector has size {}; expected {}".format (
+                x_ci.size, self.nvar_ci))
+        ci_sub = []
+        offset = 0
+        for ix, (trans_frag, ci_ref_frag) in enumerate (
+                zip (self.ci_transformers, self.ci)):
+            ci_frag = []
+            for transformer, ci_ref in zip (trans_frag, ci_ref_frag):
+                if ix in self.frozen_ci:
+                    dtype = np.result_type (ci_ref, x_ci.dtype)
+                    ci_frag.append (self._zero_ci (
+                        transformer, ci_ref, dtype))
+                    continue
+                ncsf = transformer.ncsf
+                ci = self._csf2det (
+                    transformer, x_ci[offset:offset+ncsf])
+                ci_frag.append (self._format_ci (
+                    transformer, ci, ci_ref))
+                offset += ncsf
+            ci_sub.append (ci_frag)
+        if offset != x_ci.size:
+            raise ValueError ("consumed {} CI variables from a vector of size {}".format (
+                offset, x_ci.size))
+        return ci_sub
+
+    def pack (self, kappa, ci_sub):
+        x_orb = self.pack_orb (kappa)
+        x_ci = self.pack_ci (ci_sub)
+        dtype = np.result_type (x_orb.dtype, x_ci.dtype)
+        x = np.empty (self.nvar_tot, dtype=dtype)
+        x[:self.nvar_orb] = x_orb
+        x[self.nvar_orb:] = x_ci
         return x
 
     def unpack (self, x):
-        kappa = np.zeros ((self.nmo, self.nmo), dtype=x.dtype)
-        kappa[self.uniq_orb_idx] = x[:self.nvar_orb]
-        kappa = kappa - kappa.T
-
-        y = x[self.nvar_orb:]
-        ci_sub = []
-        for ix, trans_frag in enumerate (self.ci_transformers):
-            ci_frag = []
-            for transformer in trans_frag:
-                if ix in self.frozen_ci:
-                    ndeta = transformer.ndeta
-                    ndetb = transformer.ndetb
-                    ci_frag.append (np.zeros ((ndeta*ndetb)))
-                else:
-                    ncsf = transformer.ncsf
-                    ci_frag.append (transformer.vec_csf2det (y[:ncsf], normalize=False))
-                    y = y[ncsf:]
-            ci_sub.append (ci_frag)
-
-        return kappa, ci_sub
+        x = np.asarray (x).reshape (-1)
+        if x.size != self.nvar_tot:
+            raise ValueError ("combined vector has size {}; expected {}".format (
+                x.size, self.nvar_tot))
+        return self.unpack_orb (x[:self.nvar_orb]), self.unpack_ci (x[self.nvar_orb:])
 
     def addr2idstr (self, addr):
         if addr<self.nvar_orb:
@@ -504,8 +562,12 @@ class LASSCF_UnitaryGroupGenerators (object):
                             if i not in self.frozen_ci])
 
     @property
+    def nvar_ci (self):
+        return int (self.ncsf_sub.sum ())
+
+    @property
     def nvar_tot (self):
-        return self.nvar_orb + self.ncsf_sub.sum ()
+        return self.nvar_orb + self.nvar_ci
 
 class LASSCFSymm_UnitaryGroupGenerators (LASSCF_UnitaryGroupGenerators):
     __doc__ = LASSCF_UnitaryGroupGenerators.__doc__ + '''
@@ -519,6 +581,7 @@ class LASSCFSymm_UnitaryGroupGenerators (LASSCF_UnitaryGroupGenerators):
         self.nmo = mo_coeff.shape[-1]
         self.frozen = las.frozen
         self.frozen_ci = las.frozen_ci
+        self.ci = ci
         if getattr (mo_coeff, 'orbsym', None) is None:
             mo_coeff = las.label_symmetry_(mo_coeff)
         orbsym = mo_coeff.orbsym
