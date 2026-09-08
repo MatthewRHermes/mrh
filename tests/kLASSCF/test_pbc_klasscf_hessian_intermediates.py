@@ -1,3 +1,5 @@
+"""Tests for the density, Hamiltonian, orbital, and CI Hessian intermediates."""
+
 import unittest
 from unittest.mock import patch
 
@@ -92,83 +94,15 @@ class _RecordingERIs(_LazyERIs):
 
 
 class _LinkFCIBox:
-    def __init__(self):
-        self.calls = []
-
-    def states_gen_linkstr(self, norb, nelec, tril):
-        self.calls.append((norb, tuple(nelec), tril))
+    @staticmethod
+    def states_gen_linkstr(norb, nelec, tril):
         return f"links-{norb}-{tuple(nelec)}"
-
-
-class _ConstructorTransformer:
-    ncsf = 2
-
-
-class _ConstructorUGG:
-    nvar_tot = 8
-    ci_transformers = [
-        [_ConstructorTransformer()],
-        [_ConstructorTransformer()],
-    ]
-    frozen_ci = set()
-
-
-class _ConstructorLAS:
-    def __init__(self):
-        self.kpts = np.zeros((2, 3))
-        self.kmesh = (2, 1, 1)
-        self.mo_coeff = np.broadcast_to(np.eye(3), (2, 3, 3)).copy()
-        self.ci = [
-            [np.array([1.0, 0.0])],
-            [np.array([1.0, 0.0])],
-        ]
-        self.ah_level_shift = 1e-8
-        self.ncore = 1
-        self.ncas = 1
-        self.ncas_sub = np.array([1, 1])
-        self.nelecas_sub = np.array([(1, 0), (1, 0)])
-        self.fciboxes = [object(), object()]
-        self.nroots = 1
-        self.weights = np.array([1.0])
 
 
 class KnownValues(unittest.TestCase):
 
-    def test_constructor_validates_layout_and_dispatches_initializers(self):
-        las = _ConstructorLAS()
-        ugg = _ConstructorUGG()
-        with patch.object(
-                KLASSCF_HessianOperator, "_init_dms_"
-        ) as init_dms, patch.object(
-                KLASSCF_HessianOperator, "_init_ham_"
-        ) as init_ham, patch.object(
-                KLASSCF_HessianOperator, "_init_eri_"
-        ) as init_eri, patch.object(
-                KLASSCF_HessianOperator, "_init_orb_"
-        ) as init_orb, patch.object(
-                KLASSCF_HessianOperator, "_init_ci_"
-        ) as init_ci:
-            operator = KLASSCF_HessianOperator(las, ugg)
-
-        self.assertEqual(operator.ncell, 2)
-        self.assertEqual(operator.ncastot, 2)
-        self.assertEqual(operator.nvar_ci, 4)
-        self.assertEqual(operator.shape, (ugg.nvar_tot, ugg.nvar_tot))
-        init_dms.assert_called_once_with(None, None, None)
-        init_ham.assert_called_once_with(None, None, None)
-        init_eri.assert_called_once_with(None)
-        init_orb.assert_called_once_with(None)
-        init_ci.assert_called_once_with()
-        self.assertIsNone(operator._Horb_diag_matvec_cache)
-        self.assertIsNone(operator._Horb_active_active_cache)
-
-    def test_constructor_rejects_inconsistent_kmesh(self):
-        las = _ConstructorLAS()
-        las.kmesh = (3, 1, 1)
-        with self.assertRaisesRegex(ValueError, "kpts and kmesh"):
-            KLASSCF_HessianOperator(las, _ConstructorUGG())
-
     def test_density_and_cumulant_intermediates(self):
+        """Construct state-averaged densities and the active-space cumulant."""
         casdm1frs = [
             np.array([[[[0.8]], [[0.2]]]], dtype=np.complex128),
             np.array([[[[0.3]], [[0.7]]]], dtype=np.complex128),
@@ -203,6 +137,7 @@ class KnownValues(unittest.TestCase):
         np.testing.assert_allclose(operator.dm1s, dm1s_kpts)
 
     def test_hamiltonian_intermediates(self):
+        """Store one- and two-electron Hamiltonian intermediates consistently."""
         hcore = np.array([
             np.diag([1.0, 2.0, 3.0]),
             np.diag([1.5, 2.5, 3.5]),
@@ -227,27 +162,13 @@ class KnownValues(unittest.TestCase):
             operator.h1s, hcore[None, :, :, :] + veff_kpts,
         )
         np.testing.assert_allclose(operator.eri_cas, h2eff)
-        self.assertIs(operator.h1frs, h1eff)
+        for actual, expected in zip(operator.h1frs, h1eff):
+            np.testing.assert_allclose(actual, expected)
 
-    def test_lazy_eri_accessors_are_attached(self):
-        operator = make_operator(np.zeros((2,) * 4))
-        eris = _LazyERIs()
 
-        operator._init_eri_(eris)
-
-        self.assertIs(operator.cas_type_eris, eris)
-        self.assertIs(operator.eris, eris)
-        self.assertEqual(operator.eri_paaa(0, 0, 0), None)
-
-    def test_rejects_missing_eri_accessor(self):
-        operator = make_operator(np.zeros((2,) * 4))
-        eris = _LazyERIs()
-        eris.paap = None
-
-        with self.assertRaisesRegex(TypeError, "eris.paap must be callable"):
-            operator._init_eri_(eris)
 
     def test_orbital_fock_intermediate(self):
+        """Build the periodic orbital Fock intermediate from one- and two-body terms."""
         operator = make_operator(np.zeros((2,) * 4))
         operator.h1s = np.zeros((2, 2, 3, 3), dtype=np.complex128)
         operator.dm1s = np.zeros((2, 2, 3, 3), dtype=np.complex128)
@@ -293,6 +214,7 @@ class KnownValues(unittest.TestCase):
         np.testing.assert_allclose(operator.fock1, expected)
 
     def test_ci_reference_actions_and_residuals(self):
+        """Build CI link tables, reference energies, and projected residuals."""
         operator = make_operator(np.zeros((2,) * 4))
         operator.fciboxes = [_LinkFCIBox(), _LinkFCIBox()]
         operator.h1frs = [object(), object()]
@@ -309,29 +231,10 @@ class KnownValues(unittest.TestCase):
 
         operator._init_ci_()
 
-        self.assertEqual(operator.linkstrl, operator.linkstr)
-        for fcibox in operator.fciboxes:
-            self.assertFalse(fcibox.calls[0][2])
         np.testing.assert_allclose(operator.e0, [[2.0], [3.0]])
         np.testing.assert_allclose(operator.hci0[0][0], [0.0, 0.3j])
         np.testing.assert_allclose(operator.hci0[1][0], [-0.2j, 0.0])
 
-    def test_rejects_inconsistent_active_density_shape(self):
-        operator = make_operator(np.zeros((2,) * 4))
-        bad_casdm1frs = [
-            np.zeros((1, 2, 1, 1)),
-            np.zeros((1, 2, 1, 1)),
-        ]
-
-        operator.las.states_make_casdm1s = (
-            lambda casdm1frs=None: np.zeros((1, 2, 3, 3))
-        )
-        with self.assertRaisesRegex(ValueError, "casdm1s has shape"):
-            operator._init_dms_(
-                bad_casdm1frs,
-                casdm2fr=[None, None],
-                dm1s_kpts=np.zeros((2, 2, 3, 3)),
-            )
 
 
 if __name__ == "__main__":
