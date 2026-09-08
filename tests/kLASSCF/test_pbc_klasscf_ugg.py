@@ -2,6 +2,9 @@ import unittest
 
 import numpy as np
 
+from mrh.my_pyscf.mcscf.lasscf_sync_o0 import (
+    LASSCF_UnitaryGroupGenerators,
+)
 from mrh.my_pyscf.pbc.mcscf.klasscf import (
     KLASSCF_UnitaryGroupGenerators,
     get_ugg,
@@ -92,6 +95,20 @@ class _FakeKLASActive(_FakeKLAS):
 
 class UnitaryGroupGeneratorTests(unittest.TestCase):
 
+    def test_inherits_molecular_pack_unpack_interface(self):
+        self.assertTrue(issubclass(
+            KLASSCF_UnitaryGroupGenerators,
+            LASSCF_UnitaryGroupGenerators,
+        ))
+        self.assertIs(
+            KLASSCF_UnitaryGroupGenerators.pack,
+            LASSCF_UnitaryGroupGenerators.pack,
+        )
+        self.assertIs(
+            KLASSCF_UnitaryGroupGenerators.unpack,
+            LASSCF_UnitaryGroupGenerators.unpack,
+        )
+
     def test_get_ugg_forwards_constructor_arguments(self):
         sentinel = object()
         calls = []
@@ -152,6 +169,10 @@ class UnitaryGroupGeneratorTests(unittest.TestCase):
         self.assertEqual(ugg.nvar_orb_active_active, 1)
         self.assertEqual(ugg.nvar_orb, 11)
         self.assertFalse(np.any(ugg.get_gx_idx()))
+        self.assertEqual(
+            ugg.addr2idstr(ugg.nvar_orb_external),
+            "orb active-active: 0",
+        )
 
         x_orb = np.linspace(0.1, 1.1, ugg.nvar_orb).astype(complex)
         x_orb += 1j * np.linspace(-0.7, 0.4, ugg.nvar_orb)
