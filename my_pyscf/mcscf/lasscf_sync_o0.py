@@ -493,7 +493,7 @@ class LASSCF_UnitaryGroupGenerators (object):
         offset = 0
         ci_reference = getattr (self, 'ci', None)
         for ix, trans_frag in enumerate (self.ci_transformers):
-            if ci_reference is None:
+            if ci_reference is None or ci_reference[ix] is None:
                 ci_ref_frag = [None] * len (trans_frag)
             else:
                 ci_ref_frag = ci_reference[ix]

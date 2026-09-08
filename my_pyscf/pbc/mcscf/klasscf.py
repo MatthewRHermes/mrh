@@ -351,7 +351,7 @@ class KLASSCF_UnitaryGroupGenerators(MolecularLASSCF_UnitaryGroupGenerators):
         if mo_coeff is None:
             mo_coeff = klas.mo_coeff
         if ci is None:
-            ci = klas.ci
+            ci = getattr(klas, "ci", None)
         mo_coeff = np.asarray(mo_coeff)
         self.nkpts = len(klas.kpts)
 
@@ -368,14 +368,20 @@ class KLASSCF_UnitaryGroupGenerators(MolecularLASSCF_UnitaryGroupGenerators):
             label="mo_coeff",
         )
 
-        for ifrag, (fcibox, ci_r) in enumerate(zip(klas.fciboxes, ci)):
-            if len(fcibox.fcisolvers) != len(ci_r):
-                msg = (
-                    f"cell {ifrag} has {len(fcibox.fcisolvers)} solvers for "
-                    f"{len(ci_r)} CI roots"
-                )
-                raise ValueError(msg)
+        if ci is not None:
+            if len(ci) != len(klas.fciboxes):
+                raise ValueError("CI input must contain one entry per cell")
+            for ifrag, (fcibox, ci_r) in enumerate(zip(klas.fciboxes, ci)):
+                if ci_r is None:
+                    continue
+                if len(fcibox.fcisolvers) != len(ci_r):
+                    msg = (
+                        f"cell {ifrag} has {len(fcibox.fcisolvers)} solvers "
+                        f"for {len(ci_r)} CI roots"
+                    )
+                    raise ValueError(msg)
         self._mo_phase_input = mo_phase
+        self.ci = ci
         super().__init__(klas, mo_coeff, ci)
 
     def _init_orb(self, klas, mo_coeff, ci):
@@ -446,10 +452,17 @@ class KLASSCF_UnitaryGroupGenerators(MolecularLASSCF_UnitaryGroupGenerators):
         )
 
     def _zero_ci(self, transformer, ci_ref, dtype):
-        return np.zeros(np.shape(ci_ref), dtype=dtype)
+        shape = self._ci_shape(transformer, ci_ref)
+        return np.zeros(shape, dtype=dtype)
 
     def _format_ci(self, transformer, ci, ci_ref):
-        return np.asarray(ci).reshape(np.shape(ci_ref))
+        return np.asarray(ci).reshape(self._ci_shape(transformer, ci_ref))
+
+    @staticmethod
+    def _ci_shape(transformer, ci_ref):
+        if ci_ref is not None:
+            return np.shape(ci_ref)
+        return transformer.ndeta, transformer.ndetb
 
     @property
     def nvar_orb_external(self):
