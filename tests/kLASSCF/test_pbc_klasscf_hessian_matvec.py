@@ -1,9 +1,18 @@
 import unittest
-
 import numpy as np
 
 from mrh.my_pyscf.pbc.mcscf.klasscf import KLASSCF_HessianOperator
 
+# Author: Bhavnesh Jangid:
+
+
+"""Tests for combined orbital/CI k-LASSCF Hessian-vector dispatch.
+
+These tests check that a packed trial vector is split into its orbital and CI
+components, passed to the appropriate Hessian-response routines, and combined
+again in the expected packed order. They also verify the orbital-CI coupling
+terms and their normalization factors.
+"""
 
 class _IdentityCSFTransformer:
     """Two-determinant/two-CSF transform used to test complex packing."""
@@ -125,6 +134,7 @@ def _set_toy_matvec_pipeline(operator):
 class KnownValues(unittest.TestCase):
 
     def test_matvec_dispatches_combined_vector_to_ci_block(self):
+        """Combine CI-input responses and level shift in packed-vector order."""
         operator = KLASSCF_HessianOperator.__new__(KLASSCF_HessianOperator)
         operator.ci = [
             [np.zeros((2, 1), dtype=np.complex128)],
@@ -149,6 +159,7 @@ class KnownValues(unittest.TestCase):
         np.testing.assert_allclose(result[1:], 5.25 * ci_trial)
 
     def test_matvec_dispatches_orbital_only_step(self):
+        """Route an orbital-only trial through orbital and CI output responses."""
         operator = KLASSCF_HessianOperator.__new__(KLASSCF_HessianOperator)
         operator.ci = [
             [np.zeros((2, 1), dtype=np.complex128)],

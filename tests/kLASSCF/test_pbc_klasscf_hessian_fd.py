@@ -1,5 +1,11 @@
 #!/usr/bin/env python
 
+"""Finite-difference integration tests for the complete k-LASSCF Hessian.
+
+The tests cover CI, orbital, and coupled Hessian responses across periodic
+dimensions, along with the preconditioner and frozen-orbital path.
+"""
+
 import unittest
 
 import numpy as np
@@ -177,6 +183,7 @@ class KnownValuesKLASSCFHessianFiniteDifference(unittest.TestCase):
         ) / (2.0 * step)
 
     def test_ci_hessian_blocks_match_finite_difference(self):
+        """Compare separate CI Hessian response blocks with finite differences."""
         _, direction = _make_ci_direction(self.ugg)
         tdm1rs = self.hop.make_tdm1s_sub(direction)
         h1eff_response = self.hop.get_h1eff_response(tdm1rs)
@@ -226,6 +233,7 @@ class KnownValuesKLASSCFHessianFiniteDifference(unittest.TestCase):
         )
 
     def test_dimensional_ci_hops_match_finite_difference(self):
+        """Validate CI Hessian-vector products in one, two, and three dimensions."""
         cases = {
             "1D": ((4.0, 10.0, 10.0), (2, 1, 1)),
             "2D": ((4.0, 4.0, 10.0), (2, 2, 1)),
@@ -261,6 +269,7 @@ class KnownValuesKLASSCFHessianFiniteDifference(unittest.TestCase):
                 self.assertLess(relative_error, 2e-7)
 
     def test_dimensional_orbital_hops_match_finite_difference(self):
+        """Validate orbital Hessian-vector products across dimensions and sectors."""
         cases = {
             "1D": (
                 (4.0, 10.0, 10.0), (2, 1, 1),
@@ -313,14 +322,12 @@ class KnownValuesKLASSCFHessianFiniteDifference(unittest.TestCase):
                 )
                 self.assertLess(relative_error, 2e-5)
 
-    def test_real_get_hop_cross_blocks_match_finite_differences(self):
+    def test_coupled_hessian_blocks_match_finite_differences(self):
+        """Compare both coupled orbital-CI Hessian blocks with finite differences."""
         # Test both reciprocal derivatives explicitly.  A plain complex-vdot
         # comparison is not the relevant metric because orbital responses use
         # the molecular half-generator packing convention while CI responses
         # do not.
-        self.assertIsInstance(
-            self.hop, klasscf.KLASSCF_HessianOperator,
-        )
         orbital_trial = np.zeros(self.ugg.nvar_tot, dtype=np.complex128)
         kappa = _make_orbital_direction(
             self.klas, ("active-virtual",), 59,
@@ -372,7 +379,8 @@ class KnownValuesKLASSCFHessianFiniteDifference(unittest.TestCase):
         self.assertLess(ci_orbital_error, 2e-7)
         self.assertLess(orbital_ci_error, 2e-7)
 
-    def test_real_preconditioner_uses_complete_finite_diagonal(self):
+    def test_preconditioner_uses_complete_finite_diagonal(self):
+        """Apply the preconditioner using a complete finite Hessian diagonal."""
         preconditioner = self.hop.get_prec()
         self.assertEqual(
             preconditioner.shape,
@@ -391,7 +399,8 @@ class KnownValuesKLASSCFHessianFiniteDifference(unittest.TestCase):
         expected = trial / preconditioner.Hdiag
         np.testing.assert_allclose(actual, expected)
 
-    def test_frozen_orbital_path_builds_and_applies_real_hop(self):
+    def test_frozen_orbital_path_builds_and_applies_general_hop(self):
+        """Build and apply the general Hessian with one frozen orbital."""
         frozen = self.klas.ncore
         original_frozen = getattr(self.klas, "frozen", None)
         try:
