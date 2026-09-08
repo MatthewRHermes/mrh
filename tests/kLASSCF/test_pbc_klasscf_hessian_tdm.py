@@ -7,6 +7,12 @@ from mrh.my_pyscf.pbc.fci import direct_spin1_cplx
 from mrh.my_pyscf.pbc.mcscf import klasscf
 from mrh.my_pyscf.pbc.mcscf.klasscf import KLASSCF_HessianOperator
 
+# Author: Bhavnesh Jangid
+
+"""
+Tests for transition densities and cumulants used by the k-LASSCF Hessian.
+"""
+
 
 class _TransitionFCIBox:
     _state_args = staticmethod(lambda value: value)
@@ -108,6 +114,7 @@ def make_operator():
 class KnownValues(unittest.TestCase):
 
     def test_transition_rdm_contracts_every_fragment(self):
+        """Contract each fragment and assemble a Hermitian transition one-RDM."""
         operator = make_operator()
         trial = np.array([[0.3j], [0.4]], dtype=np.complex128)
         ci1 = [[trial], [trial.copy()]]
@@ -126,6 +133,7 @@ class KnownValues(unittest.TestCase):
         )
 
     def test_transition_cumulant_uses_stored_state_average_casdm1s(self):
+        """Build the transition cumulant with the stored state-averaged one-RDM."""
         operator = make_operator()
         trial = np.array([[0.3j], [0.4]], dtype=np.complex128)
         ci1 = [[trial], [trial.copy()]]
@@ -228,6 +236,7 @@ class KnownValues(unittest.TestCase):
         )
 
     def test_complex_transition_cumulant_matches_finite_difference(self):
+        """Match complex transition densities and cumulants to finite differences."""
         operator = KLASSCF_HessianOperator.__new__(
             KLASSCF_HessianOperator
         )
@@ -295,6 +304,7 @@ class KnownValues(unittest.TestCase):
         )
 
     def test_h1eff_response_follows_periodic_las_projection(self):
+        """Match the effective one-electron response to the periodic LAS projection."""
         operator = KLASSCF_HessianOperator.__new__(
             KLASSCF_HessianOperator
         )
@@ -373,6 +383,7 @@ class KnownValues(unittest.TestCase):
             np.testing.assert_allclose(actual_fragment, expected_fragment)
 
     def test_transition_dm1s_transforms_to_active_block_mos(self):
+        """Transform the averaged transition one-RDM into active Bloch orbitals."""
         operator = KLASSCF_HessianOperator.__new__(
             KLASSCF_HessianOperator
         )
@@ -426,6 +437,7 @@ class KnownValues(unittest.TestCase):
         np.testing.assert_allclose(actual[:, :, :, 3:], 0.0)
 
     def test_transition_cumulant_uses_bra_ket_momentum_blocks(self):
+        """Contract transition cumulants with the correct bra-ket momentum sectors."""
         operator = KLASSCF_HessianOperator.__new__(
             KLASSCF_HessianOperator
         )
