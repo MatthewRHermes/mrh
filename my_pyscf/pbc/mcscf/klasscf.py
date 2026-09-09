@@ -775,10 +775,9 @@ def get_grad_orb(klas, mo_coeff=None, ci=None, h2eff_sub=None,
         dm1s_mo = (
             smo_coeff_k.conj().T @ dm1s_kpts[:, k] @ smo_coeff_k
         )
+
         h1es_mo = (
-            mo_coeff[k].conj().T
-            @ h1es_kpts[:, k]
-            @ mo_coeff[k]
+            mo_coeff[k].conj().T @ h1es_kpts[:, k] @ mo_coeff[k]
         )
         f1[k] = (
             h1es_mo[0] @ dm1s_mo[0]
@@ -786,18 +785,16 @@ def get_grad_orb(klas, mo_coeff=None, ci=None, h2eff_sub=None,
         )
 
     # Convert the spin-summed 2-RDM to its cumulant in the Wannier basis.
+    # d_cum = d2 - d1 x d1 + d1a x d1a + d1b x d1b
+    # Remember how the d1s are stored in pyscf.
     casdm2 = klas.make_casdm2(ci=ci)
     _check_shape(casdm2, (ncastot,) * 4, label="casdm2")
     casdm1s = klas.make_casdm1s(ci=ci)
     _check_shape(casdm1s, (2, ncastot, ncastot), label="casdm1s")
     casdm1 = casdm1s.sum(0)
     casdm2 -= np.multiply.outer(casdm1, casdm1)
-    casdm2 += np.multiply.outer(
-        casdm1s[0], casdm1s[0],
-    ).transpose(0, 3, 2, 1)
-    casdm2 += np.multiply.outer(
-        casdm1s[1], casdm1s[1],
-    ).transpose(0, 3, 2, 1)
+    casdm2 += np.multiply.outer(casdm1s[0], casdm1s[0],).transpose(0, 3, 2, 1)
+    casdm2 += np.multiply.outer(casdm1s[1], casdm1s[1],).transpose(0, 3, 2, 1)
 
     mo_act_kpts = mo_coeff[:, :, ncore:nocc]
     mo_phase = get_wannier_orbs(
@@ -825,10 +822,9 @@ def get_grad_orb(klas, mo_coeff=None, ci=None, h2eff_sub=None,
     raise ValueError("kwarg 'hermi' must be -1, 0, or +1")
 
 
-def get_grad(
-        klas, mo_coeff=None, ci=None, ugg=None, h2eff_sub=None,
-        veff_kpts=None, dm1s_kpts=None, casdm1frs=None,
-        h1eff=None, h2eff=None):
+def get_grad(klas, mo_coeff=None, ci=None, ugg=None, h2eff_sub=None,
+             veff_kpts=None, dm1s_kpts=None, casdm1frs=None,
+             h1eff=None, h2eff=None):
     """Return the packed k-LASSCF orbital and CI energy gradient.
 
     The orbital gradient is packed first, followed by the CI gradient, using
@@ -886,7 +882,7 @@ def get_grad(
 
 
 class KLASSCF_HessianOperator(molLASSCF_HessianOperator):
-    """Matrix-free orbital/CI Hessian operator for k-LASSCF.
+    """Hessian operator for k-LASSCF.
 
     The periodic operator retains one determinant-basis CI vector per
     fragment and root internally. Its external vector layout is delegated to
@@ -898,19 +894,21 @@ class KLASSCF_HessianOperator(molLASSCF_HessianOperator):
     """
 
     def __init__(
-            self, las, ugg, mo_coeff=None, ci=None, casdm1frs=None,
+            self, klas, ugg, mo_coeff=None, ci=None, casdm1frs=None,
             h1eff=None, h2eff=None, kpts=None, kmesh=None, casdm2fr=None,
             eris=None, veff_kpts=None, dm1s_kpts=None, mo_phase=None):
         """Initialize the periodic Hessian intermediates.
 
         Args:
-            las : object
+            klas : object
                 Periodic LASCI object defining the reference state.
             ugg : KLASSCF_UnitaryGroupGenerators
                 Orbital/CI parameterization for external trial vectors.
+
+        Kwargs:
             mo_coeff, ci : optional
                 Reference orbitals and CI vectors. They default to the
-                corresponding attributes of las.
+                corresponding attributes of klas.
             casdm1frs, casdm2fr : optional
                 Precomputed fragment density matrices in the Wannier basis.
             h1eff, h2eff : optional
@@ -926,13 +924,13 @@ class KLASSCF_HessianOperator(molLASSCF_HessianOperator):
                 Wannier-to-Bloch active-space transformation.
         """
         if mo_coeff is None:
-            mo_coeff = las.mo_coeff
+            mo_coeff = klas.mo_coeff
         if ci is None:
-            ci = las.ci
+            ci = klas.ci
         if kpts is None:
-            kpts = las.kpts
+            kpts = klas.kpts
         if kmesh is None:
-            kmesh = las.kmesh
+            kmesh = klas.kmesh
         kpts = np.asarray(kpts)
         kmesh = tuple(int(n) for n in kmesh)
 
@@ -944,7 +942,7 @@ class KLASSCF_HessianOperator(molLASSCF_HessianOperator):
                 f"kpts and kmesh are inconsistent: {len(kpts)} != {ncell}"
             )
 
-        self.las = las
+        self.las = klas
         self.ugg = ugg
         self.mo_coeff = np.asarray(mo_coeff)
         self.ci = ci
@@ -953,11 +951,11 @@ class KLASSCF_HessianOperator(molLASSCF_HessianOperator):
         self.nkpts = len(kpts)
         self.ncell = ncell
 
-        self.level_shift = las.ah_level_shift
-        self.ncore = las.ncore
-        self.ncas_sub = np.asarray(las.ncas_sub)
-        self.nelecas_sub = np.asarray(las.nelecas_sub)
-        self.ncas = int(las.ncas)
+        self.level_shift = klas.ah_level_shift
+        self.ncore = klas.ncore
+        self.ncas_sub = np.asarray(klas.ncas_sub)
+        self.nelecas_sub = np.asarray(klas.nelecas_sub)
+        self.ncas = int(klas.ncas)
         self.ncastot = self.ncas * self.nkpts
         self.nao = self.mo_coeff.shape[-2]
         self.nmo = self.mo_coeff.shape[-1]
@@ -975,9 +973,9 @@ class KLASSCF_HessianOperator(molLASSCF_HessianOperator):
                 f"ncore+ncas={self.nocc}, nmo={self.nmo}"
             )
             raise ValueError(msg)
-        self.fciboxes = las.fciboxes
-        self.nroots = las.nroots
-        self.weights = las.weights
+        self.fciboxes = klas.fciboxes
+        self.nroots = klas.nroots
+        self.weights = klas.weights
         self.ci_transformers = ugg.ci_transformers
         self.frozen_ci = set(getattr(ugg, "frozen_ci", None) or [])
         if len(self.ci_transformers) != len(self.ci):
