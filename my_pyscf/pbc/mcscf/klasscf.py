@@ -1,9 +1,9 @@
 #!/usr/bin/env python
-
 import numpy as np
+from scipy import linalg
+
 from pyscf import lib
 from pyscf.pbc.lib import kpts_helper
-from scipy import linalg
 
 from mrh.my_pyscf.mcscf.lasscf_sync_o0 import (
     LASSCF_HessianOperator as molLASSCF_HessianOperator,
@@ -582,16 +582,15 @@ def get_ugg(klas, mo_coeff=None, ci=None, mo_phase=None):
     )
 
 
-def get_grad_ci(
-        klas, mo_coeff=None, ci=None, ugg=None, casdm1frs=None,
-        h1eff=None, h2eff=None):
+def get_grad_ci(klas, mo_coeff=None, ci=None, ugg=None, 
+                casdm1frs=None, h1eff=None, h2eff=None):
     """Evaluate the k-LASSCF energy gradient with respect to the CI vectors.
 
     For each fragment and root, this function constructs the local Hamiltonian
     action and removes its component parallel to the reference CI vector. The
     resulting determinant-basis residual is
 
-    2 * (H c - <c|H c> c).
+    2 * (H c - <c|H|c> c).
 
     Constructing the residual directly keeps the gradient layer independent
     of the k-LASSCF Hessian operator.
@@ -620,7 +619,7 @@ def get_grad_ci(
             Two-electron integrals in the complete Wannier active space.
 
     Returns:
-        list
+        grad_ci: list of list of ndarray
             Nested [fragment][root] determinant-basis CI gradients with
             the same individual shapes as ci.
 
@@ -639,45 +638,47 @@ def get_grad_ci(
 
     ncas_sub = np.asarray(klas.ncas_sub, dtype=int)
     ncastot = int(ncas_sub.sum())
+
     _check_shape(h2eff, (ncastot,) * 4, label="h2eff")
 
     if h1eff is None:
         if casdm1frs is None:
-            casdm1frs = klas.states_make_casdm1s_sub(
-                ci=ci, ncas_sub=ncas_sub,
-                nelecas_sub=klas.nelecas_sub,
-            )
-        casdm1s_sub = klas.make_casdm1s_sub(
-            ci=ci, casdm1frs=casdm1frs,
-        )
+            casdm1frs = klas.states_make_casdm1s_sub(ci=ci, ncas_sub=ncas_sub,
+                                                     nelecas_sub=klas.nelecas_sub,
+                                                     )
+        casdm1s_sub = klas.make_casdm1s_sub(ci=ci, casdm1frs=casdm1frs,)
+
         h1eff = klas.h1e_for_las(
             mo_coeff=mo_coeff, ci=ci, ncas_sub=ncas_sub,
             nelecas_sub=klas.nelecas_sub,
             casdm1s_sub=casdm1s_sub, casdm1frs=casdm1frs,
             eri_cas=h2eff,
         )
+
     if len(h1eff) != len(ncas_sub):
-        raise ValueError(
-            "h1eff must contain one entry for every fragment/cell"
-        )
+        msg = "h1eff must contain one entry for every fragment/cell"
+        raise ValueError(msg)
 
     gradient = []
     offset = 0
     for ifrag, (fcibox, norb, nelec, h1frs, ci_r) in enumerate(zip(
             klas.fciboxes, ncas_sub, klas.nelecas_sub, h1eff, ci)):
         stop = offset + int(norb)
-        _check_shape(
-            h1frs, (klas.nroots, 2, norb, norb),
-            label=f"h1fr_{ifrag}",
-        )
+
+        _check_shape(h1frs, (klas.nroots, 2, norb, norb),
+                     label=f"h1fr_{ifrag}",)
+
         h2frag = h2eff[offset:stop, offset:stop, offset:stop, offset:stop]
         linkstr = fcibox.states_gen_linkstr(norb, nelec, False)
         absorbed = fcibox.states_absorb_h1e(
             h1frs, h2frag, norb, nelec, 0.5,
         )
+
         hci_r = fcibox.states_contract_2e(
             absorbed, ci_r, norb, nelec, link_index=linkstr,
         )
+
+        # Finally gradient:
         gradient.append([
             2.0 * (hc - np.vdot(c, hc) * c)
             for hc, c in zip(hci_r, ci_r)
@@ -686,9 +687,8 @@ def get_grad_ci(
     return gradient
 
 
-def get_grad_orb(
-        klas, mo_coeff_kpts=None, ci=None, h2eff_sub=None,
-        veff_kpts=None, dm1s_kpts=None, hermi=-1):
+def get_grad_orb(klas, mo_coeff=None, ci=None, h2eff_sub=None,
+                 veff_kpts=None, dm1s_kpts=None, hermi=-1):
     """Evaluate the k-LASSCF orbital gradient or effective Fock matrix.
 
     The one-body contribution is formed independently at each k-point. The
@@ -702,7 +702,7 @@ def get_grad_orb(
             k-point metadata.
 
     Kwargs:
-        mo_coeff_kpts : ndarray of shape (nkpts, nao, nmo), optional
+        mo_coeff : ndarray of shape (nkpts, nao, nmo), optional
             Bloch-MO coefficients. Defaults to klas.mo_coeff.
         ci : sequence, optional
             Nested [fragment][root] Wannier-basis CI vectors. Defaults to
@@ -735,19 +735,19 @@ def get_grad_orb(
     kpts = klas.kpts
     nkpts = len(kpts)
 
-    if mo_coeff_kpts is None:
-        mo_coeff_kpts = klas.mo_coeff
-    mo_coeff_kpts = np.asarray(mo_coeff_kpts)
+    if mo_coeff is None:
+        mo_coeff = klas.mo_coeff
+    mo_coeff = np.asarray(mo_coeff)
     if ci is None:
         ci = klas.ci
     if dm1s_kpts is None:
-        dm1s_kpts = klas.make_rdm1s(mo_coeff=mo_coeff_kpts, ci=ci)
+        dm1s_kpts = klas.make_rdm1s(mo_coeff=mo_coeff, ci=ci)
     if h2eff_sub is None:
-        h2eff_sub = klas._klasscf_eris(klas, mo_coeff_kpts)
+        h2eff_sub = klas._klasscf_eris(klas, mo_coeff)
     if veff_kpts is None:
         veff_kpts = klas.get_veff(cell, dm_kpts=dm1s_kpts)
 
-    _, nmo = mo_coeff_kpts.shape[-2:]
+    _, nmo = mo_coeff.shape[-2:]
     ncore = klas.ncore
     ncas = klas.ncas
     nocc = ncore + ncas
@@ -763,7 +763,7 @@ def get_grad_orb(
         get_paaa = lambda k1, k2, k3: h2eff_sub[k1, k2, k3]
 
     dtype = np.result_type(
-        mo_coeff_kpts.dtype, veff_kpts.dtype, dm1s_kpts.dtype,
+        mo_coeff.dtype, veff_kpts.dtype, dm1s_kpts.dtype,
     )
     ovlp_kpts = klas._scf.get_ovlp(kpts=kpts)
     hcore_kpts = klas.get_hcore(kpts=kpts)
@@ -771,14 +771,13 @@ def get_grad_orb(
 
     f1 = np.empty((nkpts, nmo, nmo), dtype=dtype)
     for k in range(nkpts):
-        smo_coeff_k = ovlp_kpts[k] @ mo_coeff_kpts[k]
+        smo_coeff_k = ovlp_kpts[k] @ mo_coeff[k]
         dm1s_mo = (
             smo_coeff_k.conj().T @ dm1s_kpts[:, k] @ smo_coeff_k
         )
+
         h1es_mo = (
-            mo_coeff_kpts[k].conj().T
-            @ h1es_kpts[:, k]
-            @ mo_coeff_kpts[k]
+            mo_coeff[k].conj().T @ h1es_kpts[:, k] @ mo_coeff[k]
         )
         f1[k] = (
             h1es_mo[0] @ dm1s_mo[0]
@@ -786,20 +785,18 @@ def get_grad_orb(
         )
 
     # Convert the spin-summed 2-RDM to its cumulant in the Wannier basis.
+    # d_cum = d2 - d1 x d1 + d1a x d1a + d1b x d1b
+    # Remember how the d1s are stored in pyscf.
     casdm2 = klas.make_casdm2(ci=ci)
     _check_shape(casdm2, (ncastot,) * 4, label="casdm2")
     casdm1s = klas.make_casdm1s(ci=ci)
     _check_shape(casdm1s, (2, ncastot, ncastot), label="casdm1s")
     casdm1 = casdm1s.sum(0)
     casdm2 -= np.multiply.outer(casdm1, casdm1)
-    casdm2 += np.multiply.outer(
-        casdm1s[0], casdm1s[0],
-    ).transpose(0, 3, 2, 1)
-    casdm2 += np.multiply.outer(
-        casdm1s[1], casdm1s[1],
-    ).transpose(0, 3, 2, 1)
+    casdm2 += np.multiply.outer(casdm1s[0], casdm1s[0],).transpose(0, 3, 2, 1)
+    casdm2 += np.multiply.outer(casdm1s[1], casdm1s[1],).transpose(0, 3, 2, 1)
 
-    mo_act_kpts = mo_coeff_kpts[:, :, ncore:nocc]
+    mo_act_kpts = mo_coeff[:, :, ncore:nocc]
     mo_phase = get_wannier_orbs(
         klas._scf, klas.kmesh, mo_act_kpts,
     )[-1]
@@ -825,10 +822,9 @@ def get_grad_orb(
     raise ValueError("kwarg 'hermi' must be -1, 0, or +1")
 
 
-def get_grad(
-        klas, mo_coeff=None, ci=None, ugg=None, h2eff_sub=None,
-        veff_kpts=None, dm1s_kpts=None, casdm1frs=None,
-        h1eff=None, h2eff=None):
+def get_grad(klas, mo_coeff=None, ci=None, ugg=None, h2eff_sub=None,
+             veff_kpts=None, dm1s_kpts=None, casdm1frs=None,
+             h1eff=None, h2eff=None):
     """Return the packed k-LASSCF orbital and CI energy gradient.
 
     The orbital gradient is packed first, followed by the CI gradient, using
@@ -875,7 +871,7 @@ def get_grad(
     if ugg is None:
         ugg = klas.get_ugg(mo_coeff=mo_coeff, ci=ci)
     gorb = klas.get_grad_orb(
-        mo_coeff_kpts=mo_coeff, ci=ci, h2eff_sub=h2eff_sub,
+        mo_coeff=mo_coeff, ci=ci, h2eff_sub=h2eff_sub,
         veff_kpts=veff_kpts, dm1s_kpts=dm1s_kpts,
     )
     gci = klas.get_grad_ci(
@@ -886,7 +882,7 @@ def get_grad(
 
 
 class KLASSCF_HessianOperator(molLASSCF_HessianOperator):
-    """Matrix-free orbital/CI Hessian operator for k-LASSCF.
+    """Hessian operator for k-LASSCF.
 
     The periodic operator retains one determinant-basis CI vector per
     fragment and root internally. Its external vector layout is delegated to
@@ -898,19 +894,21 @@ class KLASSCF_HessianOperator(molLASSCF_HessianOperator):
     """
 
     def __init__(
-            self, las, ugg, mo_coeff=None, ci=None, casdm1frs=None,
+            self, klas, ugg, mo_coeff=None, ci=None, casdm1frs=None,
             h1eff=None, h2eff=None, kpts=None, kmesh=None, casdm2fr=None,
             eris=None, veff_kpts=None, dm1s_kpts=None, mo_phase=None):
         """Initialize the periodic Hessian intermediates.
 
         Args:
-            las : object
+            klas : object
                 Periodic LASCI object defining the reference state.
             ugg : KLASSCF_UnitaryGroupGenerators
                 Orbital/CI parameterization for external trial vectors.
+
+        Kwargs:
             mo_coeff, ci : optional
                 Reference orbitals and CI vectors. They default to the
-                corresponding attributes of ``las``.
+                corresponding attributes of klas.
             casdm1frs, casdm2fr : optional
                 Precomputed fragment density matrices in the Wannier basis.
             h1eff, h2eff : optional
@@ -926,25 +924,24 @@ class KLASSCF_HessianOperator(molLASSCF_HessianOperator):
                 Wannier-to-Bloch active-space transformation.
         """
         if mo_coeff is None:
-            mo_coeff = las.mo_coeff
+            mo_coeff = klas.mo_coeff
         if ci is None:
-            ci = las.ci
+            ci = klas.ci
         if kpts is None:
-            kpts = las.kpts
+            kpts = klas.kpts
         if kmesh is None:
-            kmesh = las.kmesh
+            kmesh = klas.kmesh
         kpts = np.asarray(kpts)
         kmesh = tuple(int(n) for n in kmesh)
 
-        if len(kmesh) != 3 or any(n <= 0 for n in kmesh):
+        if len(kmesh) != 3:
             raise ValueError("kmesh must contain three positive integers")
+        
         ncell = int(np.prod(kmesh))
         if len(kpts) != ncell:
-            raise ValueError(
-                f"kpts and kmesh are inconsistent: {len(kpts)} != {ncell}"
-            )
+            raise ValueError(f"kpts and kmesh are inconsistent: {len(kpts)} != {ncell}")
 
-        self.las = las
+        self.las = klas
         self.ugg = ugg
         self.mo_coeff = np.asarray(mo_coeff)
         self.ci = ci
@@ -953,41 +950,37 @@ class KLASSCF_HessianOperator(molLASSCF_HessianOperator):
         self.nkpts = len(kpts)
         self.ncell = ncell
 
-        self.level_shift = las.ah_level_shift
-        self.ncore = las.ncore
-        self.ncas_sub = np.asarray(las.ncas_sub)
-        self.nelecas_sub = np.asarray(las.nelecas_sub)
-        self.ncas = int(las.ncas)
+        self.level_shift = klas.ah_level_shift
+        self.ncore = klas.ncore
+        self.ncas_sub = np.asarray(klas.ncas_sub)
+        self.nelecas_sub = np.asarray(klas.nelecas_sub)
+        self.ncas = int(klas.ncas)
         self.ncastot = self.ncas * self.nkpts
         self.nao = self.mo_coeff.shape[-2]
         self.nmo = self.mo_coeff.shape[-1]
         self.nocc = self.ncore + self.ncas
         if np.sum(self.ncas_sub) != self.ncastot:
-            msg = (
-                "Wannier and block-MO active spaces are inconsistent: "
+            msg = ("Wannier and block-MO active spaces are inconsistent: "
                 f"sum(ncas_sub)={np.sum(self.ncas_sub)}, but ncastot="
-                f"ncas*nkpts={self.ncastot}"
-            )
+                f"ncas*nkpts={self.ncastot}")
             raise ValueError(msg)
-        if self.nocc > self.nmo:
-            msg = (
-                "mo_coeff does not contain the full core and active spaces: "
-                f"ncore+ncas={self.nocc}, nmo={self.nmo}"
-            )
-            raise ValueError(msg)
-        self.fciboxes = las.fciboxes
-        self.nroots = las.nroots
-        self.weights = las.weights
+
+        self.fciboxes = klas.fciboxes
+        self.nroots = klas.nroots
+        self.weights = klas.weights
         self.ci_transformers = ugg.ci_transformers
         self.frozen_ci = set(getattr(ugg, "frozen_ci", None) or [])
+
         if len(self.ci_transformers) != len(self.ci):
-            raise ValueError(
-                "ugg.ci_transformers must contain one entry per CI cell"
-            )
+            msg = "ugg.ci_transformers must contain one entry per CI cell"
+            raise ValueError(msg)
+        
         self.nvar_ci = 0
+
         for ifrag, (transformers, ci0_r) in enumerate(zip(
                 self.ci_transformers, self.ci)):
             if len(transformers) != len(ci0_r):
+
                 msg = (
                     f"cell {ifrag} has {len(transformers)} CSF transformers "
                     f"for {len(ci0_r)} CI roots"
@@ -1010,9 +1003,9 @@ class KLASSCF_HessianOperator(molLASSCF_HessianOperator):
     def _init_dms_(self, casdm1frs, casdm2fr=None, dm1s_kpts=None):
         """Initialize reference density matrices in their natural bases.
 
-        ``casdm1s``, ``casdm2``, and ``cascm2`` are retained in the complete
-        Wannier active space. ``dm1s_kpts`` is spin resolved in the AO basis,
-        while ``dm1s`` is its block-MO representation.
+        casdm1s, casdm2, and cascm2 are retained in the complete
+        Wannier active space. dm1s_kpts is spin resolved in the AO basis,
+        while dm1s is its block-MO representation.
         """
         if casdm1frs is None:
             casdm1frs = self.las.states_make_casdm1s_sub(
@@ -1022,12 +1015,8 @@ class KLASSCF_HessianOperator(molLASSCF_HessianOperator):
             )
 
         self.casdm1frs = casdm1frs
-        self.casdm1fs = self.las.make_casdm1s_sub(
-            casdm1frs=casdm1frs,
-        )
-        self.casdm1rs = self.las.states_make_casdm1s(
-            casdm1frs=casdm1frs,
-        )
+        self.casdm1fs = self.las.make_casdm1s_sub(casdm1frs=casdm1frs,)
+        self.casdm1rs = self.las.states_make_casdm1s(casdm1frs=casdm1frs,)
         self.casdm1s = np.einsum(
             "r,rsij->sij", self.weights, self.casdm1rs,
         )
@@ -1057,12 +1046,8 @@ class KLASSCF_HessianOperator(molLASSCF_HessianOperator):
         casdm1a, casdm1b = self.casdm1s
         casdm1 = casdm1a + casdm1b
         self.cascm2 = self.casdm2 - np.multiply.outer(casdm1, casdm1)
-        self.cascm2 += np.multiply.outer(
-            casdm1a, casdm1a,
-        ).transpose(0, 3, 2, 1)
-        self.cascm2 += np.multiply.outer(
-            casdm1b, casdm1b,
-        ).transpose(0, 3, 2, 1)
+        self.cascm2 += np.multiply.outer(casdm1a, casdm1a,).transpose(0, 3, 2, 1)
+        self.cascm2 += np.multiply.outer(casdm1b, casdm1b,).transpose(0, 3, 2, 1)
 
         if dm1s_kpts is None:
             dm1s_kpts = self.las.make_rdm1s(
@@ -1096,10 +1081,10 @@ class KLASSCF_HessianOperator(molLASSCF_HessianOperator):
     def _init_ham_(self, h1eff, h2eff, veff_kpts=None):
         """Initialize block-MO and Wannier-basis Hamiltonians.
 
-        ``h1frs[f][r]`` is the spin-resolved effective one-electron
-        Hamiltonian for fragment ``f`` and root ``r``. ``eri_cas`` contains
+        h1frs[f][r] is the spin-resolved effective one-electron
+        Hamiltonian for fragment f and root r. eri_cas contains
         the two-electron integrals over the complete Wannier active space.
-        ``hcore`` and ``h1s`` retain a k-point axis and use the block-MO basis.
+        hcore and h1s retain a k-point axis and use the block-MO basis.
         """
         if h2eff is None:
             h2eff = self.las.get_h2cas(self.mo_coeff)
@@ -1110,6 +1095,7 @@ class KLASSCF_HessianOperator(molLASSCF_HessianOperator):
             veff_kpts = self.las.get_veff(
                 self.las._scf.cell, dm_kpts=self.dm1s_kpts,
             )
+
         self.veff_kpts = np.asarray(veff_kpts)
         _check_shape(
             self.veff_kpts, (2, self.nkpts, self.nao, self.nao),
@@ -1153,9 +1139,8 @@ class KLASSCF_HessianOperator(molLASSCF_HessianOperator):
             )
 
         if len(h1eff) != len(self.ncas_sub):
-            raise ValueError(
-                "h1eff must contain one block for every fragment/cell"
-            )
+            raise ValueError("h1eff must contain one block for every fragment/cell")
+        
         for ifrag, (h1fr, ncas) in enumerate(zip(h1eff, self.ncas_sub)):
             _check_shape(
                 h1fr, (self.nroots, 2, ncas, ncas),
@@ -1168,8 +1153,8 @@ class KLASSCF_HessianOperator(molLASSCF_HessianOperator):
     def _init_eri_(self, eris=None):
         """Attach lazy block-MO ERI accessors for orbital response.
 
-        The default periodic ERI object stores ``ppaa``, ``papa``, and
-        ``paap`` blocks on disk. ``eri_paaa`` remains an accessor rather than
+        The default periodic ERI object stores ppaa, papa, and
+        paap blocks on disk. eri_paaa remains an accessor rather than
         a materialized supercell tensor. Level one also constructs the compact
         core-orbital intermediates used by the analytic Hessian diagonal.
         """
@@ -1186,12 +1171,14 @@ class KLASSCF_HessianOperator(molLASSCF_HessianOperator):
 
     def _init_orb_(self, mo_phase=None):
         """Build the reference generalized Fock matrix in block-MO form."""
+
         if mo_phase is None:
             mo_act_kpts = self.mo_coeff[:, :, self.ncore:self.nocc]
             mo_phase = get_wannier_orbs(
                 self.las._scf, self.kmesh, mo_act_kpts,
             )[-1]
         self.mo_phase = np.asarray(mo_phase)
+
         _check_shape(
             self.mo_phase, (self.nkpts, self.ncas, self.ncastot),
             label="mo_phase",
@@ -1200,6 +1187,7 @@ class KLASSCF_HessianOperator(molLASSCF_HessianOperator):
         dtype = np.result_type(
             self.h1s.dtype, self.dm1s.dtype, self.cascm2.dtype,
         )
+
         self.fock1 = np.empty(
             (self.nkpts, self.nmo, self.nmo), dtype=dtype,
         )
@@ -1235,7 +1223,7 @@ class KLASSCF_HessianOperator(molLASSCF_HessianOperator):
         self.linkstr = []
         for fcibox, norb, nelec in zip(
                 self.fciboxes, self.ncas_sub, self.nelecas_sub):
-            # Complex periodic contractions use ordinary link tables without
+            # Complex FCI use ordinary link tables without
             # molecular lower-triangular index packing.
             linkstr = fcibox.states_gen_linkstr(norb, nelec, False)
             self.linkstrl.append(linkstr)
@@ -1257,7 +1245,7 @@ class KLASSCF_HessianOperator(molLASSCF_HessianOperator):
         """Build the first-order spin 1-RDM generated by a CI step.
 
         Returns:
-            ndarray of shape (nroots, 2, ncastot, ncastot)
+            tdm1s: ndarray of shape (nroots, 2, ncastot, ncastot)
                 Hermitian root-resolved transition density in the complete
                 Wannier active space.
         """
@@ -1267,36 +1255,41 @@ class KLASSCF_HessianOperator(molLASSCF_HessianOperator):
         """Build complex CI transition 1-RDMs and the effective cumulant.
 
         Returns:
-            tuple
+            tdm1, tdm2: tuple
                 Hermitian root-resolved spin 1-RDMs and the state-averaged
                 effective transition cumulant in the Wannier active space.
         """
         return self._make_tdm1s2c_sub(ci1, with_cumulant=True)
 
     def _make_tdm1s2c_sub(self, ci1, with_cumulant):
-        """Implement the shared one- and two-body CI density builders."""
+        """
+        Implement the shared one- and two-body CI density builders.
+        """
+
         dtype = np.result_type(self.eri_cas.dtype, np.complex128)
         tdm1rs_one_sided = np.zeros(
             (self.nroots, 2, self.ncastot, self.ncastot), dtype=dtype,
         )
+
         if with_cumulant:
-            tdm2_one_sided = np.zeros(
-                (self.ncastot,) * 4, dtype=dtype,
-            )
+            tdm2_one_sided = np.zeros((self.ncastot,) * 4, dtype=dtype,)
 
         for ifrag, (fcibox, norb, nelec, c1_r, c0_r) in enumerate(zip(
                 self.fciboxes, self.ncas_sub, self.nelecas_sub,
                 ci1, self.ci)):
+            
             i = int(np.sum(self.ncas_sub[:ifrag]))
             j = i + int(norb)
             linkstr = None if self.linkstr is None else self.linkstr[ifrag]
 
             state_arg = fcibox._state_args
             solver_arg = fcibox._solver_args
+
             nelec_by_solver = [
                 fcibox._get_nelec(solver, nelec)
                 for solver in fcibox.fcisolvers
             ]
+
             collect_args = (
                 state_arg(c1_r),
                 state_arg(c0_r),
@@ -1305,6 +1298,7 @@ class KLASSCF_HessianOperator(molLASSCF_HessianOperator):
             )
             collect_kwargs = {"link_index": solver_arg(linkstr)}
             contraction = "trans_rdm12s" if with_cumulant else "trans_rdm1s"
+
             try:
                 transition_rdm_r = list(fcibox._collect(
                     contraction, *collect_args, **collect_kwargs,
@@ -1366,32 +1360,37 @@ class KLASSCF_HessianOperator(molLASSCF_HessianOperator):
             self, tdm1rs_one_sided, tdm2_one_sided):
         """Construct the complex state-averaged effective CI cumulant.
 
-        Both inputs are the one-sided ``<c1|...|c0>`` quantities after
-        reference-overlap subtraction. ``tdm2_one_sided`` contains the
+        Both inputs are the one-sided <c1|...|c0> quantities after
+        reference-overlap subtraction. tdm2_one_sided contains the
         explicitly correlated same-fragment transition blocks. The
         inter-fragment product-state Coulomb and same-spin exchange blocks
         are differentiated explicitly before the cumulant decomposition.
-        The latter uses the stored state-averaged ``self.casdm1s`` as its
+        The latter uses the stored state-averaged self.casdm1s as its
         reference density and complements one JK response in the orbital-CI
         Hessian action.
         """
+
         tdm1rs_one_sided = np.asarray(tdm1rs_one_sided)
         tdm2_one_sided = np.asarray(tdm2_one_sided)
+
         _check_shape(
             tdm1rs_one_sided,
             (self.nroots, 2, self.ncastot, self.ncastot),
             label="one_sided_transition_dm1rs",
         )
+
         _check_shape(
             tdm2_one_sided, (self.ncastot,) * 4,
             label="one_sided_transition_dm2",
         )
+
         _check_shape(
             self.casdm1s, (2, self.ncastot, self.ncastot),
             label="casdm1s",
         )
         weights = np.asarray(self.weights)
         _check_shape(weights, (self.nroots,), label="state_average_weights")
+
         tdm1rs = (
             tdm1rs_one_sided
             + tdm1rs_one_sided.conj().transpose(0, 1, 3, 2)
@@ -1413,6 +1412,7 @@ class KLASSCF_HessianOperator(molLASSCF_HessianOperator):
             i, j = offsets[ifrag:ifrag + 2]
             tdm1s_i = tdm1rs[:, :, i:j, i:j]
             dm1s_i = np.asarray(self.casdm1frs[ifrag])
+
             _check_shape(
                 dm1s_i,
                 (self.nroots, 2, j - i, j - i),
@@ -1487,8 +1487,8 @@ class KLASSCF_HessianOperator(molLASSCF_HessianOperator):
     def _transition_dm1s_to_block(self, tdm1rs):
         """Transform the state-averaged CI transition 1-RDM to block MOs.
 
-        ``tdm1rs`` is root resolved in the complete Wannier active space.
-        The returned density has shape ``(2, nkpts, nmo, nmo)`` and is zero
+        tdm1rs is root resolved in the complete Wannier active space.
+        The returned density has shape (2, nkpts, nmo, nmo) and is zero
         outside its active-active blocks. This routine performs only state
         averaging and basis transformation; the factor-of-two convention of
         the orbital-CI Hessian action is applied by its eventual caller.
@@ -1531,8 +1531,8 @@ class KLASSCF_HessianOperator(molLASSCF_HessianOperator):
         """Transform and contract a Wannier CI transition cumulant.
 
         Each transformed block retains bra-ket-bra-ket order and therefore
-        uses ``k1 - k2 + k3 - k4 = G``. The returned generalized-Fock
-        contribution has shape ``(nkpts, nmo, nmo)`` and is nonzero only in
+        uses k1 - k2 + k3 - k4 = G. The returned generalized-Fock
+        contribution has shape (nkpts, nmo, nmo) and is nonzero only in
         its active columns. As with the transition 1-RDM transformation, no
         orbital-Hessian factor of two is applied here.
         """
@@ -1717,7 +1717,7 @@ class KLASSCF_HessianOperator(molLASSCF_HessianOperator):
         The periodic orbital-orbital response is complex and uses disk-backed
         ERIs. Reconstructing its diagonal from unit orbital directions gives
         an exact reference for the analytic preconditioner, including the
-        ``kappa2/2`` packing convention. The result is cached because the
+        kappa2/2 packing convention. The result is cached because the
         Hessian intermediates are immutable for the operator's lifetime.
         """
         cached = getattr(self, "_Horb_diag_matvec_cache", None)
@@ -1758,9 +1758,9 @@ class KLASSCF_HessianOperator(molLASSCF_HessianOperator):
 
         This is the momentum-resolved counterpart of the molecular
         core-active, core-virtual, and active-virtual diagonal formulas. It
-        follows the complex periodic construction in ``mc1step.gen_g_hop``
-        but contracts only the ``(p,u,p,u)`` elements needed by the diagonal,
-        rather than materializing its three large ``hdm2`` tensors.
+        follows the complex periodic construction in mc1step.gen_g_hop
+        but contracts only the (p,u,p,u) elements needed by the diagonal,
+        rather than materializing its three large hdm2 tensors.
 
         The returned vector follows the external prefix of the UGG ordering.
         Active-active coordinates are handled separately.
@@ -1908,8 +1908,8 @@ class KLASSCF_HessianOperator(molLASSCF_HessianOperator):
 
         For complex orbital coordinates the orbital-orbital response is
         real-linear rather than complex-linear. The returned pair
-        ``(H, H_conj)`` represents
-        ``H @ x + H_conj @ x.conj()`` exactly. Both blocks are evaluated in
+        (H, H_conj) represents
+        H @ x + H_conj @ x.conj() exactly. Both blocks are evaluated in
         the projected UGG active-active coordinate basis.
         """
         cached = getattr(self, "_Horb_active_active_cache", None)
@@ -1964,13 +1964,14 @@ class KLASSCF_HessianOperator(molLASSCF_HessianOperator):
         pieces = [horb_diag]
         pieces.extend(hci_diag)
         if pieces:
-            diagonal = np.concatenate(pieces)
+            hdiag = np.concatenate(pieces)
         else:
-            diagonal = np.empty(0, dtype=np.complex128)
+            hdiag = np.empty(0, dtype=np.complex128)
+
         _check_shape(
-            diagonal, (self.ugg.nvar_tot,), label="Hdiag",
+            hdiag, (self.ugg.nvar_tot,), label="Hdiag",
         )
-        return diagonal
+        return hdiag
 
     def get_grad(self):
         """Return the periodic complex gradient in packed UGG ordering."""
@@ -1988,9 +1989,9 @@ class KLASSCF_HessianOperator(molLASSCF_HessianOperator):
     def _update_mo(self, kappa):
         """Apply one packed-coordinate orbital step at every k-point.
 
-        ``ugg.unpack_orb`` returns the full anti-Hermitian matrix associated
+        ugg.unpack_orb returns the full anti-Hermitian matrix associated
         with the independent lower-triangular coordinates. As in molecular
-        LASSCF, the corresponding orbital generator is ``kappa / 2``; using
+        LASSCF, the corresponding orbital generator is kappa / 2; using
         the full matrix in the exponential would apply twice the requested
         step.
         """
@@ -2108,7 +2109,7 @@ class KLASSCF_HessianOperator(molLASSCF_HessianOperator):
     def update_mo_ci_eri(self, x, h2eff_sub=None):
         """Apply a rotation and rebuild Wannier active-space integrals.
 
-        ``h2eff_sub`` is accepted for compatibility with the molecular
+        h2eff_sub is accepted for compatibility with the molecular
         optimizer interface. Periodic active-space integrals cannot generally
         be updated from that old tensor after external orbital rotations, so
         they are recomputed from the updated block MOs. The disk-backed ERI
@@ -2116,15 +2117,13 @@ class KLASSCF_HessianOperator(molLASSCF_HessianOperator):
         """
         mo1, ci1 = self.update_mo_ci(x)
         h2eff1 = np.asarray(self.las.get_h2cas(mo1))
-        _check_shape(
-            h2eff1, (self.ncastot,) * 4, label="updated_h2eff_sub",
-        )
+        _check_shape(h2eff1, (self.ncastot,) * 4, label="updated_h2eff_sub",)
         return mo1, ci1, h2eff1
 
     def ci_response_offdiag(self, h1frs_response):
         """Apply the different-cell blocks of the CI Hessian.
 
-        ``h1frs_response`` is the effective one-electron response returned by
+        h1frs_response is the effective one-electron response returned by
         :meth:`get_h1eff_response`. It contains no self-cell contribution.
         """
         if len(h1frs_response) != len(self.fciboxes):
@@ -2173,7 +2172,7 @@ class KLASSCF_HessianOperator(molLASSCF_HessianOperator):
 
         Returns:
             list
-                Nested ``[fragment][root]`` determinant-basis responses.
+                Nested [fragment][root] determinant-basis responses.
         """
         x_flat = np.asarray(x).reshape(-1)
         if x_flat.size != self.nvar_ci:
@@ -2211,7 +2210,7 @@ class KLASSCF_HessianOperator(molLASSCF_HessianOperator):
 
         Args:
             ci : sequence
-                Nested ``[fragment][root]`` determinant-basis responses.
+                Nested [fragment][root] determinant-basis responses.
 
         Returns:
             ndarray of shape (nvar_ci,)
@@ -2492,7 +2491,7 @@ class KLASSCF_HessianOperator(molLASSCF_HessianOperator):
         )
 
     def _orbital_hessian_response(self, kappa1):
-        """Apply the orbital-orbital Hessian block to ``kappa1``.
+        """Apply the orbital-orbital Hessian block to kappa1.
 
         The general block-MO contractions are retained for all external
         sectors.  The contribution from a projected active-active input to
@@ -2609,10 +2608,10 @@ class KLASSCF_HessianOperator(molLASSCF_HessianOperator):
         optimizer metric; it is not a complex conjugate transpose.
 
         All two-electron tensors retain bra-ket-bra-ket order.  An ERI block
-        requested as ``(k1, k2, k3)`` therefore has fourth momentum
-        ``k4 = kconserv[k1, k2, k3]`` and obeys
-        ``k1 - k2 + k3 - k4 = G``.  The three reverse contractions accumulate
-        the response at ``k2``, ``k3``, and ``k4``, respectively.
+        requested as (k1, k2, k3) therefore has fourth momentum
+        k4 = kconserv[k1, k2, k3] and obeys
+        k1 - k2 + k3 - k4 = G.  The three reverse contractions accumulate
+        the response at k2, k3, and k4, respectively.
         """
         coordinates = np.asarray(coordinates).reshape(-1)
         rotation_map = self.ugg.active_active_map
@@ -2857,10 +2856,10 @@ class KLASSCF_HessianOperator(molLASSCF_HessianOperator):
     def _make_orbital_response_dm(self, kappa):
         """Build one-sided 1-RDM and cumulant responses.
 
-        ``odm1s`` is in the block-MO basis.  ``ocm2[k1,k2,k3]`` has three
-        active indices at ``k1``, ``k2``, and ``k3`` and one general orbital
-        index at ``k4``.  These are bra-ket-bra-ket tensor indices, so their
-        momentum rule is ``k1 - k2 + k3 - k4 = G``.
+        odm1s is in the block-MO basis.  ocm2[k1,k2,k3] has three
+        active indices at k1, k2, and k3 and one general orbital
+        index at k4.  These are bra-ket-bra-ket tensor indices, so their
+        momentum rule is k1 - k2 + k3 - k4 = G.
         """
         _check_shape(
             kappa, (self.nkpts, self.nmo, self.nmo), label="kappa",
@@ -2908,7 +2907,7 @@ class KLASSCF_HessianOperator(molLASSCF_HessianOperator):
     def _get_ci_veff_response(self, tdm1s_block):
         """Return JK response to a full Hermitian CI transition density.
 
-        ``tdm1s_block`` is already Hermitian and must not be completed a
+        tdm1s_block is already Hermitian and must not be completed a
         second time.  This helper is normalization neutral: it returns the
         response to exactly the density supplied by its caller.
         """
@@ -2961,10 +2960,10 @@ class KLASSCF_HessianOperator(molLASSCF_HessianOperator):
         """Complete the active cumulant response using its two symmetries.
 
         For bra-ket-bra-ket ordering, Hermiticity is
-        ``L[a,b,c,d] = L[b,a,d,c].conj()`` and electron-pair exchange is
-        ``L[a,b,c,d] = L[c,d,a,b]``.  The corresponding source k-point blocks
-        are ``(k2,k1,k4)`` and ``(k3,k4,k1)``; each still obeys the original
-        ``+ - + -`` momentum rule.
+        L[a,b,c,d] = L[b,a,d,c].conj() and electron-pair exchange is
+        L[a,b,c,d] = L[c,d,a,b].  The corresponding source k-point blocks
+        are (k2,k1,k4) and (k3,k4,k1); each still obeys the original
+        + - + - momentum rule.
         """
         _check_shape(
             ocm2,
@@ -3047,23 +3046,23 @@ class KLASSCF_HessianOperator(molLASSCF_HessianOperator):
         """Differentiate the cumulant Fock term for external rotations.
 
         The molecular real-orbital implementation reduces all four integral
-        derivatives to ``ppaa`` and ``papa`` by permutational symmetry.  For
+        derivatives to ppaa and papa by permutational symmetry.  For
         complex Bloch orbitals, some of those permutations also conjugate the
         integrals.  Contracting the three differentiated active integral
-        indices directly with the disk-backed ``ppaa``, ``papa``, and
-        ``paap`` blocks avoids that real-only assumption.
+        indices directly with the disk-backed ppaa, papa, and
+        paap blocks avoids that real-only assumption.
 
         The returned matrix omits the final skew-Hermitian completion.  Its
-        ``-F_cumulant @ kappa`` connection term combines with the half
+        -F_cumulant @ kappa connection term combines with the half
         commutator already added by :meth:`orbital_response` to give the
         covariant orbital Hessian used by the molecular implementation.
 
-        This is the first-order expansion of ``mc1step.gorb_update``.  The
+        This is the first-order expansion of mc1step.gorb_update.  The
         stored ERIs retain bra-ket-bra-ket order and therefore always use
-        ``k1 - k2 + k3 - k4 = G``.  ``mc1step`` also constructs a regrouped
-        ``hdm2_ppaa[p,u,q,v]`` tensor whose labels obey ``k1 + k2 - k3 - k4``;
+        k1 - k2 + k3 - k4 = G.  mc1step also constructs a regrouped
+        hdm2_ppaa[p,u,q,v] tensor whose labels obey k1 + k2 - k3 - k4;
         that alternate rule does not apply here because the contractions below
-        consume ``kappa`` before such a regrouped Hessian tensor is formed.
+        consume kappa before such a regrouped Hessian tensor is formed.
         """
         _check_shape(
             kappa, (self.nkpts, self.nmo, self.nmo), label="kappa",
@@ -3125,7 +3124,7 @@ class KLASSCF_HessianOperator(molLASSCF_HessianOperator):
 
     @staticmethod
     def _ci_step_is_zero(ci1):
-        """Return whether every determinant coefficient in ``ci1`` is zero."""
+        """Return whether every determinant coefficient in ci1 is zero."""
         return not any(np.any(c1) for ci1_r in ci1 for c1 in ci1_r)
 
     def _matvec(self, x):
