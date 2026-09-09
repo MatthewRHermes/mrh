@@ -934,13 +934,12 @@ class KLASSCF_HessianOperator(molLASSCF_HessianOperator):
         kpts = np.asarray(kpts)
         kmesh = tuple(int(n) for n in kmesh)
 
-        if len(kmesh) != 3 or any(n <= 0 for n in kmesh):
+        if len(kmesh) != 3:
             raise ValueError("kmesh must contain three positive integers")
+        
         ncell = int(np.prod(kmesh))
         if len(kpts) != ncell:
-            raise ValueError(
-                f"kpts and kmesh are inconsistent: {len(kpts)} != {ncell}"
-            )
+            raise ValueError(f"kpts and kmesh are inconsistent: {len(kpts)} != {ncell}")
 
         self.las = klas
         self.ugg = ugg
@@ -961,31 +960,27 @@ class KLASSCF_HessianOperator(molLASSCF_HessianOperator):
         self.nmo = self.mo_coeff.shape[-1]
         self.nocc = self.ncore + self.ncas
         if np.sum(self.ncas_sub) != self.ncastot:
-            msg = (
-                "Wannier and block-MO active spaces are inconsistent: "
+            msg = ("Wannier and block-MO active spaces are inconsistent: "
                 f"sum(ncas_sub)={np.sum(self.ncas_sub)}, but ncastot="
-                f"ncas*nkpts={self.ncastot}"
-            )
+                f"ncas*nkpts={self.ncastot}")
             raise ValueError(msg)
-        if self.nocc > self.nmo:
-            msg = (
-                "mo_coeff does not contain the full core and active spaces: "
-                f"ncore+ncas={self.nocc}, nmo={self.nmo}"
-            )
-            raise ValueError(msg)
+
         self.fciboxes = klas.fciboxes
         self.nroots = klas.nroots
         self.weights = klas.weights
         self.ci_transformers = ugg.ci_transformers
         self.frozen_ci = set(getattr(ugg, "frozen_ci", None) or [])
+
         if len(self.ci_transformers) != len(self.ci):
-            raise ValueError(
-                "ugg.ci_transformers must contain one entry per CI cell"
-            )
+            msg = "ugg.ci_transformers must contain one entry per CI cell"
+            raise ValueError(msg)
+        
         self.nvar_ci = 0
+
         for ifrag, (transformers, ci0_r) in enumerate(zip(
                 self.ci_transformers, self.ci)):
             if len(transformers) != len(ci0_r):
+
                 msg = (
                     f"cell {ifrag} has {len(transformers)} CSF transformers "
                     f"for {len(ci0_r)} CI roots"
@@ -1020,12 +1015,8 @@ class KLASSCF_HessianOperator(molLASSCF_HessianOperator):
             )
 
         self.casdm1frs = casdm1frs
-        self.casdm1fs = self.las.make_casdm1s_sub(
-            casdm1frs=casdm1frs,
-        )
-        self.casdm1rs = self.las.states_make_casdm1s(
-            casdm1frs=casdm1frs,
-        )
+        self.casdm1fs = self.las.make_casdm1s_sub(casdm1frs=casdm1frs,)
+        self.casdm1rs = self.las.states_make_casdm1s(casdm1frs=casdm1frs,)
         self.casdm1s = np.einsum(
             "r,rsij->sij", self.weights, self.casdm1rs,
         )
@@ -1055,12 +1046,8 @@ class KLASSCF_HessianOperator(molLASSCF_HessianOperator):
         casdm1a, casdm1b = self.casdm1s
         casdm1 = casdm1a + casdm1b
         self.cascm2 = self.casdm2 - np.multiply.outer(casdm1, casdm1)
-        self.cascm2 += np.multiply.outer(
-            casdm1a, casdm1a,
-        ).transpose(0, 3, 2, 1)
-        self.cascm2 += np.multiply.outer(
-            casdm1b, casdm1b,
-        ).transpose(0, 3, 2, 1)
+        self.cascm2 += np.multiply.outer(casdm1a, casdm1a,).transpose(0, 3, 2, 1)
+        self.cascm2 += np.multiply.outer(casdm1b, casdm1b,).transpose(0, 3, 2, 1)
 
         if dm1s_kpts is None:
             dm1s_kpts = self.las.make_rdm1s(
@@ -1108,6 +1095,7 @@ class KLASSCF_HessianOperator(molLASSCF_HessianOperator):
             veff_kpts = self.las.get_veff(
                 self.las._scf.cell, dm_kpts=self.dm1s_kpts,
             )
+
         self.veff_kpts = np.asarray(veff_kpts)
         _check_shape(
             self.veff_kpts, (2, self.nkpts, self.nao, self.nao),
@@ -1151,9 +1139,8 @@ class KLASSCF_HessianOperator(molLASSCF_HessianOperator):
             )
 
         if len(h1eff) != len(self.ncas_sub):
-            raise ValueError(
-                "h1eff must contain one block for every fragment/cell"
-            )
+            raise ValueError("h1eff must contain one block for every fragment/cell")
+        
         for ifrag, (h1fr, ncas) in enumerate(zip(h1eff, self.ncas_sub)):
             _check_shape(
                 h1fr, (self.nroots, 2, ncas, ncas),
@@ -1184,12 +1171,14 @@ class KLASSCF_HessianOperator(molLASSCF_HessianOperator):
 
     def _init_orb_(self, mo_phase=None):
         """Build the reference generalized Fock matrix in block-MO form."""
+
         if mo_phase is None:
             mo_act_kpts = self.mo_coeff[:, :, self.ncore:self.nocc]
             mo_phase = get_wannier_orbs(
                 self.las._scf, self.kmesh, mo_act_kpts,
             )[-1]
         self.mo_phase = np.asarray(mo_phase)
+
         _check_shape(
             self.mo_phase, (self.nkpts, self.ncas, self.ncastot),
             label="mo_phase",
@@ -1198,6 +1187,7 @@ class KLASSCF_HessianOperator(molLASSCF_HessianOperator):
         dtype = np.result_type(
             self.h1s.dtype, self.dm1s.dtype, self.cascm2.dtype,
         )
+
         self.fock1 = np.empty(
             (self.nkpts, self.nmo, self.nmo), dtype=dtype,
         )
@@ -1233,7 +1223,7 @@ class KLASSCF_HessianOperator(molLASSCF_HessianOperator):
         self.linkstr = []
         for fcibox, norb, nelec in zip(
                 self.fciboxes, self.ncas_sub, self.nelecas_sub):
-            # Complex periodic contractions use ordinary link tables without
+            # Complex FCI use ordinary link tables without
             # molecular lower-triangular index packing.
             linkstr = fcibox.states_gen_linkstr(norb, nelec, False)
             self.linkstrl.append(linkstr)
@@ -1255,7 +1245,7 @@ class KLASSCF_HessianOperator(molLASSCF_HessianOperator):
         """Build the first-order spin 1-RDM generated by a CI step.
 
         Returns:
-            ndarray of shape (nroots, 2, ncastot, ncastot)
+            tdm1s: ndarray of shape (nroots, 2, ncastot, ncastot)
                 Hermitian root-resolved transition density in the complete
                 Wannier active space.
         """
@@ -1265,36 +1255,41 @@ class KLASSCF_HessianOperator(molLASSCF_HessianOperator):
         """Build complex CI transition 1-RDMs and the effective cumulant.
 
         Returns:
-            tuple
+            tdm1, tdm2: tuple
                 Hermitian root-resolved spin 1-RDMs and the state-averaged
                 effective transition cumulant in the Wannier active space.
         """
         return self._make_tdm1s2c_sub(ci1, with_cumulant=True)
 
     def _make_tdm1s2c_sub(self, ci1, with_cumulant):
-        """Implement the shared one- and two-body CI density builders."""
+        """
+        Implement the shared one- and two-body CI density builders.
+        """
+
         dtype = np.result_type(self.eri_cas.dtype, np.complex128)
         tdm1rs_one_sided = np.zeros(
             (self.nroots, 2, self.ncastot, self.ncastot), dtype=dtype,
         )
+
         if with_cumulant:
-            tdm2_one_sided = np.zeros(
-                (self.ncastot,) * 4, dtype=dtype,
-            )
+            tdm2_one_sided = np.zeros((self.ncastot,) * 4, dtype=dtype,)
 
         for ifrag, (fcibox, norb, nelec, c1_r, c0_r) in enumerate(zip(
                 self.fciboxes, self.ncas_sub, self.nelecas_sub,
                 ci1, self.ci)):
+            
             i = int(np.sum(self.ncas_sub[:ifrag]))
             j = i + int(norb)
             linkstr = None if self.linkstr is None else self.linkstr[ifrag]
 
             state_arg = fcibox._state_args
             solver_arg = fcibox._solver_args
+
             nelec_by_solver = [
                 fcibox._get_nelec(solver, nelec)
                 for solver in fcibox.fcisolvers
             ]
+
             collect_args = (
                 state_arg(c1_r),
                 state_arg(c0_r),
@@ -1303,6 +1298,7 @@ class KLASSCF_HessianOperator(molLASSCF_HessianOperator):
             )
             collect_kwargs = {"link_index": solver_arg(linkstr)}
             contraction = "trans_rdm12s" if with_cumulant else "trans_rdm1s"
+
             try:
                 transition_rdm_r = list(fcibox._collect(
                     contraction, *collect_args, **collect_kwargs,
@@ -1373,23 +1369,28 @@ class KLASSCF_HessianOperator(molLASSCF_HessianOperator):
         reference density and complements one JK response in the orbital-CI
         Hessian action.
         """
+
         tdm1rs_one_sided = np.asarray(tdm1rs_one_sided)
         tdm2_one_sided = np.asarray(tdm2_one_sided)
+
         _check_shape(
             tdm1rs_one_sided,
             (self.nroots, 2, self.ncastot, self.ncastot),
             label="one_sided_transition_dm1rs",
         )
+
         _check_shape(
             tdm2_one_sided, (self.ncastot,) * 4,
             label="one_sided_transition_dm2",
         )
+
         _check_shape(
             self.casdm1s, (2, self.ncastot, self.ncastot),
             label="casdm1s",
         )
         weights = np.asarray(self.weights)
         _check_shape(weights, (self.nroots,), label="state_average_weights")
+
         tdm1rs = (
             tdm1rs_one_sided
             + tdm1rs_one_sided.conj().transpose(0, 1, 3, 2)
@@ -1411,6 +1412,7 @@ class KLASSCF_HessianOperator(molLASSCF_HessianOperator):
             i, j = offsets[ifrag:ifrag + 2]
             tdm1s_i = tdm1rs[:, :, i:j, i:j]
             dm1s_i = np.asarray(self.casdm1frs[ifrag])
+
             _check_shape(
                 dm1s_i,
                 (self.nroots, 2, j - i, j - i),
@@ -1962,13 +1964,14 @@ class KLASSCF_HessianOperator(molLASSCF_HessianOperator):
         pieces = [horb_diag]
         pieces.extend(hci_diag)
         if pieces:
-            diagonal = np.concatenate(pieces)
+            hdiag = np.concatenate(pieces)
         else:
-            diagonal = np.empty(0, dtype=np.complex128)
+            hdiag = np.empty(0, dtype=np.complex128)
+
         _check_shape(
-            diagonal, (self.ugg.nvar_tot,), label="Hdiag",
+            hdiag, (self.ugg.nvar_tot,), label="Hdiag",
         )
-        return diagonal
+        return hdiag
 
     def get_grad(self):
         """Return the periodic complex gradient in packed UGG ordering."""
@@ -2114,9 +2117,7 @@ class KLASSCF_HessianOperator(molLASSCF_HessianOperator):
         """
         mo1, ci1 = self.update_mo_ci(x)
         h2eff1 = np.asarray(self.las.get_h2cas(mo1))
-        _check_shape(
-            h2eff1, (self.ncastot,) * 4, label="updated_h2eff_sub",
-        )
+        _check_shape(h2eff1, (self.ncastot,) * 4, label="updated_h2eff_sub",)
         return mo1, ci1, h2eff1
 
     def ci_response_offdiag(self, h1frs_response):
