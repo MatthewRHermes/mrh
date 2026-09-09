@@ -302,13 +302,13 @@ class KnownValuesKLASSCFHessianFiniteDifference(unittest.TestCase):
 
                 step = 2.5e-3
                 gradient_plus = ugg.pack_orb(klas.get_grad_orb(
-                    mo_coeff_kpts=_rotate_mos(
+                    mo_coeff=_rotate_mos(
                         mo_coeff, kappa, step,
                     ),
                     ci=ci,
                 ))
                 gradient_minus = ugg.pack_orb(klas.get_grad_orb(
-                    mo_coeff_kpts=_rotate_mos(
+                    mo_coeff=_rotate_mos(
                         mo_coeff, kappa, -step,
                     ),
                     ci=ci,
@@ -358,12 +358,12 @@ class KnownValuesKLASSCFHessianFiniteDifference(unittest.TestCase):
         ci_minus = _displace_ci(self.ci, ci_direction, -step)
         orbital_gradient_plus = self.ugg.pack_orb(
             self.klas.get_grad_orb(
-                mo_coeff_kpts=self.mo_coeff, ci=ci_plus,
+                mo_coeff=self.mo_coeff, ci=ci_plus,
             )
         )
         orbital_gradient_minus = self.ugg.pack_orb(
             self.klas.get_grad_orb(
-                mo_coeff_kpts=self.mo_coeff, ci=ci_minus,
+                mo_coeff=self.mo_coeff, ci=ci_minus,
             )
         )
         finite_orbital_ci = (

@@ -687,9 +687,8 @@ def get_grad_ci(klas, mo_coeff=None, ci=None, ugg=None,
     return gradient
 
 
-def get_grad_orb(
-        klas, mo_coeff_kpts=None, ci=None, h2eff_sub=None,
-        veff_kpts=None, dm1s_kpts=None, hermi=-1):
+def get_grad_orb(klas, mo_coeff=None, ci=None, h2eff_sub=None,
+                 veff_kpts=None, dm1s_kpts=None, hermi=-1):
     """Evaluate the k-LASSCF orbital gradient or effective Fock matrix.
 
     The one-body contribution is formed independently at each k-point. The
@@ -703,7 +702,7 @@ def get_grad_orb(
             k-point metadata.
 
     Kwargs:
-        mo_coeff_kpts : ndarray of shape (nkpts, nao, nmo), optional
+        mo_coeff : ndarray of shape (nkpts, nao, nmo), optional
             Bloch-MO coefficients. Defaults to klas.mo_coeff.
         ci : sequence, optional
             Nested [fragment][root] Wannier-basis CI vectors. Defaults to
@@ -736,19 +735,19 @@ def get_grad_orb(
     kpts = klas.kpts
     nkpts = len(kpts)
 
-    if mo_coeff_kpts is None:
-        mo_coeff_kpts = klas.mo_coeff
-    mo_coeff_kpts = np.asarray(mo_coeff_kpts)
+    if mo_coeff is None:
+        mo_coeff = klas.mo_coeff
+    mo_coeff = np.asarray(mo_coeff)
     if ci is None:
         ci = klas.ci
     if dm1s_kpts is None:
-        dm1s_kpts = klas.make_rdm1s(mo_coeff=mo_coeff_kpts, ci=ci)
+        dm1s_kpts = klas.make_rdm1s(mo_coeff=mo_coeff, ci=ci)
     if h2eff_sub is None:
-        h2eff_sub = klas._klasscf_eris(klas, mo_coeff_kpts)
+        h2eff_sub = klas._klasscf_eris(klas, mo_coeff)
     if veff_kpts is None:
         veff_kpts = klas.get_veff(cell, dm_kpts=dm1s_kpts)
 
-    _, nmo = mo_coeff_kpts.shape[-2:]
+    _, nmo = mo_coeff.shape[-2:]
     ncore = klas.ncore
     ncas = klas.ncas
     nocc = ncore + ncas
@@ -764,7 +763,7 @@ def get_grad_orb(
         get_paaa = lambda k1, k2, k3: h2eff_sub[k1, k2, k3]
 
     dtype = np.result_type(
-        mo_coeff_kpts.dtype, veff_kpts.dtype, dm1s_kpts.dtype,
+        mo_coeff.dtype, veff_kpts.dtype, dm1s_kpts.dtype,
     )
     ovlp_kpts = klas._scf.get_ovlp(kpts=kpts)
     hcore_kpts = klas.get_hcore(kpts=kpts)
@@ -772,14 +771,14 @@ def get_grad_orb(
 
     f1 = np.empty((nkpts, nmo, nmo), dtype=dtype)
     for k in range(nkpts):
-        smo_coeff_k = ovlp_kpts[k] @ mo_coeff_kpts[k]
+        smo_coeff_k = ovlp_kpts[k] @ mo_coeff[k]
         dm1s_mo = (
             smo_coeff_k.conj().T @ dm1s_kpts[:, k] @ smo_coeff_k
         )
         h1es_mo = (
-            mo_coeff_kpts[k].conj().T
+            mo_coeff[k].conj().T
             @ h1es_kpts[:, k]
-            @ mo_coeff_kpts[k]
+            @ mo_coeff[k]
         )
         f1[k] = (
             h1es_mo[0] @ dm1s_mo[0]
@@ -800,7 +799,7 @@ def get_grad_orb(
         casdm1s[1], casdm1s[1],
     ).transpose(0, 3, 2, 1)
 
-    mo_act_kpts = mo_coeff_kpts[:, :, ncore:nocc]
+    mo_act_kpts = mo_coeff[:, :, ncore:nocc]
     mo_phase = get_wannier_orbs(
         klas._scf, klas.kmesh, mo_act_kpts,
     )[-1]
@@ -876,7 +875,7 @@ def get_grad(
     if ugg is None:
         ugg = klas.get_ugg(mo_coeff=mo_coeff, ci=ci)
     gorb = klas.get_grad_orb(
-        mo_coeff_kpts=mo_coeff, ci=ci, h2eff_sub=h2eff_sub,
+        mo_coeff=mo_coeff, ci=ci, h2eff_sub=h2eff_sub,
         veff_kpts=veff_kpts, dm1s_kpts=dm1s_kpts,
     )
     gci = klas.get_grad_ci(
