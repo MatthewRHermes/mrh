@@ -582,16 +582,15 @@ def get_ugg(klas, mo_coeff=None, ci=None, mo_phase=None):
     )
 
 
-def get_grad_ci(
-        klas, mo_coeff=None, ci=None, ugg=None, casdm1frs=None,
-        h1eff=None, h2eff=None):
+def get_grad_ci(klas, mo_coeff=None, ci=None, ugg=None, 
+                casdm1frs=None, h1eff=None, h2eff=None):
     """Evaluate the k-LASSCF energy gradient with respect to the CI vectors.
 
     For each fragment and root, this function constructs the local Hamiltonian
     action and removes its component parallel to the reference CI vector. The
     resulting determinant-basis residual is
 
-    2 * (H c - <c|H c> c).
+    2 * (H c - <c|H|c> c).
 
     Constructing the residual directly keeps the gradient layer independent
     of the k-LASSCF Hessian operator.
@@ -620,7 +619,7 @@ def get_grad_ci(
             Two-electron integrals in the complete Wannier active space.
 
     Returns:
-        list
+        grad_ci: list of list of ndarray
             Nested [fragment][root] determinant-basis CI gradients with
             the same individual shapes as ci.
 
@@ -639,45 +638,47 @@ def get_grad_ci(
 
     ncas_sub = np.asarray(klas.ncas_sub, dtype=int)
     ncastot = int(ncas_sub.sum())
+
     _check_shape(h2eff, (ncastot,) * 4, label="h2eff")
 
     if h1eff is None:
         if casdm1frs is None:
-            casdm1frs = klas.states_make_casdm1s_sub(
-                ci=ci, ncas_sub=ncas_sub,
-                nelecas_sub=klas.nelecas_sub,
-            )
-        casdm1s_sub = klas.make_casdm1s_sub(
-            ci=ci, casdm1frs=casdm1frs,
-        )
+            casdm1frs = klas.states_make_casdm1s_sub(ci=ci, ncas_sub=ncas_sub,
+                                                     nelecas_sub=klas.nelecas_sub,
+                                                     )
+        casdm1s_sub = klas.make_casdm1s_sub(ci=ci, casdm1frs=casdm1frs,)
+
         h1eff = klas.h1e_for_las(
             mo_coeff=mo_coeff, ci=ci, ncas_sub=ncas_sub,
             nelecas_sub=klas.nelecas_sub,
             casdm1s_sub=casdm1s_sub, casdm1frs=casdm1frs,
             eri_cas=h2eff,
         )
+
     if len(h1eff) != len(ncas_sub):
-        raise ValueError(
-            "h1eff must contain one entry for every fragment/cell"
-        )
+        msg = "h1eff must contain one entry for every fragment/cell"
+        raise ValueError(msg)
 
     gradient = []
     offset = 0
     for ifrag, (fcibox, norb, nelec, h1frs, ci_r) in enumerate(zip(
             klas.fciboxes, ncas_sub, klas.nelecas_sub, h1eff, ci)):
         stop = offset + int(norb)
-        _check_shape(
-            h1frs, (klas.nroots, 2, norb, norb),
-            label=f"h1fr_{ifrag}",
-        )
+
+        _check_shape(h1frs, (klas.nroots, 2, norb, norb),
+                     label=f"h1fr_{ifrag}",)
+
         h2frag = h2eff[offset:stop, offset:stop, offset:stop, offset:stop]
         linkstr = fcibox.states_gen_linkstr(norb, nelec, False)
         absorbed = fcibox.states_absorb_h1e(
             h1frs, h2frag, norb, nelec, 0.5,
         )
+
         hci_r = fcibox.states_contract_2e(
             absorbed, ci_r, norb, nelec, link_index=linkstr,
         )
+
+        # Finally gradient:
         gradient.append([
             2.0 * (hc - np.vdot(c, hc) * c)
             for hc, c in zip(hci_r, ci_r)
