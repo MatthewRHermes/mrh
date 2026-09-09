@@ -1,9 +1,9 @@
 #!/usr/bin/env python
-
 import numpy as np
+from scipy import linalg
+
 from pyscf import lib
 from pyscf.pbc.lib import kpts_helper
-from scipy import linalg
 
 from mrh.my_pyscf.mcscf.lasscf_sync_o0 import (
     LASSCF_HessianOperator as molLASSCF_HessianOperator,
@@ -910,7 +910,7 @@ class KLASSCF_HessianOperator(molLASSCF_HessianOperator):
                 Orbital/CI parameterization for external trial vectors.
             mo_coeff, ci : optional
                 Reference orbitals and CI vectors. They default to the
-                corresponding attributes of ``las``.
+                corresponding attributes of las.
             casdm1frs, casdm2fr : optional
                 Precomputed fragment density matrices in the Wannier basis.
             h1eff, h2eff : optional
@@ -1010,9 +1010,9 @@ class KLASSCF_HessianOperator(molLASSCF_HessianOperator):
     def _init_dms_(self, casdm1frs, casdm2fr=None, dm1s_kpts=None):
         """Initialize reference density matrices in their natural bases.
 
-        ``casdm1s``, ``casdm2``, and ``cascm2`` are retained in the complete
-        Wannier active space. ``dm1s_kpts`` is spin resolved in the AO basis,
-        while ``dm1s`` is its block-MO representation.
+        casdm1s, casdm2, and cascm2 are retained in the complete
+        Wannier active space. dm1s_kpts is spin resolved in the AO basis,
+        while dm1s is its block-MO representation.
         """
         if casdm1frs is None:
             casdm1frs = self.las.states_make_casdm1s_sub(
@@ -1096,10 +1096,10 @@ class KLASSCF_HessianOperator(molLASSCF_HessianOperator):
     def _init_ham_(self, h1eff, h2eff, veff_kpts=None):
         """Initialize block-MO and Wannier-basis Hamiltonians.
 
-        ``h1frs[f][r]`` is the spin-resolved effective one-electron
-        Hamiltonian for fragment ``f`` and root ``r``. ``eri_cas`` contains
+        h1frs[f][r] is the spin-resolved effective one-electron
+        Hamiltonian for fragment f and root r. eri_cas contains
         the two-electron integrals over the complete Wannier active space.
-        ``hcore`` and ``h1s`` retain a k-point axis and use the block-MO basis.
+        hcore and h1s retain a k-point axis and use the block-MO basis.
         """
         if h2eff is None:
             h2eff = self.las.get_h2cas(self.mo_coeff)
@@ -1168,8 +1168,8 @@ class KLASSCF_HessianOperator(molLASSCF_HessianOperator):
     def _init_eri_(self, eris=None):
         """Attach lazy block-MO ERI accessors for orbital response.
 
-        The default periodic ERI object stores ``ppaa``, ``papa``, and
-        ``paap`` blocks on disk. ``eri_paaa`` remains an accessor rather than
+        The default periodic ERI object stores ppaa, papa, and
+        paap blocks on disk. eri_paaa remains an accessor rather than
         a materialized supercell tensor. Level one also constructs the compact
         core-orbital intermediates used by the analytic Hessian diagonal.
         """
@@ -1366,12 +1366,12 @@ class KLASSCF_HessianOperator(molLASSCF_HessianOperator):
             self, tdm1rs_one_sided, tdm2_one_sided):
         """Construct the complex state-averaged effective CI cumulant.
 
-        Both inputs are the one-sided ``<c1|...|c0>`` quantities after
-        reference-overlap subtraction. ``tdm2_one_sided`` contains the
+        Both inputs are the one-sided <c1|...|c0> quantities after
+        reference-overlap subtraction. tdm2_one_sided contains the
         explicitly correlated same-fragment transition blocks. The
         inter-fragment product-state Coulomb and same-spin exchange blocks
         are differentiated explicitly before the cumulant decomposition.
-        The latter uses the stored state-averaged ``self.casdm1s`` as its
+        The latter uses the stored state-averaged self.casdm1s as its
         reference density and complements one JK response in the orbital-CI
         Hessian action.
         """
@@ -1487,8 +1487,8 @@ class KLASSCF_HessianOperator(molLASSCF_HessianOperator):
     def _transition_dm1s_to_block(self, tdm1rs):
         """Transform the state-averaged CI transition 1-RDM to block MOs.
 
-        ``tdm1rs`` is root resolved in the complete Wannier active space.
-        The returned density has shape ``(2, nkpts, nmo, nmo)`` and is zero
+        tdm1rs is root resolved in the complete Wannier active space.
+        The returned density has shape (2, nkpts, nmo, nmo) and is zero
         outside its active-active blocks. This routine performs only state
         averaging and basis transformation; the factor-of-two convention of
         the orbital-CI Hessian action is applied by its eventual caller.
@@ -1531,8 +1531,8 @@ class KLASSCF_HessianOperator(molLASSCF_HessianOperator):
         """Transform and contract a Wannier CI transition cumulant.
 
         Each transformed block retains bra-ket-bra-ket order and therefore
-        uses ``k1 - k2 + k3 - k4 = G``. The returned generalized-Fock
-        contribution has shape ``(nkpts, nmo, nmo)`` and is nonzero only in
+        uses k1 - k2 + k3 - k4 = G. The returned generalized-Fock
+        contribution has shape (nkpts, nmo, nmo) and is nonzero only in
         its active columns. As with the transition 1-RDM transformation, no
         orbital-Hessian factor of two is applied here.
         """
@@ -1717,7 +1717,7 @@ class KLASSCF_HessianOperator(molLASSCF_HessianOperator):
         The periodic orbital-orbital response is complex and uses disk-backed
         ERIs. Reconstructing its diagonal from unit orbital directions gives
         an exact reference for the analytic preconditioner, including the
-        ``kappa2/2`` packing convention. The result is cached because the
+        kappa2/2 packing convention. The result is cached because the
         Hessian intermediates are immutable for the operator's lifetime.
         """
         cached = getattr(self, "_Horb_diag_matvec_cache", None)
@@ -1758,9 +1758,9 @@ class KLASSCF_HessianOperator(molLASSCF_HessianOperator):
 
         This is the momentum-resolved counterpart of the molecular
         core-active, core-virtual, and active-virtual diagonal formulas. It
-        follows the complex periodic construction in ``mc1step.gen_g_hop``
-        but contracts only the ``(p,u,p,u)`` elements needed by the diagonal,
-        rather than materializing its three large ``hdm2`` tensors.
+        follows the complex periodic construction in mc1step.gen_g_hop
+        but contracts only the (p,u,p,u) elements needed by the diagonal,
+        rather than materializing its three large hdm2 tensors.
 
         The returned vector follows the external prefix of the UGG ordering.
         Active-active coordinates are handled separately.
@@ -1908,8 +1908,8 @@ class KLASSCF_HessianOperator(molLASSCF_HessianOperator):
 
         For complex orbital coordinates the orbital-orbital response is
         real-linear rather than complex-linear. The returned pair
-        ``(H, H_conj)`` represents
-        ``H @ x + H_conj @ x.conj()`` exactly. Both blocks are evaluated in
+        (H, H_conj) represents
+        H @ x + H_conj @ x.conj() exactly. Both blocks are evaluated in
         the projected UGG active-active coordinate basis.
         """
         cached = getattr(self, "_Horb_active_active_cache", None)
@@ -1988,9 +1988,9 @@ class KLASSCF_HessianOperator(molLASSCF_HessianOperator):
     def _update_mo(self, kappa):
         """Apply one packed-coordinate orbital step at every k-point.
 
-        ``ugg.unpack_orb`` returns the full anti-Hermitian matrix associated
+        ugg.unpack_orb returns the full anti-Hermitian matrix associated
         with the independent lower-triangular coordinates. As in molecular
-        LASSCF, the corresponding orbital generator is ``kappa / 2``; using
+        LASSCF, the corresponding orbital generator is kappa / 2; using
         the full matrix in the exponential would apply twice the requested
         step.
         """
@@ -2108,7 +2108,7 @@ class KLASSCF_HessianOperator(molLASSCF_HessianOperator):
     def update_mo_ci_eri(self, x, h2eff_sub=None):
         """Apply a rotation and rebuild Wannier active-space integrals.
 
-        ``h2eff_sub`` is accepted for compatibility with the molecular
+        h2eff_sub is accepted for compatibility with the molecular
         optimizer interface. Periodic active-space integrals cannot generally
         be updated from that old tensor after external orbital rotations, so
         they are recomputed from the updated block MOs. The disk-backed ERI
@@ -2124,7 +2124,7 @@ class KLASSCF_HessianOperator(molLASSCF_HessianOperator):
     def ci_response_offdiag(self, h1frs_response):
         """Apply the different-cell blocks of the CI Hessian.
 
-        ``h1frs_response`` is the effective one-electron response returned by
+        h1frs_response is the effective one-electron response returned by
         :meth:`get_h1eff_response`. It contains no self-cell contribution.
         """
         if len(h1frs_response) != len(self.fciboxes):
@@ -2173,7 +2173,7 @@ class KLASSCF_HessianOperator(molLASSCF_HessianOperator):
 
         Returns:
             list
-                Nested ``[fragment][root]`` determinant-basis responses.
+                Nested [fragment][root] determinant-basis responses.
         """
         x_flat = np.asarray(x).reshape(-1)
         if x_flat.size != self.nvar_ci:
@@ -2211,7 +2211,7 @@ class KLASSCF_HessianOperator(molLASSCF_HessianOperator):
 
         Args:
             ci : sequence
-                Nested ``[fragment][root]`` determinant-basis responses.
+                Nested [fragment][root] determinant-basis responses.
 
         Returns:
             ndarray of shape (nvar_ci,)
@@ -2492,7 +2492,7 @@ class KLASSCF_HessianOperator(molLASSCF_HessianOperator):
         )
 
     def _orbital_hessian_response(self, kappa1):
-        """Apply the orbital-orbital Hessian block to ``kappa1``.
+        """Apply the orbital-orbital Hessian block to kappa1.
 
         The general block-MO contractions are retained for all external
         sectors.  The contribution from a projected active-active input to
@@ -2609,10 +2609,10 @@ class KLASSCF_HessianOperator(molLASSCF_HessianOperator):
         optimizer metric; it is not a complex conjugate transpose.
 
         All two-electron tensors retain bra-ket-bra-ket order.  An ERI block
-        requested as ``(k1, k2, k3)`` therefore has fourth momentum
-        ``k4 = kconserv[k1, k2, k3]`` and obeys
-        ``k1 - k2 + k3 - k4 = G``.  The three reverse contractions accumulate
-        the response at ``k2``, ``k3``, and ``k4``, respectively.
+        requested as (k1, k2, k3) therefore has fourth momentum
+        k4 = kconserv[k1, k2, k3] and obeys
+        k1 - k2 + k3 - k4 = G.  The three reverse contractions accumulate
+        the response at k2, k3, and k4, respectively.
         """
         coordinates = np.asarray(coordinates).reshape(-1)
         rotation_map = self.ugg.active_active_map
@@ -2857,10 +2857,10 @@ class KLASSCF_HessianOperator(molLASSCF_HessianOperator):
     def _make_orbital_response_dm(self, kappa):
         """Build one-sided 1-RDM and cumulant responses.
 
-        ``odm1s`` is in the block-MO basis.  ``ocm2[k1,k2,k3]`` has three
-        active indices at ``k1``, ``k2``, and ``k3`` and one general orbital
-        index at ``k4``.  These are bra-ket-bra-ket tensor indices, so their
-        momentum rule is ``k1 - k2 + k3 - k4 = G``.
+        odm1s is in the block-MO basis.  ocm2[k1,k2,k3] has three
+        active indices at k1, k2, and k3 and one general orbital
+        index at k4.  These are bra-ket-bra-ket tensor indices, so their
+        momentum rule is k1 - k2 + k3 - k4 = G.
         """
         _check_shape(
             kappa, (self.nkpts, self.nmo, self.nmo), label="kappa",
@@ -2908,7 +2908,7 @@ class KLASSCF_HessianOperator(molLASSCF_HessianOperator):
     def _get_ci_veff_response(self, tdm1s_block):
         """Return JK response to a full Hermitian CI transition density.
 
-        ``tdm1s_block`` is already Hermitian and must not be completed a
+        tdm1s_block is already Hermitian and must not be completed a
         second time.  This helper is normalization neutral: it returns the
         response to exactly the density supplied by its caller.
         """
@@ -2961,10 +2961,10 @@ class KLASSCF_HessianOperator(molLASSCF_HessianOperator):
         """Complete the active cumulant response using its two symmetries.
 
         For bra-ket-bra-ket ordering, Hermiticity is
-        ``L[a,b,c,d] = L[b,a,d,c].conj()`` and electron-pair exchange is
-        ``L[a,b,c,d] = L[c,d,a,b]``.  The corresponding source k-point blocks
-        are ``(k2,k1,k4)`` and ``(k3,k4,k1)``; each still obeys the original
-        ``+ - + -`` momentum rule.
+        L[a,b,c,d] = L[b,a,d,c].conj() and electron-pair exchange is
+        L[a,b,c,d] = L[c,d,a,b].  The corresponding source k-point blocks
+        are (k2,k1,k4) and (k3,k4,k1); each still obeys the original
+        + - + - momentum rule.
         """
         _check_shape(
             ocm2,
@@ -3047,23 +3047,23 @@ class KLASSCF_HessianOperator(molLASSCF_HessianOperator):
         """Differentiate the cumulant Fock term for external rotations.
 
         The molecular real-orbital implementation reduces all four integral
-        derivatives to ``ppaa`` and ``papa`` by permutational symmetry.  For
+        derivatives to ppaa and papa by permutational symmetry.  For
         complex Bloch orbitals, some of those permutations also conjugate the
         integrals.  Contracting the three differentiated active integral
-        indices directly with the disk-backed ``ppaa``, ``papa``, and
-        ``paap`` blocks avoids that real-only assumption.
+        indices directly with the disk-backed ppaa, papa, and
+        paap blocks avoids that real-only assumption.
 
         The returned matrix omits the final skew-Hermitian completion.  Its
-        ``-F_cumulant @ kappa`` connection term combines with the half
+        -F_cumulant @ kappa connection term combines with the half
         commutator already added by :meth:`orbital_response` to give the
         covariant orbital Hessian used by the molecular implementation.
 
-        This is the first-order expansion of ``mc1step.gorb_update``.  The
+        This is the first-order expansion of mc1step.gorb_update.  The
         stored ERIs retain bra-ket-bra-ket order and therefore always use
-        ``k1 - k2 + k3 - k4 = G``.  ``mc1step`` also constructs a regrouped
-        ``hdm2_ppaa[p,u,q,v]`` tensor whose labels obey ``k1 + k2 - k3 - k4``;
+        k1 - k2 + k3 - k4 = G.  mc1step also constructs a regrouped
+        hdm2_ppaa[p,u,q,v] tensor whose labels obey k1 + k2 - k3 - k4;
         that alternate rule does not apply here because the contractions below
-        consume ``kappa`` before such a regrouped Hessian tensor is formed.
+        consume kappa before such a regrouped Hessian tensor is formed.
         """
         _check_shape(
             kappa, (self.nkpts, self.nmo, self.nmo), label="kappa",
@@ -3125,7 +3125,7 @@ class KLASSCF_HessianOperator(molLASSCF_HessianOperator):
 
     @staticmethod
     def _ci_step_is_zero(ci1):
-        """Return whether every determinant coefficient in ``ci1`` is zero."""
+        """Return whether every determinant coefficient in ci1 is zero."""
         return not any(np.any(c1) for ci1_r in ci1 for c1 in ci1_r)
 
     def _matvec(self, x):
