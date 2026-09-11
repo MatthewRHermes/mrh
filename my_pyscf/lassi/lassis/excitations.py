@@ -397,7 +397,7 @@ class ExcitationPSFCISolver (ProductStateFCISolver):
         log.info ('Entering product-state fixed-point CI iteration')
         for it in range (max_cycle):
             # Re-diagonalize in truncated space
-            ts0 = ts
+            ts0, e_last = ts, e
             e, ts, w = self.eig1 (ham_pq, ci0, ts0=ts)
             ts.debug_delta (ts0, self.log, lbl='trunc')
             tts = ts.schmidt_trunc (nroots=nroots, log=self.log)
@@ -450,7 +450,6 @@ class ExcitationPSFCISolver (ProductStateFCISolver):
             disc_sval_max = max (list (ttsp.disc_svals) + [0.0,])
             space_delta = self.space_delta (ci0, ttsp0, ci1, ttsp, nroots)
             ci0 = ci1
-            e_last = e
         conv_str = ['NOT converged','converged'][int (converged)]
         log.info (('Product_state fixed-point CI iteration {} after {} '
                    'cycles').format (conv_str, it))
