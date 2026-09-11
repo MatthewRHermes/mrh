@@ -30,32 +30,72 @@ class TrialState:
         self.si = si
         self.lroots = get_lroots (ci)
 
-    def schmidt_trunc_(self, nroots=1, log=None):
-        '''Perform the Schmidt decomposition on the P-space part of an si vector, truncate all but
-        the highest nroots singular values, and correspondingly transform various intermediates.
+    def schmidt_trunc (self, nroots=1, log=None):
+        return TruncatedTrialState (self, nroots=nroots, log=log)
 
-        Args:
-            ts: instance of class `TrialState`
-                SI and CI vectors
+    def debug_delta (self, other, log, lbl=''):
+        if log.verbose < logger.DEBUG:
+            return
+        if other is None:
+            return
+        ci0, si0 = self.ci, self.si
+        ci1, si1 = other.ci, other.si
+        lr0, lr1 = self.lroots, other.lroots
+        n0 = np.prod (lr0)
+        n1 = np.prod (lr1)
+        si0_p, si0_q = si0[:n0], si0[n0:]
+        si1_p, si1_q = si1[:n1], si1[n1:]
+        ovlps = []
+        self.log.debug (f'{lbl} ExcitationPSFCISolver step analysis:')
+        for ifrag, (c0, c1) in enumerate (zip (ci0, ci1)):
+            n0 = lr0[ifrag]
+            n1 = lr1[ifrag]
+            x0 = np.asarray (c0[:n0]).reshape (n0,-1) 
+            x1 = np.asarray (c1[:n1]).reshape (n1,-1) 
+            ovlp = x0.conj () @ x1.T
+            ovlps.append (ovlp)
+            svals = linalg.svd (ovlp)[1]
+            self.log.debug (f'{lbl} F{ifrag} svals: {svals}')
+        assert (len (ovlps) == 2)
+        x1_p = lib.einsum ('rs,pr,qs->pq', si1_p.reshape (lr1, order='F'),
+                           ovlps[0], ovlps[1]).ravel ()
+        ovlp_p = np.dot (si0_p.conj (), x1_p)
+        ovlp_si_p = np.dot (si0_p.conj (), si1_p)
+        ovlp_q = np.dot (si0_q.conj (), si1_q)
+        self.log.debug (f'{lbl} <si0_p|si1_p> = {ovlp_si_p}')
+        self.log.debug (f'{lbl} <Psi0_p|Psi1_p> = {ovlp_p}')
+        self.log.debug (f'{lbl} <Psi0_q|Psi1_q> = {ovlp_q}')
+        ovlp = ovlp_p + ovlp_q
+        self.log.debug (f'{lbl} <Psi0|Psi1> = {ovlp}')
+        return delta
 
-        Kwargs:
-            nroots: integer
-                Number of roots for each fragment to retain; i.e., sqrt (p)
+class TruncatedTrialState:
+    '''Perform the Schmidt decomposition on the P-space part of an si vector, truncate all but
+    the highest nroots singular values, and correspondingly transform various intermediates.
 
-        Returns:
-            disc_svals: ndarray of shape (p-nroots,)
-                List of singular values discarded in the truncation
-            u: ndarray of shape (nroots+?,nroots)
-                nroots left-singular vectors
-            si_p: ndarray of shape (nroots,)
-                P-space part of the CI vector, in the Schmidt (diagonal) basis
-            si_q: ndarray of shape (q,)
-                Q-space part of the CI vector
-            vh: ndarray of shape (nroots,nroots+?)
-                nroots right-singular vectors
-        '''
-        si = self.si
-        ci = self.ci
+    Args:
+        ts: instance of class `TrialState`
+            SI and CI vectors
+
+    Kwargs:
+        nroots: integer
+            Number of roots for each fragment to retain; i.e., sqrt (p)
+
+    Attributes:
+        disc_svals: ndarray of shape (p-nroots,)
+            List of singular values discarded in the truncation
+        u: ndarray of shape (nroots+?,nroots)
+            nroots left-singular vectors
+        si_p: ndarray of shape (nroots,)
+            P-space part of the CI vector, in the Schmidt (diagonal) basis
+        si_q: ndarray of shape (q,)
+            Q-space part of the CI vector
+        vh: ndarray of shape (nroots,nroots+?)
+            nroots right-singular vectors
+    '''
+    def __init__(self, ts, nroots=1, log=None):
+        si = ts.si
+        ci = ts.ci
         t0 = lib.logger.process_clock (), lib.logger.perf_counter ()
         nfrags = len (ci)
         assert (nfrags==2)
@@ -79,7 +119,6 @@ class TrialState:
         self.si_p = si_p
         self.si_q = si_q
         self.vh = vh
-        return self
 
 
 def project_trial_state_ci (ci1, ts0=None):
@@ -302,38 +341,25 @@ class ExcitationPSFCISolver (ProductStateFCISolver):
             self.excited_frags = [self.excited_frags[i] for i in idx]
             self.fcisolvers = [self.fcisolvers[i] for i in idx]
 
-    def space_delta (self, ci0, ts0, ci1, ts1, nroots):
-        if (ts0 is None) or (ts1 is None):
+    def space_delta (self, ci0, tts0, ci1, tts1, nroots):
+        '''This evaluates the overlap of the TRUNCATED but not REOPTIMIZED
+        trial-state wave function'''
+        if (tts0 is None) or (tts1 is None):
             return 1
-        si0_p, si0_q = ts0.si_p, ts0.si_q
-        si1_p, si1_q = ts1.si_p, ts1.si_q
+        si0_p, si0_q = tts0.si_p, tts0.si_q
+        si1_p, si1_q = tts1.si_p, tts1.si_q
         delta = 0
         ovlps = []
-        self.log.debug ('ExcitationPSFCISolver step analysis:')
         for ifrag, (c0, c1) in enumerate (zip (ci0, ci1)):
             x0 = np.asarray (c0[:nroots]).reshape (nroots,-1) 
             x1 = np.asarray (c1[:nroots]).reshape (nroots,-1) 
             ovlp = x0.conj () @ x1.T
             ovlps.append (ovlp)
-            if self.log.verbose >= logger.DEBUG:
-                svals = linalg.svd (ovlp)[1]
-                self.log.debug (f'F{ifrag} svals: {svals}')
             ovlp = ovlp * si1_p[None,:]
             ovlp = ovlp.conj () * ovlp
             ovlp -= np.diag (si1_p.conj () * si1_p)
             delta = max (delta, ovlp.sum ())
         assert (len (ovlps) == 2)
-        if self.log.verbose >= logger.DEBUG:
-            ovlp = ovlps[0] * si1_p[None,:]
-            ovlp = (ovlp * ovlps[1]).sum (1)
-            ovlp_p = np.dot (ovlp, si0_p.conj ())
-            ovlp_si_p = np.dot (si0_p.conj (), si1_p)
-            ovlp_q = np.dot (si0_q.conj (), si1_q)
-            self.log.debug (f'<si0_p|si1_p> = {ovlp_si_p}')
-            self.log.debug (f'<Psi0_p|Psi1_p> = {ovlp_p}')
-            self.log.debug (f'<Psi0_q|Psi1_q> = {ovlp_q}')
-            ovlp = ovlp_p + ovlp_q
-            self.log.debug (f'<Psi0|Psi1> = {ovlp}')
         delta = max (delta, np.amax (np.abs (si1_p-si0_p)))
         return delta
 
@@ -359,24 +385,26 @@ class ExcitationPSFCISolver (ProductStateFCISolver):
         ci0 = self.get_init_guess (ci0, norb_f, nelec_f, h1, h2, nroots=3*nroots)
         ham_pq = self.get_ham_pq (h0, h1, h2, ci0)
         e, ts, w = self.eig1 (ham_pq, ci0)
-        ts.schmidt_trunc_(nroots=nroots, log=self.log)
-        ham_pq = self.truncrot_ham_pq (ham_pq, ts.u, ts.vh)
-        ci0 = self.truncrot_ci (ci0, ts.u, ts.vh)
+        tts = ts.schmidt_trunc (nroots=nroots, log=self.log)
+        ham_pq = self.truncrot_ham_pq (ham_pq, tts.u, tts.vh)
+        ci0 = self.truncrot_ci (ci0, tts.u, tts.vh)
         hci_pspace_diag = self.op_ham_pp_diag (h1, h2, ci0, norb_f, nelec_f)
         tdm1s_f = self.get_tdm1s_f (ci0, ci0, norb_f, nelec_f)
         # init loop
         e_last, ep, ep_last = 0, 0, 0
-        disc_sval_max = max (list(ts.disc_svals)+[0.0,])
-        wp, space_delta, tsp, ts = 0, 1.0, None, None
+        disc_sval_max = max (list(tts.disc_svals)+[0.0,])
+        wp, space_delta, ttsp, tsp, ts = 0, 1.0, tts, None, None
         converged = False
         log.info ('Entering product-state fixed-point CI iteration')
         for it in range (max_cycle):
             # Re-diagonalize in truncated space
+            ts0 = ts
             e, ts, w = self.eig1 (ham_pq, ci0, ts0=ts)
-            ts.schmidt_trunc_(nroots=nroots, log=self.log)
+            ts.debug_delta (ts0, self.log, lbl='trunc')
+            tts = ts.schmidt_trunc (nroots=nroots, log=self.log)
 
-            log.debug ('Singular values in truncated space: {}'.format (ts.si_p))
-            ci1 = self.truncrot_ci (ci0, ts.u, ts.vh)
+            log.debug ('Singular values in truncated space: {}'.format (tts.si_p))
+            ci1 = self.truncrot_ci (ci0, tts.u, tts.vh)
             log.info (("Cycle %d: |delta space| = %e ; e = %e, de = %e, w = %e, e' = %e, de' = %e, "
                        "w' = %e, max (discarded) = %e"),
                       it, space_delta, e, e - e_last, w, ep, ep - ep_last, wp,
@@ -384,14 +412,14 @@ class ExcitationPSFCISolver (ProductStateFCISolver):
             if ((space_delta < conv_tol_space) and (abs (e-e_last) < conv_tol_self)):
                 converged = True
                 break
-            ham_pq = self.truncrot_ham_pq (ham_pq, ts.u, ts.vh)
-            hci_pspace_diag = self.truncrot_hci_pspace_diag (hci_pspace_diag, ts.u, ts.vh)
-            tdm1s_f = self.truncrot_tdm1s_f (tdm1s_f, ts.u, ts.vh)
+            ham_pq = self.truncrot_ham_pq (ham_pq, tts.u, tts.vh)
+            hci_pspace_diag = self.truncrot_hci_pspace_diag (hci_pspace_diag, tts.u, tts.vh)
+            tdm1s_f = self.truncrot_tdm1s_f (tdm1s_f, tts.u, tts.vh)
             # Generate additional vectors and compute gradient
-            hci_qspace = self.op_ham_pq_ref (h1, h2, ci1, ts.si_q)
+            hci_qspace = self.op_ham_pq_ref (h1, h2, ci1, tts.si_q)
             hpq_xq = self.get_hpq_xq (hci_qspace, ci1)
-            hpp_xp = self.get_hpp_xp (ci1, ts.si_p, hci_pspace_diag, h0, h2, tdm1s_f, norb_f, nelec_f)
-            grad = self._get_grad (ci1, ts.si_p, hpq_xq, hpp_xp, nroots=nroots)
+            hpp_xp = self.get_hpp_xp (ci1, tts.si_p, hci_pspace_diag, h0, h2, tdm1s_f, norb_f, nelec_f)
+            grad = self._get_grad (ci1, tts.si_p, hpq_xq, hpp_xp, nroots=nroots)
             ci2 = self.get_new_vecs (ci1, hpq_xq, hpp_xp, nroots=nroots)
             # Extend intermediates
             hci2_pspace_diag = self.op_ham_pp_diag (h1, h2, ci2, norb_f, nelec_f)
@@ -410,17 +438,18 @@ class ExcitationPSFCISolver (ProductStateFCISolver):
                                          tdm1s_f, norb_f, nelec_f)
             # Diagonalize and truncate
             ep_last = ep
-            tsp0 = tsp
+            ttsp0, tsp0 = ttsp, tsp
             ep, tsp, wp = self.eig1 (ham_pq, ci1, ts0=tsp)
-            tsp.schmidt_trunc_(nroots=nroots, log=self.log)
-            ham_pq = self.truncrot_ham_pq (ham_pq, tsp.u, tsp.vh)
-            ci1 = self.truncrot_ci (ci1, tsp.u, tsp.vh)
-            hci_pspace_diag = self.truncrot_hci_pspace_diag (hci_pspace_diag, tsp.u, tsp.vh)
-            tdm1s_f = self.truncrot_tdm1s_f (tdm1s_f, tsp.u, tsp.vh)
-            log.debug ('Retained singular values: {}'.format (tsp.si_p))
-            log.debug ('Discarded singular values: {}'.format (tsp.disc_svals))
-            disc_sval_max = max (list (tsp.disc_svals) + [0.0,])
-            space_delta = self.space_delta (ci0, tsp0, ci1, tsp, nroots)
+            tsp.debug_delta (tsp0, self.log, lbl='ext')
+            ttsp = tsp.schmidt_trunc (nroots=nroots, log=self.log)
+            ham_pq = self.truncrot_ham_pq (ham_pq, ttsp.u, ttsp.vh)
+            ci1 = self.truncrot_ci (ci1, ttsp.u, ttsp.vh)
+            hci_pspace_diag = self.truncrot_hci_pspace_diag (hci_pspace_diag, ttsp.u, ttsp.vh)
+            tdm1s_f = self.truncrot_tdm1s_f (tdm1s_f, ttsp.u, ttsp.vh)
+            log.debug ('Retained singular values: {}'.format (ttsp.si_p))
+            log.debug ('Discarded singular values: {}'.format (ttsp.disc_svals))
+            disc_sval_max = max (list (ttsp.disc_svals) + [0.0,])
+            space_delta = self.space_delta (ci0, ttsp0, ci1, ttsp, nroots)
             ci0 = ci1
             e_last = e
         conv_str = ['NOT converged','converged'][int (converged)]
