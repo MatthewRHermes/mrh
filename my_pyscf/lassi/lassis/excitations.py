@@ -46,7 +46,7 @@ class TrialState:
         si0_p, si0_q = si0[:n0], si0[n0:]
         si1_p, si1_q = si1[:n1], si1[n1:]
         ovlps = []
-        self.log.debug (f'{lbl} ExcitationPSFCISolver step analysis:')
+        log.debug (f'{lbl} ExcitationPSFCISolver step analysis:')
         for ifrag, (c0, c1) in enumerate (zip (ci0, ci1)):
             n0 = lr0[ifrag]
             n1 = lr1[ifrag]
@@ -55,19 +55,18 @@ class TrialState:
             ovlp = x0.conj () @ x1.T
             ovlps.append (ovlp)
             svals = linalg.svd (ovlp)[1]
-            self.log.debug (f'{lbl} F{ifrag} svals: {svals}')
+            log.debug (f'{lbl} F{ifrag} svals: {svals}')
         assert (len (ovlps) == 2)
         x1_p = lib.einsum ('rs,pr,qs->pq', si1_p.reshape (lr1, order='F'),
                            ovlps[0], ovlps[1]).ravel ()
         ovlp_p = np.dot (si0_p.conj (), x1_p)
         ovlp_si_p = np.dot (si0_p.conj (), si1_p)
         ovlp_q = np.dot (si0_q.conj (), si1_q)
-        self.log.debug (f'{lbl} <si0_p|si1_p> = {ovlp_si_p}')
-        self.log.debug (f'{lbl} <Psi0_p|Psi1_p> = {ovlp_p}')
-        self.log.debug (f'{lbl} <Psi0_q|Psi1_q> = {ovlp_q}')
+        log.debug (f'{lbl} <si0_p|si1_p> = {ovlp_si_p}')
+        log.debug (f'{lbl} <Psi0_p|Psi1_p> = {ovlp_p}')
+        log.debug (f'{lbl} <Psi0_q|Psi1_q> = {ovlp_q}')
         ovlp = ovlp_p + ovlp_q
-        self.log.debug (f'{lbl} <Psi0|Psi1> = {ovlp}')
-        return delta
+        log.debug (f'{lbl} <Psi0|Psi1> = {ovlp}')
 
 class TruncatedTrialState:
     '''Perform the Schmidt decomposition on the P-space part of an si vector, truncate all but
