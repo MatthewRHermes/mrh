@@ -210,7 +210,7 @@ class GradientTests(unittest.TestCase):
         self.assertIs(ugg_kwargs["ci"], klas.ci)
 
         orb_kwargs = klas.calls[1][1]
-        self.assertIs(orb_kwargs["mo_coeff_kpts"], klas.mo_coeff)
+        self.assertIs(orb_kwargs["mo_coeff"], klas.mo_coeff)
         self.assertIs(orb_kwargs["ci"], klas.ci)
         self.assertIs(orb_kwargs["h2eff_sub"], h2eff_sub)
         self.assertIs(orb_kwargs["veff_kpts"], veff_kpts)
@@ -335,7 +335,7 @@ class LiHOrbitalGradientTests(unittest.TestCase):
         # Main step: centered differences cancel even Taylor terms, so the
         # h**2 -> 0 intercept must equal the analytic orbital derivative.
         kappa = _orbital_direction(self.klas, seed=17)
-        gorb = get_grad_orb(self.klas, mo_coeff_kpts=self.mo_coeff, ci=self.ci)
+        gorb = get_grad_orb(self.klas, mo_coeff=self.mo_coeff, ci=self.ci)
         analytic = np.real(np.vdot(gorb, kappa)) / self.klas.nkpts
         differences = [
             (_energy(self.klas, _rotate_mos(self.mo_coeff, kappa, step), self.ci)
@@ -353,7 +353,7 @@ class LiHOrbitalGradientTests(unittest.TestCase):
         # Main step: after subtracting h*g.kappa, R(h) / h must extrapolate
         # to zero because the remaining energy error is quadratic in h.
         kappa = _orbital_direction(self.klas, seed=23)
-        gorb = get_grad_orb(self.klas, mo_coeff_kpts=self.mo_coeff, ci=self.ci)
+        gorb = get_grad_orb(self.klas, mo_coeff=self.mo_coeff, ci=self.ci)
         analytic = np.real(np.vdot(gorb, kappa)) / self.klas.nkpts
         energy_zero = _energy(self.klas, self.mo_coeff, self.ci)
         residual_per_step = np.asarray([
