@@ -303,6 +303,8 @@ class ExcitationPSFCISolver (ProductStateFCISolver):
             self.fcisolvers = [self.fcisolvers[i] for i in idx]
 
     def space_delta (self, ci0, ts0, ci1, ts1, nroots):
+        if (ts0 is None) or (ts1 is None):
+            return 1
         si0_p, si0_q = ts0.si_p, ts0.si_q
         si1_p, si1_q = ts1.si_p, ts1.si_q
         delta = 0
@@ -369,6 +371,7 @@ class ExcitationPSFCISolver (ProductStateFCISolver):
         for it in range (max_cycle):
             e_last = e
             space_delta = self.space_delta (ci0, tsp0, ci1, tsp, nroots)
+            if (it==0): tsp = None
             ci0 = ci1
             # Re-diagonalize in truncated space
             e, ts, w = self.eig1 (ham_pq, ci0, ts0=ts)
