@@ -355,24 +355,22 @@ class ExcitationPSFCISolver (ProductStateFCISolver):
         log.info (("ExcitationPSFCISolver is optimizing %d P-space states factorized across "
                    "%d fragments with %d fixed Q-space states"),
                   nroots, len (norb_f), self.get_nq ())
+        # Cycle -1: start with three times nroots guess vectors and do the SVD once
         ci0 = self.get_init_guess (ci0, norb_f, nelec_f, h1, h2, nroots=3*nroots)
         ham_pq = self.get_ham_pq (h0, h1, h2, ci0)
         e, ts, w = self.eig1 (ham_pq, ci0)
         ts.schmidt_trunc_(nroots=nroots, log=self.log)
         ham_pq = self.truncrot_ham_pq (ham_pq, ts.u, ts.vh)
-        ci1 = self.truncrot_ci (ci0, ts.u, ts.vh)
-        hci_pspace_diag = self.op_ham_pp_diag (h1, h2, ci1, norb_f, nelec_f)
-        tdm1s_f = self.get_tdm1s_f (ci1, ci1, norb_f, nelec_f)
-        e, ep, ep_last = 0, 0, 0
+        ci0 = self.truncrot_ci (ci0, ts.u, ts.vh)
+        hci_pspace_diag = self.op_ham_pp_diag (h1, h2, ci0, norb_f, nelec_f)
+        tdm1s_f = self.get_tdm1s_f (ci0, ci0, norb_f, nelec_f)
+        # init loop
+        e_last, ep, ep_last = 0, 0, 0
         disc_sval_max = max (list(ts.disc_svals)+[0.0,])
-        wp, tsp, tsp0, ts = 0, ts, ts, None
+        wp, space_delta, tsp, ts = 0, 1.0, None, None
         converged = False
         log.info ('Entering product-state fixed-point CI iteration')
         for it in range (max_cycle):
-            e_last = e
-            space_delta = self.space_delta (ci0, tsp0, ci1, tsp, nroots)
-            if (it==0): tsp = None
-            ci0 = ci1
             # Re-diagonalize in truncated space
             e, ts, w = self.eig1 (ham_pq, ci0, ts0=ts)
             ts.schmidt_trunc_(nroots=nroots, log=self.log)
@@ -422,6 +420,9 @@ class ExcitationPSFCISolver (ProductStateFCISolver):
             log.debug ('Retained singular values: {}'.format (tsp.si_p))
             log.debug ('Discarded singular values: {}'.format (tsp.disc_svals))
             disc_sval_max = max (list (tsp.disc_svals) + [0.0,])
+            space_delta = self.space_delta (ci0, tsp0, ci1, tsp, nroots)
+            ci0 = ci1
+            e_last = e
         conv_str = ['NOT converged','converged'][int (converged)]
         log.info (('Product_state fixed-point CI iteration {} after {} '
                    'cycles').format (conv_str, it))
