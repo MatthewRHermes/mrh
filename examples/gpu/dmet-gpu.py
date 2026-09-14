@@ -6,8 +6,8 @@ if gpu_run: from gpu4mrh import patch_pyscf
 from pyscf import gto, scf, mcscf, lib
 from pyscf.csf_fci import csf_solver
 from mrh.my_pyscf.dmet import runDMET
-if gpu_run: gpu=libgpu.init()
-if gpu_run: libgpu.set_verbose_(gpu,1) #optional for output abut performance and gpu usage
+if gpu_run: lib.param.use_gpu=libgpu.init()
+if gpu_run: libgpu.set_verbose_(lib.param.use_gpu,1) #optional for output abut performance and gpu usage
 lib.logger.TIMER_LEVEL=lib.logger.INFO
 
 '''
@@ -17,8 +17,7 @@ The FCIsolvers, conv_tol, level_shifts and other parameters can be changed as pe
 
 np.set_printoptions(precision=4)
 
-if gpu_run: mol = gto.Mole(basis='6-31G', spin=1, charge=0, verbose=4, max_memory=100000, use_gpu = gpu)
-else: mol = gto.Mole(basis='6-31G', spin=1, charge=0, verbose=4, max_memory=100000)
+mol = gto.Mole(basis='6-31G', spin=1, charge=0, verbose=4, max_memory=100000)
 mol.atom='''
 P  -5.64983   3.02383   0.00000
 H  -4.46871   3.02383   0.00000
@@ -33,7 +32,7 @@ mf = scf.ROHF(mol).density_fit()
 mf.kernel()
 
 dmet_mf, mydmet = runDMET(mf, lo_method='lowdin', bath_tol=1e-10, atmlst=[0, ])
-if gpu_run: dmet_mf.mol.use_gpu = gpu #only change needed to run DMET high level solver (only CAS for now) on GPUs
+if gpu_run: dmet_mf.mol.use_gpu = lib.param.use_gpu #only change needed to run DMET high level solver (only CAS for now) on GPUs
 
 # Sanity Check
 assert abs((mf.e_tot - dmet_mf.e_tot)) < 1e-7, "Something went wrong."
@@ -66,5 +65,5 @@ mo = mc.sort_mo(orblst[-mc.ncas:], base=0)
 mc.fcisolver  = csf_solver(mol, smult=2)
 mc = mcscf.state_average_(mc, weights=[0.5, 0.5])
 mc.kernel(mo)
-if gpu_run: libgpu.destroy_device(gpu) #always good to clean up after yourself.
+if gpu_run: libgpu.destroy_device(lib.param.use_gpu) #always good to clean up after yourself.
 #also gives you gpu usage statistics if you turn on the verbosity. 

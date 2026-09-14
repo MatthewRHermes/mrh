@@ -35,4 +35,4 @@ LDFLAGS = -g -fopenmp
 LIB = -lstdc++
 LIB += /grand/LASSCF_gpudev/knight/soft/openblas/lib/libopenblas.so
 LIB += -L$(PATH_TO_CUDA)/lib64 -lcublas -lcudart
-LIB += -lnvToolsExt
+#LIB += -lnvToolsExt

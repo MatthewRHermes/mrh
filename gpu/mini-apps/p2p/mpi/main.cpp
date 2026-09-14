@@ -92,8 +92,8 @@ int main( int argc, char* argv[] )
 
   // Initialize device
 
-  real_t * d_a = (real_t *) pm->dev_malloc(size);
-  real_t * d_b = (real_t *) pm->dev_malloc(size);
+  real_t * d_a = (real_t *) pm->dev_malloc(size, "d_a", FLERR);
+  real_t * d_b = (real_t *) pm->dev_malloc(size, "d_b", FLERR);
   
   // ----------------------------------------------------------------
 

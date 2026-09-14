@@ -9,6 +9,7 @@ def test_matvecs(m, k, n_array):
   from mrh.my_pyscf.gpu import libgpu
   from pyscf.lib import param
   gpu = param.use_gpu
+  counts = libgpu.get_num_devices(gpu)   # push_op broadcasts to this many devices
 
   op = np.random.random((m,k))
   op = np.arange(m*k).reshape(m,k)+0.5
@@ -22,13 +23,14 @@ def test_matvecs(m, k, n_array):
     #vecs.append(np.random.random((n,k)))
   print(vecs)
   #GPU kernel
-  libgpu.push_op(gpu, op, m, k)
+  libgpu.push_op(gpu, np.ascontiguousarray(op), m, k, counts)
   libgpu.init_new_sivecs_host(gpu, m, total_n)
   libgpu.init_old_sivecs_host(gpu, k, total_n)
-  n_loc=0
+  vec_loc = 0
   for n, vec in zip(n_array, vecs):
-    libgpu.push_sivecs_to_host(gpu, vec, n_loc, n, k)
-    n_loc += n
+    vec_c = np.ascontiguousarray(vec)
+    libgpu.push_sivecs_to_host(gpu, vec_c, vec_loc, vec_c.size)
+    vec_loc += vec_c.size
   libgpu.compute_sivecs(gpu, m, total_n, k)
   new_vecs_gpu = [] 
   n_loc = 0
@@ -44,12 +46,12 @@ def test_matvecs(m, k, n_array):
     libgpu.pull_sivecs_from_pinned(gpu, new_vec, n_loc, m, n)
     print(new_vec[:n*m])
     n_loc += n
-    new_vecs_gpu.append(new_vec[:n*m])
+    new_vecs_gpu.append(new_vec[:n*m].copy())   # a view would alias the reused buffer
   
   #CPU kernel
   new_vecs_cpu = [] 
   for vec in vecs:
-    new_vecs_cpu.append(np.dot(op, vec.T).ravel()) 
+    new_vecs_cpu.append(np.dot(op, vec.T).ravel(order='F')) 
   
   print(new_vecs_gpu)
   for n, vec_cpu, vec_gpu in zip(n_array, new_vecs_cpu, new_vecs_gpu):
@@ -76,8 +78,7 @@ if __name__=='__main__':
            K 0 0 10;
            K 0 0 12;'''
   basis = 'def2tzvp'
-  if gpu_run: mol = gto.M(use_gpu = gpu, atom=geom, basis=basis, verbose=1)
-  else: mol = gto.M(atom=geom, basis=basis, verbose=1)
+  mol = gto.M(atom=geom, basis=basis, verbose=1)
 
   mol.output='test.log'
   mol.build()
