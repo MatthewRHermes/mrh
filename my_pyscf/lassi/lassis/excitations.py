@@ -60,6 +60,9 @@ class TrialState:
         x1_p = lib.einsum ('rs,pr,qs->pq', si1_p.reshape (lr1, order='F'),
                            ovlps[0], ovlps[1]).ravel ()
         ovlp_p = np.dot (si0_p.conj (), x1_p)
+        slices = tuple (slice (0, l) for l in np.minimum (lr0, lr1))
+        si0_p = si0_p.reshape (lr0)[slices].ravel ()
+        si1_p = si1_p.reshape (lr1)[slices].ravel ()
         ovlp_si_p = np.dot (si0_p.conj (), si1_p)
         ovlp_q = np.dot (si0_q.conj (), si1_q)
         log.debug (f'{lbl} <si0_p|si1_p> = {ovlp_si_p}')
