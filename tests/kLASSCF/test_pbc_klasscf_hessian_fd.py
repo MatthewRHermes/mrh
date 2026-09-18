@@ -263,9 +263,12 @@ class KnownValuesKLASSCFHessianFiniteDifference(unittest.TestCase):
                     h2eff=hop.eri_cas,
                 ))
                 finite = (gradient_plus - gradient_minus) / (2.0 * step)
-                relative_error = np.linalg.norm(analytic - finite) / max(
-                    np.linalg.norm(analytic), 1e-14,
+                analytic_norm = np.linalg.norm(analytic)
+                self.assertGreater(
+                    analytic_norm, 1e-14,
+                    msg=f"{name} CI Hessian response must be nonzero",
                 )
+                relative_error = np.linalg.norm(analytic - finite) / analytic_norm
                 self.assertLess(relative_error, 2e-7)
 
     def test_dimensional_orbital_hops_match_finite_difference(self):
@@ -317,9 +320,12 @@ class KnownValuesKLASSCFHessianFiniteDifference(unittest.TestCase):
                     (gradient_plus - gradient_minus) / (2.0 * step)
                     - ugg.pack_orb(connection)
                 )
-                relative_error = np.linalg.norm(analytic - finite) / max(
-                    np.linalg.norm(analytic), 1e-14,
+                analytic_norm = np.linalg.norm(analytic)
+                self.assertGreater(
+                    analytic_norm, 1e-14,
+                    msg=f"{name} orbital Hessian response must be nonzero",
                 )
+                relative_error = np.linalg.norm(analytic - finite) / analytic_norm
                 self.assertLess(relative_error, 2e-5)
 
     def test_coupled_hessian_blocks_match_finite_differences(self):
