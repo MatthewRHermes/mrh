@@ -13,6 +13,7 @@ from mrh.my_pyscf.pbc.mcscf.klas_ao2mo import _ERIS
 from mrh.my_pyscf.pbc.mcscf.klasci import (
     PBCLASCINoSymm,
     PBCLASCITransSymm,
+    _cell_average_dm1s,
     _convert_h1e_mo_k_to_wann,
 )
 from mrh.my_pyscf.pbc.mcscf.mc1step import _get_casdm2_kpts
@@ -1486,8 +1487,9 @@ class KLASSCF_HessianOperator(molLASSCF_HessianOperator):
         tdm1rs is root resolved in the complete Wannier active space.
         The returned density has shape (2, nkpts, nmo, nmo) and is zero
         outside its active-active blocks. This routine performs only state
-        averaging and basis transformation; the factor-of-two convention of
-        the orbital-CI Hessian action is applied by its eventual caller.
+        averaging, the RDM-to-AO density transpose, and basis transformation;
+        the factor-of-two convention of the orbital-CI Hessian action is
+        applied by its eventual caller.
         """
         tdm1rs = np.asarray(tdm1rs)
         weights = np.asarray(self.weights)
@@ -1509,7 +1511,7 @@ class KLASSCF_HessianOperator(molLASSCF_HessianOperator):
             "r,rspq->spq", weights, tdm1rs, optimize=True,
         )
         tdm1s_active_block = np.einsum(
-            "kap,spq,kbq->skab",
+            "kap,sqp,kbq->skab",
             self.mo_phase, tdm1s_wannier, self.mo_phase.conj(),
             optimize=True,
         )
@@ -1579,9 +1581,9 @@ class KLASSCF_HessianOperator(molLASSCF_HessianOperator):
 
         This follows :func:`pbc.mcscf.klasci.h1e_for_las` term by term.  The
         state-averaged transition density first passes through the periodic
-        AO JK builder.  Root-specific deviations from that average and the
-        final self-fragment subtraction are then contracted with the Wannier
-        active-space ERIs.
+        AO JK builder. Root- and cell-specific deviations from the translation
+        average and the final self-fragment subtraction are then contracted
+        with the Wannier active-space ERIs.
         """
         tdm1rs = np.asarray(tdm1rs)
         _check_shape(
@@ -1606,7 +1608,8 @@ class KLASSCF_HessianOperator(molLASSCF_HessianOperator):
         tdm1s_average = np.einsum(
             "r,rspq->spq", weights, tdm1rs, optimize=True,
         )
-        tdm1rs_delta = tdm1rs - tdm1s_average[None]
+        tdm1s_cell_average = _cell_average_dm1s(tdm1s_average, self.nkpts)
+        tdm1rs_delta = tdm1rs - tdm1s_cell_average[None]
         eri = self.eri_cas
         v1rs = np.tensordot(
             tdm1rs_delta, eri, axes=((2, 3), (2, 3)),
@@ -2238,6 +2241,7 @@ class KLASSCF_HessianOperator(molLASSCF_HessianOperator):
             (2, self.ncastot, self.ncastot), dtype=dtype,
         )
         h2_prime = np.zeros((self.ncastot,) * 4, dtype=dtype)
+        cellavgdm1s = _cell_average_dm1s(self.casdm1s, self.nkpts)
 
         kappa_external = np.array(kappa, copy=True)
         kappa_external[:, active, active] = 0.0
@@ -2342,10 +2346,10 @@ class KLASSCF_HessianOperator(molLASSCF_HessianOperator):
                 optimize=True,
             )
             coulomb_prime = np.tensordot(
-                self.casdm1s, eri_prime, axes=((1, 2), (2, 3)),
+                cellavgdm1s, eri_prime, axes=((1, 2), (2, 3)),
             )
             exchange_prime = np.tensordot(
-                self.casdm1s, eri_prime, axes=((1, 2), (2, 1)),
+                cellavgdm1s, eri_prime, axes=((1, 2), (2, 1)),
             )
             h1s_prime += (
                 h1_prime[None] + coulomb_prime
@@ -2359,7 +2363,7 @@ class KLASSCF_HessianOperator(molLASSCF_HessianOperator):
             (self.nroots, 2, self.ncastot, self.ncastot), dtype=dtype,
         )
         for iroot in range(self.nroots):
-            dm1s = self.casdm1rs[iroot] - self.casdm1s
+            dm1s = self.casdm1rs[iroot] - cellavgdm1s
             coulomb = np.tensordot(
                 dm1s, h2_prime, axes=((1, 2), (2, 3)),
             )
@@ -2654,15 +2658,27 @@ class KLASSCF_HessianOperator(molLASSCF_HessianOperator):
         )
         h1s_wannier = h1_wannier[None] + coulomb + coulomb[::-1] - exchange
 
+        # Compare the block-MO potential with the density it actually sees.
+        # Keep the full density above for the Wannier orbital response.
+        cellavgdm1s = _cell_average_dm1s(self.casdm1s, self.nkpts)
+        coulomb_average = np.tensordot(
+            cellavgdm1s, self.eri_cas, axes=((1, 2), (2, 3)),
+        )
+        exchange_average = np.tensordot(
+            cellavgdm1s, self.eri_cas, axes=((1, 2), (2, 1)),
+        )
+        h1s_average = (h1_wannier[None] + coulomb_average
+                       + coulomb_average[::-1] - exchange_average)
+
         active = slice(self.ncore, self.nocc)
         h1s_block_wannier = np.asarray([
             rotation_map.bloch_to_wannier(self.h1s[spin, :, active, active])
             for spin in range(2)
         ])
         if not np.allclose(
-                h1s_wannier, h1s_block_wannier,
+                h1s_average, h1s_block_wannier,
                 atol=2e-8, rtol=2e-8):
-            error = np.max(np.abs(h1s_wannier - h1s_block_wannier))
+            error = np.max(np.abs(h1s_average - h1s_block_wannier))
             raise ValueError(
                 "Wannier and block active one-electron intermediates differ; "
                 f"maximum error is {error:.3e}"
