@@ -4,6 +4,8 @@
 
 The tests cover CI, orbital, and coupled Hessian responses across periodic
 dimensions, along with the preconditioner and frozen-orbital path.
+Forward-difference convergence orders are checked separately in
+test_pbc_klasscf_fd_convergence.py.
 """
 
 import unittest
