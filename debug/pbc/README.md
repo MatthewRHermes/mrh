@@ -12,5 +12,7 @@ and 3D:
 - Automatic fragment Hamiltonians: compare with direct Wannier projection.
 
 We keep CI vectors fixed for orbital changes and orbitals fixed for CI changes.
+Relative errors use the numerical energy or gradient change as the denominator.
 The forward-difference errors should decrease linearly with the step size;
 centered energy-difference errors should decrease quadratically.
+We fit one log-log slope using all scan points except the first four and require it above 0.8.

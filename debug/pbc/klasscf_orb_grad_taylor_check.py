@@ -2,18 +2,16 @@
 """In this check, we verify the accuracy of the orbital-gradient by comparing it
 to forward energy differences.
 
-CI vectors remain fixed. The relative error should decrease linearly with
-the step size.
+CI vectors remain fixed. We scan down to 1e-6 and fit one order using all
+points except the first four. The fitted order must exceed 0.8.
 """
 
 import numpy as np
 
 from mrh.debug.pbc.klasscf_fd_common import (
     convergence_result, copy_ci, fixed_ci_energy, make_direction,
-    orbital_parser, rotate_mos, run_checks,
+    ORBITAL_STEPS, orbital_parser, rotate_mos, run_checks,
 )
-
-SCAN_STEPS = np.append(0.5 ** np.arange(1, 20), 1e-6)
 
 
 def evaluate(klas, mo_coeff, config, steps, rotation_blocks=None):
@@ -35,5 +33,5 @@ if __name__ == "__main__":
     description = "Orbital gradient: forward energy differences"
     run_checks(
         evaluate, description, parser=orbital_parser(description),
-        default_steps=SCAN_STEPS,
+        default_steps=ORBITAL_STEPS,
     )

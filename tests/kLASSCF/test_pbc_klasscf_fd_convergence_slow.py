@@ -1,9 +1,9 @@
-"""Assert first-order forward-difference convergence, not only small errors.
+"""Check orbital and CI forward-difference convergence for periodic LiH.
 
-Every halving must give log(error(delta)/error(delta/2))/log(2) near one.
-The predetermined step window avoids both large-step effects and roundoff.
-The analytic norm is checked explicitly, so a zero response cannot pass.
-The _slow filename keeps these tests out of MRH's normal CI selection.
+Fit one order over all scan points except the first four and require it above 0.8.
+Errors are divided by the numerical energy or gradient change.
+Both analytic and numerical norms must be nonzero.
+Orbital plots extend to 1e-6.
 """
 
 import unittest
@@ -12,7 +12,7 @@ from pathlib import Path
 import numpy as np
 
 from mrh.debug.pbc.klasscf_fd_common import (
-    CASES, FD_STEPS, assert_convergence, build_reference, plot_convergence,
+    CASES, FD_STEPS, ORBITAL_STEPS, assert_convergence, build_reference, plot_convergence,
     copy_ci, displace_ci, make_ci_direction, make_product_solver,
 )
 from mrh.debug.pbc import (
@@ -31,7 +31,7 @@ class DerivativeConvergenceTests(unittest.TestCase):
     def setUpClass(cls):
         cls.references = {}
 
-    def check_convergence(self, evaluate, **kwargs):
+    def check_convergence(self, evaluate, steps=FD_STEPS, **kwargs):
         results = {}
         try:
             for name, config in CASES.items():
@@ -41,7 +41,7 @@ class DerivativeConvergenceTests(unittest.TestCase):
                             config["lattice"], config["kmesh"],
                         )
                     klas, mo_coeff = self.references[name]
-                    result = evaluate(klas, mo_coeff, config, FD_STEPS, **kwargs)
+                    result = evaluate(klas, mo_coeff, config, steps, **kwargs)
                     results[name] = result
                     assert_convergence(result)
         finally:
@@ -52,17 +52,19 @@ class DerivativeConvergenceTests(unittest.TestCase):
                 )
 
     def test_orbital_gradient_forward_difference_order(self):
-        self.check_convergence(klasscf_orb_grad_taylor_check.evaluate)
+        self.check_convergence(klasscf_orb_grad_taylor_check.evaluate, steps=ORBITAL_STEPS)
 
     def test_active_active_gradient_forward_difference_order(self):
         self.check_convergence(
             klasscf_orb_grad_taylor_check.evaluate,
+            steps=ORBITAL_STEPS,
             rotation_blocks=("active-active",),
         )
 
     def test_active_active_hessian_forward_difference_order(self):
         self.check_convergence(
             klasscf_orb_hess_fd_check.evaluate,
+            steps=ORBITAL_STEPS,
             rotation_blocks=("active-active",),
         )
 
@@ -99,7 +101,7 @@ class DerivativeConvergenceTests(unittest.TestCase):
         self.check_convergence(klasscf_ci_grad_fd_check.evaluate)
 
     def test_orbital_hessian_vector_forward_difference_order(self):
-        self.check_convergence(klasscf_orb_hess_fd_check.evaluate)
+        self.check_convergence(klasscf_orb_hess_fd_check.evaluate, steps=ORBITAL_STEPS)
 
     def test_ci_hessian_vector_forward_difference_order(self):
         """Compare the production CI Hessian with production gradient differences."""

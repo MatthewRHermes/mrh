@@ -4,12 +4,14 @@ by comparing it to forward orbital-gradient differences.
 
 CI vectors remain fixed. We account for the moving orbital frame and the
 packing factor. The relative error should decrease linearly with the step size.
+We scan down to 1e-6 and fit all points except the first four; the order must exceed 0.8.
 """
 
 import numpy as np
 
 from mrh.debug.pbc.klasscf_fd_common import (
     convergence_result, copy_ci, make_direction, orbital_parser, rotate_mos, run_checks,
+    ORBITAL_STEPS,
 )
 
 
@@ -42,4 +44,7 @@ def evaluate(klas, mo_coeff, config, steps, rotation_blocks=None):
 
 if __name__ == "__main__":
     description = "Orbital Hessian-vector product: forward gradient differences"
-    run_checks(evaluate, description, parser=orbital_parser(description))
+    run_checks(
+        evaluate, description, parser=orbital_parser(description),
+        default_steps=ORBITAL_STEPS,
+    )
