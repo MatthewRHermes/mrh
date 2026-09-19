@@ -418,7 +418,7 @@ class KnownValues(unittest.TestCase):
         )
         expected_active = np.asarray([
             [
-                operator.mo_phase[k] @ averaged[spin]
+                operator.mo_phase[k] @ averaged[spin].T
                 @ operator.mo_phase[k].conj().T
                 for k in range(operator.nkpts)
             ]
