@@ -1,11 +1,9 @@
 #!/usr/bin/env python
-r"""In this script, we check \mathcal{O}(\delta) relative orbital-gradient error 
-from forward energy differences.
+"""In this check, we verify the accuracy of the orbital-gradient by comparing it
+to forward energy differences.
 
-With fixed CI and C(delta) = C exp(delta*kappa), the per-cell derivative is
-Re(<g_orb, kappa>)/nkpts. Equivalently, the energy Taylor residual is \mathcal{O}(\delta**2).
-
-The default step-size scan halves delta from 0.5, ending at 1e-6:
+CI vectors remain fixed. The relative error should decrease linearly with
+the step size.
 """
 
 import numpy as np
