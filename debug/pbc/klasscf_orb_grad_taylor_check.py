@@ -12,15 +12,16 @@ import numpy as np
 
 from mrh.debug.pbc.klasscf_fd_common import (
     convergence_result, copy_ci, fixed_ci_energy, make_direction,
-    rotate_mos, run_checks,
+    orbital_parser, rotate_mos, run_checks,
 )
 
 SCAN_STEPS = np.append(0.5 ** np.arange(1, 20), 1e-6)
 
 
-def evaluate(klas, mo_coeff, config, steps):
+def evaluate(klas, mo_coeff, config, steps, rotation_blocks=None):
     ci = copy_ci(klas.ci)
-    kappa = make_direction(klas, config["rotation_blocks"], config["seed"])
+    blocks = config["rotation_blocks"] if rotation_blocks is None else rotation_blocks
+    kappa = make_direction(klas, blocks, config["seed"], mo_coeff=mo_coeff)
     gradient = klas.get_grad_orb(mo_coeff=mo_coeff, ci=ci)
     analytic = np.real(np.vdot(gradient, kappa)) / klas.nkpts
     energy_zero = fixed_ci_energy(klas, mo_coeff, ci)
@@ -33,7 +34,8 @@ def evaluate(klas, mo_coeff, config, steps):
 
 
 if __name__ == "__main__":
+    description = "Orbital gradient: forward energy differences"
     run_checks(
-        evaluate, "Orbital gradient: forward energy differences",
+        evaluate, description, parser=orbital_parser(description),
         default_steps=SCAN_STEPS,
     )
