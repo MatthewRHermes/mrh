@@ -3086,7 +3086,7 @@ class KLASSCF_HessianOperator(molLASSCF_HessianOperator):
             kappa2 = np.zeros_like(kappa1, dtype=dtype)
             ci2 = self._zero_ci_step(dtype)
 
-        if not self._ci_step_is_zero(ci1):
+        if not self._ci_step_is_zero(ci1) or debug_zero_response:
             tdm1rs, tcm2 = self.make_tdm1s2c_sub(ci1)
             tdm1s_block = self._transition_dm1s_to_block(tdm1rs)
             veff_ci = self._get_ci_veff_response(tdm1s_block)
