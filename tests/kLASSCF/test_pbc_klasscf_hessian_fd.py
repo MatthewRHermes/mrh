@@ -397,6 +397,29 @@ class KnownValuesKLASSCFHessianFiniteDifference(unittest.TestCase):
         self.assertLess(ci_orbital_error, 2e-7)
         self.assertLess(orbital_ci_error, 2e-7)
 
+    def test_zero_trial_vector_gives_a_zero_hessian_response(self):
+        """Return an exact zero response for a zero trial, guarded or not."""
+        zero = np.zeros(self.ugg.nvar_tot, dtype=np.complex128)
+
+        guarded = self.hop.matvec(zero)
+        self.assertEqual(guarded.shape, zero.shape)
+        np.testing.assert_array_equal(guarded, 0.0)
+
+        # _matvec skips the orbital and CI response blocks for a zero step,
+        # so the check above is satisfied by construction.  DEBUG1 verbosity
+        # disables that shortcut and evaluates both blocks, which is what
+        # actually tests that the assembled Hessian action is homogeneous.
+        original_verbose = self.klas.verbose
+        try:
+            self.klas.verbose = lib.logger.DEBUG1
+            unguarded = self.hop.matvec(zero)
+        finally:
+            self.klas.verbose = original_verbose
+
+        self.assertEqual(unguarded.shape, zero.shape)
+        self.assertTrue(np.all(np.isfinite(unguarded)))
+        np.testing.assert_array_equal(unguarded, 0.0)
+
     def test_preconditioner_uses_complete_finite_diagonal(self):
         """Apply the preconditioner using a complete finite Hessian diagonal."""
         preconditioner = self.hop.get_prec()
