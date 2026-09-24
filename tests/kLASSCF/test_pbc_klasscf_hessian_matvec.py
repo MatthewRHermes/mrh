@@ -1,5 +1,9 @@
 import unittest
+from types import SimpleNamespace
+
 import numpy as np
+
+from pyscf import lib
 
 from mrh.my_pyscf.pbc.mcscf.klasscf import (
     KLASSCF_HessianOperator,
@@ -170,6 +174,53 @@ class KnownValues(unittest.TestCase):
         np.testing.assert_allclose(calls[0][0, 1, 0], trial[0])
         np.testing.assert_allclose(result[0], trial[0])
         np.testing.assert_allclose(result[1:], trial[0])
+
+    def test_matvec_returns_zero_for_a_zero_trial_vector(self):
+        """Return zero for a zero trial with and without the fast-path guards."""
+        operator = KLASSCF_HessianOperator.__new__(KLASSCF_HessianOperator)
+        operator.ci = [
+            [np.zeros((2, 1), dtype=np.complex128)],
+            [np.zeros((2, 1), dtype=np.complex128)],
+        ]
+        operator.ugg = _DispatchUGG(operator)
+        operator.level_shift = 0.25
+        _set_toy_matvec_pipeline(operator)
+        calls = []
+
+        def orbital_response(kappa1):
+            calls.append("orbital-orbital")
+            return 2.0 * kappa1
+
+        operator._orbital_hessian_response = orbital_response
+
+        def ci_orbital_response(kappa1):
+            calls.append("ci-orbital")
+            return [
+                [kappa1[0, 1, 0] * np.ones_like(c0) for c0 in ci0_r]
+                for ci0_r in operator.ci
+            ]
+
+        operator._ci_orbital_hessian_response = ci_orbital_response
+        trial = np.zeros(operator.ugg.nvar_tot, dtype=np.complex128)
+
+        guarded = operator._matvec(trial)
+        self.assertEqual(guarded.shape, trial.shape)
+        self.assertTrue(np.issubdtype(guarded.dtype, np.complexfloating))
+        np.testing.assert_array_equal(guarded, 0.0)
+        self.assertEqual(
+            calls, [],
+            msg="a zero trial must skip both response blocks by default",
+        )
+
+        # The guards make A @ 0 == 0 hold by construction, so the assertion
+        # above says nothing about the response routines themselves.  Raising
+        # the verbosity drives the same zero trial through both blocks, which
+        # tests that the Hessian action is genuinely homogeneous.
+        operator.las = SimpleNamespace(verbose=lib.logger.DEBUG1)
+        unguarded = operator._matvec(trial)
+        self.assertEqual(calls, ["orbital-orbital", "ci-orbital"])
+        self.assertEqual(unguarded.shape, trial.shape)
+        np.testing.assert_array_equal(unguarded, 0.0)
 
 
 if __name__ == "__main__":
