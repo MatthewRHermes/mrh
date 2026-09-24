@@ -237,12 +237,41 @@ def _convert_h1e_mo_k_to_wann(kmf, kmesh, h1e_mo_k):
     h1eff_R = h1eff_R.reshape(ncell * norb, ncell * norb)
     return h1eff_R
 
+def _cell_average_dm1s(dm1s, nkpts):
+    """Average the cell blocks of a Wannier density and repeat in every cell.
+
+    The k-diagonal potential contains this cell-averaged density. We use it
+    to restore the contribution from differences between cell densities.
+    This is needed when CI vectors are not constrained by translation
+    symmetry and give different cell densities, while the orbitals remain
+    translation symmetric.
+    This is an average over cells, in addition to the electronic-state
+    averaging used in molecular LAS. The input density is cell diagonal.
+    """
+    dm1s = np.asarray(dm1s)
+    ncas, remainder = divmod(dm1s.shape[-1], nkpts)
+    if remainder or dm1s.shape[-2] != dm1s.shape[-1]:
+        raise ValueError("Wannier density must contain equal-sized cell blocks")
+    starts = range(0, dm1s.shape[-1], ncas)
+    average = np.mean([
+        dm1s[..., start:start+ncas, start:start+ncas] for start in starts
+    ], axis=0)
+    result = np.zeros(dm1s.shape, dtype=average.dtype)
+    for start in starts:
+        result[..., start:start+ncas, start:start+ncas] = average
+    return result
+
+
 @lib.with_doc(mollasci.h1e_for_las.__doc__ + """
 
     Notes:
         In the periodic implementation, ``mo_coeff`` has shape
         ``(nkpts, nao, nmo)`` and the active-space Hamiltonian and density
-        matrices are represented in the Wannier basis.
+        matrices are represented in the Wannier basis. The k-space potential
+        contains the cell-averaged density; the Wannier correction restores
+        each state's full cell-dependent density before self-interaction is
+        subtracted. A supplied ``veff`` must use the same AO density convention
+        as ``make_rdm1s``.
 """)
 def h1e_for_las (las, mo_coeff=None, ncas=None, ncore=None, nelecas=None, 
                  ci=None, ncas_sub=None,
@@ -269,11 +298,10 @@ def h1e_for_las (las, mo_coeff=None, ncas=None, ncore=None, nelecas=None,
     nocc = ncore + ncas
     ncastot = nkpts * ncas
 
-    # I will implement for the one root first, then we will see, how to go 
-    # to multiple roots.
     # First pass: split by root
     hcore_k = las.get_hcore()
-    h1e_k = np.empty ((2, nkpts, ncas, ncas), dtype=hcore_k.dtype)
+    dtype = np.result_type(mo_coeff, hcore_k, veff, eri_cas, np.complex128)
+    h1e_k = np.empty ((2, nkpts, ncas, ncas), dtype=dtype)
     for k in range(nkpts):
         mo_cas = mo_coeff[k][:, ncore:nocc]
         moH_cas = mo_cas.conj ().T
@@ -292,10 +320,13 @@ def h1e_for_las (las, mo_coeff=None, ncas=None, ncore=None, nelecas=None,
     # casdm1 is in wannier mo basis.
     avgdm1s = np.stack ([scipy.linalg.block_diag (*[dm[spin] for dm in casdm1s_sub])
                          for spin in range (2)], axis=0)
+    # The AO k-diagonal potential contains the translation average, not the
+    # full root-averaged density when different cells have different CI.
+    cellavgdm1s = _cell_average_dm1s(avgdm1s, nkpts)
     for state in range (las.nroots):
         statedm1s = np.stack ([scipy.linalg.block_diag (*[dm[state][spin] for dm in casdm1frs])
                                for spin in range (2)], axis=0)
-        dm1s = statedm1s - avgdm1s 
+        dm1s = statedm1s - cellavgdm1s
         j = np.tensordot (dm1s, h2e, axes=((1,2),(2,3)))
         k = np.tensordot (dm1s, h2e, axes=((1,2),(2,1)))
         h1e_r[state] = h1e_mo_wann + j + j[::-1] - k
@@ -673,7 +704,9 @@ class PBCLASCINoSymm(casci.PBCCASCI, LASCINoSymm):
         for idx, casdm1s in enumerate (casdm1s_sub):
             mo = self.get_mo_slice (idx, wannier_orb)
             moH = mo.conjugate ().T
-            rdm1s_ao_wann.append(np.array([reduce(np.dot, (mo, casdm1s[s], moH)) 
+            # Fragment RDMs use the energy-contraction convention. Transpose
+            # their orbital indices to obtain the AO density used by JK.
+            rdm1s_ao_wann.append(np.array([reduce(np.dot, (mo, casdm1s[s].T, moH))
                                            for s in range(2)]))
             
         rdm1s_ao_wann = np.array(rdm1s_ao_wann).sum (0)
