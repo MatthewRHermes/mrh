@@ -17,8 +17,8 @@ from mrh.my_pyscf.pbc.fci import direct_spin1_cplx
     4. make_rdm12 (spin-summed 2-RDM)
 
     Currently, I have these functions defined in both Python and more optimized C code.
-    In both C and Python only spin-separated implementation is done. The spin-summed RDMs are constructed 
-    from the spin-separated RDMs.
+    The native spin-summed 1-/2-RDM path uses a fused excitation kernel.
+    Spin-separated native and Python implementations provide independent comparisons.
 '''
 
 def compute_real_space_rdm12(cell, fcivec, norb, nelec, reorder=True):
