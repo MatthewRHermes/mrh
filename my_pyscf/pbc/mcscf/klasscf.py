@@ -3074,7 +3074,11 @@ class KLASSCF_HessianOperator(molLASSCF_HessianOperator):
         kappa1, ci1 = self.ugg.unpack(x)
         dtype = np.result_type(np.asarray(x).dtype, kappa1.dtype)
 
-        if np.any(kappa1):
+        debug_zero_response = (
+            getattr(getattr(self, "las", None), "verbose", 0)
+            >= lib.logger.DEBUG1
+        )
+        if np.any(kappa1) or debug_zero_response:
             kappa2 = np.asarray(self._orbital_hessian_response(kappa1))
             _check_shape(kappa2, np.shape(kappa1), label="kappa2")
             ci2 = self._ci_orbital_hessian_response(kappa1)
