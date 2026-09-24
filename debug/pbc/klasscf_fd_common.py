@@ -226,7 +226,7 @@ def assert_convergence(result):
         )
 
 
-def plot_convergence(results, path, description, expected_order=1.0):
+def plot_convergence(results, path, description, expected_order=1.0, xlim=None):
     """Plot relative derivative error against step size without opening a GUI."""
     from textwrap import fill
     from matplotlib.backends.backend_agg import FigureCanvasAgg
@@ -244,6 +244,8 @@ def plot_convergence(results, path, description, expected_order=1.0):
             label=f"Expected slope {expected_order:g}" if index == 0 else None,
         )
     error_axis.set(xlabel="Step size", ylabel="Relative derivative error")
+    if xlim is not None:
+        error_axis.set_xlim(xlim)
     error_axis.grid(True, which="both", alpha=0.3)
     error_axis.legend(fontsize="small")
     figure.suptitle(fill(description, width=55))
@@ -253,7 +255,7 @@ def plot_convergence(results, path, description, expected_order=1.0):
 
 
 def run_checks(evaluate, description, expected_order=1.0, parser=None,
-               default_steps=FD_STEPS):
+               default_steps=FD_STEPS, plot_xlim=None):
     """Run checks and save plots in the current directory without opening a GUI."""
     if parser is None:
         parser = argparse.ArgumentParser(description=description)
@@ -290,4 +292,6 @@ def run_checks(evaluate, description, expected_order=1.0, parser=None,
             assert_convergence(result)
     finally:
         if args.plot and results:
-            plot_convergence(results, args.plot, description, expected_order)
+            plot_convergence(
+                results, args.plot, description, expected_order, xlim=plot_xlim,
+            )
