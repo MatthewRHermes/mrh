@@ -1,7 +1,7 @@
 import ctypes
 import numpy as np
 
-from pyscf import lib
+from pyscf import lib, __config__
 from pyscf.fci import cistring
 
 from mrh.lib.helper import load_library
@@ -95,7 +95,8 @@ def _make_rdm12_tdm12_spin1(fname, cibra, ciket, norb, nelec,
     dm1 = np.empty((norb, norb), dtype=np.complex128, order='C')
     dm2 = np.empty((norb, norb, norb, norb),
                    dtype=np.complex128, order='C')
-    with lib.with_omp_threads(1):
+    # Follow the current PySCF thread setting unless explicitly overridden.
+    with lib.with_omp_threads(getattr(__config__, "pbc_rdm_threads", lib.num_threads())):
         libpbcrdm.FCIrdm12_drv_cplx(
             getattr(libpbcrdm, fname),
             dm1.ctypes.data_as(ctypes.c_void_p),
