@@ -17,24 +17,164 @@ from pyscf import __config__
 op = (op_o0, op_o1)
 
 LOWEST_REFOVLP_EIGVAL_THRESH = getattr (__config__, 'lassi_excitations_refovlp_eigval_thresh', 1e-9)
+LOWEST_REFOVLP_FLOATING_THRESH_OOM = getattr (__config__, 'lassi_excitations_refovlp_floating_thresh_oom', 6)
+LOWEST_REFOVLP_FLOATING_THRESH_MAX = getattr (__config__, 'lassi_excitations_refovlp_floating_thresh_max', 1e-3)
 MAX_CYCLE = getattr (__config__, 'lassi_excitations_max_cycle', 50)
 CONV_TOL_SPACE = getattr (__config__, 'lassi_excitations_conv_tol_space', 1e-4)
 CONV_TOL_SELF = getattr (__config__, 'lassi_excitations_conv_tol_self', 1e-8)
 
-def lowest_refovlp_eigpair (ham_pq, p=1, ovlp_thresh=LOWEST_REFOVLP_EIGVAL_THRESH, log=None):
+class TrialState:
+    ''' Object to keep the CI and SI vectors of a given trial state together '''
+    def __init__(self, ci, si):
+        self.ci = ci
+        self.si = si
+        self.lroots = get_lroots (ci)
+
+    def schmidt_trunc (self, nroots=1, log=None):
+        return TruncatedTrialState (self, nroots=nroots, log=log)
+
+    def debug_delta (self, other, log, lbl=''):
+        if log.verbose < logger.DEBUG:
+            return
+        if other is None:
+            return
+        ci0, si0 = self.ci, self.si
+        ci1, si1 = other.ci, other.si
+        lr0, lr1 = self.lroots, other.lroots
+        n0 = np.prod (lr0)
+        n1 = np.prod (lr1)
+        si0_p, si0_q = si0[:n0], si0[n0:]
+        si1_p, si1_q = si1[:n1], si1[n1:]
+        ovlps = []
+        log.debug (f'{lbl} ExcitationPSFCISolver step analysis:')
+        for ifrag, (c0, c1) in enumerate (zip (ci0, ci1)):
+            n0 = lr0[ifrag]
+            n1 = lr1[ifrag]
+            x0 = np.asarray (c0[:n0]).reshape (n0,-1) 
+            x1 = np.asarray (c1[:n1]).reshape (n1,-1) 
+            ovlp = x0.conj () @ x1.T
+            ovlps.append (ovlp)
+            svals = linalg.svd (ovlp)[1]
+            log.debug (f'{lbl} F{ifrag} svals: {svals}')
+        assert (len (ovlps) == 2)
+        x1_p = lib.einsum ('rs,pr,qs->pq', si1_p.reshape (lr1, order='F'),
+                           ovlps[0], ovlps[1]).ravel ()
+        ovlp_p = np.dot (si0_p.conj (), x1_p)
+        slices = tuple (slice (0, l) for l in np.minimum (lr0, lr1))
+        si0_p = si0_p.reshape (lr0)[slices].ravel ()
+        si1_p = si1_p.reshape (lr1)[slices].ravel ()
+        ovlp_si_p = np.dot (si0_p.conj (), si1_p)
+        ovlp_q = np.dot (si0_q.conj (), si1_q)
+        log.debug (f'{lbl} <si0_p|si1_p> = {ovlp_si_p}')
+        log.debug (f'{lbl} <Psi0_p|Psi1_p> = {ovlp_p}')
+        log.debug (f'{lbl} <Psi0_q|Psi1_q> = {ovlp_q}')
+        ovlp = ovlp_p + ovlp_q
+        log.debug (f'{lbl} <Psi0|Psi1> = {ovlp}')
+
+class TruncatedTrialState:
+    '''Perform the Schmidt decomposition on the P-space part of an si vector, truncate all but
+    the highest nroots singular values, and correspondingly transform various intermediates.
+
+    Args:
+        ts: instance of class `TrialState`
+            SI and CI vectors
+
+    Kwargs:
+        nroots: integer
+            Number of roots for each fragment to retain; i.e., sqrt (p)
+
+    Attributes:
+        disc_svals: ndarray of shape (p-nroots,)
+            List of singular values discarded in the truncation
+        u: ndarray of shape (nroots+?,nroots)
+            nroots left-singular vectors
+        si_p: ndarray of shape (nroots,)
+            P-space part of the CI vector, in the Schmidt (diagonal) basis
+        si_q: ndarray of shape (q,)
+            Q-space part of the CI vector
+        vh: ndarray of shape (nroots,nroots+?)
+            nroots right-singular vectors
+    '''
+    def __init__(self, ts, nroots=1, log=None):
+        si = ts.si
+        ci = ts.ci
+        t0 = lib.logger.process_clock (), lib.logger.perf_counter ()
+        nfrags = len (ci)
+        assert (nfrags==2)
+        lroots = get_lroots (ci)
+        p = np.prod (lroots)
+        schmidt_vec = si[:p].reshape (lroots[1],lroots[0])
+        u, svals, vh = linalg.svd (schmidt_vec)
+        disc_svals = []
+        if len (svals) > nroots:
+            disc_svals = svals[nroots:]
+            svals = svals[:nroots]
+        u = u[:,:nroots]
+        vh = vh[:nroots,:]
+        si_p = svals
+        si_q = si[p:]
+        if log is not None:
+            log.debug1 ('[svals retained], [svals discarded] = %s , %s',
+                        str (svals), str (disc_svals))
+        self.disc_svals = disc_svals
+        self.u = u
+        self.si_p = si_p
+        self.si_q = si_q
+        self.vh = vh
+
+
+def project_trial_state_ci (ci1, ts0=None):
+    ''' Project an SI vector from a trial state into the space of new CI vectors '''
+    if ts0 is None:
+        return None
+    lroots = get_lroots (ci1)
+    ci0, si0 = ts0.ci, ts0.si
+    p = np.prod (ts0.lroots)
+    si_p = si0[:p].reshape (ts0.lroots, order='F')
+    # fragments in col-major order!!
+    si_q = si0[p:]
+    assert (len (ci1) == len (ci0))
+    for i in range (len (ci0)):
+        x0 = ci0[i].reshape (ts0.lroots[i],-1)
+        x1 = ci1[i].reshape (lroots[i],-1)
+        ovlp = x0 @ x1.conj ().T
+        si_p = np.tensordot (si_p, ovlp, axes=((0,),(0,)))
+        # This changes it to row-major order internally but that shouldn't matter...
+    return np.append (np.ravel (si_p, order='F'), si_q)
+    
+
+def lowest_refovlp_eigpair (ham_pq, p=1, si0=None, ovlp_thresh=LOWEST_REFOVLP_EIGVAL_THRESH, 
+                            float_oom=LOWEST_REFOVLP_FLOATING_THRESH_OOM, 
+                            float_max=LOWEST_REFOVLP_FLOATING_THRESH_MAX,
+                            log=None):
     ''' Identify the lowest-energy eigenpair for which the eigenvector has nonzero overlap with
     the reference wave function. '''
     e_all, u_all = linalg.eigh (ham_pq)
     w_pp = (u_all[:p,:].conj () * u_all[:p,:]).sum (0) / p
     w_q0q0 = u_all[p,:].conj () * u_all[p,:]
     w_pq0 = np.abs (u_all[:p,:].conj () * u_all[p,:][None,:]).sum (0)
-    for i in range (8):
-        idx_valid = w_q0q0 > 10**-(i+1)
-        if np.count_nonzero (idx_valid) > 0:
-            break
+    assert (ovlp_thresh > 0)
+    idx_valid = np.zeros (len (e_all), dtype=bool)
+    if si0 is not None:
+        ovlp_01 = np.abs (np.dot (si0.conj (), u_all))
+        idx = np.argmax (ovlp_01)
+        if w_q0q0[idx] < ovlp_thresh:
+            log.warn (f"refovlp eigenvector w < {ovlp_thresh}; discarding...")
+        else:
+            idx_valid[idx] = True
+    if np.count_nonzero (idx_valid) == 0:
+        floating_thresh = min (float_max, ovlp_thresh * 10**float_oom)
+        for i in range (float_oom+1):
+            idx_valid = w_q0q0 > floating_thresh
+            if np.count_nonzero (idx_valid) > 0:
+                break
+            floating_thresh = floating_thresh / 10
+            if floating_thresh < (ovlp_thresh / 5):
+                break
     if np.count_nonzero (idx_valid) == 0:
         log.error ("weights of the reference wfn: %s", str (w_q0q0))
-        raise RuntimeError ("No eigenstate w/ w>1e-8 reference wfn detected")
+        raise RuntimeError (f'No eigenstate w/ w>{floating_thresh} reference wfn detected')
+    w_q0q0 = w_q0q0[idx_valid]
     e_valid = e_all[idx_valid]
     u_valid = u_all[:,idx_valid]
     idx_choice = np.argmin (e_valid)
@@ -46,17 +186,17 @@ def lowest_refovlp_eigpair (ham_pq, p=1, ovlp_thresh=LOWEST_REFOVLP_EIGVAL_THRES
             line = ' {} {} {} {} {}'.format (i,e_all[i],w_pp[i],w_q0q0[i],w_pq0[i])
             if i==i0: line += ' selected'
             log.debug1 (line)
-    return e_valid[idx_choice], u_valid[:,idx_choice]
+    return e_valid[idx_choice], u_valid[:,idx_choice], w_q0q0[idx_choice]
 
-def lowest_refovlp_eigval (ham_pq, p=1, ovlp_thresh=LOWEST_REFOVLP_EIGVAL_THRESH):
+def lowest_refovlp_eigval (ham_pq, p=1, si0=None, ovlp_thresh=LOWEST_REFOVLP_EIGVAL_THRESH):
     ''' Return the lowest eigenvalue of the matrix ham_pq, whose corresponding
     eigenvector has nonzero overlap with the first basis p basis functions. '''
-    return lowest_refovlp_eigpair (ham_pq, p=p, ovlp_thresh=ovlp_thresh)[0]
+    return lowest_refovlp_eigpair (ham_pq, p=p, si0=si0, ovlp_thresh=ovlp_thresh)[0]
 
-def lowest_refovlp_eigvec (ham_pq, p=1, ovlp_thresh=LOWEST_REFOVLP_EIGVAL_THRESH):
+def lowest_refovlp_eigvec (ham_pq, p=1, si0=None, ovlp_thresh=LOWEST_REFOVLP_EIGVAL_THRESH):
     ''' Return the eigenvector corresponding to the lowest eigenvalue of the matrix ham_pq
     which has nonzero overlap with the first basis p basis functions. '''
-    return lowest_refovlp_eigpair (ham_pq, p=p, ovlp_thresh=ovlp_thresh)[1]
+    return lowest_refovlp_eigpair (ham_pq, p=p, si0=si0, ovlp_thresh=ovlp_thresh)[1]
 
 class ExcitationPSFCISolver (ProductStateFCISolver):
     '''Minimize the energy of a normalized wave function of the form
@@ -203,16 +343,25 @@ class ExcitationPSFCISolver (ProductStateFCISolver):
             self.excited_frags = [self.excited_frags[i] for i in idx]
             self.fcisolvers = [self.fcisolvers[i] for i in idx]
 
-    def space_delta (self, ci0, si0_p, ci1, si1_p, nroots):
+    def space_delta (self, ci0, tts0, ci1, tts1, nroots):
+        '''This evaluates the overlap of the TRUNCATED but not REOPTIMIZED
+        trial-state wave function'''
+        if (tts0 is None) or (tts1 is None):
+            return 1
+        si0_p, si0_q = tts0.si_p, tts0.si_q
+        si1_p, si1_q = tts1.si_p, tts1.si_q
         delta = 0
-        for c0, c1 in zip (ci0, ci1):
+        ovlps = []
+        for ifrag, (c0, c1) in enumerate (zip (ci0, ci1)):
             x0 = np.asarray (c0[:nroots]).reshape (nroots,-1) 
             x1 = np.asarray (c1[:nroots]).reshape (nroots,-1) 
             ovlp = x0.conj () @ x1.T
+            ovlps.append (ovlp)
             ovlp = ovlp * si1_p[None,:]
             ovlp = ovlp.conj () * ovlp
             ovlp -= np.diag (si1_p.conj () * si1_p)
             delta = max (delta, ovlp.sum ())
+        assert (len (ovlps) == 2)
         delta = max (delta, np.amax (np.abs (si1_p-si0_p)))
         return delta
 
@@ -234,42 +383,45 @@ class ExcitationPSFCISolver (ProductStateFCISolver):
         log.info (("ExcitationPSFCISolver is optimizing %d P-space states factorized across "
                    "%d fragments with %d fixed Q-space states"),
                   nroots, len (norb_f), self.get_nq ())
+        # Cycle -1: start with three times nroots guess vectors and do the SVD once
         ci0 = self.get_init_guess (ci0, norb_f, nelec_f, h1, h2, nroots=3*nroots)
         ham_pq = self.get_ham_pq (h0, h1, h2, ci0)
-        e, si = self.eig1 (ham_pq, ci0)
-        disc_svals, u, si_p, si_q, vh = self.schmidt_trunc (si, ci0, nroots=nroots)
-        ham_pq = self.truncrot_ham_pq (ham_pq, u, vh)
-        ci1 = self.truncrot_ci (ci0, u, vh)
-        hci_pspace_diag = self.op_ham_pp_diag (h1, h2, ci1, norb_f, nelec_f)
-        tdm1s_f = self.get_tdm1s_f (ci1, ci1, norb_f, nelec_f)
-        e, eprime, eprime_last, si0_p = 0, 0, 0, si_p
-        disc_sval_max = max (list(disc_svals)+[0.0,])
+        e, ts, w = self.eig1 (ham_pq, ci0)
+        tts = ts.schmidt_trunc (nroots=nroots, log=self.log)
+        ham_pq = self.truncrot_ham_pq (ham_pq, tts.u, tts.vh)
+        ci0 = self.truncrot_ci (ci0, tts.u, tts.vh)
+        hci_pspace_diag = self.op_ham_pp_diag (h1, h2, ci0, norb_f, nelec_f)
+        tdm1s_f = self.get_tdm1s_f (ci0, ci0, norb_f, nelec_f)
+        # init loop
+        e_last, ep, ep_last = 0, 0, 0
+        disc_sval_max = max (list(tts.disc_svals)+[0.0,])
+        wp, space_delta, ttsp, tsp, ts = 0, 1.0, tts, None, None
         converged = False
         log.info ('Entering product-state fixed-point CI iteration')
         for it in range (max_cycle):
-            e_last = e
-            space_delta = self.space_delta (ci0, si0_p, ci1, si_p, nroots)
-            ci0, si0_p = ci1, si_p
             # Re-diagonalize in truncated space
-            e, si = self.eig1 (ham_pq, ci0)
-            _, u, si_p, si_q, vh = self.schmidt_trunc (si, ci0, nroots=nroots)
+            ts0, e_last = ts, e
+            e, ts, w = self.eig1 (ham_pq, ci0, ts0=ts)
+            ts.debug_delta (ts0, self.log, lbl='trunc')
+            tts = ts.schmidt_trunc (nroots=nroots, log=self.log)
 
-            log.debug ('Singular values in truncated space: {}'.format (si_p))
-            ci1 = self.truncrot_ci (ci0, u, vh)
-            log.info (("Cycle %d: |delta space| = %e ; e = %e, de = %e, e' = %e, de' = %e, "
-                       "max (discarded) = %e"),
-                      it, space_delta, e, e - e_last, eprime, eprime - eprime_last, disc_sval_max)
+            log.debug ('Singular values in truncated space: {}'.format (tts.si_p))
+            ci1 = self.truncrot_ci (ci0, tts.u, tts.vh)
+            log.info (("Cycle %d: |delta space| = %e ; e = %e, de = %e, w = %e, e' = %e, de' = %e, "
+                       "w' = %e, max (discarded) = %e"),
+                      it, space_delta, e, e - e_last, w, ep, ep - ep_last, wp,
+                      disc_sval_max)
             if ((space_delta < conv_tol_space) and (abs (e-e_last) < conv_tol_self)):
                 converged = True
                 break
-            ham_pq = self.truncrot_ham_pq (ham_pq, u, vh)
-            hci_pspace_diag = self.truncrot_hci_pspace_diag (hci_pspace_diag, u, vh)
-            tdm1s_f = self.truncrot_tdm1s_f (tdm1s_f, u, vh)
+            ham_pq = self.truncrot_ham_pq (ham_pq, tts.u, tts.vh)
+            hci_pspace_diag = self.truncrot_hci_pspace_diag (hci_pspace_diag, tts.u, tts.vh)
+            tdm1s_f = self.truncrot_tdm1s_f (tdm1s_f, tts.u, tts.vh)
             # Generate additional vectors and compute gradient
-            hci_qspace = self.op_ham_pq_ref (h1, h2, ci1, si_q)
+            hci_qspace = self.op_ham_pq_ref (h1, h2, ci1, tts.si_q)
             hpq_xq = self.get_hpq_xq (hci_qspace, ci1)
-            hpp_xp = self.get_hpp_xp (ci1, si_p, hci_pspace_diag, h0, h2, tdm1s_f, norb_f, nelec_f)
-            grad = self._get_grad (ci1, si_p, hpq_xq, hpp_xp, nroots=nroots)
+            hpp_xp = self.get_hpp_xp (ci1, tts.si_p, hci_pspace_diag, h0, h2, tdm1s_f, norb_f, nelec_f)
+            grad = self._get_grad (ci1, tts.si_p, hpq_xq, hpp_xp, nroots=nroots)
             ci2 = self.get_new_vecs (ci1, hpq_xq, hpp_xp, nroots=nroots)
             # Extend intermediates
             hci2_pspace_diag = self.op_ham_pp_diag (h1, h2, ci2, norb_f, nelec_f)
@@ -287,16 +439,20 @@ class ExcitationPSFCISolver (ProductStateFCISolver):
             ham_pq = self.update_ham_pq (ham_pq, h0, h1, h2, ci1, hci_qspace, hci_pspace_diag,
                                          tdm1s_f, norb_f, nelec_f)
             # Diagonalize and truncate
-            eprime_last = eprime
-            eprime, si = self.eig1 (ham_pq, ci1)
-            disc_svals, u, si_p, si_q, vh = self.schmidt_trunc (si, ci1, nroots=nroots)
-            ham_pq = self.truncrot_ham_pq (ham_pq, u, vh)
-            ci1 = self.truncrot_ci (ci1, u, vh)
-            hci_pspace_diag = self.truncrot_hci_pspace_diag (hci_pspace_diag, u, vh)
-            tdm1s_f = self.truncrot_tdm1s_f (tdm1s_f, u, vh)
-            log.debug ('Retained singular values: {}'.format (si_p))
-            log.debug ('Discarded singular values: {}'.format (disc_svals))
-            disc_sval_max = max (list (disc_svals) + [0.0,])
+            ep_last = ep
+            ttsp0, tsp0 = ttsp, tsp
+            ep, tsp, wp = self.eig1 (ham_pq, ci1, ts0=tsp)
+            tsp.debug_delta (tsp0, self.log, lbl='ext')
+            ttsp = tsp.schmidt_trunc (nroots=nroots, log=self.log)
+            ham_pq = self.truncrot_ham_pq (ham_pq, ttsp.u, ttsp.vh)
+            ci1 = self.truncrot_ci (ci1, ttsp.u, ttsp.vh)
+            hci_pspace_diag = self.truncrot_hci_pspace_diag (hci_pspace_diag, ttsp.u, ttsp.vh)
+            tdm1s_f = self.truncrot_tdm1s_f (tdm1s_f, ttsp.u, ttsp.vh)
+            log.debug ('Retained singular values: {}'.format (ttsp.si_p))
+            log.debug ('Discarded singular values: {}'.format (ttsp.disc_svals))
+            disc_sval_max = max (list (ttsp.disc_svals) + [0.0,])
+            space_delta = self.space_delta (ci0, ttsp0, ci1, ttsp, nroots)
+            ci0 = ci1
         conv_str = ['NOT converged','converged'][int (converged)]
         log.info (('Product_state fixed-point CI iteration {} after {} '
                    'cycles').format (conv_str, it))
@@ -641,14 +797,14 @@ class ExcitationPSFCISolver (ProductStateFCISolver):
             self._linkstr_cache[(ifrag,norb,nelec)] = linkstr
         return linkstr
 
-    def eig1 (self, ham_pq, ci0, ovlp_thresh=1e-3):
+    def eig1 (self, ham_pq, ci1, ts0=None, ovlp_thresh=LOWEST_REFOVLP_EIGVAL_THRESH):
         '''Diagonalize the coupled Hamiltonian for the lowest-energy eigensolution with substantial
         overlap on the reference state.
 
         Args:
             ham_pq: ndarray of shape (p+q,p+q)
                 Hamiltonian matrix including both P and Q spaces
-            ci0: list of ndarray of shape (p[i],ndeta[i],ndetb[i])
+            ci1: list of ndarray of shape (p[i],ndeta[i],ndetb[i])
                 CI vectors describing the P states of ham_pq
 
         Kwargs:
@@ -658,59 +814,16 @@ class ExcitationPSFCISolver (ProductStateFCISolver):
         Returns:
             e: float
                 Total energy
-            si: ndarray of shape (p+q,)
-                SI vector corresponding to e
+            ts: instance of class `TrialState`
+                SI and CI vectors corresponding to e
         '''
 
-        lroots = get_lroots (ci0)
+        lroots = get_lroots (ci1)
         p = np.prod (lroots)
-        e, si = lowest_refovlp_eigpair (ham_pq, p=p, ovlp_thresh=ovlp_thresh, log=self.log)
-        return e, si
-
-    def schmidt_trunc (self, si, ci0, nroots=1):
-        '''Perform the Schmidt decomposition on the P-space part of an si vector, truncate all but
-        the highest nroots singular values, and correspondingly transform various intermediates.
-
-        Args:
-            si: ndarray of shape (p+?+q,)
-                SI vector
-            ci0: list of ndarray of shape (nroots+?,ndeta[i],ndetb[i])
-                CI vectors describing the P states of ham_pq
-
-        Kwargs:
-            nroots: integer
-                Number of roots for each fragment to retain; i.e., sqrt (p)
-
-        Returns:
-            disc_svals: ndarray of shape (p-nroots,)
-                List of singular values discarded in the truncation
-            u: ndarray of shape (nroots+?,nroots)
-                nroots left-singular vectors
-            si_p: ndarray of shape (nroots,)
-                P-space part of the CI vector, in the Schmidt (diagonal) basis
-            si_q: ndarray of shape (q,)
-                Q-space part of the CI vector
-            vh: ndarray of shape (nroots,nroots+?)
-                nroots right-singular vectors
-        '''
-        t0 = lib.logger.process_clock (), lib.logger.perf_counter ()
-        nfrags = len (ci0)
-        assert (nfrags==2)
-        lroots = get_lroots (ci0)
-        p = np.prod (lroots)
-        schmidt_vec = si[:p].reshape (lroots[1],lroots[0])
-        u, svals, vh = linalg.svd (schmidt_vec)
-        disc_svals = []
-        if len (svals) > nroots:
-            disc_svals = svals[nroots:]
-            svals = svals[:nroots]
-        u = u[:,:nroots]
-        vh = vh[:nroots,:]
-        si_p = svals
-        si_q = si[p:]
-        self.log.debug1 ('[svals retained], [svals discarded] = %s , %s',
-                         str (svals), str (disc_svals))
-        return disc_svals, u, si_p, si_q, vh
+        si0 = project_trial_state_ci (ci1, ts0=ts0)
+        e, si1, w = lowest_refovlp_eigpair (ham_pq, p=p, si0=si0, ovlp_thresh=ovlp_thresh, log=self.log)
+        ts = TrialState (ci1, si1)
+        return e, ts, w
 
     def truncrot_ci (self, ci0, u, vh):
         ci1 = [np.tensordot (vh, ci0[0], axes=1),
