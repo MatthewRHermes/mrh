@@ -610,9 +610,10 @@ class ImpuritySolver ():
                                       dm1s=None, casdm1rs=None, casdm2rs=None, weights=None):
         '''Update the Hamiltonian data contained within this impurity solver and all encapsulated
         impurity objects'''
-        from mrh.my_pyscf.gpu import libgpu
         las = self.mol._las
         gpu = las.use_gpu
+        if gpu:
+            from mrh.my_pyscf.gpu import libgpu
         if h2eff_sub is None: h2eff_sub = las.ao2mo (mo_coeff)
         if e_states is None: e_states = las.energy_nuc () + np.array (las.states_energy_elec (
             mo_coeff=mo_coeff, ci=ci, h2eff=h2eff_sub))
