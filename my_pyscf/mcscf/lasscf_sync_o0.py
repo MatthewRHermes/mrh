@@ -1496,12 +1496,23 @@ class LASSCF_HessianOperator (sparse_linalg.LinearOperator):
         ci1 = self._update_ci (dci)
         t0=log.timer('update_ci',*t0)
         gpu=self.las.use_gpu
-        # NB: no DF guard here. update_h2eff_sub only rotates an already-built h2eff_sub
-        # by umat, so it is valid whether h2eff_sub came from DF or exact ERIs.
+        # PLACEHOLDER until a follow-up PR: the DEBUG branch below no longer exercises the
+        # h2eff_sub rotation. _update_h2eff_sub_gpu and _update_h2eff_sub_debug both rotate
+        # an already-built compact h2eff_sub by umat, and such a rotation does not preserve
+        # the 8-fold permutation symmetry that get_h2eff_slice now depends on (it rebuilds
+        # the full tensor with ao2mo.restore, which requires that symmetry), so the two are
+        # incompatible. Both methods stay defined but uncalled pending that work, and the
+        # branch routes to _update_h2eff_sub -- a full recompute via las.ao2mo -- so that a
+        # DEBUG-level run stays correct. Consequence: the comparison below is now vacuous,
+        # since both sides call the same function, so it always passes and the exit() is
+        # unreachable. Restore the original two calls once the rotation path is fixed. No DF
+        # guard is needed here: las.ao2mo selects DF / exact / outcore itself via get_h2eff.
         if self.las.verbose>=lib.logger.DEBUG and gpu:
             h2eff_sub_c = h2eff_sub.copy()
-            h2eff_sub2 = self._update_h2eff_sub_debug (mo1, umat, h2eff_sub_c) 
-            h2eff_sub = self._update_h2eff_sub_gpu (gpu, mo1, umat, h2eff_sub) 
+#            h2eff_sub2 = self._update_h2eff_sub_debug (mo1, umat, h2eff_sub_c) 
+#            h2eff_sub = self._update_h2eff_sub_gpu (gpu, mo1, umat, h2eff_sub) 
+            h2eff_sub2 = self._update_h2eff_sub (mo1, umat, h2eff_sub_c)
+            h2eff_sub = self._update_h2eff_sub (mo1, umat, h2eff_sub)
             if(np.allclose(h2eff_sub,h2eff_sub2,atol=1e-13)): 
                 log.debug('H2eff test passed')
                 #print('H2eff test passed')
@@ -1540,6 +1551,8 @@ class LASSCF_HessianOperator (sparse_linalg.LinearOperator):
         return ci1
 
     def _update_h2eff_sub_gpu(self,gpu,mo1,umat,h2eff_sub):
+        # Currently uncalled. Kept for a follow-up PR; see the PLACEHOLDER note in
+        # update_mo_ci_eri for why the rotation cannot currently be used.
         from mrh.my_pyscf.gpu import libgpu
         ncore, ncas, nocc, nmo = self.ncore, self.ncas, self.nocc, self.nmo
         #ucas = umat[ncore:nocc, ncore:nocc]
@@ -1552,6 +1565,8 @@ class LASSCF_HessianOperator (sparse_linalg.LinearOperator):
         return h2eff_sub 
       
     def _update_h2eff_sub_debug(self, mo1, umat, h2eff_sub):
+        # Currently uncalled. Kept for a follow-up PR; see the PLACEHOLDER note in
+        # update_mo_ci_eri for why the rotation cannot currently be used.
         # This code is outlining the algorithm taken in the GPU branch.
         ncore, ncas, nocc, nmo = self.ncore, self.ncas, self.nocc, self.nmo
         ucas = umat[ncore:nocc, ncore:nocc]
