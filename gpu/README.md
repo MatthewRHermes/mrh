@@ -30,9 +30,7 @@ The same sample can be modified as below to enable GPU-accelerated calculations.
 from mrh.my_pyscf.gpu import libgpu
 import pyscf
 from gpu4mrh import patch_pyscf
-from pyscf import gto, scf
-
-from pyscf.lib import param
+from pyscf import gto, scf, lib
 
 gpu = libgpu.init()
 lib.param.use_gpu = gpu
