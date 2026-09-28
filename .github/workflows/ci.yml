@@ -50,3 +50,43 @@ jobs:
     - name: Test with pytest
       run: |
         ./.github/workflows/test.sh
+
+  gpu-host:
+    # Build libgpu with the CPU-only `host` backend and run tests/gpu against it.
+    # No GPU required. This is a smoke test of the libgpu call path, not a
+    # substitute for real GPU testing -- see test_gpu_host.sh for the caveats.
+    # Kept as a separate job rather than folded into `build` so that a libgpu
+    # build failure cannot mask the CPU test results, and so it runs once
+    # instead of across the whole python matrix.
+    name: gpu (host backend, no GPU)
+    runs-on: ubuntu-latest
+
+    steps:
+    - uses: actions/checkout@v3
+    - name: Set up Python
+      uses: actions/setup-python@v3
+      with:
+        python-version: "3.10"
+    - name: Install dependencies
+      run: |
+        sudo apt-get -qq install \
+          gcc \
+          g++ \
+          libblas-dev \
+          liblapack-dev \
+          cmake \
+          curl
+        python -m pip install --upgrade pip
+        python -m pip install pytest pybind11 pyscf
+        python -m pip install -r pyscf-forge_version.txt
+        if [ -f requirements.txt ]; then pip install -r requirements.txt; fi
+    - name: Install
+      run: |
+        ./.github/workflows/cmake_make.sh
+    - name: Build libgpu (host backend)
+      run: |
+        cd gpu/src
+        make ARCH=linux-cpu-gnu BLAS_DIR= BLAS_LIB=-lblas -j4 install
+    - name: Test with pytest
+      run: |
+        ./.github/workflows/test_gpu_host.sh
