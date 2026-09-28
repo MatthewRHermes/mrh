@@ -194,8 +194,8 @@ void libgpu_pull_ppaa_papa_ao2mo_v4(void * ptr,
 
 // ============================================================================
 // DEPRECATED: legacy integral engine (orbital_response) -- commented out.
-// See refactor_plan.md. Restore together with Device::orbital_response and the
-// libgpu.h decl + m.def if revived.
+// See the "Deprecated GPU code" section of gpu/README.md. Restore together with
+// Device::orbital_response and the libgpu.h decl + m.def if revived.
 // ============================================================================
 #if 0
 /* ---------------------------------------------------------------------- */

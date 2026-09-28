@@ -1207,8 +1207,9 @@ class LASSCF_HessianOperator (sparse_linalg.LinearOperator):
         f1_prime = np.zeros ((self.nmo, self.nmo), dtype=self.dtype)
         # (H.x_va)_pp, (H.x_ac)_pp sector
         # DEPRECATED: use_gpu path (legacy integral engine libgpu.orbital_response) is
-        # commented out for the time being -- the C++ binding was removed (see
-        # refactor_plan.md). The CPU (numpy) path below is now always used;
+        # commented out for the time being -- the C++ binding was removed (see the
+        # "Deprecated GPU code" section of mrh/gpu/README.md). The CPU (numpy) path
+        # below is now always used;
         # self.las.use_gpu is ignored here until the GPU engine is restored.
         #if self.las.use_gpu:
         #    from mrh.my_pyscf.gpu import libgpu

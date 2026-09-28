@@ -12,7 +12,8 @@
 
 /* ---------------------------------------------------------------------- */
 
-// DEPRECATED: legacy integral engine (fdrv helper) -- commented out. See refactor_plan.md.
+// DEPRECATED: legacy integral engine (fdrv helper) -- commented out.
+// See the "Deprecated GPU code" section of gpu/README.md.
 #if 0
 void Device::fdrv(double *vout, double *vin, double *mo_coeff,
 		  int nij, int nao, int *orbs_slice, int *ao_loc, int nbas, double * _buf)

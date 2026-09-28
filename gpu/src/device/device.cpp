@@ -528,8 +528,9 @@ void Device::push_mo_coeff(py::array_t<double> _mo_coeff, int _size_mo_coeff)
 // ============================================================================
 // DEPRECATED: legacy integral engine -- Device::orbital_response().
 // Commented out for the time being (removed from the build + Python export).
-// Kept intact for possible revival; see refactor_plan.md. Was exported to
-// Python as libgpu.orbital_response (used by mcscf/lasscf_sync_o0.py).
+// Kept intact for possible revival; see the "Deprecated GPU code" section of
+// gpu/README.md. Was exported to Python as libgpu.orbital_response (used by
+// mcscf/lasscf_sync_o0.py).
 // If revived, also restore: device.h decl, libgpu.h/cpp binding, fdrv helper
 // (device.h + pm/<backend>/jk.cpp), size_fdrv/buf_fdrv state, and the
 // SIMPLE_TIMER/COUNTER printfs in the dtor.

@@ -109,8 +109,9 @@ public :
   void pull_ppaa_papa_ao2mo_v4 (py::array_t<double>,py::array_t<double>, int, int);
   
   // DEPRECATED: legacy integral engine (orbital_response) -- commented out for the
-  // time being. See refactor_plan.md. If revived, restore this decl, the impl in
-  // device.cpp, the binding in libgpu.h/cpp, and the fdrv helper below.
+  // time being. See the "Deprecated GPU code" section of gpu/README.md. If revived,
+  // restore this decl, the impl in device.cpp, the binding in libgpu.h/cpp, and the
+  // fdrv helper below.
   //ORBITAL RESPONSE
   //void orbital_response(py::array_t<double>,
   //			py::array_t<double>, py::array_t<double>, py::array_t<double>,

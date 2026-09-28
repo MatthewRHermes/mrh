@@ -345,7 +345,8 @@ void Device::get_jk(int naux,
 
 /* ---------------------------------------------------------------------- */
 
-// DEPRECATED: legacy integral engine (fdrv helper) -- commented out. See refactor_plan.md.
+// DEPRECATED: legacy integral engine (fdrv helper) -- commented out.
+// See the "Deprecated GPU code" section of gpu/README.md.
 // pyscf/pyscf/lib/ao2mo/nr_ao2mo.c::AO2MOnr_e2_drv()
 #if 0
 void Device::fdrv(double *vout, double *vin, double *mo_coeff,
