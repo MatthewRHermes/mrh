@@ -718,7 +718,17 @@ def matrix_eigen_control_options (the_matrix, b_matrix=None, symmetry=None, stro
                 the_matrix = subspace.conjugate ().T @ the_matrix @ subspace
             else:
                 the_matrix = (subspace.conjugate ().T * the_matrix) @ subspace
-            b_matrix   = subspace.conjugate ().T @ b_matrix @ subspace if b_matrix is not None else subspace.conjugate ().T @ subspace
+            if b_matrix is not None:
+                b_matrix = subspace.conjugate ().T @ b_matrix @ subspace
+            else:
+                # The metric of an orthonormal subspace is the identity, in which case the
+                # generalized eigenproblem is pointless. Pass b_matrix=None so that scipy uses the
+                # standard driver (?syevr) instead of ?sygvd, which is both faster and avoids an
+                # intermittent segfault in the ?sygvd path on old scipy (see scipy _decomp.py:
+                # "'gvd' doesn't have lwork query").
+                b_matrix = subspace.conjugate ().T @ subspace
+                if np.amax (np.abs (b_matrix - np.eye (b_matrix.shape[0]))) < num_zero_atol:
+                    b_matrix = None
         else:
             idx = np.ix_(subspace,subspace)
             ndim_full = the_matrix.shape[0]

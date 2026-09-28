@@ -194,3 +194,72 @@ def get_mol_from_h5 (h5fname, **kwargs):
     #return my_atom, my_basis, my_symmetry
 
 
+
+def read_openmolcas_grid(filename):
+    '''
+    Read OpenMolcas GRIDFILE coordinates and weights.
+    filename : str
+        Path to an OpenMolcas GRIDFILE containing x, y, z, and weight columns
+        Note this can be generated from the OpenMolcas input with the command:
+        ```
+        &SEWARD
+        Grid Input
+            WriteGrid
+        end of grid input
+        ```
+    Returns:
+        coords : ndarray of shape (npoints, 3)
+            Cartesian coordinates of the grid points
+        weights : ndarray of shape (npoints,)
+            Weights of the grid points
+    '''
+    grid = np.loadtxt(filename)
+    if grid.ndim != 2 or grid.shape[1] != 4:
+        raise ValueError("OpenMolcas GRIDFILE must contain x, y, z, and weight")
+    return np.asarray(grid[:, :3], order="C"), np.asarray(grid[:, 3], order="C")
+
+
+def pin_openmolcas_grid(mc, coords, weights):
+    '''
+    Keep the OpenMolcas grid installed across L-PDFT grid resets.
+    In pyscf, the grid is reset, I am overwriting this reset function
+    to keep the OpenMolcas grid throughout the MC-PDFT calculation.
+
+    args:
+        mc : instance of mcscf.CASSCF or mcscf.CASCI
+            The MC-PDFT object to pin the grid to
+        coords : ndarray of shape (npoints, 3)
+            Cartesian coordinates of the grid points
+        weights : ndarray of shape (npoints,)
+            Weights of the grid points
+    '''
+
+    original_reset = mc.otfnal.reset
+
+    def reset_with_openmolcas_grid(mol=None):
+        original_reset(mol=mol)
+        mc.otfnal.grids.coords = coords
+        mc.otfnal.grids.weights = weights
+        mc.otfnal.grids.non0tab = None
+        return mc.otfnal
+
+    mc.otfnal.reset = reset_with_openmolcas_grid
+
+    reset_with_openmolcas_grid(mc.mol)
+    return mc
+
+def set_openmolcas_grid(mc, gridfile):
+    '''
+    Set the OpenMolcas grid for an MC-PDFT calculation.
+    This function reads the OpenMolcas GRIDFILE and pins it to the MC-PDFT object.
+
+    args:
+        mc : instance of mcscf.CASSCF or mcscf.CASCI
+            The MC-PDFT object to set the grid for
+        gridfile : str
+            Path to an OpenMolcas GRIDFILE containing x, y, z, and weight columns
+    '''
+    coords, weights = read_openmolcas_grid(gridfile)
+    mc = pin_openmolcas_grid(mc, coords, weights)
+    return mc
+

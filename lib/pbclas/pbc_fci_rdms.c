@@ -511,6 +511,69 @@ double FCIrdm2_b_t1ci_cplx(double complex *ci0, double complex *t1,
 }
 
 /*
+ * Ordinary spin-summed complex 1-/2-RDMs (bra == ket).
+ * Build T = (E_alpha + E_beta)|CI> once.  T T^H contains all four
+ * spin blocks, avoiding separate aa, bb, and ab driver traversals.
+ * The driver applies the same index permutation and Hermitian completion
+ * as the spin-resolved kernels; normal-ordering is handled in Python.
+ */
+void FCIrdm12kern_sf_cplx(double complex *rdm1, double complex *rdm2,
+                    double complex *bra, double complex *ket,
+                    int bcount, int stra_id, int strb_id,
+                    int norb, int na, int nb, int nlinka, int nlinkb,
+                    _LinkT *clink_indexa, _LinkT *clink_indexb, int symm)
+{
+        const int INC1 = 1;
+        const char UP = 'U';
+        const char TRANS_N = 'N';
+        const char TRANS_C = 'C';
+        const double complex Z1 = 1.0;
+        const double D1 = 1.0;
+        const int nnorb = norb * norb;
+        double csum = 0.0;
+
+        double complex *buf = (double complex*)calloc((size_t)nnorb * (size_t)bcount,
+                                                      sizeof(double complex));
+
+        csum = FCIrdm2_a_t1ci_cplx(ket, buf, bcount, stra_id, strb_id,
+                              norb, nb, nlinka, clink_indexa);
+        csum += FCIrdm2_b_t1ci_cplx(ket, buf, bcount, stra_id, strb_id,
+                                  norb, nb, nlinkb, clink_indexb);
+
+        if (csum > CSUMTHR) {
+                double complex *v = malloc(sizeof(double complex) * (size_t)bcount);
+                for (int kk = 0; kk < bcount; kk++) {
+                        v[kk] = conj(bra[(size_t)stra_id*nb + strb_id + kk]);
+                }
+                zgemv_(&TRANS_N, &nnorb, &bcount, &Z1, buf, &nnorb,
+                    v, &INC1, &Z1, rdm1, &INC1);
+                free(v);
+
+                switch (symm) {
+                case BRAKETSYM:
+                        /*
+                         * rdm2 += buf * buf^H
+                         */
+                        zherk_(&UP, &TRANS_N, &nnorb, &bcount,
+                               &D1, buf, &nnorb, &D1, rdm2, &nnorb);
+                        break;
+                // Not tested this yet.
+                case PARTICLESYM:
+                        tril_particle_symm_cplx(rdm2, buf, buf, bcount, norb, 1.0, 1.0);
+                        break;
+                default:
+                        /*
+                         * rdm2 += buf * buf^H
+                         */
+                        zgemm_(&TRANS_N, &TRANS_C, &nnorb, &nnorb, &bcount,
+                               &Z1, buf, &nnorb, buf, &nnorb,
+                               &Z1, rdm2, &nnorb);
+                }
+        }
+        free(buf);
+}
+
+/*
  * ***********************************************
  *      2pdm kernel for alpha^i alpha_j | ci0 >
  *       (with complex FCI wavefunction)
