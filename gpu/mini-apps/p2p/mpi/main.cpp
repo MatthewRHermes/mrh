@@ -22,7 +22,8 @@
 #define _N_EXP 20 // 1 MB
 
 #define _TOL 1e-8
-#define _NUM_ITERATIONS 100
+#define _NUM_ITERATIONS 1000
+#define _NUM_WARMUP 5
 
 #ifdef _SINGLE_PRECISION
   typedef float real_t;
@@ -104,6 +105,8 @@ int main( int argc, char* argv[] )
   for(int i=0; i<nranks; ++i) {
 
     if(me == i) {
+      for(int j=0; j<_NUM_WARMUP; ++j) pm->dev_push(d_a, a, size);
+
       double t0 = MPI_Wtime();
       
       for(int j=0; j<_NUM_ITERATIONS; ++j) pm->dev_push(d_a, a, size);
@@ -133,6 +136,8 @@ int main( int argc, char* argv[] )
     for(int j=0; j<nranks; ++j) {
 
       if(i == j && i == me) {
+	for(int k=0; k<_NUM_WARMUP; ++k) pm->dev_copy(d_b, d_a, size);
+
 	double t0 = MPI_Wtime();
 
 	for(int k=0; k<_NUM_ITERATIONS; ++k) pm->dev_copy(d_b, d_a, size);
@@ -140,10 +145,15 @@ int main( int argc, char* argv[] )
 	double t = MPI_Wtime() - t0;
 
 	char name[50];
-	sprintf(name, "me= %i ; gpu= %i  D2D copy",me,device_id);
+	sprintf(name, "me= %i ; gpus= %i - self   D2D copy",me,i);
 	
 	print_summary(t, _N, _NUM_ITERATIONS, name);
       } else {
+	for(int k=0; k<_NUM_WARMUP; ++k) {
+	  if(i == me) MPI_Send(d_a, _N, MPI_DOUBLE, j, 0, MPI_COMM_WORLD);
+	  if(j == me) MPI_Recv(d_b, _N, MPI_DOUBLE, i, 0, MPI_COMM_WORLD, &stat);
+	}
+
 	double t0 = MPI_Wtime();
 
 	for(int k=0; k<_NUM_ITERATIONS; ++k) {
