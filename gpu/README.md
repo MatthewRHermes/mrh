@@ -27,18 +27,22 @@ las.kernel(lo)
 The same sample can be modified as below to enable GPU-accelerated calculations.
 
 ```bash
-from mrh.my_pyscf import libgpu
+from mrh.my_pyscf.gpu import libgpu
+import pyscf
 from gpu4mrh import patch_pyscf
 from pyscf import gto, scf
 
+from pyscf.lib import param
+
 gpu = libgpu.init()
+lib.param.use_gpu = gpu
 libgpu.set_verbose_(gpu, 1)
 
-mol = gto.M(atom'geom.xyz', basis=basis, use_gpu=gpu)
+mol = gto.M(atom'geom.xyz', basis=basis)
 mf = scf.ROHF(mol).density_fit().run()
 
 from mrh.my_pyscf.mcscf.lasscf_async import LASSCF
-las = LASSCF(mf, (no1, no2), (ne1, ne2), use_gpu=gpu)
+las = LASSCF(mf, (no1, no2), (ne1, ne2))
 lo = las.set_fragments_((atom_list1, atom_list2), mf.m_coeff)
 
 las.kernel(lo)
@@ -50,11 +54,15 @@ Key modifications to a "normal" LASSCF input file are as follows.
 - `from gpu4mrh import patch_pyscf` : enable monkey patching for a select number of PySCF source files, such as updating the Molecule object to track the new `use_gpu` variable.
 - `from mrh.my_pyscf.gpu import libgpu` : enable access to the libgpu interface 
 - `gpu = libgpu.init()` : initialize the gpu library and return a handle. This gpu handle is to be passed to a small number of functions (and likely smaller in the future).
+- 'lib.param.use_gpu = gpu' : sets the global gpu handle ensuring all supported features use the same device
 - `libgpu.set_verbose_(gpu, 1)` : (optional) enables outputting additional information on CPU affinity, devices used, timing summaries, and memory statistics for ERI blocks. This function needs to be called immediately after `libgpu_init()` for timing summaries to be complete. 
-- `mol=gto.M(use_gpu=gpu, atom=...` : this is the key usage of the gpu handle by which most of the underlying code and algorithms in PySCF and mrh can access the gpu library.
-- `las=LASSCF(mf, list((2,)*nfrags),list((2,)*nfrags), use_gpu=gpu)` : this is currently required, but expected to not be necessary soon...
+
 - `libgpu.destroy_device(gpu)` : always good to clean up after ourselves and prevent out-of-memory issues in more complex workflows. Also prints additional information if requested via `libgpu.set_verbose_(gpu, 1)`.
 
+Deprecated: the following input-modifications are now deprecated.
+
+- `mol=gto.M(use_gpu=gpu, atom=...` : this is the key usage of the gpu handle by which most of the underlying code and algorithms in PySCF and mrh can access the gpu library.
+- `las=LASSCF(mf, list((2,)*nfrags),list((2,)*nfrags), use_gpu=gpu)` : this is currently required, but expected to not be necessary soon...
 
 ## Example input file
 
@@ -66,8 +74,10 @@ The `CUDA`/`cuBLAS`, `SYCL`/`MKL`, and `HIP`/`hipBLAS` backends targeting, respe
 
 Performance of the `SYCL` and `HIP` backends is competitive with `CUDA`. Effort is underway to improve performance of the `SYCL` backend on Intel GPUs.
 
-The `host` and `OpenMP` backends should not be used. They remain for testing and development, but will likely be removed in the future.
+The `host` backend is fully functional, but only used for development and testing when GPU is not available.
+
+The `OpenMP` backend is stale and should not be used. It remains as a placeholder for possible future testing and development, but will likely be removed in the future.
 
 Any differences observed comparing a CPU-only and GPU-accelerated run should be reported as a bug.
 
-*Last Updated : 11-20-2025*
+*Last Updated : 9-28-2026*
