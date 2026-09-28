@@ -295,7 +295,7 @@ def ci_cycle (las, mo, ci0, veff, h2eff_sub, casdm1frs, log):
     for isub, (fcibox, ncas, nelecas, h1e, fcivec) in enumerate (zip (las.fciboxes, las.ncas_sub,
                                                                       las.nelecas_sub, h1eff_sub,
                                                                       ci0)):
-        eri_cas = las.get_h2eff_slice (h2eff_sub, isub)
+        eri_cas = las.get_h2eff_slice (h2eff_sub, isub, compact=8)
         max_memory = max(400, las.max_memory-lib.current_memory()[0])
         orbsym = getattr (mo, 'orbsym', None)
         if orbsym is not None:
@@ -1769,7 +1769,7 @@ def get_grad_ci (las, mo_coeff=None, ci=None, h1eff_sub=None, h2eff_sub=None, ve
     gci = []
     for isub, (fcibox, h1e, ci0, ncas, nelecas) in enumerate (zip (
             las.fciboxes, h1eff_sub, ci, las.ncas_sub, las.nelecas_sub)):
-        eri_cas = las.get_h2eff_slice (h2eff_sub, isub)
+        eri_cas = las.get_h2eff_slice (h2eff_sub, isub, compact=8)
         linkstrl = fcibox.states_gen_linkstr (ncas, nelecas, True)
         linkstr  = fcibox.states_gen_linkstr (ncas, nelecas, False)
         h2eff = fcibox.states_absorb_h1e(h1e, eri_cas, ncas, nelecas, .5)

@@ -220,11 +220,10 @@ def get_h2eff_slice (las, h2eff, idx, compact=None):
     j = ncas_cum[idx+1]
     ncore = las.ncore
     nocc = ncore + las.ncas
-    ncas = las.ncas
-    npair = ncas * (ncas + 1) // 2
-    eri = lib.numpy_helper.unpack_tril (
-        h2eff[ncore:nocc,:].reshape (ncas*ncas, npair)
-    ).reshape (ncas, ncas, ncas, ncas)[i:j,i:j,i:j,i:j]
+    eri = h2eff[ncore:nocc,:].reshape (las.ncas*las.ncas, -1)
+    ix_i, ix_j = np.tril_indices (las.ncas)
+    eri = eri[(ix_i*las.ncas)+ix_j,:]
+    eri = ao2mo.restore (1, eri, las.ncas)[i:j,i:j,i:j,i:j]
     if compact: eri = ao2mo.restore (compact, eri, j-i)
     return eri
 
