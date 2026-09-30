@@ -26,6 +26,8 @@ class LUSCC(LASSI):
     LASSI's projected Davidson solver. Stage wall times are in ``timings``.
     ``operator_mode='auto'`` uses LASSI's in-memory assembly when its estimated
     memory fits; ``'matrix_free'`` forces operator contractions on every call.
+    Dense assembly caches addresses and signs by default; set
+    ``operator_backend='original'`` to use the original assembly implementation.
 
     Unchanged spectator CI arrays and repeated local excitation images are
     shared by default. Treat prepared CI factors as immutable, or request
@@ -35,9 +37,11 @@ class LUSCC(LASSI):
     def __init__(self, las_or_lsi, a_idxs, i_idxs, state=0, threshold=0.01,
                  top_m=None, opt=1, smult_si=None, share_spectator_ci=True,
                  target_spin=None, spin_tol=1e-10, lin_dep_tol=1e-10,
-                 operator_mode='auto', **kwargs):
+                 operator_mode='auto', operator_backend='cached', **kwargs):
         if operator_mode not in ('auto', 'matrix_free'):
             raise ValueError("operator_mode must be 'auto' or 'matrix_free'")
+        if operator_backend not in ('cached', 'original'):
+            raise ValueError("operator_backend must be 'cached' or 'original'")
         self.a_idxs = a_idxs
         self.i_idxs = i_idxs
         self._smult_si = smult_si
@@ -49,6 +53,7 @@ class LUSCC(LASSI):
         self.spin_residual_eigenvalues = None
         self.timings = {}
         self.operator_mode = operator_mode
+        self.operator_backend = operator_backend
         self.exact_spin_operator_mode = None
 
         if isinstance(las_or_lsi, LASSI):
@@ -312,6 +317,9 @@ class LUSCC(LASSI):
             self.exact_spin_operator_mode = 'dense'
             lib.logger.info(self, 'LUSCC in-memory operators: %.1f MB estimated, '
                             '%.1f MB available', required, available)
+            if self.operator_backend == 'cached':
+                from .fast_operators import CachedHamS2Ovlp
+                kwargs['_HamS2Ovlp_class'] = CachedHamS2Ovlp
             ham, s2, overlap, _ = op_o1.ham(*args, **kwargs)
             hop, s2op, mop = map(aslinearoperator, (ham, s2, overlap))
             return hop, s2op, mop, ham.diagonal(), lambda: overlap

@@ -177,3 +177,30 @@ def test_operator_assembly_matches_matrix_free_and_respects_memory(h4_lassis):
         np.testing.assert_allclose(a(trial), b(trial), atol=1e-11, rtol=0)
         np.testing.assert_allclose(a(trial), c(trial), atol=1e-11, rtol=0)
     np.testing.assert_allclose(dense[4](), sparse[4](), atol=1e-12, rtol=0)
+
+
+def test_cached_assembly_matches_original_with_local_root_blocks(h4_lassis):
+    """Compare complete matrices for scalar and multi-local-state spaces."""
+    luscc = LUSCC(h4_lassis, [[2], [6]], [[0], [4]], top_m=4).prepare_states_()
+    _, h1, h2 = luscc.ham_2q()
+    for multi_root in (False, True):
+        if multi_root:
+            # Duplicate a local factor to exercise the general-root fallback
+            # as well as mixed scalar/block rootspace pairs. Only assembly
+            # is tested here, so a singular overlap is intentional.
+            for frag in range(luscc.nfrags):
+                ci = luscc.ci[frag][0]
+                luscc.ci[frag][0] = np.stack([ci, ci])
+        with mock.patch.object(lib, 'current_memory', return_value=(0., 0.)):
+            luscc.max_memory = 4000
+            luscc.operator_backend = 'cached'
+            cached = luscc._get_exact_spin_operators(h1, h2)
+            luscc.operator_backend = 'original'
+            original = luscc._get_exact_spin_operators(h1, h2)
+        for a, b in zip(cached[:3], original[:3]):
+            np.testing.assert_allclose(a.A, b.A, atol=1e-12, rtol=0)
+
+
+def test_operator_backend_rejects_unknown_name(h4_las):
+    with np.testing.assert_raises_regex(ValueError, 'operator_backend'):
+        LUSCC(h4_las, [], [], operator_backend='unknown')
