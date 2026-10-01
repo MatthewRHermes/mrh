@@ -46,6 +46,15 @@ def _run_mod (gpu_run):
         if gpu_run:
             libgpu.destroy_device(gpu)
             param.use_gpu = None
+            # These are global flags on pyscf.lib.param, and mgpu_fci in
+            # particular selects the libgpu code path in
+            # my_pyscf/lassi/op_o1/frag.py. Leaving it set would make every
+            # later test in the session try to call into libgpu with no device
+            # handle, which segfaults rather than raising. Reset all four that
+            # are set above.
+            param.mgpu_fci = False
+            param.custom_fci = False
+            param.custom_debug = False
 
 class KnownValues (unittest.TestCase):
 
