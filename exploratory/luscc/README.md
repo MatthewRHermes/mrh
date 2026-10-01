@@ -89,3 +89,15 @@ The Fe4 study measured 2.45–2.61x faster operator assembly on its tested
 spaces, with identical H, S2 and overlap matrices. These are assembly timings,
 not a claim of that speedup for the full solve or arbitrary systems. This
 integration contains CPU optimizations only and requires no CuPy dependency.
+
+### Fragment-based LASSI gradients
+
+`get_grad_exact_lassi` now obtains its spin-separated 3-RDM through fragment
+annihilation images and their overlaps. The default `lsi.make_casdm3s()` path
+never constructs full-CAS product vectors or invokes the global FCI 3-RDM
+kernel. It caches local images, contracts compatible electron sectors in
+tiles, and expands unique annihilation triples using fermionic antisymmetry.
+Local-root blocks, charge transfer, and complex fragment vectors are supported.
+The output remains a dense tensor requiring O(ncas**6) storage, and contraction
+cost still depends on the number of reference products. Use
+`lsi.make_casdm3s(opt=0)` for the retained full-CAS comparison backend.
