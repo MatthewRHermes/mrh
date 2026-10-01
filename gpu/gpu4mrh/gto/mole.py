@@ -13,17 +13,13 @@ def _M(self, use_gpu=None, **kwargs):
     >>> from pyscf import gto
     >>> mol = gto.M(atom='H 0 0 0; F 0 0 1', basis='6-31g')
     '''
-    
-    if use_gpu is not None:
-        import warnings
-        warnings.warn(
-            "Passing use_gpu to gto.M() is deprecated. "
-            "Set lib.param.use_gpu = gpu instead.",
-            DeprecationWarning, stacklevel=2
-        )
-        lib.param.use_gpu = use_gpu
-    
+
     mol = Mole()
     mol.build(**kwargs)
+
+    if use_gpu is None:
+        use_gpu = getattr(lib.param, 'use_gpu', None)
+    if use_gpu is not None:
+        mol.use_gpu = use_gpu
 
     return mol

@@ -57,10 +57,25 @@ Key modifications to a "normal" LASSCF input file are as follows.
 
 - `libgpu.destroy_device(gpu)` : always good to clean up after ourselves and prevent out-of-memory issues in more complex workflows. Also prints additional information if requested via `libgpu.set_verbose_(gpu, 1)`.
 
-Deprecated: the following input-modifications are now deprecated.
+## Assigning a device per calculation
 
-- `mol=gto.M(use_gpu=gpu, atom=...` : this is the key usage of the gpu handle by which most of the underlying code and algorithms in PySCF and mrh can access the gpu library.
-- `las=LASSCF(mf, list((2,)*nfrags),list((2,)*nfrags), use_gpu=gpu)` : this is currently required, but expected to not be necessary soon...
+`lib.param.use_gpu` is a single process-global slot, and only the user script writes it. A script that runs more than one calculation allocates a device per calculation, so a second `libgpu.init()` overwrites that global.
+
+To keep an already-built calculation from being retargeted, a Molecule records its device when it is constructed, and the patched kernels read that record:
+
+- `gpu = libgpu.init()` then `lib.param.use_gpu = gpu`, before building anything, pins every Molecule created afterwards to that device.
+- `mol = gto.M(use_gpu=gpu, atom=...)` assigns a device explicitly and overrides the global for that Molecule.
+- `las = LASSCF(mf, list((2,)*nfrags), list((2,)*nfrags), use_gpu=gpu)` does the same for the LASSCF object, which passes it to the impurity calculations it creates.
+
+A Molecule records whichever of those two applies, so the handle is fixed for the life of the object. Only a recorded handle counts, so a Molecule built without one simply follows the global like any other caller. This is why the assignment order matters — set the global, or pass `use_gpu=`, *before* constructing the Molecule.
+
+The patched kernels resolve a device in this order: the object's own `use_gpu`, then the `mol` it carries, then `lib.param.use_gpu`. The global is the last resort, for objects that never recorded one, such as a `Mole` built without `gto.M` or a derived Molecule. Existing scripts that set the global before building continue to work unchanged.
+
+Known gap: the FCI RDM kernels (`gpu4mrh/fci/rdm.py`, `gpu4mrh/fci/direct_spin1.py`) are entered with plain arrays and no object reference, so they still read `lib.param.use_gpu` directly and follow the global. Until that is threaded through, a script doing FCI must set `lib.param.use_gpu` itself; `gto.M(use_gpu=...)` no longer does it on the script's behalf.
+
+Note that `use_gpu` is not JSON-serializable, so `mol.dumps` drops it. A checkpoint written by `my_pyscf/mcscf/chkfile.py` therefore loses the recorded handle, and a restored Molecule falls back to the global.
+
+One device per process is assumed throughout. `libgpu.init()` returns a handle that spans every GPU visible to the process (`cudaGetDeviceCount`, so `CUDA_VISIBLE_DEVICES` selects a node slice), and each handle allocates its own ERI/JK/LASSCF buffers, so a second handle in the same process means a second full set of allocations.
 
 ## Example input file
 

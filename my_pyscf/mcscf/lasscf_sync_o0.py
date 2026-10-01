@@ -1611,13 +1611,6 @@ def _init_df_(h_op):
 
 density_fit = lasci.density_fit
 def LASSCF (mf_or_mol, ncas_sub, nelecas_sub, **kwargs):
-    if 'use_gpu' in kwargs:
-        import warnings
-        warnings.warn(
-            "Passing use_gpu as an argument to LASSCF is deprecated. "
-            "The GPU handle is now set automatically via gto.M(use_gpu=gpu).",
-            DeprecationWarning, stacklevel=2
-        )
     if isinstance(mf_or_mol, gto.Mole):
         mf = scf.RHF(mf_or_mol)
     else:

@@ -861,7 +861,11 @@ class LASCINoSymm (casci.CASCI):
     get_nelec_frs = get_nelec_frs
 
     def __init__(self, mf, ncas, nelecas, ncore=None, spin_sub=None, frozen=None, frozen_ci=None, **kwargs):
-        self.use_gpu = kwargs.pop('use_gpu', getattr(lib.param, 'use_gpu', None))
+        mol = getattr(mf, 'mol', None)
+        default_use_gpu = getattr(mol, '__dict__', {}).get('use_gpu')
+        if default_use_gpu is None:
+            default_use_gpu = getattr(lib.param, 'use_gpu', None)
+        self.use_gpu = kwargs.pop('use_gpu', default_use_gpu)
         self.init_guess_ci = 'aufbau1'
         if isinstance(ncas,int):
             ncas = [ncas]
