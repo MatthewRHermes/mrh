@@ -28,6 +28,7 @@ jobs:
       run: |
         sudo apt-get -qq install \
           gcc \
+          g++ \
           libblas-dev \
           liblapack-dev \
           cmake \
@@ -47,6 +48,24 @@ jobs:
     - name: Install
       run: |
         ./.github/workflows/cmake_make.sh
-    - name: Test with pytest
+    - name: Test with pytest (CPU only)
+      run: |
+        ./.github/workflows/test.sh
+    - name: Build libgpu with the host backend
+      # ARCH=linux-cpu-gnu builds against pm/host, so no GPU or vendor toolchain is
+      # needed. It installs libgpu.so into my_pyscf/gpu/, which is where the
+      # libgpu.py stub looks for it. Runs after the CPU pass on purpose: stage one
+      # must not be able to see the library.
+      run: |
+        python -m pip install pybind11
+        make -C gpu/src ARCH=linux-cpu-gnu BLAS_LIB=-lblas install
+    - name: Smoke-check that libgpu imports
+      # A .so that builds but fails to load (e.g. GLIBCXX skew) would otherwise
+      # surface as an opaque collection error from gpu4mrh/patch_pyscf.py.
+      run: |
+        python -c "from mrh.my_pyscf.gpu import libgpu; print('libgpu devices:', libgpu.get_num_devices())"
+    - name: Test with pytest (libgpu built)
+      env:
+        RUN_GPU: 1
       run: |
         ./.github/workflows/test.sh

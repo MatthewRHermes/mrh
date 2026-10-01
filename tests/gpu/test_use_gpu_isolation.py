@@ -17,6 +17,13 @@ import warnings
 import numpy as np
 import pytest
 
+# ``-k 'not gpu'`` deselects these tests, but that filter runs *after* collection,
+# so importing the plugin at module scope would abort a CPU-only run (the CI job in
+# .github/workflows/test.sh) with a collection error even though every test here is
+# excluded. Skip the module instead. Only the import path is required; the tests use
+# mock handles and never call into libgpu, so no compiled library is needed.
+pytest.importorskip('gpu4mrh', reason='gpu4mrh plugin not importable')
+
 from gpu4mrh import patch_pyscf
 from gpu4mrh.lib.utils import patch_cpu_kernel, resolve_use_gpu
 from mrh.my_pyscf.gpu.context import current_device, gpu_scope
