@@ -9,7 +9,7 @@ from pyscf import lib
 from pyscf import scf
 from pyscf.lib import logger
 from pyscf.ao2mo import _ao2mo
-from gpu4mrh.lib.utils import patch_cpu_kernel
+from gpu4mrh.lib.utils import patch_cpu_kernel, resolve_use_gpu
 
 from mrh.my_pyscf.gpu import libgpu
 
@@ -17,7 +17,7 @@ from mrh.my_pyscf.gpu import libgpu
 import math
 
 def get_jk(dfobj, dm, hermi=1, with_j=True, with_k=True, direct_scf_tol=1e-13):
-    gpu = lib.param.use_gpu
+    gpu = resolve_use_gpu(dfobj)
     
     assert (with_j or with_k)
     if (not with_k and not dfobj.mol.incore_anyway and
@@ -216,7 +216,7 @@ def get_jk(dfobj, dm, hermi=1, with_j=True, with_k=True, direct_scf_tol=1e-13):
 def get_jk_debug(dfobj, dm, hermi=1, with_j=True, with_k=True, direct_scf_tol=1e-13):
     ''' Function that runs get_jk with both cpu and gpu. Checks if sum of square of difference of all elements is below threshold [(vj_cpu-vj_gpu)*(vj_cpu-vj_gpu)]  '''
     #traceback.print_stack(file=sys.stdout)
-    gpu = lib.param.use_gpu
+    gpu = resolve_use_gpu(dfobj)
     
     assert (with_j or with_k)
     if (not with_k and not dfobj.mol.incore_anyway and

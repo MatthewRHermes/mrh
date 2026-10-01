@@ -29,11 +29,9 @@ def _trans_rdm1s(cibra, ciket, norb, nelec, link_index=None):
     1pdm[p,q] = :math:`\langle q^\dagger p \rangle`
     '''
     from pyscf.lib import param
-    try: 
-      use_gpu = param.use_gpu
-      gpu = use_gpu
-    except: 
-      use_gpu = None
+    from mrh.my_pyscf.gpu.context import current_device
+    use_gpu = current_device()
+    gpu = use_gpu
     try: gpu_debug = param.gpu_debug
     except: gpu_debug = False
     try: custom_fci = param.custom_fci
@@ -118,11 +116,9 @@ def _trans_rdm12s(cibra, ciket, norb, nelec, link_index=None, reorder=True):
     2pdm[p,q,r,s] = :math:`\langle p^\dagger r^\dagger s q\rangle`.
     '''
     from pyscf.lib import param
-    try: 
-      use_gpu = param.use_gpu
-      gpu = use_gpu
-    except: 
-      use_gpu = None
+    from mrh.my_pyscf.gpu.context import current_device
+    use_gpu = current_device()
+    gpu = use_gpu
     try: gpu_debug = param.gpu_debug
     except: gpu_debug = False
     try: custom_fci = param.custom_fci
@@ -173,8 +169,9 @@ def trans_rdm12s_o0(cibra, ciket, norb, nelec, link_index=None, reorder=True):
 
 def trans_rdm12s_o1(cibra, ciket, norb, nelec, link_index=None, reorder=True):
     from pyscf.lib import param
-    use_gpu = param.use_gpu
-    gpu=param.use_gpu
+    from mrh.my_pyscf.gpu.context import current_device
+    use_gpu = current_device()
+    gpu = use_gpu
     from mrh.my_pyscf.gpu import libgpu
     assert (cibra is not None and ciket is not None)
     cibra = numpy.asarray(cibra, order='C')

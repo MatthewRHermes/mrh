@@ -19,6 +19,7 @@ import pytest
 
 from gpu4mrh import patch_pyscf
 from gpu4mrh.lib.utils import patch_cpu_kernel, resolve_use_gpu
+from mrh.my_pyscf.gpu.context import current_device, gpu_scope
 
 from pyscf import df, gto, lib, mcscf, scf
 
@@ -154,7 +155,8 @@ def test_resolver_prefers_instance_then_mol_then_global():
 
 
 def test_resolver_reaches_mol_through_casscf():
-    from gpu4mrh.lib.utils import _own_attr, resolve_use_gpu
+    from gpu4mrh.lib.utils import resolve_use_gpu
+    from mrh.my_pyscf.gpu.context import _own_attr
 
     mol = build_mol(Handle('a'))
     casscf = mcscf.CASSCF(scf.RHF(mol), 2, 2)
@@ -251,3 +253,83 @@ def test_lasscf_use_gpu_is_no_longer_deprecated(module_name):
         make_las(module_name, las_gpu=Handle('a'))
 
     assert [w for w in caught if 'use_gpu' in str(w.message)] == []
+
+
+class TestGpuScope():
+    '''gpu_scope lets object-less call paths (FCI RDM/TDM) see a device.'''
+
+    def test_scope_overrides_the_global(self):
+        lib.param.use_gpu = Handle('global')
+
+        with gpu_scope(Handle('scoped')):
+            assert current_device().name == 'scoped'
+
+        assert current_device().name == 'global'
+
+    def test_scope_with_none_leaves_the_global_alone(self):
+        lib.param.use_gpu = Handle('global')
+
+        with gpu_scope(None):
+            assert current_device().name == 'global'
+
+    def test_scope_with_none_on_a_cpu_run_reports_no_device(self):
+        lib.param.use_gpu = None
+
+        with gpu_scope(None):
+            assert current_device() is None
+
+    def test_scopes_nest_and_unwind_in_order(self):
+        outer = Handle('outer')
+
+        with gpu_scope(outer):
+            with gpu_scope(Handle('inner')):
+                assert current_device().name == 'inner'
+            assert current_device() is outer
+
+        assert current_device() is None
+
+    def test_scope_is_restored_when_the_block_raises(self):
+        lib.param.use_gpu = Handle('global')
+
+        with pytest.raises(RuntimeError):
+            with gpu_scope(Handle('scoped')):
+                raise RuntimeError('boom')
+
+        assert current_device().name == 'global'
+
+    def test_recorded_handle_beats_the_active_scope(self):
+        mol = build_mol(Handle('recorded'))
+
+        with gpu_scope(Handle('scoped')):
+            assert resolve_use_gpu(mol) is mol.use_gpu
+
+    def test_object_without_a_recorded_handle_follows_the_scope(self):
+        from pyscf.gto.mole import Mole
+
+        bare = Mole()
+
+        with gpu_scope(Handle('scoped')):
+            assert resolve_use_gpu(bare).name == 'scoped'
+
+    def test_scoped_device_reaches_a_patched_kernel_with_no_object(self, hybrid):
+        # Stands in for _make_rdm1_spin1, which is handed a filename and vectors
+        # rather than a Molecule, so the scope is its only channel.
+        with gpu_scope(Handle('scoped')):
+            assert hybrid('FCItrans_rdm1a') == 'gpu:scoped'
+
+    def test_fci_kernel_falls_back_to_global_outside_any_scope(self, hybrid):
+        lib.param.use_gpu = Handle('global')
+
+        assert hybrid('FCItrans_rdm1a') == 'gpu:global'
+
+
+def test_casscf_grad_scopes_the_device_from_its_mol():
+    '''grad_elec must find the device through mc, not the process global.'''
+    from mrh.my_pyscf.gpu.context import object_device
+
+    mol = build_mol(Handle('from-mol'))
+    casscf = mcscf.CASSCF(scf.RHF(mol), 2, 2)
+
+    lib.param.use_gpu = Handle('global')
+
+    assert object_device(casscf) is mol.use_gpu

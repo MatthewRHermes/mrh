@@ -69,9 +69,24 @@ To keep an already-built calculation from being retargeted, a Molecule records i
 
 A Molecule records whichever of those two applies, so the handle is fixed for the life of the object. Only a recorded handle counts, so a Molecule built without one simply follows the global like any other caller. This is why the assignment order matters — set the global, or pass `use_gpu=`, *before* constructing the Molecule.
 
-The patched kernels resolve a device in this order: the object's own `use_gpu`, then the `mol` it carries, then `lib.param.use_gpu`. The global is the last resort, for objects that never recorded one, such as a `Mole` built without `gto.M` or a derived Molecule. Existing scripts that set the global before building continue to work unchanged.
+The patched kernels resolve a device in this order: the object's own `use_gpu`, then the `mol` it carries, then a context-scoped device, then `lib.param.use_gpu`. Existing scripts that set the global before building continue to work unchanged.
 
-Known gap: the FCI RDM kernels (`gpu4mrh/fci/rdm.py`, `gpu4mrh/fci/direct_spin1.py`) are entered with plain arrays and no object reference, so they still read `lib.param.use_gpu` directly and follow the global. Until that is threaded through, a script doing FCI must set `lib.param.use_gpu` itself; `gto.M(use_gpu=...)` no longer does it on the script's behalf.
+### The FCI kernels
+
+The FCI RDM/TDM kernels (`gpu4mrh/fci/rdm.py`, `gpu4mrh/fci/direct_spin1.py`, `gpu4mrh/fci/rdm_loops.py`) are entered with plain arrays and no object reference, so they have nothing to read a recorded handle from. They resolve through `mrh.my_pyscf.gpu.context.current_device()`, which consults a context variable before the global. Code that knows its device wraps the call:
+
+```python
+from mrh.my_pyscf.gpu.context import gpu_scope
+
+with gpu_scope (self.use_gpu):
+    casdm1, casdm2 = mc.fcisolver.make_rdm12 (ci, ncas, nelecas)
+```
+
+`gpu_scope(None)` is a no-op, so CPU-only code needs no special-casing, and the scope unwinds on exception and may be nested. `mrh/my_pyscf/gpu/context.py` imports nothing from `gpu4mrh` and loads no shared library, so it is safe to import from a CPU-only install.
+
+Most LASSCF density matrices never reach these kernels: `make_rdm1`/`make_rdm12` go through `self.fciboxes`, whose `FCIBox.states_make_rdm1s` slices the CI vector directly in numpy. The GPU-only paths are the 3-RDMs, the CASSCF gradient, and the lassi operator/TDM routines.
+
+Two lassi sites still follow the global because their device cannot be reached: `my_pyscf/lassi/op_o0.py` `_make_rdm3s_spinless_pair` is a module-level function with no object, and `my_pyscf/lassi/op_o1/frag.py` `_trans_rdm12s_loop` is a method whose class holds no Molecule. Threading a handle to those is left as future work; a script that uses them should set `lib.param.use_gpu` itself.
 
 Note that `use_gpu` is not JSON-serializable, so `mol.dumps` drops it. A checkpoint written by `my_pyscf/mcscf/chkfile.py` therefore loses the recorded handle, and a restored Molecule falls back to the global.
 

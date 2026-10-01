@@ -6,7 +6,7 @@ from pyscf.lib import logger
 from pyscf.ao2mo import _ao2mo
 from pyscf.mcscf.casci import CASCI
 from pyscf import df
-from gpu4mrh.lib.utils import patch_cpu_kernel
+from gpu4mrh.lib.utils import patch_cpu_kernel, resolve_use_gpu
 from mrh.my_pyscf.gpu import libgpu
 
 class _ERIS:
@@ -36,7 +36,7 @@ class _ERIS:
         self.j_pc = numpy.zeros((nmo,ncore))
         self.k_pc = numpy.zeros((nmo,ncore))
         k_cp = numpy.zeros((ncore,nmo))
-        gpu=lib.param.use_gpu
+        gpu=resolve_use_gpu(self)
         
         mo = numpy.asarray(mo, order='F')
         #fxpp = lib.H5TmpFile()

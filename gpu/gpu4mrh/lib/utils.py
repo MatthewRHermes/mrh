@@ -1,21 +1,6 @@
 # gpu4mrh is a plugin to use NVIDIA/Intel GPUs in PySCF/MRH package
 import functools
-from pyscf import lib
-
-
-def _own_attr(obj, key):
-    '''Read *key* straight out of ``obj.__dict__``.
-
-    Deliberately bypasses ``type(obj).__getattr__``: ``Mole.__getattr__``
-    imports ``pyscf.scf``/``pyscf.dft`` and runs method resolution on every
-    failed public lookup, so ``getattr`` on a Mole is neither cheap nor safe.
-    '''
-    if obj is None:
-        return None
-    try:
-        return object.__getattribute__(obj, '__dict__').get(key)
-    except AttributeError:
-        return None
+from mrh.my_pyscf.gpu.context import current_device, object_device
 
 
 def resolve_use_gpu(instance):
@@ -26,14 +11,13 @@ def resolve_use_gpu(instance):
     ``lib.param.use_gpu`` cannot retarget an already-built calculation.
 
     Resolution order: the instance's own ``use_gpu``, then the ``mol`` it
-    carries, then the process-global. Only a recorded handle counts, so a
-    Molecule built without one falls back to the global like any other caller.
+    carries, then the active context/global device. Only a recorded handle
+    counts, so a Molecule built without one falls back like any other caller.
     '''
-    for obj in (instance, _own_attr(instance, 'mol')):
-        gpu = _own_attr(obj, 'use_gpu')
-        if gpu is not None:
-            return gpu
-    return getattr(lib.param, 'use_gpu', None)
+    device = object_device(instance)
+    if device is not None:
+        return device
+    return current_device()
 
 
 def patch_cpu_kernel(cpu_kernel):
