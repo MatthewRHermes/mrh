@@ -12,12 +12,12 @@ LD = $(CXX)
 LDFLAGS = -fPIC -shared
 AR = ar rcs
 CPP = cpp -P -traditional
-INSTALL=../
+INSTALL = ../../my_pyscf/gpu
 
 CUDA_CXX = $(CXX)
 CUDA_CXXFLAGS = 
 
-ARCH ?= polaris-gnu-nvcc
+ARCH ?= polaris
 include arch/$(ARCH)
 
 # couple more flags to build shared library (allows arch files to be used for general app building)

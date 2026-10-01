@@ -130,4 +130,4 @@ One consequence of the same retirement is worth knowing:
 
 - Calling `libgpu.orbital_response(...)` from Python now raises `AttributeError`. No example under `mrh/examples` does this, but the standalone harness `mrh/gpu/mini-apps/orbital_response/main.py` still does, at the uncommented calls on lines 53 and 81, so that mini-app no longer runs against the current build.
 
-*Last Updated : 9-28-2026*
+*Last Updated : 10-01-2026*
