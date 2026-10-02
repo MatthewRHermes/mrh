@@ -1,7 +1,7 @@
 import time
 import numpy as np
 from scipy import linalg
-from pyscf import gto, lib, ao2mo
+from pyscf import gto, scf, lib, ao2mo
 from mrh.my_pyscf.mcscf import laspscf, lasscf_sync_o0, _DFLASCI
 from functools import partial
 

@@ -1,0 +1,68 @@
+# Linux CPU-only build using the `host` programming-model backend.
+#
+#   make ARCH=linux-cpu-gnu install
+#
+# -D_USE_CPU selects pm/host/: libgpu still presents the full device API
+# (dev_num_devices() == 1, malloc/memcpy in place of GPU transfers, no-op
+# streams and barriers) but runs the OpenMP kernel translations on the CPU.
+# No GPU and no vendor toolchain are required. Intended for development,
+# debugging and running the test suite on a machine without a GPU.
+#
+# Requirements: a C++ compiler with OpenMP, a Python with pybind11 installed,
+# and any LP64 (32-bit int) BLAS. No MPI -- libgpu contains no MPI calls.
+#
+# Knobs (all overridable on the make command line):
+#   CXX       compiler                          default g++
+#   PYTHON    interpreter used to find pybind11 default python (from PATH)
+#   BLAS_DIR  prefix containing lib/            default $CONDA_PREFIX
+#   BLAS_LIB  link flags for the BLAS           default -lopenblas
+#
+# Examples:
+#   make ARCH=linux-cpu-gnu install                        # conda + OpenBLAS
+#   make ARCH=linux-cpu-gnu BLAS_LIB=-lmkl_rt install      # conda + MKL
+#   make ARCH=linux-cpu-gnu BLAS_DIR= install              # system BLAS
+#   make ARCH=linux-cpu-gnu CXX=clang++ install
+
+INSTALL = ../../my_pyscf/gpu
+
+PYTHON ?= python
+PYTHON_INC = $(shell $(PYTHON) -m pybind11 --includes)
+ifeq ($(strip $(PYTHON_INC)),)
+  $(error `$(PYTHON) -m pybind11 --includes` produced nothing -- is pybind11 installed for this interpreter? Override with PYTHON=/path/to/python)
+endif
+
+# Default to the active conda env; set BLAS_DIR= (empty) to use system paths.
+BLAS_DIR ?= $(CONDA_PREFIX)
+# mathlib_host.cpp declares dgemm_/dgemv_/dsymm_ with `const int *`, so the BLAS
+# must be an LP64 build. OpenBLAS and MKL are both known to work.
+BLAS_LIB ?= -lopenblas
+
+CXX = g++
+CXXFLAGS = -g -O3 -fopenmp
+CXXFLAGS += $(PYTHON_INC)
+CXXFLAGS += -D_USE_CPU
+
+# pm/cuda/*.cpp is still in CUDA_SRC and so still gets compiled, but every one
+# of those TUs is wrapped in `#if defined(_GPU_CUDA)` and expands to nothing.
+# Route them through the host compiler so no nvcc is required.
+CUDA_CXX = $(CXX)
+CUDA_CXXFLAGS = -g -O3 -fPIC -D_USE_CPU
+CUDA_CXXFLAGS += $(PYTHON_INC)
+
+LD = $(CXX)
+LDFLAGS = -fopenmp
+
+# Link the C++ runtime statically. When BLAS_DIR points into a conda env, the
+# -rpath below also puts that env's libstdc++ ahead of the system one; if the
+# env is older than the compiler (e.g. conda 6.0.30 / GLIBCXX_3.4.30 vs g++ 14's
+# 6.0.33) the module fails to import with `undefined symbol:
+# __cxa_call_terminate`. Static linking sidesteps the skew entirely, and is safe
+# because libgpu.so is a leaf pybind11 module that passes no C++ objects across
+# .so boundaries.
+LDFLAGS += -static-libstdc++ -static-libgcc
+
+LIB =
+ifneq ($(strip $(BLAS_DIR)),)
+LIB += -L$(BLAS_DIR)/lib -Wl,-rpath,$(BLAS_DIR)/lib
+endif
+LIB += $(BLAS_LIB)

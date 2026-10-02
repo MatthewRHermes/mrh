@@ -89,8 +89,8 @@ int main( int argc, char* argv[] )
 
   for(int i=0; i<num_devices; ++i) {
     pm->dev_set_device(i);
-    d_a[i] = (real_t *) pm->dev_malloc(size);
-    d_b[i] = (real_t *) pm->dev_malloc(size);
+    d_a[i] = (real_t *) pm->dev_malloc(size, "d_a[i]", FLERR);
+    d_b[i] = (real_t *) pm->dev_malloc(size, "d_b[i]", FLERR);
   }
   
   // ----------------------------------------------------------------
@@ -223,9 +223,13 @@ int main( int argc, char* argv[] )
     pm->dev_free(d_b[i]);
   }
   
-  pm->dev_free_host(d_a);
-  pm->dev_free_host(d_b);
-  pm->dev_free_host(a);
+  // Something silly to debug...
+  //  terminate called after throwing an instance of 'sycl::_V1::exception'
+  //  what():  level_zero backend failed with error: 11 (UR_RESULT_ERROR_INVALID_MEM_OBJECT)
+  //  Aborted
+  //pm->dev_free_host(d_a);
+  //pm->dev_free_host(d_b);
+  //pm->dev_free_host(a);
   
   delete pm;
   

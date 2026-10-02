@@ -29,11 +29,9 @@ def _trans_rdm1s(cibra, ciket, norb, nelec, link_index=None):
     1pdm[p,q] = :math:`\langle q^\dagger p \rangle`
     '''
     from pyscf.lib import param
-    try: 
-      use_gpu = param.use_gpu
-      gpu = use_gpu
-    except: 
-      use_gpu = None
+    from mrh.my_pyscf.gpu.context import current_device
+    use_gpu = current_device()
+    gpu = use_gpu
     try: gpu_debug = param.gpu_debug
     except: gpu_debug = False
     try: custom_fci = param.custom_fci
@@ -94,6 +92,7 @@ def _trans_rdm1s_o1(cibra, ciket, norb, nelec, link_index=None):
     libgpu.push_link_indexb(gpu, nb, nlinkb, link_indexb) 
     libgpu.compute_trans_rdm1b(gpu, na, nb, nlinka, nlinkb, norb, 0) 
     libgpu.pull_tdm1(gpu, rdm1b, norb, 0)
+    libgpu.barrier(gpu)
     #TODO: finish the rest
     #rdm1a = rdm.make_rdm1_spin1('FCItrans_rdm1a', cibra, ciket,
     #                            norb, nelec, link_index)
@@ -117,11 +116,9 @@ def _trans_rdm12s(cibra, ciket, norb, nelec, link_index=None, reorder=True):
     2pdm[p,q,r,s] = :math:`\langle p^\dagger r^\dagger s q\rangle`.
     '''
     from pyscf.lib import param
-    try: 
-      use_gpu = param.use_gpu
-      gpu = use_gpu
-    except: 
-      use_gpu = None
+    from mrh.my_pyscf.gpu.context import current_device
+    use_gpu = current_device()
+    gpu = use_gpu
     try: gpu_debug = param.gpu_debug
     except: gpu_debug = False
     try: custom_fci = param.custom_fci
@@ -172,8 +169,9 @@ def trans_rdm12s_o0(cibra, ciket, norb, nelec, link_index=None, reorder=True):
 
 def trans_rdm12s_o1(cibra, ciket, norb, nelec, link_index=None, reorder=True):
     from pyscf.lib import param
-    use_gpu = param.use_gpu
-    gpu=param.use_gpu
+    from mrh.my_pyscf.gpu.context import current_device
+    use_gpu = current_device()
+    gpu = use_gpu
     from mrh.my_pyscf.gpu import libgpu
     assert (cibra is not None and ciket is not None)
     cibra = numpy.asarray(cibra, order='C')
@@ -219,6 +217,7 @@ def trans_rdm12s_o1(cibra, ciket, norb, nelec, link_index=None, reorder=True):
     libgpu.compute_tdm12kern_ab_v2(gpu, na, nb, nlinka, nlinkb, norb, 0)
     dm2ba = numpy.empty((norb, norb, norb, norb))
     libgpu.pull_tdm2(gpu, dm2ba, norb, 0)
+    libgpu.barrier(gpu)
     dm2ba = dm2ba.transpose(3,2,1,0)
     return dm1a.T, dm1b.T, dm2aa, dm2ab, dm2ba, dm2bb
 

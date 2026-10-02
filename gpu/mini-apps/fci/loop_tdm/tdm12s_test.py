@@ -50,7 +50,7 @@ def multi_gpu_loop(bravecs, ketvecs, norb, nelec, reorder=True):
     if reorder: libgpu.reorder_rdm(gpu, norb, count)
     libgpu.pull_tdm1_host(gpu, i, 2*j+1, n_bra, 2*n_ket, size_tdm1,2, count) #dm1b
     libgpu.pull_tdm2_host(gpu, i, 4*j+3, n_bra, 4*n_ket, size_tdm2,4, count) #dm2bb
-
+    
     #_, dm2ab = rdm.make_rdm12_spin1('FCItdm12kern_ab', cibra, ciket, norb, nelec, link_index, 0)
     libgpu.compute_tdm12kern_ab_v2(gpu, na, nb, nlinka, nlinkb, norb, count)
     libgpu.pull_tdm2_host(gpu, i, 4*j+1, n_bra, 4*n_ket, size_tdm2,4, count) #dm2ab
@@ -71,12 +71,21 @@ def multi_gpu_loop(bravecs, ketvecs, norb, nelec, reorder=True):
 
   tdm1s = np.zeros ((bravecs.shape[0],ketvecs.shape[0],2,norb,norb), dtype=bravecs.dtype)
   tdm2s = np.zeros ((bravecs.shape[0],ketvecs.shape[0],4,norb,norb,norb,norb), dtype=bravecs.dtype)
-  libgpu.copy_tdm1_host_to_page(gpu, tdm1s, size_tdm1_full)  
-  libgpu.copy_tdm2_host_to_page(gpu, tdm2s, size_tdm2_full)  
+  libgpu.copy_tdm1_host_to_page(gpu, tdm1s, size_tdm1_full)
+  libgpu.copy_tdm2_host_to_page(gpu, tdm2s, size_tdm2_full)
   
   return tdm1s, tdm2s
   
 def o0_loop(bravecs, ketvecs, norb, nelec):
+  from pyscf.lib import param
+  _saved = getattr(param, 'use_gpu', None)
+  param.use_gpu = None
+  try:
+    return o0_loop_cpu(bravecs, ketvecs, norb, nelec)
+  finally:
+    param.use_gpu = _saved
+
+def o0_loop_cpu(bravecs, ketvecs, norb, nelec):
   print('nelec',nelec)
   tdm1s = np.zeros ((bravecs.shape[0],ketvecs.shape[0],2,norb,norb), dtype=bravecs.dtype)
   tdm2s = np.zeros ((bravecs.shape[0],ketvecs.shape[0],4,norb,norb,norb,norb), dtype=bravecs.dtype)
@@ -123,10 +132,29 @@ def test_tdm12_loop(n_bra, n_ket, norb, nelec):
 
     if mgpu_fci and mgpu_fci_debug and use_gpu:
       print("in debug channel")
-      tdm1s_c, tdm2s_c = multi_gpu_loop(bravecs, ketvecs,norb,nelec)
       tdm1s, tdm2s = o0_loop(bravecs, ketvecs,norb,nelec)
+      tdm1s_c, tdm2s_c = multi_gpu_loop(bravecs, ketvecs,norb,nelec)
       tdm1s_correct = np.allclose(tdm1s, tdm1s_c)
       tdm2s_correct = np.allclose(tdm2s, tdm2s_c)
+      for _c, _label in enumerate(["aa", "ab", "ba", "bb"]):
+          _ref = tdm2s[:, :, _c]
+          _gpu = tdm2s_c[:, :, _c]
+          _rfin = np.isfinite(_ref)
+          _gfin = np.isfinite(_gpu)
+          _dd = np.abs(_ref - _gpu)
+          print("dm2%s: allclose=%s maxdiff=%.3e ref_finite=%s gpu_finite=%s ref_maxabs=%.3e gpu_maxabs=%.3e" % (
+              _label, np.allclose(_ref, _gpu), _dd.max(), _rfin.all(), _gfin.all(),
+              np.abs(_ref).max(), np.abs(_gpu).max()))
+          if not _rfin.all():
+              print("  REF nonfinite loc:", np.argwhere(~_rfin)[:8].tolist())
+          if not _gfin.all():
+              print("  GPU nonfinite loc:", np.argwhere(~_gfin)[:8].tolist())
+          if _rfin.all() and _gfin.all():
+              print("  argmax|ref-gpu| at:", np.unravel_index(np.argmax(_dd), _dd.shape))
+      for _c, _label in enumerate(["a", "b"]):
+          _ref = tdm1s[:, :, _c]
+          _gpu = tdm1s_c[:, :, _c]
+          print("dm1%s: allclose=%s maxdiff=%.3e" % (_label, np.allclose(_ref, _gpu), np.abs(_ref - _gpu).max()))
       if tdm1s_correct and tdm2s_correct: 
         print('TDM12s loop calculated correctly')
       else:
@@ -161,8 +189,7 @@ if __name__=="__main__":
            K 0 0 10;
            K 0 0 12;'''
   basis = 'def2tzvp'
-  if gpu_run: mol = gto.M(use_gpu = gpu, atom=geom, basis=basis, verbose=1)
-  else: mol = gto.M(atom=geom, basis=basis, verbose=1)
+  mol = gto.M(atom=geom, basis=basis, verbose=1)
 
   mol.output='test.log'
   mol.build()
