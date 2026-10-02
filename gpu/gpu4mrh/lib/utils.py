@@ -1,6 +1,6 @@
 # gpu4mrh is a plugin to use NVIDIA/Intel GPUs in PySCF/MRH package
 import functools
-from mrh.my_pyscf.gpu.context import current_device, object_device
+from mrh.my_pyscf.gpu.context import resolve_device
 
 
 def resolve_use_gpu(instance):
@@ -10,14 +10,10 @@ def resolve_use_gpu(instance):
     ``libgpu.init()`` assigning a different handle to the process-global
     ``lib.param.use_gpu`` cannot retarget an already-built calculation.
 
-    Resolution order: the instance's own ``use_gpu``, then the ``mol`` it
-    carries, then the active context/global device. Only a recorded handle
-    counts, so a Molecule built without one falls back like any other caller.
+    Thin wrapper over :func:`mrh.my_pyscf.gpu.context.resolve_device`, which owns
+    the resolution order so plugin and non-plugin callers cannot drift apart.
     '''
-    device = object_device(instance)
-    if device is not None:
-        return device
-    return current_device()
+    return resolve_device(instance)
 
 
 def patch_cpu_kernel(cpu_kernel):

@@ -68,3 +68,19 @@ def object_device(instance):
         if device is not None:
             return device
     return None
+
+
+def resolve_device(instance):
+    '''The device for a calculation: recorded on *instance* or its Molecule, else
+    the active context/global device.
+
+    This is the single implementation of the resolution order -- explicit instance
+    ``use_gpu``, then recorded ``mol.use_gpu``, then context, then the process
+    global. It lives here rather than in ``gpu4mrh`` because this module is
+    CPU-safe: callers outside the plugin (e.g. lassi ``hsi``) need the same chain
+    without importing ``gpu4mrh``, which would drag in the native library.
+    '''
+    device = object_device(instance)
+    if device is not None:
+        return device
+    return current_device()
