@@ -49,7 +49,7 @@ class HamS2OvlpOperators (HamS2Ovlp):
             self.total_vecsize=0
             self.len_instruction_list=0
             self.instruction_list = np.empty((self.len_instruction_list,4),dtype=int)
-        op_debug = getattr (param, 'gpu_op_debug', False)
+        op_debug = self.log.verbose >= lib.logger.DEBUG1
         if op_debug: self.ox1_gpu = np.zeros(self.nstates, self.dtype)
 
         self.init_cache_profiling ()
@@ -444,41 +444,42 @@ class HamS2OvlpOperators (HamS2Ovlp):
         self.ox1[:] = 0 #of shape nstates
 
         use_gpu = getattr (param, 'use_gpu', False)
-        op_debug = getattr (param, 'gpu_op_debug', False)
+        op_debug = self.log.verbose >= lib.logger.DEBUG1
 
         if use_gpu and op_debug:
           #GPU kernel
           self._opuniq_x_full_gpu_v2(ops, vecs)
           #CPU kernel
           self._opuniq_x_full_cpu(ops, vecs)
-          if np.allclose(self.ox1, self.ox1_gpu) != True:
-            #this is all for helping guide here the error might be.
-            print("Issue in ox1 calculation",flush=True)
+          if not np.allclose(self.ox1, self.ox1_gpu):
+            # Report, then bisect down to the offending operator/bra so the
+            # mismatch can be localised. Everything goes through self.log so it
+            # respects the caller's verbosity and stdout; a bare print would
+            # escape both.
             diff = self.ox1 - self.ox1_gpu
-            print(len(self.ox1))
-            print(self.ox1)
-            print(self.ox1_gpu)
-            print(np.nonzero(diff))
-            #print(diff(np.nonzero(diff)))
+            self.log.debug1("Issue in ox1 calculation for %d ops, len(ox1)=%d, %d elements differ"
+                            % (len(ops), len(self.ox1), len(np.nonzero(diff)[0])))
+            self.log.debug1("ox1     = %s" % self.ox1)
+            self.log.debug1("ox1_gpu = %s" % self.ox1_gpu)
+            self.log.debug1("nonzero = %s" % np.nonzero(diff))
             for op in ops:
               for key in op.spincase_keys:  #spincase_keys is a lookup table
                 op = opterm.reduce_spin (op, key[0], key[1])
                 key = tuple((key[0], key[1])) + key[2:]
                 brakets, bras, braHs = self.get_nonuniq_exc_square (key)
                 for bra in bras:
-                  i,j,_ = self.get_ox1_params(bra, *key[2:])  
-                  if np.allclose(self.ox1[i:j],self.ox1_gpu[i:j]) != True:
-                    print("Error in bras", i, j,flush=True)
-                    print(self.ox1[i:j])
-                    print(self.ox1_gpu[i:j])
-                    exit()
+                  i,j,_ = self.get_ox1_params(bra, *key[2:])
+                  if not np.allclose(self.ox1[i:j],self.ox1_gpu[i:j]):
+                    self.log.debug1("Error in bras %d %d" % (i, j))
+                    self.log.debug1("ox1     [%d:%d] = %s" % (i, j, self.ox1[i:j]))
+                    self.log.debug1("ox1_gpu [%d:%d] = %s" % (i, j, self.ox1_gpu[i:j]))
                 if len(braHs):
                   for bra in braHs:
-                    i,j,_ = self.get_ox1_params(bra, *key[2:])  
-                    if np.allclose(self.ox1[i:j],self.ox1_gpu[i:j]) != True:
-                      print("Error in braHs",flush=True)
+                    i,j,_ = self.get_ox1_params(bra, *key[2:])
+                    if not np.allclose(self.ox1[i:j],self.ox1_gpu[i:j]):
+                      self.log.debug1("Error in braHs %d %d" % (i, j))
             exit()
-          else: print("Correctly corrected", len(ops))
+          self.log.debug1("CPU and GPU ox1 agree for %d ops" % len(ops))
            
         elif use_gpu:
             #check if gpu is needed
@@ -521,7 +522,7 @@ class HamS2OvlpOperators (HamS2Ovlp):
         '''
 
         t0, w0 = logger.process_clock (), logger.perf_counter ()
-        op_debug = getattr (param, 'gpu_op_debug', False)
+        op_debug = self.log.verbose >= lib.logger.DEBUG1
         if op_debug:
           ox_final = self.ox1_gpu
           _opuniq_x = self._opuniq_x_debug
