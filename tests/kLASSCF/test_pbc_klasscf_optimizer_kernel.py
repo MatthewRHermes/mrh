@@ -125,7 +125,7 @@ class KnownValuesKLASSCFKernel(unittest.TestCase):
         self.assertIsNot(las.uggs[0], las.uggs[1])
         np.testing.assert_allclose(las.hop_kwargs[0]["h2eff"], 3.0)
         np.testing.assert_allclose(las.hop_kwargs[1]["h2eff"], 4.0)
-        self.assertIn("k-LASSCF micro 1", las.stdout.getvalue())
+        self.assertIn("micro iter 0 : |x_orb| =", las.stdout.getvalue())
 
     def test_macro_driver_limits_a_large_step_to_the_trust_radius(self):
         first_hop = FakeHop([10.0 + 0.0j], curvature=1.0)

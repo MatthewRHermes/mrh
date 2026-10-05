@@ -43,8 +43,18 @@ class KnownValuesRealLinearSolvers(unittest.TestCase):
             rtol=1e-12,
             atol=1e-14,
             callback=callback_steps.append,
-            compute_residual=True,
         )
+        step_without_residual, info = solver(gradient)
+        self.assertEqual(info, 0)
+        self.assertIsNone(solver.residual_norm)
+        solver_action_count = hessian_action.call_count
+        solver_callback_count = len(callback_steps)
+
+        # SciPy versions may perform extra Hessian actions internally. Check
+        # that our optional residual costs exactly one action beyond the solve.
+        hessian_action.call_count = 0
+        callback_steps.clear()
+        solver.compute_residual = True
         step, info = solver(gradient)
 
         self.assertEqual(info, 0)
@@ -54,9 +64,11 @@ class KnownValuesRealLinearSolvers(unittest.TestCase):
             atol=1e-12,
             rtol=1e-12,
         )
+        np.testing.assert_allclose(step, step_without_residual, atol=1e-12)
         self.assertLess(solver.residual_norm, 1e-12)
+        self.assertEqual(len(callback_steps), solver_callback_count)
         self.assertEqual(
-            hessian_action.call_count, len(callback_steps) + 1,
+            hessian_action.call_count, solver_action_count + 1,
         )
 
     def test_minres_solves_indefinite_hessian(self):
