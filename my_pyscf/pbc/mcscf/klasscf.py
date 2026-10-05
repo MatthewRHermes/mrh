@@ -15,8 +15,15 @@ from mrh.my_pyscf.pbc.mcscf.klasci import (
     PBCLASCITransSymm,
     _cell_average_dm1s,
     _convert_h1e_mo_k_to_wann,
+    kLASCI,
 )
 from mrh.my_pyscf.pbc.mcscf.mc1step import _get_casdm2_kpts
+from mrh.my_pyscf.pbc.mcscf.productstate import (
+    ImpureProductStateFCISolver,
+)
+from mrh.my_pyscf.pbc.mcscf.real_linear_solvers import (
+    SolveScipyMINRESForCplx,
+)
 from mrh.my_pyscf.pbc.util.wannier import get_wannier_orbs
 from mrh.my_pyscf.mcscf.lasscf_sync_o0 import (
     LASSCF_UnitaryGroupGenerators as MolecularLASSCF_UnitaryGroupGenerators,
@@ -129,7 +136,7 @@ class ActiveActiveRotationMap:
                 f"got nkpts*ncas={self.nkpts * self.ncas} and "
                 f"ncastot={self.ncastot}")
             raise ValueError(msg)
-        
+
         stacked_phase = mo_phase.reshape(self.ncastot, self.ncastot)
 
         if not np.allclose(
@@ -137,12 +144,12 @@ class ActiveActiveRotationMap:
                 np.eye(self.ncastot, dtype=mo_phase.dtype),
                 rtol=1e-10, atol=1e-10,):
             raise ValueError("mo_phase must be unitary")
-        
+
         if int(ncas_sub.sum()) != self.ncastot:
             msg = (f"sum(ncas_sub)={int(ncas_sub.sum())}; expected "
                 f"ncastot={self.ncastot}")
             raise ValueError(msg)
-        
+
         self.mo_phase = mo_phase
         self.ncas_sub = ncas_sub
 
@@ -154,7 +161,7 @@ class ActiveActiveRotationMap:
                 np.tril(np.ones((self.ncas, self.ncas), dtype=bool), -1),
                 (self.nkpts, self.ncas, self.ncas),
             )
-            
+
         bloch_pair_mask = np.asarray(bloch_pair_mask, dtype=bool)
         _check_shape(
             bloch_pair_mask, (self.nkpts, self.ncas, self.ncas),
@@ -1326,7 +1333,10 @@ class KLASSCF_HessianOperator(molLASSCF_HessianOperator):
                 else:
                     dm1s = transition_rdm
                 overlap = np.vdot(c1, c0)
-                tdm1s = np.stack(dm1s, axis=0) - overlap * dm1s_ref
+                # Match the <p^+ q> convention of casdm1frs; transposing
+                # changes orbital indices without conjugating the overlap.
+                tdm1s = np.stack(dm1s, axis=0).swapaxes(-1, -2)
+                tdm1s = tdm1s - overlap * dm1s_ref
                 tdm1rs_one_sided[iroot, :, i:j, i:j] = tdm1s
 
                 if with_cumulant:
@@ -2394,12 +2404,17 @@ class KLASSCF_HessianOperator(molLASSCF_HessianOperator):
         return h1frs_prime, h2_prime
 
     def _ci_orbital_hessian_response(self, kappa):
-        """Apply the CI-output/orbital-input Hessian block."""
+        """Apply the CI-output/orbital-input Hessian block.
+
+        The Hamiltonian response uses the full generator, whereas optimizer
+        orbitals are updated by exp(kappa / 2).  This cancels the factor two
+        in the CI energy gradient.
+        """
         h1frs_prime, h2_prime = self._orbital_hamiltonian_response(kappa)
         hc = self.Hci_all(None, h1frs_prime, h2_prime, self.ci)
         return [
             [
-                2.0 * (hc0 - np.vdot(c0, hc0) * c0)
+                hc0 - np.vdot(c0, hc0) * c0
                 for hc0, c0 in zip(hc_r, ci0_r)
             ]
             for hc_r, ci0_r in zip(hc, self.ci)
@@ -2643,23 +2658,16 @@ class KLASSCF_HessianOperator(molLASSCF_HessianOperator):
                 "UGG and Hessian operator use different Wannier/block maps"
             )
 
-        h1_wannier = np.asarray(self.las.h1e_for_cas(
-            mo_coeff=self.mo_coeff, ncas=self.ncas, ncore=self.ncore,
-        )[0])
-        _check_shape(
-            h1_wannier, (self.ncastot, self.ncastot),
-            label="h1_wannier",
-        )
         coulomb = np.tensordot(
             self.casdm1s, self.eri_cas, axes=((1, 2), (2, 3)),
         )
         exchange = np.tensordot(
             self.casdm1s, self.eri_cas, axes=((1, 2), (2, 1)),
         )
-        h1s_wannier = h1_wannier[None] + coulomb + coulomb[::-1] - exchange
+        active_potential = coulomb + coulomb[::-1] - exchange
 
-        # Compare the block-MO potential with the density it actually sees.
-        # Keep the full density above for the Wannier orbital response.
+        # The block-MO potential sees the cell-averaged density. Remove that
+        # mean field to recover the closed-core one-electron Hamiltonian.
         cellavgdm1s = _cell_average_dm1s(self.casdm1s, self.nkpts)
         coulomb_average = np.tensordot(
             cellavgdm1s, self.eri_cas, axes=((1, 2), (2, 3)),
@@ -2667,25 +2675,36 @@ class KLASSCF_HessianOperator(molLASSCF_HessianOperator):
         exchange_average = np.tensordot(
             cellavgdm1s, self.eri_cas, axes=((1, 2), (2, 1)),
         )
-        h1s_average = (h1_wannier[None] + coulomb_average
-                       + coulomb_average[::-1] - exchange_average)
+        active_potential_average = (
+            coulomb_average + coulomb_average[::-1] - exchange_average
+        )
 
         active = slice(self.ncore, self.nocc)
         h1s_block_wannier = np.asarray([
             rotation_map.bloch_to_wannier(self.h1s[spin, :, active, active])
             for spin in range(2)
         ])
+        # Remove the active mean field from the block Hamiltonian.  The
+        # remaining closed-core one-electron term must be spin independent.
+        block_h1 = h1s_block_wannier - active_potential_average
+        h1_wannier = np.mean(block_h1, axis=0)
+        _check_shape(
+            h1_wannier, (self.ncastot, self.ncastot),
+            label="h1_wannier",
+        )
+        h1s_average = h1_wannier[None] + active_potential_average
         if not np.allclose(
                 h1s_average, h1s_block_wannier,
                 atol=2e-8, rtol=2e-8):
             error = np.max(np.abs(h1s_average - h1s_block_wannier))
             raise ValueError(
-                "Wannier and block active one-electron intermediates differ; "
-                f"maximum error is {error:.3e}"
+                "Wannier active one-electron intermediates are spin "
+                f"dependent; maximum error is {error:.3e}"
             )
-
+        # Restore the full cell-dependent mean field for the Wannier response.
+        h1s_wannier = h1_wannier[None] + active_potential
         fock1_wannier = sum(
-            h1s_wannier[spin] @ self.casdm1s[spin]
+            h1s_wannier[spin] @ self.casdm1s[spin].T
             for spin in range(2)
         )
         fock1_wannier += np.tensordot(
@@ -2752,7 +2771,7 @@ class KLASSCF_HessianOperator(molLASSCF_HessianOperator):
             - exchange_prime
         )
         fock1_prime = sum(
-            h1s_prime[spin] @ self.casdm1s[spin]
+            h1s_prime[spin] @ self.casdm1s[spin].T
             for spin in range(2)
         )
         fock1_prime += np.tensordot(
@@ -3136,6 +3155,592 @@ def get_hop(klas, mo_coeff=None, ci=None, ugg=None, **kwargs):
         ugg = klas.get_ugg(mo_coeff=mo_coeff, ci=ci)
     hop = getattr(klas, "_hop", KLASSCF_HessianOperator)
     return hop(klas, ugg, mo_coeff=mo_coeff, ci=ci, **kwargs)
+
+
+def _optimizer_metric(klas, ugg):
+    """Return the metric for the supported single-state optimizer."""
+    weights = np.asarray(klas.weights, dtype=float).reshape(-1)
+    if weights.size != int(klas.nroots):
+        raise ValueError(
+            f"weights has size {weights.size}; expected {klas.nroots}"
+        )
+    if weights.size != 1 or not np.allclose(weights, 1.0):
+        raise NotImplementedError(
+            "state-averaged k-LASSCF needs the CI weights in the real "
+            "optimizer metric"
+        )
+    return np.ones(ugg.nvar_tot, dtype=float)
+
+
+def _ci_guess_is_missing(ci):
+    """Return whether a nested fragment/root CI guess is incomplete."""
+    if ci is None:
+        return True
+    return any(
+        roots is None or any(c is None for c in roots)
+        for roots in ci
+    )
+
+
+def _make_keyframe_densities(klas, mo_coeff, ci):
+    """Build CI/AO densities and the periodic effective potential."""
+    casdm1frs = klas.states_make_casdm1s_sub(ci=ci)
+    casdm1s_sub = klas.make_casdm1s_sub(
+        ci=ci, casdm1frs=casdm1frs,
+    )
+    dm1s_kpts = klas.make_rdm1s(
+        mo_coeff=mo_coeff, ci=ci, casdm1s_sub=casdm1s_sub,
+    )
+    veff_kpts = klas.get_veff(
+        klas._scf.cell, dm_kpts=dm1s_kpts,
+    )
+    return casdm1frs, casdm1s_sub, dm1s_kpts, veff_kpts
+
+
+def ci_cycle(
+        klas, mo_coeff, ci0, veff_kpts, h2eff, casdm1frs, log):
+    """Solve every local CI problem once in the current LAS environment.
+
+    Each fragment Hamiltonian is built from the densities at the start of
+    the keyframe, and each unfrozen ``fcibox`` is diagonalized exactly once.
+    This is the synchronous LASSCF CI refresh, not the outer product-state
+    fixed-point solver used by standalone k-LASCI.
+    """
+    h1eff = klas.h1e_for_las(
+        mo_coeff=mo_coeff,
+        ci=ci0,
+        veff=veff_kpts,
+        eri_cas=h2eff,
+        casdm1frs=casdm1frs,
+    )
+    frozen_ci = set(getattr(klas, "frozen_ci", None) or [])
+    e_sub = []
+    ci1 = []
+    offset = 0
+    for ifrag, (fcibox, norb, nelec, h1e, c0) in enumerate(zip(
+            klas.fciboxes, klas.ncas_sub, klas.nelecas_sub, h1eff, ci0)):
+        stop = offset + int(norb)
+        h2frag = h2eff[
+            offset:stop, offset:stop, offset:stop, offset:stop
+        ]
+        if ifrag in frozen_ci:
+            energy = 0.0
+            c1 = c0
+        else:
+            max_memory = max(
+                400, klas.max_memory - lib.current_memory()[0],
+            )
+            energy, c1 = fcibox.kernel(
+                h1e, h2frag, norb, nelec,
+                ci0=c0, verbose=log, max_memory=max_memory,
+            )
+        e_sub.append(energy)
+        ci1.append(c1)
+        offset = stop
+    return e_sub, ci1
+
+
+def _fixed_ci_energies(klas, mo_coeff, ci, h2eff):
+    """Evaluate root energies without optimizing the product-state CI."""
+    h1eff, energy_core = klas.h1e_for_cas(
+        mo_coeff=mo_coeff, ncas=klas.ncas, ncore=klas.ncore,
+    )
+    dtype = np.result_type(h1eff, h2eff, energy_core)
+    e_cas = np.empty(klas.nroots, dtype=dtype)
+    e_states = np.empty(klas.nroots, dtype=dtype)
+    for iroot in range(klas.nroots):
+        fcisolvers = [box.fcisolvers[iroot] for box in klas.fciboxes]
+        solver = ImpureProductStateFCISolver(
+            fcisolvers,
+            lweights=[[1.0] for _ in fcisolvers],
+            stdout=klas.stdout,
+            verbose=lib.logger.QUIET,
+        )
+        energy_active = solver.energy_elec(
+            h1eff, h2eff, [roots[iroot] for roots in ci],
+            klas.ncas_sub, klas.nelecas_sub, ecore=0,
+        )
+        e_cas[iroot] = energy_active / klas.nkpts
+        e_states[iroot] = (energy_active + energy_core) / klas.nkpts
+    e_tot = np.dot(klas.weights, e_states)
+    e_lexc = [
+        [np.zeros(1, dtype=dtype) for _ in range(klas.nroots)]
+        for _ in range(klas.nfrags)
+    ]
+    return e_tot, e_states, e_cas, e_lexc
+
+
+def _get_mo_energy(hop):
+    """Return diagonal state-averaged Fock values for each k-point."""
+    h1s = getattr(hop, "h1s", None)
+    if h1s is None:
+        return None
+    fock = np.asarray(h1s).sum(axis=0) / 2.0
+    return np.diagonal(fock, axis1=-2, axis2=-1).real.copy()
+
+
+def _micro_diagonal(hop, metric):
+    """Build a positive approximate diagonal in doubled-real coordinates.
+
+    The stored CI diagonal describes H, while the CI energy Hessian uses
+    2*(H-E).  Real and imaginary external orbital coordinates share an
+    approximate diagonal; active-active coordinates have separate analytic
+    diagonals.  Absolute values make the preconditioner positive for MINRES.
+    """
+    get_diagonal = getattr(hop, "_get_Hdiag", None)
+    if get_diagonal is None:
+        return None
+    diagonal = np.asarray(get_diagonal()).real.copy()
+    _check_shape(diagonal, metric.shape, label="micro Hessian diagonal")
+    norb = hop.ugg.nvar_orb
+    offset = norb
+    for ifrag, transformers in enumerate(hop.ci_transformers):
+        if ifrag in hop.frozen_ci:
+            continue
+        for iroot, transformer in enumerate(transformers):
+            stop = offset + transformer.ncsf
+            diagonal[offset:stop] = 2 * (
+                diagonal[offset:stop] - np.real(hop.e0[ifrag][iroot])
+            )
+            offset = stop
+    if offset != diagonal.size:
+        raise ValueError("CI diagonal does not match the optimizer layout")
+    imaginary = diagonal.copy()
+    nactive = getattr(hop.ugg, "nvar_orb_active_active", 0)
+    if nactive:
+        hessian, conjugate_hessian = hop._get_Horb_active_active()
+        imaginary[norb - nactive:norb] = np.diag(
+            hessian - conjugate_hessian,
+        ).real
+    diagonal[:norb] += hop.level_shift / 2
+    imaginary[:norb] += hop.level_shift / 2
+    diagonal[norb:] += hop.level_shift
+    imaginary[norb:] += hop.level_shift
+    diagonal = np.concatenate((metric * diagonal, metric * imaginary))
+    if not np.all(np.isfinite(diagonal)):
+        raise ValueError("micro Hessian diagonal must be finite")
+    floor = max(1e-8, 1e-4 * np.max(np.abs(diagonal), initial=0.0))
+    return np.maximum(np.abs(diagonal), floor)
+
+
+def _micro_initial_guess(gradient, diagonal, trust_radius):
+    """Return -D^-1 g, shifted if its norm exceeds the trust radius."""
+    if diagonal is None:
+        return None, None, 0.0
+    real_gradient = SolveScipyMINRESForCplx.unpack_complex(gradient)
+    shift = 0.0
+    if np.linalg.norm(real_gradient / diagonal) > trust_radius:
+        lower = 0.0
+        upper = np.linalg.norm(real_gradient) / trust_radius
+        for _ in range(60):
+            midpoint = (lower + upper) / 2
+            norm = np.linalg.norm(real_gradient / (diagonal + midpoint))
+            if norm > trust_radius:
+                lower = midpoint
+            else:
+                upper = midpoint
+        shift = upper
+    diagonal = diagonal + shift
+    guess = SolveScipyMINRESForCplx.pack_real(-real_gradient / diagonal)
+    return _limit_micro_step(guess, trust_radius), diagonal, float(shift)
+
+
+def _limit_micro_step(step, trust_radius):
+    """Bound the step norm and its largest complex coordinate."""
+    norm = np.linalg.norm(step)
+    largest = np.max(np.abs(step), initial=0.0)
+    scale = min(
+        1.0, trust_radius / max(norm, 1e-30),
+        (np.pi / 2) / max(largest, 1e-30),
+    )
+    return np.asarray(step) * scale
+
+
+class _MicroIterationInstability(RuntimeError):
+    """Signal that a Krylov iterate exceeded the step safeguards."""
+
+
+def _regularize_micro_step(step, gradient, basis, hessian_basis,
+                           trust_radius, level_shift):
+    """Regularize the Hessian in the real Krylov subspace already sampled.
+
+    Complex vectors store two real coordinates.  Real inner products are
+    therefore required here, including during orthogonalization in kernel.
+    A shifted projected solve handles negative or nearly zero curvature;
+    its shift also enforces the trust radius without extra Hessian actions.
+    """
+    if not basis:
+        return step, 0.0, None
+    q = np.column_stack(basis)
+    hq = np.column_stack(hessian_basis)
+    projected = np.real(q.conj().T @ hq)
+    eigenvalues, eigenvectors = linalg.eigh((projected + projected.T) / 2)
+    # Bound the condition number of the shifted projected Hessian to
+    # approximately 1e4, rather than just moving negative modes above zero.
+    curvature_floor = max(
+        float(level_shift),
+        1e-4 * np.max(np.abs(eigenvalues)),
+        1e-12,
+    )
+    shift = max(0.0, curvature_floor - eigenvalues[0])
+    slope = np.real(np.vdot(gradient, step))
+    if shift == 0.0 and slope < 0.0 and np.linalg.norm(step) <= trust_radius:
+        return step, 0.0, float(eigenvalues[0])
+
+    rhs = eigenvectors.T @ np.real(q.conj().T @ gradient)
+
+    def coefficients(value):
+        return -rhs / (eigenvalues + value)
+
+    if np.linalg.norm(coefficients(shift)) > trust_radius:
+        lower = shift
+        upper = max(shift, np.linalg.norm(rhs) / trust_radius - eigenvalues[0])
+        for _ in range(60):
+            midpoint = (lower + upper) / 2
+            if np.linalg.norm(coefficients(midpoint)) > trust_radius:
+                lower = midpoint
+            else:
+                upper = midpoint
+        shift = upper
+    step = q @ (eigenvectors @ coefficients(shift))
+    return step, float(shift), float(eigenvalues[0])
+
+
+def kernel(
+        klas, mo_coeff=None, ci0=None, conv_tol_grad=None, verbose=None):
+    """Run the k-LASSCF macro/micro optimization.
+
+    Each macroiteration refreshes the local CI vectors and constructs a new
+    orbital/CI Hessian keyframe.  MINRES samples the Newton equation in doubled
+    real coordinates for at most ``max_cycle_micro`` iterations.  Negative or
+    small curvature in that Krylov subspace is regularized before restricting
+    the step to the trust region and retracting it into new orbitals and
+    normalized CI vectors before the next keyframe.  A positive diagonal
+    preconditioner supplies the initial guess, with a floating shift for a
+    large guess and recovery of a bounded step if the microiteration diverges.
+
+    State-averaged optimization is intentionally disabled until its CI weights
+    are incorporated in the real optimizer metric.
+    """
+    if mo_coeff is None:
+        mo_coeff = klas.mo_coeff
+    else:
+        mo_coeff = np.asarray(mo_coeff)
+    ci = klas.ci if ci0 is None else ci0
+    if conv_tol_grad is None:
+        conv_tol_grad = klas.conv_tol_grad
+    if verbose is None:
+        verbose = klas.verbose
+
+    conv_tol_grad = float(conv_tol_grad)
+    if not np.isfinite(conv_tol_grad) or conv_tol_grad < 0.0:
+        raise ValueError("conv_tol_grad must be finite and nonnegative")
+    max_macro = int(klas.max_cycle_macro)
+    max_micro = int(klas.max_cycle_micro)
+    min_macro = int(klas.min_cycle_macro)
+    if max_macro < 0 or max_micro < 0 or min_macro < 0:
+        raise ValueError("macro and micro cycle counts must be nonnegative")
+    trust_radius = float(klas.trust_radius)
+    if not np.isfinite(trust_radius) or trust_radius <= 0.0:
+        raise ValueError("trust_radius must be finite and positive")
+
+    log = lib.logger.new_logger(klas, verbose)
+    log.debug("Start k-LASSCF")
+    t0 = (lib.logger.process_clock(), lib.logger.perf_counter())
+    converged = False
+    final_hop = None
+    e_tot = e_states = e_cas = e_lexc = None
+    norm_gorb = norm_gci = 0.0
+
+    h2eff = klas.get_h2cas(mo_coeff)
+    if _ci_guess_is_missing(ci):
+        ci = klas.get_init_guess_ci(
+            mo_coeff, ci0=ci, eri_cas=h2eff,
+        )
+    if _ci_guess_is_missing(ci):
+        raise RuntimeError("failed to populate the initial CI vectors")
+    (
+        casdm1frs, casdm1s_sub, dm1s_kpts, veff_kpts,
+    ) = _make_keyframe_densities(klas, mo_coeff, ci)
+
+    # The extra keyframe evaluates the gradient after the final allowed step.
+    for imacro in range(max_macro + 1):
+        e_sub, ci = ci_cycle(
+            klas, mo_coeff, ci, veff_kpts, h2eff, casdm1frs, log,
+        )
+        log.info("k-LASSCF subspace CI energies: %s", e_sub)
+        (
+            casdm1frs, casdm1s_sub, dm1s_kpts, veff_kpts,
+        ) = _make_keyframe_densities(klas, mo_coeff, ci)
+        e_tot, e_states, e_cas, e_lexc = _fixed_ci_energies(
+            klas, mo_coeff, ci, h2eff,
+        )
+
+        # The active-active rotation map depends on the current Wannier
+        # transformation, so optimizer coordinates are rebuilt per keyframe.
+        ugg = klas.get_ugg(mo_coeff=mo_coeff, ci=ci)
+        metric = _optimizer_metric(klas, ugg)
+        final_hop = klas.get_hop(
+            mo_coeff=mo_coeff, ci=ci, ugg=ugg,
+            casdm1frs=casdm1frs, h2eff=h2eff,
+            veff_kpts=veff_kpts, dm1s_kpts=dm1s_kpts,
+        )
+        gradient = np.asarray(final_hop.get_grad()).reshape(-1)
+        if gradient.size != ugg.nvar_tot:
+            raise ValueError(
+                f"gradient has size {gradient.size}; expected {ugg.nvar_tot}"
+            )
+
+        norm_gorb = float(np.linalg.norm(gradient[:ugg.nvar_orb]))
+        norm_gci = float(np.linalg.norm(gradient[ugg.nvar_orb:]))
+        log.info(
+            "k-LASSCF macro %d : E = %.15g ; |g_orb| = %.6g ; "
+            "|g_ci| = %.6g",
+            imacro, np.real(e_tot), norm_gorb, norm_gci,
+        )
+
+        gradient_is_converged = (
+            norm_gorb < conv_tol_grad and norm_gci < conv_tol_grad
+        )
+        if gradient_is_converged and imacro >= min_macro:
+            converged = True
+            break
+        if imacro == max_macro or max_micro == 0 or gradient.size == 0:
+            break
+
+        weighted_gradient = metric * gradient
+        initial_step, real_diagonal, floating_shift = _micro_initial_guess(
+            weighted_gradient, _micro_diagonal(final_hop, metric), trust_radius,
+        )
+        if initial_step is not None:
+            log.debug(
+                "k-LASSCF diagonal initial step: |x0| = %.6g",
+                np.linalg.norm(initial_step),
+            )
+        if floating_shift:
+            log.info(
+                "Applying a floating k-LASSCF level shift of %.6g",
+                floating_shift,
+            )
+        micro_basis, micro_hessian_basis = [], []
+
+        def metric_hessian(vector):
+            result = metric * np.asarray(final_hop._matvec(vector))
+            result = result + floating_shift * np.asarray(vector)
+            # Retain orthonormal real Krylov vectors and their Hessian
+            # images, reusing actions paid for by the iterative solver.
+            trial = np.array(vector, dtype=np.complex128, copy=True)
+            image = np.array(result, dtype=np.complex128, copy=True)
+            original_norm = np.linalg.norm(trial)
+            if original_norm and len(micro_basis) < max_micro + 1:
+                for _ in range(2):
+                    for q, hq in zip(micro_basis, micro_hessian_basis):
+                        coefficient = np.real(np.vdot(q, trial))
+                        trial -= coefficient * q
+                        image -= coefficient * hq
+                norm = np.linalg.norm(trial)
+                if norm > 1e-10 * original_norm:
+                    micro_basis.append(trial / norm)
+                    micro_hessian_basis.append(image / norm)
+            return result
+
+        rhs_norm = float(np.linalg.norm(weighted_gradient))
+        micro_rtol = min(
+            0.5,
+            max(1e-12, conv_tol_grad / max(rhs_norm, 1e-30)),
+        )
+        micro_count = [0]
+        last_stable_step = [initial_step]
+        first_step_norm = [None]
+
+        def micro_callback(step):
+            micro_count[0] += 1
+            step_norm = np.linalg.norm(step)
+            if not np.all(np.isfinite(step)):
+                raise _MicroIterationInstability("non-finite microiteration step")
+            if np.max(np.abs(step), initial=0.0) > np.pi / 2:
+                raise _MicroIterationInstability("|x[i]| > pi/2")
+            if first_step_norm[0] is None:
+                if step_norm > 1e-30:
+                    first_step_norm[0] = step_norm
+            elif step_norm > 10 * max(first_step_norm[0], 1e-30):
+                raise _MicroIterationInstability("||x(n)|| > 10*||x(0)||")
+            last_stable_step[0] = np.array(step, copy=True)
+            norm_xorb = np.linalg.norm(step[:ugg.nvar_orb])
+            norm_xci = np.linalg.norm(step[ugg.nvar_orb:])
+            if log.verbose > lib.logger.INFO:
+                hessian_step = np.asarray(final_hop._matvec(step))
+                residual = gradient + hessian_step + floating_shift * step
+                model_energy = e_tot + np.real(np.vdot(
+                    step,
+                    metric * (gradient + 0.5 * hessian_step),
+                ))
+                log.info(
+                    "       micro iter %d : E = %.15g ; |r_orb| = %.6g ; "
+                    "|r_ci| = %.6g ; |x_orb| = %.6g ; |x_ci| = %.6g",
+                    micro_count[0] - 1, np.real(model_energy),
+                    np.linalg.norm(residual[:ugg.nvar_orb]),
+                    np.linalg.norm(residual[ugg.nvar_orb:]),
+                    norm_xorb, norm_xci,
+                )
+            else:
+                log.info(
+                    "       micro iter %d : |x_orb| = %.6g ; |x_ci| = %.6g",
+                    micro_count[0] - 1, norm_xorb, norm_xci,
+                )
+
+        solver_class = getattr(
+            klas, "micro_solver", SolveScipyMINRESForCplx,
+        )
+        solver_kwargs = {
+            "rtol": micro_rtol,
+            "maxiter": max_micro,
+            "callback": micro_callback,
+        }
+        if real_diagonal is not None:
+            solver_kwargs["real_hdiag"] = real_diagonal
+        if getattr(klas, "micro_solver_compute_residual", False):
+            solver_kwargs["compute_residual"] = True
+        solver = solver_class(metric_hessian, **solver_kwargs)
+        instability = None
+        try:
+            if initial_step is None:
+                step, info = solver(weighted_gradient)
+            else:
+                step, info = solver(weighted_gradient, x0=initial_step)
+        except _MicroIterationInstability as error:
+            instability = error
+            step = last_stable_step[0]
+            if step is None:
+                step = _limit_micro_step(-weighted_gradient, trust_radius)
+            info = 0
+            log.warn("Unstable k-LASSCF microiteration aborted: %s", error)
+        if info:
+            solver_name = getattr(solver_class, "__name__", "micro solver")
+            log.warn(
+                "k-LASSCF %s stopped with info=%s after %d "
+                "microiterations",
+                solver_name, info, micro_count[0],
+            )
+
+        step_trust_radius = trust_radius
+        if instability is not None and last_stable_step[0] is not None:
+            step_trust_radius = min(
+                trust_radius, max(np.linalg.norm(last_stable_step[0]), 1e-30),
+            )
+        step, shift, lowest_curvature = _regularize_micro_step(
+            step, weighted_gradient, micro_basis, micro_hessian_basis,
+            step_trust_radius, getattr(klas, "ah_level_shift", 1e-8),
+        )
+        if shift:
+            log.debug(
+                "Regularizing k-LASSCF micro Hessian: lowest curvature "
+                "%.6g ; shift %.6g", lowest_curvature, shift,
+            )
+        if not np.all(np.isfinite(step)) or np.real(np.vdot(
+                weighted_gradient, step)) >= 0.0:
+            # A custom solver may not sample a usable Krylov subspace.
+            step = -weighted_gradient
+            log.warn("Using the negative gradient for the k-LASSCF step")
+
+        step_norm = float(np.linalg.norm(step))
+        step = _limit_micro_step(step, step_trust_radius)
+        if np.linalg.norm(step) < step_norm:
+            log.debug(
+                "Scaling k-LASSCF step by %.6g", np.linalg.norm(step) / step_norm,
+            )
+
+        mo_coeff, ci, h2eff = final_hop.update_mo_ci_eri(step, h2eff)
+        (
+            casdm1frs, casdm1s_sub, dm1s_kpts, veff_kpts,
+        ) = _make_keyframe_densities(klas, mo_coeff, ci)
+
+    if final_hop is None:
+        raise RuntimeError("k-LASSCF failed to build a Hessian keyframe")
+
+    mo_energy = _get_mo_energy(final_hop)
+    veff = veff_kpts
+    log.info(
+        "k-LASSCF %s after %d macro keyframes",
+        "converged" if converged else "not converged", imacro + 1,
+    )
+    log.info(
+        "k-LASSCF E = %.15g ; |g_orb| = %.6g ; |g_ci| = %.6g",
+        np.real(e_tot), norm_gorb, norm_gci,
+    )
+    log.timer("k-LASSCF kernel", *t0)
+    return (
+        converged, e_tot, e_states, mo_energy, mo_coeff, e_cas, e_lexc,
+        ci, h2eff, veff,
+    )
+
+
+def _klasscf_kernel_method(
+        self, mo_coeff=None, ci0=None, conv_tol_grad=None, verbose=None,
+        _kern=None):
+    """Run k-LASSCF and store the final result on this object."""
+    if mo_coeff is None:
+        mo_coeff = self.mo_coeff
+    else:
+        self.mo_coeff = mo_coeff
+    if ci0 is None:
+        ci0 = self.ci
+    if verbose is None:
+        verbose = self.verbose
+    if conv_tol_grad is None:
+        conv_tol_grad = self.conv_tol_grad
+    if _kern is None:
+        _kern = self._kern
+
+    if self.verbose >= lib.logger.WARN:
+        self.check_sanity()
+    self.dump_flags(verbose)
+
+    result = _kern(
+        mo_coeff=mo_coeff, ci0=ci0,
+        conv_tol_grad=conv_tol_grad, verbose=verbose,
+    )
+    (
+        self.converged, self.e_tot, self.e_states, self.mo_energy,
+        self.mo_coeff, self.e_cas, self.e_lexc, self.ci, h2eff, veff,
+    ) = result
+    self._finalize(method="k-LASSCF")
+    return (
+        self.e_tot, self.e_cas, self.ci, self.mo_coeff, self.mo_energy,
+        h2eff, veff,
+    )
+
+
+class PBCLASSCFNoSymm(PBCLASCINoSymm):
+    """Periodic LASSCF object without translation-adapted CI packing."""
+
+    _hop = KLASSCF_HessianOperator
+    _kern = kernel
+    micro_solver = SolveScipyMINRESForCplx
+    micro_solver_compute_residual = False
+    get_hop = get_hop
+    kernel = _klasscf_kernel_method
+
+
+def kLASSCF(
+        kmf, ncas, nelecas, ncore=None, spin_mult=None, kmesh=None,
+        kpts=None, trans_sym=False, ref_cell=0):
+    """Create a periodic LASSCF macro/micro optimizer.
+
+    Translation-adapted response equations are not implemented, so the public
+    optimizer requires ``trans_sym=False``.
+    """
+    if trans_sym:
+        raise NotImplementedError(
+            "translation-adapted k-LASSCF optimization is not implemented"
+        )
+    klas = kLASCI(
+        kmf, ncas, nelecas, ncore=ncore, spin_mult=spin_mult,
+        kmesh=kmesh, kpts=kpts, trans_sym=False,
+        ref_cell=ref_cell,
+    )
+    klas.__class__ = PBCLASSCFNoSymm
+    return klas
 
 # Install the common gradient and Hessian interfaces on the periodic LAS
 # variants. Translation-adapted response equations are not implemented here.

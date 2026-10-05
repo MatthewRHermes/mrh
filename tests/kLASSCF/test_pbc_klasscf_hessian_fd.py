@@ -342,10 +342,8 @@ class KnownValuesKLASSCFHessianFiniteDifference(unittest.TestCase):
 
     def test_coupled_hessian_blocks_match_finite_differences(self):
         """Compare both coupled orbital-CI Hessian blocks with finite differences."""
-        # Test both reciprocal derivatives explicitly.  A plain complex-vdot
-        # comparison is not the relevant metric because orbital responses use
-        # the molecular half-generator packing convention while CI responses
-        # do not.
+        # Test both derivatives of the actual optimizer update, which
+        # rotates orbitals by exp(kappa / 2).
         orbital_trial = np.zeros(self.ugg.nvar_tot, dtype=np.complex128)
         kappa = _make_orbital_direction(
             self.klas, ("active-virtual",), 59,
@@ -361,11 +359,11 @@ class KnownValuesKLASSCFHessianFiniteDifference(unittest.TestCase):
         _, ci_direction = _make_ci_direction(self.ugg, seed=61)
         step = 1e-5
         ci_gradient_plus = self.ugg.pack_ci(self.klas.get_grad_ci(
-            mo_coeff=_rotate_mos(self.mo_coeff, kappa, step),
+            mo_coeff=_rotate_mos(self.mo_coeff, kappa, step / 2.0),
             ci=self.ci,
         ))
         ci_gradient_minus = self.ugg.pack_ci(self.klas.get_grad_ci(
-            mo_coeff=_rotate_mos(self.mo_coeff, kappa, -step),
+            mo_coeff=_rotate_mos(self.mo_coeff, kappa, -step / 2.0),
             ci=self.ci,
         ))
         finite_ci_orbital = (
