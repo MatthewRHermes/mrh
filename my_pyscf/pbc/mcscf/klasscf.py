@@ -3513,7 +3513,7 @@ def kernel(
             weighted_gradient, _micro_diagonal(final_hop, metric), trust_radius,
         )
         if initial_step is not None:
-            log.info(
+            log.debug(
                 "k-LASSCF diagonal initial step: |x0| = %.6g",
                 np.linalg.norm(initial_step),
             )
@@ -3576,17 +3576,17 @@ def kernel(
                     metric * (gradient + 0.5 * hessian_step),
                 ))
                 log.info(
-                    "k-LASSCF micro %d : E = %.15g ; |r_orb| = %.6g ; "
+                    "k-LASSCF micro iter %d : E = %.15g ; |r_orb| = %.6g ; "
                     "|r_ci| = %.6g ; |x_orb| = %.6g ; |x_ci| = %.6g",
-                    micro_count[0], np.real(model_energy),
+                    micro_count[0] - 1, np.real(model_energy),
                     np.linalg.norm(residual[:ugg.nvar_orb]),
                     np.linalg.norm(residual[ugg.nvar_orb:]),
                     norm_xorb, norm_xci,
                 )
             else:
                 log.info(
-                    "k-LASSCF micro %d : |x_orb| = %.6g ; |x_ci| = %.6g",
-                    micro_count[0], norm_xorb, norm_xci,
+                    "k-LASSCF micro iter %d : |x_orb| = %.6g ; |x_ci| = %.6g",
+                    micro_count[0] - 1, norm_xorb, norm_xci,
                 )
 
         solver_class = getattr(
@@ -3633,7 +3633,7 @@ def kernel(
             step_trust_radius, getattr(klas, "ah_level_shift", 1e-8),
         )
         if shift:
-            log.info(
+            log.debug(
                 "Regularizing k-LASSCF micro Hessian: lowest curvature "
                 "%.6g ; shift %.6g", lowest_curvature, shift,
             )
@@ -3646,7 +3646,7 @@ def kernel(
         step_norm = float(np.linalg.norm(step))
         step = _limit_micro_step(step, step_trust_radius)
         if np.linalg.norm(step) < step_norm:
-            log.info(
+            log.debug(
                 "Scaling k-LASSCF step by %.6g", np.linalg.norm(step) / step_norm,
             )
 
