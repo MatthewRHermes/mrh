@@ -1333,7 +1333,10 @@ class KLASSCF_HessianOperator(molLASSCF_HessianOperator):
                 else:
                     dm1s = transition_rdm
                 overlap = np.vdot(c1, c0)
-                tdm1s = np.stack(dm1s, axis=0) - overlap * dm1s_ref
+                # Match the <p^+ q> convention of casdm1frs; transposing
+                # changes orbital indices without conjugating the overlap.
+                tdm1s = np.stack(dm1s, axis=0).swapaxes(-1, -2)
+                tdm1s = tdm1s - overlap * dm1s_ref
                 tdm1rs_one_sided[iroot, :, i:j, i:j] = tdm1s
 
                 if with_cumulant:
@@ -2401,12 +2404,17 @@ class KLASSCF_HessianOperator(molLASSCF_HessianOperator):
         return h1frs_prime, h2_prime
 
     def _ci_orbital_hessian_response(self, kappa):
-        """Apply the CI-output/orbital-input Hessian block."""
+        """Apply the CI-output/orbital-input Hessian block.
+
+        The Hamiltonian response uses the full generator, whereas optimizer
+        orbitals are updated by exp(kappa / 2).  This cancels the factor two
+        in the CI energy gradient.
+        """
         h1frs_prime, h2_prime = self._orbital_hamiltonian_response(kappa)
         hc = self.Hci_all(None, h1frs_prime, h2_prime, self.ci)
         return [
             [
-                2.0 * (hc0 - np.vdot(c0, hc0) * c0)
+                hc0 - np.vdot(c0, hc0) * c0
                 for hc0, c0 in zip(hc_r, ci0_r)
             ]
             for hc_r, ci0_r in zip(hc, self.ci)
@@ -2696,7 +2704,7 @@ class KLASSCF_HessianOperator(molLASSCF_HessianOperator):
         # Restore the full cell-dependent mean field for the Wannier response.
         h1s_wannier = h1_wannier[None] + active_potential
         fock1_wannier = sum(
-            h1s_wannier[spin] @ self.casdm1s[spin]
+            h1s_wannier[spin] @ self.casdm1s[spin].T
             for spin in range(2)
         )
         fock1_wannier += np.tensordot(
@@ -2763,7 +2771,7 @@ class KLASSCF_HessianOperator(molLASSCF_HessianOperator):
             - exchange_prime
         )
         fock1_prime = sum(
-            h1s_prime[spin] @ self.casdm1s[spin]
+            h1s_prime[spin] @ self.casdm1s[spin].T
             for spin in range(2)
         )
         fock1_prime += np.tensordot(
@@ -3271,15 +3279,145 @@ def _get_mo_energy(hop):
     return np.diagonal(fock, axis1=-2, axis2=-1).real.copy()
 
 
+def _micro_diagonal(hop, metric):
+    """Build a positive approximate diagonal in doubled-real coordinates.
+
+    The stored CI diagonal describes H, while the CI energy Hessian uses
+    2*(H-E).  Real and imaginary external orbital coordinates share an
+    approximate diagonal; active-active coordinates have separate analytic
+    diagonals.  Absolute values make the preconditioner positive for MINRES.
+    """
+    get_diagonal = getattr(hop, "_get_Hdiag", None)
+    if get_diagonal is None:
+        return None
+    diagonal = np.asarray(get_diagonal()).real.copy()
+    _check_shape(diagonal, metric.shape, label="micro Hessian diagonal")
+    norb = hop.ugg.nvar_orb
+    offset = norb
+    for ifrag, transformers in enumerate(hop.ci_transformers):
+        if ifrag in hop.frozen_ci:
+            continue
+        for iroot, transformer in enumerate(transformers):
+            stop = offset + transformer.ncsf
+            diagonal[offset:stop] = 2 * (
+                diagonal[offset:stop] - np.real(hop.e0[ifrag][iroot])
+            )
+            offset = stop
+    if offset != diagonal.size:
+        raise ValueError("CI diagonal does not match the optimizer layout")
+    imaginary = diagonal.copy()
+    nactive = getattr(hop.ugg, "nvar_orb_active_active", 0)
+    if nactive:
+        hessian, conjugate_hessian = hop._get_Horb_active_active()
+        imaginary[norb - nactive:norb] = np.diag(
+            hessian - conjugate_hessian,
+        ).real
+    diagonal[:norb] += hop.level_shift / 2
+    imaginary[:norb] += hop.level_shift / 2
+    diagonal[norb:] += hop.level_shift
+    imaginary[norb:] += hop.level_shift
+    diagonal = np.concatenate((metric * diagonal, metric * imaginary))
+    if not np.all(np.isfinite(diagonal)):
+        raise ValueError("micro Hessian diagonal must be finite")
+    floor = max(1e-8, 1e-4 * np.max(np.abs(diagonal), initial=0.0))
+    return np.maximum(np.abs(diagonal), floor)
+
+
+def _micro_initial_guess(gradient, diagonal, trust_radius):
+    """Return -D^-1 g, shifted if its norm exceeds the trust radius."""
+    if diagonal is None:
+        return None, None, 0.0
+    real_gradient = SolveScipyMINRESForCplx.unpack_complex(gradient)
+    shift = 0.0
+    if np.linalg.norm(real_gradient / diagonal) > trust_radius:
+        lower = 0.0
+        upper = np.linalg.norm(real_gradient) / trust_radius
+        for _ in range(60):
+            midpoint = (lower + upper) / 2
+            norm = np.linalg.norm(real_gradient / (diagonal + midpoint))
+            if norm > trust_radius:
+                lower = midpoint
+            else:
+                upper = midpoint
+        shift = upper
+    diagonal = diagonal + shift
+    guess = SolveScipyMINRESForCplx.pack_real(-real_gradient / diagonal)
+    return _limit_micro_step(guess, trust_radius), diagonal, float(shift)
+
+
+def _limit_micro_step(step, trust_radius):
+    """Bound the step norm and its largest complex coordinate."""
+    norm = np.linalg.norm(step)
+    largest = np.max(np.abs(step), initial=0.0)
+    scale = min(
+        1.0, trust_radius / max(norm, 1e-30),
+        (np.pi / 2) / max(largest, 1e-30),
+    )
+    return np.asarray(step) * scale
+
+
+class _MicroIterationInstability(RuntimeError):
+    """Signal that a Krylov iterate exceeded the step safeguards."""
+
+
+def _regularize_micro_step(step, gradient, basis, hessian_basis,
+                           trust_radius, level_shift):
+    """Regularize the Hessian in the real Krylov subspace already sampled.
+
+    Complex vectors store two real coordinates.  Real inner products are
+    therefore required here, including during orthogonalization in kernel.
+    A shifted projected solve handles negative or nearly zero curvature;
+    its shift also enforces the trust radius without extra Hessian actions.
+    """
+    if not basis:
+        return step, 0.0, None
+    q = np.column_stack(basis)
+    hq = np.column_stack(hessian_basis)
+    projected = np.real(q.conj().T @ hq)
+    eigenvalues, eigenvectors = linalg.eigh((projected + projected.T) / 2)
+    # Bound the condition number of the shifted projected Hessian to
+    # approximately 1e4, rather than just moving negative modes above zero.
+    curvature_floor = max(
+        float(level_shift),
+        1e-4 * np.max(np.abs(eigenvalues)),
+        1e-12,
+    )
+    shift = max(0.0, curvature_floor - eigenvalues[0])
+    slope = np.real(np.vdot(gradient, step))
+    if shift == 0.0 and slope < 0.0 and np.linalg.norm(step) <= trust_radius:
+        return step, 0.0, float(eigenvalues[0])
+
+    rhs = eigenvectors.T @ np.real(q.conj().T @ gradient)
+
+    def coefficients(value):
+        return -rhs / (eigenvalues + value)
+
+    if np.linalg.norm(coefficients(shift)) > trust_radius:
+        lower = shift
+        upper = max(shift, np.linalg.norm(rhs) / trust_radius - eigenvalues[0])
+        for _ in range(60):
+            midpoint = (lower + upper) / 2
+            if np.linalg.norm(coefficients(midpoint)) > trust_radius:
+                lower = midpoint
+            else:
+                upper = midpoint
+        shift = upper
+    step = q @ (eigenvectors @ coefficients(shift))
+    return step, float(shift), float(eigenvalues[0])
+
+
 def kernel(
         klas, mo_coeff=None, ci0=None, conv_tol_grad=None, verbose=None):
     """Run the k-LASSCF macro/micro optimization.
 
     Each macroiteration refreshes the local CI vectors and constructs a new
-    orbital/CI Hessian keyframe.  MINRES solves the Newton equation in doubled
-    real coordinates for at most ``max_cycle_micro`` iterations.  The complex
-    step is restricted to the trust region and retracted into new orbitals and
-    normalized CI vectors before the next keyframe.
+    orbital/CI Hessian keyframe.  MINRES samples the Newton equation in doubled
+    real coordinates for at most ``max_cycle_micro`` iterations.  Negative or
+    small curvature in that Krylov subspace is regularized before restricting
+    the step to the trust region and retracting it into new orbitals and
+    normalized CI vectors before the next keyframe.  A positive diagonal
+    preconditioner supplies the initial guess, with a floating shift for a
+    large guess and recovery of a bounded step if the microiteration diverges.
 
     State-averaged optimization is intentionally disabled until its CI weights
     are incorporated in the real optimizer metric.
@@ -3370,24 +3508,69 @@ def kernel(
         if imacro == max_macro or max_micro == 0 or gradient.size == 0:
             break
 
-        def metric_hessian(vector):
-            return metric * np.asarray(final_hop._matvec(vector))
-
         weighted_gradient = metric * gradient
+        initial_step, real_diagonal, floating_shift = _micro_initial_guess(
+            weighted_gradient, _micro_diagonal(final_hop, metric), trust_radius,
+        )
+        if initial_step is not None:
+            log.info(
+                "k-LASSCF diagonal initial step: |x0| = %.6g",
+                np.linalg.norm(initial_step),
+            )
+        if floating_shift:
+            log.info(
+                "Applying a floating k-LASSCF level shift of %.6g",
+                floating_shift,
+            )
+        micro_basis, micro_hessian_basis = [], []
+
+        def metric_hessian(vector):
+            result = metric * np.asarray(final_hop._matvec(vector))
+            result = result + floating_shift * np.asarray(vector)
+            # Retain orthonormal real Krylov vectors and their Hessian
+            # images, reusing actions paid for by the iterative solver.
+            trial = np.array(vector, dtype=np.complex128, copy=True)
+            image = np.array(result, dtype=np.complex128, copy=True)
+            original_norm = np.linalg.norm(trial)
+            if original_norm and len(micro_basis) < max_micro + 1:
+                for _ in range(2):
+                    for q, hq in zip(micro_basis, micro_hessian_basis):
+                        coefficient = np.real(np.vdot(q, trial))
+                        trial -= coefficient * q
+                        image -= coefficient * hq
+                norm = np.linalg.norm(trial)
+                if norm > 1e-10 * original_norm:
+                    micro_basis.append(trial / norm)
+                    micro_hessian_basis.append(image / norm)
+            return result
+
         rhs_norm = float(np.linalg.norm(weighted_gradient))
         micro_rtol = min(
             0.5,
             max(1e-12, conv_tol_grad / max(rhs_norm, 1e-30)),
         )
         micro_count = [0]
+        last_stable_step = [initial_step]
+        first_step_norm = [None]
 
         def micro_callback(step):
             micro_count[0] += 1
+            step_norm = np.linalg.norm(step)
+            if not np.all(np.isfinite(step)):
+                raise _MicroIterationInstability("non-finite microiteration step")
+            if np.max(np.abs(step), initial=0.0) > np.pi / 2:
+                raise _MicroIterationInstability("|x[i]| > pi/2")
+            if first_step_norm[0] is None:
+                if step_norm > 1e-30:
+                    first_step_norm[0] = step_norm
+            elif step_norm > 10 * max(first_step_norm[0], 1e-30):
+                raise _MicroIterationInstability("||x(n)|| > 10*||x(0)||")
+            last_stable_step[0] = np.array(step, copy=True)
             norm_xorb = np.linalg.norm(step[:ugg.nvar_orb])
             norm_xci = np.linalg.norm(step[ugg.nvar_orb:])
             if log.verbose > lib.logger.INFO:
                 hessian_step = np.asarray(final_hop._matvec(step))
-                residual = gradient + hessian_step
+                residual = gradient + hessian_step + floating_shift * step
                 model_energy = e_tot + np.real(np.vdot(
                     step,
                     metric * (gradient + 0.5 * hessian_step),
@@ -3414,10 +3597,24 @@ def kernel(
             "maxiter": max_micro,
             "callback": micro_callback,
         }
+        if real_diagonal is not None:
+            solver_kwargs["real_hdiag"] = real_diagonal
         if getattr(klas, "micro_solver_compute_residual", False):
             solver_kwargs["compute_residual"] = True
         solver = solver_class(metric_hessian, **solver_kwargs)
-        step, info = solver(weighted_gradient)
+        instability = None
+        try:
+            if initial_step is None:
+                step, info = solver(weighted_gradient)
+            else:
+                step, info = solver(weighted_gradient, x0=initial_step)
+        except _MicroIterationInstability as error:
+            instability = error
+            step = last_stable_step[0]
+            if step is None:
+                step = _limit_micro_step(-weighted_gradient, trust_radius)
+            info = 0
+            log.warn("Unstable k-LASSCF microiteration aborted: %s", error)
         if info:
             solver_name = getattr(solver_class, "__name__", "micro solver")
             log.warn(
@@ -3426,16 +3623,32 @@ def kernel(
                 solver_name, info, micro_count[0],
             )
 
+        step_trust_radius = trust_radius
+        if instability is not None and last_stable_step[0] is not None:
+            step_trust_radius = min(
+                trust_radius, max(np.linalg.norm(last_stable_step[0]), 1e-30),
+            )
+        step, shift, lowest_curvature = _regularize_micro_step(
+            step, weighted_gradient, micro_basis, micro_hessian_basis,
+            step_trust_radius, getattr(klas, "ah_level_shift", 1e-8),
+        )
+        if shift:
+            log.info(
+                "Regularizing k-LASSCF micro Hessian: lowest curvature "
+                "%.6g ; shift %.6g", lowest_curvature, shift,
+            )
+        if not np.all(np.isfinite(step)) or np.real(np.vdot(
+                weighted_gradient, step)) >= 0.0:
+            # A custom solver may not sample a usable Krylov subspace.
+            step = -weighted_gradient
+            log.warn("Using the negative gradient for the k-LASSCF step")
+
         step_norm = float(np.linalg.norm(step))
-        max_coordinate = float(np.max(np.abs(step), initial=0.0))
-        scale = 1.0
-        if step_norm > trust_radius:
-            scale = min(scale, trust_radius / step_norm)
-        if max_coordinate > np.pi / 2.0:
-            scale = min(scale, (np.pi / 2.0) / max_coordinate)
-        if scale < 1.0:
-            log.info("Scaling k-LASSCF step by %.6g", scale)
-            step = step * scale
+        step = _limit_micro_step(step, step_trust_radius)
+        if np.linalg.norm(step) < step_norm:
+            log.info(
+                "Scaling k-LASSCF step by %.6g", np.linalg.norm(step) / step_norm,
+            )
 
         mo_coeff, ci, h2eff = final_hop.update_mo_ci_eri(step, h2eff)
         (
