@@ -780,7 +780,10 @@ class PBCLASCINoSymm(casci.PBCCASCI, LASCINoSymm):
                 dm1a = dm1b = np.zeros (shape, dtype=dtype)
             else:
                 dm1a, dm1b = fcibox.states_make_rdm1s (ci_i, ncas, nelecas)
-            casdm1s.append (np.stack ([dm1a, dm1b], axis=1))
+            # Fixing the RDM convention:
+            # Complex FCI returns the density matrix <q^+ p>.  LAS stores
+            # <p^+ q>, which contracts directly with h[p,q] and its 2-RDM.
+            casdm1s.append (np.stack ([dm1a, dm1b], axis=1).swapaxes(-1, -2))
         return casdm1s
 
 
