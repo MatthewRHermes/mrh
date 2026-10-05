@@ -29,7 +29,7 @@ class KnownValues(unittest.TestCase):
 
     def test_complex_disconnected_rdm2(self):
         """Check complex inter-fragment 2-RDM assembly.
-        Spin-separated 1-RDMs must be transposed in exchange terms."""
+        Convert native density matrices to <p^+ q> before LAS contraction."""
         dm1a = np.array([[0.7, 0.1j], [-0.1j, 0.3]])
         dm1b = np.array([[0.2, 0.04j], [-0.04j, 0.8]])
         dm1c = np.array([[0.6, 0.2j], [-0.2j, 0.4]])
@@ -42,19 +42,19 @@ class KnownValues(unittest.TestCase):
         dm2 = solver.make_rdm2([np.ones(1, dtype=complex)] * 2,
                                [2, 2], [(1, 1), (1, 1)])
 
-        dm1_0 = dm1a + dm1b
-        dm1_1 = dm1c + dm1d
+        dm1_0 = (dm1a + dm1b).T
+        dm1_1 = (dm1c + dm1d).T
         direct = np.multiply.outer(dm1_0, dm1_1)
-        exchange = np.multiply.outer(dm1a.T, dm1c.T)
-        exchange += np.multiply.outer(dm1b.T, dm1d.T)
+        exchange = -np.einsum('il,kj->ijkl', dm1a.T, dm1c.T)
+        exchange -= np.einsum('il,kj->ijkl', dm1b.T, dm1d.T)
         self.assertTrue(np.iscomplexobj(dm2))
         np.testing.assert_allclose(dm2[:2, :2, 2:, 2:], direct)
         np.testing.assert_allclose(dm2[2:, 2:, :2, :2],
                                    direct.transpose(2, 3, 0, 1))
         np.testing.assert_allclose(dm2[:2, 2:, 2:, :2],
-                                   -exchange.transpose(0, 2, 3, 1))
+                                   exchange)
         np.testing.assert_allclose(dm2[2:, :2, :2, 2:],
-                                   -exchange.transpose(2, 0, 1, 3))
+                                   exchange.conj().transpose(1, 0, 3, 2))
 
 if __name__ == '__main__':
     unittest.main()
