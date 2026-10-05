@@ -102,7 +102,8 @@ def _active_occupations(mo_occ, nkpts, nmo, ncore, ncas):
 def localize_init_guess(klas, frag_atoms=None, mo_coeff=None, spin=None, 
                         lo_coeff=None,fock=None, mo_occ=None, freeze_cas_spaces=True,
                         frags_by_AOs=False, smults_f=None, nelec_f=None, 
-                        return_umat=False, return_svals=False, sval_thresh=1e-8):
+                        return_umat=False, return_svals=False, sval_thresh=1e-8,
+                        align_phases=True):
     '''
     Localize one active space per unit cell.Some args are not used in this function
     but are kept for API compatibility with molecular LAS localization. Those variables
@@ -113,6 +114,9 @@ def localize_init_guess(klas, frag_atoms=None, mo_coeff=None, spin=None,
     analogue of molecular ``localize_init_guess``.  At every k-point, an overlap
     SVD selects the combinations of the complete active-band manifold with the largest
     projection onto the same unit-cell orbital space.
+    After Fock canonicalization, each active band is phase-aligned to the same
+    fragment local orbital at every k-point. This removes arbitrary eigenvector
+    phases before constructing Wannier orbitals.
     
     Note: The core and virtual orbitals are not changed at all. Only the active orbitals 
     are localized.
@@ -144,6 +148,14 @@ def localize_init_guess(klas, frag_atoms=None, mo_coeff=None, spin=None,
             change, as in the molecular implementation.  But currently, this is not
             implemented for periodic systems and with the LAS framework.
         frags_by_AOs: see above.
+        align_phases: bool, optional, (default: True)
+            Make the overlap of each active band with a fixed fragment local
+            orbital real and positive at every k-point. The reference is chosen
+            to maximize its smallest overlap across the k-points. This fixes
+            phases only; it does not mix bands or optimize Wannier spreads.
+            If no reference has nonzero overlap everywhere, a ValueError is
+            raised. Supply suitable lo_coeff or disable phase alignment to use
+            a separately constructed Wannier gauge.
 
     returns:
         return_umat: bool, optional, (default: False)
@@ -233,6 +245,7 @@ def localize_init_guess(klas, frag_atoms=None, mo_coeff=None, spin=None,
     mo_out = np.array(mo_coeff, dtype=result_dtype, copy=True)
     umat = np.zeros((nkpts, nmo, nmo), dtype=mo_out.dtype)
     svals_out = []
+    fragment_overlaps = []
 
     for k in range(nkpts):
         c_act = mo_coeff[k, :, ncore:nocc]
@@ -275,11 +288,33 @@ def localize_init_guess(klas, frag_atoms=None, mo_coeff=None, spin=None,
             energy_order = np.argsort(energy)
             c_local[:, idx] = c_local[:, idx] @ rotation[:, energy_order]
 
+        if align_phases:
+            fragment_overlaps.append(ortho_lo.conj().T @ ovlp[k] @ c_local)
         mo_out[k, :, ncore:nocc] = c_local
 
         umat[k] = np.eye(nmo, dtype=mo_out.dtype)
         umat[k, ncore:nocc, ncore:nocc] = (c_act.conj().T @ ovlp[k] @ c_local)
         svals_out.append(svals)
+
+    if align_phases and ncas:
+        overlaps = np.asarray(fragment_overlaps)
+        # Use one reference per band across the entire mesh. Choosing the
+        # largest projection independently at each k can introduce sign jumps.
+        scores = np.min(np.abs(overlaps), axis=0)
+        best = np.max(scores, axis=0)
+        # Resolve numerical ties by fragment order, independently of the
+        # arbitrary phases or rotations of the input active orbitals.
+        references = np.argmax(scores >= best[None, :] * (1 - 1e-10), axis=0)
+        anchors = overlaps[:, references, np.arange(ncas)]
+        if np.any(np.abs(anchors) < 1e-12):
+            raise ValueError(
+                "Cannot align active-band phases: no fragment local orbital "
+                "has nonzero overlap at every k-point. Supply suitable "
+                "lo_coeff or use align_phases=False with a separate Wannier gauge"
+            )
+        phases = anchors.conj() / np.abs(anchors)
+        mo_out[:, :, ncore:nocc] *= phases[:, None, :]
+        umat[:, :, ncore:nocc] *= phases[:, None, :]
 
     # Check orthogonality of the output orbitals
     orthogonality_check(mo_out, ovlp)
