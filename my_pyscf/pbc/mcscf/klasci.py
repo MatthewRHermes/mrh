@@ -652,7 +652,8 @@ class PBCLASCINoSymm(casci.PBCCASCI, LASCINoSymm):
             for i, e in enumerate (self.e_states[:nroots_prt]):
                 log.info ("%s state %d energy = %.15g", method, i, e)
         else:
-            log.info ("%s energy = %.15g", method, self.e_tot.real)
+            separator = ":" if method == "k-LASSCF" else " ="
+            log.info ("%s energy%s %.15g", method, separator, self.e_tot.real)
         return
     
     def get_mo_slice (self, idx, mo):

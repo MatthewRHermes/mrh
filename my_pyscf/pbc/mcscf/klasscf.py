@@ -3576,7 +3576,7 @@ def kernel(
                     metric * (gradient + 0.5 * hessian_step),
                 ))
                 log.info(
-                    "k-LASSCF micro iter %d : E = %.15g ; |r_orb| = %.6g ; "
+                    "       micro iter %d : E = %.15g ; |r_orb| = %.6g ; "
                     "|r_ci| = %.6g ; |x_orb| = %.6g ; |x_ci| = %.6g",
                     micro_count[0] - 1, np.real(model_energy),
                     np.linalg.norm(residual[:ugg.nvar_orb]),
@@ -3585,7 +3585,7 @@ def kernel(
                 )
             else:
                 log.info(
-                    "k-LASSCF micro iter %d : |x_orb| = %.6g ; |x_ci| = %.6g",
+                    "       micro iter %d : |x_orb| = %.6g ; |x_ci| = %.6g",
                     micro_count[0] - 1, norm_xorb, norm_xci,
                 )
 
@@ -3704,7 +3704,7 @@ def _klasscf_kernel_method(
         self.converged, self.e_tot, self.e_states, self.mo_energy,
         self.mo_coeff, self.e_cas, self.e_lexc, self.ci, h2eff, veff,
     ) = result
-    self._finalize(method="LASSCF")
+    self._finalize(method="k-LASSCF")
     return (
         self.e_tot, self.e_cas, self.ci, self.mo_coeff, self.mo_energy,
         h2eff, veff,
