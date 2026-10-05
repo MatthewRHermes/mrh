@@ -69,7 +69,7 @@ class KnownValuesKLASSCFAPI(unittest.TestCase):
         np.testing.assert_allclose(optimizer.e_tot, -1.2)
         self.assertIs(optimizer.mo_coeff, final_mo)
         self.assertIs(optimizer.ci, final_ci)
-        self.assertEqual(optimizer.finalize_calls, ["LASSCF"])
+        self.assertEqual(optimizer.finalize_calls, ["k-LASSCF"])
         self.assertEqual(len(actual), 7)
 
     def test_factory_promotes_general_klasci_object(self):
