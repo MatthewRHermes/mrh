@@ -286,29 +286,29 @@ int PM::dev_check_peer(int rank, int ngpus)
   }
 #endif
 
-  int err = 0;  
-  for(int ig=0; ig<ngpus; ++ig) {
+  int num_peer = 0;
+  for(int ig=0; ig<ngpus-1; ++ig) {
     dev_set_device(ig);
 #ifdef _DEBUG_PM
     if(rank == 0) printf("LIBGPU: -- Device i= %i\n",ig);
 #endif
-
-    int n = 1;
-    for(int jg=0; jg<ngpus; ++jg) {
-      if(jg != ig) {
-	sycl::device dev_ig = my_queues[ig].get_device();
-	sycl::device dev_jg = my_queues[jg].get_device();
-	
-        int access = dev_ig.ext_oneapi_can_access_peer( dev_jg );
-        n += access;
+    
+    for(int jg=ig+1; jg<ngpus; ++jg) {
+      sycl::device dev_ig = my_queues[ig].get_device();
+      sycl::device dev_jg = my_queues[jg].get_device();
+      
+      int access = dev_ig.ext_oneapi_can_access_peer( dev_jg );
+      num_peer += access;
 #ifdef _DEBUG_PM	
-        if(rank == 0) printf("LIBGPU: --  --  Device j= %i  access= %i\n",jg,access);
+      if(rank == 0) printf("LIBGPU: --  --  Device j= %i  access= %i\n",jg,access);
 #endif
-      }
     }
-    if(n != ngpus) err += 1;
   }
 
+  _SYCL_CHECK_ERRORS();
+
+  int err = (num_peer == ngpus*(ngpus-1)/2) ? 0 : 1;
+  
  #ifdef _DEBUG_PM
    printf(" -- Leaving PM::dev_check_peer()\n");
  #endif
@@ -334,6 +334,7 @@ void PM::dev_enable_peer(int rank, int ngpus)
   }
 #endif
 
+  int peer_failed = 0;
   for(int ig=0; ig<ngpus; ++ig) {
     dev_set_device(ig);
     
@@ -342,11 +343,24 @@ void PM::dev_enable_peer(int rank, int ngpus)
 	sycl::device dev_ig = my_queues[ig].get_device();
 	sycl::device dev_jg = my_queues[jg].get_device();
 
-	dev_ig.ext_oneapi_enable_peer_access( dev_jg );
+	try {
+	  dev_ig.ext_oneapi_enable_peer_access( dev_jg );
+	}
+	catch(const sycl::exception &e) {
+	  if(e.code() != sycl::errc::invalid) { // already-enabled is errc::invalid
+	    peer_failed = 1;
+	    printf("LIBGPU: -- -- ext_oneapi_enable_peer_access(%i -> %i) failed: %s\n", ig, jg, e.what());
+	  }
+	}
+	
       }
     }
   
   }
+
+  if(peer_failed) exit(1);
+
+  _SYCL_CHECK_ERRORS();
   
 #ifdef _DEBUG_PM
   printf(" -- Leaving PM::dev_enable_peer()\n");

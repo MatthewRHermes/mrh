@@ -104,33 +104,76 @@ void PM::dev_properties(int ndev)
 int PM::dev_check_peer(int rank, int ngpus)
 {
 #ifdef _DEBUG_PM
-  printf("Inside PM::dev_check_peer()\n");
+  if(rank == 0) {
+    printf("Inside PM::dev_check_peer()\n");
+    printf("\nLIBGPU: Checking P2P Access for ngpus= %i\n",ngpus);
+  }
 #endif
   
-  int err = 0;
-  if(rank == 0) printf("\nChecking P2P Access\n");
-  for(int ig=0; ig<ngpus; ++ig) {
+  int num_peer = 0;
+  for(int ig=0; ig<ngpus-1; ++ig) {
     hipSetDevice(ig);
-    //if(rank == 0) printf("Device i= %i\n",ig);
+#ifdef _DEBUG_PM
+    if(rank == 0) printf("LIBGPU: -- Device i= %i\n",ig);
+#endif
 
-    int n = 1;
-    for(int jg=0; jg<ngpus; ++jg) {
-      if(jg != ig) {
-        int access;
-        hipDeviceCanAccessPeer(&access, ig, jg);
-        n += access;
-
-        //if(rank == 0) printf("  --  Device j= %i  access= %i\n",jg,access);
-      }
+    for(int jg=ig+1; jg<ngpus; ++jg) {
+      int access = 0;
+      hipDeviceCanAccessPeer(&access, ig, jg);
+      num_peer += access;
+#ifdef _DEBUG_PM	
+      if(rank == 0) printf("LIBGPU: --  --  Device j= %i  access= %i\n",jg,access);
+#endif
     }
-    if(n != ngpus) err += 1;
   }
 
+  _HIP_CHECK_ERRORS();
+
+  int err = (num_peer == ngpus*(ngpus-1)/2) ? 0 : 1;
+  
 #ifdef _DEBUG_PM
   printf(" -- Leaving PM::dev_check_peer()\n");
 #endif
   
   return err;
+}
+
+/* ---------------------------------------------------------------------- */
+
+void PM::dev_enable_peer(int rank, int ngpus)
+{
+#ifdef _DEBUG_PM
+  if(rank == 0) {
+    printf("Inside PM::dev_enable_peer()\n");
+    printf("LIBGPU: -- Enabling peer access for ngpus= %i\n",ngpus);
+  }
+#endif
+
+  int peer_failed = 0;
+  for(int ig=0; ig<ngpus-1; ++ig) {
+    hipSetDevice(ig);
+    
+    for(int jg=ig+1; jg<ngpus; ++jg) {
+      hipError err = hipDeviceEnablePeerAccess(jg, 0);
+      hipGetLastError();
+      if(err == hipErrorPeerAccessAlreadyEnabled) continue;
+
+      if(err != hipSuccess) {
+	peer_failed = 1;
+	printf("LIBGPU: -- -- dev_enable_peer(%i -> %i) failed: %s on rank= %i\n", ig, jg, hipGetErrorString(err), rank);
+      }
+      
+    }
+    
+  }
+
+  if(peer_failed) exit(1);
+
+  _HIP_CHECK_ERRORS();
+  
+#ifdef _DEBUG_PM
+  printf(" -- Leaving PM::dev_enable_peer()\n");
+#endif
 }
 
 /* ---------------------------------------------------------------------- */
@@ -443,6 +486,38 @@ void PM::dev_pull_async(void * d_ptr, void * h_ptr, size_t N, hipStream_t &s)
   
 #ifdef _DEBUG_PM
   printf(" -- Leaving PM::dev_pull_async()\n");
+#endif
+}
+
+/* ---------------------------------------------------------------------- */
+
+void PM::dev_memcpy_peer(void * d_ptr, int dest, void * s_ptr, int src, size_t N)
+{
+#ifdef _DEBUG_PM
+  printf("Inside PM::dev_memcpy_peer()\n");
+#endif
+  
+  hipMemcpyPeer(d_ptr, dest, s_ptr, src, N);
+  _HIP_CHECK_ERRORS();
+  
+#ifdef _DEBUG_PM
+  printf(" -- Leaving PM::dev_memcpy_peer()\n");
+#endif
+}
+
+/* ---------------------------------------------------------------------- */
+
+void PM::dev_memcpy_peer_async(void * d_ptr, int dest, void * s_ptr, int src, size_t N)
+{
+#ifdef _DEBUG_PM
+  printf("Inside PM::dev_memcpy_peer_async()\n");
+#endif
+  
+  hipMemcpyPeerAsync(d_ptr, dest, s_ptr, src, N, *current_queue);
+  _HIP_CHECK_ERRORS();
+  
+#ifdef _DEBUG_PM
+  printf(" -- Leaving PM::dev_memcpy_peer_async()\n");
 #endif
 }
 

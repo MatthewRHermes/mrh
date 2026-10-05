@@ -112,26 +112,26 @@ int PM::dev_check_peer(int rank, int ngpus)
   }
 #endif
   
-  int err = 0;  
-  for(int ig=0; ig<ngpus; ++ig) {
+  int num_peer = 0;
+  for(int ig=0; ig<ngpus-1; ++ig) {
     cudaSetDevice(ig);
 #ifdef _DEBUG_PM
     if(rank == 0) printf("LIBGPU: -- Device i= %i\n",ig);
 #endif
 
-    int n = 1;
-    for(int jg=0; jg<ngpus; ++jg) {
-      if(jg != ig) {
-        int access;
-        cudaDeviceCanAccessPeer(&access, ig, jg);
-        n += access;
+    for(int jg=ig+1; jg<ngpus; ++jg) {
+      int access = 0;
+      cudaDeviceCanAccessPeer(&access, ig, jg);
+      num_peer += access;
 #ifdef _DEBUG_PM	
-        if(rank == 0) printf("LIBGPU: --  --  Device j= %i  access= %i\n",jg,access);
+      if(rank == 0) printf("LIBGPU: --  --  Device j= %i  access= %i\n",jg,access);
 #endif
-      }
     }
-    if(n != ngpus) err += 1;
   }
+
+  _CUDA_CHECK_ERRORS();
+
+  int err = (num_peer == ngpus*(ngpus-1)/2) ? 0 : 1;
   
 #ifdef _DEBUG_PM
   printf(" -- Leaving PM::dev_check_peer()\n");
@@ -151,14 +151,27 @@ void PM::dev_enable_peer(int rank, int ngpus)
   }
 #endif
 
-  for(int ig=0; ig<ngpus; ++ig) {
+  int peer_failed = 0;
+  for(int ig=0; ig<ngpus-1; ++ig) {
     cudaSetDevice(ig);
     
-    for(int jg=0; jg<ngpus; ++jg) {
-      if(jg != ig) cudaDeviceEnablePeerAccess(jg, 0);
+    for(int jg=ig+1; jg<ngpus; ++jg) {
+      cudaError err = cudaDeviceEnablePeerAccess(jg, 0);
+      cudaGetLastError();
+      if(err == cudaErrorPeerAccessAlreadyEnabled) continue;
+
+      if(err != cudaSuccess) {
+	peer_failed = 1;
+	printf("LIBGPU: -- -- dev_enable_peer(%i -> %i) failed: %s on rank= %i\n", ig, jg, cudaGetErrorString(err), rank);
+      }
+      
     }
     
   }
+
+  if(peer_failed) exit(1);
+
+  _CUDA_CHECK_ERRORS();
   
 #ifdef _DEBUG_PM
   printf(" -- Leaving PM::dev_enable_peer()\n");
