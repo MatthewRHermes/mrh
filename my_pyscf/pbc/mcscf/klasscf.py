@@ -2658,8 +2658,8 @@ class KLASSCF_HessianOperator(molLASSCF_HessianOperator):
         )
         active_potential = coulomb + coulomb[::-1] - exchange
 
-        # Compare the block-MO potential with the density it actually sees.
-        # Keep the full density above for the Wannier orbital response.
+        # The block-MO potential sees the cell-averaged density. Remove that
+        # mean field to recover the closed-core one-electron Hamiltonian.
         cellavgdm1s = _cell_average_dm1s(self.casdm1s, self.nkpts)
         coulomb_average = np.tensordot(
             cellavgdm1s, self.eri_cas, axes=((1, 2), (2, 3)),
@@ -2667,8 +2667,9 @@ class KLASSCF_HessianOperator(molLASSCF_HessianOperator):
         exchange_average = np.tensordot(
             cellavgdm1s, self.eri_cas, axes=((1, 2), (2, 1)),
         )
-        h1s_average = (h1_wannier[None] + coulomb_average
-                       + coulomb_average[::-1] - exchange_average)
+        active_potential_average = (
+            coulomb_average + coulomb_average[::-1] - exchange_average
+        )
 
         active = slice(self.ncore, self.nocc)
         h1s_block_wannier = np.asarray([
@@ -2677,8 +2678,13 @@ class KLASSCF_HessianOperator(molLASSCF_HessianOperator):
         ])
         # Remove the active mean field from the block Hamiltonian.  The
         # remaining closed-core one-electron term must be spin independent.
-        block_h1 = h1s_block_wannier - active_potential
-        intermediate_tol = 1e-10
+        block_h1 = h1s_block_wannier - active_potential_average
+        h1_wannier = np.mean(block_h1, axis=0)
+        _check_shape(
+            h1_wannier, (self.ncastot, self.ncastot),
+            label="h1_wannier",
+        )
+        h1s_average = h1_wannier[None] + active_potential_average
         if not np.allclose(
                 h1s_average, h1s_block_wannier,
                 atol=2e-8, rtol=2e-8):
@@ -2687,14 +2693,10 @@ class KLASSCF_HessianOperator(molLASSCF_HessianOperator):
                 "Wannier active one-electron intermediates are spin "
                 f"dependent; maximum error is {error:.3e}"
             )
-        h1_wannier = np.mean(block_h1, axis=0)
-        _check_shape(
-            h1_wannier, (self.ncastot, self.ncastot),
-            label="h1_wannier",
-        )
-
+        # Restore the full cell-dependent mean field for the Wannier response.
+        h1s_wannier = h1_wannier[None] + active_potential
         fock1_wannier = sum(
-            h1s_block_wannier[spin] @ self.casdm1s[spin]
+            h1s_wannier[spin] @ self.casdm1s[spin]
             for spin in range(2)
         )
         fock1_wannier += np.tensordot(
