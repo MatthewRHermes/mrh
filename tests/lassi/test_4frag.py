@@ -212,6 +212,7 @@ class KnownValues(unittest.TestCase):
             las0.ci[ifrag][0] = x
         lsi = LASSIS (las0)
         lsi.prepare_states_()
+        self.assertTrue (lsi.converged)
         h0, h1, h2 = lsi.ham_2q ()
         ham_o0 = op[0].ham (lsi, h1, h2, lsi.ci, lsi.get_nelec_frs ())[0]
         ham_o1 = op[1].ham (lsi, h1, h2, lsi.ci, lsi.get_nelec_frs (),

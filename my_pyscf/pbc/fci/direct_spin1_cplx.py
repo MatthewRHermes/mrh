@@ -352,11 +352,14 @@ def make_rdm12(fcivec, norb, nelec, link_index=None, reorder=True):
     Compute the spin-summed 1-RDM and 2-RDM for a complex FCI vector using 
     the backend C function.
     '''
-    (dm1a, dm1b), (dm2aa, dm2ab, dm2bb) = \
-        make_rdm12s(fcivec, norb, nelec, link_index=link_index, reorder=reorder)
-    rdm1 = dm1a + dm1b
-    rdm2 = dm2aa + dm2bb + dm2ab + dm2ab.transpose(2, 3, 0, 1)
-    return rdm1.conj().T, rdm2
+    dm1, dm2 = rdm_helper.make_rdm12_spin1(
+        'FCIrdm12kern_sf_cplx', fcivec, fcivec, norb, nelec, link_index, 1)
+    if reorder:
+        dm1, dm2 = rdm_helper.reorder_rdm(dm1, dm2, inplace=True)
+    # The low-level helper returns the conjugate of the public spin-summed
+    # 1-RDM convention.  Preserve the convention used by make_rdm1 and the
+    # previous spin-block sum, including when reorder=False.
+    return dm1.conj(), dm2
 
 def make_rdm2(fcivec, norb, nelec, link_index=None, reorder=True):
     '''
