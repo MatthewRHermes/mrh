@@ -3435,6 +3435,7 @@ def kernel(
     conv_tol_grad = float(conv_tol_grad)
     if not np.isfinite(conv_tol_grad) or conv_tol_grad < 0.0:
         raise ValueError("conv_tol_grad must be finite and nonnegative")
+    micro_rtol_max = float(getattr(klas, "micro_rtol_max", 1e-3))
     max_macro = int(klas.max_cycle_macro)
     max_micro = int(klas.max_cycle_micro)
     min_macro = int(klas.min_cycle_macro)
@@ -3546,7 +3547,7 @@ def kernel(
 
         rhs_norm = float(np.linalg.norm(weighted_gradient))
         micro_rtol = min(
-            0.5,
+            0.5, micro_rtol_max,
             max(1e-12, conv_tol_grad / max(rhs_norm, 1e-30)),
         )
         micro_count = [0]
@@ -3718,6 +3719,8 @@ class PBCLASSCFNoSymm(PBCLASCINoSymm):
     _kern = kernel
     micro_solver = SolveScipyMINRESForCplx
     micro_solver_compute_residual = False
+    # Cap MINRES rtol so that small outer gradients do not loosen inner solves.
+    micro_rtol_max = 1e-3
     get_hop = get_hop
     kernel = _klasscf_kernel_method
 
