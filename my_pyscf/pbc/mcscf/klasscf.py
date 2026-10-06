@@ -3481,7 +3481,7 @@ def _backtrack_macro_step(klas, hop, step, gradient, h2eff, energy,
             trial_energy = float(np.real(energies[0]))
             if (np.isfinite(energies[0]) and trial_energy <=
                     energy + 1e-4 * scale * slope + _ENERGY_COMPARISON_TOL):
-                log.info(
+                log.debug(
                     "Accepted k-LASSCF trial: E = %.15g ; dE = %.6g ; "
                     "scale = %.6g", trial_energy, trial_energy - energy, scale,
                 )
@@ -3544,6 +3544,7 @@ def kernel(
     e_tot = e_states = e_cas = e_lexc = None
     norm_gorb = norm_gci = 0.0
     accepted_energies = None
+    previous_macro_energy = None
 
     h2eff = klas.get_h2cas(mo_coeff)
     if _ci_guess_is_missing(ci):
@@ -3604,11 +3605,15 @@ def kernel(
 
         norm_gorb = float(np.linalg.norm(gradient[:ugg.nvar_orb]))
         norm_gci = float(np.linalg.norm(gradient[ugg.nvar_orb:]))
+        macro_energy = float(np.real(e_tot))
+        delta_energy = (0.0 if previous_macro_energy is None else
+                        macro_energy - previous_macro_energy)
         log.info(
-            "k-LASSCF macro %d : E = %.15g ; |g_orb| = %.6g ; "
+            "macro iter %d : E = %.15g ; dE = %.6g ; |g_orb| = %.6g ; "
             "|g_ci| = %.6g",
-            imacro, np.real(e_tot), norm_gorb, norm_gci,
+            imacro, macro_energy, delta_energy, norm_gorb, norm_gci,
         )
+        previous_macro_energy = macro_energy
 
         gradient_is_converged = (
             norm_gorb < conv_tol_grad and norm_gci < conv_tol_grad
@@ -3758,16 +3763,8 @@ def kernel(
             if (not np.all(np.isfinite(residual)) or
                     np.linalg.norm(residual) > best_residual[0]):
                 step = best_step[0]
-        if info:
-            solver_name = getattr(solver_class, "__name__", "micro solver")
-            log.warn(
-                "k-LASSCF %s stopped with info=%s after %d "
-                "microiterations",
-                solver_name, info, micro_count[0],
-            )
-
         residual, _ = step_residual(step)
-        log.info(
+        log.debug(
             "k-LASSCF linear solve: |r|/|g| = %.6g ; target = %.6g",
             np.linalg.norm(residual) / max(rhs_norm, 1e-30), micro_rtol,
         )
@@ -3797,7 +3794,7 @@ def kernel(
 
         residual, _ = step_residual(step)
         residual = residual - floating_shift * step
-        log.info(
+        log.debug(
             "k-LASSCF model residual after step limiting: |r_orb| = %.6g ; "
             "|r_ci| = %.6g",
             np.linalg.norm(residual[:ugg.nvar_orb]),
