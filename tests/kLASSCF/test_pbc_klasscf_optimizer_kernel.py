@@ -4,7 +4,7 @@ import io
 import sys
 import unittest
 from types import SimpleNamespace
-from unittest.mock import patch
+from unittest.mock import Mock, patch
 
 import numpy as np
 from pyscf import lib
@@ -111,7 +111,7 @@ class KnownValuesKLASSCFKernel(unittest.TestCase):
                 side_effect=[ci_cycle_result(), ci_cycle_result()]), \
                 patch.object(
                     klasscf, "_fixed_ci_energies",
-                    side_effect=[fixed_energy(-1.0), fixed_energy(-1.1)],
+                    side_effect=[fixed_energy(-1.0), fixed_energy(-1.1), fixed_energy(-1.1)],
                 ):
             result = klasscf.kernel(las)
 
@@ -125,7 +125,124 @@ class KnownValuesKLASSCFKernel(unittest.TestCase):
         self.assertIsNot(las.uggs[0], las.uggs[1])
         np.testing.assert_allclose(las.hop_kwargs[0]["h2eff"], 3.0)
         np.testing.assert_allclose(las.hop_kwargs[1]["h2eff"], 4.0)
-        self.assertIn("micro iter 0 : |x_orb| =", las.stdout.getvalue())
+        self.assertIn("micro iter 0 : |r_orb| =", las.stdout.getvalue())
+        self.assertIn("|r_ci| =", las.stdout.getvalue())
+        self.assertIn("Accepted k-LASSCF trial:", las.stdout.getvalue())
+
+    def test_soft_mode_step_can_grow_and_stop_on_actual_residual(self):
+        class TwoVariableUGG:
+            nvar_orb, nvar_tot = 1, 2
+
+        class SoftHop(FakeHop):
+            def _matvec(self, vector):
+                return np.array([1., .001]) * vector
+
+        solver_options = []
+
+        class CapturingMINRES(klasscf.SolveScipyMINRESForCplx):
+            def __init__(self, *args, **kwargs):
+                solver_options.append(kwargs)
+                super().__init__(*args, **kwargs)
+
+        first_hop = SoftHop([1e-4, 1e-4])
+        las = FakeKLASSCF([first_hop, SoftHop([0., 0.])])
+        las.conv_tol_grad = 1e-4
+        las.max_cycle_micro_near_convergence = 17
+        las.micro_solver = CapturingMINRES
+        las.verbose, las.stdout = lib.logger.INFO, io.StringIO()
+
+        with patch.object(las, "get_ugg", return_value=TwoVariableUGG()), \
+                patch.object(klasscf, "ci_cycle", return_value=ci_cycle_result()), \
+                patch.object(klasscf, "_fixed_ci_energies", side_effect=[
+                    fixed_energy(-1.), fixed_energy(-1.1), fixed_energy(-1.1),
+                ]):
+            result = klasscf.kernel(las)
+
+        self.assertTrue(result[0])
+        self.assertEqual(solver_options[0]["maxiter"], 17)
+        np.testing.assert_allclose(first_hop.steps[0], [-1e-4, -.1], atol=1e-12)
+        np.testing.assert_allclose(
+            first_hop.gradient + first_hop._matvec(first_hop.steps[0]), 0., atol=1e-12,
+        )
+        self.assertNotIn("Unstable", las.stdout.getvalue())
+
+    def test_later_iterate_with_worse_residual_keeps_better_step(self):
+        class WorseningSolver:
+            def __init__(self, matvec, callback, **kwargs):
+                self.callback = callback
+
+            def __call__(self, gradient, **kwargs):
+                self.callback(np.array([-.5]))
+                self.callback(np.array([-.4]))
+                return np.array([-.4]), 5
+
+        hop = FakeHop([1.], curvature=1.)
+        las = FakeKLASSCF([hop, FakeHop([0.])])
+        las.micro_solver = WorseningSolver
+        with patch.object(klasscf, "ci_cycle", return_value=ci_cycle_result()), \
+                patch.object(klasscf, "_fixed_ci_energies", side_effect=[
+                    fixed_energy(-1.), fixed_energy(-1.1), fixed_energy(-1.1),
+                ]):
+            result = klasscf.kernel(las)
+        self.assertTrue(result[0])
+        np.testing.assert_allclose(hop.steps[0], [-.5])
+
+    def test_cached_hessian_action_respects_real_complex_coordinates(self):
+        basis = [np.array([1., 0.]), np.array([1.j, 0.])]
+        actions = [np.array([2., 0.]), np.array([3.j, 0.])]
+        unused = Mock()
+        action = klasscf._micro_hessian_action(
+            np.array([.4 + .2j, 0.]), basis, actions, unused,
+        )
+        np.testing.assert_allclose(action, [.8 + .6j, 0.])
+        unused.assert_not_called()
+        fallback = Mock(return_value=np.array([0., 5.]))
+        action = klasscf._micro_hessian_action(
+            np.array([0., 1.]), basis, actions, fallback,
+        )
+        np.testing.assert_allclose(action, [0., 5.])
+        fallback.assert_called_once()
+
+    def test_no_residual_improvement_recovers_a_projected_newton_step(self):
+        class PoorSolver:
+            def __init__(self, matvec, callback, **kwargs):
+                self.matvec = matvec
+                self.callback = callback
+
+            def __call__(self, gradient, **kwargs):
+                self.matvec(np.array([1.]))
+                self.callback(np.array([-1.4]))
+                return np.array([-1.4]), 5
+
+        hop = FakeHop([1.], curvature=2.)
+        las = FakeKLASSCF([hop, FakeHop([0.])])
+        las.micro_solver = PoorSolver
+        with patch.object(klasscf, "ci_cycle", return_value=ci_cycle_result()), \
+                patch.object(klasscf, "_fixed_ci_energies", side_effect=[
+                    fixed_energy(-1.), fixed_energy(-1.1), fixed_energy(-1.1),
+                ]):
+            result = klasscf.kernel(las)
+        self.assertTrue(result[0])
+        np.testing.assert_allclose(hop.steps[0], [-.5])
+
+    def test_nonfinite_solver_result_uses_a_finite_fallback(self):
+        class NonfiniteSolver:
+            def __init__(self, *args, **kwargs):
+                pass
+
+            def __call__(self, *args, **kwargs):
+                return np.array([np.nan]), 5
+
+        hop = FakeHop([1.])
+        las = FakeKLASSCF([hop, FakeHop([0.])])
+        las.micro_solver = NonfiniteSolver
+        with patch.object(klasscf, "ci_cycle", return_value=ci_cycle_result()), \
+                patch.object(klasscf, "_fixed_ci_energies", side_effect=[
+                    fixed_energy(-1.), fixed_energy(-1.1), fixed_energy(-1.1),
+                ]):
+            result = klasscf.kernel(las)
+        self.assertTrue(result[0])
+        np.testing.assert_allclose(hop.steps[0], [-1.])
 
     def test_macro_driver_limits_a_large_step_to_the_trust_radius(self):
         first_hop = FakeHop([10.0 + 0.0j], curvature=1.0)
@@ -137,7 +254,7 @@ class KnownValuesKLASSCFKernel(unittest.TestCase):
                 side_effect=[ci_cycle_result(), ci_cycle_result()]), \
                 patch.object(
                     klasscf, "_fixed_ci_energies",
-                    side_effect=[fixed_energy(-1.0), fixed_energy(-1.05)],
+                    side_effect=[fixed_energy(-1.0), fixed_energy(-1.05), fixed_energy(-1.05)],
                 ):
             result = klasscf.kernel(las)
 
@@ -157,6 +274,70 @@ class KnownValuesKLASSCFKernel(unittest.TestCase):
                 ):
             with self.assertRaisesRegex(NotImplementedError, "state-averaged"):
                 klasscf.kernel(las)
+
+    def test_uphill_newton_step_is_halved_until_actual_energy_decreases(self):
+        first_hop = FakeHop([1.0], curvature=1.0)
+        las = FakeKLASSCF([first_hop, FakeHop([0.0])])
+
+        def actual_energy(las, mo, ci, h2):
+            x = mo[0, 0, 0].real
+            return fixed_energy(x + 2 * x*x)
+
+        with patch.object(klasscf, "ci_cycle", return_value=ci_cycle_result()), \
+                patch.object(klasscf, "_fixed_ci_energies", side_effect=actual_energy):
+            result = klasscf.kernel(las)
+
+        self.assertTrue(result[0])
+        np.testing.assert_allclose([s[0] for s in first_hop.steps], [-1, -.5, -.25])
+        np.testing.assert_allclose(result[4], [[[-.25]]])
+        self.assertAlmostEqual(result[1], -.125)
+
+    def test_failed_backtracking_preserves_last_accepted_state(self):
+        hop = FakeHop([1.0])
+        las = FakeKLASSCF([hop])
+        las.max_step_backtracks = 2
+        initial_mo = las.mo_coeff.copy()
+
+        def uphill_energy(las, mo, ci, h2):
+            return fixed_energy(abs(mo[0, 0, 0]))
+
+        with patch.object(klasscf, "ci_cycle", return_value=ci_cycle_result()), \
+                patch.object(klasscf, "_fixed_ci_energies", side_effect=uphill_energy):
+            result = klasscf.kernel(las)
+
+        self.assertFalse(result[0])
+        self.assertEqual(len(hop.steps), 6)
+        np.testing.assert_array_equal(result[4], initial_mo)
+        np.testing.assert_array_equal(result[8], np.full((1, 1, 1, 1), 3.0))
+        self.assertEqual(result[1], 0.0)
+
+    def test_negative_gradient_fallback_after_failed_newton_trial(self):
+        las = FakeKLASSCF([])
+        hop = FakeHop([1.0])
+
+        def actual_energy(las, mo, ci, h2):
+            x = mo[0, 0, 0].real
+            return fixed_energy(x + .75 * x*x)
+
+        with patch.object(klasscf, "_fixed_ci_energies", side_effect=actual_energy):
+            accepted = klasscf._backtrack_macro_step(
+                las, hop, np.array([-1.5]), np.array([1.0]),
+                np.full((1, 1, 1, 1), 3.0), 0.0, 10.0, 0,
+                lib.logger.Logger(sys.stdout, lib.logger.QUIET),
+            )
+        self.assertIsNotNone(accepted)
+        np.testing.assert_allclose(accepted[0], [[[-1.0]]])
+        self.assertAlmostEqual(accepted[3][0], -.25)
+
+    def test_uphill_synchronous_ci_refresh_preserves_accepted_trial(self):
+        las = FakeKLASSCF([FakeHop([.4]), FakeHop([0.0])])
+        with patch.object(klasscf, "ci_cycle", return_value=ci_cycle_result()), \
+                patch.object(klasscf, "_fixed_ci_energies", side_effect=[
+                    fixed_energy(-1.0), fixed_energy(-1.1), fixed_energy(-1.05),
+                ]):
+            result = klasscf.kernel(las)
+        self.assertTrue(result[0])
+        self.assertEqual(result[1], -1.1)
 
 
 if __name__ == "__main__":

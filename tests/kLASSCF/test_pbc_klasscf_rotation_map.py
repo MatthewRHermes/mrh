@@ -33,6 +33,35 @@ def _fourier_mo_phase(nkpts, ncas):
 
 class ActiveActiveRotationMapTests(unittest.TestCase):
 
+    def test_three_point_rank_and_coordinates_survive_roundoff(self):
+        phase = _fourier_mo_phase(3, 5)
+        rng = np.random.default_rng(23)
+        noisy_phase = phase + 2e-13 * (
+            rng.standard_normal(phase.shape) + 1j * rng.standard_normal(phase.shape)
+        )
+        reference = ActiveActiveRotationMap(phase, [5, 5, 5])
+        perturbed = ActiveActiveRotationMap(noisy_phase, [5, 5, 5])
+        # The ten zero singular values must stay redundant even when the
+        # incoming Wannier unitary carries ordinary numerical noise.
+        self.assertEqual(reference.nvar, 20)
+        self.assertEqual(perturbed.nvar, 20)
+        np.testing.assert_allclose(perturbed.basis, reference.basis, atol=1e-10)
+        np.testing.assert_allclose(
+            perturbed.basis.conj().T @ perturbed.basis, np.eye(20), atol=1e-12,
+        )
+        coordinates = rng.standard_normal(20) + 1j * rng.standard_normal(20)
+        np.testing.assert_allclose(
+            perturbed.unpack(coordinates), reference.unpack(coordinates), atol=1e-10,
+        )
+
+    def test_rank_cutoff_can_be_overridden_and_must_be_valid(self):
+        phase = _fourier_mo_phase(3, 2)
+        self.assertEqual(ActiveActiveRotationMap(phase, [2]*3, svd_tol=1).nvar, 0)
+        for tolerance in (-1, np.nan, np.inf):
+            with self.subTest(tolerance=tolerance):
+                with self.assertRaisesRegex(ValueError, "svd_tol"):
+                    ActiveActiveRotationMap(phase, [2]*3, svd_tol=tolerance)
+
     def test_wannier_bloch_matrix_map(self):
         nkpts = 3
         ncas = 2
