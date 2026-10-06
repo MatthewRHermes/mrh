@@ -103,7 +103,7 @@ def localize_init_guess(klas, frag_atoms=None, mo_coeff=None, spin=None,
                         lo_coeff=None,fock=None, mo_occ=None, freeze_cas_spaces=True,
                         frags_by_AOs=False, smults_f=None, nelec_f=None, 
                         return_umat=False, return_svals=False, sval_thresh=1e-8,
-                        align_phases=True):
+                        align_phases=True, stabilize_virtuals=False):
     '''
     Localize one active space per unit cell.Some args are not used in this function
     but are kept for API compatibility with molecular LAS localization. Those variables
@@ -118,8 +118,8 @@ def localize_init_guess(klas, frag_atoms=None, mo_coeff=None, spin=None,
     fragment local orbital at every k-point. This removes arbitrary eigenvector
     phases before constructing Wannier orbitals.
     
-    Note: The core and virtual orbitals are not changed at all. Only the active orbitals 
-    are localized.
+    The core orbitals are preserved. Virtual orbitals are preserved unless
+    ``stabilize_virtuals`` is enabled to choose a reproducible virtual basis.
 
     args:
         klas: instance of mrh.my_pyscf.pbc.mcscf.klasci 
@@ -156,6 +156,12 @@ def localize_init_guess(klas, frag_atoms=None, mo_coeff=None, spin=None,
             If no reference has nonzero overlap everywhere, a ValueError is
             raised. Supply suitable lo_coeff or disable phase alignment to use
             a separately constructed Wannier gauge.
+        stabilize_virtuals: bool, optional, (default: False)
+            Choose a reproducible basis within the supplied virtual space by
+            projecting meta-Lowdin AOs in fixed AO order and orthonormalizing
+            them. This removes arbitrary virtual-space rotations, including
+            orbital phases, while preserving the core and active orbitals.
+            The virtual orbitals are not ordered by Fock energy.
 
     returns:
         return_umat: bool, optional, (default: False)
@@ -315,6 +321,30 @@ def localize_init_guess(klas, frag_atoms=None, mo_coeff=None, spin=None,
         phases = anchors.conj() / np.abs(anchors)
         mo_out[:, :, ncore:nocc] *= phases[:, None, :]
         umat[:, :, ncore:nocc] *= phases[:, None, :]
+
+    nvir = nmo - nocc
+    if stabilize_virtuals and nvir:
+        virtual_lo = meta_lowdin_orbitals(cell, ovlp)
+        for k in range(nkpts):
+            lo_k = virtual_lo[k]
+            c_virtual = mo_coeff[k, :, nocc:]
+            coordinates = lo_k.conj().T @ ovlp[k] @ c_virtual
+            basis = []
+            for axis in range(coordinates.shape[0]):
+                vector = coordinates @ coordinates[axis].conj()
+                for _ in range(2):
+                    for previous in basis:
+                        vector -= previous * np.vdot(previous, vector)
+                norm = np.linalg.norm(vector)
+                if norm > 1e-8:
+                    basis.append(vector / norm)
+                if len(basis) == nvir:
+                    break
+            if len(basis) != nvir:
+                raise ValueError("Cannot construct the complete virtual-space basis")
+            c_stable = lo_k @ np.column_stack(basis)
+            mo_out[k, :, nocc:] = c_stable
+            umat[k, nocc:, nocc:] = c_virtual.conj().T @ ovlp[k] @ c_stable
 
     # Check orthogonality of the output orbitals
     orthogonality_check(mo_out, ovlp)
