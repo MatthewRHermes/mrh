@@ -18,7 +18,7 @@ be applied directly.  These wrappers expose an n-element complex problem as a
 
 
 def _tolerance_kwargs(solver, rtol, atol=None):
-    """Translate tolerances across the SciPy ``tol``/``rtol`` API change."""
+    """Translate tolerances across the SciPy tol/rtol API change."""
     parameters = inspect.signature(solver).parameters
     relative_key = "rtol" if "rtol" in parameters else "tol"
     kwargs = {relative_key: rtol}
@@ -28,12 +28,12 @@ def _tolerance_kwargs(solver, rtol, atol=None):
 
 
 class SolveScipyCGForCplx:
-    """Solve ``H x = -g`` for a real-linear Hessian and complex vectors.
+    """Solve H x = -g for a real-linear Hessian and complex vectors.
 
     Parameters
     ----------
     hessian
-        Callable or operator providing ``matvec``/``_matvec``.
+        Callable or operator providing matvec/_matvec.
     real_hdiag : array_like, optional
         Doubled-real diagonal ordered as real coordinates followed by
         imaginary coordinates.
@@ -42,7 +42,7 @@ class SolveScipyCGForCplx:
     callback : callable, optional
         Called after each iteration with the current complex step.
     compute_residual : bool, optional
-        Compute ``||H x + g||`` after convergence.  This costs one additional
+        Compute ||H x + g|| after convergence.  This costs one additional
         Hessian action.
     diagonal_floor : float, optional
         Minimum absolute diagonal used by the preconditioner.
@@ -52,6 +52,7 @@ class SolveScipyCGForCplx:
             self, hessian, real_hdiag=None, *, rtol=1e-5, atol=0.0,
             maxiter=None, callback=None, compute_residual=False,
             diagonal_floor=1e-8):
+        
         self.hessian = hessian
         self.real_hdiag = real_hdiag
         self.rtol = float(rtol)
@@ -60,12 +61,6 @@ class SolveScipyCGForCplx:
         self.callback = callback
         self.compute_residual = bool(compute_residual)
         self.diagonal_floor = float(diagonal_floor)
-
-        if self.rtol < 0.0 or self.atol < 0.0:
-            raise ValueError("rtol and atol must be nonnegative")
-        if not np.isfinite(self.diagonal_floor) or self.diagonal_floor <= 0.0:
-            raise ValueError("diagonal_floor must be finite and positive")
-
         self.real_operator = None
         self.real_preconditioner = None
         self.info = None
@@ -73,7 +68,7 @@ class SolveScipyCGForCplx:
         self.residual_norm = None
 
     def __call__(self, gradient, x0=None):
-        """Solve the equation and return ``(complex_step, scipy_info)``."""
+        """Solve the equation and return (complex_step, scipy_info)."""
         return self.run(gradient, x0=x0)
 
     @staticmethod
@@ -86,7 +81,7 @@ class SolveScipyCGForCplx:
 
     @staticmethod
     def pack_real(vector):
-        """Convert ``[real parts, imaginary parts]`` to complex storage."""
+        """Convert [real parts, imaginary parts] to complex storage."""
         vector = np.asarray(vector)
         if vector.ndim != 1:
             raise ValueError("real-coordinate vector must be one-dimensional")
