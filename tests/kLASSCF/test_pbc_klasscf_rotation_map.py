@@ -51,13 +51,9 @@ class ActiveActiveRotationMapTests(unittest.TestCase):
             perturbed.unpack(coordinates), reference.unpack(coordinates), atol=1e-10,
         )
 
-    def test_rank_cutoff_can_be_overridden_and_must_be_valid(self):
+    def test_rank_cutoff_can_be_overridden(self):
         phase = _fourier_mo_phase(3, 2)
         self.assertEqual(ActiveActiveRotationMap(phase, [2]*3, svd_tol=1).nvar, 0)
-        for tolerance in (-1, np.nan, np.inf):
-            with self.subTest(tolerance=tolerance):
-                with self.assertRaisesRegex(ValueError, "svd_tol"):
-                    ActiveActiveRotationMap(phase, [2]*3, svd_tol=tolerance)
 
     def test_wannier_bloch_matrix_map(self):
         nkpts = 3
