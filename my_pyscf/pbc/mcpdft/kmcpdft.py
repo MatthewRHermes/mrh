@@ -281,6 +281,10 @@ class _MCPDFTCPLX(_PeriodicMCPDFT):
         raise NotImplementedError("update_from_chk is not implemented for k-MC-PDFT")
 
 
+# Compatibility name used by the kLAS-PDFT specialization.
+_kMCPDFT = _MCPDFTCPLX
+
+
 class _kCASPDFT(_MCPDFTCPLX):
     """k-MC-PDFT specialization for one total-momentum kCAS sector."""
 
