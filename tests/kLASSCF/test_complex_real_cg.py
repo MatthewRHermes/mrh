@@ -1,5 +1,7 @@
 #!/usr/bin/env python
 
+"""Check complex-vector CG and MINRES solves against known real Hessians."""
+
 import unittest
 
 import numpy as np

@@ -1,3 +1,6 @@
+"""Check Bloch/Wannier orbital-rotation maps, independent-coordinate projection,
+rank-cutoff stability under roundoff, and empty rotation spaces."""
+
 import unittest
 
 import numpy as np
@@ -7,12 +10,6 @@ from mrh.my_pyscf.pbc.mcscf.klasscf import ActiveActiveRotationMap
 # Author: Bhavnesh Jangid
 
 
-"""Unit tests for active-active k-LASSCF orbital-rotation maps.
-
-Test-0: Transform anti-Hermitian rotations between Bloch and Wannier bases.
-Test-1: Project redundant k-point pair rotations onto independent coordinates.
-Test-2: Handle an active space with no independent rotation pairs.
-"""
 
 
 def _fourier_mo_phase(nkpts, ncas):
