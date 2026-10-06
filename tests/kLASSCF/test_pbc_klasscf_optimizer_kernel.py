@@ -129,6 +129,10 @@ class KnownValuesKLASSCFKernel(unittest.TestCase):
         self.assertIn("|r_ci| =", las.stdout.getvalue())
         self.assertIn("macro iter 0 : E = -1 ; dE = 0 ;", las.stdout.getvalue())
         self.assertIn("macro iter 1 : E = -1.1 ; dE = -0.1 ;", las.stdout.getvalue())
+        self.assertIn(
+            "k-LASSCF converged after 2 macroiterations and 1 microiterations",
+            las.stdout.getvalue(),
+        )
         self.assertNotIn("Accepted k-LASSCF trial:", las.stdout.getvalue())
         self.assertNotIn("k-LASSCF linear solve:", las.stdout.getvalue())
         self.assertNotIn("k-LASSCF model residual after step limiting:", las.stdout.getvalue())
