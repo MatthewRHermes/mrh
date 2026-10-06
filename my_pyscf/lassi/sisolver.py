@@ -336,6 +336,51 @@ def make_pspace_precond(hdiag, pspaceig, pspaceci, addr, level_shift=0):
         return x1
     return precond
 
+
+def kernel_projected_davidson(sisolver, h_op_raw, s2_op, orth2raw,
+                              hdiag_raw=None, nroots=None):
+    """Run LASSI Davidson in a caller-supplied orthonormal subspace.
+
+    ``orth2raw`` has raw LAS coefficients on its rows and orthonormal,
+    constrained basis vectors on its columns.  This hook permits constraints
+    which cannot be expressed by LASSI's fragment-spin Clebsch--Gordan basis.
+    """
+    log = logger.new_logger(sisolver, sisolver.verbose)
+    if nroots is None:
+        nroots = sisolver.nroots
+    nroots = min(int(nroots), orth2raw.shape[1])
+    if nroots < 1:
+        raise ValueError("Projected LASSI Davidson space is empty")
+
+    def hop(x):
+        raw = orth2raw @ x
+        return orth2raw.conj().T @ h_op_raw(raw)
+
+    if hdiag_raw is None:
+        hdiag = np.asarray([np.vdot(orth2raw[:, i],
+                            h_op_raw(orth2raw[:, i])).real
+                            for i in range(orth2raw.shape[1])])
+    else:
+        hdiag = np.real(np.einsum("ri,r,ri->i", orth2raw.conj(),
+                                  hdiag_raw, orth2raw))
+    x0 = sisolver.get_init_guess(hdiag, nroots, None, log=log)
+    precond = lib.make_diag_precond(hdiag, level_shift=sisolver.level_shift)
+    davidson_log = logger.new_logger(
+        sisolver, sisolver.verbose + (sisolver.verbose >= logger.NOTE))
+    conv, energy, vectors = lib.davidson1(
+        lambda xs: [hop(x) for x in xs], x0, precond, nroots=nroots,
+        verbose=davidson_log, max_cycle=sisolver.max_cycle,
+        max_space=sisolver.max_space, tol=sisolver.conv_tol)
+    coeff = np.stack([orth2raw @ x for x in vectors], axis=-1)
+    s2 = np.asarray([np.vdot(c, s2_op(c)).real for c in coeff.T])
+    sisolver.converged = all(conv)
+    if not sisolver.converged:
+        log.warn("Projected LASSI Davidson diagonalization not converged")
+    return sisolver.converged, np.asarray(energy), coeff, s2
+
+
+SISolver.kernel_projected = kernel_projected_davidson
+
 def kernel_incore (sisolver, e0, h1, h2, norb_f, ci_fr, nelec_frs, smult_fr, soc, opt):
     # TODO: simplify
     t0 = (logger.process_clock (), logger.perf_counter ())

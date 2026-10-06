@@ -750,8 +750,12 @@ def root_make_rdm12s (las, ci, si, state=0, orbsym=None, soc=None, break_symmetr
                               break_symmetry=break_symmetry, spaces=spaces, opt=opt,
                               **kwargs)
 
-def roots_make_rdm3s (las, ci, si, spaces=None, **kwargs):
-    """Evaluate spin-separated 3-RDMs for LASSI eigenstates."""
+def roots_make_rdm3s (las, ci, si, spaces=None, opt=1, **kwargs):
+    """Evaluate 3-RDMs using fragment CI (opt=1) or full-CAS CI (opt=0)."""
+    if opt not in (0, 1):
+        raise ValueError("3-RDM opt must be 0 or 1")
+    from mrh.my_pyscf.lassi.op_o1 import rdm3
+    backend = op_o0 if opt == 0 else rdm3
     statesym = las_symm_tuple (las, spaces=spaces)[0]
     lroots = get_lroots (ci)
     rootsym = guess_rootsym (si, statesym, lroots)
@@ -762,7 +766,7 @@ def roots_make_rdm3s (las, ci, si, spaces=None, **kwargs):
         ci_blk, nelec_blk, smult_blk, disc_blk = indxd
         idx_si = np.all (np.array (rootsym) == sym, axis=1)
         si_blk = si[np.ix_(idx_prod, idx_si)]
-        d3s = op_o0.roots_make_rdm3s (las1, ci_blk, nelec_blk, si_blk, **kwargs)
+        d3s = backend.roots_make_rdm3s (las1, ci_blk, nelec_blk, si_blk, **kwargs)
         for i, root in enumerate (np.where (idx_si)[0]):
             rdm3s[root] = d3s[i]
     return np.stack (rdm3s, axis=0)
@@ -986,8 +990,12 @@ class LASSI(lib.StreamObject):
         else:
             return root_make_rdm12s (self, ci, si, state=state, spaces=spaces, opt=opt)
 
-    def make_casdm3s (self, ci=None, si=None, state=None, weights=None, spaces=None):
-        """Compute spin-separated 3-RDMs for one or more LASSI states."""
+    def make_casdm3s (self, ci=None, si=None, state=None, weights=None, spaces=None, opt=1):
+        """Compute spin-separated 3-RDMs; opt=1 uses only fragment CI vectors.
+
+        Set opt=0 for the full-CAS reference implementation. Both paths
+        return dense tensors with O(ncas**6) storage.
+        """
         if ci is None: ci = self.ci
         if si is None: si = self.si
         if si.ndim == 1:
@@ -995,8 +1003,8 @@ class LASSI(lib.StreamObject):
         if si.shape[1] == 1 and state is None:
             state = 0
         if state is not None:
-            return root_make_rdm3s (self, ci, si, state=state, spaces=spaces)
-        dm3s = roots_make_rdm3s (self, ci, si, spaces=spaces)
+            return root_make_rdm3s (self, ci, si, state=state, spaces=spaces, opt=opt)
+        dm3s = roots_make_rdm3s (self, ci, si, spaces=spaces, opt=opt)
         if weights is not None:
             dm3s = np.tensordot (weights, dm3s, axes=((0,), (0,)))
         return dm3s
