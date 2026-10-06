@@ -3486,9 +3486,9 @@ def _backtrack_macro_step(klas, hop, step, gradient, h2eff, energy,
                     "scale = %.6g", trial_energy, trial_energy - energy, scale,
                 )
                 if backtrack:
-                    log.info("Accepted k-LASSCF step scaled by %.6g", scale)
+                    log.debug("Accepted k-LASSCF step scaled by %.6g", scale)
                 return mo_trial, ci_trial, h2_trial, energies
-            log.info(
+            log.debug(
                 "Rejected k-LASSCF trial: E = %.15g ; keyframe E = %.15g ; "
                 "scale = %.6g", trial_energy, energy, scale,
             )
@@ -3545,6 +3545,7 @@ def kernel(
     norm_gorb = norm_gci = 0.0
     accepted_energies = None
     previous_macro_energy = None
+    total_microiterations = 0
 
     h2eff = klas.get_h2cas(mo_coeff)
     if _ci_guess_is_missing(ci):
@@ -3639,7 +3640,7 @@ def kernel(
                 np.linalg.norm(initial_step),
             )
         if floating_shift:
-            log.info(
+            log.debug(
                 "Applying a floating k-LASSCF level shift of %.6g",
                 floating_shift,
             )
@@ -3701,6 +3702,14 @@ def kernel(
                 best_residual[0] = residual_norm
             norm_xorb = np.linalg.norm(step[:ugg.nvar_orb])
             norm_xci = np.linalg.norm(step[ugg.nvar_orb:])
+            log_norms = tuple(
+                f"{norm:.1e}" if 0.0 < norm < 1e-5 else f"{norm:.5f}"
+                for norm in (
+                    np.linalg.norm(residual[:ugg.nvar_orb]),
+                    np.linalg.norm(residual[ugg.nvar_orb:]),
+                    norm_xorb, norm_xci,
+                )
+            )
             if log.verbose > lib.logger.INFO:
                 model_energy = e_tot + np.real(np.vdot(
                     step,
@@ -3708,20 +3717,16 @@ def kernel(
                         hessian_step - floating_shift * step),
                 )) / klas.nkpts
                 log.info(
-                    "       micro iter %d : E = %.15g ; |r_orb| = %.6g ; "
-                    "|r_ci| = %.6g ; |x_orb| = %.6g ; |x_ci| = %.6g",
+                    "       micro iter %d : E = %.15g ; |r_orb| = %s ; "
+                    "|r_ci| = %s ; |x_orb| = %s ; |x_ci| = %s",
                     micro_count[0] - 1, np.real(model_energy),
-                    np.linalg.norm(residual[:ugg.nvar_orb]),
-                    np.linalg.norm(residual[ugg.nvar_orb:]),
-                    norm_xorb, norm_xci,
+                    *log_norms,
                 )
             else:
                 log.info(
-                    "       micro iter %d : |r_orb| = %.6g ; |r_ci| = %.6g ; "
-                    "|x_orb| = %.6g ; |x_ci| = %.6g",
-                    micro_count[0] - 1,
-                    np.linalg.norm(residual[:ugg.nvar_orb]),
-                    np.linalg.norm(residual[ugg.nvar_orb:]), norm_xorb, norm_xci,
+                    "       micro iter %d : |r_orb| = %s ; |r_ci| = %s ; "
+                    "|x_orb| = %s ; |x_ci| = %s",
+                    micro_count[0] - 1, *log_norms,
                 )
             if residual_norm <= micro_rtol * rhs_norm:
                 raise _MicroIterationConverged
@@ -3755,6 +3760,7 @@ def kernel(
                 step = _limit_micro_step(-weighted_gradient, trust_radius)
             info = 0
             log.warn("Unstable k-LASSCF microiteration aborted: %s", error)
+        total_microiterations += micro_count[0]
         if not np.all(np.isfinite(step)):
             log.warn("Discarding non-finite k-LASSCF micro-solver result")
             step = best_step[0]
@@ -3819,8 +3825,9 @@ def kernel(
     mo_energy = _get_mo_energy(final_hop)
     veff = veff_kpts
     log.info(
-        "k-LASSCF %s after %d macro keyframes",
+        "k-LASSCF %s after %d macroiterations and %d microiterations",
         "converged" if converged else "not converged", imacro + 1,
+        total_microiterations,
     )
     log.info(
         "k-LASSCF E = %.15g ; |g_orb| = %.6g ; |g_ci| = %.6g",
