@@ -37,14 +37,18 @@ active_labels = ["H 1s"]
 mo_avas = avas.kernel(kmf, active_labels, minao=cell.basis)[2]
 
 # Define the active space for the reference primitive cell only.
-las = mcscf.KLASSCF(kmf, ncas=2, nelecas=(1, 1), kmesh=kmesh,)
-mo_guess = las.localize_init_guess(active_labels, mo_coeff=mo_avas)
-las.conv_tol_grad = 1e-5
-las.max_cycle_macro = 100
-e_lasscf, e_cas, ci, mo_coeff, mo_energy, h2eff, veff = las.kernel(
-    mo_coeff=mo_guess,
-)
+klas = mcscf.KLASSCF(kmf, ncas=2, nelecas=(1, 1), kmesh=kmesh,)
+mo_guess = klas.localize_init_guess(active_labels, mo_coeff=mo_avas)
+klas.conv_tol_grad = 1e-5
+klas.max_cycle_macro = 100
+klas.kernel(mo_coeff=mo_guess,)[0]
 
-print(f"k-RHF energy       : {kmf.e_tot.real: .12f}")
-print(f"k-LASSCF energy    : {e_lasscf.real: .12f}")
-print(f"k-LASSCF converged : {las.converged}")
+kcas = mcscf.KCASCI(kmf, ncas=2, nelecas=(1, 1),)
+kcas.kpts = kpts
+kcas.kmesh = kmesh
+kcas.kernel(mo_coeff=klas.mo_coeff,)
+
+
+print(f"k-RHF energy                        : {kmf.e_tot.real: .12f}")
+print(f"k-LASSCF energy                     : {klas.e_tot.real: .12f}")
+print(f"k-CAS (in k-LASSCF orb.) energy     : {kcas.e_tot.real: .12f}")
