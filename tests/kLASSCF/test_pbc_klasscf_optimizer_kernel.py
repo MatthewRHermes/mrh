@@ -127,7 +127,11 @@ class KnownValuesKLASSCFKernel(unittest.TestCase):
         np.testing.assert_allclose(las.hop_kwargs[1]["h2eff"], 4.0)
         self.assertIn("micro iter 0 : |r_orb| =", las.stdout.getvalue())
         self.assertIn("|r_ci| =", las.stdout.getvalue())
-        self.assertIn("Accepted k-LASSCF trial:", las.stdout.getvalue())
+        self.assertIn("macro iter 0 : E = -1 ; dE = 0 ;", las.stdout.getvalue())
+        self.assertIn("macro iter 1 : E = -1.1 ; dE = -0.1 ;", las.stdout.getvalue())
+        self.assertNotIn("Accepted k-LASSCF trial:", las.stdout.getvalue())
+        self.assertNotIn("k-LASSCF linear solve:", las.stdout.getvalue())
+        self.assertNotIn("k-LASSCF model residual after step limiting:", las.stdout.getvalue())
 
     def test_soft_mode_step_can_grow_and_stop_on_actual_residual(self):
         class TwoVariableUGG:
