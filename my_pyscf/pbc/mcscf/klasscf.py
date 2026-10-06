@@ -32,6 +32,8 @@ from mrh.util.la import safe_svd_warner
 
 # Author: Bhavnesh Jangid
 
+_ENERGY_COMPARISON_TOL = 1e-12  # Hartree per cell
+
 def _check_shape(mat, shape, label="array"):
     """Validate the shape of an array-like object.
 
@@ -55,6 +57,36 @@ def _check_shape(mat, shape, label="array"):
         raise ValueError(msg)
 
 
+def _pivoted_projector_basis(sub_bas):
+    """
+    Choose coordinates from a subspace projector, independent of SVD gauge.
+    The input sub_bas must have orthonormal columns.
+    Pivoted, reorthogonalized projector columns fix both the orientation
+    and phases. Numerically tied pivots use Bloch-pair order, so degenerate
+    singular vectors cannot randomly rotate the diagonal preconditioner.
+    """
+
+    nrow, rank = sub_bas.shape
+    if rank == 0: return sub_bas.copy()
+    projector = sub_bas @ sub_bas.conj().T
+    residual = projector.copy()
+    basis = np.empty((nrow, rank), dtype=sub_bas.dtype)
+
+    for column in range(rank):
+        norms = np.maximum(np.diag(residual).real, 0.0)
+        largest = np.max(norms)
+        pivot = np.flatnonzero(norms >= largest * (1 - 1e-10))[0]
+        vec = projector[:, pivot].copy()
+        for _ in range(2):
+            retained = basis[:, :column]
+            vec -= retained @ (retained.conj().T @ vec)
+        vec /= np.linalg.norm(vec)
+        vec *= vec[pivot].conj() / abs(vec[pivot])
+        basis[:, column] = vec
+        residual -= np.outer(vec, vec.conj())
+    return basis
+
+
 class ActiveActiveRotationMap:
     """Map inter-fragment Wannier rotations to Bloch-MO rotations.
 
@@ -69,8 +101,8 @@ class ActiveActiveRotationMap:
 
     mo_phase[k, a, p] * mo_phase[k, b, q].conj().
 
-    The singular vectors spanning the image of this map define the independent
-    active-active coordinates used by the k-LASSCF unitary-group generator.
+    The retained singular vectors determine the image; canonical projector
+    columns define stable independent active-active coordinates.
     The map is complex-linear; anti-Hermitian completion is applied only by
     :meth:`unpack`, after the lower-pair coordinates have been expanded.
 
@@ -91,8 +123,8 @@ class ActiveActiveRotationMap:
             By default, every strictly lower-triangular pair is selected.
         svd_tol : float, optional
             Absolute singular-value cutoff used to determine the rank of the
-            pair map. By default, a dimension- and precision-scaled cutoff is
-            used.
+            pair map. The default dimension- and precision-scaled cutoff has
+            an absolute floor of 1e-10, matching the unitary-input tolerance.
         verbose : int or :class:`pyscf.lib.logger.Logger`, optional
             PySCF verbosity level or logger. The retained numerical rank is
             reported at debug verbosity.
@@ -129,7 +161,7 @@ class ActiveActiveRotationMap:
         mo_phase = np.asarray(mo_phase, dtype=dtype)
 
         if svd_tol is not None: svd_tol = float(svd_tol)
-
+          
         self.nkpts, self.ncas, self.ncastot = mo_phase.shape
         if self.ncastot != self.nkpts * self.ncas:
             msg = ("mo_phase must map a square stacked Bloch-active space; "
@@ -206,7 +238,8 @@ class ActiveActiveRotationMap:
         )
 
         if svd_tol is None:
-            svd_tol = (
+            svd_tol = max(
+                1e-10,
                 max(self.pair_map.shape)
                 * np.finfo(singular_values.dtype).eps
                 * singular_values[0]
@@ -220,7 +253,9 @@ class ActiveActiveRotationMap:
         )
         self.singular_values = singular_values
         self.svd_tol = svd_tol
-        self.basis = np.asarray(left[:, retain], dtype=basis_dtype)
+        self.basis = _pivoted_projector_basis(
+            np.asarray(left[:, retain], dtype=basis_dtype),
+        )
 
     @property
     def nvar(self):
@@ -3357,7 +3392,22 @@ def _limit_micro_step(step, trust_radius):
 
 
 class _MicroIterationInstability(RuntimeError):
-    """Signal that a Krylov iterate exceeded the step safeguards."""
+    """Signal that a Krylov iterate or residual became nonfinite."""
+
+
+class _MicroIterationConverged(RuntimeError):
+    """Stop the iterative solver once its measured residual is small."""
+
+
+def _micro_hessian_action(step, basis, hessian_basis, matvec):
+    """Reuse stored real Krylov actions when the step lies in their span."""
+    if basis:
+        q = np.column_stack(basis)
+        coefficients = np.real(q.conj().T @ step)
+        remainder = step - q @ coefficients
+        if np.linalg.norm(remainder) <= 1e-12 * max(np.linalg.norm(step), 1e-30):
+            return np.column_stack(hessian_basis) @ coefficients
+    return np.asarray(matvec(step))
 
 
 def _regularize_micro_step(step, gradient, basis, hessian_basis,
@@ -3406,18 +3456,63 @@ def _regularize_micro_step(step, gradient, basis, hessian_basis,
     return step, float(shift), float(eigenvalues[0])
 
 
+def _backtrack_macro_step(klas, hop, step, gradient, h2eff, energy,
+                         trust_radius, max_backtracks, log):
+    """Accept a decrease in actual energy, or keep the current keyframe.
+
+    Every trial retracts from the same orbitals/CI and rebuilds its active
+    integrals. If the Newton direction fails, try a bounded negative gradient.
+    Gradients use the supercell energy, whereas acceptance uses energy/cell.
+    """
+    energy = float(np.real(energy))
+    directions = (step, _limit_micro_step(-gradient, trust_radius))
+    for idir, direction in enumerate(directions):
+        if idir:
+            log.info("Backtracking k-LASSCF negative-gradient fallback")
+        slope = float(np.real(np.vdot(gradient, direction))) / klas.nkpts
+        if slope >= 0.0 or not np.isfinite(slope):
+            continue
+        for backtrack in range(max_backtracks + 1):
+            scale = 0.5 ** backtrack
+            mo_trial, ci_trial, h2_trial = hop.update_mo_ci_eri(
+                scale * direction, h2eff,
+            )
+            energies = _fixed_ci_energies(klas, mo_trial, ci_trial, h2_trial)
+            trial_energy = float(np.real(energies[0]))
+            if (np.isfinite(energies[0]) and trial_energy <=
+                    energy + 1e-4 * scale * slope + _ENERGY_COMPARISON_TOL):
+                log.info(
+                    "Accepted k-LASSCF trial: E = %.15g ; dE = %.6g ; "
+                    "scale = %.6g", trial_energy, trial_energy - energy, scale,
+                )
+                if backtrack:
+                    log.info("Accepted k-LASSCF step scaled by %.6g", scale)
+                return mo_trial, ci_trial, h2_trial, energies
+            log.info(
+                "Rejected k-LASSCF trial: E = %.15g ; keyframe E = %.15g ; "
+                "scale = %.6g", trial_energy, energy, scale,
+            )
+    return None
+
+
 def kernel(
         klas, mo_coeff=None, ci0=None, conv_tol_grad=None, verbose=None):
     """Run the k-LASSCF macro/micro optimization.
 
     Each macroiteration refreshes the local CI vectors and constructs a new
     orbital/CI Hessian keyframe.  MINRES samples the Newton equation in doubled
-    real coordinates for at most ``max_cycle_micro`` iterations.  Negative or
-    small curvature in that Krylov subspace is regularized before restricting
+    real coordinates for at most ``max_cycle_micro`` iterations, increasing
+    to ``max_cycle_micro_near_convergence`` when the largest gradient norm
+    is below ten times its convergence tolerance. The measured linear
+    residual controls early stopping; growth relative to the first iterate
+    does not abort a solve. Negative or small curvature in that Krylov
+    subspace is regularized before restricting
     the step to the trust region and retracting it into new orbitals and
     normalized CI vectors before the next keyframe.  A positive diagonal
     preconditioner supplies the initial guess, with a floating shift for a
     large guess and recovery of a bounded step if the microiteration diverges.
+    Actual-energy backtracking rejects uphill orbital/CI updates and falls
+    back to a negative-gradient direction. Failed trials retain the keyframe.
 
     State-averaged optimization is intentionally disabled until its CI weights
     are incorporated in the real optimizer metric.
@@ -3433,17 +3528,13 @@ def kernel(
         verbose = klas.verbose
 
     conv_tol_grad = float(conv_tol_grad)
-    if not np.isfinite(conv_tol_grad) or conv_tol_grad < 0.0:
-        raise ValueError("conv_tol_grad must be finite and nonnegative")
     micro_rtol_max = float(getattr(klas, "micro_rtol_max", 1e-3))
     max_macro = int(klas.max_cycle_macro)
     max_micro = int(klas.max_cycle_micro)
+    max_micro_near = int(getattr(klas, "max_cycle_micro_near_convergence", 20))
     min_macro = int(klas.min_cycle_macro)
-    if max_macro < 0 or max_micro < 0 or min_macro < 0:
-        raise ValueError("macro and micro cycle counts must be nonnegative")
     trust_radius = float(klas.trust_radius)
-    if not np.isfinite(trust_radius) or trust_radius <= 0.0:
-        raise ValueError("trust_radius must be finite and positive")
+    max_backtracks = int(getattr(klas, "max_step_backtracks", 8))
 
     log = lib.logger.new_logger(klas, verbose)
     log.debug("Start k-LASSCF")
@@ -3452,6 +3543,7 @@ def kernel(
     final_hop = None
     e_tot = e_states = e_cas = e_lexc = None
     norm_gorb = norm_gci = 0.0
+    accepted_energies = None
 
     h2eff = klas.get_h2cas(mo_coeff)
     if _ci_guess_is_missing(ci):
@@ -3466,6 +3558,12 @@ def kernel(
 
     # The extra keyframe evaluates the gradient after the final allowed step.
     for imacro in range(max_macro + 1):
+        ci_before_refresh = [
+            [np.array(c, copy=True) for c in roots] for roots in ci
+        ]
+        densities_before_refresh = (
+            casdm1frs, casdm1s_sub, dm1s_kpts, veff_kpts,
+        )
         e_sub, ci = ci_cycle(
             klas, mo_coeff, ci, veff_kpts, h2eff, casdm1frs, log,
         )
@@ -3476,6 +3574,18 @@ def kernel(
         e_tot, e_states, e_cas, e_lexc = _fixed_ci_energies(
             klas, mo_coeff, ci, h2eff,
         )
+        # Simultaneously refreshing all local CI problems is not guaranteed
+        # to decrease the product-state energy. Preserve the accepted trial
+        # if that synchronous refresh goes uphill or becomes nonfinite.
+        if accepted_energies is not None:
+            previous_energy = float(np.real(accepted_energies[0]))
+            if (not np.isfinite(e_tot) or np.real(e_tot) >
+                    previous_energy + _ENERGY_COMPARISON_TOL):
+                log.info("Rejected uphill k-LASSCF synchronous CI refresh")
+                ci = ci_before_refresh
+                (casdm1frs, casdm1s_sub, dm1s_kpts,
+                 veff_kpts) = densities_before_refresh
+                e_tot, e_states, e_cas, e_lexc = accepted_energies
 
         # The active-active rotation map depends on the current Wannier
         # transformation, so optimizer coordinates are rebuilt per keyframe.
@@ -3510,6 +3620,11 @@ def kernel(
             break
 
         weighted_gradient = metric * gradient
+        micro_cycles = max_micro
+        if max(norm_gorb, norm_gci) < 10 * conv_tol_grad:
+            micro_cycles = max(max_micro, max_micro_near)
+        if micro_cycles > max_micro:
+            log.info("Allowing up to %d microiterations near convergence", micro_cycles)
         initial_step, real_diagonal, floating_shift = _micro_initial_guess(
             weighted_gradient, _micro_diagonal(final_hop, metric), trust_radius,
         )
@@ -3525,15 +3640,18 @@ def kernel(
             )
         micro_basis, micro_hessian_basis = [], []
 
-        def metric_hessian(vector):
+        def apply_metric_hessian(vector):
             result = metric * np.asarray(final_hop._matvec(vector))
-            result = result + floating_shift * np.asarray(vector)
+            return result + floating_shift * np.asarray(vector)
+
+        def metric_hessian(vector):
+            result = apply_metric_hessian(vector)
             # Retain orthonormal real Krylov vectors and their Hessian
             # images, reusing actions paid for by the iterative solver.
             trial = np.array(vector, dtype=np.complex128, copy=True)
             image = np.array(result, dtype=np.complex128, copy=True)
             original_norm = np.linalg.norm(trial)
-            if original_norm and len(micro_basis) < max_micro + 1:
+            if original_norm and len(micro_basis) < micro_cycles + 1:
                 for _ in range(2):
                     for q, hq in zip(micro_basis, micro_hessian_basis):
                         coefficient = np.real(np.vdot(q, trial))
@@ -3552,30 +3670,38 @@ def kernel(
         )
         micro_count = [0]
         last_stable_step = [initial_step]
-        first_step_norm = [None]
+        # A Krylov iterate can have a worse unpreconditioned residual than
+        # taking no step. Keep that baseline so a projected solve can recover
+        # a useful direction rather than accepting an inferior linear solve.
+        best_step = [np.zeros_like(weighted_gradient)]
+        best_residual = [rhs_norm]
+
+        def step_residual(step):
+            hessian_step = _micro_hessian_action(
+                step, micro_basis, micro_hessian_basis, apply_metric_hessian,
+            )
+            return weighted_gradient + hessian_step, hessian_step
 
         def micro_callback(step):
             micro_count[0] += 1
-            step_norm = np.linalg.norm(step)
             if not np.all(np.isfinite(step)):
                 raise _MicroIterationInstability("non-finite microiteration step")
-            if np.max(np.abs(step), initial=0.0) > np.pi / 2:
-                raise _MicroIterationInstability("|x[i]| > pi/2")
-            if first_step_norm[0] is None:
-                if step_norm > 1e-30:
-                    first_step_norm[0] = step_norm
-            elif step_norm > 10 * max(first_step_norm[0], 1e-30):
-                raise _MicroIterationInstability("||x(n)|| > 10*||x(0)||")
+            residual, hessian_step = step_residual(step)
+            if not np.all(np.isfinite(residual)):
+                raise _MicroIterationInstability("non-finite microiteration residual")
             last_stable_step[0] = np.array(step, copy=True)
+            residual_norm = float(np.linalg.norm(residual))
+            if residual_norm < best_residual[0]:
+                best_step[0] = np.array(step, copy=True)
+                best_residual[0] = residual_norm
             norm_xorb = np.linalg.norm(step[:ugg.nvar_orb])
             norm_xci = np.linalg.norm(step[ugg.nvar_orb:])
             if log.verbose > lib.logger.INFO:
-                hessian_step = np.asarray(final_hop._matvec(step))
-                residual = gradient + hessian_step + floating_shift * step
                 model_energy = e_tot + np.real(np.vdot(
                     step,
-                    metric * (gradient + 0.5 * hessian_step),
-                ))
+                    weighted_gradient + 0.5 * (
+                        hessian_step - floating_shift * step),
+                )) / klas.nkpts
                 log.info(
                     "       micro iter %d : E = %.15g ; |r_orb| = %.6g ; "
                     "|r_ci| = %.6g ; |x_orb| = %.6g ; |x_ci| = %.6g",
@@ -3586,16 +3712,24 @@ def kernel(
                 )
             else:
                 log.info(
-                    "       micro iter %d : |x_orb| = %.6g ; |x_ci| = %.6g",
-                    micro_count[0] - 1, norm_xorb, norm_xci,
+                    "       micro iter %d : |r_orb| = %.6g ; |r_ci| = %.6g ; "
+                    "|x_orb| = %.6g ; |x_ci| = %.6g",
+                    micro_count[0] - 1,
+                    np.linalg.norm(residual[:ugg.nvar_orb]),
+                    np.linalg.norm(residual[ugg.nvar_orb:]), norm_xorb, norm_xci,
                 )
+            if residual_norm <= micro_rtol * rhs_norm:
+                raise _MicroIterationConverged
 
         solver_class = getattr(
             klas, "micro_solver", SolveScipyMINRESForCplx,
         )
         solver_kwargs = {
-            "rtol": micro_rtol,
-            "maxiter": max_micro,
+            # MINRES also has an operator/step-scaled stopping test. Use a
+            # tight internal tolerance so the callback's ||r||/||g|| test
+            # controls convergence for soft modes with large steps.
+            "rtol": min(micro_rtol, 1e-12),
+            "maxiter": micro_cycles,
             "callback": micro_callback,
         }
         if real_diagonal is not None:
@@ -3603,19 +3737,27 @@ def kernel(
         if getattr(klas, "micro_solver_compute_residual", False):
             solver_kwargs["compute_residual"] = True
         solver = solver_class(metric_hessian, **solver_kwargs)
-        instability = None
         try:
             if initial_step is None:
                 step, info = solver(weighted_gradient)
             else:
                 step, info = solver(weighted_gradient, x0=initial_step)
+        except _MicroIterationConverged:
+            step, info = best_step[0], 0
         except _MicroIterationInstability as error:
-            instability = error
             step = last_stable_step[0]
             if step is None:
                 step = _limit_micro_step(-weighted_gradient, trust_radius)
             info = 0
             log.warn("Unstable k-LASSCF microiteration aborted: %s", error)
+        if not np.all(np.isfinite(step)):
+            log.warn("Discarding non-finite k-LASSCF micro-solver result")
+            step = best_step[0]
+        else:
+            residual, _ = step_residual(step)
+            if (not np.all(np.isfinite(residual)) or
+                    np.linalg.norm(residual) > best_residual[0]):
+                step = best_step[0]
         if info:
             solver_name = getattr(solver_class, "__name__", "micro solver")
             log.warn(
@@ -3624,11 +3766,13 @@ def kernel(
                 solver_name, info, micro_count[0],
             )
 
+        residual, _ = step_residual(step)
+        log.info(
+            "k-LASSCF linear solve: |r|/|g| = %.6g ; target = %.6g",
+            np.linalg.norm(residual) / max(rhs_norm, 1e-30), micro_rtol,
+        )
+
         step_trust_radius = trust_radius
-        if instability is not None and last_stable_step[0] is not None:
-            step_trust_radius = min(
-                trust_radius, max(np.linalg.norm(last_stable_step[0]), 1e-30),
-            )
         step, shift, lowest_curvature = _regularize_micro_step(
             step, weighted_gradient, micro_basis, micro_hessian_basis,
             step_trust_radius, getattr(klas, "ah_level_shift", 1e-8),
@@ -3651,7 +3795,23 @@ def kernel(
                 "Scaling k-LASSCF step by %.6g", np.linalg.norm(step) / step_norm,
             )
 
-        mo_coeff, ci, h2eff = final_hop.update_mo_ci_eri(step, h2eff)
+        residual, _ = step_residual(step)
+        residual = residual - floating_shift * step
+        log.info(
+            "k-LASSCF model residual after step limiting: |r_orb| = %.6g ; "
+            "|r_ci| = %.6g",
+            np.linalg.norm(residual[:ugg.nvar_orb]),
+            np.linalg.norm(residual[ugg.nvar_orb:]),
+        )
+
+        accepted = _backtrack_macro_step(
+            klas, final_hop, step, weighted_gradient, h2eff, e_tot,
+            step_trust_radius, max_backtracks, log,
+        )
+        if accepted is None:
+            log.warn("No decreasing k-LASSCF step found; retaining the keyframe")
+            break
+        mo_coeff, ci, h2eff, accepted_energies = accepted
         (
             casdm1frs, casdm1s_sub, dm1s_kpts, veff_kpts,
         ) = _make_keyframe_densities(klas, mo_coeff, ci)
@@ -3721,6 +3881,8 @@ class PBCLASSCFNoSymm(PBCLASCINoSymm):
     micro_solver_compute_residual = False
     # Cap MINRES rtol so that small outer gradients do not loosen inner solves.
     micro_rtol_max = 1e-3
+    max_cycle_micro_near_convergence = 20
+    max_step_backtracks = 8
     get_hop = get_hop
     kernel = _klasscf_kernel_method
 
