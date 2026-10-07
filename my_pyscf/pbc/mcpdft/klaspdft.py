@@ -2,12 +2,11 @@
 
 This module specializes the existing k-MC-PDFT implementation for density
 matrices produced by periodic LASCI and LASSCF.  kLAS RDMs and active-space
-integrals use a Wannier basis, so the corresponding kLAS ``mo_phase`` is
+integrals use a Wannier basis, so the corresponding kLAS mo_phase is
 carried explicitly into every basis transformation.
 """
 
 import copy
-
 import numpy as np
 
 from pyscf import __config__
@@ -35,17 +34,16 @@ def energy_mcwfn_klas(mc, mo_coeff=None, ci=None, ot=None, state=0,
         ci = mc.ci
     if casdm1s is None or casdm2 is None:
         built_dm1s, built_dm2 = klaspdft_helper.make_one_casdm12_klas(
-            mc, ci=ci, state=state,
-        )
+            mc, ci=ci, state=state,)
         if casdm1s is None:
             casdm1s = built_dm1s
         if casdm2 is None:
             casdm2 = built_dm2
+    
     if mo_phase is None:
-        mo_phase = klaspdft_helper.get_klas_mo_phase(
-            mc, mo_coeff=mo_coeff,
-        )
+        mo_phase = klaspdft_helper.get_klas_mo_phase(mc, mo_coeff=mo_coeff,)
     h2eff = mc.get_h2cas(mo_coeff)
+
     return kmcpdft.energy_mcwfn(
         mc,
         mo_coeff=mo_coeff,
@@ -153,9 +151,9 @@ def energy_tot_klas(mc, mo_coeff=None, ci=None, ot=None, state=0,
         mc,
         "kLAS-PDFT state %d E = %s, Eot(%s) = %s",
         state,
-        e_tot,
-        ot.otxc,
-        e_ot,
+        e_tot.real,
+        ot.otxc.real,
+        e_ot.real,
     )
     return e_tot, e_ot
 
@@ -246,12 +244,6 @@ def get_klas_mcpdft_child_class(klas, ot, grids_level=None,
         "max_cycle_fp", "conv_tol_ci_fp", "mcscf_kernel",
         "_in_mcscf_env", "_klas_reference_energy",
     })
-    pdft.max_cycle_fp = getattr(
-        __config__, "mcscf_mcpdft_max_cycle_fp", 50,
-    )
-    pdft.conv_tol_ci_fp = getattr(
-        __config__, "mcscf_mcpdft_conv_tol_ci_fp", 1e-8,
-    )
     pdft.mcscf_kernel = mc_class.kernel
     pdft._in_mcscf_env = False
     pdft._klas_reference_energy = copy.copy(getattr(klas, "e_tot", None))
