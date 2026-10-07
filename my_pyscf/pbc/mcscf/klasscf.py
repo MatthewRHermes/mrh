@@ -2987,16 +2987,6 @@ def _optimizer_metric(klas, ugg):
     return np.ones(ugg.nvar_tot, dtype=float)
 
 
-def _ci_guess_is_missing(ci):
-    """Return whether a nested fragment/root CI guess is incomplete."""
-    if ci is None:
-        return True
-    return any(
-        roots is None or any(c is None for c in roots)
-        for roots in ci
-    )
-
-
 def _make_keyframe_densities(klas, mo_coeff, ci):
     """Build CI/AO densities and the periodic effective potential."""
     casdm1frs = klas.states_make_casdm1s_sub(ci=ci)
@@ -3338,11 +3328,13 @@ def kernel(
     total_microiterations = 0
 
     h2eff = klas.get_h2cas(mo_coeff)
-    if _ci_guess_is_missing(ci):
+    if ci is None or any(
+            roots is None or any(c is None for c in roots) for roots in ci):
         ci = klas.get_init_guess_ci(
             mo_coeff, ci0=ci, eri_cas=h2eff,
         )
-    if _ci_guess_is_missing(ci):
+    if ci is None or any(
+            roots is None or any(c is None for c in roots) for roots in ci):
         raise RuntimeError("failed to populate the initial CI vectors")
     (
         casdm1frs, casdm1s_sub, dm1s_kpts, veff_kpts,
