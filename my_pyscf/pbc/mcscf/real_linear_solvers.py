@@ -15,6 +15,21 @@ independent real coordinates, so SciPy's complex-linear Krylov solvers cannot
 be applied directly. These wrappers use a real problem and convert solutions
 back to complex storage. By default it has 2n coordinates; an imaginary_mask
 can omit inactive imaginary partners without changing the storage layout.
+
+Real and imaginary orbital mixing can change the wave function thus the energies
+differently, so their energy curvatures need not be equal. The energy depends on
+the orbitals and on their complex conjugates; consequently the Hessian action generally has
+both terms, H(z) = A z + B z.conj(). It is linear for real coefficients, but
+when B is nonzero it does not satisfy H(1j*z) = 1j*H(z), as a complex-linear
+operator would. For example, H(a + 1j*b) = 2*a + 4j*b gives H(1) = 2 and
+H(1j) = 4j. Symmetry of the Hessian in its independent real coordinates does
+not imply complex linearity: an ordinary Hermitian complex matrix acting by
+matrix multiplication would be complex-linear, whereas this Hessian is
+self-adjoint under the real inner product Re(vdot(x, y)). The wrappers therefore
+solve for the independent real coordinates, even though orbital matrices and
+packed vectors use complex storage. Active--active slots contain real
+coefficients of anti-Hermitian generators; their imaginary storage partners
+are excluded by imaginary_mask.
 """
 
 
