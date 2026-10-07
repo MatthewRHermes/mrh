@@ -453,6 +453,8 @@ class KnownValuesKLASSCFHessianFiniteDifference(unittest.TestCase):
                 rng.standard_normal(ugg.nvar_orb)
                 + 1j * rng.standard_normal(ugg.nvar_orb)
             )
+            packed_orbital[~ugg.imaginary_mask[:ugg.nvar_orb]] = (
+                packed_orbital[~ugg.imaginary_mask[:ugg.nvar_orb]].real)
             kappa = ugg.unpack_orb(packed_orbital)
             np.testing.assert_array_equal(kappa[:, frozen, :], 0.0)
             np.testing.assert_array_equal(kappa[:, :, frozen], 0.0)

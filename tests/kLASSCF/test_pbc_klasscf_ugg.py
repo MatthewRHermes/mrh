@@ -142,6 +142,7 @@ class UnitaryGroupGeneratorTests(unittest.TestCase):
             np.arange(ugg.nvar_orb, dtype=float)
             + 1j * np.arange(ugg.nvar_orb, dtype=float)[::-1]
         ) / 7.0
+        x_orb[~ugg.imaginary_mask[:ugg.nvar_orb]] = x_orb[~ugg.imaginary_mask[:ugg.nvar_orb]].real
         kappa = ugg.unpack_orb(x_orb)
         np.testing.assert_allclose(ugg.pack_orb(kappa), x_orb)
         np.testing.assert_allclose(
@@ -166,8 +167,8 @@ class UnitaryGroupGeneratorTests(unittest.TestCase):
         ugg = KLASSCF_UnitaryGroupGenerators(klas)
 
         self.assertEqual(ugg.nvar_orb_external, 10)
-        self.assertEqual(ugg.nvar_orb_active_active, 1)
-        self.assertEqual(ugg.nvar_orb, 11)
+        self.assertEqual(ugg.nvar_orb_active_active, 4)
+        self.assertEqual(ugg.nvar_orb, 14)
         self.assertFalse(np.any(ugg.get_gx_idx()))
         self.assertEqual(
             ugg.addr2idstr(ugg.nvar_orb_external),
@@ -176,6 +177,7 @@ class UnitaryGroupGeneratorTests(unittest.TestCase):
 
         x_orb = np.linspace(0.1, 1.1, ugg.nvar_orb).astype(complex)
         x_orb += 1j * np.linspace(-0.7, 0.4, ugg.nvar_orb)
+        x_orb[ugg.nvar_orb_external:] = x_orb[ugg.nvar_orb_external:].real
         kappa = ugg.unpack_orb(x_orb)
 
         np.testing.assert_allclose(ugg.pack_orb(kappa), x_orb)
@@ -199,6 +201,32 @@ class UnitaryGroupGeneratorTests(unittest.TestCase):
         np.testing.assert_allclose(
             wannier_rotation[2:, 2:], 0.0, atol=1e-13,
         )
+
+    def test_real_layout_omits_active_imaginary_partners(self):
+        ugg = KLASSCF_UnitaryGroupGenerators(_FakeKLASActive())
+        rng = np.random.default_rng(52)
+        real = rng.normal(size=ugg.nvar_real)
+        packed = ugg.from_real(real)
+        self.assertEqual(ugg.nvar_real, 2*ugg.nvar_tot-ugg.nvar_orb_active_active)
+        self.assertTrue(np.iscomplexobj(packed))
+        np.testing.assert_array_equal(packed.imag[~ugg.imaginary_mask], 0.)
+        np.testing.assert_allclose(ugg.to_real(packed), real)
+
+    def test_gradient_projection_is_adjoint_of_half_orbital_update(self):
+        ugg = KLASSCF_UnitaryGroupGenerators(_FakeKLASActive())
+        rng = np.random.default_rng(61)
+        x = ugg.from_real(rng.normal(size=ugg.nvar_real))[:ugg.nvar_orb]
+        matrix = rng.normal(size=(ugg.nkpts, ugg.nmo, ugg.nmo))
+        matrix = matrix + 1j*rng.normal(size=matrix.shape)
+        projected = ugg.project_orb_gradient(matrix)
+        self.assertAlmostEqual(np.vdot(projected, x).real,
+                               np.vdot(matrix, ugg.unpack_orb(x)/2).real, places=12)
+        np.testing.assert_allclose(np.vdot(ugg.unpack_orb(x), ugg.unpack_orb(x)).real,
+                                   2*np.vdot(x, x).real, atol=1e-12)
+        ci = [[np.array([.2+.3j, -.4j])], [np.array([-.1+.5j, .7])]]
+        packed = ugg.pack_gradient(matrix, ci)
+        np.testing.assert_allclose(packed[:ugg.nvar_orb], projected)
+        np.testing.assert_allclose(packed[ugg.nvar_orb:], ugg.pack_ci(ci))
 
     def test_frozen_ci_is_omitted_and_unpacks_to_zero(self):
         klas = _FakeKLAS()

@@ -107,5 +107,38 @@ class KnownValuesRealLinearSolvers(unittest.TestCase):
         )
 
 
+    def test_compact_solver_omits_inactive_imaginary_coordinates(self):
+        rng = np.random.default_rng(181)
+        a = rng.normal(size=(5, 5))
+        hessian_real = a.T @ a + np.eye(5)
+        imaginary_mask = np.array([True, False, True])
+        mask = np.concatenate((np.ones(3, dtype=bool), imaginary_mask))
+        gradient = np.array([.2+.3j, -.5, .7-.2j])
+        rhs = SolveScipyCGForCplx.unpack_complex(gradient)[mask]
+        expected = np.linalg.solve(hessian_real, -rhs)
+        def action(vector):
+            self.assertEqual(vector[1].imag, 0.)
+            compact = SolveScipyCGForCplx.unpack_complex(vector)[mask]
+            doubled = np.zeros(6)
+            doubled[mask] = hessian_real @ compact
+            return SolveScipyCGForCplx.pack_real(doubled)
+        doubled_diagonal = np.zeros(6)
+        doubled_diagonal[mask] = np.diag(hessian_real)
+        for solver_type in (SolveScipyCGForCplx, SolveScipyMINRESForCplx):
+            for diagonal in (doubled_diagonal, np.diag(hessian_real)):
+                with self.subTest(solver=solver_type.__name__, diagonal_size=diagonal.size):
+                    solver = solver_type(action, real_hdiag=diagonal,
+                                         imaginary_mask=imaginary_mask, rtol=1e-12,
+                                         compute_residual=True)
+                    step, info = solver(gradient, x0=np.zeros(3, dtype=complex))
+                    self.assertEqual(info, 0)
+                    self.assertEqual(solver.real_operator.shape, (5, 5))
+                    self.assertEqual(solver.real_preconditioner.shape, (5, 5))
+                    self.assertEqual(step[1].imag, 0.)
+                    np.testing.assert_allclose(
+                        SolveScipyCGForCplx.unpack_complex(step)[mask], expected, atol=1e-12)
+                    self.assertLess(solver.residual_norm, 1e-12)
+
+
 if __name__ == "__main__":
     unittest.main()
