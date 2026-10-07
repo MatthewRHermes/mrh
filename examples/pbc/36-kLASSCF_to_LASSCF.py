@@ -34,6 +34,10 @@ kmf.kernel()
 
 active_labels = ["H 1s"]
 mo_avas = avas.kernel(kmf, active_labels, minao=cell.basis)[2]
+
+if np.prod(kmesh) == 1:
+    mo_avas = mo_avas[None, :, :]
+    
 klas = mcscf.KLASSCF(kmf, ncas=2, nelecas=(1, 1), kmesh=kmesh)
 mo_guess = klas.localize_init_guess(active_labels, mo_coeff=mo_avas,
                                     stabilize_virtuals=True)

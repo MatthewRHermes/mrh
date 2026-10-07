@@ -26,7 +26,6 @@ cell.build()
 kmesh = (nk, 1, 1)
 kpts = cell.make_kpts(kmesh, wrap_around=True)
 
-
 kmf = scf.KRHF(cell, kpts=kpts).density_fit()
 kmf.exxdiv = None
 kmf.conv_tol = 1e-10
@@ -34,6 +33,9 @@ kmf.kernel()
 
 active_labels = ["H 1s"]
 mo_avas = avas.kernel(kmf, active_labels, minao=cell.basis)[2]
+
+if np.prod(kmesh) == 1:
+    mo_avas = mo_avas[None, :, :]
 
 # Define the active space for the reference primitive cell only.
 klas = mcscf.KLASSCF(kmf, ncas=2, nelecas=(1, 1), kmesh=kmesh,)
