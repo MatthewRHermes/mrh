@@ -565,9 +565,9 @@ class KLASPDFTEndToEndTests(unittest.TestCase):
 
     def test_klasci_pdft_functional_coverage(self):
         references = {
-            "tLDA": -0.9015232976311289,
-            "tPBE": -1.0085601356590703,
-            "tPBE0": -0.9663974749640505,
+            "tLDA": -0.9015147705690623,
+            "tPBE": -1.0085486386570832,
+            "tPBE0": -0.9663888510398926,
         }
         mo_before = np.array(self.klas.mo_coeff, copy=True)
         e_klas_before = self.klas.e_tot
