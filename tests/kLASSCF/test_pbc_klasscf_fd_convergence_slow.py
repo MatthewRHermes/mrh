@@ -46,7 +46,8 @@ class DerivativeConvergenceTests(unittest.TestCase):
                     assert_convergence(result)
         finally:
             if self.plot_dir is not None and results:
-                description = self._testMethodName.removeprefix("test_").replace("_", " ")
+                name = self._testMethodName
+                description = (name[len("test_"):] if name.startswith("test_") else name).replace("_", " ")
                 plot_convergence(
                     results, self.plot_dir / f"{self._testMethodName}.png", description,
                 )
