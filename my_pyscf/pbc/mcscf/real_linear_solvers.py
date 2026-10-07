@@ -12,8 +12,9 @@ from scipy.sparse import linalg as sparse_linalg
 
 The k-LASSCF Hessian is real-linear: real and imaginary components are
 independent real coordinates, so SciPy's complex-linear Krylov solvers cannot
-be applied directly.  These wrappers expose an n-element complex problem as a
-2n-element real problem and convert the solution back to complex storage.
+be applied directly. These wrappers use a real problem and convert solutions
+back to complex storage. By default it has 2n coordinates; an imaginary_mask
+can omit inactive imaginary partners without changing the storage layout.
 """
 
 
@@ -36,7 +37,7 @@ class SolveScipyCGForCplx:
         Callable or operator providing matvec/_matvec.
     real_hdiag : array_like, optional
         Doubled-real diagonal ordered as real coordinates followed by
-        imaginary coordinates.
+        imaginary coordinates, or its compact restriction to enabled slots.
     rtol, atol, maxiter
         Convergence settings passed to :func:`scipy.sparse.linalg.cg`.
     callback : callable, optional
@@ -46,13 +47,18 @@ class SolveScipyCGForCplx:
         Hessian action.
     diagonal_floor : float, optional
         Minimum absolute diagonal used by the preconditioner.
+    imaginary_mask : array_like of bool, optional
+        One flag per complex slot. False omits its imaginary component from
+        the real solver while retaining a uniform complex storage buffer.
     """
 
     def __init__(
             self, hessian, real_hdiag=None, *, rtol=1e-5, atol=0.0,
             maxiter=None, callback=None, compute_residual=False,
-            diagonal_floor=1e-8):
+            diagonal_floor=1e-8, imaginary_mask=None):
         
+        self.imaginary_mask = imaginary_mask
+        self._real_mask = None
         self.hessian = hessian
         self.real_hdiag = real_hdiag
         self.rtol = float(rtol)
@@ -101,6 +107,31 @@ class SolveScipyCGForCplx:
             + 1.0j * np.asarray(vector[ncomplex:], dtype=float)
         )
 
+    def _set_coordinate_mask(self, ncomplex):
+        if self.imaginary_mask is None:
+            imaginary = np.ones(ncomplex, dtype=bool)
+        else:
+            imaginary = np.asarray(self.imaginary_mask, dtype=bool)
+            if imaginary.shape != (ncomplex,):
+                raise ValueError("imaginary_mask must have one entry per complex slot")
+        self._real_mask = np.concatenate((np.ones(ncomplex, dtype=bool), imaginary))
+
+    def _unpack_coordinates(self, vector):
+        doubled = self.unpack_complex(vector)
+        if np.any(np.abs(doubled[~self._real_mask]) > 1e-12):
+            raise ValueError("inactive imaginary coordinates must be zero")
+        return doubled[self._real_mask]
+
+    def _pack_coordinates(self, vector):
+        vector = np.asarray(vector)
+        if vector.shape != (int(self._real_mask.sum()),):
+            raise ValueError("compact real vector has an incompatible shape")
+        if np.iscomplexobj(vector) or not np.all(np.isfinite(vector)):
+            raise ValueError("compact real vector must contain finite real values")
+        doubled = np.zeros(self._real_mask.size, dtype=float)
+        doubled[self._real_mask] = vector
+        return self.pack_real(doubled)
+
     def _complex_matvec(self, vector):
         matvec = getattr(self.hessian, "matvec", None)
         if matvec is None:
@@ -123,12 +154,12 @@ class SolveScipyCGForCplx:
 
     def _make_real_operator(self, ncomplex):
         def matvec(real_vector):
-            complex_vector = self.pack_real(real_vector)
+            complex_vector = self._pack_coordinates(real_vector)
             complex_result = self._complex_matvec(complex_vector)
-            return self.unpack_complex(complex_result)
+            return self._unpack_coordinates(complex_result)
 
         return sparse_linalg.LinearOperator(
-            (2 * ncomplex, 2 * ncomplex), matvec=matvec, dtype=float,
+            (int(self._real_mask.sum()),) * 2, matvec=matvec, dtype=float,
         )
 
     def _make_real_preconditioner(self, ncomplex):
@@ -136,14 +167,17 @@ class SolveScipyCGForCplx:
             return None
 
         diagonal = np.asarray(self.real_hdiag)
-        if diagonal.ndim != 1 or diagonal.size != 2 * ncomplex:
+        nreal = int(self._real_mask.sum())
+        if diagonal.ndim != 1 or diagonal.size not in (2 * ncomplex, nreal):
             raise ValueError(
-                "real_hdiag must be a one-dimensional doubled-real "
-                f"diagonal of size {2 * ncomplex}; got {diagonal.shape}"
+                "real_hdiag must be a one-dimensional doubled-real or compact "
+                f"diagonal of size {2 * ncomplex} or {nreal}; got {diagonal.shape}"
             )
         if np.iscomplexobj(diagonal):
             raise TypeError("real_hdiag must have a real dtype")
         diagonal = np.asarray(diagonal, dtype=float).copy()
+        if diagonal.size == 2 * ncomplex:
+            diagonal = diagonal[self._real_mask]
         if not np.all(np.isfinite(diagonal)):
             raise ValueError("real_hdiag must contain only finite values")
 
@@ -152,7 +186,7 @@ class SolveScipyCGForCplx:
         diagonal[small] = signs * self.diagonal_floor
 
         return sparse_linalg.LinearOperator(
-            (2 * ncomplex, 2 * ncomplex),
+            (nreal, nreal),
             matvec=lambda vector: vector / diagonal,
             dtype=float,
         )
@@ -165,9 +199,10 @@ class SolveScipyCGForCplx:
             raise ValueError("gradient must contain only finite values")
 
         ncomplex = gradient.size
+        self._set_coordinate_mask(ncomplex)
         self.real_operator = self._make_real_operator(ncomplex)
         self.real_preconditioner = self._make_real_preconditioner(ncomplex)
-        rhs = -self.unpack_complex(gradient)
+        rhs = -self._unpack_coordinates(gradient)
 
         if x0 is None:
             real_x0 = None
@@ -177,19 +212,19 @@ class SolveScipyCGForCplx:
                 raise ValueError(
                     f"x0 has {x0.size} entries; expected {ncomplex}"
                 )
-            real_x0 = self.unpack_complex(x0)
+            real_x0 = self._unpack_coordinates(x0)
 
         if self.callback is None:
             real_callback = None
         else:
             real_callback = lambda vector: self.callback(
-                self.pack_real(vector)
+                self._pack_coordinates(vector)
             )
 
         return gradient, rhs, real_x0, real_callback
 
     def _finish_solve(self, real_solution, gradient):
-        self.solution = self.pack_real(real_solution)
+        self.solution = self._pack_coordinates(real_solution)
         self.residual_norm = None
         if self.compute_residual:
             residual = self._complex_matvec(self.solution) + gradient

@@ -28,7 +28,9 @@ from mrh.my_pyscf.pbc.util.wannier import get_wannier_orbs
 from mrh.my_pyscf.mcscf.lasscf_sync_o0 import (
     LASSCF_UnitaryGroupGenerators as MolecularLASSCF_UnitaryGroupGenerators,
 )
-from mrh.util.la import safe_svd_warner
+from mrh.my_pyscf.pbc.mcscf.active_active_rotation_map import (
+    ActiveActiveRotationMap,
+)
 
 # Author: Bhavnesh Jangid
 
@@ -57,314 +59,14 @@ def _check_shape(mat, shape, label="array"):
         raise ValueError(msg)
 
 
-def _pivoted_projector_basis(sub_bas):
-    """
-    Choose coordinates from a subspace projector, independent of SVD gauge.
-    The input sub_bas must have orthonormal columns.
-    Pivoted, reorthogonalized projector columns fix both the orientation
-    and phases. Numerically tied pivots use Bloch-pair order, so degenerate
-    singular vectors cannot randomly rotate the diagonal preconditioner.
-    """
-
-    nrow, rank = sub_bas.shape
-    if rank == 0: return sub_bas.copy()
-    projector = sub_bas @ sub_bas.conj().T
-    residual = projector.copy()
-    basis = np.empty((nrow, rank), dtype=sub_bas.dtype)
-
-    for column in range(rank):
-        norms = np.maximum(np.diag(residual).real, 0.0)
-        largest = np.max(norms)
-        pivot = np.flatnonzero(norms >= largest * (1 - 1e-10))[0]
-        vec = projector[:, pivot].copy()
-        for _ in range(2):
-            retained = basis[:, :column]
-            vec -= retained @ (retained.conj().T @ vec)
-        vec /= np.linalg.norm(vec)
-        vec *= vec[pivot].conj() / abs(vec[pivot])
-        basis[:, column] = vec
-        residual -= np.outer(vec, vec.conj())
-    return basis
-
-
-class ActiveActiveRotationMap:
-    """Map inter-fragment Wannier rotations to Bloch-MO rotations.
-
-    The periodic orbital optimizer represents active rotations as independent
-    lower-triangular pairs within each k-point Bloch sector. The LAS fragment
-    partition instead identifies nonredundant active-active rotations between
-    Wannier fragments. This class constructs the linear map between those two
-    representations and compresses its image to an orthonormal basis.
-
-    For a selected Bloch pair (k, a, b) and Wannier pair (p, q),
-    pair_map contains
-
-    mo_phase[k, a, p] * mo_phase[k, b, q].conj().
-
-    The retained singular vectors determine the image; canonical projector
-    columns define stable independent active-active coordinates.
-    The map is complex-linear; anti-Hermitian completion is applied only by
-    :meth:`unpack`, after the lower-pair coordinates have been expanded.
-
-    Args:
-        mo_phase : ndarray of shape (nkpts, ncas, ncastot)
-            Unitary transformation from the complete Wannier active space to
-            the active Bloch MOs at each k-point. ncastot must equal
-            nkpts * ncas.
-        ncas_sub : array-like of int
-            Numbers of active orbitals assigned to the LAS fragments. Their
-            sum must equal ncastot; their order defines the Wannier
-            fragment partition.
-
-    Kwargs:
-        bloch_pair_mask : ndarray of bool, optional
-            Mask of shape (nkpts, ncas, ncas) selecting the strictly
-            lower-triangular Bloch active pairs available to the optimizer.
-            By default, every strictly lower-triangular pair is selected.
-        svd_tol : float, optional
-            Absolute singular-value cutoff used to determine the rank of the
-            pair map. The default dimension- and precision-scaled cutoff has
-            an absolute floor of 1e-10, matching the unitary-input tolerance.
-        verbose : int or :class:`pyscf.lib.logger.Logger`, optional
-            PySCF verbosity level or logger. The retained numerical rank is
-            reported at debug verbosity.
-
-    Attributes:
-        pair_map : ndarray
-            Complex-linear map from inter-fragment Wannier lower-pair
-            amplitudes to selected Bloch lower-pair amplitudes.
-        basis : ndarray
-            Orthonormal basis for the image of pair_map. Its number of
-            columns is :attr:`nvar`.
-        singular_values : ndarray
-            Singular values of pair_map in descending order.
-
-    Raises:
-        ValueError
-            If mo_phase does not define a unitary transformation.
-    """
-
-    def __init__(self, mo_phase, ncas_sub, bloch_pair_mask=None,
-                 svd_tol=None, verbose=None):
-
-        mo_phase = np.asarray(mo_phase)
-        ncas_sub = np.asarray(ncas_sub, dtype=int).reshape(-1)
-        if verbose is None:
-            verbose = lib.logger.QUIET
-        log = lib.logger.new_logger(None, verbose)
-
-        if mo_phase.ndim != 3:
-            msg = ("mo_phase must have shape (nkpts, ncas, ncastot); "
-                f"got {mo_phase.shape}")
-            raise ValueError(msg)
-        dtype = np.result_type(mo_phase.dtype, np.complex128)
-        mo_phase = np.asarray(mo_phase, dtype=dtype)
-
-        if svd_tol is not None: svd_tol = float(svd_tol)
-          
-        self.nkpts, self.ncas, self.ncastot = mo_phase.shape
-        if self.ncastot != self.nkpts * self.ncas:
-            msg = ("mo_phase must map a square stacked Bloch-active space; "
-                f"got nkpts*ncas={self.nkpts * self.ncas} and "
-                f"ncastot={self.ncastot}")
-            raise ValueError(msg)
-
-        stacked_phase = mo_phase.reshape(self.ncastot, self.ncastot)
-
-        if not np.allclose(
-                stacked_phase.conj().T @ stacked_phase,
-                np.eye(self.ncastot, dtype=mo_phase.dtype),
-                rtol=1e-10, atol=1e-10,):
-            raise ValueError("mo_phase must be unitary")
-
-        if int(ncas_sub.sum()) != self.ncastot:
-            msg = (f"sum(ncas_sub)={int(ncas_sub.sum())}; expected "
-                f"ncastot={self.ncastot}")
-            raise ValueError(msg)
-
-        self.mo_phase = mo_phase
-        self.ncas_sub = ncas_sub
-
-        fragment = np.repeat(np.arange(ncas_sub.size), ncas_sub)
-        self.wannier_pair_idx = np.where(fragment[:, None] > fragment[None, :])
-
-        if bloch_pair_mask is None:
-            bloch_pair_mask = np.broadcast_to(
-                np.tril(np.ones((self.ncas, self.ncas), dtype=bool), -1),
-                (self.nkpts, self.ncas, self.ncas),
-            )
-
-        bloch_pair_mask = np.asarray(bloch_pair_mask, dtype=bool)
-        _check_shape(
-            bloch_pair_mask, (self.nkpts, self.ncas, self.ncas),
-            label="bloch_pair_mask",
-        )
-        self.bloch_pair_mask = np.array(bloch_pair_mask, copy=True)
-        self.bloch_pair_idx = np.where(self.bloch_pair_mask)
-
-        bloch_k, bloch_row, bloch_col = self.bloch_pair_idx
-        wannier_row, wannier_col = self.wannier_pair_idx
-
-        self.pair_map = (
-            self.mo_phase[
-                bloch_k[:, None], bloch_row[:, None],
-                wannier_row[None, :],
-            ]
-            * self.mo_phase[
-                bloch_k[:, None], bloch_col[:, None],
-                wannier_col[None, :],
-            ].conj()
-        )
-
-        nbloch_pair, nwannier_pair = self.pair_map.shape
-        basis_dtype = np.result_type(self.mo_phase.dtype, np.complex128)
-        if nbloch_pair == 0 or nwannier_pair == 0:
-            self.singular_values = np.empty(0, dtype=float)
-            self.svd_tol = 0.0 if svd_tol is None else float(svd_tol)
-            self.basis = np.empty((nbloch_pair, 0), dtype=basis_dtype)
-            log.debug(
-                "Active-active Bloch rotation map: retained 0 of 0 "
-                "singular values (shape %s)", self.pair_map.shape,
-            )
-            # Return early if no valid pairs are found
-            return
-
-        # The dense SVD interface also computes right singular vectors, even
-        # though only the left image is needed here. safe_svd_warner retries
-        # with Hermitian eigensolvers if the BLAS/LAPACK SVD fails.
-        safe_svd = safe_svd_warner(log.warn)
-        left, singular_values, _ = safe_svd(
-            self.pair_map, full_matrices=False,
-        )
-
-        if svd_tol is None:
-            svd_tol = max(
-                1e-10,
-                max(self.pair_map.shape)
-                * np.finfo(singular_values.dtype).eps
-                * singular_values[0]
-            )
-        retain = singular_values > svd_tol
-        rank = int(np.count_nonzero(retain))
-        log.debug(
-            "Active-active Bloch rotation map: retained %d of %d singular "
-            "values above %.3g (shape %s)",
-            rank, singular_values.size, svd_tol, self.pair_map.shape,
-        )
-        self.singular_values = singular_values
-        self.svd_tol = svd_tol
-        self.basis = _pivoted_projector_basis(
-            np.asarray(left[:, retain], dtype=basis_dtype),
-        )
-
-    @property
-    def nvar(self):
-        """int: Number of independent active-active coordinates."""
-        return self.basis.shape[1]
-
-    def bloch_to_wannier(self, kappa_active):
-        """Transform k-diagonal Bloch matrices to the Wannier basis.
-
-        Args:
-            kappa_active : ndarray of shape (nkpts, ncas, ncas)
-                Active-space matrix for each k-point.
-
-        Returns:
-            ndarray of shape (ncastot, ncastot)
-                Matrix in the complete Wannier active space.
-        """
-        kappa_active = np.asarray(kappa_active)
-        _check_shape(
-            kappa_active, (self.nkpts, self.ncas, self.ncas),
-            label="kappa_active",
-        )
-        return np.einsum(
-            "kap,kab,kbq->pq", self.mo_phase.conj(), kappa_active,
-            self.mo_phase, optimize=True,
-        )
-
-    def wannier_to_bloch(self, kappa_wannier):
-        """Transform a Wannier matrix to its k-diagonal Bloch matrices.
-
-        Args:
-            kappa_wannier : ndarray of shape (ncastot, ncastot)
-                Matrix in the complete Wannier active space.
-
-        Returns:
-            ndarray of shape (nkpts, ncas, ncas)
-                K-diagonal active-space matrices in the Bloch-MO basis.
-
-        Notes:
-            Components that couple different k-points are omitted from the
-            returned Bloch representation.
-        """
-        kappa_wannier = np.asarray(kappa_wannier)
-        _check_shape(
-            kappa_wannier, (self.ncastot, self.ncastot),
-            label="kappa_wannier",
-        )
-        return np.einsum(
-            "kap,pq,kbq->kab", self.mo_phase, kappa_wannier,
-            self.mo_phase.conj(), optimize=True,
-        )
-
-    def pack(self, kappa_active):
-        """Project Bloch active rotations onto independent coordinates.
-
-        Args:
-            kappa_active : ndarray of shape (nkpts, ncas, ncas)
-                Active-space rotation matrix for each k-point. Only entries
-                selected by bloch_pair_mask are read.
-
-        Returns:
-            ndarray of shape (nvar,)
-                Coordinates in the orthonormal image of pair_map.
-        """
-        kappa_active = np.asarray(kappa_active)
-        _check_shape(
-            kappa_active, (self.nkpts, self.ncas, self.ncas),
-            label="kappa_active",
-        )
-        bloch_pairs = np.asarray(kappa_active[self.bloch_pair_idx])
-        return np.asarray(self.basis.conj().T @ bloch_pairs).reshape(-1)
-
-    def unpack(self, coordinates):
-        """Expand independent coordinates into Bloch rotation matrices.
-
-        Args:
-            coordinates : array-like of shape (nvar,)
-                Coordinates in the orthonormal image of pair_map.
-
-        Returns:
-            ndarray of shape (nkpts, ncas, ncas)
-                Anti-Hermitian active-space rotation matrix at each k-point.
-
-        Raises:
-            ValueError
-                If the number of coordinates differs from :attr:`nvar`.
-        """
-        coordinates = np.asarray(coordinates).reshape(-1)
-        if coordinates.size != self.nvar:
-            msg = (
-                f"active-active vector has size {coordinates.size}; "
-                f"expected {self.nvar}"
-            )
-            raise ValueError(msg)
-        dtype = np.result_type(coordinates.dtype, self.basis.dtype)
-        kappa_active = np.zeros(
-            (self.nkpts, self.ncas, self.ncas), dtype=dtype,
-        )
-        kappa_active[self.bloch_pair_idx] = self.basis @ coordinates
-        return kappa_active - kappa_active.conj().transpose(0, 2, 1)
-
-
 class KLASSCF_UnitaryGroupGenerators(MolecularLASSCF_UnitaryGroupGenerators):
     """Pack and unpack the k-LASSCF orbital and CI variables.
 
     Orbital variables are ordered in two sections. The ordinary nonredundant
     core-active, core-virtual, and active-virtual rotations are stored first,
     grouped by k-point. They are followed by the independent active-active
-    rotations obtained from :class:`ActiveActiveRotationMap`. CI variables
+    rotations obtained from the complete real-linear active rotation map.
+    All entries use complex storage, but active coefficients have real values. CI variables
     come last, ordered by fragment and root and represented in the complex CSF
     basis.
     
@@ -476,7 +178,7 @@ class KLASSCF_UnitaryGroupGenerators(MolecularLASSCF_UnitaryGroupGenerators):
 
         active_nonfrozen = nonfrozen[ncore:nocc]
         active_pair_mask = np.broadcast_to(
-            np.tril(np.ones((ncas, ncas), dtype=bool), -1),
+            np.tril(np.ones((ncas, ncas), dtype=bool)),
             (self.nkpts, ncas, ncas),
         ).copy()
         active_pair_mask &= active_nonfrozen[None, :, None]
@@ -527,6 +229,57 @@ class KLASSCF_UnitaryGroupGenerators(MolecularLASSCF_UnitaryGroupGenerators):
         """int: Total number of independent orbital variables."""
         return self.nvar_orb_external + self.nvar_orb_active_active
 
+    # Active coordinates are real-valued; external orbital and CI entries
+    # have independent real and imaginary components, all in complex storage.
+    active_coordinates_real = True
+
+    @property
+    def imaginary_mask(self):
+        mask = np.ones(self.nvar_tot, dtype=bool)
+        mask[self.nvar_orb_external:self.nvar_orb] = False
+        return mask
+
+    @property
+    def nvar_real(self):
+        return self.nvar_tot + int(self.imaginary_mask.sum())
+
+    def to_real(self, vector):
+        """Compact real layout: all real parts, then enabled imaginary parts."""
+        vector = np.asarray(vector).reshape(-1)
+        _check_shape(vector, (self.nvar_tot,), label="combined vector")
+        if not np.all(np.isfinite(vector)):
+            raise ValueError("combined vector must contain only finite values")
+        if np.any(np.abs(vector.imag[~self.imaginary_mask]) > 1e-12):
+            raise ValueError("active-active coordinates must be real-valued")
+        return np.concatenate((vector.real, vector.imag[self.imaginary_mask]))
+
+    def from_real(self, vector):
+        """Restore complex storage without adding active imaginary directions."""
+        vector = np.asarray(vector)
+        _check_shape(vector, (self.nvar_real,), label="real vector")
+        if np.iscomplexobj(vector) or not np.all(np.isfinite(vector)):
+            raise ValueError("real vector must contain finite real values")
+        result = np.asarray(vector[:self.nvar_tot], dtype=complex)
+        result.imag[self.imaginary_mask] = vector[self.nvar_tot:]
+        return result
+
+    def project_orb_gradient(self, matrix):
+        """Adjoint of x -> unpack_orb(x)/2 in the real Euclidean metric.
+
+        Energy derivatives are Re vdot(project_orb_gradient(G), x).
+        G is the full Frobenius orbital derivative, summed over k-points.
+        This method supplies the gradient normalization, not an energy/cell
+        normalization; divide the directional derivative by nkpts separately.
+        """
+        matrix = np.asarray(matrix)
+        _check_shape(matrix, (self.nkpts, self.nmo, self.nmo), label="orbital gradient")
+        skew = (matrix - matrix.conj().transpose(0, 2, 1)) / 2.0
+        return self.pack_orb(skew)
+
+    def pack_gradient(self, gorb, gci):
+        """Project the orbital gradient and transform CI derivatives to CSFs."""
+        return np.concatenate((self.project_orb_gradient(gorb), self.pack_ci(gci)))
+
     def addr2idstr(self, addr):
         if self.nvar_orb_external <= addr < self.nvar_orb:
             return "orb active-active: {}".format(
@@ -539,8 +292,10 @@ class KLASSCF_UnitaryGroupGenerators(MolecularLASSCF_UnitaryGroupGenerators):
 
         Args:
             kappa : ndarray of shape (nkpts, nmo, nmo)
-                Orbital-rotation matrices. The selected lower-pair entries are
-                read; redundant entries are ignored.
+                Anti-Hermitian orbital-rotation matrices. External lower
+                pairs are read; active components are projected in the real
+                Frobenius metric. Active coordinates are divided by sqrt(2)
+                so unpack_orb(x) has squared norm 2*Re vdot(x,x).
 
         Returns:
             ndarray of shape (nvar_orb,)
@@ -553,9 +308,10 @@ class KLASSCF_UnitaryGroupGenerators(MolecularLASSCF_UnitaryGroupGenerators):
         active = slice(
             self.ncore, self.ncore + self.active_active_map.ncas,
         )
+        # sqrt(2) matches the norm of one complex external lower pair.
         x_active_active = self.active_active_map.pack(
             kappa[:, active, active],
-        )
+        ) / np.sqrt(2.0)
         return np.concatenate((x_external, x_active_active))
 
     def unpack_orb(self, x_orb):
@@ -563,7 +319,9 @@ class KLASSCF_UnitaryGroupGenerators(MolecularLASSCF_UnitaryGroupGenerators):
 
         Args:
             x_orb : array-like of shape (nvar_orb,)
-                Packed complex orbital coordinates.
+                Complex storage: external pairs are complex; active
+                coefficients have real values. Their normalized map generators
+                are multiplied by sqrt(2) to match the external-pair metric.
 
         Returns:
             ndarray of shape (nkpts, nmo, nmo)
@@ -577,7 +335,7 @@ class KLASSCF_UnitaryGroupGenerators(MolecularLASSCF_UnitaryGroupGenerators):
             )
             raise ValueError(msg)
         dtype = np.result_type(
-            x_orb.dtype, self.active_active_map.basis.dtype,
+            x_orb.dtype, self.active_active_map.basis.dtype, np.complex128,
         )
         kappa = np.zeros(
             (self.nkpts, self.nmo, self.nmo), dtype=dtype,
@@ -588,7 +346,7 @@ class KLASSCF_UnitaryGroupGenerators(MolecularLASSCF_UnitaryGroupGenerators):
         active = slice(
             self.ncore, self.ncore + self.active_active_map.ncas,
         )
-        kappa[:, active, active] += self.active_active_map.unpack(
+        kappa[:, active, active] += np.sqrt(2.0) * self.active_active_map.unpack(
             x_orb[nvar_external:],
         )
         return kappa
@@ -870,8 +628,10 @@ def get_grad(klas, mo_coeff=None, ci=None, ugg=None, h2eff_sub=None,
              h1eff=None, h2eff=None):
     """Return the packed k-LASSCF orbital and CI energy gradient.
 
-    The orbital gradient is packed first, followed by the CI gradient, using
-    the ordering defined by ugg.
+    The orbital derivative is projected with the adjoint of the half-generator
+    orbital update, followed by the CI derivative in CSF coordinates. The
+    result differentiates the extensive supercell energy; divide directional
+    contractions by nkpts for energy per primitive cell.
 
     Args:
         klas : object
@@ -921,7 +681,8 @@ def get_grad(klas, mo_coeff=None, ci=None, ugg=None, h2eff_sub=None,
         mo_coeff=mo_coeff, ci=ci, ugg=ugg, casdm1frs=casdm1frs,
         h1eff=h1eff, h2eff=h2eff,
     )
-    return ugg.pack(gorb, gci)
+    pack_gradient = getattr(ugg, "pack_gradient", ugg.pack)
+    return pack_gradient(gorb, gci)
 
 
 class KLASSCF_HessianOperator(molLASSCF_HessianOperator):
@@ -2024,7 +1785,8 @@ class KLASSCF_HessianOperator(molLASSCF_HessianOperator):
             [2.0 * residual for residual in residual_r]
             for residual_r in self.hci0
         ]
-        gradient = np.asarray(self.ugg.pack(gorb, gci)).reshape(-1)
+        pack_gradient = getattr(self.ugg, "pack_gradient", self.ugg.pack)
+        gradient = np.asarray(pack_gradient(gorb, gci)).reshape(-1)
         _check_shape(
             gradient, (self.ugg.nvar_tot,), label="gradient",
         )
@@ -2497,6 +2259,8 @@ class KLASSCF_HessianOperator(molLASSCF_HessianOperator):
         response_active += response_external[:, active, active]
 
         active_coordinates = rotation_map.pack(kappa_active)
+        if getattr(self.ugg, "active_coordinates_real", False):
+            active_coordinates /= np.sqrt(2.0)
         response_cross = self._apply_Horb_active_external_cross(
             active_coordinates,
         )
@@ -2607,6 +2371,8 @@ class KLASSCF_HessianOperator(molLASSCF_HessianOperator):
         # the unpacked active direction is therefore the correct adjoint seed
         # for the full anti-Hermitian response matrix.
         dual[:, active, active] = rotation_map.unpack(coordinates) / 2.0
+        if getattr(self.ugg, "active_coordinates_real", False):
+            dual[:, active, active] *= np.sqrt(2.0)
         adjoint = np.zeros_like(dual)
 
         # Adjoint of the one-body and JK response.  The periodic Coulomb and
@@ -2832,6 +2598,10 @@ class KLASSCF_HessianOperator(molLASSCF_HessianOperator):
                 f"expected {rotation_map.nvar}"
             )
             raise ValueError(msg)
+        # Imaginary probes in the doubled-storage diagonal are inactive for
+        # real active coordinates; the solver omits those slots entirely.
+        if getattr(self.ugg, "active_coordinates_real", False):
+            coordinates = coordinates.real
         kappa_bloch = rotation_map.unpack(coordinates)
         kappa_wannier = rotation_map.bloch_to_wannier(kappa_bloch)
         response_wannier = (
@@ -3742,6 +3512,8 @@ def kernel(
             "maxiter": micro_cycles,
             "callback": micro_callback,
         }
+        if hasattr(ugg, "imaginary_mask"):
+            solver_kwargs["imaginary_mask"] = ugg.imaginary_mask
         if real_diagonal is not None:
             solver_kwargs["real_hdiag"] = real_diagonal
         if getattr(klas, "micro_solver_compute_residual", False):
