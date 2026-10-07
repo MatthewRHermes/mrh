@@ -2,6 +2,9 @@
 
 """Check H2 k-LASSCF energies for 1, 2, and 3 k-points with 20 Angstrom vacuum.
 Compare Gamma with PySCF CASCI/CASSCF and other meshes with fixed references.
+The three-point reference includes the complete active rotation map, including
+k-dependent imaginary diagonal generators; its value was also checked against
+synchronous LASSCF using the same periodic Hamiltonian in supercell coordinates.
 """
 
 import unittest
@@ -90,7 +93,7 @@ class KnownValuesH2KLASSCF(unittest.TestCase):
 
     def test_three_kpoint_reference_energy(self):
         las, _, _ = self._run_h2(3)
-        self.assertAlmostEqual(las.e_tot.real, -0.971249748912661, delta=1e-7)
+        self.assertAlmostEqual(las.e_tot.real, -0.972509694148662, delta=1e-7)
 
 
 if __name__ == "__main__":
