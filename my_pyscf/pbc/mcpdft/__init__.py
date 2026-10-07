@@ -269,6 +269,9 @@ def _validate_klas_pdft_input(klas, method):
         msg = "translation-packed kLAS-PDFT is not implemented"
         raise NotImplementedError(msg)
     
+    if klas.nroots != 1:
+        raise NotImplementedError("kLAS-PDFT currently supports one root")
+
     nkpts = len(klas.kpts)
     ncastot = nkpts * int(klas.ncas)
     if int(sum(klas.ncas_sub)) != ncastot:

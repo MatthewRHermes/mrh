@@ -184,6 +184,11 @@ def make_klas_rdms_kpts(casdm1s, casdm2, mo_phase, kconserv):
         raise ValueError(msg)
     
     kconserv = np.asarray(kconserv)
+    expected_shape = (nkpts, nkpts, nkpts)
+    if kconserv.shape != expected_shape:
+        raise ValueError(
+            f"kconserv shape must be {expected_shape}; got {kconserv.shape}"
+        )
 
     casdm1s = np.asarray(casdm1s, dtype = mo_phase.dtype)
     casdm2 = np.asarray(casdm2, dtype = mo_phase.dtype)
