@@ -2,7 +2,6 @@
 Example script for the k-LASSCF.
 """
 
-import sys
 import numpy as np
 
 from pyscf import lib
@@ -12,7 +11,7 @@ from mrh.my_pyscf.pbc import mcscf
 from mrh.my_pyscf.pbc.mcscf import avas
 
 
-nk = int(sys.argv[1])
+nk = 5
 
 cell = gto.Cell()
 cell.a = np.diag([4.0, 10.0, 10.0])
