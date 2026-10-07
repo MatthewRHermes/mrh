@@ -1,15 +1,6 @@
-"""Reduced-density-matrix helpers for periodic kLAS-PDFT.
-
-The kLAS wave function is a product of fragment states expressed in a
-Wannier active-orbital basis.  This module selects one root from that product
-state and assembles the full active-space one- and two-body density matrices
-needed by MC-PDFT.  Basis transformation and energy evaluation deliberately
-live outside this module.
-"""
-
-from numbers import Integral
-
 import numpy as np
+
+from pyscf.pbc.lib import kpts_helper
 
 from mrh.my_pyscf.pbc.mcscf.productstate import PBCProductStateFCISolver
 from mrh.my_pyscf.pbc.mcscf.mc1step import (
@@ -17,36 +8,27 @@ from mrh.my_pyscf.pbc.mcscf.mc1step import (
 )
 from mrh.my_pyscf.pbc.mcpdft._dms import dm2_cumulant_complex
 from mrh.my_pyscf.pbc.util.wannier import get_wannier_orbs
+from mrh.my_pyscf.pbc.mcscf.klasscf import _check_shape
+
+# Author: Bhavnesh Jangid
+
+"""Build Wannier-basis kLAS RDMs and transform them to k-point PDFT blocks."""
 
 
 def _get_klas_rdm_context(klas, ci=None, state=0):
-    """Resolve the fragment solvers and CI vectors for one kLAS root.
+    """Select fragment solvers and CI vectors for one kLAS rootspace.
 
-    Parameters
-    ----------
-    klas : object
-        A completed periodic LASCI or LASSCF object.  It must provide
-        ``fciboxes``, ``ncas_sub``, ``nelecas_sub``, ``nroots``, and ``ci``.
-    ci : sequence, optional
-        Fragment-major CI vectors.  ``ci[ifrag][state]`` is the selected CI
-        vector for fragment ``ifrag``.  The stored ``klas.ci`` is used by
-        default.
-    state : int, optional
-        Rootspace index to select.
-
-    Returns
-    -------
-    fcisolvers : list
-        One fragment FCI solver for the selected rootspace.
-    ci_state : list
-        One CI vector per fragment for the selected rootspace.
-    ncas_sub : ndarray
-        Numbers of active orbitals in the fragments.
-    nelecas_sub : ndarray
-        Alpha and beta active-electron counts in the fragments.
+    Args:
+        klas: Periodic LASCI or LASSCF object containing fragment states.
+    Kwargs:
+        ci: Fragment CI vectors indexed as ci[ifrag][state]; defaults to klas.ci.
+        state: Rootspace index; defaults to 0.
+    Returns:
+        fcisolvers: List of fragment FCI solvers for the selected rootspace.
+        ci_state: List of fragment CI vectors for the selected rootspace.
+        ncas_sub: Active orbital counts, shape (nfrags,).
+        nelecas_sub: Fragment alpha/beta electron counts, shape (nfrags, 2).
     """
-    if not isinstance(state, Integral):
-        raise TypeError("state must be an integer")
     state = int(state)
 
     try:
@@ -110,242 +92,146 @@ def _get_klas_rdm_context(klas, ci=None, state=0):
 
 
 def make_one_casdm12_klas(klas, ci=None, state=0):
-    """Build one kLAS state's active-space spin 1-RDMs and total 2-RDM.
+    """Build Wannier-basis RDMs, including interfragment direct and exchange terms.
 
-    The returned matrices are expressed in the same Wannier active-orbital
-    basis as the kLAS product-state CI.  No Wannier-to-k-point transformation
-    is performed here.
-
-    Parameters
-    ----------
-    klas : object
-        A completed periodic LASCI or LASSCF object.
-    ci : sequence, optional
-        Fragment-major CI vectors.  The stored ``klas.ci`` is used by default.
-    state : int, optional
-        Rootspace index to select.
-
-    Returns
-    -------
-    casdm1s : ndarray
-        Spin-separated active-space 1-RDM with shape
-        ``(2, ncastot, ncastot)``.
-    casdm2 : ndarray
-        Spin-summed active-space 2-RDM with shape ``(ncastot,) * 4``.
+    Args:
+        klas: Periodic LASCI or LASSCF object containing fragment states.
+    Kwargs:
+        ci: Fragment CI vectors indexed as ci[ifrag][state]; defaults to klas.ci.
+        state: Rootspace index; defaults to 0.
+    Returns:
+        casdm1s: Alpha/beta 1-RDMs, shape (2, ncastot, ncastot), using <p^+ q>.
+        casdm2: Spin-summed 2-RDM, shape (ncastot,) * 4.
+        Both use fragment orbital order, with ncastot = sum(klas.ncas_sub).
     """
+    
     fcisolvers, ci_state, ncas_sub, nelecas_sub = _get_klas_rdm_context(
         klas, ci=ci, state=state,
     )
+    
     solver = PBCProductStateFCISolver(
         fcisolvers,
         stdout=getattr(klas, "stdout", None),
         verbose=getattr(klas, "verbose", 0),
     )
-    casdm1s = np.asarray(
-        solver.make_rdm1s(ci_state, ncas_sub, nelecas_sub),
-    )
-    casdm2 = np.asarray(
-        solver.make_rdm2(ci_state, ncas_sub, nelecas_sub),
-    )
+
+    casdm1s = np.asarray(solver.make_rdm1s(ci_state, ncas_sub, nelecas_sub),)
+    casdm2 = np.asarray(solver.make_rdm2(ci_state, ncas_sub, nelecas_sub),)
 
     ncastot = int(ncas_sub.sum())
-    expected_dm1_shape = (2, ncastot, ncastot)
-    expected_dm2_shape = (ncastot,) * 4
-    if casdm1s.shape != expected_dm1_shape:
-        raise ValueError(
-            f"Expected kLAS spin 1-RDM shape {expected_dm1_shape}; "
-            f"got {casdm1s.shape}",
-        )
-    if casdm2.shape != expected_dm2_shape:
-        raise ValueError(
-            f"Expected kLAS 2-RDM shape {expected_dm2_shape}; "
-            f"got {casdm2.shape}",
-        )
-    if not np.all(np.isfinite(casdm1s)) or not np.all(np.isfinite(casdm2)):
-        raise ValueError("kLAS density matrices must contain only finite values")
+    _check_shape(casdm1s, (2, ncastot, ncastot), "casdm1s")
+    _check_shape(casdm2, (ncastot,) * 4, "casdm2")
     return casdm1s, casdm2
 
 
 def make_one_casdm1s_klas(klas, ci=None, state=0):
-    """Return one kLAS state's spin-separated Wannier-basis active 1-RDMs."""
+    """Return Wannier-basis spin 1-RDMs via make_one_casdm12_klas.
+
+    Args:
+        klas: Periodic LASCI or LASSCF object containing fragment states.
+    Kwargs:
+        ci: Fragment CI vectors indexed as ci[ifrag][state]; defaults to klas.ci.
+        state: Rootspace index; defaults to 0.
+    Returns:
+        casdm1s: Alpha/beta 1-RDMs, shape (2, ncastot, ncastot),
+            where ncastot = sum(klas.ncas_sub).
+    """
     return make_one_casdm12_klas(klas, ci=ci, state=state)[0]
 
 
 def make_one_casdm2_klas(klas, ci=None, state=0):
-    """Return one kLAS state's spin-summed Wannier-basis active 2-RDM."""
+    """Return the Wannier-basis spin-summed 2-RDM via make_one_casdm12_klas.
+
+    Args:
+        klas: Periodic LASCI or LASSCF object containing fragment states.
+    Kwargs:
+        ci: Fragment CI vectors indexed as ci[ifrag][state]; defaults to klas.ci.
+        state: Rootspace index; defaults to 0.
+    Returns:
+        casdm2: Full product-state 2-RDM, shape (ncastot,) * 4,
+            where ncastot = sum(klas.ncas_sub).
+    """
     return make_one_casdm12_klas(klas, ci=ci, state=state)[1]
 
 
 def get_klas_mo_phase(klas, mo_coeff=None):
-    """Return the Bloch-to-Wannier phase matching a kLAS active space.
+    """Build and validate the orbital transformation matching the kLAS Wannier basis.
 
-    kLAS density matrices are defined by
-    :func:`mrh.my_pyscf.pbc.util.wannier.get_wannier_orbs`.  Reusing a phase
-    generated by a different periodic MC-SCF convention can silently reorder
-    or rotate their Wannier indices.  This helper therefore applies the kLAS
-    Wannier routine directly to the final active block of ``mo_coeff`` and
-    validates the resulting square transformation.
-
-    Parameters
-    ----------
-    klas : object
-        A periodic LASCI or LASSCF object providing ``_scf``, ``kmesh``,
-        ``ncore``, ``ncas``, and ``ncas_sub``.
-    mo_coeff : ndarray, optional
-        Block orbitals with shape ``(nkpts, nao, nmo)``.  The stored
-        ``klas.mo_coeff`` is used by default.
-
-    Returns
-    -------
-    mo_phase : ndarray
-        Unitary transformation with shape
-        ``(nkpts, ncas, nkpts * ncas)``.  Its last index uses the same Wannier
-        ordering as the kLAS product-state density matrices.
+    Args:
+        klas: Periodic LASCI or LASSCF object defining the orbitals and k mesh.
+    Kwargs:
+        mo_coeff: Orbital coefficients, shape (nkpts, nao, nmo);
+            defaults to klas.mo_coeff. Only the active block is transformed.
+    Returns:
+        mo_phase: Coefficients <Bloch(k, a) | Wannier(P)>, shape
+            (nkpts, ncas, nkpts * ncas). Stacking (k, a) gives a unitary matrix.
     """
     if mo_coeff is None:
-        mo_coeff = getattr(klas, "mo_coeff", None)
-    if mo_coeff is None:
-        raise ValueError("The kLAS object has no molecular orbitals")
+        mo_coeff = klas.mo_coeff
     mo_coeff = np.asarray(mo_coeff)
     if mo_coeff.ndim != 3:
         raise ValueError("mo_coeff must have shape (nkpts, nao, nmo)")
 
-    try:
-        ncore = int(klas.ncore)
-        ncas = int(klas.ncas)
-    except (AttributeError, TypeError, ValueError) as err:
-        raise ValueError("klas.ncore and klas.ncas must be integers") from err
-    nkpts = mo_coeff.shape[0]
-    if ncore < 0 or ncas <= 0 or ncore + ncas > mo_coeff.shape[2]:
-        raise ValueError("ncore and ncas are incompatible with mo_coeff")
-
-    kpts = np.asarray(getattr(klas, "kpts", ()))
-    if kpts.shape != (nkpts, 3):
-        raise ValueError(
-            f"kLAS kpts must have shape ({nkpts}, 3); got {kpts.shape}",
-        )
-    kmesh = np.asarray(getattr(klas, "kmesh", ()), dtype=int)
-    if kmesh.shape != (3,) or np.any(kmesh <= 0):
-        raise ValueError("kmesh must contain three positive integers")
-    if int(np.prod(kmesh)) != nkpts:
-        raise ValueError("The kmesh product must equal the number of k-points")
-
-    ncas_sub = np.asarray(getattr(klas, "ncas_sub", ()), dtype=int)
+    nkpts, _, _ = mo_coeff.shape
+    ncore, ncas = klas.ncore, klas.ncas
     ncastot = nkpts * ncas
-    if ncas_sub.ndim != 1 or int(ncas_sub.sum()) != ncastot:
-        raise ValueError(
-            f"sum(ncas_sub) must equal nkpts * ncas = {ncastot}",
-        )
+    if sum(klas.ncas_sub) != ncastot:
+        raise ValueError(f"sum(ncas_sub) must equal nkpts * ncas = {ncastot}")
 
-    mo_active = np.ascontiguousarray(
-        mo_coeff[:, :, ncore:ncore + ncas],
-    )
+    mo_active = np.ascontiguousarray(mo_coeff[:, :, ncore:ncore + ncas])
     mo_phase = np.asarray(
-        get_wannier_orbs(klas._scf, tuple(kmesh), mo_active)[-1],
+        get_wannier_orbs(klas._scf, klas.kmesh, mo_active)[-1],
         dtype=np.result_type(mo_coeff.dtype, np.complex128),
     )
-    expected_shape = (nkpts, ncas, ncastot)
-    if mo_phase.shape != expected_shape:
-        raise ValueError(
-            f"Expected kLAS mo_phase shape {expected_shape}; "
-            f"got {mo_phase.shape}",
+    
+    if mo_phase.shape != (nkpts, ncas, ncastot):
+        msg = (
+            f"Expected kLAS mo_phase shape {(nkpts, ncas, ncastot)}; "
+            f"got {mo_phase.shape}"
         )
-    if not np.all(np.isfinite(mo_phase)):
-        raise ValueError("kLAS mo_phase must contain only finite values")
-
+        raise ValueError(msg)
+    
     phase_matrix = mo_phase.reshape(ncastot, ncastot)
-    identity = np.eye(ncastot, dtype=phase_matrix.dtype)
-    if not (
-            np.allclose(
-                phase_matrix.conj().T @ phase_matrix,
-                identity,
-                atol=1e-8,
-                rtol=1e-8,
-            )
-            and np.allclose(
-                phase_matrix @ phase_matrix.conj().T,
-                identity,
-                atol=1e-8,
-                rtol=1e-8,
-            )):
+    if not np.allclose(
+            phase_matrix.conj().T @ phase_matrix, np.eye(ncastot),
+            atol=1e-8, rtol=1e-8):
         raise ValueError("stacked kLAS mo_phase must be unitary")
     return mo_phase
 
 
 def make_klas_rdms_kpts(casdm1s, casdm2, mo_phase, kconserv):
-    """Transform kLAS Wannier RDMs into periodic MC-PDFT k blocks.
+    """Transform Wannier RDMs to k-point 1-RDM and two-body cumulant blocks.
 
-    The spin 1-RDM is transformed directly to one active-orbital block per
-    k-point.  The complex two-body cumulant is formed in the Wannier basis and
-    transformed only for momentum-conserving ``(k1, k2, k3, k4)`` tuples.
-    The returned tensors are ready for the shared periodic on-top evaluator.
-
-    Parameters
-    ----------
-    casdm1s : ndarray
-        Spin-separated Wannier-basis active 1-RDMs with shape
-        ``(2, ncastot, ncastot)``.
-    casdm2 : ndarray
-        Spin-summed Wannier-basis active 2-RDM with shape ``(ncastot,) * 4``.
-    mo_phase : ndarray
-        Bloch-to-Wannier transformation with shape
-        ``(nkpts, ncas, ncastot)``.
-    kconserv : ndarray
-        Momentum-conservation lookup with shape ``(nkpts, nkpts, nkpts)``.
-
-    Returns
-    -------
-    casdm1s_kpts : ndarray
-        Spin 1-RDM blocks with shape ``(2, nkpts, ncas, ncas)``.
-    cascm2_kpts : ndarray
-        Cumulant blocks with shape
-        ``(nkpts, nkpts, nkpts, ncas, ncas, ncas, ncas)``.
+    Args:
+        casdm1s: Wannier alpha/beta 1-RDMs, shape (2, ncastot, ncastot).
+        casdm2: Wannier spin-summed 2-RDM, shape (ncastot,) * 4.
+        mo_phase: Coefficients <Bloch(k, a) | Wannier(P)>, shape
+            (nkpts, ncas, ncastot), with ncastot = nkpts * ncas.
+        kconserv: Integer lookup, shape (nkpts, nkpts, nkpts), giving
+            k4 = kconserv[k1, k2, k3] for each momentum-conserving tuple.
+    Returns:
+        casdm1s_kpts: Spin 1-RDM blocks, shape (2, nkpts, ncas, ncas).
+        cascm2_kpts: Cumulant blocks, shape
+            (nkpts, nkpts, nkpts, ncas, ncas, ncas, ncas); k4 is implicit.
     """
     mo_phase = np.asarray(mo_phase)
     if mo_phase.ndim != 3:
-        raise ValueError(
-            "mo_phase must have shape (nkpts, ncas, ncastot)",
-        )
+        msg = "mo_phase must have shape (nkpts, ncas, nkpts * ncas)"
+        raise ValueError(msg)
+    
     nkpts, ncas, ncastot = mo_phase.shape
+    
     if ncastot != nkpts * ncas:
-        raise ValueError(
-            "mo_phase must map a square stacked active-orbital space",
-        )
-    if not np.all(np.isfinite(mo_phase)):
-        raise ValueError("mo_phase must contain only finite values")
-
-    if nkpts <= 0:
-        raise ValueError("nkpts must be positive")
-    if ncas <= 0:
-        raise ValueError("ncas must be positive")
-
+        msg = "mo_phase must map a square stacked active-orbital space"
+        raise ValueError(msg)
+    
     kconserv = np.asarray(kconserv)
-    expected_shape = (nkpts, nkpts, nkpts)
-    if kconserv.shape != expected_shape:
-        raise ValueError(
-            f"Expected kconserv shape {expected_shape}, "
-            f"got {kconserv.shape}",
-        )
-    if not np.issubdtype(kconserv.dtype, np.integer):
-        raise ValueError("kconserv must contain integer indices")
-    if np.any(kconserv < 0) or np.any(kconserv >= nkpts):
-        raise ValueError("kconserv indices must lie in [0, nkpts)")
-    casdm1s = np.asarray(casdm1s)
-    casdm2 = np.asarray(casdm2)
-    expected_dm1_shape = (2, ncastot, ncastot)
-    expected_dm2_shape = (ncastot,) * 4
-    if casdm1s.shape != expected_dm1_shape:
-        raise ValueError(
-            f"Expected kLAS spin 1-RDM shape {expected_dm1_shape}; "
-            f"got {casdm1s.shape}",
-        )
-    if casdm2.shape != expected_dm2_shape:
-        raise ValueError(
-            f"Expected kLAS 2-RDM shape {expected_dm2_shape}; "
-            f"got {casdm2.shape}",
-        )
-    if not np.all(np.isfinite(casdm1s)) or not np.all(np.isfinite(casdm2)):
-        raise ValueError("kLAS density matrices must contain only finite values")
+
+    casdm1s = np.asarray(casdm1s, dtype = mo_phase.dtype)
+    casdm2 = np.asarray(casdm2, dtype = mo_phase.dtype)
+
+    _check_shape(casdm1s, (2, ncastot, ncastot), "casdm1s")
+    _check_shape(casdm2, (ncastot,) * 4, "casdm2")
 
     casdm1s_kpts = np.einsum(
         "kap,spq,kbq->skab",
@@ -354,18 +240,19 @@ def make_klas_rdms_kpts(casdm1s, casdm2, mo_phase, kconserv):
         mo_phase.conj(),
         optimize=True,
     )
+
+
     cascm2 = dm2_cumulant_complex(casdm2, casdm1s)
     dtype = np.result_type(cascm2.dtype, mo_phase.dtype)
+    
     cascm2_kpts = np.empty(
         (nkpts, nkpts, nkpts, ncas, ncas, ncas, ncas),
         dtype=dtype,
     )
-    for k1 in range(nkpts):
-        for k2 in range(nkpts):
-            for k3 in range(nkpts):
-                k4 = int(kconserv[k1, k2, k3])
-                cascm2_kpts[k1, k2, k3] = \
-                    _basis_transform_casdm2_kpts(
-                        cascm2, mo_phase, (k1, k2, k3, k4),
-                    )
+
+    for k1, k2, k3 in kpts_helper.loop_kkk(nkpts):
+        k4 = kconserv[k1, k2, k3]
+        cascm2_kpts[k1, k2, k3] = _basis_transform_casdm2_kpts(
+                cascm2, mo_phase, (k1, k2, k3, k4),)
+    
     return casdm1s_kpts, cascm2_kpts
