@@ -16,7 +16,6 @@ from mrh.my_pyscf.pbc.mcscf.mc1step import (
     _get_casdm2_kpts as _basis_transform_casdm2_kpts,
 )
 from mrh.my_pyscf.pbc.mcpdft._dms import dm2_cumulant_complex
-from mrh.my_pyscf.pbc.mcpdft import kmcpdft_helper
 from mrh.my_pyscf.pbc.util.wannier import get_wannier_orbs
 
 
@@ -315,9 +314,22 @@ def make_klas_rdms_kpts(casdm1s, casdm2, mo_phase, kconserv):
     if not np.all(np.isfinite(mo_phase)):
         raise ValueError("mo_phase must contain only finite values")
 
-    _, _, kconserv = kmcpdft_helper._validate_kspace_layout(
-        nkpts, ncas, kconserv=kconserv,
-    )
+    if nkpts <= 0:
+        raise ValueError("nkpts must be positive")
+    if ncas <= 0:
+        raise ValueError("ncas must be positive")
+
+    kconserv = np.asarray(kconserv)
+    expected_shape = (nkpts, nkpts, nkpts)
+    if kconserv.shape != expected_shape:
+        raise ValueError(
+            f"Expected kconserv shape {expected_shape}, "
+            f"got {kconserv.shape}",
+        )
+    if not np.issubdtype(kconserv.dtype, np.integer):
+        raise ValueError("kconserv must contain integer indices")
+    if np.any(kconserv < 0) or np.any(kconserv >= nkpts):
+        raise ValueError("kconserv indices must lie in [0, nkpts)")
     casdm1s = np.asarray(casdm1s)
     casdm2 = np.asarray(casdm2)
     expected_dm1_shape = (2, ncastot, ncastot)
