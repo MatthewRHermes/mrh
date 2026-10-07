@@ -152,7 +152,7 @@ def energy_tot_klas(mc, mo_coeff=None, ci=None, ot=None, state=0,
         "kLAS-PDFT state %d E = %s, Eot(%s) = %s",
         state,
         e_tot.real,
-        ot.otxc.real,
+        ot.otxc,
         e_ot.real,
     )
     return e_tot, e_ot
