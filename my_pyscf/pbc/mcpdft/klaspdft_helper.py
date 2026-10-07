@@ -16,78 +16,36 @@ from mrh.my_pyscf.pbc.mcscf.klasscf import _check_shape
 
 
 def _get_klas_rdm_context(klas, ci=None, state=0):
-    """Select fragment solvers and CI vectors for one kLAS rootspace.
+    """Select the fragment data for one kLAS rootspace.
 
     Args:
-        klas: Periodic LASCI or LASSCF object containing fragment states.
+        klas: Periodic LASCI or LASSCF object.
     Kwargs:
-        ci: Fragment CI vectors indexed as ci[ifrag][state]; defaults to klas.ci.
+        ci: Fragment/root CI vectors; defaults to klas.ci.
         state: Rootspace index; defaults to 0.
     Returns:
-        fcisolvers: List of fragment FCI solvers for the selected rootspace.
-        ci_state: List of fragment CI vectors for the selected rootspace.
-        ncas_sub: Active orbital counts, shape (nfrags,).
-        nelecas_sub: Fragment alpha/beta electron counts, shape (nfrags, 2).
+        fcisolvers, ci_state: Selected fragment solvers and CI vectors.
+        ncas_sub, nelecas_sub: Fragment orbital and alpha/beta electron counts.
     """
-    state = int(state)
-
-    try:
-        nroots = int(klas.nroots)
-    except (AttributeError, TypeError, ValueError) as err:
-        raise ValueError("klas.nroots must be a positive integer") from err
-    if nroots <= 0:
-        raise ValueError("klas.nroots must be a positive integer")
-    if state < 0 or state >= nroots:
-        raise ValueError(
-            f"state must lie in [0, {nroots}); got {state}",
-        )
-
-    ncas_sub = np.asarray(getattr(klas, "ncas_sub", ()), dtype=int)
-    nelecas_sub = np.asarray(getattr(klas, "nelecas_sub", ()), dtype=int)
-    fciboxes = list(getattr(klas, "fciboxes", ()))
-    if ncas_sub.ndim != 1 or not ncas_sub.size or np.any(ncas_sub <= 0):
-        raise ValueError("ncas_sub must be a nonempty vector of positive integers")
-    nfrags = ncas_sub.size
-    if nelecas_sub.shape != (nfrags, 2):
-        raise ValueError(
-            f"nelecas_sub must have shape ({nfrags}, 2); "
-            f"got {nelecas_sub.shape}",
-        )
-    if len(fciboxes) != nfrags:
-        raise ValueError(
-            f"Expected {nfrags} fragment FCI boxes; got {len(fciboxes)}",
-        )
-
+    if not isinstance(state, (int, np.integer)):
+        raise TypeError("state must be an integer")
+    if not 0 <= state < klas.nroots:
+        raise ValueError(f"state must lie in [0, {klas.nroots}); got {state}")
     if ci is None:
-        ci = getattr(klas, "ci", None)
+        ci = klas.ci
     if ci is None:
         raise ValueError("The kLAS object has no CI vectors")
-    if len(ci) != nfrags:
-        raise ValueError(
-            f"Expected CI vectors for {nfrags} fragments; got {len(ci)}",
-        )
 
-    fcisolvers = []
-    ci_state = []
-    for ifrag, (fcibox, ci_frag) in enumerate(zip(fciboxes, ci)):
-        solvers = list(getattr(fcibox, "fcisolvers", ()))
-        if len(solvers) <= state:
-            raise ValueError(
-                f"Fragment {ifrag} has no FCI solver for state {state}",
-            )
-        try:
-            ci_root = ci_frag[state]
-        except (IndexError, TypeError) as err:
-            raise ValueError(
-                f"Fragment {ifrag} has no CI vector for state {state}",
-            ) from err
-        if ci_root is None:
-            raise ValueError(
-                f"Fragment {ifrag} CI vector for state {state} is missing",
-            )
-        fcisolvers.append(solvers[state])
-        ci_state.append(ci_root)
+    ncas_sub = np.asarray(klas.ncas_sub, dtype=int)
+    nelecas_sub = np.asarray(klas.nelecas_sub, dtype=int)
+    if len(klas.fciboxes) != len(ncas_sub) or len(ci) != len(ncas_sub):
+        raise ValueError("Fragment solver and CI counts must match ncas_sub")
 
+    fcisolvers = [box.fcisolvers[state] for box in klas.fciboxes]
+    ci_state = [fragment[state] for fragment in ci]
+    for ifrag, vector in enumerate(ci_state):
+        if vector is None:
+            raise ValueError(f"Fragment {ifrag} CI vector for state {state} is missing")
     return fcisolvers, ci_state, ncas_sub, nelecas_sub
 
 
