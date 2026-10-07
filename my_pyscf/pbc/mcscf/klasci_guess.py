@@ -120,6 +120,13 @@ def localize_init_guess(klas, frag_atoms=None, mo_coeff=None, spin=None,
     
     The core orbitals are preserved. Virtual orbitals are preserved unless
     ``stabilize_virtuals`` is enabled to choose a reproducible virtual basis.
+    Virtual stabilization is energy-neutral for a fixed LAS wavefunction:
+    it rotates only unoccupied orbitals and leaves core, active orbitals and
+    CI unchanged. Active phase alignment is an initialization convention,
+    not generally an energy-neutral change of an existing LAS wavefunction.
+    A k-dependent band phase can mix Wannier orbitals between cell fragments.
+    A fragment-local phase preserves energy only when CI is transformed
+    consistently with the active orbitals.
 
     args:
         klas: instance of mrh.my_pyscf.pbc.mcscf.klasci 
@@ -153,6 +160,9 @@ def localize_init_guess(klas, frag_atoms=None, mo_coeff=None, spin=None,
             orbital real and positive at every k-point. The reference is chosen
             to maximize its smallest overlap across the k-points. This fixes
             phases only; it does not mix bands or optimize Wannier spreads.
+            These phases can vary with k and therefore change the Wannier
+            fragment spaces and the LAS energy at fixed CI. This option fixes
+            the initial Wannier gauge; it is not a visualization operation.
             If no reference has nonzero overlap everywhere, a ValueError is
             raised. Supply suitable lo_coeff or disable phase alignment to use
             a separately constructed Wannier gauge.
