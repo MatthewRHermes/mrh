@@ -1,6 +1,14 @@
 #!/usr/bin/env python
 
-"""Unit tests for periodic kLAS-PDFT adapters."""
+"""Tests for periodic kLAS-PDFT.
+
+KLASPDFTRDMTests: Fragment root selection and product-state RDM assembly.
+KLASPDFTPhaseTests: Active-orbital Wannier phases and transformation checks.
+KLASPDFTKBlockTests: RDM k-block transformations and Wannier gauge invariance.
+KLASPDFTEnergyRoutingTests: Wavefunction and on-top energy evaluation paths.
+KLASPDFTPublicRoutingTests: KLASCI/KLASSCF inputs and PDFT wrapper construction.
+KLASPDFTEndToEndTests: Periodic H2 energies, electron counts, and fixed-wavefunction reuse.
+"""
 
 import unittest
 from unittest import mock
