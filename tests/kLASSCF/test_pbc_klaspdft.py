@@ -7,7 +7,12 @@ KLASPDFTPhaseTests: Active-orbital Wannier phases and transformation checks.
 KLASPDFTKBlockTests: RDM k-block transformations and Wannier gauge invariance.
 KLASPDFTEnergyRoutingTests: Wavefunction and on-top energy evaluation paths.
 KLASPDFTPublicRoutingTests: KLASCI/KLASSCF inputs and PDFT wrapper construction.
-KLASPDFTEndToEndTests: Periodic H2 energies, electron counts, and fixed-wavefunction reuse.
+KLASPDFTEndToEndTests: Fixed-orbital LASCI and fully optimized LASSCF H2 energies,
+electron counts, and fixed-wavefunction PDFT reuse.
+KLASPDFTMolecularComparisonTests: nk=3 kLASPDFT versus molecular LASPDFT
+using transferred GDF integrals, orbitals and CI. The molecular calculation
+uses periodic supercell AOs and translated copies of the primitive grid to
+match the density and quadrature; energies agree within 1e-8 Ha per cell.
 """
 
 import unittest
@@ -16,8 +21,12 @@ from types import SimpleNamespace
 
 import numpy as np
 
-from pyscf import lib
+from pyscf import dft, lib
 from pyscf.pbc import gto, scf
+from pyscf.pbc.tools import k2gamma
+
+from mrh.my_pyscf import mcpdft as molecular_mcpdft
+from mrh.my_pyscf.pbc.util.klas_to_las import unpack_klas
 
 from mrh.my_pyscf.pbc.mcpdft import klaspdft_helper
 from mrh.my_pyscf.pbc.mcpdft import klaspdft
@@ -567,8 +576,11 @@ class KLASPDFTEndToEndTests(unittest.TestCase):
         klasscf = pbc_mcscf.KLASSCF(
             kmf, 2, (1, 1), kmesh=cls.kmesh, trans_sym=False,
         )
-        klasscf.max_cycle_macro = 0
-        klasscf.kernel(np.array(mo_guess, copy=True))
+        klasscf.conv_tol_grad = 1e-6
+        klasscf.max_cycle_macro = 100
+        ci0 = [[np.array([[1., 0.], [0., 0.]], dtype=complex)]
+               for _ in range(np.prod(cls.kmesh))]
+        klasscf.kernel(mo_coeff=np.array(mo_guess, copy=True), ci0=ci0)
         cls.klasscf = klasscf
 
     def test_klasci_pdft_functional_coverage(self):
@@ -593,15 +605,21 @@ class KLASPDFTEndToEndTests(unittest.TestCase):
         np.testing.assert_allclose(self.klas.e_tot, e_klas_before)
 
     def test_klasscf_intake_runs_fixed_wavefunction_pdft(self):
-        pdft = pbc_mcpdft.KLASSCF(
-            self.klasscf, "tLDA", grids_level=1,
-        )
-        result = pdft.kernel()
-
-        self.assertTrue(np.isfinite(result[0]))
-        self.assertTrue(np.isfinite(result[1]))
-        np.testing.assert_allclose(pdft.e_mcscf, self.klasscf.e_tot)
-        self.assertLess(abs(pdft.e_tot.imag), 1e-12)
+        # References use fully optimized orbitals from the complete rotation map.
+        references = {
+            "tLDA": -0.9015233081062843,
+            "tPBE": -1.0085601497846977,
+            "tPBE0": -0.9663974855582702,
+        }
+        self.assertTrue(self.klasscf.converged)
+        for otxc, reference in references.items():
+            with self.subTest(otxc=otxc):
+                pdft = pbc_mcpdft.KLASSCF(self.klasscf, otxc, grids_level=1)
+                result = pdft.kernel()
+                self.assertAlmostEqual(pdft.e_tot.real, reference, delta=1e-7)
+                self.assertAlmostEqual(result[0].real, reference, delta=1e-7)
+                self.assertAlmostEqual(pdft.e_mcscf.real, self.klasscf.e_tot.real,
+                                       delta=1e-8)
 
     def test_product_state_rdm_electron_traces(self):
         casdm1s, casdm2 = klaspdft_helper.make_one_casdm12_klas(
@@ -615,6 +633,84 @@ class KLASPDFTEndToEndTests(unittest.TestCase):
         self.assertAlmostEqual(np.trace(casdm1s[1]).real, 2.0, 10)
         self.assertLess(abs(np.trace(casdm1s[0]).imag), 1e-12)
         self.assertLess(abs(np.trace(casdm1s[1]).imag), 1e-12)
+
+
+class _ReplicatedPeriodicGrids(dft.gen_grid.Grids):
+    """Fixed supercell quadrature retained when PDFT resets its grids."""
+    def __init__(self, mol, primitive_grid, translations):
+        self._coords = np.concatenate([primitive_grid.coords + r for r in translations])
+        self._weights = np.tile(primitive_grid.weights, len(translations))
+        super().__init__(mol)
+        self.reset(mol)
+
+    def reset(self, mol=None):
+        super().reset(mol)
+        self.coords = self._coords
+        self.weights = self._weights
+        return self
+
+
+class _PeriodicSupercellAO:
+    """Use molecular density/on-top contractions with periodic supercell AOs."""
+    def __init__(self, supercell):
+        self.supercell = supercell
+
+    def eval_ao(self, mol, coords, deriv=0, **kwargs):
+        name = 'GTOval_sph' if deriv == 0 else f'GTOval_sph_deriv{deriv}'
+        return self.supercell.pbc_eval_gto(name, coords, kpt=np.zeros(3))
+
+
+class KLASPDFTMolecularComparisonTests(unittest.TestCase):
+    def test_three_kpoints_match_molecular_laspdft(self):
+        nk = 3
+        cell = gto.Cell()
+        cell.a = np.diag([4.0, 10.0, 10.0])
+        cell.atom = 'H 0 0 0; H 1.5 0 0'
+        cell.basis = '6-31G'
+        cell.unit = 'Angstrom'
+        cell.precision = 1e-10
+        cell.verbose = 0
+        cell.build()
+        kmesh = (nk, 1, 1)
+        kpts = cell.make_kpts(kmesh, wrap_around=True)
+        kmf = scf.KRHF(cell, kpts=kpts).density_fit()
+        kmf.exxdiv = None
+        kmf.conv_tol = 1e-10
+        kmf.kernel()
+        self.assertTrue(kmf.converged)
+
+        mo_avas = np.asarray(avas.kernel(kmf, ['H 1s'], minao=cell.basis)[2],
+                             dtype=complex).reshape(nk, cell.nao_nr(), -1)
+        klas = pbc_mcscf.KLASSCF(kmf, 2, (1, 1), kmesh=kmesh)
+        mo_guess = klas.localize_init_guess(['H 1s'], mo_coeff=mo_avas,
+                                            stabilize_virtuals=True)
+        klas.conv_tol_grad = 1e-6
+        klas.max_cycle_macro = 100
+        ci0 = [[np.array([[1., 0.], [0., 0.]], dtype=complex)] for _ in range(nk)]
+        klas.kernel(mo_coeff=mo_guess, ci0=ci0)
+        self.assertTrue(klas.converged)
+
+        mo, _, ci, las = unpack_klas(klas)
+        self.assertAlmostEqual(las.e_tot / nk, klas.e_tot.real, delta=1e-8)
+        supercell = k2gamma.get_phase(cell, kpts, kmesh)[0]
+        translations = k2gamma.translation_vectors_for_kmesh(cell, kmesh)
+
+        for functional in ('tLDA', 'tPBE', 'tPBE0'):
+            with self.subTest(functional=functional):
+                periodic = pbc_mcpdft.KLASSCF(klas, functional, grids_level=1)
+                periodic.kernel()
+                molecular = molecular_mcpdft.LASSCF(las, functional, grids_level=1)
+                molecular.grids = _ReplicatedPeriodicGrids(
+                    las.mol, periodic.grids, translations)
+                molecular.otfnal._numint.eval_ao = _PeriodicSupercellAO(supercell).eval_ao
+                molecular.compute_pdft_energy_(mo_coeff=mo, ci=ci)
+
+                self.assertAlmostEqual(molecular.e_tot / nk, periodic.e_tot.real,
+                                       delta=1e-8)
+                self.assertAlmostEqual(molecular.e_ot / nk, periodic.e_ot.real,
+                                       delta=1e-8)
+                self.assertAlmostEqual((molecular.e_tot-molecular.e_ot) / nk,
+                                       (periodic.e_tot-periodic.e_ot).real, delta=1e-8)
 
 
 if __name__ == "__main__":
