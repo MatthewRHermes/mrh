@@ -1711,8 +1711,12 @@ class KLASSCF_HessianOperator(molLASSCF_HessianOperator):
     def _get_Horb_active_active(self):
         """Return the projected complex active-active Hessian blocks.
 
-        For complex orbital coordinates the orbital-orbital response is
-        real-linear rather than complex-linear. The returned pair
+        Active coordinates in the complete map are real. Only their real
+        unit directions are evaluated; there are no imaginary partners.
+        The returned pair retains the complex-storage interface: for real
+        active coordinates both blocks are half of the real Hessian matrix.
+        For general complex-coordinate adapters the response is real-linear
+        rather than complex-linear. The returned pair
         (H, H_conj) represents
         H @ x + H_conj @ x.conj() exactly. Both blocks are evaluated in
         the projected UGG active-active coordinate basis.
@@ -1724,13 +1728,15 @@ class KLASSCF_HessianOperator(molLASSCF_HessianOperator):
         nvar = self.ugg.nvar_orb_active_active
         dtype = np.result_type(self.mo_coeff.dtype, np.complex128)
         response_real = np.empty((nvar, nvar), dtype=dtype)
-        response_imag = np.empty((nvar, nvar), dtype=dtype)
+        real_active = getattr(self.ugg, "active_coordinates_real", False)
+        response_imag = np.zeros((nvar, nvar), dtype=dtype)
         unit = np.zeros(nvar, dtype=dtype)
         for index in range(nvar):
             unit[index] = 1.0
             response_real[:, index] = self._apply_Horb_active_active(unit)
-            unit[index] = 1.0j
-            response_imag[:, index] = self._apply_Horb_active_active(unit)
+            if not real_active:
+                unit[index] = 1.0j
+                response_imag[:, index] = self._apply_Horb_active_active(unit)
             unit[index] = 0.0
 
         hessian = (response_real - 1.0j * response_imag) / 2.0
@@ -2277,7 +2283,8 @@ class KLASSCF_HessianOperator(molLASSCF_HessianOperator):
         response is finite-difference verified for external inputs, including
         its projected active output.  This routine builds that reciprocal
         external-to-active block in real coordinates and transposes it to
-        obtain the active-to-external block required for complex AA inputs.
+        obtain the active-to-external block. Complete-map active coordinates
+        have one real component each; external pairs have two.
         """
         cached = getattr(self, "_Horb_external_active_cross_cache", None)
         if cached is not None:
@@ -2287,8 +2294,10 @@ class KLASSCF_HessianOperator(molLASSCF_HessianOperator):
         nvar_active = self.ugg.nvar_orb_active_active
         active_start = nvar_external
         active_stop = active_start + nvar_active
+        real_active = getattr(self.ugg, "active_coordinates_real", False)
+        active_dimension = nvar_active if real_active else 2 * nvar_active
         external_to_active = np.empty(
-            (2 * nvar_active, 2 * nvar_external), dtype=float,
+            (active_dimension, 2 * nvar_external), dtype=float,
         )
         unit = np.zeros(self.ugg.nvar_orb, dtype=np.complex128)
         for index in range(nvar_external):
@@ -2299,7 +2308,8 @@ class KLASSCF_HessianOperator(molLASSCF_HessianOperator):
                 response / 2.0,
             )[active_start:active_stop]
             external_to_active[:nvar_active, index] = active_response.real
-            external_to_active[nvar_active:, index] = active_response.imag
+            if not real_active:
+                external_to_active[nvar_active:, index] = active_response.imag
 
             unit[index] = 1.0j
             kappa = self.ugg.unpack_orb(unit)
@@ -2309,7 +2319,8 @@ class KLASSCF_HessianOperator(molLASSCF_HessianOperator):
             )[active_start:active_stop]
             column = nvar_external + index
             external_to_active[:nvar_active, column] = active_response.real
-            external_to_active[nvar_active:, column] = active_response.imag
+            if not real_active:
+                external_to_active[nvar_active:, column] = active_response.imag
             unit[index] = 0.0
 
         active_to_external = external_to_active.T
@@ -2328,9 +2339,12 @@ class KLASSCF_HessianOperator(molLASSCF_HessianOperator):
                 f"expected {nvar_active}"
             )
             raise ValueError(msg)
-        real_coordinates = np.concatenate((
-            coordinates.real, coordinates.imag,
-        ))
+        if getattr(self.ugg, "active_coordinates_real", False):
+            if np.any(np.abs(coordinates.imag) > 1e-12):
+                raise ValueError("active-active coordinates must be real-valued")
+            real_coordinates = coordinates.real
+        else:
+            real_coordinates = np.concatenate((coordinates.real, coordinates.imag))
         response = self._get_Horb_external_active_cross() @ real_coordinates
         nvar_external = self.ugg.nvar_orb_external
         return response[:nvar_external] + 1.0j * response[nvar_external:]
@@ -2598,10 +2612,6 @@ class KLASSCF_HessianOperator(molLASSCF_HessianOperator):
                 f"expected {rotation_map.nvar}"
             )
             raise ValueError(msg)
-        # Imaginary probes in the doubled-storage diagonal are inactive for
-        # real active coordinates; the solver omits those slots entirely.
-        if getattr(self.ugg, "active_coordinates_real", False):
-            coordinates = coordinates.real
         kappa_bloch = rotation_map.unpack(coordinates)
         kappa_wannier = rotation_map.bloch_to_wannier(kappa_bloch)
         response_wannier = (
@@ -3085,12 +3095,14 @@ def _get_mo_energy(hop):
 
 
 def _micro_diagonal(hop, metric):
-    """Build a positive approximate diagonal in doubled-real coordinates.
+    """Build a positive approximate diagonal in the solver's real coordinates.
 
     The stored CI diagonal describes H, while the CI energy Hessian uses
     2*(H-E).  Real and imaginary external orbital coordinates share an
     approximate diagonal; active-active coordinates have separate analytic
-    diagonals.  Absolute values make the preconditioner positive for MINRES.
+    diagonals. Absolute values make the preconditioner positive for MINRES.
+    A UGG with an imaginary_mask returns a compact nvar_real-length diagonal;
+    adapters without a compact layout retain their doubled-real diagonal.
     """
     get_diagonal = getattr(hop, "_get_Hdiag", None)
     if get_diagonal is None:
@@ -3112,7 +3124,7 @@ def _micro_diagonal(hop, metric):
         raise ValueError("CI diagonal does not match the optimizer layout")
     imaginary = diagonal.copy()
     nactive = getattr(hop.ugg, "nvar_orb_active_active", 0)
-    if nactive:
+    if nactive and not getattr(hop.ugg, "active_coordinates_real", False):
         hessian, conjugate_hessian = hop._get_Horb_active_active()
         imaginary[norb - nactive:norb] = np.diag(
             hessian - conjugate_hessian,
@@ -3122,17 +3134,25 @@ def _micro_diagonal(hop, metric):
     diagonal[norb:] += hop.level_shift
     imaginary[norb:] += hop.level_shift
     diagonal = np.concatenate((metric * diagonal, metric * imaginary))
+    if hasattr(hop.ugg, "imaginary_mask"):
+        # Remove inactive slots before validation and flooring. They must not
+        # affect the compact preconditioner or its numerical scale.
+        mask = np.concatenate((np.ones(hop.ugg.nvar_tot, dtype=bool),
+                               hop.ugg.imaginary_mask))
+        diagonal = diagonal[mask]
     if not np.all(np.isfinite(diagonal)):
         raise ValueError("micro Hessian diagonal must be finite")
     floor = max(1e-8, 1e-4 * np.max(np.abs(diagonal), initial=0.0))
     return np.maximum(np.abs(diagonal), floor)
 
 
-def _micro_initial_guess(gradient, diagonal, trust_radius):
-    """Return -D^-1 g, shifted if its norm exceeds the trust radius."""
+def _micro_initial_guess(gradient, diagonal, trust_radius, ugg=None):
+    """Return -D^-1 g in the UGG layout, shifted to fit the trust radius."""
     if diagonal is None:
         return None, None, 0.0
-    real_gradient = SolveScipyMINRESForCplx.unpack_complex(gradient)
+    to_real = getattr(ugg, "to_real", SolveScipyMINRESForCplx.unpack_complex)
+    from_real = getattr(ugg, "from_real", SolveScipyMINRESForCplx.pack_real)
+    real_gradient = to_real(gradient)
     shift = 0.0
     if np.linalg.norm(real_gradient / diagonal) > trust_radius:
         lower = 0.0
@@ -3146,7 +3166,7 @@ def _micro_initial_guess(gradient, diagonal, trust_radius):
                 upper = midpoint
         shift = upper
     diagonal = diagonal + shift
-    guess = SolveScipyMINRESForCplx.pack_real(-real_gradient / diagonal)
+    guess = from_real(-real_gradient / diagonal)
     return _limit_micro_step(guess, trust_radius), diagonal, float(shift)
 
 
@@ -3402,7 +3422,7 @@ def kernel(
         if micro_cycles > max_micro:
             log.info("Allowing up to %d microiterations near convergence", micro_cycles)
         initial_step, real_diagonal, floating_shift = _micro_initial_guess(
-            weighted_gradient, _micro_diagonal(final_hop, metric), trust_radius,
+            weighted_gradient, _micro_diagonal(final_hop, metric), trust_radius, ugg=ugg,
         )
         if initial_step is not None:
             log.debug(
