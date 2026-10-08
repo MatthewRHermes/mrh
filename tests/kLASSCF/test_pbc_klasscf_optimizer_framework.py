@@ -4,6 +4,7 @@
 fragment CI solves, and energy normalization, with periodic integration checks."""
 
 import sys
+import io
 import unittest
 from types import SimpleNamespace
 from unittest.mock import Mock, patch
@@ -25,6 +26,7 @@ class KnownValuesKLASSCFOptimizerResults(unittest.TestCase):
             ci = [[np.array([1.0])]]
             verbose = lib.logger.QUIET
             conv_tol_grad = 1e-7
+            conv_tol = 1e-7
             sanity_calls = 0
             flag_calls = []
             finalize_calls = []
@@ -57,6 +59,7 @@ class KnownValuesKLASSCFOptimizerResults(unittest.TestCase):
             optimizer, _kern=fake_kernel,
         )
 
+        self.assertEqual(calls[0]["conv_tol"], 1e-7)
         self.assertIs(calls[0]["mo_coeff"], initial_mo)
         self.assertTrue(optimizer.converged)
         np.testing.assert_allclose(optimizer.e_tot, -1.2)
@@ -232,6 +235,9 @@ class FakeKLASSCF:
         self.mo_coeff = np.zeros((1, 1, 1), dtype=np.complex128)
         self.ci = [[np.array([1.0 + 0.0j])]]
         self.conv_tol_grad = 1e-9
+        # These step/acceptance tests isolate optimizer mechanics from the
+        # stricter physical energy stopping tolerance tested separately.
+        self.conv_tol = 0.2
         self.max_cycle_macro = 1
         self.max_cycle_micro = 5
         self.min_cycle_macro = 0
@@ -286,6 +292,36 @@ def fixed_energy(energy):
 
 
 class KnownValuesKLASSCFKernel(unittest.TestCase):
+
+    def test_energy_tolerance_requires_a_small_macro_change(self):
+        for tolerance, expected in [(1e-7, True), (1e-8, False)]:
+            with self.subTest(conv_tol=tolerance):
+                first = FakeHop([.4])
+                stationary = FakeHop([0.0])
+                las = FakeKLASSCF([first, stationary, stationary])
+                las.max_cycle_macro = 2
+                with patch.object(klasscf, "ci_cycle", return_value=ci_cycle_result()), \
+                        patch.object(klasscf, "_fixed_ci_energies", side_effect=[
+                            fixed_energy(-1.0), fixed_energy(-1.1),
+                            fixed_energy(-1.1), fixed_energy(-1.10000005),
+                        ]):
+                    result = klasscf.kernel(las, conv_tol=tolerance)
+                self.assertEqual(result[0], expected)
+                self.assertEqual(len(las.uggs), 3)
+                self.assertEqual(len(first.steps), 1)
+                self.assertEqual(len(stationary.steps), 0)
+
+    def test_initial_keyframe_is_not_energy_convergence(self):
+        las = FakeKLASSCF([FakeHop([0.0])])
+        las.conv_tol = 1e-7
+        las.max_cycle_macro = 0
+        las.verbose = lib.logger.INFO
+        las.stdout = io.StringIO()
+        with patch.object(klasscf, "ci_cycle", return_value=ci_cycle_result()), \
+                patch.object(klasscf, "_fixed_ci_energies", return_value=fixed_energy(-1.0)):
+            result = klasscf.kernel(las)
+        self.assertFalse(result[0])
+        self.assertIn("dE = N/A", las.stdout.getvalue())
 
     def test_macro_driver_applies_the_complex_newton_step(self):
         first_hop = FakeHop([0.4 + 0.2j], curvature=2.0)
