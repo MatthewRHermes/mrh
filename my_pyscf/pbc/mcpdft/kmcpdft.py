@@ -2,7 +2,6 @@ import numpy as np
 
 from pyscf.lib import logger
 from pyscf.mcpdft import _dms
-from pyscf.pbc.lib import kpts_helper
 
 from mrh.my_pyscf.pbc.mcpdft.otfnalperiodic import (
     _prepare_kpts_rdms,
@@ -175,36 +174,25 @@ def _energy_mcwfn_from_kpts(mc, casdm1s_kpts, cascm2_kpts, mo_coeff=None,
 def energy_mcwfn(mc, mo_coeff=None, ci=None, ot=None, state=0,
                  casdm1s=None, casdm2=None, verbose=None,
                  rdm_representation=None, momentum_tol=1e-8,
-                 mo_phase=None, h2eff=None):
+                 h2eff=None):
     """Evaluate the periodic MC wavefunction energy."""
     mo_coeff = mc.mo_coeff if mo_coeff is None else mo_coeff
     ci = mc.ci if ci is None else ci
+    if rdm_representation is None:
+        rdm_representation = getattr(mc, "_mcwfn_rdm_representation", "wannier")
     if casdm1s is None:
         casdm1s = mc.make_one_casdm1s(ci=ci, state=state)
     if casdm2 is None:
         casdm2 = mc.make_one_casdm2(ci=ci, state=state)
 
-    if mo_phase is None:
-        if rdm_representation is None:
-            rdm_representation = mc._mcwfn_rdm_representation
-        casdm1s_kpts, cascm2_kpts, _ = _prepare_kpts_rdms(
-            mc, casdm1s, casdm2, mo_coeff, mc.ncore,
-            rdm_representation, momentum_tol,
-        )
-    else:
-        # kLAS density matrices use their own Wannier gauge, which must not be
-        # regenerated through the conventional periodic CAS transformation.
-        from mrh.my_pyscf.pbc.mcpdft import klaspdft_helper
-
-        kconserv = getattr(mc, "kconserv", None)
-        if kconserv is None:
-            kconserv = kpts_helper.get_kconserv(mc.cell, mc.kpts)
-        casdm1s_kpts, cascm2_kpts = \
-            klaspdft_helper.make_klas_rdms_kpts(
-                casdm1s, casdm2, mo_phase, kconserv,
-            )
+    casdm1s_kpts, cascm2_kpts, _ = _prepare_kpts_rdms(
+        mc, casdm1s, casdm2, mo_coeff, mc.ncore,
+        rdm_representation, momentum_tol,
+    )
 
     cumulant_energy = None
+    if h2eff is None and rdm_representation == "klas":
+        h2eff = mc.get_h2cas(mo_coeff)
     if h2eff is not None:
         ncastot = mc.ncas * mc.nkpts
         h2eff = np.asarray(h2eff)
@@ -226,10 +214,10 @@ def energy_mcwfn(mc, mo_coeff=None, ci=None, ot=None, state=0,
     )
 
 
-def energy_dft_kcas(mc, mo_coeff=None, ci=None, ot=None, state=0,
+def energy_dft(mc, mo_coeff=None, ci=None, ot=None, state=0,
                     casdm1s=None, casdm2=None, max_memory=None, hermi=1,
-                    momentum_tol=1e-8):
-    """Evaluate the on-top functional directly from momentum kCAS RDMs."""
+                    momentum_tol=1e-8, rdm_representation=None):
+    """Evaluate the on-top functional using the configured RDM basis."""
     if ot is None:
         ot = mc.otfnal
     if mo_coeff is None:
@@ -242,12 +230,20 @@ def energy_dft_kcas(mc, mo_coeff=None, ci=None, ot=None, state=0,
         casdm2 = mc.make_one_casdm2(ci, state=state)
     if max_memory is None:
         max_memory = mc.max_memory
+    if rdm_representation is None:
+        rdm_representation = mc._mcwfn_rdm_representation
     return ot.energy_ot(
         casdm1s, casdm2, mo_coeff, mc.ncore,
         max_memory=max_memory, hermi=hermi,
-        rdm_representation="bloch",
+        rdm_representation=rdm_representation,
         momentum_tol=momentum_tol,
     )
+
+
+def energy_dft_kcas(mc, *args, **kwargs):
+    """Evaluate the on-top functional directly from momentum kCAS RDMs."""
+    kwargs["rdm_representation"] = "bloch"
+    return energy_dft(mc, *args, **kwargs)
 
 
 def energy_tot_charged_kcas(mc, mo_coeff=None, ci=None, ot=None, state=0,
@@ -301,6 +297,7 @@ class _MCPDFTCPLX(_PeriodicMCPDFT):
     make_one_casdm1s = make_one_casdm1s
     make_one_casdm2 = make_one_casdm2
     energy_mcwfn = energy_mcwfn
+    energy_dft = energy_dft
 
     def energy_tot(self, *args, **kwargs):
         e_tot, e_ot = super().energy_tot(*args, **kwargs)
