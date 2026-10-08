@@ -104,7 +104,8 @@ def localize_init_guess(klas, frag_atoms=None, mo_coeff=None, spin=None,
                         frags_by_AOs=False, smults_f=None, nelec_f=None, 
                         return_umat=False, return_svals=False, sval_thresh=1e-8,
                         align_phases=True, stabilize_virtuals=None,
-                        align_core_phases=None, align_active_phases=None):
+                        align_core_phases=None, align_active_phases=None,
+                        align_virtual_phases=None):
     '''
     Localize one active space per unit cell.Some args are not used in this function
     but are kept for API compatibility with molecular LAS localization. Those variables
@@ -120,10 +121,11 @@ def localize_init_guess(klas, frag_atoms=None, mo_coeff=None, spin=None,
     phases before constructing Wannier orbitals.
     
     By default ``align_phases`` enables core phase alignment, active phase
-    alignment, and virtual stabilization together. Each operation can be
-    overridden individually. The core subspace and orbital ordering are
-    preserved; only individual core phases change. Core phase alignment and
-    virtual stabilization preserve the fixed-CI LAS density and energy.
+    alignment, virtual phase alignment, and virtual stabilization together.
+    Each operation can be overridden individually. The core subspace and orbital ordering are
+    preserved; only individual core phases change. Core and virtual phase alignment
+    and virtual stabilization preserve the fixed-CI LAS density
+    and energy.
     Active phase alignment is an initialization convention, not generally
     an energy-neutral change of an existing LAS wavefunction.
     A k-dependent band phase can mix Wannier orbitals between cell fragments.
@@ -158,7 +160,7 @@ def localize_init_guess(klas, frag_atoms=None, mo_coeff=None, spin=None,
             implemented for periodic systems and with the LAS framework.
         frags_by_AOs: see above.
         align_phases: bool, optional, (default: True)
-            Enable core phase alignment, active phase alignment, and virtual
+            Enable core, active and virtual phase alignment, and virtual
             stabilization together. Individual options override this value
             when explicitly set; None inherits this value.
         align_active_phases: bool or None, optional, (default: None)
@@ -180,10 +182,20 @@ def localize_init_guess(klas, frag_atoms=None, mo_coeff=None, spin=None,
             it does not rotate or reorder the core orbitals. The core density
             and fixed-CI LAS energy are preserved. This option is independent
             of ``align_active_phases``. None inherits ``align_phases``.
+        align_virtual_phases: bool or None, optional, (default: None)
+            Make the largest AO coefficient of each virtual orbital real and
+            positive independently at each k-point. Near-ties use fixed AO
+            ordering. Only unit-modulus phases are applied, preserving orbital
+            orthonormality, the virtual subspace and fixed-CI LAS energy.
+            This runs after optional virtual stabilization and does not mix
+            or reorder virtual orbitals. Use stabilize_virtuals=False for
+            phase alignment alone. None inherits ``align_phases``.
         stabilize_virtuals: bool or None, optional, (default: None)
             Choose a reproducible basis within the supplied virtual space by
-            projecting meta-Lowdin AOs in fixed AO order and orthonormalizing
-            them. This removes arbitrary virtual-space rotations, including
+            projecting meta-Lowdin AOs and selecting the strongest remaining
+            projection at each step. Fixed AO order resolves near-ties. The
+            orthonormalization constructs a unitary rotation inside the input
+            virtual space, preserving orthogonality to core and active orbitals. This removes arbitrary virtual-space rotations, including
             orbital phases, while preserving the core and active orbitals.
             The virtual orbitals are not ordered by Fock energy. None
             inherits ``align_phases``.
@@ -208,6 +220,8 @@ def localize_init_guess(klas, frag_atoms=None, mo_coeff=None, spin=None,
         align_core_phases = align_phases
     if stabilize_virtuals is None:
         stabilize_virtuals = align_phases
+    if align_virtual_phases is None:
+        align_virtual_phases = align_phases
 
     if not freeze_cas_spaces:
         msg = ("Periodic active-band localization always preserves the"
@@ -378,22 +392,40 @@ def localize_init_guess(klas, frag_atoms=None, mo_coeff=None, spin=None,
             lo_k = virtual_lo[k]
             c_virtual = mo_coeff[k, :, nocc:]
             coordinates = lo_k.conj().T @ ovlp[k] @ c_virtual
-            basis = []
-            for axis in range(coordinates.shape[0]):
-                vector = coordinates @ coordinates[axis].conj()
+            # Build a unitary rotation in the supplied virtual coordinates.
+            # Working in AO space can amplify roundoff outside the virtual
+            # span when an almost dependent projected AO is normalized.
+            residual = coordinates.conj().T.copy()
+            rotation = np.empty((nvir, nvir), dtype=mo_out.dtype)
+            for column in range(nvir):
+                norms = np.linalg.norm(residual, axis=0)
+                # Pivot on the strongest remaining projection. Fixed AO order
+                # resolves numerical ties independently of the input gauge.
+                axis = np.flatnonzero(norms >= norms.max() * (1 - 1e-10))[0]
+                vector = residual[:, axis].copy()
+                previous = rotation[:, :column]
                 for _ in range(2):
-                    for previous in basis:
-                        vector -= previous * np.vdot(previous, vector)
-                norm = np.linalg.norm(vector)
-                if norm > 1e-8:
-                    basis.append(vector / norm)
-                if len(basis) == nvir:
-                    break
-            if len(basis) != nvir:
-                raise ValueError("Cannot construct the complete virtual-space basis")
-            c_stable = lo_k @ np.column_stack(basis)
-            mo_out[k, :, nocc:] = c_stable
-            umat[k, nocc:, nocc:] = c_virtual.conj().T @ ovlp[k] @ c_stable
+                    vector -= previous @ (previous.conj().T @ vector)
+                vector /= np.linalg.norm(vector)
+                rotation[:, column] = vector
+                for _ in range(2):
+                    residual -= np.outer(vector, vector.conj() @ residual)
+            mo_out[k, :, nocc:] = c_virtual @ rotation
+            umat[k, nocc:, nocc:] = rotation
+
+    if align_virtual_phases and nvir:
+        virtual = mo_out[:, :, nocc:]
+        magnitude = np.abs(virtual)
+        largest = np.max(magnitude, axis=1)
+        references = np.argmax(
+            magnitude >= largest[:, None, :] * (1 - 1e-10), axis=1,
+        )
+        anchors = np.take_along_axis(
+            virtual, references[:, None, :], axis=1,
+        )[:, 0, :]
+        phases = anchors.conj() / np.abs(anchors)
+        virtual *= phases[:, None, :]
+        umat[:, :, nocc:] *= phases[:, None, :]
 
     # Check orthogonality of the output orbitals
     orthogonality_check(mo_out, ovlp)
