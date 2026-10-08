@@ -1,6 +1,6 @@
 #!/usr/bin/env python
 
-"""Check active localization, core/active phases and virtual stabilization.
+"""Check active localization, core/active/virtual phases and virtual stabilization.
 
 Virtual stabilization must preserve the fixed-CI LAS energy and produce the
 same orbitals after arbitrary input virtual rotations. Active phase alignment
@@ -83,7 +83,7 @@ class KnownValues(unittest.TestCase):
     def test_active_space_conserved(self):
         mo_loc, umat, svals = klas.localize_init_guess(["H 1s"], mo_coeff=mo_coeff,
                                                        return_umat=True, return_svals=True,
-                                                       align_core_phases=False, stabilize_virtuals=False,)
+                                                       align_core_phases=False, stabilize_virtuals=False, align_virtual_phases=False,)
         ovlp = kmf.get_ovlp()
         ncore = klas.ncore
         nocc = ncore + klas.ncas
@@ -229,7 +229,7 @@ class KnownValues(unittest.TestCase):
         be_klas = kLASCI(be_kmf, 1, (1, 1), kmesh=be_kmesh)
         mo_loc, svals = be_klas.localize_init_guess(
             ["Be 2s"], mo_coeff=be_mo, return_svals=True,
-            align_core_phases=False, stabilize_virtuals=False,
+            align_core_phases=False, stabilize_virtuals=False, align_virtual_phases=False,
         )
 
         ovlp = be_kmf.get_ovlp()
@@ -263,6 +263,48 @@ class KnownValues(unittest.TestCase):
             np.testing.assert_allclose(
                 mo_loc[k, :, nocc:], be_mo[k, :, nocc:], atol=1e-12,
             )
+
+    def test_virtual_phase_alignment_preserves_wavefunction_and_rotation(self):
+        fock = np.asarray(kmf.get_fock()).copy()
+        original = klas.localize_init_guess(
+            ["H 1s"], fock=fock, mo_coeff=mo_coeff, stabilize_virtuals=False,
+            align_virtual_phases=False)
+        nocc = klas.ncore + klas.ncas
+        phased = np.array(original, dtype=complex, copy=True)
+        phases = np.exp(1j*np.array([[.7, -1.2], [2.1, -.4]]))
+        phased[:, :, nocc:] *= phases[:, None, :]
+        unaligned = klas.localize_init_guess(
+            ["H 1s"], fock=fock, mo_coeff=phased, align_phases=False,
+            align_virtual_phases=False)
+        aligned, rotation = klas.localize_init_guess(
+            ["H 1s"], fock=fock, mo_coeff=phased, align_phases=False,
+            align_virtual_phases=True, return_umat=True)
+        reference = klas.localize_init_guess(
+            ["H 1s"], fock=fock, mo_coeff=original, align_phases=False,
+            align_virtual_phases=True)
+        np.testing.assert_allclose(aligned[:, :, nocc:], reference[:, :, nocc:],
+                                   atol=1e-10, rtol=0)
+        np.testing.assert_allclose(aligned[:, :, :nocc],
+                                   unaligned[:, :, :nocc], atol=1e-10, rtol=0)
+        overlap = kmf.get_ovlp()
+        for k in range(klas.nkpts):
+            before, after = phased[k, :, nocc:], aligned[k, :, nocc:]
+            np.testing.assert_allclose(before @ before.conj().T @ overlap[k],
+                                       after @ after.conj().T @ overlap[k],
+                                       atol=1e-10, rtol=0)
+            np.testing.assert_allclose(aligned[k].conj().T @ overlap[k] @ aligned[k],
+                                       np.eye(aligned.shape[-1]), atol=1e-10, rtol=0)
+            np.testing.assert_allclose(phased[k] @ rotation[k], aligned[k],
+                                       atol=1e-10, rtol=0)
+            virtual_rotation = rotation[k, nocc:, nocc:]
+            np.testing.assert_allclose(virtual_rotation,
+                                       np.diag(np.diag(virtual_rotation)), atol=1e-10)
+            anchors = after[np.argmax(np.abs(after), axis=0), np.arange(after.shape[1])]
+            np.testing.assert_allclose(anchors.imag, 0., atol=1e-10)
+            self.assertTrue(np.all(anchors.real > 0))
+        ci = _correlated_ci(klas.nfrags)
+        self.assertAlmostEqual(_fixed_ci_energy(klas, unaligned, ci).real,
+                               _fixed_ci_energy(klas, aligned, ci).real, delta=1e-8)
 
     def test_virtual_stabilization_preserves_fixed_ci_energy(self):
         original = klas.localize_init_guess(
@@ -422,7 +464,8 @@ class CorePhaseAlignment(unittest.TestCase):
         np.testing.assert_array_equal(core_disabled[:, :, :2], self.mo[:, :, :2])
         np.testing.assert_allclose(core_disabled[:, :, 2:],
                                    self.localize(self.mo)[:, :, 2:], atol=1e-12)
-        virtual_disabled = self.localize(self.mo, stabilize_virtuals=False)
+        virtual_disabled = self.localize(
+            self.mo, stabilize_virtuals=False, align_virtual_phases=False)
         np.testing.assert_array_equal(virtual_disabled[:, :, 3:], self.mo[:, :, 3:])
         active_disabled = self.localize(self.mo, align_active_phases=False)
         np.testing.assert_allclose(active_disabled[:, :, 2], self.mo[:, :, 2], atol=1e-12)
