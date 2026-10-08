@@ -92,8 +92,9 @@ def make_direction(klas, rotation_blocks, seed, mo_coeff=None):
     if "active-active" in rotation_blocks:
         ugg = klas.get_ugg(mo_coeff=mo_coeff)
         rotation_map = ugg.active_active_map
-        coordinates = (rng.standard_normal(rotation_map.nvar)
-                       + 1j * rng.standard_normal(rotation_map.nvar))
+        # The complete map uses real coefficients for anti-Hermitian
+        # generators, including imaginary off-diagonal and diagonal entries.
+        coordinates = rng.standard_normal(rotation_map.nvar)
         nonzero_norm(coordinates, "active-active coordinates")
         kappa[:, ncore:nocc, ncore:nocc] = rotation_map.unpack(coordinates)
     for k in range(nkpts):
