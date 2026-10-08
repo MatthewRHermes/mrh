@@ -278,6 +278,46 @@ def _prepare_bloch_rdms(ot, casdm1s, casdm2, mo_coeff, momentum_tol):
     return casdm1s_kpts, cascm2_kpts, kconserv
 
 
+def _prepare_klas_rdms(ot, casdm1s, casdm2, mo_coeff, ncore):
+    """Transform kLAS Wannier RDMs using the kLAS orbital convention."""
+    from types import SimpleNamespace
+    from mrh.my_pyscf.pbc.mcpdft import klaspdft_helper
+
+    mo_coeff = np.asarray(mo_coeff)
+    casdm2 = np.asarray(casdm2)
+    if mo_coeff.ndim != 3:
+        raise ValueError("mo_coeff must have shape (nkpts, nao, nmo)")
+    if casdm2.ndim != 4 or len(set(casdm2.shape)) != 1:
+        raise ValueError("casdm2 must have shape (ncas * nkpts,) * 4")
+    nkpts = mo_coeff.shape[0]
+    if casdm2.shape[0] % nkpts:
+        raise ValueError("The active RDM size must be divisible by nkpts")
+    ncas = casdm2.shape[0] // nkpts
+    if ncore < 0 or ncore + ncas > mo_coeff.shape[2]:
+        raise ValueError("ncore and ncas are incompatible with mo_coeff")
+    if getattr(ot, 'kmesh', None) is None:
+        raise ValueError("kmesh is required for kLAS RDMs")
+
+    kmf = getattr(ot, '_scf', None)
+    if kmf is None:
+        kmf = SimpleNamespace(
+            cell=ot.cell, kpts=ot.kpts,
+            get_ovlp=lambda kpts: ot.cell.pbc_intor('int1e_ovlp', kpts=kpts),
+        )
+    klas = SimpleNamespace(
+        _scf=kmf, kmesh=ot.kmesh, ncore=ncore, ncas=ncas,
+        ncas_sub=getattr(ot, 'ncas_sub', [nkpts * ncas]),
+    )
+    mo_phase = klaspdft_helper.get_klas_mo_phase(klas, mo_coeff=mo_coeff)
+    kconserv = getattr(ot, 'kconserv', None)
+    if kconserv is None:
+        kconserv = kpts_helper.get_kconserv(ot.cell, ot.kpts)
+    casdm1s_kpts, cascm2_kpts = klaspdft_helper.make_klas_rdms_kpts(
+        casdm1s, casdm2, mo_phase, kconserv,
+    )
+    return casdm1s_kpts, cascm2_kpts, kconserv
+
+
 def _prepare_kpts_rdms(ot, casdm1s, casdm2, mo_coeff, ncore,
                        representation, momentum_tol):
     """Prepare active RDMs for the shared k-point evaluator."""
@@ -289,6 +329,10 @@ def _prepare_kpts_rdms(ot, casdm1s, casdm2, mo_coeff, ncore,
         return _prepare_bloch_rdms(
             ot, casdm1s, casdm2, mo_coeff, momentum_tol,
         )
+    if representation == 'klas':
+        return _prepare_klas_rdms(
+            ot, casdm1s, casdm2, mo_coeff, ncore,
+        )
     raise ValueError(f"Unknown RDM representation {representation!r}")
 
 
@@ -298,7 +342,7 @@ class otfnalperiodic_kpts(otfnal):
     def energy_ot(ot, casdm1s, casdm2, mo_coeff, ncore,
                   max_memory=param.MAX_MEMORY, hermi=1,
                   rdm_representation='wannier', momentum_tol=1e-8):
-        """Evaluate the on-top energy from Wannier- or Bloch-basis RDMs."""
+        """Evaluate on-top energy from 'wannier', 'bloch', or 'klas' RDMs."""
         if ot.xctype == 'HF':
             return 0.0
         casdm1s_kpts, cascm2_kpts, kconserv = _prepare_kpts_rdms(
