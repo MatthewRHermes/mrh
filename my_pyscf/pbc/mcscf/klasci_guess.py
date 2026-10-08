@@ -103,7 +103,8 @@ def localize_init_guess(klas, frag_atoms=None, mo_coeff=None, spin=None,
                         lo_coeff=None,fock=None, mo_occ=None, freeze_cas_spaces=True,
                         frags_by_AOs=False, smults_f=None, nelec_f=None, 
                         return_umat=False, return_svals=False, sval_thresh=1e-8,
-                        align_phases=True, stabilize_virtuals=False):
+                        align_phases=True, stabilize_virtuals=None,
+                        align_core_phases=None, align_active_phases=None):
     '''
     Localize one active space per unit cell.Some args are not used in this function
     but are kept for API compatibility with molecular LAS localization. Those variables
@@ -118,12 +119,13 @@ def localize_init_guess(klas, frag_atoms=None, mo_coeff=None, spin=None,
     fragment local orbital at every k-point. This removes arbitrary eigenvector
     phases before constructing Wannier orbitals.
     
-    The core orbitals are preserved. Virtual orbitals are preserved unless
-    ``stabilize_virtuals`` is enabled to choose a reproducible virtual basis.
-    Virtual stabilization is energy-neutral for a fixed LAS wavefunction:
-    it rotates only unoccupied orbitals and leaves core, active orbitals and
-    CI unchanged. Active phase alignment is an initialization convention,
-    not generally an energy-neutral change of an existing LAS wavefunction.
+    By default ``align_phases`` enables core phase alignment, active phase
+    alignment, and virtual stabilization together. Each operation can be
+    overridden individually. The core subspace and orbital ordering are
+    preserved; only individual core phases change. Core phase alignment and
+    virtual stabilization preserve the fixed-CI LAS density and energy.
+    Active phase alignment is an initialization convention, not generally
+    an energy-neutral change of an existing LAS wavefunction.
     A k-dependent band phase can mix Wannier orbitals between cell fragments.
     A fragment-local phase preserves energy only when CI is transformed
     consistently with the active orbitals.
@@ -156,6 +158,10 @@ def localize_init_guess(klas, frag_atoms=None, mo_coeff=None, spin=None,
             implemented for periodic systems and with the LAS framework.
         frags_by_AOs: see above.
         align_phases: bool, optional, (default: True)
+            Enable core phase alignment, active phase alignment, and virtual
+            stabilization together. Individual options override this value
+            when explicitly set; None inherits this value.
+        align_active_phases: bool or None, optional, (default: None)
             Make the overlap of each active band with a fixed fragment local
             orbital real and positive at every k-point. The reference is chosen
             to maximize its smallest overlap across the k-points. This fixes
@@ -165,13 +171,22 @@ def localize_init_guess(klas, frag_atoms=None, mo_coeff=None, spin=None,
             the initial Wannier gauge; it is not a visualization operation.
             If no reference has nonzero overlap everywhere, a ValueError is
             raised. Supply suitable lo_coeff or disable phase alignment to use
-            a separately constructed Wannier gauge.
-        stabilize_virtuals: bool, optional, (default: False)
+            a separately constructed Wannier gauge. None inherits
+            ``align_phases``.
+        align_core_phases: bool or None, optional, (default: None)
+            Make the largest AO coefficient of each core orbital real and
+            positive independently at each k-point. Near-ties are resolved
+            by fixed AO ordering. This fixes individual orbital phases only;
+            it does not rotate or reorder the core orbitals. The core density
+            and fixed-CI LAS energy are preserved. This option is independent
+            of ``align_active_phases``. None inherits ``align_phases``.
+        stabilize_virtuals: bool or None, optional, (default: None)
             Choose a reproducible basis within the supplied virtual space by
             projecting meta-Lowdin AOs in fixed AO order and orthonormalizing
             them. This removes arbitrary virtual-space rotations, including
             orbital phases, while preserving the core and active orbitals.
-            The virtual orbitals are not ordered by Fock energy.
+            The virtual orbitals are not ordered by Fock energy. None
+            inherits ``align_phases``.
 
     returns:
         return_umat: bool, optional, (default: False)
@@ -186,6 +201,13 @@ def localize_init_guess(klas, frag_atoms=None, mo_coeff=None, spin=None,
     '''
     # making sure that the unused args are not used in this function
     del spin, smults_f, nelec_f
+
+    if align_active_phases is None:
+        align_active_phases = align_phases
+    if align_core_phases is None:
+        align_core_phases = align_phases
+    if stabilize_virtuals is None:
+        stabilize_virtuals = align_phases
 
     if not freeze_cas_spaces:
         msg = ("Periodic active-band localization always preserves the"
@@ -304,7 +326,7 @@ def localize_init_guess(klas, frag_atoms=None, mo_coeff=None, spin=None,
             energy_order = np.argsort(energy)
             c_local[:, idx] = c_local[:, idx] @ rotation[:, energy_order]
 
-        if align_phases:
+        if align_active_phases:
             fragment_overlaps.append(ortho_lo.conj().T @ ovlp[k] @ c_local)
         mo_out[k, :, ncore:nocc] = c_local
 
@@ -312,7 +334,7 @@ def localize_init_guess(klas, frag_atoms=None, mo_coeff=None, spin=None,
         umat[k, ncore:nocc, ncore:nocc] = (c_act.conj().T @ ovlp[k] @ c_local)
         svals_out.append(svals)
 
-    if align_phases and ncas:
+    if align_active_phases and ncas:
         overlaps = np.asarray(fragment_overlaps)
         # Use one reference per band across the entire mesh. Choosing the
         # largest projection independently at each k can introduce sign jumps.
@@ -326,11 +348,28 @@ def localize_init_guess(klas, frag_atoms=None, mo_coeff=None, spin=None,
             raise ValueError(
                 "Cannot align active-band phases: no fragment local orbital "
                 "has nonzero overlap at every k-point. Supply suitable "
-                "lo_coeff or use align_phases=False with a separate Wannier gauge"
+                "lo_coeff or use align_active_phases=False with a separate Wannier gauge"
             )
         phases = anchors.conj() / np.abs(anchors)
         mo_out[:, :, ncore:nocc] *= phases[:, None, :]
         umat[:, :, ncore:nocc] *= phases[:, None, :]
+
+    if align_core_phases and ncore:
+        core = mo_out[:, :, :ncore]
+        magnitude = np.abs(core)
+        largest = np.max(magnitude, axis=1)
+        # A fixed AO order resolves near-ties without depending on input phases.
+        references = np.argmax(
+            magnitude >= largest[:, None, :] * (1 - 1e-10), axis=1,
+        )
+        anchors = np.take_along_axis(
+            core, references[:, None, :], axis=1,
+        )[:, 0, :]
+        if np.any(np.abs(anchors) == 0):
+            raise ValueError("Cannot align the phase of a zero core orbital")
+        phases = anchors.conj() / np.abs(anchors)
+        core *= phases[:, None, :]
+        umat[:, :, :ncore] *= phases[:, None, :]
 
     nvir = nmo - nocc
     if stabilize_virtuals and nvir:
