@@ -3335,8 +3335,6 @@ def kernel(
     log.info("max_cycle_micro_near_convergence = %d", max_micro_near)
     log.info("near-convergence gradient threshold = %g", 10 * conv_tol_grad)
     log.info("micro_rtol_max = %g", micro_rtol_max)
-    log.info("micro_rtol = min(0.5, micro_rtol_max, "
-             "max(1e-12, conv_tol_grad / |weighted_g|))")
     log.info("trust_radius = %g", trust_radius)
     log.info("ah_level_shift = %g", float(getattr(klas, "ah_level_shift", 1e-8)))
     log.info("max_step_backtracks = %d", max_backtracks)
@@ -3443,8 +3441,6 @@ def kernel(
         micro_cycles = max_micro
         if max(norm_gorb, norm_gci) < 10 * conv_tol_grad:
             micro_cycles = max(max_micro, max_micro_near)
-        if micro_cycles > max_micro:
-            log.info("Allowing up to %d microiterations near convergence", micro_cycles)
         initial_step, real_diagonal, floating_shift = _micro_initial_guess(
             weighted_gradient, _micro_diagonal(final_hop, metric), trust_radius, ugg=ugg,
         )
