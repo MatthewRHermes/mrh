@@ -32,7 +32,9 @@ class KnownValuesKLASToLASEnergies(unittest.TestCase):
         kmf.kernel()
         self.assertTrue(kmf.converged)
 
-        mo_avas = avas.kernel(kmf, ["H 1s"], minao=cell.basis)[2]
+        mo_avas = np.asarray(
+            avas.kernel(kmf, ["H 1s"], minao=cell.basis)[2], dtype=complex,
+        ).reshape(nk, cell.nao_nr(), -1)
 
         klas = mcscf.KLASSCF(kmf, 2, (1, 1), kmesh=kmesh)
         mo_guess = klas.localize_init_guess(["H 1s"], mo_coeff=mo_avas,
