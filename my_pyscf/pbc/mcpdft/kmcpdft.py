@@ -11,6 +11,7 @@ from mrh.my_pyscf.pbc.mcpdft.otfnalperiodic import (
 from mrh.my_pyscf.pbc.mcscf.casci import get_h2eff_kpts
 from mrh.my_pyscf.pbc.mcpdft.mcpdft import _PeriodicMCPDFT
 from mrh.my_pyscf.pbc.mcpdft import _dms as pbc_dms
+from mrh.my_pyscf.pbc.mcpdft._dms import dm2_cumulant_complex
 
 '''
 Author: Bhavnesh Jangid
@@ -97,7 +98,7 @@ def make_one_casdm2 (mc, ci, state=0):
     return casdm2
 
 def _energy_mcwfn_from_kpts(mc, casdm1s_kpts, cascm2_kpts, mo_coeff=None,
-                            ot=None, verbose=None):
+                            ot=None, verbose=None, cumulant_energy=None):
     """Compute the MC wavefunction energy from k-point active-space RDMs."""
     if ot is None:
         ot = mc.otfnal
@@ -150,11 +151,14 @@ def _energy_mcwfn_from_kpts(mc, casdm1s_kpts, cascm2_kpts, mo_coeff=None,
 
     energy_c = 0.0
     if log.verbose >= logger.DEBUG or abs(hyb_c) > 1e-10:
-        energy_c = np.einsum(
-            "abcuvxy,abcuvxy->",
-            get_h2eff_kpts(mc, mo_coeff), cascm2_kpts,
-            optimize=True,
-        ) / (2 * nkpts)
+        if cumulant_energy is None:
+            energy_c = np.einsum(
+                "abcuvxy,abcuvxy->",
+                get_h2eff_kpts(mc, mo_coeff), cascm2_kpts,
+                optimize=True,
+            ) / (2 * nkpts)
+        else:
+            energy_c = cumulant_energy
 
     energy_nuc = mc.energy_nuc()
     for label, value in (("Vnn", energy_nuc), ("Te + Vne", energy_one),
@@ -169,31 +173,51 @@ def _energy_mcwfn_from_kpts(mc, casdm1s_kpts, cascm2_kpts, mo_coeff=None,
 
 def energy_mcwfn(mc, mo_coeff=None, ci=None, ot=None, state=0,
                  casdm1s=None, casdm2=None, verbose=None,
-                 rdm_representation=None, momentum_tol=1e-8):
+                 rdm_representation=None, momentum_tol=1e-8,
+                 h2eff=None):
     """Evaluate the periodic MC wavefunction energy."""
     mo_coeff = mc.mo_coeff if mo_coeff is None else mo_coeff
     ci = mc.ci if ci is None else ci
+    if rdm_representation is None:
+        rdm_representation = getattr(mc, "_mcwfn_rdm_representation", "wannier")
     if casdm1s is None:
         casdm1s = mc.make_one_casdm1s(ci=ci, state=state)
     if casdm2 is None:
         casdm2 = mc.make_one_casdm2(ci=ci, state=state)
 
-    if rdm_representation is None:
-        rdm_representation = mc._mcwfn_rdm_representation
     casdm1s_kpts, cascm2_kpts, _ = _prepare_kpts_rdms(
         mc, casdm1s, casdm2, mo_coeff, mc.ncore,
         rdm_representation, momentum_tol,
     )
+
+    cumulant_energy = None
+    if h2eff is None and rdm_representation == "klas":
+        h2eff = mc.get_h2cas(mo_coeff)
+    if h2eff is not None:
+        ncastot = mc.ncas * mc.nkpts
+        h2eff = np.asarray(h2eff)
+        if h2eff.shape != (ncastot,) * 4:
+            raise ValueError(
+                f"Expected h2eff shape {(ncastot,) * 4}; "
+                f"got {h2eff.shape}",
+            )
+        cascm2 = dm2_cumulant_complex(casdm2, casdm1s)
+        cumulant_energy = np.tensordot(
+            h2eff, cascm2, axes=4,
+        ) / (2 * mc.nkpts)
+    energy_kwargs = {}
+    if cumulant_energy is not None:
+        energy_kwargs["cumulant_energy"] = cumulant_energy
     return _energy_mcwfn_from_kpts(
         mc, casdm1s_kpts, cascm2_kpts, mo_coeff=mo_coeff,
-        ot=ot, verbose=verbose,
+        ot=ot, verbose=verbose, **energy_kwargs,
     )
 
 
-def energy_dft_kcas(mc, mo_coeff=None, ci=None, ot=None, state=0,
+def energy_dft(mc, mo_coeff=None, ci=None, ot=None, state=0,
                     casdm1s=None, casdm2=None, max_memory=None, hermi=1,
-                    momentum_tol=1e-8):
-    """Evaluate the on-top functional directly from momentum kCAS RDMs."""
+                    momentum_tol=1e-8, rdm_representation=None):
+    """Evaluate the on-top functional using the configured RDM basis."""
     if ot is None:
         ot = mc.otfnal
     if mo_coeff is None:
@@ -206,12 +230,20 @@ def energy_dft_kcas(mc, mo_coeff=None, ci=None, ot=None, state=0,
         casdm2 = mc.make_one_casdm2(ci, state=state)
     if max_memory is None:
         max_memory = mc.max_memory
+    if rdm_representation is None:
+        rdm_representation = mc._mcwfn_rdm_representation
     return ot.energy_ot(
         casdm1s, casdm2, mo_coeff, mc.ncore,
         max_memory=max_memory, hermi=hermi,
-        rdm_representation="bloch",
+        rdm_representation=rdm_representation,
         momentum_tol=momentum_tol,
     )
+
+
+def energy_dft_kcas(mc, *args, **kwargs):
+    """Evaluate the on-top functional directly from momentum kCAS RDMs."""
+    kwargs["rdm_representation"] = "bloch"
+    return energy_dft(mc, *args, **kwargs)
 
 
 def energy_tot_charged_kcas(mc, mo_coeff=None, ci=None, ot=None, state=0,
@@ -265,6 +297,7 @@ class _MCPDFTCPLX(_PeriodicMCPDFT):
     make_one_casdm1s = make_one_casdm1s
     make_one_casdm2 = make_one_casdm2
     energy_mcwfn = energy_mcwfn
+    energy_dft = energy_dft
 
     def energy_tot(self, *args, **kwargs):
         e_tot, e_ot = super().energy_tot(*args, **kwargs)
@@ -279,6 +312,10 @@ class _MCPDFTCPLX(_PeriodicMCPDFT):
 
     def update_from_chk(self, chkfile=None, **kwargs):
         raise NotImplementedError("update_from_chk is not implemented for k-MC-PDFT")
+
+
+# Compatibility name used by the kLAS-PDFT specialization.
+_kMCPDFT = _MCPDFTCPLX
 
 
 class _kCASPDFT(_MCPDFTCPLX):

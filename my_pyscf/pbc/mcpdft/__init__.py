@@ -243,3 +243,51 @@ def LASSCFPDFT(mc_or_mf, ot, ncas_sub=None, nelecas_sub=None, ncore=None,
 
 
 LASSCF = LASSCFPDFT
+
+
+def _validate_klas_pdft_input(klas, method):
+    """
+    Sanity check function for the k-LASCI- or k-LASSCF-PDFT.
+    """
+
+    from mrh.my_pyscf.pbc.mcscf.klasci import PBCLASCINoSymm, PBCLASCITransSymm
+    from mrh.my_pyscf.pbc.mcscf.klasscf import PBCLASSCFNoSymm
+
+    if method == "KLASCI":
+        valid = isinstance(klas, PBCLASCINoSymm) and not isinstance(
+            klas, PBCLASSCFNoSymm,)
+    elif method == "KLASSCF":
+        valid = isinstance(klas, PBCLASSCFNoSymm)
+    else:
+        raise ValueError(f"Unknown kLAS-PDFT method: {method}")
+    
+    if not valid:
+        msg = f"mcpdft.{method} requires an existing {method} object"
+        raise TypeError(msg)
+    
+    if isinstance(klas, PBCLASCITransSymm) or getattr(klas, "trans_sym", False):
+        msg = "translation-packed kLAS-PDFT is not implemented"
+        raise NotImplementedError(msg)
+    
+    if klas.nroots != 1:
+        raise NotImplementedError("kLAS-PDFT currently supports one root")
+
+    nkpts = len(klas.kpts)
+    ncastot = nkpts * int(klas.ncas)
+    if int(sum(klas.ncas_sub)) != ncastot:
+        raise ValueError("sum(ncas_sub) must equal nkpts * ncas for kLAS-PDFT",)
+    return klas
+
+
+def kLASCIPDFT(klas, ot, **kwargs):
+    from mrh.my_pyscf.pbc.mcpdft.klaspdft import get_klas_mcpdft_child_class
+    _validate_klas_pdft_input(klas, "KLASCI")
+    return get_klas_mcpdft_child_class(klas, ot, **kwargs)
+
+def kLASSCFPDFT(klas, ot, **kwargs):
+    from mrh.my_pyscf.pbc.mcpdft.klaspdft import get_klas_mcpdft_child_class
+    _validate_klas_pdft_input(klas, "KLASSCF")
+    return get_klas_mcpdft_child_class(klas, ot, **kwargs)
+
+KLASCI = kLASCIPDFT
+KLASSCF = kLASSCFPDFT
