@@ -1,6 +1,6 @@
 #!/usr/bin/env python
 
-"""Check active localization, phase alignment and virtual gauge stabilization.
+"""Check active localization, core/active phases and virtual stabilization.
 
 Virtual stabilization must preserve the fixed-CI LAS energy and produce the
 same orbitals after arbitrary input virtual rotations. Active phase alignment
@@ -12,11 +12,14 @@ tolerance is 1e-8 Ha per cell.
 """
 
 import unittest
+from types import SimpleNamespace
+from unittest.mock import patch
 import numpy as np
 
 from pyscf.pbc import gto, scf
 
 from mrh.my_pyscf.pbc.mcscf import avas
+from mrh.my_pyscf.pbc.mcscf.klasci_guess import localize_init_guess
 from mrh.my_pyscf.pbc.mcscf.klasci import kLASCI
 from mrh.my_pyscf.pbc.mcscf.productstate import ImpureProductStateFCISolver
 from mrh.my_pyscf.pbc.util.orth import meta_lowdin_orbitals
@@ -79,7 +82,8 @@ class KnownValues(unittest.TestCase):
 
     def test_active_space_conserved(self):
         mo_loc, umat, svals = klas.localize_init_guess(["H 1s"], mo_coeff=mo_coeff,
-                                                       return_umat=True, return_svals=True,)
+                                                       return_umat=True, return_svals=True,
+                                                       align_core_phases=False, stabilize_virtuals=False,)
         ovlp = kmf.get_ovlp()
         ncore = klas.ncore
         nocc = ncore + klas.ncas
@@ -225,6 +229,7 @@ class KnownValues(unittest.TestCase):
         be_klas = kLASCI(be_kmf, 1, (1, 1), kmesh=be_kmesh)
         mo_loc, svals = be_klas.localize_init_guess(
             ["Be 2s"], mo_coeff=be_mo, return_svals=True,
+            align_core_phases=False, stabilize_virtuals=False,
         )
 
         ovlp = be_kmf.get_ovlp()
@@ -355,6 +360,73 @@ class KnownValues(unittest.TestCase):
             klas.localize_init_guess(
                 [0], mo_coeff=mo_coeff, frags_by_AOs=True,
             )
+
+
+class CorePhaseAlignment(unittest.TestCase):
+    def setUp(self):
+        rng = np.random.default_rng(901)
+        self.mo = np.array([
+            np.linalg.qr(rng.normal(size=(6, 6)) +
+                         1j*rng.normal(size=(6, 6)))[0]
+            for _ in range(2)
+        ])
+        self.overlap = np.tile(np.eye(6), (2, 1, 1))
+        self.fock = np.tile(np.diag(np.arange(6)), (2, 1, 1))
+        self.klas = SimpleNamespace(
+            ncore=2, ncas=1,
+            _scf=SimpleNamespace(cell=SimpleNamespace(nao_nr=lambda: 6),
+                                 kpts=np.zeros((2, 3))),
+            _svd=lambda lo, c, s, mo_occ: (None, np.ones(c.shape[1]),
+                                            c.copy(), np.asarray(mo_occ)),
+        )
+        self.klas._scf.get_ovlp = lambda kpts: self.overlap
+        self.klas._scf.get_fock = lambda: self.fock
+
+    def localize(self, mo, **kwargs):
+        # Synthetic fixture supplies orthonormal local AOs explicitly.
+        with patch.dict(localize_init_guess.__globals__,
+                        meta_lowdin_orbitals=lambda cell, ovlp: self.overlap.copy()):
+            return localize_init_guess(
+                self.klas, list(range(6)), mo_coeff=mo,
+                lo_coeff=self.overlap, frags_by_AOs=True, **kwargs,
+            )
+
+    def test_phase_invariance_density_and_returned_rotation(self):
+        reference = self.localize(self.mo)
+        explicit = self.localize(self.mo, align_active_phases=True,
+                                 align_core_phases=True, stabilize_virtuals=True)
+        combined = self.localize(self.mo, align_phases=True)
+        np.testing.assert_allclose(reference, explicit, atol=1e-12, rtol=0)
+        np.testing.assert_allclose(reference, combined, atol=1e-12, rtol=0)
+        phased = self.mo.copy()
+        phased[:, :, :2] *= np.exp(1j*np.array([[.7, -1.2], [2.1, -.4]]))[:, None, :]
+        aligned, rotation = self.localize(
+            phased, align_phases=True, return_umat=True)
+        np.testing.assert_allclose(aligned, reference, atol=1e-12, rtol=0)
+        for k in range(2):
+            before, after = phased[k, :, :2], aligned[k, :, :2]
+            np.testing.assert_allclose(before@before.conj().T,
+                                       after@after.conj().T, atol=1e-12)
+            np.testing.assert_allclose(phased[k]@rotation[k], aligned[k], atol=1e-12)
+            np.testing.assert_allclose(rotation[k].conj().T@rotation[k], np.eye(6), atol=1e-12)
+            np.testing.assert_allclose(aligned[k].conj().T@aligned[k], np.eye(6), atol=1e-12)
+
+    def test_combined_disable_and_active_override(self):
+        disabled = self.localize(self.mo, align_phases=False)
+        np.testing.assert_array_equal(disabled[:, :, :2], self.mo[:, :, :2])
+        np.testing.assert_array_equal(disabled[:, :, 3:], self.mo[:, :, 3:])
+        active_only = self.localize(self.mo, align_phases=False, align_active_phases=True)
+        np.testing.assert_array_equal(active_only[:, :, :2], self.mo[:, :, :2])
+        np.testing.assert_array_equal(active_only[:, :, 3:], self.mo[:, :, 3:])
+        core_disabled = self.localize(self.mo, align_core_phases=False)
+        np.testing.assert_array_equal(core_disabled[:, :, :2], self.mo[:, :, :2])
+        np.testing.assert_allclose(core_disabled[:, :, 2:],
+                                   self.localize(self.mo)[:, :, 2:], atol=1e-12)
+        virtual_disabled = self.localize(self.mo, stabilize_virtuals=False)
+        np.testing.assert_array_equal(virtual_disabled[:, :, 3:], self.mo[:, :, 3:])
+        active_disabled = self.localize(self.mo, align_active_phases=False)
+        np.testing.assert_allclose(active_disabled[:, :, 2], self.mo[:, :, 2], atol=1e-12)
+
 
 if __name__ == "__main__":
     unittest.main()
