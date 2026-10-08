@@ -652,7 +652,8 @@ class PBCLASCINoSymm(casci.PBCCASCI, LASCINoSymm):
             for i, e in enumerate (self.e_states[:nroots_prt]):
                 log.info ("%s state %d energy = %.15g", method, i, e)
         else:
-            log.info ("%s energy = %.15g", method, self.e_tot.real)
+            separator = ":" if method == "k-LASSCF" else " ="
+            log.info ("%s energy%s %.15g", method, separator, self.e_tot.real)
         return
     
     def get_mo_slice (self, idx, mo):
@@ -780,7 +781,10 @@ class PBCLASCINoSymm(casci.PBCCASCI, LASCINoSymm):
                 dm1a = dm1b = np.zeros (shape, dtype=dtype)
             else:
                 dm1a, dm1b = fcibox.states_make_rdm1s (ci_i, ncas, nelecas)
-            casdm1s.append (np.stack ([dm1a, dm1b], axis=1))
+            # Fixing the RDM convention:
+            # Complex FCI returns the density matrix <q^+ p>.  LAS stores
+            # <p^+ q>, which contracts directly with h[p,q] and its 2-RDM.
+            casdm1s.append (np.stack ([dm1a, dm1b], axis=1).swapaxes(-1, -2))
         return casdm1s
 
 

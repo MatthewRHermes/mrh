@@ -22,6 +22,11 @@ class PBCProductStateFCISolver (molProductStateFCISolver):
 
     ci_dtype = np.complex128
 
+    def make_rdm1s(self, ci, norb_f, nelec_f, **kwargs):
+        """Return <p^+ q> for direct contraction with the LAS Hamiltonian."""
+        dm1s = super().make_rdm1s(ci, norb_f, nelec_f, **kwargs)
+        return tuple(np.asarray(dm).T for dm in dm1s)
+
     def _get_grad (self, h1eff, h2, ci, norb_f, nelec_f, orbsym=None,
             **kwargs):
         nj = np.cumsum (norb_f)
@@ -79,18 +84,19 @@ class PBCProductStateFCISolver (molProductStateFCISolver):
         dm1 = dm1a + dm1b
         for (i,j), (k,l) in combinations (zip (ni, nj), 2):
             d1_ij = dm1[i:j,i:j]
-            d1a_ij = dm1a[i:j,i:j].T
-            d1b_ij = dm1b[i:j,i:j].T
+            d1a_ij = dm1a[i:j,i:j]
+            d1b_ij = dm1b[i:j,i:j]
             d1_kl = dm1[k:l,k:l]
-            d1a_kl = dm1a[k:l,k:l].T
-            d1b_kl = dm1b[k:l,k:l].T
+            d1a_kl = dm1a[k:l,k:l]
+            d1b_kl = dm1b[k:l,k:l]
             d2 = np.multiply.outer (d1_ij, d1_kl)
             dm2[i:j,i:j,k:l,k:l] = d2
             dm2[k:l,k:l,i:j,i:j] = d2.transpose (2,3,0,1)
             d2  = np.multiply.outer (d1a_ij, d1a_kl)
             d2 += np.multiply.outer (d1b_ij, d1b_kl)
-            dm2[i:j,k:l,k:l,i:j] = -d2.transpose (0,2,3,1)
-            dm2[k:l,i:j,i:j,k:l] = -d2.transpose (2,0,1,3)
+            d2_exch = -d2.transpose (0,3,2,1)
+            dm2[i:j,k:l,k:l,i:j] = d2_exch
+            dm2[k:l,i:j,i:j,k:l] = d2_exch.conj().transpose (1,0,3,2)
         return dm2
 
 
@@ -313,8 +319,8 @@ class PBCTransSymmImpureProductStateFCISolver(ImpureProductStateFCISolver):
 
         dm1a_ref, dm1b_ref = solver_ref.make_rdm1s(ci_solver, norb_ref, nelec_ref,)
 
-        dm1a_ref = np.asarray(dm1a_ref, dtype=dtype)
-        dm1b_ref = np.asarray(dm1b_ref, dtype=dtype)
+        dm1a_ref = np.asarray(dm1a_ref, dtype=dtype).T
+        dm1b_ref = np.asarray(dm1b_ref, dtype=dtype).T
 
         if self.verbose >= lib.logger.DEBUG:
             assert np.allclose(dm1a_ref, dm1a_ref.conj().T,
@@ -428,11 +434,11 @@ class PBCTransSymmImpureProductStateFCISolver(ImpureProductStateFCISolver):
 
         for (i, j), (k, l) in combinations(zip(ni, nj), 2):
             d1_ij = dm1[i:j, i:j]
-            d1a_ij = dm1a[i:j, i:j].T
-            d1b_ij = dm1b[i:j, i:j].T
+            d1a_ij = dm1a[i:j, i:j]
+            d1b_ij = dm1b[i:j, i:j]
             d1_kl = dm1[k:l, k:l]
-            d1a_kl = dm1a[k:l, k:l].T
-            d1b_kl = dm1b[k:l, k:l].T
+            d1a_kl = dm1a[k:l, k:l]
+            d1b_kl = dm1b[k:l, k:l]
 
             d2 = np.multiply.outer(d1_ij, d1_kl)
             dm2[i:j, i:j, k:l, k:l] = d2
@@ -440,8 +446,9 @@ class PBCTransSymmImpureProductStateFCISolver(ImpureProductStateFCISolver):
 
             d2 = np.multiply.outer(d1a_ij, d1a_kl)
             d2 += np.multiply.outer(d1b_ij, d1b_kl)
-            dm2[i:j, k:l, k:l, i:j] = -d2.transpose(0, 2, 3, 1)
-            dm2[k:l, i:j, i:j, k:l] = -d2.transpose(2, 0, 1, 3)
+            d2_exch = -d2.transpose(0, 3, 2, 1)
+            dm2[i:j, k:l, k:l, i:j] = d2_exch
+            dm2[k:l, i:j, i:j, k:l] = d2_exch.conj().transpose(1, 0, 3, 2)
         return dm2
 
     def energy_ref(self, h1_packed, h2_packed, ci_ref,
@@ -486,7 +493,7 @@ class PBCTransSymmImpureProductStateFCISolver(ImpureProductStateFCISolver):
             e2 += np.einsum('pqrs,pq,rs->',
                             h2_packed[0, delta, delta], dm1_ref, dm1_ref,)
             for spin in range(2):
-                e2 -= np.einsum('pqrs,ps,qr->',h2_packed[delta, delta, 0],
+                e2 -= np.einsum('pqrs,ps,rq->',h2_packed[delta, delta, 0],
                                 dm1s_ref[spin], dm1s_ref[spin],)
 
         return ecore / ncell + e1 + 0.5 * e2

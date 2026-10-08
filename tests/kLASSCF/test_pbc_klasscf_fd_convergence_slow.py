@@ -31,7 +31,7 @@ class DerivativeConvergenceTests(unittest.TestCase):
     def setUpClass(cls):
         cls.references = {}
 
-    def check_convergence(self, evaluate, steps=FD_STEPS, **kwargs):
+    def check_convergence(self, evaluate, plot_name, title, steps=FD_STEPS, **kwargs):
         results = {}
         try:
             for name, config in CASES.items():
@@ -46,26 +46,30 @@ class DerivativeConvergenceTests(unittest.TestCase):
                     assert_convergence(result)
         finally:
             if self.plot_dir is not None and results:
-                name = self._testMethodName
-                description = (name[len("test_"):] if name.startswith("test_") else name).replace("_", " ")
                 plot_convergence(
-                    results, self.plot_dir / f"{self._testMethodName}.png", description,
+                    results, self.plot_dir / plot_name, title,
                 )
 
     def test_orbital_gradient_forward_difference_order(self):
-        self.check_convergence(klasscf_orb_grad_taylor_check.evaluate, steps=ORBITAL_STEPS)
+        self.check_convergence(
+            klasscf_orb_grad_taylor_check.evaluate,
+            "test_orbital_gradient_forward_difference_order.png",
+            "Orbital gradient forward difference order", steps=ORBITAL_STEPS,
+        )
 
     def test_active_active_gradient_forward_difference_order(self):
         self.check_convergence(
             klasscf_orb_grad_taylor_check.evaluate,
-            steps=ORBITAL_STEPS,
+            "test_active_active_gradient_forward_difference_order.png",
+            "Active-active gradient forward difference order", steps=ORBITAL_STEPS,
             rotation_blocks=("active-active",),
         )
 
     def test_active_active_hessian_forward_difference_order(self):
         self.check_convergence(
             klasscf_orb_hess_fd_check.evaluate,
-            steps=ORBITAL_STEPS,
+            "test_active_active_hessian_forward_difference_order.png",
+            "Active-active Hessian forward difference order", steps=ORBITAL_STEPS,
             rotation_blocks=("active-active",),
         )
 
@@ -99,14 +103,26 @@ class DerivativeConvergenceTests(unittest.TestCase):
 
     def test_ci_gradient_forward_difference_order(self):
         """Validate the production automatic builder in every dimension."""
-        self.check_convergence(klasscf_ci_grad_fd_check.evaluate)
+        self.check_convergence(
+            klasscf_ci_grad_fd_check.evaluate,
+            "test_ci_gradient_forward_difference_order.png",
+            "CI gradient forward difference order",
+        )
 
     def test_orbital_hessian_vector_forward_difference_order(self):
-        self.check_convergence(klasscf_orb_hess_fd_check.evaluate, steps=ORBITAL_STEPS)
+        self.check_convergence(
+            klasscf_orb_hess_fd_check.evaluate,
+            "test_orbital_hessian_vector_forward_difference_order.png",
+            "Orbital Hessian vector forward difference order", steps=ORBITAL_STEPS,
+        )
 
     def test_ci_hessian_vector_forward_difference_order(self):
         """Compare the production CI Hessian with production gradient differences."""
-        self.check_convergence(klasscf_ci_hess_fd_check.evaluate)
+        self.check_convergence(
+            klasscf_ci_hess_fd_check.evaluate,
+            "test_ci_hessian_vector_forward_difference_order.png",
+            "CI Hessian vector forward difference order",
+        )
 
 
 if __name__ == "__main__":
