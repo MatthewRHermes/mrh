@@ -3276,8 +3276,14 @@ def _backtrack_macro_step(klas, hop, step, gradient, h2eff, energy,
 
 
 def kernel(
-        klas, mo_coeff=None, ci0=None, conv_tol_grad=None, verbose=None):
+        klas, mo_coeff=None, ci0=None, conv_tol_grad=None, verbose=None,
+        conv_tol=None):
     """Run the k-LASSCF macro/micro optimization.
+
+    Convergence requires both orbital/CI gradient norms below conv_tol_grad
+    and an absolute energy change below conv_tol (Hartree per primitive cell)
+    between consecutive macro keyframes, including their local CI refreshes.
+    The initial keyframe has no previous energy and cannot satisfy this test.
 
     Each macroiteration refreshes the local CI vectors and constructs a new
     orbital/CI Hessian keyframe.  MINRES samples the Newton equation in doubled
@@ -3307,6 +3313,9 @@ def kernel(
     if verbose is None:
         verbose = klas.verbose
 
+    if conv_tol is None:
+        conv_tol = klas.conv_tol
+    conv_tol = float(conv_tol)
     conv_tol_grad = float(conv_tol_grad)
     micro_rtol_max = float(getattr(klas, "micro_rtol_max", 1e-3))
     max_macro = int(klas.max_cycle_macro)
@@ -3318,6 +3327,8 @@ def kernel(
 
     log = lib.logger.new_logger(klas, verbose)
     log.debug("Start k-LASSCF")
+    log.info("k-LASSCF convergence tolerances: |dE| < %.3g Ha/cell; "
+             "|g_orb|, |g_ci| < %.3g", conv_tol, conv_tol_grad)
     t0 = (lib.logger.process_clock(), lib.logger.perf_counter())
     converged = False
     final_hop = None
@@ -3389,23 +3400,32 @@ def kernel(
         norm_gorb = float(np.linalg.norm(gradient[:ugg.nvar_orb]))
         norm_gci = float(np.linalg.norm(gradient[ugg.nvar_orb:]))
         macro_energy = float(np.real(e_tot))
-        delta_energy = (0.0 if previous_macro_energy is None else
+        delta_energy = (None if previous_macro_energy is None else
                         macro_energy - previous_macro_energy)
         log.info(
-            "macro iter %d : E = %.15g ; dE = %.6g ; |g_orb| = %.6g ; "
+            "macro iter %d : E = %.15g ; dE = %s ; |g_orb| = %.6g ; "
             "|g_ci| = %.6g",
-            imacro, macro_energy, delta_energy, norm_gorb, norm_gci,
+            imacro, macro_energy,
+            "N/A" if delta_energy is None else f"{delta_energy:.6g}",
+            norm_gorb, norm_gci,
+        )
+        energy_is_converged = (
+            delta_energy is not None and abs(delta_energy) < conv_tol
         )
         previous_macro_energy = macro_energy
 
         gradient_is_converged = (
             norm_gorb < conv_tol_grad and norm_gci < conv_tol_grad
         )
-        if gradient_is_converged and imacro >= min_macro:
+        if energy_is_converged and gradient_is_converged and imacro >= min_macro:
             converged = True
             break
         if imacro == max_macro or max_micro == 0 or gradient.size == 0:
             break
+
+        if gradient_is_converged:
+            # Verify the macro energy without perturbing stationary orbitals.
+            continue
 
         weighted_gradient = metric * gradient
         micro_cycles = max_micro
@@ -3626,7 +3646,7 @@ def kernel(
 
 def _klasscf_kernel_method(
         self, mo_coeff=None, ci0=None, conv_tol_grad=None, verbose=None,
-        _kern=None):
+        _kern=None, conv_tol=None):
     """Run k-LASSCF and store the final result on this object."""
     if mo_coeff is None:
         mo_coeff = self.mo_coeff
@@ -3638,6 +3658,8 @@ def _klasscf_kernel_method(
         verbose = self.verbose
     if conv_tol_grad is None:
         conv_tol_grad = self.conv_tol_grad
+    if conv_tol is None:
+        conv_tol = self.conv_tol
     if _kern is None:
         _kern = self._kern
 
@@ -3647,7 +3669,7 @@ def _klasscf_kernel_method(
 
     result = _kern(
         mo_coeff=mo_coeff, ci0=ci0,
-        conv_tol_grad=conv_tol_grad, verbose=verbose,
+        conv_tol_grad=conv_tol_grad, verbose=verbose, conv_tol=conv_tol,
     )
     (
         self.converged, self.e_tot, self.e_states, self.mo_energy,
@@ -3662,6 +3684,13 @@ def _klasscf_kernel_method(
 
 class PBCLASSCFNoSymm(PBCLASCINoSymm):
     """Periodic LASSCF object without translation-adapted CI packing."""
+
+    # Absolute macro energy change in Hartree per primitive cell.
+    conv_tol = 1e-7
+
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        self._keys.add("conv_tol")
 
     _hop = KLASSCF_HessianOperator
     _kern = kernel
