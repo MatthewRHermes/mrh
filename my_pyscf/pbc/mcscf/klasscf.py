@@ -3327,8 +3327,20 @@ def kernel(
 
     log = lib.logger.new_logger(klas, verbose)
     log.debug("Start k-LASSCF")
-    log.info("k-LASSCF convergence tolerances: |dE| < %.3g Ha/cell; "
-             "|g_orb|, |g_ci| < %.3g", conv_tol, conv_tol_grad)
+    log.info("k-LASSCF convergence tolerances and optimizer settings:")
+    log.info("conv_tol = %g Ha/cell", conv_tol)
+    log.info("conv_tol_grad = %g", conv_tol_grad)
+    log.info("max_cycle_macro = %d", max_macro)
+    log.info("max_cycle_micro = %d", max_micro)
+    log.info("max_cycle_micro_near_convergence = %d", max_micro_near)
+    log.info("near-convergence gradient threshold = %g", 10 * conv_tol_grad)
+    log.info("micro_rtol_max = %g", micro_rtol_max)
+    log.info("micro_rtol = min(0.5, micro_rtol_max, "
+             "max(1e-12, conv_tol_grad / |weighted_g|))")
+    log.info("trust_radius = %g", trust_radius)
+    log.info("ah_level_shift = %g", float(getattr(klas, "ah_level_shift", 1e-8)))
+    log.info("max_step_backtracks = %d", max_backtracks)
+    log.info("")
     t0 = (lib.logger.process_clock(), lib.logger.perf_counter())
     converged = False
     final_hop = None
@@ -3476,6 +3488,9 @@ def kernel(
             0.5, micro_rtol_max,
             max(1e-12, conv_tol_grad / max(rhs_norm, 1e-30)),
         )
+        log.info("    micro solve: maxiter = %d ; micro_rtol = %.12g ; "
+                 "residual_tol = %.12g", micro_cycles, micro_rtol,
+                 micro_rtol * rhs_norm)
         micro_count = [0]
         last_stable_step = [initial_step]
         # A Krylov iterate can have a worse unpreconditioned residual than
