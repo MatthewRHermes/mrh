@@ -10,7 +10,6 @@ import copy
 import numpy as np
 
 from pyscf import __config__
-from pyscf.lib import logger
 from pyscf.pbc.lib import kpts_helper
 
 from mrh.my_pyscf.pbc.mcpdft import klaspdft_helper
@@ -102,62 +101,6 @@ def energy_dft_klas(mc, mo_coeff=None, ci=None, ot=None, state=0,
     )
 
 
-def energy_tot_klas(mc, mo_coeff=None, ci=None, ot=None, state=0,
-                    verbose=None, **kwargs):
-    """Build one kLAS RDM pair and evaluate its total MC-PDFT energy.
-
-    The expensive product-state RDMs and the gauge-defining ``mo_phase`` are
-    each constructed once and shared by the MC-wavefunction and on-top energy
-    paths.
-    """
-    del kwargs
-    if ot is None:
-        ot = mc.otfnal
-    ot.reset(mol=mc.mol)
-    if mo_coeff is None:
-        mo_coeff = mc.mo_coeff
-    if ci is None:
-        ci = mc.ci
-    if verbose is None:
-        verbose = mc.verbose
-
-    casdm1s, casdm2 = klaspdft_helper.make_one_casdm12_klas(
-        mc, ci=ci, state=state,
-    )
-    mo_phase = klaspdft_helper.get_klas_mo_phase(
-        mc, mo_coeff=mo_coeff,
-    )
-    e_mcwfn = mc.energy_mcwfn(
-        mo_coeff=mo_coeff,
-        ci=ci,
-        ot=ot,
-        state=state,
-        casdm1s=casdm1s,
-        casdm2=casdm2,
-        verbose=verbose,
-        mo_phase=mo_phase,
-    )
-    e_ot = mc.energy_dft(
-        mo_coeff=mo_coeff,
-        ci=ci,
-        ot=ot,
-        state=state,
-        casdm1s=casdm1s,
-        casdm2=casdm2,
-        mo_phase=mo_phase,
-    )
-    e_tot = e_mcwfn + e_ot
-    logger.note(
-        mc,
-        "kLAS-PDFT state %d E = %s, Eot(%s) = %s",
-        state,
-        e_tot.real,
-        ot.otxc,
-        e_ot.real,
-    )
-    return e_tot, e_ot
-
-
 class _kLASPDFT(_kMCPDFT):
     """k-MC-PDFT specialization for periodic LASCI and LASSCF states."""
 
@@ -165,7 +108,6 @@ class _kLASPDFT(_kMCPDFT):
     make_one_casdm2 = klaspdft_helper.make_one_casdm2_klas
     energy_mcwfn = energy_mcwfn_klas
     energy_dft = energy_dft_klas
-    energy_tot = energy_tot_klas
 
 
 def get_klas_mcpdft_child_class(klas, ot, grids_level=None,
