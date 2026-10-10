@@ -24,8 +24,7 @@ geom = ''' K 0 0 0;
            K 0 0 4;
            K 0 0 6;'''
 basis='def2svp'
-if gpu_run: mol = gto.M(use_gpu = gpu, atom=geom, basis=basis, verbose=1)
-else: mol = gto.M(atom=geom, basis=basis, verbose=1)
+mol = gto.M(atom=geom, basis=basis, verbose=1)
 
 mol.output='test.log'
 mol.build()

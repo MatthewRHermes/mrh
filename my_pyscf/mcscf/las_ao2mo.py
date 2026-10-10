@@ -81,7 +81,7 @@ def get_h2eff_gpu (las,mo_coeff):
     nocc = ncore + ncas
     mo_cas = mo_coeff[:,ncore:nocc]
     libgpu.push_mo_coeff(gpu,mo_coeff.copy(),mo_coeff.size)
-    libgpu.extract_mo_cas(gpu,ncas, ncore, nao)
+    libgpu.extract_mo_cas(gpu,ncas, ncore, nao, nmo)
     naux = las.with_df.get_naoaux ()
     blksize = las.with_df.blockdim
     eri = 0
@@ -128,7 +128,7 @@ def get_h2eff_gpu_v2 (las,mo_coeff):
     mo_cas = mo_coeff[:,ncore:nocc]
     libgpu.push_mo_coeff(gpu,mo_coeff.copy(),mo_coeff.size)
     libgpu.init_eri_h2eff(gpu, nmo, ncas)
-    libgpu.extract_mo_cas(gpu,ncas, ncore, nao)
+    libgpu.extract_mo_cas(gpu,ncas, ncore, nao, nmo)
     naux = las.with_df.get_naoaux ()
     blksize = las.with_df.blockdim
     eri =np.zeros((nmo,  int(ncas*ncas*(ncas+1)/2)))

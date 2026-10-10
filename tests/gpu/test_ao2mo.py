@@ -33,9 +33,11 @@ def _run_mod ():
 
     from mrh.my_pyscf.gpu import libgpu
     from gpu4mrh import patch_pyscf
+    from pyscf.lib import param
     gpu = libgpu.init()
+    param.use_gpu = gpu
     outputfile=str(nfrags)+'_'+str(basis)+'_out_gpu_ref.log';
-    mol=gto.M(atom=generator(nfrags),basis=basis,verbose=4,output=outputfile, use_gpu=gpu)
+    mol=gto.M(atom=generator(nfrags),basis=basis,verbose=4,output=outputfile)
     mf=scf.RHF(mol)
     mf=mf.density_fit()
     mf.run()
@@ -145,13 +147,17 @@ def _run_mod ():
         for i in range(start, end, step):
             yield i, min(i+step, end)
     
-    j_pc_gpu, k_pc_gpu, ppaa_gpu, papa_gpu = init_eri_gpu_v4(mf.mo_coeff,with_df) 
-    j_pc_cpu, k_pc_cpu, ppaa_cpu, papa_cpu = init_eri_cpu(mf.mo_coeff,with_df) 
-    j_pc_diff=numpy.max(numpy.abs(j_pc_cpu-j_pc_gpu))
-    k_pc_diff=numpy.max(numpy.abs(k_pc_cpu-k_pc_gpu))
-    ppaa_diff=numpy.max(numpy.abs(ppaa_cpu-ppaa_gpu))
-    papa_diff=numpy.max(numpy.abs(papa_cpu-papa_gpu))
-    return j_pc_diff, k_pc_diff, ppaa_diff, papa_diff
+    try:
+        j_pc_gpu, k_pc_gpu, ppaa_gpu, papa_gpu = init_eri_gpu_v4(mf.mo_coeff,with_df) 
+        j_pc_cpu, k_pc_cpu, ppaa_cpu, papa_cpu = init_eri_cpu(mf.mo_coeff,with_df) 
+        j_pc_diff=numpy.max(numpy.abs(j_pc_cpu-j_pc_gpu))
+        k_pc_diff=numpy.max(numpy.abs(k_pc_cpu-k_pc_gpu))
+        ppaa_diff=numpy.max(numpy.abs(ppaa_cpu-ppaa_gpu))
+        papa_diff=numpy.max(numpy.abs(papa_cpu-papa_gpu))
+        return j_pc_diff, k_pc_diff, ppaa_diff, papa_diff
+    finally:
+        libgpu.destroy_device(gpu)
+        param.use_gpu = None
     
    
 

@@ -24,11 +24,11 @@ def setUpModule():
     global gpu, mf, mo_guess
     from gpu4mrh import patch_pyscf
     gpu = libgpu.init ()
+    lib.param.use_gpu = gpu
     mol=gto.M(atom=generator(1),
               basis='6-31g',
               verbose=0,
-              output='/dev/null',
-              use_gpu=gpu)
+              output='/dev/null')
     mf=scf.RHF(mol)
     mf=mf.density_fit()
     mf.run()
@@ -38,6 +38,7 @@ def tearDownModule():
     global gpu, mf, mo_guess
     libgpu.destroy_device (gpu)
     del gpu, mf, mo_guess
+    lib.param.use_gpu = None
 
 REFERENCE_E = -78.0335541872522
 
@@ -45,7 +46,7 @@ class KnownValues (unittest.TestCase):
 
     def test_sync (self):
         from mrh.my_pyscf.mcscf.lasscf_sync_o0 import LASSCF
-        las = LASSCF(mf, (2,), (2,), use_gpu=gpu)
+        las = LASSCF(mf, (2,), (2,))
         mo_coeff = las.localize_init_guess ([[1,2],], mo_guess)
         las.kernel (mo_coeff)
         self.assertTrue (las.converged)
@@ -53,7 +54,7 @@ class KnownValues (unittest.TestCase):
 
     def test_async (self):
         from mrh.my_pyscf.mcscf.lasscf_async import LASSCF
-        las = LASSCF(mf, (2,), (2,), use_gpu=gpu)
+        las = LASSCF(mf, (2,), (2,))
         mo_coeff = las.set_fragments_([[1,2],], mo_guess)
         las.kernel (mo_coeff)
         self.assertTrue (las.converged)

@@ -51,8 +51,7 @@ if __name__ == "__main__":
   geom = ''' K 0 0 0;
              K 0 0 2;'''
   
-  if gpu_run: mol = gto.M(use_gpu = gpu, atom=geom, basis='631g', verbose=1)
-  else: mol = gto.M(atom=geom, basis='631g', verbose=1)
+  mol = gto.M(atom=geom, basis='631g', verbose=1)
   
   mol.output='test.log'
   mol.build()

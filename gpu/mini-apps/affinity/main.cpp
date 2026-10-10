@@ -4,6 +4,7 @@
 //This is useful when debugging job launchers, like mpiexec, and ensuring all GPUs in a node are used as expected.
 #include <stdio.h>
 #include <unistd.h>
+#include <sched.h>
 #include <string.h>
 #include <cstdlib>
 #include <iostream>
@@ -23,8 +24,14 @@ using namespace PM_NS;
 
 // xthi.c from http://docs.cray.com/books/S-2496-4101/html-S-2496-4101/cnlexamples.html
 // util-linux-2.13-pre7/schedutils/taskset.c
+
+#if !defined(__linux__)
+#define CPU_SETSIZE 1024
+#endif
+
 void get_cores(char *str)
-{ 
+{
+#if defined(__linux__)
   cpu_set_t mask;
   sched_getaffinity(0, sizeof(cpu_set_t), &mask);
 
@@ -52,6 +59,9 @@ void get_cores(char *str)
   }
   ptr -= entry_made;
   *ptr = 0;
+#else
+  str[0] = 0;
+#endif
 }
 
 int main(int argc, char *argv[])

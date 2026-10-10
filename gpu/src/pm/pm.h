@@ -22,19 +22,19 @@
 #if defined(_USE_GPU)
 
 #if defined(_GPU_CUDA)
-#include "pm_cuda.h"
+#include "cuda/pm_cuda.h"
 #elif defined(_GPU_SYCL) || defined(_GPU_SYCL_CUDA)
-#include "pm_sycl.h"
+#include "sycl/pm_sycl.h"
 #elif defined(_GPU_HIP)
-#include "pm_hip.h"
+#include "hip/pm_hip.h"
 #elif defined(_GPU_OPENMP)
 #error "Attempting to use -D_GPU_OPENMP which is not currently supported"
-#include "pm_openmp.h"
+#include "openmp/pm_openmp.h"
 #endif
 
 #elif defined(_USE_CPU)
 
-#include "pm_host.h"
+#include "host/pm_host.h"
 
 #endif
 
