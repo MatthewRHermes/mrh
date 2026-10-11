@@ -126,19 +126,40 @@ def get_klas_mo_phase(klas, mo_coeff=None):
     """
     if mo_coeff is None:
         mo_coeff = klas.mo_coeff
+    return make_klas_mo_phase(
+        klas._scf, klas.kmesh, mo_coeff, klas.ncore, klas.ncas,
+        ncas_sub=klas.ncas_sub,
+    )
+
+
+def make_klas_mo_phase(kmf, kmesh, mo_coeff, ncore, ncas, ncas_sub=None):
+    """Same as get_klas_mo_phase, but takes the pieces of the kLAS object.
+
+    Args:
+        kmf: Mean-field object (or any object with cell, kpts and get_ovlp).
+        kmesh: K-point mesh.
+        mo_coeff: Orbital coefficients, shape (nkpts, nao, nmo).
+        ncore: Number of core orbitals per unit cell.
+        ncas: Number of active orbitals per unit cell.
+    Kwargs:
+        ncas_sub: Active orbitals per fragment; if given, its sum must equal
+            nkpts * ncas.
+    Returns:
+        mo_phase: Coefficients <Bloch(k, a) | Wannier(P)>, shape
+            (nkpts, ncas, nkpts * ncas). Stacking (k, a) gives a unitary matrix.
+    """
     mo_coeff = np.asarray(mo_coeff)
     if mo_coeff.ndim != 3:
         raise ValueError("mo_coeff must have shape (nkpts, nao, nmo)")
 
     nkpts, _, _ = mo_coeff.shape
-    ncore, ncas = klas.ncore, klas.ncas
     ncastot = nkpts * ncas
-    if sum(klas.ncas_sub) != ncastot:
+    if ncas_sub is not None and sum(ncas_sub) != ncastot:
         raise ValueError(f"sum(ncas_sub) must equal nkpts * ncas = {ncastot}")
 
     mo_active = np.ascontiguousarray(mo_coeff[:, :, ncore:ncore + ncas])
     mo_phase = np.asarray(
-        get_wannier_orbs(klas._scf, klas.kmesh, mo_active)[-1],
+        get_wannier_orbs(kmf, kmesh, mo_active)[-1],
         dtype=np.result_type(mo_coeff.dtype, np.complex128),
     )
     
