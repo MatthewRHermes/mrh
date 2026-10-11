@@ -221,7 +221,16 @@ class otfnalperiodic_kpts(otfnal):
     def energy_ot(ot, casdm1s, casdm2, mo_coeff, ncore,
                   max_memory=param.MAX_MEMORY, hermi=1,
                   rdm_representation='wannier', momentum_tol=1e-8):
-        """Evaluate on-top energy from 'wannier', 'bloch', or 'klas' RDMs."""
+        """Evaluate the on-top energy from active-space RDMs in one of three bases.
+
+        rdm_representation:
+            'wannier': RDMs in the supercell active-orbital basis built with
+                the generic k-to-R transformation.
+            'bloch': RDMs in the flattened Bloch (k-space) basis, as produced
+                by k-CASCI/k-CASSCF; only momentum blocks are extracted.
+            'klas': RDMs in the kLAS Wannier basis, using the kLAS orbital
+                phase convention.
+        """
         if ot.xctype == 'HF':
             return 0.0
         casdm1s_kpts, cascm2_kpts, kconserv = _prepare_kpts_rdms(
