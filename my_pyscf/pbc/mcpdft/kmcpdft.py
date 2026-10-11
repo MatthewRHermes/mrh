@@ -3,8 +3,8 @@ import numpy as np
 from pyscf.lib import logger
 from pyscf.mcpdft import _dms
 
+from mrh.my_pyscf.pbc.mcpdft._dms import _prepare_kpts_rdms
 from mrh.my_pyscf.pbc.mcpdft.otfnalperiodic import (
-    _prepare_kpts_rdms,
     get_pbc_otfnal_kpts,
     otfnalperiodic_kpts,
 )
