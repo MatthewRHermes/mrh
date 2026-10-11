@@ -1,13 +1,9 @@
 import numpy as np
 
-from pyscf.pbc.lib import kpts_helper
-
 from mrh.my_pyscf.pbc.mcscf.productstate import PBCProductStateFCISolver
-from mrh.my_pyscf.pbc.mcscf.mc1step import (
-    _get_casdm2_kpts as _basis_transform_casdm2_kpts,
+from mrh.my_pyscf.pbc.mcpdft._dms import (
+    dm2_cumulant_complex, make_klas_mo_phase, make_klas_rdms_kpts,
 )
-from mrh.my_pyscf.pbc.mcpdft._dms import dm2_cumulant_complex
-from mrh.my_pyscf.pbc.util.wannier import get_wannier_orbs
 from mrh.my_pyscf.pbc.mcscf.klasscf import _check_shape
 
 # Author: Bhavnesh Jangid
@@ -130,113 +126,3 @@ def get_klas_mo_phase(klas, mo_coeff=None):
         klas._scf, klas.kmesh, mo_coeff, klas.ncore, klas.ncas,
         ncas_sub=klas.ncas_sub,
     )
-
-
-def make_klas_mo_phase(kmf, kmesh, mo_coeff, ncore, ncas, ncas_sub=None):
-    """Same as get_klas_mo_phase, but takes the pieces of the kLAS object.
-
-    Args:
-        kmf: Mean-field object (or any object with cell, kpts and get_ovlp).
-        kmesh: K-point mesh.
-        mo_coeff: Orbital coefficients, shape (nkpts, nao, nmo).
-        ncore: Number of core orbitals per unit cell.
-        ncas: Number of active orbitals per unit cell.
-    Kwargs:
-        ncas_sub: Active orbitals per fragment; if given, its sum must equal
-            nkpts * ncas.
-    Returns:
-        mo_phase: Coefficients <Bloch(k, a) | Wannier(P)>, shape
-            (nkpts, ncas, nkpts * ncas). Stacking (k, a) gives a unitary matrix.
-    """
-    mo_coeff = np.asarray(mo_coeff)
-    if mo_coeff.ndim != 3:
-        raise ValueError("mo_coeff must have shape (nkpts, nao, nmo)")
-
-    nkpts, _, _ = mo_coeff.shape
-    ncastot = nkpts * ncas
-    if ncas_sub is not None and sum(ncas_sub) != ncastot:
-        raise ValueError(f"sum(ncas_sub) must equal nkpts * ncas = {ncastot}")
-
-    mo_active = np.ascontiguousarray(mo_coeff[:, :, ncore:ncore + ncas])
-    mo_phase = np.asarray(
-        get_wannier_orbs(kmf, kmesh, mo_active)[-1],
-        dtype=np.result_type(mo_coeff.dtype, np.complex128),
-    )
-    
-    if mo_phase.shape != (nkpts, ncas, ncastot):
-        msg = (
-            f"Expected kLAS mo_phase shape {(nkpts, ncas, ncastot)}; "
-            f"got {mo_phase.shape}"
-        )
-        raise ValueError(msg)
-    
-    phase_matrix = mo_phase.reshape(ncastot, ncastot)
-    if not np.allclose(
-            phase_matrix.conj().T @ phase_matrix, np.eye(ncastot),
-            atol=1e-8, rtol=1e-8):
-        raise ValueError("stacked kLAS mo_phase must be unitary")
-    return mo_phase
-
-
-def make_klas_rdms_kpts(casdm1s, casdm2, mo_phase, kconserv):
-    """Transform Wannier RDMs to k-point 1-RDM and two-body cumulant blocks.
-
-    Args:
-        casdm1s: Wannier alpha/beta 1-RDMs, shape (2, ncastot, ncastot).
-        casdm2: Wannier spin-summed 2-RDM, shape (ncastot,) * 4.
-        mo_phase: Coefficients <Bloch(k, a) | Wannier(P)>, shape
-            (nkpts, ncas, ncastot), with ncastot = nkpts * ncas.
-        kconserv: Integer lookup, shape (nkpts, nkpts, nkpts), giving
-            k4 = kconserv[k1, k2, k3] for each momentum-conserving tuple.
-    Returns:
-        casdm1s_kpts: Spin 1-RDM blocks, shape (2, nkpts, ncas, ncas).
-        cascm2_kpts: Cumulant blocks, shape
-            (nkpts, nkpts, nkpts, ncas, ncas, ncas, ncas); k4 is implicit.
-    """
-    mo_phase = np.asarray(mo_phase)
-    if mo_phase.ndim != 3:
-        msg = "mo_phase must have shape (nkpts, ncas, nkpts * ncas)"
-        raise ValueError(msg)
-    
-    nkpts, ncas, ncastot = mo_phase.shape
-    
-    if ncastot != nkpts * ncas:
-        msg = "mo_phase must map a square stacked active-orbital space"
-        raise ValueError(msg)
-    
-    kconserv = np.asarray(kconserv)
-    expected_shape = (nkpts, nkpts, nkpts)
-    if kconserv.shape != expected_shape:
-        raise ValueError(
-            f"kconserv shape must be {expected_shape}; got {kconserv.shape}"
-        )
-
-    casdm1s = np.asarray(casdm1s, dtype = mo_phase.dtype)
-    casdm2 = np.asarray(casdm2, dtype = mo_phase.dtype)
-
-    _check_shape(casdm1s, (2, ncastot, ncastot), "casdm1s")
-    _check_shape(casdm2, (ncastot,) * 4, "casdm2")
-
-    casdm1s_kpts = np.einsum(
-        "kap,spq,kbq->skab",
-        mo_phase,
-        casdm1s,
-        mo_phase.conj(),
-        optimize=True,
-    )
-
-
-    cascm2 = dm2_cumulant_complex(casdm2, casdm1s)
-    dtype = np.result_type(cascm2.dtype, mo_phase.dtype)
-    
-    cascm2_kpts = np.empty(
-        (nkpts, nkpts, nkpts, ncas, ncas, ncas, ncas),
-        dtype=dtype,
-    )
-
-    for k1, k2, k3 in kpts_helper.loop_kkk(nkpts):
-        k4 = kconserv[k1, k2, k3]
-        cascm2_kpts[k1, k2, k3] = _basis_transform_casdm2_kpts(
-                cascm2, mo_phase, (k1, k2, k3, k4),)
-    
-    return casdm1s_kpts, cascm2_kpts
