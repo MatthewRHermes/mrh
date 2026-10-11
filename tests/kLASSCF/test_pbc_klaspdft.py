@@ -29,6 +29,7 @@ from mrh.my_pyscf import mcpdft as molecular_mcpdft
 from mrh.my_pyscf.pbc.util.klas_to_las import unpack_klas
 
 from mrh.my_pyscf.pbc.mcpdft import klaspdft_helper
+from mrh.my_pyscf.pbc.mcpdft import _dms as pbc_dms
 from mrh.my_pyscf.pbc.mcpdft import klaspdft, kmcpdft, otfnalperiodic
 from mrh.my_pyscf.pbc import mcpdft as pbc_mcpdft
 from mrh.my_pyscf.pbc import mcscf as pbc_mcscf
@@ -168,7 +169,7 @@ class KLASPDFTPhaseTests(unittest.TestCase):
         ], dtype=np.complex128)
 
         with mock.patch.object(
-                klaspdft_helper, "get_wannier_orbs",
+                pbc_dms, "get_wannier_orbs",
                 return_value=("wannier", "indices", mo_phase)) as get_phase:
             result = klaspdft_helper.get_klas_mo_phase(klas)
 
@@ -184,7 +185,7 @@ class KLASPDFTPhaseTests(unittest.TestCase):
         klas = self._make_phase_context()
         bad_phase = np.ones((2, 1, 2), dtype=np.complex128)
         with mock.patch.object(
-                klaspdft_helper, "get_wannier_orbs",
+                pbc_dms, "get_wannier_orbs",
                 return_value=(None, None, bad_phase)):
             with self.assertRaisesRegex(ValueError, "must be unitary"):
                 klaspdft_helper.get_klas_mo_phase(klas)
@@ -193,7 +194,7 @@ class KLASPDFTPhaseTests(unittest.TestCase):
         klas = self._make_phase_context()
         klas.ncas_sub = np.asarray([1])
         with mock.patch.object(
-                klaspdft_helper, "get_wannier_orbs") as get_phase:
+                pbc_dms, "get_wannier_orbs") as get_phase:
             with self.assertRaisesRegex(ValueError, r"sum\(ncas_sub\)"):
                 klaspdft_helper.get_klas_mo_phase(klas)
         get_phase.assert_not_called()

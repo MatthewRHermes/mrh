@@ -599,7 +599,7 @@ class KCASPDFTOnTopEnergyTests(unittest.TestCase):
                 otfnalperiodic, "_energy_ot_from_kpts",
                 return_value=1.25) as evaluate, \
              mock.patch.object(
-                otfnalperiodic, "get_mo_coeff_k2R_wokmf",
+                pbc_dms, "get_mo_coeff_k2R_wokmf",
                 side_effect=AssertionError("unexpected Wannier transform")):
             energy = otfnalperiodic.otfnalperiodic_kpts.energy_ot(
                 ot, casdm1s, casdm2, mo_coeff, ncore=0,
@@ -642,13 +642,13 @@ class KCASPDFTOnTopEnergyTests(unittest.TestCase):
             return np.full((ncas,) * 4, sum(ks), dtype=complex)
 
         with mock.patch.object(
-                otfnalperiodic, "get_mo_coeff_k2R_wokmf",
+                pbc_dms, "get_mo_coeff_k2R_wokmf",
                 return_value=(None, None, mo_phase)), \
              mock.patch.object(
                 otfnalperiodic.kpts_helper, "get_kconserv",
                 return_value=kconserv), \
              mock.patch.object(
-                otfnalperiodic, "_basis_transform_casdm2_kpts",
+                pbc_dms, "_basis_transform_casdm2_kpts",
                 side_effect=transform_cm2), \
              mock.patch.object(
                 otfnalperiodic, "_energy_ot_from_kpts",
