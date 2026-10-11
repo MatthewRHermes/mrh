@@ -375,22 +375,36 @@ class KLASPDFTEnergyRoutingTests(unittest.TestCase):
         self.assertEqual(kmcpdft.energy_dft(mc, casdm1s=dm1s, casdm2=dm2), 0.75)
         self.assertEqual(ot.energy_ot.call_args.kwargs["rdm_representation"], "klas")
 
-    def test_shared_wavefunction_energy_preserves_Wannier_integral_contraction(self):
+    def test_klas_cumulant_energy_preserves_Wannier_integral_contraction(self):
         rng = np.random.default_rng(23)
         dm1s = np.zeros((2, 2, 2), dtype=complex)
         dm2 = rng.normal(size=(2,) * 4).astype(complex)
         h2 = rng.normal(size=(2,) * 4).astype(complex)
+        mc = SimpleNamespace(ncas=1, nkpts=2,
+                             get_h2cas=mock.Mock(return_value=h2))
+        energy = klaspdft._kLASPDFT.get_cumulant_energy(
+            mc, dm1s, dm2, None, "mo",
+        )
+        mc.get_h2cas.assert_called_once_with("mo")
+        self.assertAlmostEqual(energy, np.tensordot(h2, dm2, axes=4) / 4)
+
+    def test_energy_mcwfn_uses_the_method_cumulant_energy_lazily(self):
+        dm1s = np.zeros((2, 2, 2), dtype=complex)
+        dm2 = np.zeros((2,) * 4, dtype=complex)
         prepared = (np.zeros((2, 2, 1, 1)), np.zeros((2, 2, 2, 1, 1, 1, 1)),
                     _make_kconserv(2))
         mc = SimpleNamespace(mo_coeff="mo", ci="ci", ncore=0, ncas=1, nkpts=2,
                              _mcwfn_rdm_representation="klas",
-                             get_h2cas=mock.Mock(return_value=h2))
+                             get_cumulant_energy=mock.Mock(return_value=0.5))
         with mock.patch.object(kmcpdft, "_prepare_kpts_rdms", return_value=prepared), \
              mock.patch.object(kmcpdft, "_energy_mcwfn_from_kpts", return_value=1.5) as evaluate:
             self.assertEqual(kmcpdft.energy_mcwfn(mc, casdm1s=dm1s, casdm2=dm2), 1.5)
-        mc.get_h2cas.assert_called_once_with("mo")
-        self.assertAlmostEqual(evaluate.call_args.kwargs["cumulant_energy"],
-                               np.tensordot(h2, dm2, axes=4) / 4)
+        # Not evaluated until the energy routine asks for it.
+        mc.get_cumulant_energy.assert_not_called()
+        self.assertEqual(evaluate.call_args.kwargs["cumulant_energy"](), 0.5)
+        mc.get_cumulant_energy.assert_called_once_with(
+            dm1s, dm2, prepared[1], "mo",
+        )
 
 
 def _make_bare_klas(klas_class):

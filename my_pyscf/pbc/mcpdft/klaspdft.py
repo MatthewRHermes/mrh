@@ -7,7 +7,11 @@ selected through the shared RDM preparation machinery.
 """
 
 import copy
+
+import numpy as np
+
 from mrh.my_pyscf.pbc.mcpdft import klaspdft_helper
+from mrh.my_pyscf.pbc.mcpdft._dms import dm2_cumulant_complex
 from mrh.my_pyscf.pbc.mcpdft.kmcpdft import _kMCPDFT
 
 
@@ -17,6 +21,25 @@ class _kLASPDFT(_kMCPDFT):
     make_one_casdm1s = klaspdft_helper.make_one_casdm1s_klas
     make_one_casdm2 = klaspdft_helper.make_one_casdm2_klas
     _mcwfn_rdm_representation = "klas"
+
+    def get_cumulant_energy(self, casdm1s, casdm2, cascm2_kpts, mo_coeff,
+                            h2eff=None):
+        """Cumulant energy per cell, contracted in the Wannier basis.
+
+        The kLAS active-space integrals are stored in the Wannier basis, so
+        they are contracted with the Wannier cumulant instead of with the
+        k-point blocks cascm2_kpts, which are unused.
+        """
+        if h2eff is None:
+            h2eff = self.get_h2cas(mo_coeff)
+        ncastot = self.ncas * self.nkpts
+        h2eff = np.asarray(h2eff)
+        if h2eff.shape != (ncastot,) * 4:
+            raise ValueError(
+                f"Expected h2eff shape {(ncastot,) * 4}; got {h2eff.shape}"
+            )
+        cascm2 = dm2_cumulant_complex(casdm2, casdm1s)
+        return np.tensordot(h2eff, cascm2, axes=4) / (2 * self.nkpts)
 
 
 def get_klas_mcpdft_child_class(klas, ot, grids_level=None,
