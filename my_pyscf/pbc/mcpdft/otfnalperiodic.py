@@ -214,7 +214,34 @@ def _energy_ot_from_kpts(ot, casdm1s_kpts, cascm2_kpts, mo_coeff,
 
 
 def _prepare_wannier_rdms(ot, casdm1s, casdm2, mo_coeff, ncore):
-    """Transform Wannier-basis RDMs to momentum blocks."""
+    """Transform Wannier-basis RDMs to momentum blocks.
+
+    The Wannier-to-k-space phase is built with get_mo_coeff_k2R_wokmf.
+    The 2-RDM is converted to its cumulant and transformed block by block
+    for every (k1, k2, k3) with k4 fixed by momentum conservation.
+    ot.kmesh is required.
+
+    args:
+        ot: otfnalperiodic_kpts object
+            On-top functional; provides cell, kpts and kmesh.
+        casdm1s: np.ndarray (2, ncas*nkpts, ncas*nkpts)
+            Spin-separated active 1-RDM in the Wannier basis.
+        casdm2: np.ndarray (ncas*nkpts,)*4
+            Active 2-RDM in the Wannier basis.
+        mo_coeff: np.ndarray (nkpts, nao, nmo)
+            MO coefficients at each k-point.
+        ncore: int
+            Number of core orbitals per unit cell.
+
+    returns:
+        casdm1s_kpts: np.ndarray (2, nkpts, ncas, ncas)
+            Spin-separated active 1-RDM at each k-point.
+        cascm2_kpts: np.ndarray (nkpts, nkpts, nkpts, ncas, ncas, ncas, ncas)
+            Active 2-RDM cumulant for the k-point triplet (k1, k2, k3);
+            k4 is fixed by kconserv.
+        kconserv: np.ndarray (nkpts, nkpts, nkpts)
+            Momentum-conservation table for the k-points.
+    """
     mo_coeff = np.asarray(mo_coeff)
     casdm1s = np.asarray(casdm1s)
     casdm2 = np.asarray(casdm2)
@@ -255,7 +282,34 @@ def _prepare_wannier_rdms(ot, casdm1s, casdm2, mo_coeff, ncore):
 
 
 def _prepare_bloch_rdms(ot, casdm1s, casdm2, mo_coeff, momentum_tol):
-    """Extract momentum blocks from flattened Bloch-basis RDMs."""
+    """Extract momentum blocks from flattened Bloch-basis RDMs.
+
+    The RDMs are already in the Bloch (k-space) basis, so no orbital
+    transformation is done; only the momentum-conserving blocks are
+    extracted with pbc_dms.make_kcas_rdms_kpts.
+
+    args:
+        ot: otfnalperiodic_kpts object
+            On-top functional; provides cell, kpts and, if set,
+            kconserv.
+        casdm1s: np.ndarray (2, ncas*nkpts, ncas*nkpts)
+            Spin-separated active 1-RDM in the Bloch basis.
+        casdm2: np.ndarray (ncas*nkpts,)*4
+            Active 2-RDM in the Bloch basis.
+        mo_coeff: np.ndarray (nkpts, nao, nmo)
+            MO coefficients at each k-point.
+        momentum_tol: float
+            Tolerance used to identify momentum-conserving blocks.
+
+    returns:
+        casdm1s_kpts: np.ndarray (2, nkpts, ncas, ncas)
+            Spin-separated active 1-RDM at each k-point.
+        cascm2_kpts: np.ndarray (nkpts, nkpts, nkpts, ncas, ncas, ncas, ncas)
+            Active 2-RDM cumulant for the k-point triplet (k1, k2, k3);
+            k4 is fixed by kconserv.
+        kconserv: np.ndarray (nkpts, nkpts, nkpts)
+            Momentum-conservation table for the k-points.
+    """
     mo_coeff = np.asarray(mo_coeff)
     casdm2 = np.asarray(casdm2)
     if mo_coeff.ndim != 3:
@@ -279,7 +333,34 @@ def _prepare_bloch_rdms(ot, casdm1s, casdm2, mo_coeff, momentum_tol):
 
 
 def _prepare_klas_rdms(ot, casdm1s, casdm2, mo_coeff, ncore):
-    """Transform kLAS Wannier RDMs using the kLAS orbital convention."""
+    """Transform kLAS Wannier RDMs using the kLAS orbital convention.
+
+    The Wannier-to-k-space phase is built with
+    klaspdft_helper.get_klas_mo_phase and used to rotate the RDMs to the
+    k-point basis. ot.kmesh is required.
+
+    args:
+        ot: otfnalperiodic_kpts object
+            On-top functional; provides cell, kpts and, if set,
+            kconserv, kmesh, _scf and ncas_sub.
+        casdm1s: np.ndarray (2, ncas*nkpts, ncas*nkpts)
+            Spin-separated active 1-RDM in the klas basis.
+        casdm2: np.ndarray (ncas*nkpts,)*4
+            Active 2-RDM in the klas basis.
+        mo_coeff: np.ndarray (nkpts, nao, nmo)
+            MO coefficients at each k-point.
+        ncore: int
+            Number of core orbitals per unit cell.
+
+    returns:
+        casdm1s_kpts: np.ndarray (2, nkpts, ncas, ncas)
+            Spin-separated active 1-RDM at each k-point.
+        cascm2_kpts: np.ndarray (nkpts, nkpts, nkpts, ncas, ncas, ncas, ncas)
+            Active 2-RDM cumulant for the k-point triplet (k1, k2, k3);
+            k4 is fixed by kconserv.
+        kconserv: np.ndarray (nkpts, nkpts, nkpts)
+            Momentum-conservation table for the k-points.
+    """
     from types import SimpleNamespace
     from mrh.my_pyscf.pbc.mcpdft import klaspdft_helper
 
@@ -320,7 +401,33 @@ def _prepare_klas_rdms(ot, casdm1s, casdm2, mo_coeff, ncore):
 
 def _prepare_kpts_rdms(ot, casdm1s, casdm2, mo_coeff, ncore,
                        representation, momentum_tol):
-    """Prepare active RDMs for the shared k-point evaluator."""
+    """Prepare active RDMs for the shared k-point evaluator.
+
+    Dispatches to the converter that matches the basis of the input RDMs.
+
+    args:
+        ot: otfnalperiodic_kpts object
+            On-top functional; provides cell, kpts and, if set,
+            kconserv.
+        casdm1s: np.ndarray (2, ncas*nkpts, ncas*nkpts)
+            Spin-separated active 1-RDM in the basis given by representation.
+        casdm2: np.ndarray (ncas*nkpts,)*4
+            Active 2-RDM in the basis given by representation.
+        mo_coeff: np.ndarray (nkpts, nao, nmo)
+            MO coefficients at each k-point.
+        ncore: int
+            Number of core orbitals per unit cell.
+        representation: str
+            Basis of the input RDMs: 'wannier', 'bloch' or 'klas'.
+        momentum_tol: float
+            Tolerance for momentum-conserving blocks ('bloch' only).
+
+    returns:
+        Same as the selected converter: (casdm1s_kpts, cascm2_kpts,
+        kconserv) with shapes (2, nkpts, ncas, ncas),
+        (nkpts, nkpts, nkpts, ncas, ncas, ncas, ncas) and
+        (nkpts, nkpts, nkpts).
+    """
     if representation == 'wannier':
         return _prepare_wannier_rdms(
             ot, casdm1s, casdm2, mo_coeff, ncore,
