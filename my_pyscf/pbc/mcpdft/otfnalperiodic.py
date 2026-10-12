@@ -1,7 +1,6 @@
 # !/bin/bash
 
 import numpy as np
-from functools import partial, reduce
 
 from pyscf import gto, lib
 from pyscf.lib import logger, param
@@ -15,8 +14,6 @@ from pyscf.mcscf import mc1step, casci
 from pyscf.pbc.lib import kpts_helper
 
 from mrh.my_pyscf.pbc.mcscf import mc1step as pbc_mc1step, casci as pbc_casci
-from mrh.my_pyscf.pbc.mcscf.k2R import get_mo_coeff_k2R_wokmf
-from mrh.my_pyscf.pbc.mcscf.mc1step import _get_casdm2_kpts as _basis_transform_casdm2_kpts
 from mrh.my_pyscf.pbc.mcpdft.kotpd import get_ontop_pair_density_kpts
 from mrh.my_pyscf.pbc.mcpdft._dms import (
     dm2_cumulant_complex, _prepare_kpts_rdms,
@@ -220,14 +217,13 @@ class otfnalperiodic_kpts(otfnal):
 
     def energy_ot(ot, casdm1s, casdm2, mo_coeff, ncore,
                   max_memory=param.MAX_MEMORY, hermi=1,
-                  rdm_representation='wannier', momentum_tol=1e-8):
-        """Evaluate the on-top energy from active-space RDMs in one of three bases.
+                  rdm_representation='bloch', momentum_tol=1e-8):
+        """Evaluate the on-top energy from Bloch or kLAS Wannier RDMs.
 
         rdm_representation:
-            'wannier': RDMs in the supercell active-orbital basis built with
-                the generic k-to-R transformation.
             'bloch': RDMs in the flattened Bloch (k-space) basis, as produced
-                by k-CASCI/k-CASSCF; only momentum blocks are extracted.
+                by CPLXCAS or momentum-resolved kCAS; momentum blocks are
+                extracted and checked against momentum_tol.
             'klas': RDMs in the kLAS Wannier basis, using the kLAS orbital
                 phase convention.
         """
