@@ -1,5 +1,4 @@
 from types import SimpleNamespace
-from functools import partial
 
 import numpy as np
 
@@ -8,7 +7,6 @@ from pyscf.pbc.lib import kpts_helper
 from pyscf.mcpdft import _dms
 
 from mrh.my_pyscf.pbc.fci.addons import _unpack_nelec
-from mrh.my_pyscf.pbc.mcscf.k2R import get_mo_coeff_k2R_wokmf
 from mrh.my_pyscf.pbc.mcscf.mc1step import (
     _get_casdm2_kpts as _basis_transform_casdm2_kpts,
 )
@@ -16,7 +14,7 @@ from mrh.my_pyscf.pbc.util.wannier import get_wannier_orbs
 
 """Reduced-density-matrix utilities for periodic MC-PDFT.
 
-The kCASCI solvers store active-space RDMs in flattened Bloch-orbital order,
+The CPLXCAS and kCASCI solvers store active-space RDMs in flattened Bloch order,
 ``k * ncas + orbital``.  This module builds those RDMs, extracts their
 momentum-conserving blocks, transforms active 1-RDMs to AO densities, and
 forms complex-orbital cumulants.  Charged-sector selection belongs to the
@@ -347,37 +345,13 @@ def make_klas_rdms_kpts(casdm1s, casdm2, mo_phase, kconserv):
     return casdm1s_kpts, cascm2_kpts
 
 
-def _get_wannier_mo_phase(ot, mo_coeff, ncore, ncas):
-    """Build mo_phase with the generic k-to-R transformation.
-
-    args:
-        ot: otfnalperiodic_kpts object
-            On-top functional; provides cell, kpts and kmesh.
-        mo_coeff: np.ndarray (nkpts, nao, nmo)
-            MO coefficients at each k-point.
-        ncore: int
-            Number of core orbitals per unit cell.
-        ncas: int
-            Number of active orbitals per unit cell.
-
-    returns:
-        mo_phase: np.ndarray (nkpts, ncas, nkpts*ncas)
-            Coefficients <Bloch(k, a) | active orbital of the supercell>.
-    """
-    if getattr(ot, 'kmesh', None) is None:
-        raise ValueError("kmesh is required for Wannier RDMs")
-    return get_mo_coeff_k2R_wokmf(
-        ot.cell, mo_coeff, ncore, ncas, ot.kpts, kmesh=ot.kmesh,
-    )[-1]
-
-
 def _get_klas_mo_phase(ot, mo_coeff, ncore, ncas):
     """Build mo_phase with the kLAS orbital convention.
 
     Uses make_klas_mo_phase. If ot has no _scf attribute, a
     minimal stand-in for the mean-field object is built from ot.cell and
-    ot.kpts. Arguments and return value are the same as
-    _get_wannier_mo_phase.
+    ot.kpts. Returns coefficients <Bloch(k, a) | Wannier(P)> with
+    shape (nkpts, ncas, nkpts * ncas).
     """
     if getattr(ot, 'kmesh', None) is None:
         raise ValueError("kmesh is required for kLAS RDMs")
@@ -393,12 +367,11 @@ def _get_klas_mo_phase(ot, mo_coeff, ncore, ncas):
     )
 
 
-def _prepare_wannier_rdms(ot, casdm1s, casdm2, mo_coeff, ncore, get_mo_phase):
+def _prepare_klas_rdms(ot, casdm1s, casdm2, mo_coeff, ncore):
     """Transform Wannier-basis RDMs to momentum blocks.
 
-    The Wannier-to-k-space phase is built by the get_mo_phase callable, which
-    is the only thing that differs between the 'wannier' and 'klas'
-    representations. The 2-RDM is converted to its cumulant and transformed
+    The Wannier-to-k-space phase uses the kLAS orbital convention.
+    The 2-RDM is converted to its cumulant and transformed
     block by block for every (k1, k2, k3), with k4 fixed by momentum
     conservation, in make_klas_rdms_kpts.
 
@@ -414,9 +387,6 @@ def _prepare_wannier_rdms(ot, casdm1s, casdm2, mo_coeff, ncore, get_mo_phase):
             MO coefficients at each k-point.
         ncore: int
             Number of core orbitals per unit cell.
-        get_mo_phase: callable
-            get_mo_phase(ot, mo_coeff, ncore, ncas) -> mo_phase of shape
-            (nkpts, ncas, nkpts*ncas).
 
     returns:
         casdm1s_kpts: np.ndarray (2, nkpts, ncas, ncas)
@@ -440,7 +410,7 @@ def _prepare_wannier_rdms(ot, casdm1s, casdm2, mo_coeff, ncore, get_mo_phase):
     if ncore < 0 or ncore + ncas > mo_coeff.shape[2]:
         raise ValueError("ncore and ncas are incompatible with mo_coeff")
 
-    mo_phase = get_mo_phase(ot, mo_coeff, ncore, ncas)
+    mo_phase = _get_klas_mo_phase(ot, mo_coeff, ncore, ncas)
     kconserv = getattr(ot, 'kconserv', None)
     if kconserv is None:
         kconserv = kpts_helper.get_kconserv(ot.cell, ot.kpts)
@@ -520,7 +490,7 @@ def _prepare_kpts_rdms(ot, casdm1s, casdm2, mo_coeff, ncore,
         ncore: int
             Number of core orbitals per unit cell.
         representation: str
-            Basis of the input RDMs: 'wannier', 'bloch' or 'klas'.
+            Basis of the input RDMs: 'bloch' or 'klas'.
         momentum_tol: float
             Tolerance for momentum-conserving blocks ('bloch' only).
 
@@ -530,18 +500,10 @@ def _prepare_kpts_rdms(ot, casdm1s, casdm2, mo_coeff, ncore,
         (nkpts, nkpts, nkpts, ncas, ncas, ncas, ncas) and
         (nkpts, nkpts, nkpts).
     """
-    if representation == 'wannier':
-        prepare = partial(
-            _prepare_wannier_rdms, get_mo_phase=_get_wannier_mo_phase,
-        )
-        return prepare(ot, casdm1s, casdm2, mo_coeff, ncore)
     if representation == 'bloch':
         return _prepare_bloch_rdms(
             ot, casdm1s, casdm2, mo_coeff, momentum_tol,
         )
     if representation == 'klas':
-        prepare = partial(
-            _prepare_wannier_rdms, get_mo_phase=_get_klas_mo_phase,
-        )
-        return prepare(ot, casdm1s, casdm2, mo_coeff, ncore)
+        return _prepare_klas_rdms(ot, casdm1s, casdm2, mo_coeff, ncore)
     raise ValueError(f"Unknown RDM representation {representation!r}")
