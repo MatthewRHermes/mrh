@@ -21,6 +21,7 @@ k-MC-PDFT for periodic systems at the gamma point or k-points.
 '''
 
 _get_fcisolver = _dms._get_fcisolver
+_DEFAULT_MOMENTUM_TOL = object()
 
 
 def _select_charged_kcas_result(mc, target_k=None):
@@ -73,8 +74,8 @@ def make_one_casdm1s (mc, ci, state=0):
     '''
     Spin-separated 1-RDMs.
     Note: the returned RDM1a, and RDM1b are in the shape of (ncas*nkpts, ncas*nkpts)
-    and not (ncas, ncas) and in wannier orbital basis. Transform it before using 
-    it k-pts machinary.
+    in flattened Bloch order (k * ncas + orbital). Extract momentum blocks
+    before using it in the k-point evaluator.
     '''
     nkpts = mc.nkpts
     ncastot = mc.ncas *  nkpts
@@ -86,8 +87,8 @@ def make_one_casdm2 (mc, ci, state=0):
     '''
     Spin-summed 2-RDM
     Note: the returned RDM2 is in the shape of (ncas*nkpts, ncas*nkpts, ncas*nkpts, ncas*nkpts)
-    and not (ncas, ncas, ncas, ncas) and in wannier orbital basis. Transform it before using 
-    it k-pts machinary.
+    in flattened Bloch order (k * ncas + orbital). Extract momentum blocks
+    before using it in the k-point evaluator.
     '''
     ncas = mc.ncas
     fcisolver, ci, nelecas = _get_fcisolver (mc, ci, state=state)
@@ -187,12 +188,19 @@ def _energy_mcwfn_from_kpts(mc, casdm1s_kpts, cascm2_kpts, mo_coeff=None,
 
 def energy_mcwfn(mc, mo_coeff=None, ci=None, ot=None, state=0,
                  casdm1s=None, casdm2=None, verbose=None,
-                 rdm_representation=None, momentum_tol=1e-8):
-    """Evaluate the periodic MC wavefunction energy."""
+                 rdm_representation=None, momentum_tol=_DEFAULT_MOMENTUM_TOL):
+    """Evaluate the periodic MC wavefunction energy.
+
+    Momentum validation defaults to the solver convention: CPLXCAS extracts
+    blocks without validation; momentum-resolved kCAS checks at 1e-8.
+    An explicit momentum_tol overrides this, with None disabling validation.
+    """
+    if momentum_tol is _DEFAULT_MOMENTUM_TOL:
+        momentum_tol = getattr(mc, "_mcwfn_momentum_tol", 1e-8)
     mo_coeff = mc.mo_coeff if mo_coeff is None else mo_coeff
     ci = mc.ci if ci is None else ci
     if rdm_representation is None:
-        rdm_representation = getattr(mc, "_mcwfn_rdm_representation", "wannier")
+        rdm_representation = getattr(mc, "_mcwfn_rdm_representation", "bloch")
     if casdm1s is None:
         casdm1s = mc.make_one_casdm1s(ci=ci, state=state)
     if casdm2 is None:
@@ -217,8 +225,13 @@ def energy_mcwfn(mc, mo_coeff=None, ci=None, ot=None, state=0,
 
 def energy_dft(mc, mo_coeff=None, ci=None, ot=None, state=0,
                     casdm1s=None, casdm2=None, max_memory=None, hermi=1,
-                    momentum_tol=1e-8, rdm_representation=None):
-    """Evaluate the on-top functional using the configured RDM basis."""
+                    momentum_tol=_DEFAULT_MOMENTUM_TOL, rdm_representation=None):
+    """Evaluate the on-top functional using the configured RDM basis.
+
+    momentum_tol follows the same solver defaults as energy_mcwfn.
+    """
+    if momentum_tol is _DEFAULT_MOMENTUM_TOL:
+        momentum_tol = getattr(mc, "_mcwfn_momentum_tol", 1e-8)
     if ot is None:
         ot = mc.otfnal
     if mo_coeff is None:
@@ -289,7 +302,10 @@ class _MCPDFTCPLX(_PeriodicMCPDFT):
     """MC-PDFT for conventional complex k-point CASCI/CASSCF."""
 
     momentum_resolved = False
-    _mcwfn_rdm_representation = "wannier"
+    _mcwfn_rdm_representation = "bloch"
+    # Conventional FCI is not restricted to a momentum sector. Preserve the
+    # previous projection onto momentum blocks, including solver noise.
+    _mcwfn_momentum_tol = None
     _get_pbc_otfnal = staticmethod(get_pbc_otfnal_kpts)
 
     def multi_state(self, method='Lin'):
@@ -328,6 +344,7 @@ class _kCASPDFT(_MCPDFTCPLX):
 
     momentum_resolved = True
     _mcwfn_rdm_representation = "bloch"
+    _mcwfn_momentum_tol = 1e-8
 
     make_one_casdm1s = pbc_dms.make_one_casdm1s_kcas
     make_one_casdm2 = pbc_dms.make_one_casdm2_kcas
