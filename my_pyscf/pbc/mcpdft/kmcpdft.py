@@ -1,16 +1,19 @@
+from functools import partial
+
 import numpy as np
 
 from pyscf.lib import logger
 from pyscf.mcpdft import _dms
 
+from mrh.my_pyscf.pbc.mcpdft._dms import _prepare_kpts_rdms
 from mrh.my_pyscf.pbc.mcpdft.otfnalperiodic import (
-    _prepare_kpts_rdms,
     get_pbc_otfnal_kpts,
     otfnalperiodic_kpts,
 )
 from mrh.my_pyscf.pbc.mcscf.casci import get_h2eff_kpts
 from mrh.my_pyscf.pbc.mcpdft.mcpdft import _PeriodicMCPDFT
 from mrh.my_pyscf.pbc.mcpdft import _dms as pbc_dms
+from mrh.my_pyscf.pbc.mcpdft._dms import dm2_cumulant_complex
 
 '''
 Author: Bhavnesh Jangid
@@ -18,6 +21,7 @@ k-MC-PDFT for periodic systems at the gamma point or k-points.
 '''
 
 _get_fcisolver = _dms._get_fcisolver
+_DEFAULT_MOMENTUM_TOL = object()
 
 
 def _select_charged_kcas_result(mc, target_k=None):
@@ -70,8 +74,8 @@ def make_one_casdm1s (mc, ci, state=0):
     '''
     Spin-separated 1-RDMs.
     Note: the returned RDM1a, and RDM1b are in the shape of (ncas*nkpts, ncas*nkpts)
-    and not (ncas, ncas) and in wannier orbital basis. Transform it before using 
-    it k-pts machinary.
+    in flattened Bloch order (k * ncas + orbital). Extract momentum blocks
+    before using it in the k-point evaluator.
     '''
     nkpts = mc.nkpts
     ncastot = mc.ncas *  nkpts
@@ -83,8 +87,8 @@ def make_one_casdm2 (mc, ci, state=0):
     '''
     Spin-summed 2-RDM
     Note: the returned RDM2 is in the shape of (ncas*nkpts, ncas*nkpts, ncas*nkpts, ncas*nkpts)
-    and not (ncas, ncas, ncas, ncas) and in wannier orbital basis. Transform it before using 
-    it k-pts machinary.
+    in flattened Bloch order (k * ncas + orbital). Extract momentum blocks
+    before using it in the k-point evaluator.
     '''
     ncas = mc.ncas
     fcisolver, ci, nelecas = _get_fcisolver (mc, ci, state=state)
@@ -96,9 +100,23 @@ def make_one_casdm2 (mc, ci, state=0):
         _, casdm2 = fcisolver.make_rdm12 (ci, ncastot, nelecastot)
     return casdm2
 
+def _cumulant_energy_kpts(mc, cascm2_kpts, mo_coeff):
+    """Cumulant energy contracted in the k-point basis."""
+    return np.einsum(
+        "abcuvxy,abcuvxy->",
+        get_h2eff_kpts(mc, mo_coeff), cascm2_kpts,
+        optimize=True,
+    ) / (2 * mc.nkpts)
+
+
 def _energy_mcwfn_from_kpts(mc, casdm1s_kpts, cascm2_kpts, mo_coeff=None,
-                            ot=None, verbose=None):
-    """Compute the MC wavefunction energy from k-point active-space RDMs."""
+                            ot=None, verbose=None, cumulant_energy=None):
+    """Compute the MC wavefunction energy from k-point active-space RDMs.
+
+    cumulant_energy may be a number, or a callable that returns it; a callable
+    is only evaluated if the cumulant term is needed. If None, the cumulant
+    energy is contracted in the k-point basis.
+    """
     if ot is None:
         ot = mc.otfnal
     if mo_coeff is None:
@@ -150,11 +168,12 @@ def _energy_mcwfn_from_kpts(mc, casdm1s_kpts, cascm2_kpts, mo_coeff=None,
 
     energy_c = 0.0
     if log.verbose >= logger.DEBUG or abs(hyb_c) > 1e-10:
-        energy_c = np.einsum(
-            "abcuvxy,abcuvxy->",
-            get_h2eff_kpts(mc, mo_coeff), cascm2_kpts,
-            optimize=True,
-        ) / (2 * nkpts)
+        if cumulant_energy is None:
+            energy_c = _cumulant_energy_kpts(mc, cascm2_kpts, mo_coeff)
+        elif callable(cumulant_energy):
+            energy_c = cumulant_energy()
+        else:
+            energy_c = cumulant_energy
 
     energy_nuc = mc.energy_nuc()
     for label, value in (("Vnn", energy_nuc), ("Te + Vne", energy_one),
@@ -169,31 +188,50 @@ def _energy_mcwfn_from_kpts(mc, casdm1s_kpts, cascm2_kpts, mo_coeff=None,
 
 def energy_mcwfn(mc, mo_coeff=None, ci=None, ot=None, state=0,
                  casdm1s=None, casdm2=None, verbose=None,
-                 rdm_representation=None, momentum_tol=1e-8):
-    """Evaluate the periodic MC wavefunction energy."""
+                 rdm_representation=None, momentum_tol=_DEFAULT_MOMENTUM_TOL):
+    """Evaluate the periodic MC wavefunction energy.
+
+    Momentum validation defaults to the solver convention: CPLXCAS extracts
+    blocks without validation; momentum-resolved kCAS checks at 1e-8.
+    An explicit momentum_tol overrides this, with None disabling validation.
+    """
+    if momentum_tol is _DEFAULT_MOMENTUM_TOL:
+        momentum_tol = getattr(mc, "_mcwfn_momentum_tol", 1e-8)
     mo_coeff = mc.mo_coeff if mo_coeff is None else mo_coeff
     ci = mc.ci if ci is None else ci
+    if rdm_representation is None:
+        rdm_representation = getattr(mc, "_mcwfn_rdm_representation", "bloch")
     if casdm1s is None:
         casdm1s = mc.make_one_casdm1s(ci=ci, state=state)
     if casdm2 is None:
         casdm2 = mc.make_one_casdm2(ci=ci, state=state)
 
-    if rdm_representation is None:
-        rdm_representation = mc._mcwfn_rdm_representation
     casdm1s_kpts, cascm2_kpts, _ = _prepare_kpts_rdms(
         mc, casdm1s, casdm2, mo_coeff, mc.ncore,
         rdm_representation, momentum_tol,
     )
+    # Each method class decides how the cumulant energy is contracted. Plain
+    # CASCI objects without the method use the k-point contraction.
+    cumulant_energy = None
+    if hasattr(mc, "get_cumulant_energy"):
+        cumulant_energy = partial(
+            mc.get_cumulant_energy, casdm1s, casdm2, cascm2_kpts, mo_coeff,
+        )
     return _energy_mcwfn_from_kpts(
         mc, casdm1s_kpts, cascm2_kpts, mo_coeff=mo_coeff,
-        ot=ot, verbose=verbose,
+        ot=ot, verbose=verbose, cumulant_energy=cumulant_energy,
     )
 
 
-def energy_dft_kcas(mc, mo_coeff=None, ci=None, ot=None, state=0,
+def energy_dft(mc, mo_coeff=None, ci=None, ot=None, state=0,
                     casdm1s=None, casdm2=None, max_memory=None, hermi=1,
-                    momentum_tol=1e-8):
-    """Evaluate the on-top functional directly from momentum kCAS RDMs."""
+                    momentum_tol=_DEFAULT_MOMENTUM_TOL, rdm_representation=None):
+    """Evaluate the on-top functional using the configured RDM basis.
+
+    momentum_tol follows the same solver defaults as energy_mcwfn.
+    """
+    if momentum_tol is _DEFAULT_MOMENTUM_TOL:
+        momentum_tol = getattr(mc, "_mcwfn_momentum_tol", 1e-8)
     if ot is None:
         ot = mc.otfnal
     if mo_coeff is None:
@@ -206,12 +244,20 @@ def energy_dft_kcas(mc, mo_coeff=None, ci=None, ot=None, state=0,
         casdm2 = mc.make_one_casdm2(ci, state=state)
     if max_memory is None:
         max_memory = mc.max_memory
+    if rdm_representation is None:
+        rdm_representation = mc._mcwfn_rdm_representation
     return ot.energy_ot(
         casdm1s, casdm2, mo_coeff, mc.ncore,
         max_memory=max_memory, hermi=hermi,
-        rdm_representation="bloch",
+        rdm_representation=rdm_representation,
         momentum_tol=momentum_tol,
     )
+
+
+def energy_dft_kcas(mc, *args, **kwargs):
+    """Evaluate the on-top functional directly from momentum kCAS RDMs."""
+    kwargs["rdm_representation"] = "bloch"
+    return energy_dft(mc, *args, **kwargs)
 
 
 def energy_tot_charged_kcas(mc, mo_coeff=None, ci=None, ot=None, state=0,
@@ -256,7 +302,10 @@ class _MCPDFTCPLX(_PeriodicMCPDFT):
     """MC-PDFT for conventional complex k-point CASCI/CASSCF."""
 
     momentum_resolved = False
-    _mcwfn_rdm_representation = "wannier"
+    _mcwfn_rdm_representation = "bloch"
+    # Conventional FCI is not restricted to a momentum sector. Preserve the
+    # previous projection onto momentum blocks, including solver noise.
+    _mcwfn_momentum_tol = None
     _get_pbc_otfnal = staticmethod(get_pbc_otfnal_kpts)
 
     def multi_state(self, method='Lin'):
@@ -265,6 +314,11 @@ class _MCPDFTCPLX(_PeriodicMCPDFT):
     make_one_casdm1s = make_one_casdm1s
     make_one_casdm2 = make_one_casdm2
     energy_mcwfn = energy_mcwfn
+    energy_dft = energy_dft
+
+    def get_cumulant_energy(self, casdm1s, casdm2, cascm2_kpts, mo_coeff):
+        """Cumulant energy per cell, contracted in the k-point basis."""
+        return _cumulant_energy_kpts(self, cascm2_kpts, mo_coeff)
 
     def energy_tot(self, *args, **kwargs):
         e_tot, e_ot = super().energy_tot(*args, **kwargs)
@@ -281,11 +335,16 @@ class _MCPDFTCPLX(_PeriodicMCPDFT):
         raise NotImplementedError("update_from_chk is not implemented for k-MC-PDFT")
 
 
+# Compatibility name used by the kLAS-PDFT specialization.
+_kMCPDFT = _MCPDFTCPLX
+
+
 class _kCASPDFT(_MCPDFTCPLX):
     """k-MC-PDFT specialization for one total-momentum kCAS sector."""
 
     momentum_resolved = True
     _mcwfn_rdm_representation = "bloch"
+    _mcwfn_momentum_tol = 1e-8
 
     make_one_casdm1s = pbc_dms.make_one_casdm1s_kcas
     make_one_casdm2 = pbc_dms.make_one_casdm2_kcas

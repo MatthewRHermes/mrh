@@ -89,6 +89,41 @@ class KCASPDFTReferenceEnergyTests(unittest.TestCase):
         mc.canonicalization = False
         return mc
 
+    def test_cplx_casci_and_casscf_use_bloch_rdms(self):
+        # Three k-points exercise genuinely complex Bloch coefficients.
+        # With the full active space, both conventional solvers should match
+        # the momentum-zero kCAS reference without a k-to-R RDM projection.
+        full_mc_ot = SimpleNamespace(
+            _numint=SimpleNamespace(
+                rsh_and_hybrid_coeff=lambda otxc, spin:
+                    (0.0, 0.0, (1.0, 1.0)),
+            ),
+            otxc="full-MC",
+        )
+        for constructor in (pbc_mcpdft.KCASCI, pbc_mcpdft.KCASSCF):
+            with self.subTest(constructor=constructor.__name__):
+                mc = constructor(
+                    self.kmf, "tPBE", 2, 2, ncore=0,
+                    grids_attr={"level": 1},
+                )
+                mc.kmesh = self.kmesh
+                mc.kpts = self.kpts
+                mc.verbose = mc.fcisolver.verbose = 0
+                mc.conv_tol = 1e-10
+                mc.fcisolver.conv_tol = 1e-12
+                mc.canonicalization = False
+                mc.kernel(self.mo_coeff.copy())
+                self.assertFalse(mc.momentum_resolved)
+                self.assertEqual(mc._mcwfn_rdm_representation, "bloch")
+                self.assertAlmostEqual(
+                    mc.e_tot, THREE_K_MCPDFT_NEUTRAL_REFERENCE_ENERGIES[0],
+                    places=7,
+                )
+                np.testing.assert_allclose(
+                    mc.energy_mcwfn(ot=full_mc_ot, verbose=logger.QUIET),
+                    mc.e_mcscf, atol=1e-8, rtol=1e-8,
+                )
+
     def test_neutral_energies_for_all_target_k(self):
         for target_k, reference in enumerate(
                 THREE_K_MCPDFT_NEUTRAL_REFERENCE_ENERGIES):
