@@ -1,5 +1,5 @@
 #!/usr/bin/env python
-"""Fixed-orbital neutral and reference-cell N-1/N+1 LAS product states.
+"""Neutral and reference-cell N-1/N+1 LASCI in neutral kLASSCF orbitals.
 
 The local charge is one electron over the whole k-mesh. These states are
 references for subsequent state interaction, not momentum-resolved bands.
@@ -28,16 +28,22 @@ kmesh = (3, 1, 1)
 kpts = cell.make_kpts(kmesh, wrap_around=True)
 kmf = scf.KRHF(cell, kpts=kpts).density_fit()
 kmf.exxdiv = None
-kmf.conv_tol = 1e-10
 kmf.kernel()
 if not kmf.converged:
     raise RuntimeError("Neutral KRHF did not converge")
 
-# Use one common localized orbital set for all three electron sectors.
-neutral = mcscf.KLASCI(kmf, 2, (1, 1), kmesh=kmesh)
+# Optimize the neutral orbitals starting from localized AVAS orbitals.
+klasscf = mcscf.KLASSCF(kmf, 2, (1, 1), kmesh=kmesh)
 mo_avas = np.asarray(avas.kernel(kmf, ["H 1s"], minao=cell.basis)[2])
 mo_avas = mo_avas.reshape(len(kpts), cell.nao_nr(), -1)
-mo = neutral.localize_init_guess(["H 1s"], mo_coeff=mo_avas)
+mo_guess = klasscf.localize_init_guess(["H 1s"], mo_coeff=mo_avas)
+klasscf.kernel(mo_guess)
+if not klasscf.converged:
+    raise RuntimeError("Neutral kLASSCF did not converge")
+mo = klasscf.mo_coeff
+
+# Use the optimized orbitals for all three fixed-orbital LASCI calculations.
+neutral = mcscf.KLASCI(kmf, 2, (1, 1), kmesh=kmesh)
 
 # Positive charge removes an electron; negative charge adds one on ref_cell.
 ref_cell = 0
@@ -49,10 +55,6 @@ particle = mcscf.KLASCI(kmf, 2, (1, 1), kmesh=kmesh, charge=-1,
 # Each solver builds its own CI guess; neutral CI has the wrong charged shape.
 states = {0: neutral, +1: hole, -1: particle}
 for charge, las in states.items():
-    las.conv_tol_grad = 1e-7
-    las.conv_tol_self = 1e-11
-    for box in las.fciboxes:
-        box.fcisolvers[0].conv_tol = 1e-12
     las.kernel(mo.copy())
     if not las.converged:
         raise RuntimeError(f"LASCI did not converge for charge {charge:+d}")
