@@ -149,8 +149,13 @@ def h1e_for_cas(mc, mo_coeff=None, ncas=None, ncore=None):
             Two-electron integrals in the Wannier basis with shape
             ``(nkpts*ncas, nkpts*ncas, nkpts*ncas, nkpts*ncas)``.
 """)
+
 def h2e_for_cas(mc, mo_coeff=None):
-    """Build Wannier active ERIs with cached DF pairs and staged transforms."""
+    """
+    Construction of 2e Hamiltonian in Wannier basis through optimized
+    version of ao2mo transformation.
+    """
+
     from mrh.my_pyscf.pbc.mcscf.mc_ao2mo_opt import (
         build_cas_eris, transform_eri_kpts_to_wannier,
     )
@@ -173,8 +178,12 @@ def h2e_for_cas(mc, mo_coeff=None):
     return eris
 
 
-# Original implementation retained for numerical and timing comparisons.
 def h2e_for_cas_slow(mc, mo_coeff=None):
+    '''
+    Original implementation for h2e construction in wannier basis
+    retained for numerical and timing comparisons.
+    '''
+    
     log = lib.logger.new_logger(mc)
     t1 = t0 = (lib.logger.process_clock(), lib.logger.perf_counter())
     kmf = mc._scf
