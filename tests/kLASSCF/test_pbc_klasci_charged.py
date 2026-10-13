@@ -40,6 +40,54 @@ class ChargedKLASCITests(unittest.TestCase):
             box.fcisolvers[0].conv_tol = 1e-12
         return las
 
+    def check_density(self, las):
+        expected = las.get_nelec_frs()[:, 0]
+        dm_frag = np.asarray(las.make_casdm1s_sub())
+        np.testing.assert_allclose(np.trace(dm_frag, axis1=-2, axis2=-1), expected,
+                                   atol=1e-8)
+        ovlp = las._scf.get_ovlp()
+        for include_core in (False, True):
+            dm = las.make_rdm1s_sub(include_core=include_core)
+            counts = np.einsum("kij,skji->sk", ovlp, dm).real
+            target = expected.sum(axis=0) / las.nkpts
+            target = target + (las.ncore if include_core else 0)
+            np.testing.assert_allclose(counts, np.repeat(target[:, None], las.nkpts, axis=1),
+                                       atol=1e-8)
+
+    def test_core_count_is_kept(self):
+        kmf, mo = self.systems[1]
+        # Neutral H2 has a doubly occupied core and an empty active space.
+        las = mcscf.KLASCI(kmf, 2, (0, 0), kmesh=(1, 1, 1), charge=-1)
+        self.assertEqual(las.ncore, 1)
+        self.assertEqual(las.nelecas, (0, 0))
+        las.kernel(mo)
+        self.check_density(las)
+        dm = las.make_rdm1s().sum(axis=0)
+        self.assertAlmostEqual(np.einsum("kij,kji->", kmf.get_ovlp(), dm).real, 3, places=8)
+
+    def test_explicit_spin_and_multiplicity(self):
+        las = self.make_las(charge=1, charged_spin=-1)
+        np.testing.assert_array_equal(las.nelecas_sub[0], (0, 1))
+        las.kernel()
+        self.check_density(las)
+        positive = self.make_las(charge=1, charged_spin=1)
+        positive.kernel()
+        np.testing.assert_allclose(las.e_tot, positive.e_tot, atol=1e-8)
+
+        kmf, _ = self.systems[3]
+        high_spin = mcscf.KLASCI(kmf, 3, (1, 1), kmesh=(3, 1, 1), charge=-1,
+                                 charged_spin=1, charged_spin_mult=4)
+        self.assertEqual(high_spin.fciboxes[0].fcisolvers[0].smult, 4)
+        self.assertEqual(high_spin.fciboxes[1].fcisolvers[0].smult, 1)
+
+    def test_neutral_defaults(self):
+        neutral = self.make_las()
+        zero = self.make_las(charge=0)
+        neutral.kernel()
+        zero.kernel()
+        np.testing.assert_allclose(neutral.e_tot, zero.e_tot, atol=1e-10)
+        self.check_density(neutral)
+
     def test_invalid_options(self):
         cases = [
             ({"charge": 2}, "charge must"),
