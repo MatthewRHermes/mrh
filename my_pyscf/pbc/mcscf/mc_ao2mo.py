@@ -23,9 +23,16 @@ There are two options
         This will be much more memory efficient.
 2. Direct Method: In this case, I will be using the with_df.ao2mo infrastructure to directly compute the required integrals
     and store them in memory.
+
+Note there are two version of these function, the original version which ends with trailing `_slow`
+and the optimized version which is used in the main code. The original version is retained for comparison and readability. 
 '''
 
 def _do_ao2mo_direct(kcasscf, mo_kpts, nkpts, ncore, ncas, nmo, level=1):
+    '''
+    Wrapper function. Look into pbc/mcscf/mc_ao2mo_opt.py for the details 
+    of the build_eris function. It is the optimized version of the _do_ao2mo_direct_slow function.
+    '''
     outputs, j_pc, k_pc, hcore = build_eris(
         kcasscf, mo_kpts, ncore, ncas, disk=False, level=level,
     )
@@ -33,6 +40,10 @@ def _do_ao2mo_direct(kcasscf, mo_kpts, nkpts, ncore, ncas, nmo, level=1):
 
 
 def _do_ao2mo_disk(kcasscf, mo_kpts, nkpts, ncore, ncas, nmo, level=1):
+    '''
+    Wrapper function. Look into pbc/mcscf/mc_ao2mo_opt.py for the details 
+    of the build_eris function. It is the optimized version of the _do_ao2mo_direct_slow function.
+    '''
     return build_eris(kcasscf, mo_kpts, ncore, ncas, disk=True, level=level)
 
 
@@ -422,7 +433,10 @@ if __name__ == "__main__":
             self.stdout = kmf.stdout
             self.verbose = kmf.verbose
             self.max_memory = kmf.max_memory
-    
+
+        def get_hcore(self, **kwargs):
+            return self._scf.get_hcore(**kwargs)
+
     kmc = _kCASSCF(kmf, ncas=2, nelecas=2)
     mo_kpts = kmf.mo_coeff
 
