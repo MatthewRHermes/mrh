@@ -32,14 +32,15 @@ kmf.kernel()
 if not kmf.converged:
     raise RuntimeError("Neutral KRHF did not converge")
 
+mo_avas = np.asarray(avas.kernel(kmf, ["H 1s"], minao=cell.basis)[2])
+
 # Optimize the neutral orbitals starting from localized AVAS orbitals.
 klasscf = mcscf.KLASSCF(kmf, 2, (1, 1), kmesh=kmesh)
-mo_avas = np.asarray(avas.kernel(kmf, ["H 1s"], minao=cell.basis)[2])
-mo_avas = mo_avas.reshape(len(kpts), cell.nao_nr(), -1)
 mo_guess = klasscf.localize_init_guess(["H 1s"], mo_coeff=mo_avas)
 klasscf.kernel(mo_guess)
 if not klasscf.converged:
     raise RuntimeError("Neutral kLASSCF did not converge")
+
 mo = klasscf.mo_coeff
 
 # Use the optimized orbitals for all three fixed-orbital LASCI calculations.
@@ -67,5 +68,3 @@ ip = nkpts * (hole.e_tot - neutral.e_tot).real
 ea = nkpts * (neutral.e_tot - particle.e_tot).real
 print(f"Localized-state IP: {ip:.12f} Ha")
 print(f"Localized-state EA: {ea:.12f} Ha")
-
-# states[q].ci and get_nelec_frs() retain the inputs for later LAS state interaction.
