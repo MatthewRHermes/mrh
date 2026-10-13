@@ -604,6 +604,43 @@ class PBCLASCINoSymm(casci.PBCCASCI, LASCINoSymm):
         self.e_states = [0.0]
         self.e_lexc = [[np.array ([0]),],]
     
+    def _init_local_charge(self, charge, ref_cell, spin, spin_mult):
+        """Initialize the charged fragment before generating any CI vectors."""
+        if not 0 <= ref_cell < self.nfrags:
+            raise ValueError(f"ref_cell must be in [0, {self.nfrags})")
+        nelec = int(self.nelecas_sub[ref_cell].sum()) - charge
+        norb = int(self.ncas_sub[ref_cell])
+
+        # Select a valid local spin projection and electron sector.
+        if spin is None:
+            spin = nelec % 2
+        if not isinstance(spin, (int, np.integer)):
+            raise ValueError("charged_spin must be an integer")
+        if (nelec + spin) % 2:
+            raise ValueError("charged electron count and charged_spin have inconsistent parity")
+        na = (nelec + spin) // 2
+        nb = nelec - na
+        if not (0 <= na <= norb and 0 <= nb <= norb):
+            raise ValueError("charge and charged_spin give invalid active electrons on ref_cell")
+
+        # A CSF solver also needs a compatible total local spin.
+        if spin_mult is None:
+            spin_mult = abs(spin) + 1
+        max_spin = min(nelec, 2 * norb - nelec)
+        if (not isinstance(spin_mult, (int, np.integer))
+                or not abs(spin) <= spin_mult - 1 <= max_spin
+                or (spin_mult - 1 - nelec) % 2):
+            raise ValueError("charged_spin_mult is incompatible with the charged electron sector")
+
+        # Rebuild only the charged solver; the ordinary kernel builds fresh CI.
+        self.nelecas_sub[ref_cell] = (na, nb)
+        self.fciboxes[ref_cell] = self._init_fcibox(spin_mult, (na, nb))
+        self.charge = int(charge)
+        self.ref_cell = int(ref_cell)
+        self.charged_spin = int(spin)
+        self.charged_spin_mult = int(spin_mult)
+        self._keys.update(("charge", "ref_cell", "charged_spin", "charged_spin_mult"))
+
     def _init_fcibox(self, smult, nelec):
         '''
         Initialize a FCI box for a given spin multiplicity and electron count.
