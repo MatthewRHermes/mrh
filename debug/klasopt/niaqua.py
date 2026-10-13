@@ -9,7 +9,6 @@ from pyscf import lib
 from pyscf.pbc import gto, scf
 
 from mrh.my_pyscf.pbc import mcscf
-from mrh.my_pyscf.pbc.mcscf import avas
 from mrh.my_pyscf.pbc.util import pbcmolden
 
 
@@ -51,6 +50,12 @@ kmesh = [nk, 1, 1]
 
 kpts = cell.make_kpts(kmesh, wrap_around=True)
 
+# Use saved k-LASSCF orbitals directly, preserving their active-space ordering
+# and Wannier gauge. An optional command-line argument selects another file.
+mo_guess_file = sys.argv[1] if len(sys.argv) > 1 else f'niaqua_{nk}.mo_coeff.npy'
+mo_guess = np.load(mo_guess_file, allow_pickle=False)
+print(f"Loading k-LASSCF starting orbitals from {mo_guess_file}")
+
 kmf = scf.KRHF(cell, kpts=kpts).density_fit()
 kmf.max_cycle=1000
 kmf.exxdiv = None
@@ -59,19 +64,18 @@ kmf.init_guess = 'chk'
 kmf.conv_tol = 1e-7
 kmf.kernel()
 
-label = ['Ni 3d','^1 O 2p']
-mo_coeff = avas.kernel(kmf, label, minao=cell.basis)[2]
-mo_coeff = np.array(mo_coeff)
-
+expected_shape = np.asarray(kmf.mo_coeff).shape
+if mo_guess.shape != expected_shape:
+    raise ValueError(
+        f"Saved orbitals have shape {mo_guess.shape}; expected {expected_shape}"
+    )
 
 # Define the active space for the reference primitive cell only.
-las = mcscf.KLASSCF(kmf, ncas=8, nelecas=(7, 7), kmesh=kmesh,)
-mo_guess = las.localize_init_guess(
-    label, mo_coeff=mo_coeff, align_phases=True,
-)
+las = mcscf.KLASSCF(kmf, ncas=5, nelecas=(4, 4), kmesh=kmesh,)
 e_lasscf = las.kernel(mo_coeff=mo_guess,)[0]
 
-np.save(f'niaqua_{nk}.mo_coeff.npy', np.asarray(las.mo_coeff))
+# Preserve the starting-orbital file for reproducible restart comparisons.
+np.save(f'niaqua_{nk}.restart.mo_coeff.npy', np.asarray(las.mo_coeff))
 
 print(f"k-RHF energy       : {kmf.e_tot.real: .12f}")
 print(f"k-LASSCF energy    : {e_lasscf.real: .12f}")
