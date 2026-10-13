@@ -190,9 +190,11 @@ def build_eris(kcasscf, mo_coeff, ncore, ncas, *, disk=False, level=1):
     dtype = np.float64 if gamma_point(kpts) and not np.iscomplexobj(mo_coeff) else np.complex128
     mo_kpts = np.asarray(mo_coeff, dtype=complex)
     active = slice(ncore, nocc)
-    shapes = {'ppaa': (nmo, nmo, ncas, ncas), 'papa': (nmo, ncas, nmo, ncas),
+    shapes = {'ppaa': (nmo, nmo, ncas, ncas), 
+              'papa': (nmo, ncas, nmo, ncas),
               'paap': (nmo, ncas, ncas, nmo)}
-    output_bytes = sum(nkpts**3 * int(np.prod(shape)) * np.dtype(dtype).itemsize for shape in shapes.values())
+    output_bytes = sum(nkpts**3 * int(np.prod(shape)) * np.dtype(dtype).itemsize 
+                       for shape in shapes.values())
     available = (kcasscf.max_memory - lib.current_memory()[0]) * 1e6
     if not disk:
         available -= output_bytes
@@ -242,13 +244,20 @@ def build_cas_eris(mc, mo_cas_kpts, kconserv=None):
 
     Transform every DF pair once, retain signed auxiliary rows, and batch
     conserving pair products. The pair cache spills to HDF5 if needed.
+    args:
+        mc : KASSCF or KLASSCF object
+        mo_cas_kpts : (nk,nao, nact)
+    Returns:
+        eris_kpts: (nk,nk,nk,nact,nact,nact,nact) array
     """
     mydf = mc._scf.with_df
     kpts = np.asarray(mc._scf.kpts)
     mo_cas_kpts = np.asarray(mo_cas_kpts)
     nkpts, nao, ncas = mo_cas_kpts.shape
+
     if len(kpts) != nkpts or ncas < 1:
         raise ValueError('Invalid k-point or active-space dimensions')
+    
     dtype = np.float64 if gamma_point(kpts) and not np.iscomplexobj(mo_cas_kpts) else np.complex128
     output_bytes = nkpts ** 3 * ncas ** 4 * np.dtype(dtype).itemsize
     available = (mc.max_memory - lib.current_memory()[0]) * 1e6 - output_bytes
