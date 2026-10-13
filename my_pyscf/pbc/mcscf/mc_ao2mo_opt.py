@@ -13,6 +13,7 @@ from pyscf import lib
 from pyscf.ao2mo import _ao2mo
 from pyscf.pbc.df.df_ao2mo import _conc_mos, gamma_point
 from pyscf.pbc.lib import kpts_helper
+from mrh.my_pyscf.pbc.util.checks import _check_shape
 
 class _PairCache:
     def __init__(self, max_bytes, nmo):
@@ -303,8 +304,6 @@ def transform_eri_kpts_to_wannier(eri_kpts, mo_phase, kconserv):
     scattered into one dense N^4 tensor, then each axis is transformed once
     by a GEMM: O(N^5) = O(nk^5 n^5) time, O(N^4) memory.
     """
-    # Imported here: klasscf imports this module through mc_ao2mo (circular).
-    from mrh.my_pyscf.pbc.mcscf.klasscf import _check_shape
     blocks = np.asarray(eri_kpts)
     phase = np.asarray(mo_phase)
     nkpts, ncas, nactive = phase.shape

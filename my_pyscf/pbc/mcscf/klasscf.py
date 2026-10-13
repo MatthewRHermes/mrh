@@ -25,6 +25,7 @@ from mrh.my_pyscf.pbc.mcscf.real_linear_solvers import (
     SolveScipyMINRESForCplx,
 )
 from mrh.my_pyscf.pbc.util.casdm2_transformation import transform_casdm2_kpts
+from mrh.my_pyscf.pbc.util.checks import _check_shape
 from mrh.my_pyscf.pbc.util.wannier import get_wannier_orbs
 from mrh.my_pyscf.mcscf.lasscf_sync_o0 import (
     LASSCF_UnitaryGroupGenerators as MolecularLASSCF_UnitaryGroupGenerators,
@@ -50,29 +51,6 @@ def _response_matrix_blocks(eri, effective):
     # E[p,q,c,s] D[t,q,r,s] kappa[c,r].conj().
     conjugate = np.einsum("pqcs,tqrs->ptcr", eri, effective, optimize=True)
     return np.ascontiguousarray(direct), np.ascontiguousarray(conjugate)
-
-
-def _check_shape(mat, shape, label="array"):
-    """Validate the shape of an array-like object.
-
-    Args:
-        mat : array-like
-            Object whose shape is checked.
-        shape : tuple of int
-            Required shape.
-
-    Kwargs:
-        label : str, optional
-            Name used to identify mat in the error message.
-
-    Raises:
-        ValueError
-            If the shape of mat differs from shape.
-    """
-    shape = tuple(shape)
-    if np.shape(mat) != shape:
-        msg = f"{label} has shape {np.shape(mat)}; expected {shape}"
-        raise ValueError(msg)
 
 
 class KLASSCF_UnitaryGroupGenerators(MolecularLASSCF_UnitaryGroupGenerators):
