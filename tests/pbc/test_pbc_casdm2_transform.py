@@ -16,16 +16,13 @@ KnownValues
     test_init_orb_matches_original_contractions: the generalized Fock built in
         KLASSCF_HessianOperator._init_orb_ matches the original block loop.
 
-ERIBackTransformTests
-    test_back_transform_matches_original_block_sum: the batched Bloch-to-Wannier
-        ERI transform matches the original block-by-block einsum sum for
-        Fourier and general phases.
-
 CumulantCacheTests
     test_reference_cumulant_cache_reused: the reference cumulant is
         transformed once and the cached blocks are reused.
 """
 
+import os
+import sys
 import unittest
 from unittest.mock import patch
 
@@ -37,17 +34,8 @@ from mrh.my_pyscf.pbc.mcscf import klasscf
 from mrh.my_pyscf.pbc.mcscf.mc1step import _get_casdm2_kpts
 from mrh.my_pyscf.pbc.util.casdm2_transformation import transform_casdm2_kpts
 
-
-def phase_and_momenta(mesh, ncas, sign=1):
-    cells = np.array(list(np.ndindex(mesh)))
-    nkpts = len(cells)
-    phase = np.zeros((nkpts, ncas, nkpts * ncas), dtype=complex)
-    fourier = np.exp(sign * 2j * np.pi * (cells / np.array(mesh)) @ cells.T) / np.sqrt(nkpts)
-    for orbital in range(ncas):
-        phase[:, orbital, orbital::ncas] = fourier
-    labels = (cells[:, None, None] - cells[None, :, None] + cells[None, None, :]) % np.array(mesh)
-    kconserv = np.ravel_multi_index(labels.transpose(3, 0, 1, 2), mesh)
-    return phase, kconserv
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+from pbc_test_helpers import phase_and_momenta  # noqa: E402
 
 
 class KnownValues(unittest.TestCase):

@@ -1,11 +1,15 @@
 """Bloch-to-Wannier transformation of the active-space ERIs."""
 
+import os
+import sys
 import unittest
 
 import numpy as np
 
 from mrh.my_pyscf.pbc.mcscf.mc_ao2mo_opt import transform_eri_kpts_to_wannier
-from test_pbc_casdm2_transform import phase_and_momenta
+
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+from pbc_test_helpers import phase_and_momenta  # noqa: E402
 
 
 class ERIBackTransformTests(unittest.TestCase):
