@@ -5,12 +5,15 @@ output uses three datasets instead of one dataset per k-point triple.
 Pair factors spill to a temporary HDF5 file when their RAM budget is full.
 """
 
+# Author: Bhavnesh Jangid
+
 import numpy as np
+
 from pyscf import lib
 from pyscf.ao2mo import _ao2mo
 from pyscf.pbc.df.df_ao2mo import _conc_mos, gamma_point
 from pyscf.pbc.lib import kpts_helper
-
+from mrh.my_pyscf.pbc.mcscf.klasscf import _check_shape
 
 class _PairCache:
     def __init__(self, max_bytes, nmo):
@@ -62,7 +65,8 @@ class _PairCache:
             self._write(pair, array)
 
     def finish(self):
-        self.signs = {pair: np.concatenate(chunks) for pair, chunks in self._sign_chunks.items()}
+        self.signs = {pair: np.concatenate(chunks) 
+                      for pair, chunks in self._sign_chunks.items()}
         self._sign_chunks.clear()
         if self.file is not None:
             self.file.flush()
@@ -271,30 +275,52 @@ def build_cas_eris(mc, mo_cas_kpts, kconserv=None):
 
 
 def transform_eri_kpts_to_wannier(eri_kpts, mo_phase, kconserv):
-    """Sum conserving Bloch ERI blocks into a full Wannier tensor at once.
+    """Transform Bloch active-space ERIs to the Wannier basis.
 
-    Blocks have layout (k1,k2,k3,a,b,c,d), with implicit fourth momentum
-    kconserv[k1,k2,k3]. Factors on the four ERI indices are U*, U, U*, U;
-    no extra normalization is applied. Arbitrary phase matrices are supported.
-    Each tensor axis is transformed once instead of expanding every block
-    into its own full Wannier tensor.
+    Args:
+        eri_kpts : (nk,nk,nk,n,n,n,n) array, blocks (k1,k2,k3,a,b,c,d) with
+            implicit k4 = kconserv[k1,k2,k3].
+        mo_phase : (nk,n,nw) array U[k,a,w].
+        kconserv : (nk,nk,nk) integer array.
+
+    Returns:
+        (nw,nw,nw,nw) array, no extra normalization:
+        W[w,x,y,z] = sum_{k1,k2,k3,a,b,c,d} U*[k1,a,w] U[k2,b,x] U*[k3,c,y]
+                     U[k4,d,z] eri_kpts[k1,k2,k3,a,b,c,d]
+        i.e. einsum('Aaw,Bbx,Ccy,Ddz,ABCabcd->wxyz', U*, U, U*, U, eri) with
+        D fixed by kconserv.
+
+    Cost (N = nk*n): summing block by block is O(nk^7 n^5) (O(nk^7 n^8) for
+    the brute-force sum). The transform is linear, so all blocks are first
+    scattered into one dense N^4 tensor, then each axis is transformed once
+    by a GEMM: O(N^5) = O(nk^5 n^5) time, O(N^4) memory.
     """
     blocks = np.asarray(eri_kpts)
     phase = np.asarray(mo_phase)
     nkpts, ncas, nactive = phase.shape
-    if blocks.shape != (nkpts,)*3 + (ncas,)*4:
-        raise ValueError('ERI blocks must have shape (nkpts,nkpts,nkpts,ncas,ncas,ncas,ncas)')
+
+    _check_shape(blocks, (nkpts,)*3 + (ncas,)*4, label="eri_kpts")
+
     conservation = np.asarray(kconserv)
-    if conservation.shape != (nkpts,)*3 or not np.issubdtype(conservation.dtype, np.integer):
-        raise ValueError('kconserv must be an integer array of shape (nkpts,nkpts,nkpts)')
+    _check_shape(conservation, (nkpts,)*3, label="kconserv")
+    if not np.issubdtype(conservation.dtype, np.integer):
+        raise ValueError('kconserv must be an integer array')
+    
     if np.any(conservation < 0) or np.any(conservation >= nkpts):
         raise ValueError('kconserv contains an invalid momentum index')
+    
     nblock = nkpts*ncas
+    
     full = np.zeros((nblock,)*4, dtype=np.result_type(blocks, phase))
+    
     view = full.reshape((nkpts,ncas)*4).transpose(0,2,4,6,1,3,5,7)
+    
     k1, k2, k3 = np.ogrid[:nkpts, :nkpts, :nkpts]
+    
     view[k1,k2,k3,conservation] = blocks
+    
     matrix = phase.reshape(nblock, nactive)
     for axis, factor in enumerate((matrix.conj().T, matrix.T, matrix.conj().T, matrix.T)):
         full = np.moveaxis(np.tensordot(factor, full, axes=(1, axis)), 0, axis)
+    
     return full
