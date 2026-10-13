@@ -54,6 +54,42 @@ class ChargedKLASCITests(unittest.TestCase):
             np.testing.assert_allclose(counts, np.repeat(target[:, None], las.nkpts, axis=1),
                                        atol=1e-8)
 
+    def test_reference_cell_sectors_and_translation(self):
+        for charge in (1, -1):
+            energies = []
+            for ref in (0, 2):
+                with self.subTest(charge=charge, ref=ref):
+                    las = self.make_las(charge=charge, ref_cell=ref)
+                    expected = np.ones((3, 2), dtype=int)
+                    expected[ref] = (1, 0) if charge == 1 else (2, 1)
+                    np.testing.assert_array_equal(las.nelecas_sub, expected)
+                    self.assertEqual(las.nelecas, (1, 1))
+                    self.assertEqual(las.ncore, 0)
+                    self.assertEqual(las.nelecas_sub.sum(), 6 - charge)
+                    self.assertEqual(las.ref_cell, ref)
+                    self.assertEqual(las.charged_spin_mult, 2)
+                    before = las.mo_coeff.copy()
+                    las.kernel()
+                    self.assertTrue(las.converged)
+                    np.testing.assert_array_equal(las.mo_coeff, before)
+                    self.check_density(las)
+                    energies.append(las.e_tot)
+            np.testing.assert_allclose(energies[0], energies[1], atol=1e-8)
+
+    def test_gamma_matches_charged_kcasci(self):
+        kmf, mo = self.systems[1]
+        for charge in (1, -1):
+            with self.subTest(charge=charge):
+                las = self.make_las(nk=1, charge=charge)
+                las.kernel()
+                cas = mcscf.KCASCI(kmf, 2, (1, 1), charge=charge, target_k=0)
+                cas.kmesh = (1, 1, 1)
+                cas.fcisolver.conv_tol = 1e-11
+                cas.kernel(mo)
+                self.assertTrue(las.converged and cas.converged)
+                np.testing.assert_allclose(las.e_tot, cas.e_tot, atol=1e-8)
+                self.check_density(las)
+
     def test_core_count_is_kept(self):
         kmf, mo = self.systems[1]
         # Neutral H2 has a doubly occupied core and an empty active space.
