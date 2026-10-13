@@ -1029,14 +1029,23 @@ class KLASSCF_HessianOperator(molLASSCF_HessianOperator):
         return cache[key]
 
     def _get_cascm2_kpts(self, kconserv):
-        """Reuse the fixed reference cumulant throughout one Hessian keyframe."""
+        """Reuse the reference cumulant blocks until cascm2 or mo_phase changes.
+
+        The cache remembers the array objects it was built from and is
+        rebuilt when either attribute is rebound. In-place edits of cascm2
+        are not detected; reset _cascm2_kpts_cache to None after those.
+        """
         cached = getattr(self, "_cascm2_kpts_cache", None)
-        if cached is None:
+        source = getattr(self, "_cascm2_kpts_source", None)
+        if (cached is None or source is None
+                or source[0] is not self.cascm2
+                or source[1] is not self.mo_phase):
             cached = transform_casdm2_kpts(
                 self.cascm2, self.mo_phase, kconserv,
                 kmesh=getattr(self, "kmesh", None),
             )
             self._cascm2_kpts_cache = cached
+            self._cascm2_kpts_source = (self.cascm2, self.mo_phase)
         return cached
 
     def _init_orb_(self, mo_phase=None):
@@ -1049,6 +1058,7 @@ class KLASSCF_HessianOperator(molLASSCF_HessianOperator):
             )[-1]
         self.mo_phase = np.asarray(mo_phase)
         self._cascm2_kpts_cache = None
+        self._cascm2_kpts_source = None
 
         _check_shape(
             self.mo_phase, (self.nkpts, self.ncas, self.ncastot),
