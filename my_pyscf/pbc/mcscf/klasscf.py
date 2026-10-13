@@ -792,9 +792,22 @@ class KLASSCF_HessianOperator(molLASSCF_HessianOperator):
         self._Horb_diag_external_cache = None
         self._Horb_active_active_cache = None
         self._active_wannier_intermediates_cache = None
-        self._active_wannier_response_cache = None
-        self._active_wannier_response_file = None
+        self._close_active_wannier_response()
         self._Horb_external_active_cross_cache = None
+
+    def _close_active_wannier_response(self):
+        """Drop the cached AA response matrices and close their temp file."""
+        self._active_wannier_response_cache = None
+        handle = getattr(self, "_active_wannier_response_file", None)
+        self._active_wannier_response_file = None
+        if handle is not None:
+            try:
+                handle.close()
+            except Exception:
+                pass
+
+    def __del__(self):
+        self._close_active_wannier_response()
 
     def _init_dms_(self, casdm1frs, casdm2fr=None, dm1s_kpts=None):
         """Initialize reference density matrices in their natural bases.
@@ -2633,6 +2646,7 @@ class KLASSCF_HessianOperator(molLASSCF_HessianOperator):
             direct = direct.reshape(n*n, n*n)
             conjugate = conjugate.reshape(n*n, n*n)
         else:
+            self._close_active_wannier_response()
             self._active_wannier_response_file = lib.H5TmpFile()
             direct = self._active_wannier_response_file.create_dataset(
                 "direct", shape=(n*n, n*n), dtype=dtype)
