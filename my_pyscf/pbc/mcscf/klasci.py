@@ -804,7 +804,10 @@ class PBCLASCINoSymm(casci.PBCCASCI, LASCINoSymm):
         coreelec = 0 if include_core else self.ncore * 2
         ovlp = self._scf.get_ovlp(kpts=self.kpts)
         rdm1 = rdm1s_ao_k.sum (0)
-        nelecref = self._scf.cell.nelectron
+        # k-diagonal densities carry the translation-averaged charged filling.
+        nelec_frs = self.get_nelec_frs()
+        nelecref = np.dot(self.weights, nelec_frs.sum(axis=(0, 2))) / nkpts
+        nelecref += 2 * self.ncore
         nelecdiff = [np.trace(ovlp[k] @ rdm1[k]).real + coreelec - nelecref 
                     for k in range(nkpts)]
         if any(abs(diff) > 1e-6 for diff in nelecdiff):
