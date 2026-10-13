@@ -737,6 +737,10 @@ class PBCLASCINoSymm(casci.PBCCASCI, LASCINoSymm):
 
     def _finalize(self, method='LASCI'):
         log = lib.logger.new_logger (self, self.verbose)
+        # Identify the localized sector alongside the usual per-cell energy.
+        if getattr(self, 'charge', 0):
+            log.info("Local charge = %+d on reference cell %d; 2Ms = %d, 2S+1 = %d",
+                     self.charge, self.ref_cell, self.charged_spin, self.charged_spin_mult)
         nroots_prt = len (self.e_states)
         if self.verbose <= lib.logger.INFO:
             nroots_prt = min (nroots_prt, 100)
