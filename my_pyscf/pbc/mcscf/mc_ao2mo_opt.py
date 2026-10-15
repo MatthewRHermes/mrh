@@ -16,16 +16,38 @@ from pyscf.pbc.lib import kpts_helper
 from mrh.my_pyscf.pbc.util.checks import _check_shape
 
 class _PairCache:
-    def __init__(self, max_bytes, nmo):
-        self.max_bytes = max_bytes
+    '''Store MO-transformed DF three-index factors L[Q,p,q] per k-point pair.
+
+    Each key is a pair (ki, kj); its value is the auxiliary-index-ordered
+    list of complex (naux_chunk, nmo, nmo) blocks produced by
+    ``_transform_pairs``. Blocks are held in RAM until their total size
+    would exceed ``max_mem``; then everything is moved to a temporary
+    HDF5 file (one growable (naux, nmo, nmo) dataset per pair) and later
+    blocks are written there directly. ``max_mem == 0`` starts on disk.
+
+    Attributes:
+        max_mem : RAM budget for cached blocks, in MB.
+        nmo : orbital dimension of both MO indices.
+        arrays : {pair: [ndarray, ...]} in-RAM blocks (empty once spilled).
+        file : None while in RAM, else the H5TmpFile.
+        mem : MB currently held in ``arrays``.
+        naux : {pair: total auxiliary rows stored}.
+        signs : {pair: int8 array (naux,)} sign of each auxiliary row from
+            ``sr_loop`` (+1/-1); available after :meth:`finish`.
+
+    Usage: :meth:`append` blocks, call :meth:`finish`, then :meth:`read`
+    row ranges/orbital slices, and :meth:`close` when done.
+    '''
+    def __init__(self, max_mem, nmo):
+        self.max_mem = max_mem
         self.nmo = nmo
         self.arrays = {}
         self.file = None
-        self.bytes = 0
+        self.mem = 0
         self.naux = {}
         self.signs = {}
         self._sign_chunks = {}
-        if max_bytes == 0:
+        if max_mem == 0:
             self._spill()
 
     @staticmethod
@@ -51,16 +73,16 @@ class _PairCache:
             for array in chunks:
                 self._write(pair, array)
         self.arrays.clear()
-        self.bytes = 0
+        self.mem = 0
 
     def append(self, pair, array, sign):
         self.naux[pair] = self.naux.get(pair, 0) + len(array)
         self._sign_chunks.setdefault(pair, []).append(np.full(len(array), sign, dtype=np.int8))
-        if self.file is None and self.bytes + array.nbytes > self.max_bytes:
+        if self.file is None and self.mem + array.nbytes / 1e6 > self.max_mem:
             self._spill()
         if self.file is None:
             self.arrays.setdefault(pair, []).append(array)
-            self.bytes += array.nbytes
+            self.mem += array.nbytes / 1e6
         else:
             self._write(pair, array)
 
@@ -200,8 +222,8 @@ def build_eris(kcasscf, mo_coeff, ncore, ncas, *, disk=False, level=1):
         available -= output_bytes
     # Keep a margin for hcore, Python objects, and BLAS buffers.
     workspace_bytes = max(1e6, available * 0.4)
-    cache_bytes = 0 if disk else max(0, available * 0.4)
-    cache = _PairCache(cache_bytes, nmo)
+    cache_mem = 0 if disk else max(0, available * 0.4) / 1e6
+    cache = _PairCache(cache_mem, nmo)
     eris = lib.H5TmpFile() if disk else {}
     log = lib.logger.new_logger(kcasscf)
     t1 = (lib.logger.process_clock(), lib.logger.perf_counter())
@@ -262,7 +284,7 @@ def build_cas_eris(mc, mo_cas_kpts, kconserv=None):
     output_bytes = nkpts ** 3 * ncas ** 4 * np.dtype(dtype).itemsize
     available = (mc.max_memory - lib.current_memory()[0]) * 1e6 - output_bytes
     workspace_bytes = max(1e6, available * 0.4)
-    cache = _PairCache(max(0, available * 0.4), ncas)
+    cache = _PairCache(max(0, available * 0.4) / 1e6, ncas)
     log = lib.logger.new_logger(mc)
     t1 = (lib.logger.process_clock(), lib.logger.perf_counter())
     try:
