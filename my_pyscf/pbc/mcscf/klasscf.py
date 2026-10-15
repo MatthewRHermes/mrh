@@ -2700,7 +2700,7 @@ class KLASSCF_HessianOperator(molLASSCF_HessianOperator):
     def _available_memory_bytes(self):
         max_memory = getattr(getattr(self, "las", None), "max_memory", None)
         if max_memory is None:
-            return np.inf
+            max_memory = lib.param.MAX_MEMORY  # set by $PYSCF_MAX_MEMORY
         return max(0.0, max_memory - lib.current_memory()[0]) * 1e6
 
     def _response_cache_fits_in_memory(self):
