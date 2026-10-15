@@ -2639,6 +2639,27 @@ class KLASSCF_HessianOperator(molLASSCF_HessianOperator):
         fit in max_memory. Otherwise they are built in row blocks and written
         to a temporary HDF5 file, and each matrix-vector product reads them
         back block by block.
+
+        Returns
+        -------
+        tuple (base, direct, conjugate)
+            Also stored as ``self._active_wannier_response_cache`` and reused
+            until reset. With n = ``ncastot`` and ``effective`` the density
+            tensor above (n, n, n, n):
+
+            base : ndarray, shape (n, n)
+                ``eri_cas`` contracted with ``effective`` over their last
+                three indices; multiplies kappa^dagger from the left.
+            direct : ndarray or h5py.Dataset, shape (n^2, n^2)
+                Response matrix acting on ``kappa.reshape(-1)``.
+            conjugate : ndarray or h5py.Dataset, shape (n^2, n^2)
+                Response matrix acting on ``kappa.conj().reshape(-1)``.
+
+            ``direct`` and ``conjugate`` are in-memory ndarrays when they
+            fit in max_memory, otherwise datasets ("direct", "conjugate")
+            in the temporary file ``self._active_wannier_response_file``.
+            Both have the dtype of the ERIs and densities (complex for k-point
+            data), and rows are indexed by the flattened output pair.
         """
         cached = getattr(self, "_active_wannier_response_cache", None)
         if cached is not None:
