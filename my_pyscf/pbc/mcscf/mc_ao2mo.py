@@ -365,6 +365,21 @@ class _ERIS:
         self.paap = lambda k1, k2, k3: self.get_paap(k1, k2, k3)
         log.timer('Total ERI transformation', *t0)
 
+    def _finished(self):
+        """Flush and close the temporary ERI file, if the disk method was used."""
+        handle = getattr(self, 'erifile', None)
+        self.erifile = None
+        if handle is not None:
+            try:
+                if handle.id and handle.id.valid:
+                    handle.flush()
+                handle.close()
+            except (AttributeError, ValueError, ImportError):
+                pass
+
+    def __del__(self):
+        self._finished()
+
     @staticmethod
     def _kkey(k1, k2, k3):
         return f"{int(k1)}_{int(k2)}_{int(k3)}"

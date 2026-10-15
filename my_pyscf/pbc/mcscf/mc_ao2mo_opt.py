@@ -36,7 +36,8 @@ class _PairCache:
             ``sr_loop`` (+1/-1); available after :meth:`finish`.
 
     Usage: :meth:`append` blocks, call :meth:`finish`, then :meth:`read`
-    row ranges/orbital slices, and :meth:`close` when done.
+    row ranges/orbital slices; the file is closed by ``_finished`` (also
+    called from ``__del__``).
     '''
     def __init__(self, max_mem, nmo):
         self.max_mem = max_mem
@@ -108,9 +109,20 @@ class _PairCache:
                 break
         return selected[0] if len(selected) == 1 else np.concatenate(selected, axis=0)
 
-    def close(self):
-        if self.file is not None:
-            self.file.close()
+    def _finished(self):
+        '''Flush and close the temporary file, if any. Safe to call twice.'''
+        handle = getattr(self, 'file', None)
+        self.file = None
+        if handle is not None:
+            try:
+                if handle.id and handle.id.valid:
+                    handle.flush()
+                handle.close()
+            except (AttributeError, ValueError, ImportError):
+                pass
+
+    def __del__(self):
+        self._finished()
 
 
 def _transform_pairs(mydf, mo, kpts, cache, workspace_bytes):
@@ -258,7 +270,7 @@ def build_eris(kcasscf, mo_coeff, ncore, ncas, *, disk=False, level=1):
             eris.close()
         raise
     finally:
-        cache.close()
+        cache._finished()
 
 
 def build_cas_eris(mc, mo_cas_kpts, kconserv=None):
@@ -302,7 +314,7 @@ def build_cas_eris(mc, mo_cas_kpts, kconserv=None):
         log.timer('get_h2cas batched DF contraction', *t1)
         return output
     finally:
-        cache.close()
+        cache._finished()
 
 
 def transform_eri_kpts_to_wannier(eri_kpts, mo_phase, kconserv):
