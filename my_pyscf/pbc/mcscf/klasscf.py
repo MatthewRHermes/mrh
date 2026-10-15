@@ -858,6 +858,8 @@ class KLASSCF_HessianOperator(molLASSCF_HessianOperator):
         self.cascm2 = self.casdm2 - np.multiply.outer(casdm1, casdm1)
         self.cascm2 += np.multiply.outer(casdm1a, casdm1a,).transpose(0, 3, 2, 1)
         self.cascm2 += np.multiply.outer(casdm1b, casdm1b,).transpose(0, 3, 2, 1)
+        # _get_cascm2_kpts caches by array identity; make in-place edits fail loudly.
+        self.cascm2.setflags(write=False)
 
         if dm1s_kpts is None:
             dm1s_kpts = self.las.make_rdm1s(
@@ -1032,8 +1034,9 @@ class KLASSCF_HessianOperator(molLASSCF_HessianOperator):
         """Reuse the reference cumulant blocks until cascm2 or mo_phase changes.
 
         The cache remembers the array objects it was built from and is
-        rebuilt when either attribute is rebound. In-place edits of cascm2
-        are not detected; reset _cascm2_kpts_cache to None after those.
+        rebuilt when either attribute is rebound. Both arrays are marked
+        read-only, so an in-place edit raises ValueError instead of leaving
+        the cache stale; assign a new array to change them.
         """
         cached = getattr(self, "_cascm2_kpts_cache", None)
         source = getattr(self, "_cascm2_kpts_source", None)
@@ -1056,7 +1059,9 @@ class KLASSCF_HessianOperator(molLASSCF_HessianOperator):
             mo_phase = get_wannier_orbs(
                 self.las._scf, self.kmesh, mo_act_kpts,
             )[-1]
-        self.mo_phase = np.asarray(mo_phase)
+        # Private copy, read-only: see _get_cascm2_kpts.
+        self.mo_phase = np.array(mo_phase)
+        self.mo_phase.setflags(write=False)
         self._cascm2_kpts_cache = None
         self._cascm2_kpts_source = None
 
