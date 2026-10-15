@@ -788,6 +788,15 @@ class KLASSCF_HessianOperator(molLASSCF_HessianOperator):
         self._init_eri_(eris)
         self._init_orb_(mo_phase)
         self._init_ci_()
+        self._reset_response_caches()
+
+    def _reset_response_caches(self):
+        """Drop every cache derived from the RDMs, integrals, or orbitals.
+
+        Called at the start of each _init_dms_, _init_ham_, _init_eri_ and
+        _init_orb_, so re-running any of them outside __init__ cannot leave
+        a stale cache behind.
+        """
         self._Horb_diag_matvec_cache = None
         self._Horb_diag_external_cache = None
         self._Horb_active_active_cache = None
@@ -816,6 +825,7 @@ class KLASSCF_HessianOperator(molLASSCF_HessianOperator):
         Wannier active space. dm1s_kpts is spin resolved in the AO basis,
         while dm1s is its block-MO representation.
         """
+        self._reset_response_caches()
         if casdm1frs is None:
             casdm1frs = self.las.states_make_casdm1s_sub(
                 ci=self.ci,
@@ -898,6 +908,7 @@ class KLASSCF_HessianOperator(molLASSCF_HessianOperator):
         the two-electron integrals over the complete Wannier active space.
         hcore and h1s retain a k-point axis and use the block-MO basis.
         """
+        self._reset_response_caches()
         if h2eff is None:
             h2eff = self.las.get_h2cas(self.mo_coeff)
         h2eff = np.asarray(h2eff)
@@ -971,6 +982,7 @@ class KLASSCF_HessianOperator(molLASSCF_HessianOperator):
         a materialized supercell tensor. Level one also constructs the compact
         core-orbital intermediates used by the analytic Hessian diagonal.
         """
+        self._reset_response_caches()
         if eris is None:
             eris = _ERIS(
                 self.las, self.mo_coeff, method="direct", level=1,
@@ -1053,6 +1065,7 @@ class KLASSCF_HessianOperator(molLASSCF_HessianOperator):
 
     def _init_orb_(self, mo_phase=None):
         """Build the reference generalized Fock matrix in block-MO form."""
+        self._reset_response_caches()
 
         if mo_phase is None:
             mo_act_kpts = self.mo_coeff[:, :, self.ncore:self.nocc]
