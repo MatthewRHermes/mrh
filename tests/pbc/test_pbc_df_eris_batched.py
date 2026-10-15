@@ -108,7 +108,7 @@ class KnownValues(unittest.TestCase):
                         output.close()
 
     def test_spill_and_small_auxiliary_batches(self):
-        cache = _PairCache(1, 3)
+        cache = _PairCache(1e-6, 3)
         try:
             for pair, value in self.z.items():
                 cache.append(pair, value[:4], 1)
