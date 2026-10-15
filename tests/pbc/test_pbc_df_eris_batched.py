@@ -124,7 +124,7 @@ class KnownValues(unittest.TestCase):
                 expected = np.einsum('Lpq,Lrs,L->pqrs', self.z[k1, k2], self.z[k3, k4][:, 1:2, 1:2], self.df.signs) / 2
                 np.testing.assert_allclose(output[k1, k2, k3], expected, atol=1e-12)
         finally:
-            cache.close()
+            cache._finished()
 
     def test_level_two_skips_core_terms(self):
         output, j_pc, k_pc, _ = build_eris(self.kcas, self.mo, 1, 1, level=2)
