@@ -1,13 +1,20 @@
+from types import SimpleNamespace
+
 import numpy as np
 
 from pyscf import lib
+from pyscf.pbc.lib import kpts_helper
 from pyscf.mcpdft import _dms
 
 from mrh.my_pyscf.pbc.fci.addons import _unpack_nelec
+from mrh.my_pyscf.pbc.mcscf.mc1step import (
+    _get_casdm2_kpts as _basis_transform_casdm2_kpts,
+)
+from mrh.my_pyscf.pbc.util.wannier import get_wannier_orbs
 
 """Reduced-density-matrix utilities for periodic MC-PDFT.
 
-The kCASCI solvers store active-space RDMs in flattened Bloch-orbital order,
+The CPLXCAS and kCASCI solvers store active-space RDMs in flattened Bloch order,
 ``k * ncas + orbital``.  This module builds those RDMs, extracts their
 momentum-conserving blocks, transforms active 1-RDMs to AO densities, and
 forms complex-orbital cumulants.  Charged-sector selection belongs to the
@@ -226,3 +233,277 @@ def casdm1s_kpts_to_dm1s(obj, casdm1s_kpts, mo_coeff, ncore):
         "kai,kbi->kab", mo_core, mo_core.conj(), optimize=True,)
 
     return dm1s_cas + dm1_core[None]
+
+
+def make_klas_mo_phase(kmf, kmesh, mo_coeff, ncore, ncas, ncas_sub=None):
+    """Same as get_klas_mo_phase, but takes the pieces of the kLAS object.
+
+    Args:
+        kmf: Mean-field object (or any object with cell, kpts and get_ovlp).
+        kmesh: K-point mesh.
+        mo_coeff: Orbital coefficients, shape (nkpts, nao, nmo).
+        ncore: Number of core orbitals per unit cell.
+        ncas: Number of active orbitals per unit cell.
+    Kwargs:
+        ncas_sub: Active orbitals per fragment; if given, its sum must equal
+            nkpts * ncas.
+    Returns:
+        mo_phase: Coefficients <Bloch(k, a) | Wannier(P)>, shape
+            (nkpts, ncas, nkpts * ncas). Stacking (k, a) gives a unitary matrix.
+    """
+    mo_coeff = np.asarray(mo_coeff)
+    if mo_coeff.ndim != 3:
+        raise ValueError("mo_coeff must have shape (nkpts, nao, nmo)")
+
+    nkpts, _, _ = mo_coeff.shape
+    ncastot = nkpts * ncas
+    if ncas_sub is not None and sum(ncas_sub) != ncastot:
+        raise ValueError(f"sum(ncas_sub) must equal nkpts * ncas = {ncastot}")
+
+    mo_active = np.ascontiguousarray(mo_coeff[:, :, ncore:ncore + ncas])
+    mo_phase = np.asarray(
+        get_wannier_orbs(kmf, kmesh, mo_active)[-1],
+        dtype=np.result_type(mo_coeff.dtype, np.complex128),
+    )
+    
+    if mo_phase.shape != (nkpts, ncas, ncastot):
+        msg = (
+            f"Expected kLAS mo_phase shape {(nkpts, ncas, ncastot)}; "
+            f"got {mo_phase.shape}"
+        )
+        raise ValueError(msg)
+    
+    phase_matrix = mo_phase.reshape(ncastot, ncastot)
+    if not np.allclose(
+            phase_matrix.conj().T @ phase_matrix, np.eye(ncastot),
+            atol=1e-8, rtol=1e-8):
+        raise ValueError("stacked kLAS mo_phase must be unitary")
+    return mo_phase
+
+
+def make_klas_rdms_kpts(casdm1s, casdm2, mo_phase, kconserv):
+    """Transform Wannier RDMs to k-point 1-RDM and two-body cumulant blocks.
+
+    Args:
+        casdm1s: Wannier alpha/beta 1-RDMs, shape (2, ncastot, ncastot).
+        casdm2: Wannier spin-summed 2-RDM, shape (ncastot,) * 4.
+        mo_phase: Coefficients <Bloch(k, a) | Wannier(P)>, shape
+            (nkpts, ncas, ncastot), with ncastot = nkpts * ncas.
+        kconserv: Integer lookup, shape (nkpts, nkpts, nkpts), giving
+            k4 = kconserv[k1, k2, k3] for each momentum-conserving tuple.
+    Returns:
+        casdm1s_kpts: Spin 1-RDM blocks, shape (2, nkpts, ncas, ncas).
+        cascm2_kpts: Cumulant blocks, shape
+            (nkpts, nkpts, nkpts, ncas, ncas, ncas, ncas); k4 is implicit.
+    """
+    mo_phase = np.asarray(mo_phase)
+    if mo_phase.ndim != 3:
+        msg = "mo_phase must have shape (nkpts, ncas, nkpts * ncas)"
+        raise ValueError(msg)
+    
+    nkpts, ncas, ncastot = mo_phase.shape
+    
+    if ncastot != nkpts * ncas:
+        msg = "mo_phase must map a square stacked active-orbital space"
+        raise ValueError(msg)
+    
+    kconserv = np.asarray(kconserv)
+    expected_shape = (nkpts, nkpts, nkpts)
+    if kconserv.shape != expected_shape:
+        raise ValueError(
+            f"kconserv shape must be {expected_shape}; got {kconserv.shape}"
+        )
+
+    casdm1s = np.asarray(casdm1s, dtype = mo_phase.dtype)
+    casdm2 = np.asarray(casdm2, dtype = mo_phase.dtype)
+
+    _mat_shape_check(casdm1s, (2, ncastot, ncastot), "casdm1s")
+    _mat_shape_check(casdm2, (ncastot,) * 4, "casdm2")
+
+    casdm1s_kpts = np.einsum(
+        "kap,spq,kbq->skab",
+        mo_phase,
+        casdm1s,
+        mo_phase.conj(),
+        optimize=True,
+    )
+
+
+    cascm2 = dm2_cumulant_complex(casdm2, casdm1s)
+    dtype = np.result_type(cascm2.dtype, mo_phase.dtype)
+    
+    cascm2_kpts = np.empty(
+        (nkpts, nkpts, nkpts, ncas, ncas, ncas, ncas),
+        dtype=dtype,
+    )
+
+    for k1, k2, k3 in kpts_helper.loop_kkk(nkpts):
+        k4 = kconserv[k1, k2, k3]
+        cascm2_kpts[k1, k2, k3] = _basis_transform_casdm2_kpts(
+                cascm2, mo_phase, (k1, k2, k3, k4),)
+    
+    return casdm1s_kpts, cascm2_kpts
+
+
+def _get_klas_mo_phase(ot, mo_coeff, ncore, ncas):
+    """Build mo_phase with the kLAS orbital convention.
+
+    Uses make_klas_mo_phase. If ot has no _scf attribute, a
+    minimal stand-in for the mean-field object is built from ot.cell and
+    ot.kpts. Returns coefficients <Bloch(k, a) | Wannier(P)> with
+    shape (nkpts, ncas, nkpts * ncas).
+    """
+    if getattr(ot, 'kmesh', None) is None:
+        raise ValueError("kmesh is required for kLAS RDMs")
+    kmf = getattr(ot, '_scf', None)
+    if kmf is None:
+        kmf = SimpleNamespace(
+            cell=ot.cell, kpts=ot.kpts,
+            get_ovlp=lambda kpts: ot.cell.pbc_intor('int1e_ovlp', kpts=kpts),
+        )
+    return make_klas_mo_phase(
+        kmf, ot.kmesh, mo_coeff, ncore, ncas,
+        ncas_sub=getattr(ot, 'ncas_sub', None),
+    )
+
+
+def _prepare_klas_rdms(ot, casdm1s, casdm2, mo_coeff, ncore):
+    """Transform Wannier-basis RDMs to momentum blocks.
+
+    The Wannier-to-k-space phase uses the kLAS orbital convention.
+    The 2-RDM is converted to its cumulant and transformed
+    block by block for every (k1, k2, k3), with k4 fixed by momentum
+    conservation, in make_klas_rdms_kpts.
+
+    args:
+        ot: otfnalperiodic_kpts object
+            On-top functional; provides cell, kpts, kmesh and, if set,
+            kconserv.
+        casdm1s: np.ndarray (2, ncas*nkpts, ncas*nkpts)
+            Spin-separated active 1-RDM in the Wannier basis.
+        casdm2: np.ndarray (ncas*nkpts,)*4
+            Active 2-RDM in the Wannier basis.
+        mo_coeff: np.ndarray (nkpts, nao, nmo)
+            MO coefficients at each k-point.
+        ncore: int
+            Number of core orbitals per unit cell.
+
+    returns:
+        casdm1s_kpts: np.ndarray (2, nkpts, ncas, ncas)
+            Spin-separated active 1-RDM at each k-point.
+        cascm2_kpts: np.ndarray (nkpts, nkpts, nkpts, ncas, ncas, ncas, ncas)
+            Active 2-RDM cumulant for the k-point triplet (k1, k2, k3);
+            k4 is fixed by kconserv.
+        kconserv: np.ndarray (nkpts, nkpts, nkpts)
+            Momentum-conservation table for the k-points.
+    """
+    mo_coeff = np.asarray(mo_coeff)
+    casdm2 = np.asarray(casdm2)
+    if mo_coeff.ndim != 3:
+        raise ValueError("mo_coeff must have shape (nkpts, nao, nmo)")
+    if casdm2.ndim != 4 or len(set(casdm2.shape)) != 1:
+        raise ValueError("casdm2 must have shape (ncas * nkpts,) * 4")
+    nkpts = mo_coeff.shape[0]
+    if casdm2.shape[0] % nkpts:
+        raise ValueError("The active RDM size must be divisible by nkpts")
+    ncas = casdm2.shape[0] // nkpts
+    if ncore < 0 or ncore + ncas > mo_coeff.shape[2]:
+        raise ValueError("ncore and ncas are incompatible with mo_coeff")
+
+    mo_phase = _get_klas_mo_phase(ot, mo_coeff, ncore, ncas)
+    kconserv = getattr(ot, 'kconserv', None)
+    if kconserv is None:
+        kconserv = kpts_helper.get_kconserv(ot.cell, ot.kpts)
+    casdm1s_kpts, cascm2_kpts = make_klas_rdms_kpts(
+        casdm1s, casdm2, mo_phase, kconserv,
+    )
+    return casdm1s_kpts, cascm2_kpts, kconserv
+
+
+def _prepare_bloch_rdms(ot, casdm1s, casdm2, mo_coeff, momentum_tol):
+    """Extract momentum blocks from flattened Bloch-basis RDMs.
+
+    The RDMs are already in the Bloch (k-space) basis, so no orbital
+    transformation is done; only the momentum-conserving blocks are
+    extracted with make_kcas_rdms_kpts.
+
+    args:
+        ot: otfnalperiodic_kpts object
+            On-top functional; provides cell, kpts and, if set,
+            kconserv.
+        casdm1s: np.ndarray (2, ncas*nkpts, ncas*nkpts)
+            Spin-separated active 1-RDM in the Bloch basis.
+        casdm2: np.ndarray (ncas*nkpts,)*4
+            Active 2-RDM in the Bloch basis.
+        mo_coeff: np.ndarray (nkpts, nao, nmo)
+            MO coefficients at each k-point.
+        momentum_tol: float
+            Tolerance used to identify momentum-conserving blocks.
+
+    returns:
+        casdm1s_kpts: np.ndarray (2, nkpts, ncas, ncas)
+            Spin-separated active 1-RDM at each k-point.
+        cascm2_kpts: np.ndarray (nkpts, nkpts, nkpts, ncas, ncas, ncas, ncas)
+            Active 2-RDM cumulant for the k-point triplet (k1, k2, k3);
+            k4 is fixed by kconserv.
+        kconserv: np.ndarray (nkpts, nkpts, nkpts)
+            Momentum-conservation table for the k-points.
+    """
+    mo_coeff = np.asarray(mo_coeff)
+    casdm2 = np.asarray(casdm2)
+    if mo_coeff.ndim != 3:
+        raise ValueError("mo_coeff must have shape (nkpts, nao, nmo)")
+    if casdm2.ndim != 4 or len(set(casdm2.shape)) != 1:
+        raise ValueError("casdm2 must have shape (ncas * nkpts,) * 4")
+
+    nkpts = mo_coeff.shape[0]
+    ncastot = casdm2.shape[0]
+    if ncastot % nkpts:
+        raise ValueError("The active RDM size must be divisible by nkpts")
+    ncas = ncastot // nkpts
+    kconserv = getattr(ot, 'kconserv', None)
+    if kconserv is None:
+        kconserv = kpts_helper.get_kconserv(ot.cell, ot.kpts)
+    casdm1s_kpts, cascm2_kpts = make_kcas_rdms_kpts(
+        casdm1s, casdm2, nkpts, ncas, kconserv,
+        momentum_tol=momentum_tol,
+    )
+    return casdm1s_kpts, cascm2_kpts, kconserv
+
+
+def _prepare_kpts_rdms(ot, casdm1s, casdm2, mo_coeff, ncore,
+                       representation, momentum_tol):
+    """Prepare active RDMs for the shared k-point evaluator.
+
+    Dispatches to the converter that matches the basis of the input RDMs.
+
+    args:
+        ot: otfnalperiodic_kpts object
+            On-top functional; provides cell, kpts and, if set,
+            kconserv.
+        casdm1s: np.ndarray (2, ncas*nkpts, ncas*nkpts)
+            Spin-separated active 1-RDM in the basis given by representation.
+        casdm2: np.ndarray (ncas*nkpts,)*4
+            Active 2-RDM in the basis given by representation.
+        mo_coeff: np.ndarray (nkpts, nao, nmo)
+            MO coefficients at each k-point.
+        ncore: int
+            Number of core orbitals per unit cell.
+        representation: str
+            Basis of the input RDMs: 'bloch' or 'klas'.
+        momentum_tol: float
+            Tolerance for momentum-conserving blocks ('bloch' only).
+
+    returns:
+        Same as the selected converter: (casdm1s_kpts, cascm2_kpts,
+        kconserv) with shapes (2, nkpts, ncas, ncas),
+        (nkpts, nkpts, nkpts, ncas, ncas, ncas, ncas) and
+        (nkpts, nkpts, nkpts).
+    """
+    if representation == 'bloch':
+        return _prepare_bloch_rdms(
+            ot, casdm1s, casdm2, mo_coeff, momentum_tol,
+        )
+    if representation == 'klas':
+        return _prepare_klas_rdms(ot, casdm1s, casdm2, mo_coeff, ncore)
+    raise ValueError(f"Unknown RDM representation {representation!r}")

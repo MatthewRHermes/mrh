@@ -597,10 +597,7 @@ class KCASPDFTOnTopEnergyTests(unittest.TestCase):
                 return_value=(prepared_dm1s, prepared_cm2)) as prepare, \
              mock.patch.object(
                 otfnalperiodic, "_energy_ot_from_kpts",
-                return_value=1.25) as evaluate, \
-             mock.patch.object(
-                otfnalperiodic, "get_mo_coeff_k2R_wokmf",
-                side_effect=AssertionError("unexpected Wannier transform")):
+                return_value=1.25) as evaluate:
             energy = otfnalperiodic.otfnalperiodic_kpts.energy_ot(
                 ot, casdm1s, casdm2, mo_coeff, ncore=0,
                 rdm_representation="bloch",
@@ -617,40 +614,15 @@ class KCASPDFTOnTopEnergyTests(unittest.TestCase):
             (ot, prepared_dm1s, prepared_cm2, mo_coeff, 0, kconserv),
         )
 
-    def test_existing_wannier_path_uses_shared_kspace_backend(self):
+    def test_default_representation_is_bloch(self):
         nkpts, ncas = 2, 1
-        ncastot = nkpts * ncas
-        casdm1s = np.asarray([
-            np.diag([0.8, 0.2]),
-            np.diag([0.3, 0.7]),
-        ])
-        casdm2 = np.zeros((ncastot,) * 4)
+        casdm1s = np.asarray([np.diag([0.8, 0.2]), np.diag([0.3, 0.7])])
+        casdm2 = np.zeros((nkpts * ncas,) * 4)
         mo_coeff = np.ones((nkpts, 1, 1), dtype=complex)
-        mo_phase = np.zeros((nkpts, ncas, ncastot), dtype=complex)
-        mo_phase[0, 0, 0] = 1.0
-        mo_phase[1, 0, 1] = 1.0
         kconserv = make_kconserv(nkpts)
-        ot = SimpleNamespace(
-            xctype="LDA",
-            cell=object(),
-            kpts=np.zeros((nkpts, 3)),
-            kmesh=(nkpts, 1, 1),
-        )
-
-        def transform_cm2(cascm2, phase, ks):
-            self.assertIs(phase, mo_phase)
-            return np.full((ncas,) * 4, sum(ks), dtype=complex)
+        ot = SimpleNamespace(xctype="LDA", kconserv=kconserv)
 
         with mock.patch.object(
-                otfnalperiodic, "get_mo_coeff_k2R_wokmf",
-                return_value=(None, None, mo_phase)), \
-             mock.patch.object(
-                otfnalperiodic.kpts_helper, "get_kconserv",
-                return_value=kconserv), \
-             mock.patch.object(
-                otfnalperiodic, "_basis_transform_casdm2_kpts",
-                side_effect=transform_cm2), \
-             mock.patch.object(
                 otfnalperiodic, "_energy_ot_from_kpts",
                 return_value=2.5) as evaluate:
             energy = otfnalperiodic.otfnalperiodic_kpts.energy_ot(
@@ -658,11 +630,51 @@ class KCASPDFTOnTopEnergyTests(unittest.TestCase):
             )
 
         self.assertEqual(energy, 2.5)
-        prepared_dm1s = evaluate.call_args.args[1]
         np.testing.assert_allclose(
-            prepared_dm1s[:, :, 0, 0], [[0.8, 0.2], [0.3, 0.7]],
+            evaluate.call_args.args[1][:, :, 0, 0],
+            [[0.8, 0.2], [0.3, 0.7]],
         )
         np.testing.assert_array_equal(evaluate.call_args.args[5], kconserv)
+
+    def test_solver_defaults_preserve_momentum_validation_behavior(self):
+        nkpts = 2
+        casdm1s = np.zeros((2, nkpts, nkpts), dtype=complex)
+        casdm1s[0, 0, 1] = casdm1s[0, 1, 0] = 1e-7
+        casdm2 = np.zeros((nkpts,) * 4, dtype=complex)
+        kconserv = make_kconserv(nkpts)
+        ot = SimpleNamespace(xctype="LDA", kconserv=kconserv)
+        ot.energy_ot = lambda *args, **kwargs: \
+            otfnalperiodic.otfnalperiodic_kpts.energy_ot(ot, *args, **kwargs)
+
+        for cls in (kmcpdft._MCPDFTCPLX, kmcpdft._kCASPDFT):
+            mc = object.__new__(cls)
+            mc.mo_coeff = np.ones((nkpts, 1, 1), dtype=complex)
+            mc.ci = None
+            mc.ncore = 0
+            mc.kconserv = kconserv
+            mc.otfnal = ot
+            mc.max_memory = 100
+            for method in (mc.energy_mcwfn, mc.energy_dft):
+                with self.subTest(cls=cls.__name__, method=method.__name__), \
+                     mock.patch.object(
+                        kmcpdft, "_energy_mcwfn_from_kpts", return_value=1.0), \
+                     mock.patch.object(
+                        otfnalperiodic, "_energy_ot_from_kpts", return_value=1.0):
+                    kwargs = dict(casdm1s=casdm1s, casdm2=casdm2)
+                    if cls is kmcpdft._MCPDFTCPLX:
+                        self.assertEqual(method(**kwargs), 1.0)
+                    else:
+                        with self.assertRaisesRegex(ValueError, "momentum-forbidden"):
+                            method(**kwargs)
+                    with self.assertRaisesRegex(ValueError, "momentum-forbidden"):
+                        method(momentum_tol=1e-8, **kwargs)
+                    self.assertEqual(method(momentum_tol=None, **kwargs), 1.0)
+
+    def test_removed_wannier_representation_is_rejected(self):
+        with self.assertRaisesRegex(ValueError, "Unknown RDM representation 'wannier'"):
+            pbc_dms._prepare_kpts_rdms(
+                object(), None, None, None, 0, "wannier", 1e-8,
+            )
 
     def test_shared_kspace_backend_runs_grid_evaluation(self):
         nkpts, nao, ncas = 2, 2, 1
@@ -1080,7 +1092,7 @@ class KCASPDFTRoutingTests(unittest.TestCase):
     def test_kcas_pdft_mixin_uses_momentum_methods(self):
         self.assertEqual(
             kmcpdft._MCPDFTCPLX._mcwfn_rdm_representation,
-            "wannier",
+            "bloch",
         )
         self.assertEqual(
             kmcpdft._kCASPDFT._mcwfn_rdm_representation,

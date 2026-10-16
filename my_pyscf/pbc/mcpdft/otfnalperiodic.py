@@ -1,7 +1,6 @@
 # !/bin/bash
 
 import numpy as np
-from functools import reduce
 
 from pyscf import gto, lib
 from pyscf.lib import logger, param
@@ -15,10 +14,10 @@ from pyscf.mcscf import mc1step, casci
 from pyscf.pbc.lib import kpts_helper
 
 from mrh.my_pyscf.pbc.mcscf import mc1step as pbc_mc1step, casci as pbc_casci
-from mrh.my_pyscf.pbc.mcscf.k2R import get_mo_coeff_k2R_wokmf
-from mrh.my_pyscf.pbc.mcscf.mc1step import _get_casdm2_kpts as _basis_transform_casdm2_kpts
 from mrh.my_pyscf.pbc.mcpdft.kotpd import get_ontop_pair_density_kpts
-from mrh.my_pyscf.pbc.mcpdft._dms import dm2_cumulant_complex
+from mrh.my_pyscf.pbc.mcpdft._dms import (
+    dm2_cumulant_complex, _prepare_kpts_rdms,
+)
 from mrh.my_pyscf.pbc.mcpdft import _dms as pbc_dms
 
 # Author: Bhavnesh Jangid
@@ -213,92 +212,21 @@ def _energy_ot_from_kpts(ot, casdm1s_kpts, cascm2_kpts, mo_coeff,
     return energy_ot
 
 
-def _prepare_wannier_rdms(ot, casdm1s, casdm2, mo_coeff, ncore):
-    """Transform Wannier-basis RDMs to momentum blocks."""
-    mo_coeff = np.asarray(mo_coeff)
-    casdm1s = np.asarray(casdm1s)
-    casdm2 = np.asarray(casdm2)
-    assert mo_coeff.ndim == 3
-
-    nkpts = mo_coeff.shape[0]
-    ncastot = casdm2.shape[0]
-    ncas = ncastot // nkpts
-    assert getattr(ot, 'kmesh', None) is not None
-    assert casdm2.shape == (ncastot,) * 4
-    assert casdm1s.shape == (2, ncastot, ncastot)
-
-    mo_phase = get_mo_coeff_k2R_wokmf(
-        ot.cell, mo_coeff, ncore, ncas, ot.kpts, kmesh=ot.kmesh,
-    )[-1]
-
-    cascm2 = dm2_cumulant_complex(casdm2, casdm1s)
-    cascm2_kpts = np.zeros(
-        (nkpts, nkpts, nkpts, ncas, ncas, ncas, ncas),
-        dtype=mo_coeff.dtype,
-    )
-
-    kconserv = kpts_helper.get_kconserv(ot.cell, ot.kpts)
-    for k1, k2, k3 in kpts_helper.loop_kkk(nkpts):
-        k4 = kconserv[k1, k2, k3]
-        cascm2_kpts[k1, k2, k3] = _basis_transform_casdm2_kpts(
-            cascm2, mo_phase, (k1, k2, k3, k4),
-        )
-
-    casdm1s_kpts = []
-    for k in range(nkpts):
-        casdm1s_kpts.append([
-            reduce(np.dot, (mo_phase[k], dm1, mo_phase[k].conj().T))
-            for dm1 in casdm1s
-        ])
-    casdm1s_kpts = np.asarray(casdm1s_kpts).transpose(1, 0, 2, 3)
-    return casdm1s_kpts, cascm2_kpts, kconserv
-
-
-def _prepare_bloch_rdms(ot, casdm1s, casdm2, mo_coeff, momentum_tol):
-    """Extract momentum blocks from flattened Bloch-basis RDMs."""
-    mo_coeff = np.asarray(mo_coeff)
-    casdm2 = np.asarray(casdm2)
-    if mo_coeff.ndim != 3:
-        raise ValueError("mo_coeff must have shape (nkpts, nao, nmo)")
-    if casdm2.ndim != 4 or len(set(casdm2.shape)) != 1:
-        raise ValueError("casdm2 must have shape (ncas * nkpts,) * 4")
-
-    nkpts = mo_coeff.shape[0]
-    ncastot = casdm2.shape[0]
-    if ncastot % nkpts:
-        raise ValueError("The active RDM size must be divisible by nkpts")
-    ncas = ncastot // nkpts
-    kconserv = getattr(ot, 'kconserv', None)
-    if kconserv is None:
-        kconserv = kpts_helper.get_kconserv(ot.cell, ot.kpts)
-    casdm1s_kpts, cascm2_kpts = pbc_dms.make_kcas_rdms_kpts(
-        casdm1s, casdm2, nkpts, ncas, kconserv,
-        momentum_tol=momentum_tol,
-    )
-    return casdm1s_kpts, cascm2_kpts, kconserv
-
-
-def _prepare_kpts_rdms(ot, casdm1s, casdm2, mo_coeff, ncore,
-                       representation, momentum_tol):
-    """Prepare active RDMs for the shared k-point evaluator."""
-    if representation == 'wannier':
-        return _prepare_wannier_rdms(
-            ot, casdm1s, casdm2, mo_coeff, ncore,
-        )
-    if representation == 'bloch':
-        return _prepare_bloch_rdms(
-            ot, casdm1s, casdm2, mo_coeff, momentum_tol,
-        )
-    raise ValueError(f"Unknown RDM representation {representation!r}")
-
-
 class otfnalperiodic_kpts(otfnal):
     """On-top functional for periodic k-point calculations."""
 
     def energy_ot(ot, casdm1s, casdm2, mo_coeff, ncore,
                   max_memory=param.MAX_MEMORY, hermi=1,
-                  rdm_representation='wannier', momentum_tol=1e-8):
-        """Evaluate the on-top energy from Wannier- or Bloch-basis RDMs."""
+                  rdm_representation='bloch', momentum_tol=1e-8):
+        """Evaluate the on-top energy from Bloch or kLAS Wannier RDMs.
+
+        rdm_representation:
+            'bloch': RDMs in the flattened Bloch (k-space) basis, as produced
+                by CPLXCAS or momentum-resolved kCAS; momentum blocks are
+                extracted and checked against momentum_tol.
+            'klas': RDMs in the kLAS Wannier basis, using the kLAS orbital
+                phase convention.
+        """
         if ot.xctype == 'HF':
             return 0.0
         casdm1s_kpts, cascm2_kpts, kconserv = _prepare_kpts_rdms(
