@@ -149,7 +149,43 @@ def h1e_for_cas(mc, mo_coeff=None, ncas=None, ncore=None):
             Two-electron integrals in the Wannier basis with shape
             ``(nkpts*ncas, nkpts*ncas, nkpts*ncas, nkpts*ncas)``.
 """)
+
 def h2e_for_cas(mc, mo_coeff=None):
+    """
+    Construction of 2e Hamiltonian in Wannier basis through optimized
+    version of ao2mo transformation.
+    """
+
+    from mrh.my_pyscf.pbc.mcscf.mc_ao2mo_opt import (
+        build_cas_eris, transform_eri_kpts_to_wannier,
+    )
+
+    if mo_coeff is None:
+        mo_coeff = mc.mo_coeff
+    assert mc.kmesh is not None
+    log = lib.logger.new_logger(mc)
+    lap = (lib.logger.process_clock(), lib.logger.perf_counter())
+    kconserv = kpts_helper.get_kconserv(mc._scf.cell, mc._scf.kpts)
+    active = np.asarray(mo_coeff)[:, :, mc.ncore:mc.ncore + mc.ncas]
+    eri_k = build_cas_eris(mc, active, kconserv=kconserv)
+    lap = log.timer('get_h2cas active Bloch ERIs', *lap)
+    phase = get_wannier_orbs(mc._scf, mc.kmesh, active)[-1]
+    lap = log.timer('get_h2cas Wannier phases', *lap)
+    # build_cas_eris already includes 1/nkpts; do not normalize twice.
+    eris = transform_eri_kpts_to_wannier(eri_k, phase, kconserv)
+    log.timer('get_h2cas Bloch to Wannier transform', *lap)
+    assert eris.shape == (mc.nkpts * mc.ncas,) * 4
+    return eris
+
+
+def h2e_for_cas_slow(mc, mo_coeff=None):
+    '''
+    Original implementation for h2e construction in wannier basis
+    retained for numerical and timing comparisons.
+    '''
+    
+    log = lib.logger.new_logger(mc)
+    t1 = t0 = (lib.logger.process_clock(), lib.logger.perf_counter())
     kmf = mc._scf
     cell = kmf.cell
     ncore = mc.ncore
@@ -172,8 +208,10 @@ def h2e_for_cas(mc, mo_coeff=None):
     #eri_k = kmf.with_df.ao2mo_7d(mo_act_kpts, kpts=kpts)
     from mrh.my_pyscf.pbc.df.df_ao2mo import ao2mo_7d
     eri_k = ao2mo_7d(kmf.with_df, mo_act_kpts, kpts=kpts)
+    t1 = log.timer('get_h2cas k-space ao2mo_7d', *t1)
     # Get the mo phase for the active space orbitals
     mo_phase = get_wannier_orbs(kmf, kmesh, mo_act_kpts)[-1]
+    t1 = log.timer('get_h2cas Wannier orbitals', *t1)
     mo_ks = mo_phase[kconserv]
 
     # This einsum looks very scary but it is just the transformation of the eris from 
@@ -181,8 +219,10 @@ def h2e_for_cas(mc, mo_coeff=None):
     eris = np.einsum('auR,bvS,abcuvwt,cwT,abctU->RSTU',
                         mo_phase.conj(), mo_phase, eri_k, mo_phase.conj(), mo_ks, optimize=True)
     eris *= 1.0/nkpts
+    t1 = log.timer('get_h2cas k-space to real-space transformation', *t1)
     
     assert eris.shape == (nkpts*ncas, nkpts*ncas, nkpts*ncas, nkpts*ncas)
+    log.timer('get_h2cas', *t0)
     return eris
 
 def _convert_h1e_mo_k_to_wann(kmf, kmesh, h1e_mo_k):

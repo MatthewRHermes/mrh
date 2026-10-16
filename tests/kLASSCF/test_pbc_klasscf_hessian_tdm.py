@@ -1,3 +1,4 @@
+import sys
 import unittest
 from unittest.mock import patch
 
@@ -451,6 +452,7 @@ class KnownValues(unittest.TestCase):
         operator.kpts = np.zeros((nkpts, 3))
         operator.las = type("LAS", (), {
             "_scf": type("SCF", (), {"cell": object()})(),
+            "stdout": sys.stdout, "verbose": 0,
         })()
         phase = np.exp(
             2j * np.pi * np.arange(nkpts)[:, None]

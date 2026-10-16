@@ -4,7 +4,7 @@ from mrh.my_pyscf.pbc.mcscf.productstate import PBCProductStateFCISolver
 from mrh.my_pyscf.pbc.mcpdft._dms import (
     dm2_cumulant_complex, make_klas_mo_phase, make_klas_rdms_kpts,
 )
-from mrh.my_pyscf.pbc.mcscf.klasscf import _check_shape
+from mrh.my_pyscf.pbc.util.checks import _check_shape
 
 # Author: Bhavnesh Jangid
 
