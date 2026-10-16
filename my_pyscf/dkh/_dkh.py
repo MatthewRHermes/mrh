@@ -8,6 +8,8 @@ REFERENCES:
 '''
 
 import sys
+import os
+import glob
 from functools import reduce
 import numpy as np
 from pyscf.scf import hf, lib, gto
@@ -18,8 +20,39 @@ import scipy
 import ctypes
 import mrh
 
-libdkh = ctypes.CDLL(mrh.__file__.rstrip('__init__.py')+'lib/libdkh.so')
-DKH = libdkh.__dkh_main_MOD_dkh
+_libdir = os.path.join (os.path.dirname (mrh.__file__), 'lib')
+_libexts = ('.so', '.dylib', '.dll')
+_libpaths = [p for ext in _libexts
+             for p in glob.glob (os.path.join (_libdir, 'libdkh*' + ext))]
+if not _libpaths:
+    raise OSError ('libdkh shared library not found in {!r} '
+                   '(looked for libdkh*{{{}}})'.format (
+                       _libdir, ','.join (_libexts)))
+libdkh = ctypes.CDLL (_libpaths[0])
+
+# The symbol name depends on the Fortran compiler that built the library:
+#   gfortran          __dkh_main_MOD_dkh
+#   Intel ifort       dkh_main_MOD_dkh
+#   oneAPI/LLVM flang dkh_main_mp_dkh_     <- note _mp_ and trailing underscore
+# Probe the plausible manglings rather than hardcoding one compiler.
+_dkh_symbols = tuple (
+    pfx + 'dkh_main' + sep + 'dkh' + sfx
+    for pfx in ('', '_', '__')
+    for sep in ('_MOD_', '_mp_', '_m_')
+    for sfx in ('', '_'))
+DKH = None
+for _sym in _dkh_symbols:
+    try:
+        DKH = getattr (libdkh, _sym)
+        break
+    except AttributeError:
+        pass
+if DKH is None:
+    raise AttributeError (
+        'None of the known DKH symbol names {} are exported by {!r}; '
+        'rebuild libdkh with a supported Fortran compiler, or inspect '
+        'the library with: nm -D --defined-only {}'.format (
+            list (_dkh_symbols), _libpaths[0], _libpaths[0]))
 DKH.restype=None
 xuncontract = getattr(__config__, 'x2c_X2C_xuncontract', True)
 
