@@ -85,7 +85,13 @@ def case (kv, lroots, nroots, q):
         if ix>0 and (abs (de_rel-0.5) < 0.0001) and (abs (dg_rel-0.5) < 0.0001):
             err_tab = err_tab[:ix+1]
             break
-    conv_tab = err_tab[1:,:] / err_tab[:-1,:]
+    # err_tab column 3 is dg_theta, the angle between the analytic and
+    # finite-difference gradients. For cases where the gradient is colinear
+    # (e.g. any single-parameter rotation) that angle is identically zero, so
+    # taking the convergence ratio of the column divides 0 by 0. Only the
+    # first three columns are meaningful as self-ratios, so restrict the
+    # division to those.
+    conv_tab = err_tab[1:,:3] / err_tab[:-1,:3]
     with kv.subTest (q='x'):
         kv.assertAlmostEqual (conv_tab[-1,0], 0.5, 9, msg=err_str)
     with kv.subTest (q='de'):

@@ -5,11 +5,6 @@
 
 #include "../pm/pm.h"
 
-#if defined(_PROFILE_ML)
-#include <string>
-#include <sstream>
-#endif
-
 #if defined(_GPU_SYCL_CUDA)
 #include "oneapi/mkl.hpp"
 #else
@@ -32,7 +27,8 @@ namespace MATHLIB_NS {
     int * get_handle() {return nullptr;};
     void destroy_handle() {};
 
-    void memset(double * array, const int * num, const int * size);
+    void memset(double * array, const int * val, const int * size);
+    void memset(double * array, const int * val, const size_t * size);
 
     void axpy(const int * n,
               const double * alpha, const double * x, const int * incx, 
@@ -68,8 +64,7 @@ namespace MATHLIB_NS {
     class PM_NS::PM * pm_;
 
 #if defined(_PROFILE_ML)
-    std::vector<std::string> profile_name;
-    std::vector<int> profile_count;
+    ProfileML profile_;   // defined in mathlib.h, shared by every backend
 #endif
   };
 

@@ -10,8 +10,9 @@ on:
   pull_request:
 
 jobs:
-  build:
-
+  cpu:
+    # CPU-only pass. Never builds libgpu, so the suite provably runs with no
+    # libgpu.so on disk -- that isolation is what the second pass depends on.
     runs-on: ubuntu-latest
     strategy:
       fail-fast: false
@@ -47,6 +48,66 @@ jobs:
     - name: Install
       run: |
         ./.github/workflows/cmake_make.sh
-    - name: Test with pytest
+    - name: Test with pytest (CPU only)
+      run: |
+        ./.github/workflows/test.sh
+
+  libgpu:
+    # Same matrix, but builds libgpu against the host backend and runs the full
+    # suite including tests/gpu. Separate from the cpu job rather than a later
+    # step in the same one so the two passes cannot interfere: each starts from
+    # a clean checkout, so the CPU job can never see a libgpu.so.
+    #
+    # ARCH=linux-cpu-gnu builds against pm/host, so no GPU or vendor toolchain
+    # is needed. It installs libgpu.so into my_pyscf/gpu/, which is where the
+    # libgpu.py stub looks for it.
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        python-version: ["3.8","3.9","3.10"]
+
+    steps:
+    - uses: actions/checkout@v3
+    - name: Set up Python ${{ matrix.python-version }}
+      uses: actions/setup-python@v3
+      with:
+        python-version: ${{ matrix.python-version }}
+    - name: Install dependencies
+      run: |
+        sudo apt-get -qq install \
+          gcc \
+          g++ \
+          libblas-dev \
+          liblapack-dev \
+          cmake \
+          curl
+        python -m pip install --upgrade pip
+        python -m pip install flake8 pytest pyscf 
+
+        # See the cpu job for why pyscf-forge is installed from a pinned file
+        # rather than a github commit.
+        python -m pip install -r pyscf-forge_version.txt
+        if [ -f requirements.txt ]; then pip install -r requirements.txt; fi
+    - name: Install
+      run: |
+        ./.github/workflows/cmake_make.sh
+    - name: Build libgpu with the host backend
+      run: |
+        python -m pip install pybind11
+        make -j4 -C gpu/src ARCH=linux-cpu-gnu BLAS_LIB=-lblas install
+    - name: Smoke-check that libgpu imports
+      # A .so that builds but fails to load (e.g. GLIBCXX skew) would otherwise
+      # surface as an opaque collection error from gpu4mrh/patch_pyscf.py.
+      #
+      # PYTHONPATH must be set here explicitly: mrh is not pip-installed (it is
+      # picked up from the checkout's parent directory), and this step does not
+      # go through test.sh, which is what sets that path for the test passes.
+      run: |
+        export PYTHONPATH="${PWD%/*}:$PYTHONPATH"
+        python -c "from mrh.my_pyscf.gpu import libgpu; gpu = libgpu.init(); print('libgpu devices:', libgpu.get_num_devices(gpu))"
+    - name: Test with pytest (libgpu built)
+      env:
+        RUN_GPU: 1
       run: |
         ./.github/workflows/test.sh
