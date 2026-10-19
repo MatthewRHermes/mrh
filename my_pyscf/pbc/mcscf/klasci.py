@@ -642,10 +642,18 @@ class PBCLASCINoSymm(casci.PBCCASCI, LASCINoSymm):
         self.e_lexc = [[np.array ([0]),],]
     
     def _init_local_charge(self, charge, ref_cell, spin, spin_mult):
-        """Initialize the charged fragment before generating any CI vectors."""
+        """Initialize (or re-initialize) the charged fragment.
+
+        Safe to call repeatedly: the previously charged cell is restored to its
+        neutral sector first, and nothing is modified unless all inputs validate.
+        """
         if not 0 <= ref_cell < self.nfrags:
             raise ValueError(f"ref_cell must be in [0, {self.nfrags})")
-        nelec = int(self.nelecas_sub[ref_cell].sum()) - charge
+        if not hasattr(self, '_neutral_nelec'):
+            # All cells start identical, so one neutral reference serves them all.
+            self._neutral_nelec = self.nelecas_sub[ref_cell].copy()
+            self._neutral_fcibox = self.fciboxes[ref_cell]
+        nelec = int(self._neutral_nelec.sum()) - charge
         norb = int(self.ncas_sub[ref_cell])
 
         # Select a valid local spin projection and electron sector.
@@ -669,12 +677,34 @@ class PBCLASCINoSymm(casci.PBCCASCI, LASCINoSymm):
                 or (spin_mult - 1 - nelec) % 2):
             raise ValueError("charged_spin_mult is incompatible with the charged electron sector")
 
-        # Rebuild only the charged solver; the ordinary kernel builds fresh CI.
+        # Restore the previously charged cell, then rebuild only the new one.
+        old = getattr(self, '_ref_cell', None)
+        if old is not None:
+            self.nelecas_sub[old] = self._neutral_nelec
+            self.fciboxes[old] = self._neutral_fcibox
         self.nelecas_sub[ref_cell] = (na, nb)
         self.fciboxes[ref_cell] = self._init_fcibox(spin_mult, (na, nb))
         self.charge = int(charge)
-        self.ref_cell = int(ref_cell)
+        self._ref_cell = int(ref_cell)
         self._keys.update(("charge", "ref_cell"))
+        # CI vectors from a previous sector are the wrong shape now.
+        self.ci = None
+        self.converged = False
+
+    def _require_charged(self, name):
+        if not getattr(self, 'charge', 0):
+            raise ValueError(f"{name} requires a local charge (charge=+1 or -1)")
+
+    @property
+    def ref_cell(self):
+        '''Index of the charged cell (None if not locally charged).'''
+        return getattr(self, '_ref_cell', None)
+
+    @ref_cell.setter
+    def ref_cell(self, value):
+        self._require_charged("ref_cell")
+        self._init_local_charge(self.charge, value, self.charged_spin,
+                                self.charged_spin_mult)
 
     @property
     def charged_spin(self):
@@ -683,11 +713,27 @@ class PBCLASCINoSymm(casci.PBCCASCI, LASCINoSymm):
         na, nb = self.nelecas_sub[self.ref_cell]
         return int(na - nb)
 
+    @charged_spin.setter
+    def charged_spin(self, value):
+        self._require_charged("charged_spin")
+        try:
+            self._init_local_charge(self.charge, self.ref_cell, value,
+                                    self.charged_spin_mult)
+        except ValueError:
+            # The old multiplicity may not fit the new projection; use the default.
+            self._init_local_charge(self.charge, self.ref_cell, value, None)
+            lib.logger.warn(self, "charged_spin_mult reset to %d", self.charged_spin_mult)
+
     @property
     def charged_spin_mult(self):
         '''2S+1 of the charged cell's CI solver (None if not locally charged).'''
         if not getattr(self, 'charge', 0): return None
         return int(self.fciboxes[self.ref_cell].fcisolvers[0].smult)
+
+    @charged_spin_mult.setter
+    def charged_spin_mult(self, value):
+        self._require_charged("charged_spin_mult")
+        self._init_local_charge(self.charge, self.ref_cell, self.charged_spin, value)
 
     def _init_fcibox(self, smult, nelec):
         '''
