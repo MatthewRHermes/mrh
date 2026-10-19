@@ -116,6 +116,47 @@ class ChargedKLASCITests(unittest.TestCase):
         self.assertEqual(high_spin.fciboxes[0].fcisolvers[0].smult, 4)
         self.assertEqual(high_spin.fciboxes[1].fcisolvers[0].smult, 1)
 
+    def test_setters_reinitialize_sector(self):
+        las = self.make_las(charge=1, ref_cell=0)
+        las.ref_cell = 2
+        expected = np.ones((3, 2), dtype=int)
+        expected[2] = (1, 0)
+        np.testing.assert_array_equal(las.nelecas_sub, expected)
+        self.assertEqual(las.ref_cell, 2)
+        self.assertEqual((las.charged_spin, las.charged_spin_mult), (1, 2))
+        # Flip the spin projection of the charged cell
+        las.charged_spin = -1
+        np.testing.assert_array_equal(las.nelecas_sub[2], (0, 1))
+        self.assertEqual(las.charged_spin_mult, 2)
+        las.charged_spin_mult = 2
+        self.assertEqual(las.charged_spin_mult, 2)
+        # A rejected edit leaves the object untouched.
+        with self.assertRaises(ValueError):
+            las.ref_cell = 7
+        with self.assertRaises(ValueError):
+            las.charged_spin_mult = 4
+        self.assertEqual(las.ref_cell, 2)
+        np.testing.assert_array_equal(las.nelecas_sub[2], (0, 1))
+        self.assertEqual(las.nelecas_sub.sum(), 5)
+        # Neutral objects cannot be edited this way.
+        neutral = self.make_las()
+        self.assertIsNone(neutral.charged_spin)
+        for name in ("ref_cell", "charged_spin", "charged_spin_mult"):
+            with self.assertRaises(ValueError):
+                setattr(neutral, name, 1)
+
+    def test_setter_matches_constructor(self):
+        las = self.make_las(charge=1, ref_cell=0)
+        las.ref_cell = 2
+        las.kernel()
+        self.assertTrue(las.converged)
+        ref = self.make_las(charge=1, ref_cell=2)
+        ref.kernel()
+        np.testing.assert_allclose(las.e_tot, ref.e_tot, atol=1e-8)
+        las.ref_cell = 1
+        self.assertIsNone(las.ci)
+        self.assertFalse(las.converged)
+
     def test_neutral_defaults(self):
         neutral = self.make_las()
         zero = self.make_las(charge=0)
