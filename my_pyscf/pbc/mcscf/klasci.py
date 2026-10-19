@@ -674,9 +674,20 @@ class PBCLASCINoSymm(casci.PBCCASCI, LASCINoSymm):
         self.fciboxes[ref_cell] = self._init_fcibox(spin_mult, (na, nb))
         self.charge = int(charge)
         self.ref_cell = int(ref_cell)
-        self.charged_spin = int(spin)
-        self.charged_spin_mult = int(spin_mult)
-        self._keys.update(("charge", "ref_cell", "charged_spin", "charged_spin_mult"))
+        self._keys.update(("charge", "ref_cell"))
+
+    @property
+    def charged_spin(self):
+        '''N_alpha - N_beta on the charged cell (None if not locally charged).'''
+        if not getattr(self, 'charge', 0): return None
+        na, nb = self.nelecas_sub[self.ref_cell]
+        return int(na - nb)
+
+    @property
+    def charged_spin_mult(self):
+        '''2S+1 of the charged cell's CI solver (None if not locally charged).'''
+        if not getattr(self, 'charge', 0): return None
+        return int(self.fciboxes[self.ref_cell].fcisolvers[0].smult)
 
     def _init_fcibox(self, smult, nelec):
         '''
