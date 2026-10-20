@@ -151,11 +151,14 @@ void PM::dev_enable_peer(int rank, int ngpus)
   }
 #endif
 
+  // cudaDeviceEnablePeerAccess only grants the *current* device access to
+  // "peer", so every ordered pair (ig -> jg) has to be enabled explicitly
   int peer_failed = 0;
-  for(int ig=0; ig<ngpus-1; ++ig) {
+  for(int ig=0; ig<ngpus; ++ig) {
     cudaSetDevice(ig);
     
-    for(int jg=ig+1; jg<ngpus; ++jg) {
+    for(int jg=0; jg<ngpus; ++jg) {
+      if(jg == ig) continue;
       cudaError err = cudaDeviceEnablePeerAccess(jg, 0);
       cudaGetLastError();
       if(err == cudaErrorPeerAccessAlreadyEnabled) continue;
@@ -169,7 +172,12 @@ void PM::dev_enable_peer(int rank, int ngpus)
     
   }
 
-  if(peer_failed) exit(1);
+  // P2P is an optimization, not a requirement: carry on without it rather
+  // than killing the Python process from Device construction
+  if(peer_failed) {
+    printf("LIBGPU: -- Warning: peer access could not be enabled on rank= %i; "
+	   "continuing without direct P2P (peer copies will fall back to staged copies)\n", rank);
+  }
 
   _CUDA_CHECK_ERRORS();
   
