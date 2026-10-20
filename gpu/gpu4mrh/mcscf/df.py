@@ -36,7 +36,11 @@ class _ERIS:
         self.j_pc = numpy.zeros((nmo,ncore))
         self.k_pc = numpy.zeros((nmo,ncore))
         k_cp = numpy.zeros((ncore,nmo))
-        gpu=resolve_use_gpu(self)
+        # resolve on the casscf object that owns this calculation: self (the
+        # brand-new _ERIS) carries neither use_gpu nor mol, so resolving on it
+        # would always fall through to the context/global device and ignore the
+        # device recorded on the Mole or passed to LASSCF(...)
+        gpu=resolve_use_gpu(casscf)
         
         mo = numpy.asarray(mo, order='F')
         #fxpp = lib.H5TmpFile()

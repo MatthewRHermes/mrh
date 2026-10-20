@@ -340,3 +340,47 @@ def test_casscf_grad_scopes_the_device_from_its_mol():
     lib.param.use_gpu = Handle('global')
 
     assert object_device(casscf) is mol.use_gpu
+
+
+def test_df_eris_resolves_the_device_on_the_casscf(monkeypatch):
+    '''Dispatch *and* kernel branch must ask the owning casscf.
+
+    The _ERIS instance records neither ``use_gpu`` nor ``mol``, so resolving on
+    it drops a device recorded only on the LASSCF/Mole: the generic
+    patch_cpu_kernel dispatch would send the call to the CPU implementation and
+    df._ERIS.__init__ would never see the recorded handle either. Spy on
+    gpu4mrh.mcscf.df.resolve_use_gpu (the kernel-side resolver) and return None
+    so the CPU fallback runs -- no libgpu needed.
+    '''
+    from gpu4mrh.mcscf import df as gpu_df
+    from pyscf.mcscf import df as pyscf_df
+    from mrh.my_pyscf.mcscf.lasscf_sync_o0 import LASSCF
+
+    resolved = []
+    monkeypatch.setattr(
+        gpu_df, 'resolve_use_gpu',
+        lambda instance: (resolved.append(instance), None)[1])
+
+    lib.param.use_gpu = None
+    mol = gto.M(atom=SMALL_ATOM, basis=BASIS, verbose=0)
+    mf = scf.RHF(mol).density_fit().run()
+    las = LASSCF(mf, [1, 1], [1, 1], use_gpu=Handle('recorded'))
+
+    eris = pyscf_df._ERIS(las, mf.mo_coeff, las.with_df)
+
+    assert len(resolved) == 1
+    assert resolved[0] is las
+    assert eris.j_pc.shape == (mf.mo_coeff.shape[1], las.ncore)
+
+
+def test_lassi_inherits_the_parent_lasscf_device():
+    '''LASSI.__init__ does not copy las.__dict__; it must still keep use_gpu.'''
+    from mrh.my_pyscf.gpu.context import resolve_device
+    from mrh.my_pyscf.lassi.lassi import LASSI
+
+    lib.param.use_gpu = None
+    las = make_las('mrh.my_pyscf.mcscf.lasscf_sync_o0', las_gpu=Handle('from-las'))
+    lsi = LASSI(las)
+
+    assert lsi.use_gpu is las.use_gpu
+    assert resolve_device(lsi) is las.use_gpu
