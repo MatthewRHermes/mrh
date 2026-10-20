@@ -120,12 +120,14 @@ def kernel (las, mo_coeff=None, ci0=None, casdm0_fr=None, conv_tol_grad=1e-4,
                 log.debug ('GRADIENT IMPLEMENTATION TEST: |D g_orb| = %.15g', err)
                 assert (err < 1e-5), '{}'.format (err)
             for isub in range (len (ugg.ncsf_sub)):
+                # TODO: double-check that this code works in SA-LASSCF
                 i = ugg.ncsf_sub[:isub].sum ()
                 j = i + ugg.ncsf_sub[isub].sum ()
                 k = i + ugg.nvar_orb
                 l = j + ugg.nvar_orb
                 log.debug ('GRADIENT IMPLEMENTATION TEST: |D g_ci({})| = %.15g'.format (isub), 
                            linalg.norm (g_ci_test[i:j] - g_vec[k:l]))
+            # TODO: figure out why this fails in intermediate combined laspscfs in lasscf_async
             err = linalg.norm (g_ci_test - g_vec[ugg.nvar_orb:])
             assert (err < 1e-5), '{}'.format (err)
         gx = H_op.get_gx ()
