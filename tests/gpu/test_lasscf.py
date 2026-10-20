@@ -60,6 +60,17 @@ class KnownValues (unittest.TestCase):
         self.assertTrue (las.converged)
         self.assertAlmostEqual (las.e_tot, REFERENCE_E, 6)
 
+    def test_h2eff_nmo_lt_nao (self):
+        # nmo < nao, e.g. linear dependencies removed; every other test here has nmo == nao
+        from mrh.my_pyscf.mcscf.lasscf_sync_o0 import LASSCF
+        from mrh.my_pyscf.mcscf import las_ao2mo
+        nao = mf.mol.nao
+        mo = mf.mo_coeff[:,:nao-3].copy ()
+        las = LASSCF (mf, (2,), (2,))
+        e_cpu = las_ao2mo.get_h2eff_df (las, mo)
+        e_gpu = las_ao2mo.get_h2eff_gpu_v2 (las, mo)
+        self.assertAlmostEqual (abs (e_gpu - e_cpu).max (), 0, 8)
+
 if __name__ == "__main__":
     print("Tests for GPU accelerated LASSCF kernels")
     unittest.main()
