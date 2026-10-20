@@ -16,14 +16,14 @@ python -m venv --system-site-packages ${PWD}/my_env
 
 . ./my_env/bin/activate
 
-pip install pybind 11 h5py
+pip install pybind11 h5py
 
 # we build numpy and scipy to ensure using system-provided MKL
 
 pip uninstall -y numpy
 pip cache purge
 
-CC=gcc CXX=g++ FC=gfortran pip install numpy==2.4.6 --no-binary numpy --no-build-isolation --force-reinstall --no-deps -v -Csetup-args=-Dblas=mkl-sdl -Csetup-args=-Dlapack=mkl-sdlpip
+CC=gcc CXX=g++ FC=gfortran pip install numpy==2.4.6 --no-binary numpy --no-build-isolation --force-reinstall --no-deps -v -Csetup-args=-Dblas=mkl-sdl -Csetup-args=-Dlapack=mkl-sdl
 
 pip install scipy==1.15.3 --no-binary scipy --no-build-isolation -v -Csetup-args=-Dblas=mkl-sdl -Csetup-args=-Dlapack=mkl-sdl
 

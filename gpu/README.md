@@ -12,21 +12,21 @@ An example input-deck is provided in the following directory: `mrh/examples/gpu/
 
 The following is a partial example code focusing on those lines key for running a LASSCF calculation.
 
-```bash
+```python
 from pyscf import gto, scf
-mol = gto.M(atom'geom.xyz', basis=basis)
+mol = gto.M(atom='geom.xyz', basis=basis)
 mf = scf.ROHF(mol).density_fit().run()
 
 from mrh.my_pyscf.mcscf.lasscf_async import LASSCF
 las = LASSCF(mf, (no1, no2), (ne1, ne2))
-lo = las.set_fragments_((atom_list1, atom_list2), mf.m_coeff)
+lo = las.set_fragments_((atom_list1, atom_list2), mf.mo_coeff)
 
 las.kernel(lo)
 ```
 
 The same sample can be modified as below to enable GPU-accelerated calculations.
 
-```bash
+```python
 from mrh.my_pyscf.gpu import libgpu
 import pyscf
 from gpu4mrh import patch_pyscf
@@ -36,12 +36,12 @@ gpu = libgpu.init()
 lib.param.use_gpu = gpu
 libgpu.set_verbose_(gpu, 1)
 
-mol = gto.M(atom'geom.xyz', basis=basis)
+mol = gto.M(atom='geom.xyz', basis=basis)
 mf = scf.ROHF(mol).density_fit().run()
 
 from mrh.my_pyscf.mcscf.lasscf_async import LASSCF
 las = LASSCF(mf, (no1, no2), (ne1, ne2))
-lo = las.set_fragments_((atom_list1, atom_list2), mf.m_coeff)
+lo = las.set_fragments_((atom_list1, atom_list2), mf.mo_coeff)
 
 las.kernel(lo)
 libgpu.destroy_device(gpu)
@@ -52,7 +52,7 @@ Key modifications to a "normal" LASSCF input file are as follows.
 - `from gpu4mrh import patch_pyscf` : enable monkey patching for a select number of PySCF source files, such as updating the Molecule object to track the new `use_gpu` variable.
 - `from mrh.my_pyscf.gpu import libgpu` : enable access to the libgpu interface 
 - `gpu = libgpu.init()` : initialize the gpu library and return a handle. This gpu handle is to be passed to a small number of functions (and likely smaller in the future).
-- 'lib.param.use_gpu = gpu' : sets the global gpu handle ensuring all supported features use the same device
+- `lib.param.use_gpu = gpu` : sets the global gpu handle ensuring all supported features use the same device
 - `libgpu.set_verbose_(gpu, 1)` : (optional) enables outputting additional information on CPU affinity, devices used, timing summaries, and memory statistics for ERI blocks. This function needs to be called immediately after `libgpu_init()` for timing summaries to be complete. 
 
 - `libgpu.destroy_device(gpu)` : always good to clean up after ourselves and prevent out-of-memory issues in more complex workflows. Also prints additional information if requested via `libgpu.set_verbose_(gpu, 1)`.
