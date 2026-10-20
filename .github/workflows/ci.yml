@@ -53,10 +53,17 @@ jobs:
         ./.github/workflows/test.sh
 
   libgpu:
-    # Same matrix, but builds libgpu against the host backend and runs the full
-    # suite including tests/gpu. Separate from the cpu job rather than a later
-    # step in the same one so the two passes cannot interfere: each starts from
-    # a clean checkout, so the CPU job can never see a libgpu.so.
+    # Builds libgpu against the host backend and runs tests/gpu, the only tests
+    # that actually exercise libgpu. Separate from the cpu job rather than a
+    # later step in the same one so the two passes cannot interfere: each starts
+    # from a clean checkout, so the cpu job can never see a libgpu.so -- that
+    # isolation is what makes the CPU-only pass meaningful.
+    #
+    # A single Python version and only tests/gpu are used on purpose: the CPU
+    # suite already ran in the cpu job across the full matrix, so rerunning it
+    # here would roughly double CI time for no extra coverage. The gpu tests do
+    # not need the full matrix either (the plugin paths they cover are version
+    # independent), so 3.10 is the one representative interpreter.
     #
     # ARCH=linux-cpu-gnu builds against pm/host, so no GPU or vendor toolchain
     # is needed. It installs libgpu.so into my_pyscf/gpu/, which is where the
@@ -65,7 +72,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        python-version: ["3.8","3.9","3.10"]
+        python-version: ["3.10"]
 
     steps:
     - uses: actions/checkout@v3
@@ -106,7 +113,7 @@ jobs:
       run: |
         export PYTHONPATH="${PWD%/*}:$PYTHONPATH"
         python -c "from mrh.my_pyscf.gpu import libgpu; gpu = libgpu.init(); print('libgpu devices:', libgpu.get_num_devices(gpu))"
-    - name: Test with pytest (libgpu built)
+    - name: Test tests/gpu with pytest (libgpu built)
       env:
         RUN_GPU: 1
       run: |
