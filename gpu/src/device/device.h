@@ -34,8 +34,6 @@ using namespace MATHLIB_NS;
 
 #define _ERI_CACHE_EXTRA 2
 
-#define _ENABLE_P2P
-
 //#define _DEBUG_DEVICE
 //#define _DEBUG_P2P
 //#define _DEBUG_FCI
@@ -236,6 +234,13 @@ public :
   // generic vector/transpose kernels moved to DeviceUtils (ctx.utils->)
 
 private:
+
+  // Two implementations of the mo_coeff push, selected at run time by
+  // dev_ctx.enable_p2p: *_p2p goes host -> device 0 then device-device via
+  // mgpu_bcast, *_staged pushes the host buffer to each device independently.
+  // The public wrapper push_mo_coeff() dispatches to one of these.
+  void push_mo_coeff_p2p(py::array_t<double>, int);
+  void push_mo_coeff_staged(py::array_t<double>, int);
 
   class PM * pm;
 

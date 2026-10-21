@@ -48,6 +48,15 @@ public:
 
 private:
 
+  // Two implementations of each multi-device pull, selected at run time by
+  // ctx.enable_p2p: *_p2p stages through peer-accessible device buffers
+  // (mgpu_reduce/mgpu_bcast), *_staged stages through pinned host buffers.
+  // The public wrappers above dispatch to one of these.
+  void pull_jk_ao2mo_v4_p2p(py::array_t<double>, py::array_t<double>, int, int);
+  void pull_jk_ao2mo_v4_staged(py::array_t<double>, py::array_t<double>, int, int);
+  void pull_ppaa_papa_ao2mo_v4_p2p(py::array_t<double>, py::array_t<double>, int, int);
+  void pull_ppaa_papa_ao2mo_v4_staged(py::array_t<double>, py::array_t<double>, int, int);
+
   DeviceContext & ctx;
 
   double * buf_j_pc, * buf_k_pc, * buf_ppaa, * buf_papa;

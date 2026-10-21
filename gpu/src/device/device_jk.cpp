@@ -25,6 +25,54 @@ DeviceJk::~DeviceJk()
 
 /* ---------------------------------------------------------------------- */
 
+// Distribute dmtril to all devices at the start of init_get_jk(). The dmtril
+// array is identical across devices, so this is a broadcast: *_p2p goes
+// host -> device 0 then device-device via mgpu_bcast, *_staged pushes the
+// host buffer to each device independently.
+void DeviceJk::push_dmtril_p2p(my_device_data * dd, double * dmtril, int count, int nset, int nao_pair)
+{
+  if(count != 0) return;
+
+  size_t size = nset * nao_pair * sizeof(double);
+
+  std::vector<double *> dmtril_vec(ctx.num_devices); // array of device addresses 
+
+  dmtril_vec[0] = dd->jk.d_dmtril;
+  
+  for(int i=1; i<ctx.num_devices; ++i) {
+    my_device_data * dest = &(ctx.device_data[i]);
+
+    // ensure memory allocated ; duplicating what's in init_get_jk()
+    
+    if(size > dest->jk.size_dmtril) {
+      dest->jk.size_dmtril = size;
+
+      ctx.pm->dev_set_device(i);
+      if(dest->jk.d_dmtril) ctx.pm->dev_free(dest->jk.d_dmtril, "dmtril");
+      dest->jk.d_dmtril = (double *) ctx.pm->dev_malloc(size * sizeof(double), "dmtril", FLERR); // why is this not async?
+    }
+    
+    dmtril_vec[i] = dest->jk.d_dmtril;
+  }
+  
+  ctx.comm->mgpu_bcast(dmtril_vec, dmtril, size);  // host -> gpu 0, then Bcast to all gpu
+}
+
+/* ---------------------------------------------------------------------- */
+
+void DeviceJk::push_dmtril_staged(my_device_data * dd, double * dmtril, int count, int nset, int nao_pair)
+{
+  if(count >= ctx.num_devices) return;
+
+  int err = ctx.pm->dev_push_async(dd->jk.d_dmtril, dmtril, nset * nao_pair * sizeof(double));
+  if(err) {
+    printf("LIBGPU:: dev_push_async(d_dmtril) failed on count= %i\n",count);
+    exit(1);
+  }
+}
+
+/* ---------------------------------------------------------------------- */
+
 void DeviceJk::init_get_jk(py::array_t<double> _eri1, py::array_t<double> _dmtril, int blksize, int nset, int nao, int naux, int count)
 {
 #ifdef _DEBUG_DEVICE
@@ -137,41 +185,8 @@ void DeviceJk::get_jk(int naux, int nao, int nset,
 
   // Bcast() from master device ; make sure devices arrays allocated
   
-#if defined(_ENABLE_P2P)
-  if(count == 0) {
-    size_t size = nset * nao_pair * sizeof(double);
-
-    std::vector<double *> dmtril_vec(ctx.num_devices); // array of device addresses 
-
-    dmtril_vec[0] = dd->jk.d_dmtril;
-    
-    for(int i=1; i<ctx.num_devices; ++i) {
-      my_device_data * dest = &(ctx.device_data[i]);
-
-      // ensure memory allocated ; duplicating what's in init_get_jk()
-      
-      if(size > dest->jk.size_dmtril) {
-	dest->jk.size_dmtril = size;
-
-	ctx.pm->dev_set_device(i);
-	if(dest->jk.d_dmtril) ctx.pm->dev_free(dest->jk.d_dmtril, "dmtril");
-	dest->jk.d_dmtril = (double *) ctx.pm->dev_malloc(size * sizeof(double), "dmtril", FLERR); // why is this not async?
-      }
-      
-      dmtril_vec[i] = dest->jk.d_dmtril;
-    }
-    
-    ctx.comm->mgpu_bcast(dmtril_vec, dmtril, size);  // host -> gpu 0, then Bcast to all gpu
-  }
-#else
-  if(count < ctx.num_devices) {
-    int err = ctx.pm->dev_push_async(dd->jk.d_dmtril, dmtril, nset * nao_pair * sizeof(double));
-    if(err) {
-      printf("LIBGPU:: dev_push_async(d_dmtril) failed on count= %i\n",count);
-      exit(1);
-    }
-  }
-#endif
+  if (ctx.enable_p2p) push_dmtril_p2p(dd, dmtril, count, nset, nao_pair);
+  else                push_dmtril_staged(dd, dmtril, count, nset, nao_pair);
     
   int _size_rho = nset * naux;
   grow_array(ctx.pm, dd->jk.d_rho, _size_rho, dd->jk.size_rho, "rho", FLERR);
@@ -330,7 +345,6 @@ void DeviceJk::get_jk(int naux, int nao, int nset,
   
 /* ---------------------------------------------------------------------- */
 
-#if defined(_ENABLE_P2P)
 void DeviceJk::pull_get_jk(py::array_t<double> _vj, py::array_t<double> _vk, int nao, int nset, int with_k)
 {
 #ifdef _DEBUG_DEVICE
@@ -340,7 +354,24 @@ void DeviceJk::pull_get_jk(py::array_t<double> _vj, py::array_t<double> _vk, int
   double t0 = omp_get_wtime();
   
   ctx.pm->dev_profile_start("pull_get_jk");
+
+  if (ctx.enable_p2p) pull_get_jk_p2p(_vj, _vk, nao, nset, with_k);
+  else                pull_get_jk_staged(_vj, _vk, nao, nset, with_k);
   
+  ctx.pm->dev_profile_stop();
+  
+  double t1 = omp_get_wtime();
+  LIBGPU_PROFILE(ctx, t1 - t0); // just doing this addition in pull, not in init or compute
+  
+#ifdef _DEBUG_DEVICE
+  printf("LIBGPU :: -- Leaving Device::pull_get_jk()\n");
+#endif
+}
+
+/* ---------------------------------------------------------------------- */
+
+void DeviceJk::pull_get_jk_p2p(py::array_t<double> _vj, py::array_t<double> _vk, int nao, int nset, int with_k)
+{
   py::buffer_info info_vj = _vj.request(); // 2D array (nset, nao_pair)
   
   double * vj = static_cast<double*>(info_vj.ptr);
@@ -369,15 +400,7 @@ void DeviceJk::pull_get_jk(py::array_t<double> _vj, py::array_t<double> _vk, int
   
   ctx.cache->update_dfobj = 0;
   
-  if(!with_k) {
-    ctx.pm->dev_profile_stop();
-    
-#ifdef _DEBUG_DEVICE
-    printf("LIBGPU :: -- Leaving Device::pull_get_jk()\n");
-#endif
-    
-    return;
-  }
+  if(!with_k) return;
   
   py::buffer_info info_vk = _vk.request(); // 3D array (nset, nao, nao)
   
@@ -396,29 +419,12 @@ void DeviceJk::pull_get_jk(py::array_t<double> _vj, py::array_t<double> _vk, int
 #pragma omp parallel for
     for(int j=0; j<N; ++j) vk[j] += buf_vk[j];
   }
-  
-  ctx.pm->dev_profile_stop();
-  
-  double t1 = omp_get_wtime();
-  LIBGPU_PROFILE(ctx, t1 - t0); // just doing this addition in pull, not in init or compute
-  
-#ifdef _DEBUG_DEVICE
-  printf("LIBGPU :: -- Leaving Device::pull_get_jk()\n");
-#endif
 }
 
-#else
+/* ---------------------------------------------------------------------- */
 
-void DeviceJk::pull_get_jk(py::array_t<double> _vj, py::array_t<double> _vk, int nao, int nset, int with_k)
+void DeviceJk::pull_get_jk_staged(py::array_t<double> _vj, py::array_t<double> _vk, int nao, int nset, int with_k)
 {
-#ifdef _DEBUG_DEVICE
-  printf("LIBGPU :: -- Inside Device::pull_get_jk()\n");
-#endif
-
-  double t0 = omp_get_wtime();
-    
-  ctx.pm->dev_profile_start("pull_get_jk");
-  
   py::buffer_info info_vj = _vj.request(); // 2D array (nset, nao_pair)
   
   double * vj = static_cast<double*>(info_vj.ptr);
@@ -458,15 +464,7 @@ void DeviceJk::pull_get_jk(py::array_t<double> _vj, py::array_t<double> _vk, int
   
   ctx.cache->update_dfobj = 0;
   
-  if(!with_k) {
-    ctx.pm->dev_profile_stop();
-    
-#ifdef _DEBUG_DEVICE
-    printf("LIBGPU :: -- Leaving Device::pull_get_jk()\n");
-#endif
-    
-    return;
-  }
+  if(!with_k) return;
     
   py::buffer_info info_vk = _vk.request(); // 3D array (nset, nao, nao)
     
@@ -501,17 +499,7 @@ void DeviceJk::pull_get_jk(py::array_t<double> _vj, py::array_t<double> _vk, int
     }
 
   }
-
-  ctx.pm->dev_profile_stop();
-  
-  double t1 = omp_get_wtime();
-  LIBGPU_PROFILE(ctx, t1 - t0); // just doing this addition in pull, not in init or compute
-    
-#ifdef _DEBUG_DEVICE
-  printf("LIBGPU :: -- Leaving Device::pull_get_jk()\n");
-#endif
 }
-#endif
 
 /* ---------------------------------------------------------------------- */
 /* Device facade forwarders (Phase 5 Option A: keep the flat Python API)    */

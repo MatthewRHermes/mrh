@@ -44,10 +44,22 @@ DeviceLassi::~DeviceLassi()
 void DeviceLassi::push_op(py::array_t<double> _op, int m, int k, int counts)
 {
   double t0 = omp_get_wtime();
+
+  if (ctx.enable_p2p) push_op_p2p(_op, m, k, counts);
+  else                push_op_staged(_op, m, k, counts);
+
+  double t1 = omp_get_wtime();
+  LIBGPU_PROFILE(ctx, t1-t0);
+}
+
+/* ---------------------------------------------------------------------- */
+
+void DeviceLassi::push_op_p2p(py::array_t<double> _op, int m, int k, int counts)
+{
   py::buffer_info info_op = _op.request(); // (2D array of m * k)
   double * op = static_cast<double*>(info_op.ptr);
   int _size_op = m*k;
-  #if defined(_ENABLE_P2P)
+
   counts = _MIN(counts, ctx.num_devices);
   std::vector<double *> op_vec(counts); // array of device addresses 
   for(int id=0; id<counts; ++id) {
@@ -56,16 +68,22 @@ void DeviceLassi::push_op(py::array_t<double> _op, int m, int k, int counts)
     ::grow_array(ctx.pm, dd->jk.d_buf1, _size_op, dd->jk.size_buf1, "buf1", FLERR);
     op_vec[id] = dd->jk.d_buf1;}
   ctx.comm->mgpu_bcast(op_vec, op, _size_op*sizeof(double));
-  #else
+}
+
+/* ---------------------------------------------------------------------- */
+
+void DeviceLassi::push_op_staged(py::array_t<double> _op, int m, int k, int counts)
+{
+  py::buffer_info info_op = _op.request(); // (2D array of m * k)
+  double * op = static_cast<double*>(info_op.ptr);
+  int _size_op = m*k;
+
   for (int i=0; i<ctx.num_devices;++i){
     ctx.pm->dev_set_device(i);
     my_device_data * dd = &(ctx.device_data[i]);
     ::grow_array(ctx.pm, dd->jk.d_buf1, _size_op, dd->jk.size_buf1, "buf1", FLERR);
     ctx.pm->dev_push_async(dd->jk.d_buf1, op, _size_op*sizeof(double));
   }
-  #endif
-  double t1 = omp_get_wtime();
-  LIBGPU_PROFILE(ctx, t1-t0);
 }
 /* ---------------------------------------------------------------------- */
 void DeviceLassi::push_op_4frag(py::array_t<double> _op, int size_op, int size_req, int counts)

@@ -263,7 +263,6 @@ void DeviceImpham::compute_eri_impham_v2(int nao_s, int nao_f, int blksize, int 
 
 /* ---------------------------------------------------------------------- */
 
-#if defined(_ENABLE_P2P)
 void DeviceImpham::pull_eri_impham(py::array_t<double> _eri, int naoaux, int nao_f, int return_4c2eeri)
 {
   //This should be obsolete in a production version. We want this calculation to not exist, and the impurity eri should directly get transferred from gpu to gpu in it's corresponding location. 
@@ -276,15 +275,33 @@ void DeviceImpham::pull_eri_impham(py::array_t<double> _eri, int naoaux, int nao
   ctx.pm->dev_profile_start("pull_eri_impham");
   
   double t0 = omp_get_wtime();
-  
-  int nao_f_pair = nao_f * (nao_f+1)/2;
 
-  int N = nao_f_pair * nao_f_pair;
+  if (ctx.enable_p2p) pull_eri_impham_p2p(_eri, naoaux, nao_f, return_4c2eeri);
+  else                pull_eri_impham_staged(_eri, naoaux, nao_f, return_4c2eeri);
+
+  ctx.pm->dev_profile_stop();
+  
+  double t1 = omp_get_wtime();
+  LIBGPU_PROFILE(ctx, t1 - t0); // just doing this addition in pull, not in init or compute
+    
+#ifdef _DEBUG_DEVICE
+  printf("LIBGPU :: -- Leaving Device::pull_eri_impham()\n");
+#endif
+
+}
+
+/* ---------------------------------------------------------------------- */
+
+void DeviceImpham::pull_eri_impham_p2p(py::array_t<double> _eri, int naoaux, int nao_f, int return_4c2eeri)
+{
+  int nao_f_pair = nao_f * (nao_f+1)/2;
   
   py::buffer_info info_eri = _eri.request(); 
   double * eri = static_cast<double*>(info_eri.ptr);
 
   if (return_4c2eeri){
+
+    int N = nao_f_pair * nao_f_pair;
 
     std::vector<double *> e_vec(ctx.num_devices);
     std::vector<double *> buf_vec(ctx.num_devices);
@@ -312,41 +329,16 @@ void DeviceImpham::pull_eri_impham(py::array_t<double> _eri, int naoaux, int nao
 #pragma omp parallel for
     for(int i=0; i<naoaux*nao_f_pair; ++i) eri[i] = pin_eri_impham[i];
   }
-
-  ctx.pm->dev_profile_stop();
-  
-  double t1 = omp_get_wtime();
-  LIBGPU_PROFILE(ctx, t1 - t0); // just doing this addition in pull, not in init or compute
-    
-#ifdef _DEBUG_DEVICE
-  printf("LIBGPU :: -- Leaving Device::pull_eri_impham()\n");
-#endif
-
 }
 
-#else
+/* ---------------------------------------------------------------------- */
 
-void DeviceImpham::pull_eri_impham(py::array_t<double> _eri, int naoaux, int nao_f, int return_4c2eeri)
+void DeviceImpham::pull_eri_impham_staged(py::array_t<double> _eri, int naoaux, int nao_f, int return_4c2eeri)
 {
-  //This should be obsolete in a production version. We want this calculation to not exist, and the impurity eri should directly get transferred from gpu to gpu in it's corresponding location. 
-
-  // if not possible, then the cpu version should be refactored to allow pull to happen async (i think it's pageable right now and it will negate all performance when you pull bPee to cpu (and then transfer it back again)) 
-#ifdef _DEBUG_DEVICE
-  printf("LIBGPU :: -- Inside Device::pull_eri_impham()\n");
-#endif
-  
-  ctx.pm->dev_profile_start("pull_eri_impham");
-  
-  double t0 = omp_get_wtime();
-  
   int nao_f_pair = nao_f * (nao_f+1)/2;
+  
   py::buffer_info info_eri = _eri.request(); 
   double * eri = static_cast<double*>(info_eri.ptr);
-  
-#if 0
-  printf("starting pull\n");
-  for (int i=0;i<nao_f_pair*nao_f_pair; ++i){printf("%f\t",eri[i]);}printf("\n");
-#endif
 
   if (return_4c2eeri){
   
@@ -397,19 +389,7 @@ void DeviceImpham::pull_eri_impham(py::array_t<double> _eri, int naoaux, int nao
     
     std::memcpy(eri, pin_eri_impham, naoaux*nao_f_pair*sizeof(double));
   }
-
-  ctx.pm->dev_profile_stop();
-  
-  double t1 = omp_get_wtime();
-  LIBGPU_PROFILE(ctx, t1 - t0); // just doing this addition in pull, not in init or compute
-    
-#ifdef _DEBUG_DEVICE
-  printf("LIBGPU :: -- Leaving Device::pull_eri_impham()\n");
-#endif
-
 }
-
-#endif
 
 /* ---------------------------------------------------------------------- */
 /* Device facade forwarders (Phase 5 Option A: keep the flat Python API)    */

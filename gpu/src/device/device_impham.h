@@ -43,6 +43,13 @@ public:
 
 private:
 
+  // Two implementations of the multi-device pull, selected at run time by
+  // ctx.enable_p2p: *_p2p stages through peer-accessible device buffers
+  // (mgpu_reduce), *_staged stages through the pinned host buffer
+  // pin_eri_impham. The public wrapper above dispatches to one of these.
+  void pull_eri_impham_p2p(py::array_t<double>, int, int, int);
+  void pull_eri_impham_staged(py::array_t<double>, int, int, int);
+
   DeviceContext & ctx;
 
   int size_eri_impham;

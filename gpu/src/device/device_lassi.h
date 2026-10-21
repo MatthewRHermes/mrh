@@ -59,6 +59,12 @@ public:
 
 private:
 
+  // Two implementations of the on-site operator distribution, selected at run
+  // time by ctx.enable_p2p: *_p2p goes host -> device 0 then device-device via
+  // mgpu_bcast, *_staged pushes the host buffer to each device independently.
+  void push_op_p2p(py::array_t<double>, int, int, int);
+  void push_op_staged(py::array_t<double>, int, int, int);
+
   DeviceContext & ctx;
 
   int size_new_sivecs;

@@ -171,6 +171,13 @@ struct DeviceContext {
   int grid_size, block_size;
   my_device_data * device_data;
 
+  // Runtime P2P (peer-to-peer) toggle. Replaces the compile-time _ENABLE_P2P
+  // macro: when true, multi-GPU collectives (mgpu_bcast/mgpu_reduce) stage
+  // through peer-accessible device buffers; when false, they fall back to host
+  // staging. Set once in Device::Device() from the backend's peer-enable attempt;
+  // defaults to true for single-device / host workloads.
+  bool enable_p2p = true;
+
   // Profiling: ordered by first use (report order), with a name -> index map for
   // O(1) find-or-insert. Every timed site is also counted. NOT mutex-guarded:
   // every LIBGPU_PROFILE call site sits on the host thread after its OpenMP

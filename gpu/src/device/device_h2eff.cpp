@@ -470,19 +470,30 @@ void DeviceH2eff::get_h2eff_df_v2(py::array_t<double> _cderi,
 
 /* ---------------------------------------------------------------------- */
 
-#if defined(_ENABLE_P2P)
 void DeviceH2eff::pull_eri_h2eff(py::array_t<double> _eri, int nmo, int ncas)
 {
 #ifdef _DEBUG_DEVICE
   printf("LIBGPU :: -- Inside Device::pull_eri_h2eff()\n");
 #endif
-  
+
+  if (ctx.enable_p2p) pull_eri_h2eff_p2p(_eri, nmo, ncas);
+  else                pull_eri_h2eff_staged(_eri, nmo, ncas);
+
+#ifdef _DEBUG_DEVICE
+  printf("LIBGPU :: Leaving Device::get_h2eff_df_v2()\n");
+#endif
+}
+
+/* ---------------------------------------------------------------------- */
+
+void DeviceH2eff::pull_eri_h2eff_p2p(py::array_t<double> _eri, int nmo, int ncas)
+{
   py::buffer_info info_eri = _eri.request(); //2D array (nmo * (ncas*ncas_pair))
   double * eri = static_cast<double*>(info_eri.ptr);
 
   const int ncas_pair = ncas*(ncas+1)/2;
   
-  const int N = nmo*ncas * ncas_pair;
+  const int size_eri_h2eff = nmo*ncas * ncas_pair;
 
   std::vector<double *> e_vec(ctx.num_devices);
   std::vector<double *> buf_vec(ctx.num_devices);
@@ -495,28 +506,22 @@ void DeviceH2eff::pull_eri_h2eff(py::array_t<double> _eri, int nmo, int ncas)
     active[i] = dd->active;
   }
 
-  ctx.comm->mgpu_reduce(e_vec, buf_eri_h2eff, N, true, buf_vec, active);
+  ctx.comm->mgpu_reduce(e_vec, buf_eri_h2eff, size_eri_h2eff, true, buf_vec, active);
 
 #pragma omp parallel for
-  for(int i=0; i<N; ++i) eri[i] = buf_eri_h2eff[i];
-  
-#ifdef _DEBUG_DEVICE
-  printf("LIBGPU :: Leaving Device::get_h2eff_df_v2()\n");
-#endif
+  for(int i=0; i<size_eri_h2eff; ++i) eri[i] = buf_eri_h2eff[i];
 }
-#else
-void DeviceH2eff::pull_eri_h2eff(py::array_t<double> _eri, int nmo, int ncas)
+
+/* ---------------------------------------------------------------------- */
+
+void DeviceH2eff::pull_eri_h2eff_staged(py::array_t<double> _eri, int nmo, int ncas)
 {
-#ifdef _DEBUG_DEVICE
-  printf("LIBGPU :: -- Inside Device::pull_eri_h2eff()\n");
-#endif
-  
   py::buffer_info info_eri = _eri.request(); //2D array (nmo * (ncas*ncas_pair))
   double * eri = static_cast<double*>(info_eri.ptr);
   double * tmp;
 
   const int ncas_pair = ncas*(ncas+1)/2;
-  const int size_eri_h2eff = nmo*ncas*ncas_pair;
+  const int size_eri_h2eff = nmo*ncas * ncas_pair;
   
   // Pulling eri from all devices
   
@@ -548,12 +553,7 @@ void DeviceH2eff::pull_eri_h2eff(py::array_t<double> _eri, int nmo, int ncas)
   }
   
   std::memcpy(eri, buf_eri_h2eff, size_eri_h2eff*sizeof(double));
-  
-#ifdef _DEBUG_DEVICE
-  printf("LIBGPU :: Leaving Device::get_h2eff_df_v2()\n");
-#endif
 }
-#endif
 
 /* ---------------------------------------------------------------------- */
 /* Device facade forwarders (Phase 5 Option A: keep the flat Python API)    */

@@ -45,6 +45,15 @@ public:
 
 private:
 
+  // dmtril broadcast at the start of init_get_jk(), and the multi-device vj/vk
+  // pull. Each has two implementations selected at run time by ctx.enable_p2p:
+  // *_p2p stages through peer-accessible device buffers (mgpu_bcast/mgpu_reduce),
+  // *_staged stages through the pinned host buffers buf_vj/buf_vk.
+  void push_dmtril_p2p(my_device_data *, double *, int, int, int);
+  void push_dmtril_staged(my_device_data *, double *, int, int, int);
+  void pull_get_jk_p2p(py::array_t<double>, py::array_t<double>, int, int, int);
+  void pull_get_jk_staged(py::array_t<double>, py::array_t<double>, int, int, int);
+
   DeviceContext & ctx;
 
   double * buf_vj, * buf_vk;

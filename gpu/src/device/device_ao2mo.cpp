@@ -129,11 +129,22 @@ void DeviceAo2mo::extract_mo_cas(int ncas, int ncore, int nao, int nmo)
 
 /* ---------------------------------------------------------------------- */
 
-#if defined(_ENABLE_P2P)
 void DeviceAo2mo::pull_jk_ao2mo_v4(py::array_t<double> _j_pc, py::array_t<double> _k_pc, int nmo, int ncore)
 {
   double t0 = omp_get_wtime();
 
+  if (ctx.enable_p2p) pull_jk_ao2mo_v4_p2p(_j_pc, _k_pc, nmo, ncore);
+  else                pull_jk_ao2mo_v4_staged(_j_pc, _k_pc, nmo, ncore);
+
+  double t1 = omp_get_wtime();
+  LIBGPU_PROFILE(ctx, t1 - t0);
+  // counts in pull ppaa
+}
+
+/* ---------------------------------------------------------------------- */
+
+void DeviceAo2mo::pull_jk_ao2mo_v4_p2p(py::array_t<double> _j_pc, py::array_t<double> _k_pc, int nmo, int ncore)
+{
   py::buffer_info info_j_pc = _j_pc.request(); //2D array (nmo*ncore)
   double * j_pc = static_cast<double*>(info_j_pc.ptr);
   
@@ -170,18 +181,12 @@ void DeviceAo2mo::pull_jk_ao2mo_v4(py::array_t<double> _j_pc, py::array_t<double
 
 #pragma omp parallel for
   for(int i=0; i<nmo*ncore; ++i) k_pc[i] = buf_k_pc[i];
-  
-  double t1 = omp_get_wtime();
-  LIBGPU_PROFILE(ctx, t1 - t0);
-  // counts in pull ppaa
 }
 
-#else
+/* ---------------------------------------------------------------------- */
 
-void DeviceAo2mo::pull_jk_ao2mo_v4(py::array_t<double> _j_pc, py::array_t<double> _k_pc, int nmo, int ncore)
+void DeviceAo2mo::pull_jk_ao2mo_v4_staged(py::array_t<double> _j_pc, py::array_t<double> _k_pc, int nmo, int ncore)
 {
-  double t0 = omp_get_wtime();
-
   py::buffer_info info_j_pc = _j_pc.request(); //2D array (nmo*ncore)
   double * j_pc = static_cast<double*>(info_j_pc.ptr);
   double * tmp;
@@ -191,8 +196,6 @@ void DeviceAo2mo::pull_jk_ao2mo_v4(py::array_t<double> _j_pc, py::array_t<double
   
   int size = nmo*ncore;//*sizeof(double);
 
-  printf("nmo= %i  ncore= %i\n",nmo, ncore);
-  
   // Pulling j_pc from all devices
   
   for (int i=0; i<ctx.num_devices; ++i){
@@ -263,19 +266,25 @@ void DeviceAo2mo::pull_jk_ao2mo_v4(py::array_t<double> _j_pc, py::array_t<double
     
   //copy buf_k_pc[first nmo*ncore] to k_pc
   std::memcpy(k_pc,buf_k_pc,nmo*ncore*sizeof(double));
-  double t1 = omp_get_wtime();
-  LIBGPU_PROFILE(ctx, t1 - t0);
-  // counts in pull ppaa
 }
-#endif
 
 /* ---------------------------------------------------------------------- */
 
-#if defined(_ENABLE_P2P)
 void DeviceAo2mo::pull_ppaa_papa_ao2mo_v4(py::array_t<double> _ppaa, py::array_t<double> _papa, int nmo, int ncas)
 {
   double t0 = omp_get_wtime();
 
+  if (ctx.enable_p2p) pull_ppaa_papa_ao2mo_v4_p2p(_ppaa, _papa, nmo, ncas);
+  else                pull_ppaa_papa_ao2mo_v4_staged(_ppaa, _papa, nmo, ncas);
+
+  double t1 = omp_get_wtime();
+  LIBGPU_PROFILE(ctx, t1 - t0); //doing this in ppaa pull, not in any inits or computes
+}
+
+/* ---------------------------------------------------------------------- */
+
+void DeviceAo2mo::pull_ppaa_papa_ao2mo_v4_p2p(py::array_t<double> _ppaa, py::array_t<double> _papa, int nmo, int ncas)
+{
   py::buffer_info info_ppaa = _ppaa.request(); //2D array (nmo*ncore)
   py::buffer_info info_papa = _papa.request(); //2D array (nmo*ncore)
   double * ppaa = static_cast<double*>(info_ppaa.ptr);
@@ -314,20 +323,17 @@ void DeviceAo2mo::pull_ppaa_papa_ao2mo_v4(py::array_t<double> _ppaa, py::array_t
 
 #pragma omp parallel for
   for(int i=0; i<N; ++i) papa[i] = buf_papa[i];
-
-  double t1 = omp_get_wtime();
-  LIBGPU_PROFILE(ctx, t1 - t0); //doing this in ppaa pull, not in any inits or computes
 }
 
-#else
-void DeviceAo2mo::pull_ppaa_papa_ao2mo_v4(py::array_t<double> _ppaa, py::array_t<double> _papa, int nmo, int ncas)
-{
-  double t0 = omp_get_wtime();
+/* ---------------------------------------------------------------------- */
 
+void DeviceAo2mo::pull_ppaa_papa_ao2mo_v4_staged(py::array_t<double> _ppaa, py::array_t<double> _papa, int nmo, int ncas)
+{
   py::buffer_info info_ppaa = _ppaa.request(); //2D array (nmo*ncore)
   py::buffer_info info_papa = _papa.request(); //2D array (nmo*ncore)
   double * ppaa = static_cast<double*>(info_ppaa.ptr);
   double * papa = static_cast<double*>(info_papa.ptr);
+
   double * tmp;
   const int _size_ppaa = nmo*nmo*ncas*ncas;
   const int _size_papa = nmo*nmo*ncas*ncas;
@@ -391,10 +397,7 @@ void DeviceAo2mo::pull_ppaa_papa_ao2mo_v4(py::array_t<double> _ppaa, py::array_t
   }
   //copy buf_papa[first nmo*nmo*ncas*ncas] to papa
   std::memcpy(papa,buf_papa,_size_papa*sizeof(double));
-  double t1 = omp_get_wtime();
-  LIBGPU_PROFILE(ctx, t1 - t0); //doing this in ppaa pull, not in any inits or computes
 }
-#endif
 
 /* ---------------------------------------------------------------------- */
 

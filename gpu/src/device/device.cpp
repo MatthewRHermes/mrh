@@ -182,11 +182,17 @@ Device::Device()
   _ao2mo = new DeviceAo2mo(dev_ctx);
   _fci = new DeviceFci(dev_ctx);
 
-  // check device connectivity
-
+  // check device connectivity, then decide the runtime P2P toggle. Peer access
+  // is an optimization, not a requirement: if the topology check or the enable
+  // attempt fails, fall back to host-staged collectives instead of aborting.
   int rank = 0;
   int peer_error = pm->dev_check_peer(rank, num_devices);
-  if(!peer_error) pm->dev_enable_peer(rank, num_devices);
+  if(peer_error) {
+    dev_ctx.enable_p2p = false;
+  } else {
+    int peer_enable_error = pm->dev_enable_peer(rank, num_devices);
+    if(peer_enable_error) dev_ctx.enable_p2p = false;
+  }
 }
 
 /* ---------------------------------------------------------------------- */
@@ -481,14 +487,23 @@ void Device::get_dfobj_status(size_t addr_dfobj, py::array_t<int> _arg)
 void Device::push_mo_coeff(py::array_t<double> _mo_coeff, int _size_mo_coeff)
 {
   double t0 = omp_get_wtime();
-  
+
+  if (dev_ctx.enable_p2p) push_mo_coeff_p2p(_mo_coeff, _size_mo_coeff);
+  else                    push_mo_coeff_staged(_mo_coeff, _size_mo_coeff);
+
+  double t1 = omp_get_wtime();
+  LIBGPU_PROFILE(dev_ctx, t1 - t0);
+}
+
+/* ---------------------------------------------------------------------- */
+
+// host pushes to each device; optimize later host->device0 plus device-device transfers (i.e. bcast)
+void Device::push_mo_coeff_p2p(py::array_t<double> _mo_coeff, int _size_mo_coeff)
+{
   py::buffer_info info_mo_coeff = _mo_coeff.request(); // 2D array (naux, nao_pair)
 
   double * mo_coeff = static_cast<double*>(info_mo_coeff.ptr);
 
-  // host pushes to each device; optimize later host->device0 plus device-device transfers (i.e. bcast)
-
-#if defined(_ENABLE_P2P)
   std::vector<double *> mo_vec(num_devices); // array of device addresses 
     
   for(int id=0; id<num_devices; ++id) {
@@ -502,8 +517,16 @@ void Device::push_mo_coeff(py::array_t<double> _mo_coeff, int _size_mo_coeff)
   }
     
   _comm->mgpu_bcast(mo_vec, mo_coeff, _size_mo_coeff*sizeof(double)); // host -> gpu 0, then Bcast to all gpu
+}
 
-#else
+/* ---------------------------------------------------------------------- */
+
+void Device::push_mo_coeff_staged(py::array_t<double> _mo_coeff, int _size_mo_coeff)
+{
+  py::buffer_info info_mo_coeff = _mo_coeff.request(); // 2D array (naux, nao_pair)
+
+  double * mo_coeff = static_cast<double*>(info_mo_coeff.ptr);
+
   for(int id=0; id<num_devices; ++id) {
     
     pm->dev_set_device(id);
@@ -514,10 +537,6 @@ void Device::push_mo_coeff(py::array_t<double> _mo_coeff, int _size_mo_coeff)
     
     pm->dev_push_async(dd->d_mo_coeff, mo_coeff, _size_mo_coeff*sizeof(double));
   }
-#endif
-  
-  double t1 = omp_get_wtime();
-  LIBGPU_PROFILE(dev_ctx, t1 - t0);
 }
 
 /* ---------------------------------------------------------------------- */
