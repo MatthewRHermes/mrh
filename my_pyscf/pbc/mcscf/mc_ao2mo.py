@@ -1,3 +1,4 @@
+import h5py
 import itertools
 import numpy as np
 from functools import reduce
@@ -7,6 +8,7 @@ from pyscf.ao2mo import _ao2mo
 from pyscf.pbc.lib import kpts_helper
 from pyscf.pbc.df import df_ao2mo
 from pyscf.pbc.df.df import _load3c
+from mrh.my_pyscf.pbc.mcscf.mc_ao2mo_opt import build_eris
 
 _mo_as_complex = df_ao2mo._mo_as_complex
 _conc_mos = df_ao2mo._conc_mos
@@ -21,7 +23,32 @@ There are two options
         This will be much more memory efficient.
 2. Direct Method: In this case, I will be using the with_df.ao2mo infrastructure to directly compute the required integrals
     and store them in memory.
+
+Note there are two version of these function, the original version which ends with trailing `_slow`
+and the optimized version which is used in the main code. The original version is retained for comparison and readability. 
 '''
+
+def _do_ao2mo_direct(kcasscf, mo_kpts, nkpts, ncore, ncas, nmo, level=1):
+    '''
+    Wrapper function. Look into pbc/mcscf/mc_ao2mo_opt.py for the details 
+    of the build_eris function. It is the optimized version of the _do_ao2mo_direct_slow function.
+    '''
+    outputs, j_pc, k_pc, hcore = build_eris(
+        kcasscf, mo_kpts, ncore, ncas, disk=False, level=level,
+    )
+    return outputs["ppaa"], outputs["papa"], outputs["paap"], j_pc, k_pc, hcore
+
+
+def _do_ao2mo_disk(kcasscf, mo_kpts, nkpts, ncore, ncas, nmo, level=1):
+    '''
+    Wrapper function. Look into pbc/mcscf/mc_ao2mo_opt.py for the details 
+    of the build_eris function. It is the optimized version of the _do_ao2mo_direct_slow function.
+    '''
+    return build_eris(kcasscf, mo_kpts, ncore, ncas, disk=True, level=level)
+
+
+# Original (slow) implementations retained for comparisons as well for readability.
+# There are unit tests for these functions as well.
 
 def get_nauxlist(mydf, kpts, nkpts):
     nauxlist = {}
@@ -33,7 +60,7 @@ def get_nauxlist(mydf, kpts, nkpts):
                 nauxlist[(k1,k2)] = j3c.shape[0]
     return nauxlist
 
-def _do_ao2mo_direct(kcasscf, mo_kpts, nkpts, ncore, ncas, nmo, level=1):
+def _do_ao2mo_direct_slow(kcasscf, mo_kpts, nkpts, ncore, ncas, nmo, level=1):
     cell = kcasscf._scf.cell
     kpts = kcasscf._scf.kpts
     mydf = kcasscf._scf.with_df
@@ -106,7 +133,7 @@ def _do_ao2mo_direct(kcasscf, mo_kpts, nkpts, ncore, ncas, nmo, level=1):
     log.timer('hcore generation', *t4)
     return ppaa, papa, paap, j_pc, k_pc, hcore
 
-def _do_ao2mo_disk(kcasscf, mo_kpts, nkpts, ncore, ncas, nmo, level=1):
+def _do_ao2mo_disk_slow(kcasscf, mo_kpts, nkpts, ncore, ncas, nmo, level=1):
     cell = kcasscf._scf.cell
     kpts = kcasscf._scf.kpts
     nkpts = kcasscf.nkpts
@@ -338,6 +365,21 @@ class _ERIS:
         self.paap = lambda k1, k2, k3: self.get_paap(k1, k2, k3)
         log.timer('Total ERI transformation', *t0)
 
+    def _finished(self):
+        """Flush and close the temporary ERI file, if the disk method was used."""
+        handle = getattr(self, 'erifile', None)
+        self.erifile = None
+        if handle is not None:
+            try:
+                if handle.id and handle.id.valid:
+                    handle.flush()
+                handle.close()
+            except (AttributeError, ValueError, ImportError):
+                pass
+
+    def __del__(self):
+        self._finished()
+
     @staticmethod
     def _kkey(k1, k2, k3):
         return f"{int(k1)}_{int(k2)}_{int(k3)}"
@@ -347,8 +389,11 @@ class _ERIS:
         arr = getattr(self, eriname + "_kpts", None)
         if arr is not None:return arr[k1, k2, k3]
         assert self.erifile is not None
-        data = self.erifile[f"{eriname}/{self._kkey(k1, k2, k3)}"]
-        return data[()]
+        data = self.erifile[eriname]
+        if isinstance(data, h5py.Dataset):
+            return data[k1, k2, k3]
+        # Retain support for the previous per-triple dataset layout.
+        return data[self._kkey(k1, k2, k3)][()]
 
     def get_ppaa(self, k1, k2, k3):
         return self._get("ppaa", k1, k2, k3)
@@ -403,7 +448,10 @@ if __name__ == "__main__":
             self.stdout = kmf.stdout
             self.verbose = kmf.verbose
             self.max_memory = kmf.max_memory
-    
+
+        def get_hcore(self, **kwargs):
+            return self._scf.get_hcore(**kwargs)
+
     kmc = _kCASSCF(kmf, ncas=2, nelecas=2)
     mo_kpts = kmf.mo_coeff
 

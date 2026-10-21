@@ -4,7 +4,10 @@ import numpy as np
 
 from pyscf.pbc import gto, scf, df
 
-from mrh.my_pyscf.pbc.mcscf.mc_ao2mo import _ERIS
+from mrh.my_pyscf.pbc.mcscf.mc_ao2mo import (
+    _ERIS, _do_ao2mo_direct, _do_ao2mo_disk,
+    _do_ao2mo_direct_slow, _do_ao2mo_disk_slow,
+)
 
 # Author: Bhavnesh Jangid
 
@@ -93,6 +96,42 @@ def _run_kcasscf_ao2mo(cell, kmesh, auxbasis='def2-svp-jkfit'):
     eris = eris2 = None
 
 
+def _run_ao2mo_slow_vs_opt(cell, kmesh, auxbasis='def2-svp-jkfit'):
+    # Compare the original (slow) implementations with the optimized ones, for both direct and disk.
+    kpts = cell.make_kpts(kmesh)
+    kmf = scf.KRHF(cell, kpts).density_fit(auxbasis=auxbasis)
+    kmf.exxdiv = None
+    kmf.max_cycle = 1
+    kmf.kernel()
+
+    kmc = _kCASSCF(kmf, ncas=2, nelecas=2)
+    mo_kpts = np.asarray(kmf.mo_coeff, dtype=np.complex128)
+    nkpts, nmo = kmc.nkpts, mo_kpts.shape[2]
+    args = (kmc, mo_kpts, nkpts, kmc.ncore, kmc.ncas, nmo)
+
+    opt = _do_ao2mo_direct(*args, level=1)
+    slow = _do_ao2mo_direct_slow(*args, level=1)
+    for name, actual, expected in zip(('ppaa', 'papa', 'paap', 'j_pc', 'k_pc', 'hcore'), slow, opt):
+        assert actual.shape == expected.shape, f"{name} shape mismatch (direct)."
+        assert np.allclose(actual, expected, atol=1e-10), f"{name} mismatch between slow and optimized direct."
+
+    opt_file, opt_j, opt_k, opt_h = _do_ao2mo_disk(*args, level=1)
+    slow_file, slow_j, slow_k, slow_h = _do_ao2mo_disk_slow(*args, level=1)
+    try:
+        for name, expected in zip(('ppaa', 'papa', 'paap'), opt[:3]):
+            for k1, k2, k3 in np.ndindex((nkpts,) * 3):
+                assert np.allclose(slow_file[f"{name}/{k1}_{k2}_{k3}"][()], expected[k1, k2, k3], atol=1e-10), \
+                    f"{name} mismatch between slow disk and optimized direct."
+                assert np.allclose(opt_file[name][k1, k2, k3], expected[k1, k2, k3], atol=1e-10), \
+                    f"{name} mismatch between optimized disk and optimized direct."
+        for name, actual, expected in (('j_pc', slow_j, opt[3]), ('k_pc', slow_k, opt[4]), ('hcore', slow_h, opt[5]),
+                                       ('j_pc', opt_j, opt[3]), ('k_pc', opt_k, opt[4])):
+            assert np.allclose(actual, expected, atol=1e-10), f"{name} mismatch in disk method."
+    finally:
+        opt_file.close()
+        slow_file.close()
+
+
 class KnownValues(unittest.TestCase):
     # Unit-1: All electrons
     def test_kcasscf_ao2mo_alle(self):
@@ -102,6 +141,17 @@ class KnownValues(unittest.TestCase):
         _run_kcasscf_ao2mo(cell, kmesh=[2, 2, 1], auxbasis='def2-svp-jkfit')
         # _run_kcasscf_ao2mo(get_diamond_cell(), kmesh=[2, 2, 2], auxbasis='def2-svp-jkfit')
     
+    # Unit-1b: Slow (original) implementations vs the optimized ones
+    def test_kcasscf_ao2mo_slow_vs_opt(self):
+        cell = get_He_cell()
+        _run_ao2mo_slow_vs_opt(cell, kmesh=[1, 1, 1])
+        _run_ao2mo_slow_vs_opt(cell, kmesh=[2, 1, 1])
+        _run_ao2mo_slow_vs_opt(cell, kmesh=[2, 2, 1])
+
+    def test_kcasscf_ao2mo_slow_vs_opt_pseudo(self):
+        cell = get_diamond_cell(pseudo='gth-pade')
+        _run_ao2mo_slow_vs_opt(cell, kmesh=[2, 1, 1], auxbasis=df.aug_etb(cell, beta=1.7))
+
     # Unit-2: Pseudopotential
     def test_kcasscf_ao2mo_pseudo(self):
         cell = get_diamond_cell(pseudo='gth-pade')

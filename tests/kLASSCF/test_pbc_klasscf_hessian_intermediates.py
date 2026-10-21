@@ -193,14 +193,17 @@ class KnownValues(unittest.TestCase):
             for k3 in range(2)
         }
 
-        def transform(cumulant, phase, klabel):
-            return transformed[tuple(klabel[:3])]
+        batched = np.empty((2, 2, 2, 1, 1, 1, 1))
+        for key, value in transformed.items():
+            batched[key] = value
 
         with patch.object(
                 klasscf.kpts_helper, "get_kconserv",
                 return_value=np.zeros((2, 2, 2), dtype=int)), patch.object(
-                klasscf, "_get_casdm2_kpts", side_effect=transform):
+                klasscf, "transform_casdm2_kpts",
+                return_value=batched) as transform:
             operator._init_orb_(mo_phase=mo_phase)
+        self.assertEqual(transform.call_count, 1)
 
         expected = np.array([
             np.eye(3), np.eye(3),

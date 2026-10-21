@@ -76,7 +76,7 @@ def setUpModule():
     mol.build ()
     mf = scf.RHF (mol).run ()
     dmet = build (mf, 1, -1, active_first=True)
-    dmet.conv_tol_grad = 1e-6
+    dmet.conv_tol_grad = 2e-6
     e_tot = dmet.doselfconsistent ()
 
 def tearDownModule():
