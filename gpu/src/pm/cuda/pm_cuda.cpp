@@ -142,7 +142,7 @@ int PM::dev_check_peer(int rank, int ngpus)
 
 /* ---------------------------------------------------------------------- */
 
-void PM::dev_enable_peer(int rank, int ngpus)
+int PM::dev_enable_peer(int rank, int ngpus)
 {
 #ifdef _DEBUG_PM
   if(rank == 0) {
@@ -173,7 +173,8 @@ void PM::dev_enable_peer(int rank, int ngpus)
   }
 
   // P2P is an optimization, not a requirement: carry on without it rather
-  // than killing the Python process from Device construction
+  // than killing the Python process from Device construction. Return non-zero
+  // so the caller can disable the peer-staged collectives at run time.
   if(peer_failed) {
     printf("LIBGPU: -- Warning: peer access could not be enabled on rank= %i; "
 	   "continuing without direct P2P (peer copies will fall back to staged copies)\n", rank);
@@ -184,6 +185,8 @@ void PM::dev_enable_peer(int rank, int ngpus)
 #ifdef _DEBUG_PM
   printf(" -- Leaving PM::dev_enable_peer()\n");
 #endif
+
+  return peer_failed;
 }
 
 /* ---------------------------------------------------------------------- */

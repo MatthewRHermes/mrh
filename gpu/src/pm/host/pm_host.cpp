@@ -81,8 +81,11 @@ void PM::dev_memcpy_peer(void* d_ptr, int dev_d, void* h_ptr, int dev_s, size_t 
   memcpy(d_ptr, h_ptr, N);
 }
 
-void PM::dev_enable_peer(int device, int peer_device)
+int PM::dev_enable_peer(int device, int peer_device)
 {
+  // Host backend: "devices" share one address space, so peer access is always
+  // available and nothing needs enabling.
+  return 0;
 }
 
 void PM::dev_push(void * d_ptr, void * h_ptr, size_t N)

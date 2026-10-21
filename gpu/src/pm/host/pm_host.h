@@ -35,7 +35,7 @@ namespace PM_NS {
     void dev_free_host(void*);
 
     void dev_memcpy_peer(void*, int, void *, int, size_t);
-    void dev_enable_peer(int, int);
+    int dev_enable_peer(int, int);
 
     void dev_push(void*, void*, size_t);
     void dev_pull(void*, void*, size_t);
