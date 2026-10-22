@@ -612,7 +612,17 @@ class dmet:
             orb_diff = self.doselfconsistent_orbs (lower_iters)
             nextiter += 1
             if nextiter > self.orb_maxiter:
-                raise RuntimeError ('Maximum active-orbital rotation cycles!')
+                orb_diff_arr = np.abs (np.asarray (orb_diff, dtype=float))
+                raise RuntimeError (
+                    'Maximum active-orbital rotation cycles! '
+                    'last orb_diff= {} (max= {:.3e}, threshold= {:.3e}) '
+                    'after {} iterations (orb_maxiter= {})'.format (
+                        np.array2string (
+                            orb_diff_arr,
+                            formatter={'float_kind':
+                                       lambda x: '%.3e' % x}),
+                        orb_diff_arr.max (), convergence_threshold,
+                        nextiter, self.orb_maxiter))
         #itersnap = tracemalloc.take_snapshot ()
         #itersnap.dump ('iter{}bgn.snpsht'.format (myiter))
         

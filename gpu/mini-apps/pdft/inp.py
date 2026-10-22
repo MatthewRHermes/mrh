@@ -9,7 +9,9 @@ from mrh.tests.gpu.geometry_generator import generator
 from pyscf import gto, scf, tools, mcscf, lib, mcpdft
 from mrh.my_pyscf.mcscf.lasscf_async import LASSCF
 from pyscf.mcscf import avas	
-if gpu_run:gpu = libgpu.init()
+if gpu_run:
+    gpu = libgpu.init()
+    lib.param.use_gpu = gpu
 lib.logger.TIMER_LEVEL=lib.logger.INFO
 nfrags=3;basis='631g';
 #if N:
@@ -22,7 +24,6 @@ nfrags=3;basis='631g';
 outputfile=str(nfrags)+'_'+str(basis)+'_cpu.log';
 if gpu_run: outputfile=str(nfrags)+'_'+str(basis)+'_gpu_new_2.log';
 mol=gto.M(atom=generator(nfrags),basis=basis,verbose=4,output=outputfile,max_memory=160000)
-if gpu_run:mol=gto.M(use_gpu=gpu, atom=generator(nfrags),basis=basis,verbose=4,output=outputfile,max_memory=160000)
 mf=scf.RHF(mol)
 mf=mf.density_fit(auxbasis='weigend')
 mf.run()

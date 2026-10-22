@@ -16,14 +16,21 @@ python -m venv --system-site-packages ${PWD}/my_env
 
 . ./my_env/bin/activate
 
-pip install -i https://pypi.anaconda.org/intel/simple scipy
-pip install pybind11
-pip install h5py
+pip install pybind11 h5py
 
-pip uninstall impi-rt
+# we build numpy and scipy to ensure using system-provided MKL
+
+pip uninstall -y numpy
+pip cache purge
+
+CFLAGS="-fveclib=none" pip install numpy==2.4.6 --no-binary numpy --no-build-isolation --force-reinstall --no-deps -v -Csetup-args=-Dblas=mkl-sdl -Csetup-args=-Dlapack=mkl-sdl
+
+pip install scipy==1.15.3 --no-binary scipy --no-build-isolation -v -Csetup-args=-Dblas=mkl-sdl -Csetup-args=-Dlapack=mkl-sdl
+
+pip install dftd3 dftd4
 ```
 
-The `scipy`, `h5py`, and `pybind11` modules are required, and `thapi` is a lightweight profiling tool, which we are expanding upon the Python environment of. Install scipy like this is needed for modest performance gain on CPU side (~2x in gemms) by leveraging Intel MKL libraries instead of OpenBLAS. Uninstalling the Intel MPI runtime module is needed to avoid conflicts with the MPI installed on Aurora (e.g. `mpiexec` for launching tasks).
+The `scipy`, `h5py`, and `pybind11` modules are required, and `thapi` is a lightweight profiling tool, which we are expanding upon the Python environment of. Installing `numpy` and `scipy` like this is needed for modest performance gain on CPU side (~2x in gemms) by leveraging Intel MKL libraries instead of OpenBLAS.
 
 ## Setting up software environment
 

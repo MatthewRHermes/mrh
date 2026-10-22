@@ -10,15 +10,10 @@ librdm = cistring.libfci
 def _make_rdm1_spin1(fname, cibra, ciket, norb, nelec, link_index=None):
     assert (cibra is not None and ciket is not None)
     from pyscf.lib import param
-    try:
-      use_gpu = param.use_gpu
-      gpu = param.use_gpu
-    except: 
-      use_gpu = None
-    if (fname in ['FCItrans_rdm1a', 'FCItrans_rdm1b', 'FCImake_rdm1a', 'FCImake_rdm1b']) and (use_gpu is not None):
-        use_gpu = param.use_gpu
-        gpu = param.use_gpu
-    else:
+    from mrh.my_pyscf.gpu.context import current_device
+    use_gpu = current_device()
+    gpu = use_gpu
+    if fname not in ['FCItrans_rdm1a', 'FCItrans_rdm1b', 'FCImake_rdm1a', 'FCImake_rdm1b']:
         use_gpu = None
     try: gpu_debug = param.gpu_debug
     except: gpu_debug = False
@@ -128,10 +123,11 @@ def _make_rdm12_spin1(fname, cibra, ciket, norb, nelec, link_index=None, symm=0)
     #add traceback
     #    traceback.print_stack(file=sys.stdout)
     from pyscf.lib import param
-    if (fname in ['FCItdm12kern_a', 'FCItdm12kern_b', 'FCItdm12kern_ab', 'FCIrdm12kern_sf']) and getattr (param, 'use_gpu', None) is not None:
-       use_gpu = param.use_gpu
-       gpu=param.use_gpu
-    else: 
+    from mrh.my_pyscf.gpu.context import current_device
+    if fname in ['FCItdm12kern_a', 'FCItdm12kern_b', 'FCItdm12kern_ab', 'FCIrdm12kern_sf']:
+        use_gpu = current_device()
+        gpu = use_gpu
+    else:
        use_gpu = None
     assert (cibra is not None and ciket is not None)
     cibra = numpy.asarray(cibra, order='C')

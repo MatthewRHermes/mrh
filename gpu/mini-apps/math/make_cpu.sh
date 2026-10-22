@@ -1,3 +1,3 @@
-make ARCH=polaris-cpu-gnu update
-make ARCH=polaris-cpu-gnu clean
-make ARCH=polaris-cpu-gnu
+make ARCH=mac update
+make ARCH=mac clean
+make ARCH=mac
