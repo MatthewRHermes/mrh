@@ -23,7 +23,7 @@ pip install pybind11 h5py
 pip uninstall -y numpy
 pip cache purge
 
-CC=gcc CXX=g++ FC=gfortran pip install numpy==2.4.6 --no-binary numpy --no-build-isolation --force-reinstall --no-deps -v -Csetup-args=-Dblas=mkl-sdl -Csetup-args=-Dlapack=mkl-sdl
+CFLAGS="-fveclib=none" pip install numpy==2.4.6 --no-binary numpy --no-build-isolation --force-reinstall --no-deps -v -Csetup-args=-Dblas=mkl-sdl -Csetup-args=-Dlapack=mkl-sdl
 
 pip install scipy==1.15.3 --no-binary scipy --no-build-isolation -v -Csetup-args=-Dblas=mkl-sdl -Csetup-args=-Dlapack=mkl-sdl
 
