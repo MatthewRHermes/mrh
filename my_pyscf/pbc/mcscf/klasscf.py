@@ -25,6 +25,7 @@ from mrh.my_pyscf.pbc.mcscf.real_linear_solvers import (
     SolveScipyMINRESForCplx,
 )
 from mrh.my_pyscf.pbc.util.casdm2_transformation import transform_casdm2_kpts
+from mrh.my_pyscf.pbc.mcscf.mc_ao2mo_opt import transform_eri_kpts_to_wannier
 from mrh.my_pyscf.pbc.util.checks import _check_shape
 from mrh.my_pyscf.pbc.util.wannier import get_wannier_orbs
 from mrh.my_pyscf.mcscf.lasscf_sync_o0 import (
@@ -1462,13 +1463,20 @@ class KLASSCF_HessianOperator(molLASSCF_HessianOperator):
         kconserv = kpts_helper.get_kconserv(
             self.las._scf.cell, self.kpts,
         )
+        tcm2_blocks = transform_casdm2_kpts(
+            tcm2, self.mo_phase, kconserv, kmesh=getattr(self, "kmesh", None),
+        )
+        # Previous per-block version:
+        # for k1, k2, k3 in kpts_helper.loop_kkk(self.nkpts):
+        #     k4 = kconserv[k1, k2, k3]
+        #     tcm2_kpts = _get_casdm2_kpts(
+        #         tcm2, self.mo_phase, (k1, k2, k3, k4),
+        #     )
         loop_log = lib.logger.new_logger(self.las)
         loop_t0 = (lib.logger.process_clock(), lib.logger.perf_counter())
         for k1, k2, k3 in kpts_helper.loop_kkk(self.nkpts):
             k4 = kconserv[k1, k2, k3]
-            tcm2_kpts = _get_casdm2_kpts(
-                tcm2, self.mo_phase, (k1, k2, k3, k4),
-            )
+            tcm2_kpts = tcm2_blocks[k1, k2, k3]
             _check_shape(
                 tcm2_kpts, (self.ncas,) * 4,
                 label=f"transition_cumulant_kpts[{k1},{k2},{k3}]",
@@ -1707,16 +1715,25 @@ class KLASSCF_HessianOperator(molLASSCF_HessianOperator):
         kconserv = kpts_helper.get_kconserv(
             self.las._scf.cell, self.kpts,
         )
-        casdm2_kpts = {}
+        casdm2_kpts = transform_casdm2_kpts(
+            self.casdm2, self.mo_phase, kconserv,
+            kmesh=getattr(self, "kmesh", None),
+        )
 
         def get_casdm2(k1, k2, k3):
-            key = (k1, k2, k3)
-            if key not in casdm2_kpts:
-                k4 = kconserv[k1, k2, k3]
-                casdm2_kpts[key] = _get_casdm2_kpts(
-                    self.casdm2, self.mo_phase, (k1, k2, k3, k4),
-                )
-            return casdm2_kpts[key]
+            return casdm2_kpts[k1, k2, k3]
+
+        # Previous lazy per-block version:
+        # casdm2_kpts = {}
+        #
+        # def get_casdm2(k1, k2, k3):
+        #     key = (k1, k2, k3)
+        #     if key not in casdm2_kpts:
+        #         k4 = kconserv[k1, k2, k3]
+        #         casdm2_kpts[key] = _get_casdm2_kpts(
+        #             self.casdm2, self.mo_phase, (k1, k2, k3, k4),
+        #         )
+        #     return casdm2_kpts[key]
 
         jkcaa = np.zeros((nkpts, nocc, ncas), dtype=dtype)
         for k in range(nkpts):
@@ -2188,6 +2205,9 @@ class KLASSCF_HessianOperator(molLASSCF_HessianOperator):
             kconserv = kpts_helper.get_kconserv(
                 self.las._scf.cell, self.kpts,
             )
+            eri_prime_blocks = np.empty(
+                (self.nkpts,) * 3 + (self.ncas,) * 4, dtype=dtype,
+            )
             for k1, k2, k3 in kpts_helper.loop_kkk(self.nkpts):
                 k4 = kconserv[k1, k2, k3]
                 ppaa = self.eris.ppaa(k1, k2, k3)
@@ -2229,13 +2249,19 @@ class KLASSCF_HessianOperator(molLASSCF_HessianOperator):
                     kappa_external[k4, :, active],
                     paap[active], optimize=True,
                 )
-                h2_prime += np.einsum(
-                    "aP,bQ,abcd,cR,dS->PQRS",
-                    self.mo_phase[k1].conj(), self.mo_phase[k2],
-                    eri_block_prime,
-                    self.mo_phase[k3].conj(), self.mo_phase[k4],
-                    optimize=True,
-                )
+                eri_prime_blocks[k1, k2, k3] = eri_block_prime
+                # Previous per-block version:
+                # h2_prime += np.einsum(
+                #     "aP,bQ,abcd,cR,dS->PQRS",
+                #     self.mo_phase[k1].conj(), self.mo_phase[k2],
+                #     eri_block_prime,
+                #     self.mo_phase[k3].conj(), self.mo_phase[k4],
+                #     optimize=True,
+                # )
+
+            h2_prime += transform_eri_kpts_to_wannier(
+                eri_prime_blocks, self.mo_phase, kconserv,
+            )
 
         kappa_active = kappa[:, active, active]
         if np.any(kappa_active):
