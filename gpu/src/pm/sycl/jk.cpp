@@ -164,7 +164,8 @@ void _getjk_vj(double * vj, double * rho, double * eri1, int nset, int nao_pair,
   const int k = item_ct1.get_group(0) * item_ct1.get_local_range(0) +
                 item_ct1.get_local_id(0);
 
-  int indxK = j * chunk_size + k;
+  // chunk_size is in blocks of _DOT_BLOCK_SIZE; k already spans chunk_size*_DOT_BLOCK_SIZE elements
+  int indxK = j * (chunk_size * _DOT_BLOCK_SIZE) + k;
   
   if(indxK >= nao_pair) return;
 

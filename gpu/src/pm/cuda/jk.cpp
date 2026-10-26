@@ -140,7 +140,8 @@ __global__ void _getjk_vj(double * vj, double * rho, double * eri1, int nset, in
   const int j = blockIdx.y * blockDim.y + threadIdx.y;
   const int k = blockIdx.z * blockDim.z + threadIdx.z;
 
-  int indxK = j * chunk_size + k;
+  // chunk_size is in blocks of _DOT_BLOCK_SIZE; k already spans chunk_size*_DOT_BLOCK_SIZE elements
+  int indxK = j * (chunk_size * _DOT_BLOCK_SIZE) + k;
   
   if(indxK >= nao_pair) return;
   

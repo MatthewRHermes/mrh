@@ -54,7 +54,7 @@ void DeviceJk::getjk_vj(double * vj, double * rho, double * eri, int nset, int n
   for(int i=0; i<nset; ++i) {
     for(int j=0; j<num_chunks; ++j) {
       for(int k=0; k<z_block; ++k) {
-        int indxK = j*chunk_size + k;
+        int indxK = j*z_block + k; // chunk stride in elements (chunk_size is in blocks of _DOT_BLOCK_SIZE)
         if(indxK >= nao_pair) continue;
         double val = 0.0;
         for(int l=0; l<naux; ++l) val += rho[i*naux + l] * eri[l*nao_pair + indxK];
