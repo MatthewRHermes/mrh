@@ -1,6 +1,7 @@
 #!/usr/bin/env python
 import numpy as np
 from scipy import linalg
+from scipy.sparse import linalg as sparse_linalg
 
 from pyscf import lib
 from pyscf.pbc.lib import kpts_helper
@@ -743,6 +744,8 @@ class KLASSCF_HessianOperator(molLASSCF_HessianOperator):
         self.las = klas
         self.ugg = ugg
         self.mo_coeff = np.asarray(mo_coeff)
+        sparse_linalg.LinearOperator.__init__(self, self.mo_coeff.dtype,
+                                              (ugg.nvar_tot, ugg.nvar_tot))
         self.ci = ci
         self.kpts = kpts
         self.kmesh = kmesh
