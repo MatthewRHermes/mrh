@@ -2092,11 +2092,6 @@ class KLASSCF_HessianOperator(molLASSCF_HessianOperator):
         ]
         return response
 
-    @property
-    def shape(self):
-        """tuple: Shape of the combined orbital/CI Hessian operator."""
-        return self.ugg.nvar_tot, self.ugg.nvar_tot
-
     def _ci_hessian_response(
             self, ci1, tdm1rs=None, h1frs_response=None):
         """Apply the implemented CI-CI Hessian block to determinant vectors."""
