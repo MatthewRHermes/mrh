@@ -37,6 +37,7 @@ from pyscf.lib import logger
 from pyscf.grad import casci as casci_grad
 from pyscf.grad import rhf as rhf_grad
 from pyscf.grad.mp2 import _shell_prange
+from mrh.my_pyscf.gpu.context import gpu_scope, object_device
 
 
 def grad_elec(mc_grad, mo_coeff=None, ci=None, atmlst=None, verbose=None):
@@ -60,7 +61,8 @@ def grad_elec(mc_grad, mo_coeff=None, ci=None, atmlst=None, verbose=None):
     mo_core = mo_coeff[:,:ncore]
     mo_cas = mo_coeff[:,ncore:nocc]
 
-    casdm1, casdm2 = mc.fcisolver.make_rdm12(ci, ncas, nelecas)
+    with gpu_scope (object_device (mc)):
+        casdm1, casdm2 = mc.fcisolver.make_rdm12(ci, ncas, nelecas)
 
 # gfock = Generalized Fock, Adv. Chem. Phys., 69, 63
     dm_core = numpy.dot(mo_core, mo_core.T) * 2

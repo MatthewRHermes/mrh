@@ -24,11 +24,11 @@ def setUpModule():
     global gpu, mf, mo_guess
     from gpu4mrh import patch_pyscf
     gpu = libgpu.init ()
+    lib.param.use_gpu = gpu
     mol=gto.M(atom=generator(1),
               basis='6-31g',
               verbose=0,
-              output='/dev/null',
-              use_gpu=gpu)
+              output='/dev/null')
     mf=scf.RHF(mol)
     mf=mf.density_fit()
     mf.run()
@@ -38,6 +38,7 @@ def tearDownModule():
     global gpu, mf, mo_guess
     libgpu.destroy_device (gpu)
     del gpu, mf, mo_guess
+    lib.param.use_gpu = None
 
 REFERENCE_E = -78.0335541872522
 
@@ -45,7 +46,7 @@ class KnownValues (unittest.TestCase):
 
     def test_sync (self):
         from mrh.my_pyscf.mcscf.lasscf_sync_o0 import LASSCF
-        las = LASSCF(mf, (2,), (2,), use_gpu=gpu)
+        las = LASSCF(mf, (2,), (2,))
         mo_coeff = las.localize_init_guess ([[1,2],], mo_guess)
         las.kernel (mo_coeff)
         self.assertTrue (las.converged)
@@ -53,11 +54,22 @@ class KnownValues (unittest.TestCase):
 
     def test_async (self):
         from mrh.my_pyscf.mcscf.lasscf_async import LASSCF
-        las = LASSCF(mf, (2,), (2,), use_gpu=gpu)
+        las = LASSCF(mf, (2,), (2,))
         mo_coeff = las.set_fragments_([[1,2],], mo_guess)
         las.kernel (mo_coeff)
         self.assertTrue (las.converged)
         self.assertAlmostEqual (las.e_tot, REFERENCE_E, 6)
+
+    def test_h2eff_nmo_lt_nao (self):
+        # nmo < nao, e.g. linear dependencies removed; every other test here has nmo == nao
+        from mrh.my_pyscf.mcscf.lasscf_sync_o0 import LASSCF
+        from mrh.my_pyscf.mcscf import las_ao2mo
+        nao = mf.mol.nao
+        mo = mf.mo_coeff[:,:nao-3].copy ()
+        las = LASSCF (mf, (2,), (2,))
+        e_cpu = las_ao2mo.get_h2eff_df (las, mo)
+        e_gpu = las_ao2mo.get_h2eff_gpu_v2 (las, mo)
+        self.assertAlmostEqual (abs (e_gpu - e_cpu).max (), 0, 8)
 
 if __name__ == "__main__":
     print("Tests for GPU accelerated LASSCF kernels")

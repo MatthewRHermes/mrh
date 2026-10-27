@@ -8,6 +8,7 @@ from pyscf.fci.direct_spin1 import _unpack_nelec
 from mrh.my_pyscf.mcscf.addons import state_average_n_mix, get_h1e_zipped_fcisolver, las2cas_civec
 from mrh.my_pyscf.mcscf import _DFLASCI, lasscf_guess, las_ao2mo
 from mrh.my_pyscf.fci import csf_solver
+from mrh.my_pyscf.gpu.context import gpu_scope
 from mrh.my_pyscf.df.sparse_df import sparsedf_array
 from mrh.my_pyscf.mcscf import chkfile
 from mrh.my_pyscf.mcscf.productstate import ImpureProductStateFCISolver, state_average_fcisolver
@@ -861,7 +862,11 @@ class LASCINoSymm (casci.CASCI):
     get_nelec_frs = get_nelec_frs
 
     def __init__(self, mf, ncas, nelecas, ncore=None, spin_sub=None, frozen=None, frozen_ci=None, **kwargs):
-        self.use_gpu = kwargs.get('use_gpu', None)
+        mol = getattr(mf, 'mol', None)
+        default_use_gpu = getattr(mol, '__dict__', {}).get('use_gpu')
+        if default_use_gpu is None:
+            default_use_gpu = getattr(lib.param, 'use_gpu', None)
+        self.use_gpu = kwargs.pop('use_gpu', default_use_gpu)
         self.init_guess_ci = 'aufbau1'
         if isinstance(ncas,int):
             ncas = [ncas]
@@ -1127,11 +1132,12 @@ class LASCINoSymm (casci.CASCI):
         if ncas_sub is None: ncas_sub = self.ncas_sub
         if nelecas_sub is None: nelecas_sub = self.nelecas_sub
         casdm3 = []
-        for ci_i, ncas, nel in zip (ci, ncas_sub, nelecas_sub):
-            dm1_not_no, dm2_not_no, dm3_not_no = fci.rdm.make_dm123 (
-                'FCI3pdm_kern_sf',ci_i,ci_i, ncas, nel) # not normal ordered
-            dm3_no = fci.rdm.reorder_dm123(dm1_not_no, dm2_not_no, dm3_not_no)[-1]
-            casdm3.append (dm3_no)
+        with gpu_scope (self.use_gpu):
+            for ci_i, ncas, nel in zip (ci, ncas_sub, nelecas_sub):
+                dm1_not_no, dm2_not_no, dm3_not_no = fci.rdm.make_dm123 (
+                    'FCI3pdm_kern_sf',ci_i,ci_i, ncas, nel) # not normal ordered
+                dm3_no = fci.rdm.reorder_dm123(dm1_not_no, dm2_not_no, dm3_not_no)[-1]
+                casdm3.append (dm3_no)
         return casdm3
 
     def make_casdm3s_sub (self, ci=None, ncas_sub=None, nelecas_sub=None, **kwargs):

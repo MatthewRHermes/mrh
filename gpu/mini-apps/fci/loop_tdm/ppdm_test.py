@@ -156,8 +156,7 @@ if __name__=="__main__":
            K 0 0 10;
            K 0 0 12;'''
   basis = 'def2tzvp'
-  if gpu_run: mol = gto.M(use_gpu = gpu, atom=geom, basis=basis, verbose=1)
-  else: mol = gto.M(atom=geom, basis=basis, verbose=1)
+  mol = gto.M(atom=geom, basis=basis, verbose=1)
 
   mol.output='test.log'
   mol.build()

@@ -1,4 +1,5 @@
 from mrh.my_pyscf.gpu import libgpu
+from mrh.my_pyscf.gpu.context import current_device
 import pyscf
 import numpy as np
 #from gpu4mrh import patch_pyscf
@@ -10,7 +11,7 @@ from itertools import product
 def trans_rdm12s(tdm1s, tdm2s, bravecs, ketvecs, norb, nelec, linkstr, reorder=True):
   from mrh.my_pyscf.gpu import libgpu
   from pyscf.lib import param
-  gpu=param.use_gpu
+  gpu=current_device()
   na, nlinka = linkstr[0].shape[:2] 
   nb, nlinkb = linkstr[1].shape[:2] 
   n_bra, na_bra, nb_bra = bravecs.shape
@@ -71,7 +72,7 @@ def trans_rdm12s(tdm1s, tdm2s, bravecs, ketvecs, norb, nelec, linkstr, reorder=T
 def trans_rdm13h(tdm1h, tdm3h, bravecs, ketvecs, norb, nelec, spin, linkstr, reorder=True, cre=False):
   from mrh.my_pyscf.gpu import libgpu
   from pyscf.lib import param
-  gpu=param.use_gpu
+  gpu=current_device()
   nelec = list (_unpack_nelec (nelec))
   if not cre:
     bravecs, ketvecs = ketvecs, bravecs
@@ -124,7 +125,7 @@ def trans_sfddm1 (sfudm1, bravecs, ketvecs, norb, nelec, linkstr):
 def trans_sfudm1(sfudm1, bravecs, ketvecs, norb, nelec, linkstr): 
   from mrh.my_pyscf.gpu import libgpu
   from pyscf.lib import param
-  gpu=param.use_gpu
+  gpu=current_device()
   nelec_ket = _unpack_nelec (nelec)
   nelec_bra = list (_unpack_nelec (nelec))
   nelec_bra[0] += 1
@@ -170,7 +171,7 @@ def trans_hhdm(hhdm, bravecs, ketvecs, norb, nelec, spin, linkstr):
 def trans_ppdm(ppdm, bravecs, ketvecs, norb, nelec, spin, linkstr):
   from mrh.my_pyscf.gpu import libgpu
   from pyscf.lib import param
-  gpu=param.use_gpu
+  gpu=current_device()
   s1 = int (spin>1)
   s2 = int (spin>0)
   ndum = 2 - (spin%2)
