@@ -49,7 +49,7 @@ void DeviceJk::push_dmtril_p2p(my_device_data * dd, double * dmtril, int count, 
 
       ctx.pm->dev_set_device(i);
       if(dest->jk.d_dmtril) ctx.pm->dev_free(dest->jk.d_dmtril, "dmtril");
-      dest->jk.d_dmtril = (double *) ctx.pm->dev_malloc(size * sizeof(double), "dmtril", FLERR); // why is this not async?
+      dest->jk.d_dmtril = (double *) ctx.pm->dev_malloc(size, "dmtril", FLERR); // why is this not async?
     }
     
     dmtril_vec[i] = dest->jk.d_dmtril;
