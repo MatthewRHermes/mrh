@@ -1,6 +1,7 @@
 #!/usr/bin/env python
 import numpy as np
 from scipy import linalg
+from scipy.sparse import linalg as sparse_linalg
 
 from pyscf import lib
 from pyscf.pbc.lib import kpts_helper
@@ -743,6 +744,8 @@ class KLASSCF_HessianOperator(molLASSCF_HessianOperator):
         self.las = klas
         self.ugg = ugg
         self.mo_coeff = np.asarray(mo_coeff)
+        sparse_linalg.LinearOperator.__init__(self, dtype=self.mo_coeff.dtype,
+                                              shape=(ugg.nvar_tot, ugg.nvar_tot))
         self.ci = ci
         self.kpts = kpts
         self.kmesh = kmesh
@@ -2088,11 +2091,6 @@ class KLASSCF_HessianOperator(molLASSCF_HessianOperator):
             for response_r, ci0_r in zip(response, self.ci)
         ]
         return response
-
-    @property
-    def shape(self):
-        """tuple: Shape of the combined orbital/CI Hessian operator."""
-        return self.ugg.nvar_tot, self.ugg.nvar_tot
 
     def _ci_hessian_response(
             self, ci1, tdm1rs=None, h1frs_response=None):

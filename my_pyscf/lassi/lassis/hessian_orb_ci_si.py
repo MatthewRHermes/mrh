@@ -32,8 +32,9 @@ class HessianOperator (sparse_linalg.LinearOperator):
         self.si = ugg.raw2orth.H (ugg.si)
         self.nprods = ugg.nprods
         self.nroots_si = ugg.nroots_si
-        self.shape = (ugg.nvar_tot,ugg.nvar_tot)
-        self.dtype = ugg.mo_coeff.dtype # TODO: generalize this for SOC
+        # TODO: generalize dtype for SOC
+        sparse_linalg.LinearOperator.__init__(self, dtype=ugg.mo_coeff.dtype,
+                                              shape=(ugg.nvar_tot,ugg.nvar_tot))
         self.eris = self.lsi.get_casscf_eris (self.mo_coeff)
         ncore, ncas = lsi.ncore, lsi.ncas
         nocc = ncore + ncas

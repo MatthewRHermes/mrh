@@ -353,8 +353,7 @@ class OrthBasisBase (sparse_linalg.LinearOperator):
 
 class NullOrthBasis (OrthBasisBase):
     def __init__(self, nraw, dtype, nprods_r):
-        self.shape = (nraw,nraw)
-        self.dtype = dtype
+        sparse_linalg.LinearOperator.__init__(self, dtype=dtype, shape=(nraw,nraw))
         self.nprods_raw = nprods_r
         offs1 = np.cumsum (nprods_r)
         offs0 = offs1 - nprods_r
@@ -413,8 +412,7 @@ class NullOrthBasis (OrthBasisBase):
 
 class OrthBasis (OrthBasisBase):
     def __init__(self, shape, dtype, nprods_r, manifolds):
-        self.shape = shape
-        self.dtype = dtype
+        sparse_linalg.LinearOperator.__init__(self, dtype=dtype, shape=shape)
         self.manifolds = manifolds
         self.nprods_raw = nprods_r
         offs1 = np.cumsum (nprods_r)
@@ -835,8 +833,7 @@ class SmultShifterManifold:
 
 class SmultShifter (sparse_linalg.LinearOperator):
     def __init__(self, raw2f, smult_i):
-        self.shape = raw2f.shape
-        self.dtype = raw2f.dtype
+        sparse_linalg.LinearOperator.__init__(self, dtype=raw2f.dtype, shape=raw2f.shape)
         self.raw2f = raw2f
         self.raw2i = raw2f.change_smult (smult_i)
         self.manifolds = [SmultShifterManifold (fman, iman, self.dtype)

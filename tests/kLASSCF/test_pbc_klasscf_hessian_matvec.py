@@ -2,6 +2,7 @@ import unittest
 from types import SimpleNamespace
 
 import numpy as np
+from scipy.sparse import linalg as sparse_linalg
 
 from pyscf import lib
 
@@ -124,6 +125,8 @@ class KnownValues(unittest.TestCase):
             [np.zeros((2, 1), dtype=np.complex128)],
         ]
         operator.ugg = _DispatchUGG(operator)
+        nvar = operator.ugg.nvar_tot
+        sparse_linalg.LinearOperator.__init__(operator, dtype=np.complex128, shape=(nvar, nvar))
         operator.level_shift = 0.25
         _set_toy_matvec_pipeline(operator)
 

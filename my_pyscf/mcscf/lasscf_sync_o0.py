@@ -741,6 +741,8 @@ class LASSCF_HessianOperator (sparse_linalg.LinearOperator):
         self.level_shift = las.ah_level_shift
         self.ugg = ugg
         self.mo_coeff = mo_coeff
+        sparse_linalg.LinearOperator.__init__(self, dtype=self.mo_coeff.dtype,
+                                              shape=(ugg.nvar_tot, ugg.nvar_tot))
         self.ci = ci = [[c.ravel () for c in cr] for cr in ci] 
         self.ncore = ncore
         self.ncas_sub = ncas_sub
@@ -860,14 +862,6 @@ class LASSCF_HessianOperator (sparse_linalg.LinearOperator):
         if not np.allclose (paaa_test, self.eri_paaa):
             lib.logger.warn(self.las, 'possible (pa|aa) inconsistency; max err = %e',
                          np.amax (np.abs (paaa_test-self.eri_paaa)))
-
-    @property
-    def dtype (self):
-        return self.mo_coeff.dtype
-
-    @property
-    def shape (self):
-        return ((self.ugg.nvar_tot, self.ugg.nvar_tot))
 
     def Hci (self, fcibox, no, ne, h0r, h1rs, h2, ci, linkstrl=None):
         ''' For a single fragment, evaluate the FCI operation H(i)|ci[i]>, where H(i) is the
@@ -1368,8 +1362,8 @@ class LASSCF_HessianOperator (sparse_linalg.LinearOperator):
         def __init__(self, Hdiag, log):
             self.Hdiag = Hdiag
             self.log = log
-            self.shape = (len (Hdiag), len (Hdiag))
-            self.dtype = Hdiag.dtype
+            sparse_linalg.LinearOperator.__init__(self, dtype=Hdiag.dtype,
+                                                  shape=(len (Hdiag), len (Hdiag)))
         def _matvec (self, x):
             t0 = (lib.logger.process_clock(), lib.logger.perf_counter())
             Mx = x/self.Hdiag
