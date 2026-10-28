@@ -33,8 +33,8 @@ class HessianOperator (sparse_linalg.LinearOperator):
         self.nprods = ugg.nprods
         self.nroots_si = ugg.nroots_si
         # TODO: generalize dtype for SOC
-        sparse_linalg.LinearOperator.__init__(self, ugg.mo_coeff.dtype,
-                                              (ugg.nvar_tot,ugg.nvar_tot))
+        sparse_linalg.LinearOperator.__init__(self, dtype=ugg.mo_coeff.dtype,
+                                              shape=(ugg.nvar_tot,ugg.nvar_tot))
         self.eris = self.lsi.get_casscf_eris (self.mo_coeff)
         ncore, ncas = lsi.ncore, lsi.ncas
         nocc = ncore + ncas

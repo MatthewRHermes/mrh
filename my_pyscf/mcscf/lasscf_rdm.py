@@ -50,8 +50,8 @@ class LASSCF_HessianOperator (lasscf_sync_o0.LASSCF_HessianOperator):
         self.level_shift = las.ah_level_shift
         self.ugg = ugg
         self.mo_coeff = mo_coeff
-        sparse_linalg.LinearOperator.__init__(self, self.mo_coeff.dtype,
-                                              (ugg.nvar_tot, ugg.nvar_tot))
+        sparse_linalg.LinearOperator.__init__(self, dtype=self.mo_coeff.dtype,
+                                              shape=(ugg.nvar_tot, ugg.nvar_tot))
         self.ncore = ncore
         self.ncas_sub = ncas_sub
         self.nelecas_sub = nelecas_sub

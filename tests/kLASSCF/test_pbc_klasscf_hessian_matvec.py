@@ -126,7 +126,7 @@ class KnownValues(unittest.TestCase):
         ]
         operator.ugg = _DispatchUGG(operator)
         nvar = operator.ugg.nvar_tot
-        sparse_linalg.LinearOperator.__init__(operator, np.complex128, (nvar, nvar))
+        sparse_linalg.LinearOperator.__init__(operator, dtype=np.complex128, shape=(nvar, nvar))
         operator.level_shift = 0.25
         _set_toy_matvec_pipeline(operator)
 

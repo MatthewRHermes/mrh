@@ -741,8 +741,8 @@ class LASSCF_HessianOperator (sparse_linalg.LinearOperator):
         self.level_shift = las.ah_level_shift
         self.ugg = ugg
         self.mo_coeff = mo_coeff
-        sparse_linalg.LinearOperator.__init__(self, self.mo_coeff.dtype,
-                                              (ugg.nvar_tot, ugg.nvar_tot))
+        sparse_linalg.LinearOperator.__init__(self, dtype=self.mo_coeff.dtype,
+                                              shape=(ugg.nvar_tot, ugg.nvar_tot))
         self.ci = ci = [[c.ravel () for c in cr] for cr in ci] 
         self.ncore = ncore
         self.ncas_sub = ncas_sub
@@ -1362,8 +1362,8 @@ class LASSCF_HessianOperator (sparse_linalg.LinearOperator):
         def __init__(self, Hdiag, log):
             self.Hdiag = Hdiag
             self.log = log
-            sparse_linalg.LinearOperator.__init__(self, Hdiag.dtype,
-                                                  (len (Hdiag), len (Hdiag)))
+            sparse_linalg.LinearOperator.__init__(self, dtype=Hdiag.dtype,
+                                                  shape=(len (Hdiag), len (Hdiag)))
         def _matvec (self, x):
             t0 = (lib.logger.process_clock(), lib.logger.perf_counter())
             Mx = x/self.Hdiag

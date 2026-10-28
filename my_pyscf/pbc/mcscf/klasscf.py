@@ -744,8 +744,8 @@ class KLASSCF_HessianOperator(molLASSCF_HessianOperator):
         self.las = klas
         self.ugg = ugg
         self.mo_coeff = np.asarray(mo_coeff)
-        sparse_linalg.LinearOperator.__init__(self, self.mo_coeff.dtype,
-                                              (ugg.nvar_tot, ugg.nvar_tot))
+        sparse_linalg.LinearOperator.__init__(self, dtype=self.mo_coeff.dtype,
+                                              shape=(ugg.nvar_tot, ugg.nvar_tot))
         self.ci = ci
         self.kpts = kpts
         self.kmesh = kmesh
