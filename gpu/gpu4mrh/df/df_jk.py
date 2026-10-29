@@ -1,6 +1,7 @@
 #!/usr/bin/env python
 
 import copy
+import os
 
 import ctypes
 import numpy
@@ -538,8 +539,30 @@ def get_j(dfobj, dm, hermi=1, direct_scf_tol=1e-13):
     logger.timer(dfobj, 'df-vj', *t0)
     return numpy.asarray(vj).reshape(dm_shape)
 
+def _eri_key(dfobj):
+    '''What the 3-center integrals depend on. libgpu caches them by id(dfobj): a geometry step keeps the DF object
+    (scanner reset) and a new DF object can reuse a freed id, so the cached blocks must be reloaded when this changes.'''
+    if dfobj._cderi is None:
+        dfobj.build()
+    mol = dfobj.mol
+    cderi = dfobj._cderi
+    return (cderi if isinstance(cderi, str) else id(cderi), hash(mol._env.tobytes()), hash(mol._atm.tobytes()),
+            hash(mol._bas.tobytes()), str(dfobj.auxbasis), getattr(dfobj, 'omega', None))
+
+
+def _sync_eri_cache(dfobj, with_k):
+    gpu = resolve_use_gpu(dfobj)
+    if not (gpu and with_k) or os.environ.get('GPU4MRH_ERI_SYNC', '1') == '0':   # J-only goes through the host get_j;
+        return                                                                  # =0 reproduces the old stale cache
+    key = _eri_key(dfobj)
+    if getattr(dfobj, '_gpu4mrh_eri_key', None) != key:
+        libgpu.set_update_dfobj_(gpu, 2)   # 2: reload every block, including the first DF object's (reset in pull_get_jk)
+        dfobj._gpu4mrh_eri_key = key
+
+
 def _get_jk(dfobj, dm, hermi=1, with_j=True, with_k=True, direct_scf_tol=1e-13):
 
+    _sync_eri_cache(dfobj, with_k)
     if dfobj.verbose>=lib.logger.DEBUG1:
         vj, vk = get_jk_debug(dfobj, dm, hermi, with_j, with_k, direct_scf_tol)
     else: 
