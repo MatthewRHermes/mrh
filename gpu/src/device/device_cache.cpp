@@ -287,7 +287,21 @@ double * DeviceCache::dd_fetch_eri(my_device_data * dd, double * eri1, int naux,
 
     bool full_molecule = id-count == 0;
 
-    if(!full_molecule && update_dfobj) {
+    // A different DF object can reuse the address (Python id) with another block shape: reallocate and reload.
+    const bool resize = eri1 != nullptr && (naux != eri_extra[id*2] || nao_pair != eri_extra[id*2+1]);
+    if(resize) {
+      ctx.pm->dev_stream_wait();   // sycl::free is immediate: drain queued kernels that may still read the old block
+      ctx.pm->dev_free_async(d_eri, "eri_cache");
+      d_eri = (double *) ctx.pm->dev_malloc_async(naux * nao_pair * sizeof(double), "eri_cache", FLERR);
+      d_eri_cache[id] = d_eri;
+      eri_size[id] = naux * nao_pair;
+      eri_extra[id*2] = naux;
+      eri_extra[id*2+1] = nao_pair;
+      eri_device[id] = dd->device_id;
+    }
+
+    // update_dfobj == 1 (LASSCF fragments) keeps the full-molecule blocks; 2 (geometry changed) reloads every block
+    if(eri1 != nullptr && (resize || (update_dfobj && (!full_molecule || update_dfobj > 1)))) {
       eri_update[id]++;
       int err = ctx.pm->dev_push_async(d_eri, eri1, naux * nao_pair * sizeof(double));
       if(err) {
