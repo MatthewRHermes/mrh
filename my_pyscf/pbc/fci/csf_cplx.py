@@ -508,8 +508,10 @@ class cplxCSFFCISolver:
         self.smult = smult
         self.transformer = None
         self.stdout = cell.stdout
-        self.max_memory = cell.max_memory
         super().__init__ (**args)
+        # FCIBase.__init__ (mol=None) resets max_memory to the pyscf default, so this
+        # must come after super().__init__ for the cell's max_memory to take effect.
+        self.max_memory = cell.max_memory
 
     def make_hdiag_csf(self, h1e, eri, norb, nelec, hdiag_det=None, smult=None, max_memory=None):
         self.norb = norb
