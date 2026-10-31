@@ -70,14 +70,14 @@ class KnownValues(unittest.TestCase):
         grad0 = np.append (gorb0, gci0)
         grad1 = h_op.get_grad ()
         gx1 = h_op.get_gx () # "gx" is not even defined in this context
-        self.assertAlmostEqual (lib.fp (grad0), -0.15472633172391984, 7)
-        self.assertAlmostEqual (lib.fp (grad1), -0.15472633172391984, 7)
+        self.assertAlmostEqual (lib.fp (grad0), -0.1547272159441664, 7)
+        self.assertAlmostEqual (lib.fp (grad1), -0.1547272159441664, 7)
         self.assertAlmostEqual (lib.fp (gx0), 0.0, 9)
         self.assertAlmostEqual (lib.fp (gx1), 0.0, 9) 
 
     def test_hessian (self):
         hx = h_op._matvec (x)
-        self.assertAlmostEqual (lib.fp (hx), 90.0628112105026, 7)
+        self.assertAlmostEqual (lib.fp (hx), 88.38116591527076, 7)
 
     def test_horb_diag (self):
         hdiag = itsec (*ugg.unpack (h_op._get_Hdiag ()))
@@ -100,25 +100,25 @@ class KnownValues(unittest.TestCase):
         xp = x.copy ()
         xp[:offs_ci2] = 0.0
         hx = h_op._matvec (xp)[offs_ci2:]
-        self.assertAlmostEqual (lib.fp (hx), 1.0607759066755826, 9)
+        self.assertAlmostEqual (lib.fp (hx), 1.0889277847142012, 9)
 
     def test_hcc (self):
         xp = x.copy ()
         xp[:offs_ci2] = 0.0
         hx = h_op._matvec (xp)[offs_ci1:offs_ci2]
-        self.assertAlmostEqual (lib.fp (hx), -0.00014830104777542762, 9)
+        self.assertAlmostEqual (lib.fp (hx), -0.00010213222170035406, 9)
 
     def test_hco (self):
         xp = x.copy ()
         xp[offs_ci1:] = 0.0
         hx = h_op._matvec (xp)[offs_ci1:]
-        self.assertAlmostEqual (lib.fp (hx), 0.030469268632560276, 9)
+        self.assertAlmostEqual (lib.fp (hx), 0.5539469718844992, 9)
 
     def test_hoc (self):
         xp = x.copy ()
         xp[:offs_ci1] = 0.0
         hx = h_op._matvec (xp)[:offs_ci1]
-        self.assertAlmostEqual (lib.fp (hx), 0.9964025176759711, 9)
+        self.assertAlmostEqual (lib.fp (hx), -0.3198013307575741, 9)
 
     def test_hoo (self):
         xp = x.copy ()
