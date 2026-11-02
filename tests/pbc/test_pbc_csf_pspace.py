@@ -105,6 +105,15 @@ class KnownValues(unittest.TestCase):
         h1e, eri = gen_complex_hermi_ham(norb, seed=36)
         self.check_against_full(h1e, eri, norb, nelec, 4, 8)
 
+    def test_complex_spin_resolved_h1e(self):
+        norb, nelec = 6, (4, 1)
+        h1e, eri = gen_complex_hermi_ham(norb, seed=36)
+        rng = np.random.default_rng(7)
+        dh = rng.standard_normal((norb, norb)) + 1j * rng.standard_normal((norb, norb))
+        dh = 0.3 * (dh + dh.conj().T)
+        h1e = np.stack([h1e + dh, h1e - dh])
+        self.check_against_full(h1e, eri, norb, nelec, 4, 20)
+
     def test_real_hamiltonian_gives_real_h0(self):
         norb, nelec = 5, (3, 2)
         h1e, eri = gen_real_ham(norb)
