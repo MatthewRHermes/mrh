@@ -12,6 +12,7 @@ from mrh.my_pyscf.mcscf.lasscf_async import LASSCF
 from pyscf.mcscf import avas	
 if gpu_run:gpu = libgpu.init()
 if gpu_run:libgpu.set_verbose_(gpu,1)
+if gpu_run:lib.param.use_gpu = gpu
 lib.logger.TIMER_LEVEL=lib.logger.INFO
 nfrags=5;basis='631g';
 if N:

@@ -8,6 +8,7 @@ dynamic = ["version"]
 name = "mrh"
 authors = []
 description = ""
+requires-python = ">=3.9"
 dependencies = [
     "pyscf",
     "pyscf-forge",

@@ -31,16 +31,21 @@ With the virtual Python environment ready to go, the following helper script can
 $ cd /path/to/installation
 $ cat setup_env.sh
 
-WORKDIR=/path/to/installation
+BASE=/path/to/installation
 
 module load python/anaconda-2021.05
-module load cmake mpich gcc cuda
+module load cmake
+module load gcc/10.2.0
+module load mpich/4.1.2+gcc-10.2.0
+module load cuda/12.2
 
-. ${WORKDIR}/my_env/bin/activate
+. ${BASE}/my_env/bin/activate
 
-export PYTHONPATH=${WORKDIR}/pyscf:$PYTHONPATH
-export PYTHONPATH=${WORKDIR}/mrh/gpu:$PYTHONPATH
-export PYTHONPATH=${WORKDIR}:$PYTHONPATH
+export PYTHONPATH=${BASE}/pyscf:$PYTHONPATH
+export PYTHONPATH=${BASE}/mrh/gpu:$PYTHONPATH
+export PYTHONPATH=${BASE}:$PYTHONPATH
+
+export PYSCF_EXT_PATH=${BASE}/pyscf-forge
 
 # Ensure use of MKL library 
 MKL=/software/python-anaconda-2021.05-el8-x86_64/lib
@@ -115,23 +120,13 @@ The following is an example submission script for a PBS batch job that takes the
 #SBATCH --gres=gpu:1 #number of gpus
 #SBATCH --ntasks-per-node=32 
 #SBATCH --error=error.%j.err
-. project/lgagliardi/valayagarawal/scripts/setup_env.sh
+
+. /path/to/installation/setup_env.sh
 
 # -- should probably replace this with job-specific tmp
 export PYSCF_TMPDIR=~/tmp
 
 ulimit -s unlimited
 export PYSCF_MAX_MEMORY=64000
-/usr/bin/time --verbose python $1
-
-$ cat setup_env.sh
-
-module load cmake
-module load mpich/3.3-cuda-aware
-module load gcc/8.2.0
-. /home/valayagarawal/soft/my_env/bin/activate
-
-export PYTHONPATH=/home/cjknight/LASSCF_gpudev/soft/pyscf:$PYTHONPATH
-export PYTHONPATH=/home/cjknight/LASSCF_gpudev/soft/mrh/gpu:$PYTHONPATH
-export PYTHONPATH=/home/cjknight/LASSCF_gpudev/soft:$PYTHONPATH
+/usr/bin/time --verbose python test.py
 ```

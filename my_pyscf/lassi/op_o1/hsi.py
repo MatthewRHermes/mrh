@@ -9,6 +9,7 @@ from mrh.my_pyscf.lassi.op_o1.rdm import LRRDM
 from mrh.my_pyscf.lassi.op_o1.hams2ovlp import HamS2Ovlp, ham, soc_context
 from mrh.my_pyscf.lassi.citools import _fake_gen_contract_op_si_hdiag
 from mrh.my_pyscf.lassi.op_o1.utilities import *
+from mrh.my_pyscf.gpu.context import resolve_device
 from mrh.util.my_scipy import CallbackLinearOperator
 import functools, itertools
 from itertools import product
@@ -33,8 +34,18 @@ class HamS2OvlpOperators (HamS2Ovlp):
     '''
     def __init__(self, ints, nlas, lroots, h1, h2, mask_bra_space=None,
                  mask_ket_space=None, pt_order=None, do_pt_order=None, log=None,
-                 max_memory=param.MAX_MEMORY, screen_thresh=SCREEN_THRESH, dtype=np.float64):
+                 max_memory=param.MAX_MEMORY, screen_thresh=SCREEN_THRESH, dtype=np.float64,
+                 use_gpu=None):
         t0 = (logger.process_clock (), logger.perf_counter ())
+        # The device is pinned once, here, by the caller (gen_contract_op_si_hdiag
+        # passes resolve_device(las)). Every later read uses self._gpu, so the
+        # construction-time decision that allocates GPU bookkeeping, the dispatch
+        # that picks GPU vs CPU methods, and the native handle passed to libgpu can
+        # never disagree -- a process-global reassigned after construction cannot
+        # retarget an already-built operator. None means "CPU only".
+        # Set before the parent __init__: it reaches init_profiling(), which reads
+        # self._gpu to decide whether to set up the GPU timers.
+        self._gpu = use_gpu
         HamS2Ovlp.__init__(self, ints, nlas, lroots, h1, h2,
                            mask_bra_space=mask_bra_space, mask_ket_space=mask_ket_space,
                            pt_order=pt_order, do_pt_order=do_pt_order,
@@ -44,12 +55,11 @@ class HamS2OvlpOperators (HamS2Ovlp):
         self.x = self.si = np.zeros (self.nstates, self.dtype)
         self.ox = np.zeros (self.nstates, self.dtype)
         self.ox1 = np.zeros (self.nstates, self.dtype)
-        gpu_op = getattr (param, 'use_gpu', False)
-        if gpu_op: 
+        if self._gpu is not None:
             self.total_vecsize=0
             self.len_instruction_list=0
             self.instruction_list = np.empty((self.len_instruction_list,4),dtype=int)
-        op_debug = getattr (param, 'gpu_op_debug', False)
+        op_debug = self.log.verbose >= lib.logger.DEBUG1
         if op_debug: self.ox1_gpu = np.zeros(self.nstates, self.dtype)
 
         self.init_cache_profiling ()
@@ -274,7 +284,7 @@ class HamS2OvlpOperators (HamS2Ovlp):
         self.dt_compute_3frag, self.dw_compute_3frag = 0.0, 0.0
         self.dt_compute_4frag, self.dw_compute_4frag = 0.0, 0.0
 
-        use_gpu = getattr (param, 'use_gpu', False)
+        use_gpu = self._gpu is not None
         if use_gpu:
           self.dt_gpu_need, self.dw_gpu_need = 0.0, 0.0
           self.dt_gpu_setup, self.dw_gpu_setup = 0.0, 0.0
@@ -322,7 +332,7 @@ class HamS2OvlpOperators (HamS2Ovlp):
         profile += '\n' + fmt_str.format ('4f_2', self.dt_4f2, self.dw_4f2)
         profile += '\n' + fmt_str.format ('4f_3', self.dt_4f3, self.dw_4f3)
 
-        use_gpu = getattr (param, 'use_gpu', False)
+        use_gpu = self._gpu is not None
         if use_gpu:
           profile += '\n' + 'GPU accelerated:'
           profile += '\n' + fmt_str.format ('calc',self.dt_gpu_calc, self.dw_gpu_calc )
@@ -443,42 +453,43 @@ class HamS2OvlpOperators (HamS2Ovlp):
     def _opuniq_x_full(self, ops, vecs):
         self.ox1[:] = 0 #of shape nstates
 
-        use_gpu = getattr (param, 'use_gpu', False)
-        op_debug = getattr (param, 'gpu_op_debug', False)
+        use_gpu = self._gpu is not None
+        op_debug = self.log.verbose >= lib.logger.DEBUG1
 
         if use_gpu and op_debug:
           #GPU kernel
           self._opuniq_x_full_gpu_v2(ops, vecs)
           #CPU kernel
           self._opuniq_x_full_cpu(ops, vecs)
-          if np.allclose(self.ox1, self.ox1_gpu) != True:
-            #this is all for helping guide here the error might be.
-            print("Issue in ox1 calculation",flush=True)
+          if not np.allclose(self.ox1, self.ox1_gpu):
+            # Report, then bisect down to the offending operator/bra so the
+            # mismatch can be localised. Everything goes through self.log so it
+            # respects the caller's verbosity and stdout; a bare print would
+            # escape both.
             diff = self.ox1 - self.ox1_gpu
-            print(len(self.ox1))
-            print(self.ox1)
-            print(self.ox1_gpu)
-            print(np.nonzero(diff))
-            #print(diff(np.nonzero(diff)))
+            self.log.debug1("Issue in ox1 calculation for %d ops, len(ox1)=%d, %d elements differ"
+                            % (len(ops), len(self.ox1), len(np.nonzero(diff)[0])))
+            self.log.debug1("ox1     = %s" % self.ox1)
+            self.log.debug1("ox1_gpu = %s" % self.ox1_gpu)
+            self.log.debug1("nonzero = %s" % np.nonzero(diff))
             for op in ops:
               for key in op.spincase_keys:  #spincase_keys is a lookup table
                 op = opterm.reduce_spin (op, key[0], key[1])
                 key = tuple((key[0], key[1])) + key[2:]
                 brakets, bras, braHs = self.get_nonuniq_exc_square (key)
                 for bra in bras:
-                  i,j,_ = self.get_ox1_params(bra, *key[2:])  
-                  if np.allclose(self.ox1[i:j],self.ox1_gpu[i:j]) != True:
-                    print("Error in bras", i, j,flush=True)
-                    print(self.ox1[i:j])
-                    print(self.ox1_gpu[i:j])
-                    exit()
+                  i,j,_ = self.get_ox1_params(bra, *key[2:])
+                  if not np.allclose(self.ox1[i:j],self.ox1_gpu[i:j]):
+                    self.log.debug1("Error in bras %d %d" % (i, j))
+                    self.log.debug1("ox1     [%d:%d] = %s" % (i, j, self.ox1[i:j]))
+                    self.log.debug1("ox1_gpu [%d:%d] = %s" % (i, j, self.ox1_gpu[i:j]))
                 if len(braHs):
                   for bra in braHs:
-                    i,j,_ = self.get_ox1_params(bra, *key[2:])  
-                    if np.allclose(self.ox1[i:j],self.ox1_gpu[i:j]) != True:
-                      print("Error in braHs",flush=True)
+                    i,j,_ = self.get_ox1_params(bra, *key[2:])
+                    if not np.allclose(self.ox1[i:j],self.ox1_gpu[i:j]):
+                      self.log.debug1("Error in braHs %d %d" % (i, j))
             exit()
-          else: print("Correctly corrected", len(ops))
+          self.log.debug1("CPU and GPU ox1 agree for %d ops" % len(ops))
            
         elif use_gpu:
             #check if gpu is needed
@@ -521,7 +532,7 @@ class HamS2OvlpOperators (HamS2Ovlp):
         '''
 
         t0, w0 = logger.process_clock (), logger.perf_counter ()
-        op_debug = getattr (param, 'gpu_op_debug', False)
+        op_debug = self.log.verbose >= lib.logger.DEBUG1
         if op_debug:
           ox_final = self.ox1_gpu
           _opuniq_x = self._opuniq_x_debug
@@ -531,7 +542,7 @@ class HamS2OvlpOperators (HamS2Ovlp):
 
         ox_final[:] = 0 #of shape nstates
         from mrh.my_pyscf.gpu import libgpu
-        gpu = param.use_gpu
+        gpu = self._gpu
         self.total_vecsize=sum([vec.size for vec in vecs.values ()])
         #STEP 1 Init ox1 on pinned memory, also on gpu if size allows
         size_buf = max(self.nstates, self.total_vecsize)
@@ -663,7 +674,7 @@ class HamS2OvlpOperators (HamS2Ovlp):
         n_dots = max(len(bras), len(braHs))
         #STEP 3 Part 2
         from mrh.my_pyscf.gpu import libgpu
-        gpu = param.use_gpu
+        gpu = self._gpu
         #libgpu.bcast_vec(gpu, self.total_vecsize, n_dots)
         m, k = op.shape #m,k gemm
         libgpu.push_op(gpu, np.ascontiguousarray(op), m, k, n_dots) #inits and pushes on all devices
@@ -699,7 +710,7 @@ class HamS2OvlpOperators (HamS2Ovlp):
         n_dots = max(len(bras), len(braHs))
         #STEP 3 Part 2
         from mrh.my_pyscf.gpu import libgpu
-        gpu = param.use_gpu
+        gpu = self._gpu
         i,j,k,l = op.lroots_ket
         r,s,b,a,j,i = op.op.shape #op is an object, that contains op, d[2],d[3], lroots
         c,k,r = op.d[2].shape
@@ -765,7 +776,7 @@ class HamS2OvlpOperators (HamS2Ovlp):
 
         t0, w0 = logger.process_clock (), logger.perf_counter ()
         from mrh.my_pyscf.gpu import libgpu
-        gpu = param.use_gpu
+        gpu = self._gpu
 
         spec = np.ones (self.nfrags, dtype=bool)
         for i in inv: spec[i] = False
@@ -786,7 +797,7 @@ class HamS2OvlpOperators (HamS2Ovlp):
 
         t0, w0 = logger.process_clock (), logger.perf_counter ()
         from mrh.my_pyscf.gpu import libgpu
-        gpu = param.use_gpu
+        gpu = self._gpu
 
         spec = np.ones (self.nfrags, dtype=bool)
         for i in inv: spec[i] = False
@@ -813,7 +824,7 @@ class HamS2OvlpOperators (HamS2Ovlp):
                            r, s, op_t = False):
 
         from mrh.my_pyscf.gpu import libgpu
-        gpu = param.use_gpu
+        gpu = self._gpu
 
 
         spec = np.ones (self.nfrags, dtype=bool)
@@ -1465,7 +1476,8 @@ def gen_contract_op_si_hdiag (las, h1, h2, ci, nelec_frs, smult_fr=None, disc_fr
     outerprod = _HamS2Ovlp_class (ints, nlas, lroots, h1, h2,
                                   pt_order=pt_order, do_pt_order=do_pt_order,
                                   dtype=dtype, max_memory=max_memory, log=log,
-                                  screen_thresh=screen_thresh)
+                                  screen_thresh=screen_thresh,
+                                  use_gpu=resolve_device (las))
 
     if soc and not spin_pure:
         outerprod.spin_shuffle = spin_shuffle_fac

@@ -6,6 +6,7 @@ from pyscf import lib
 from pyscf.fci import cistring, rdm
 from pyscf.fci.addons import _unpack_nelec
 from mrh.my_pyscf.fci import dummy
+from mrh.my_pyscf.gpu.context import current_device
 from pyscf.lib import param
 from pyscf.fci import cistring
 
@@ -46,11 +47,8 @@ def _trans_rdm1hs (cre, cibra, ciket, norb, nelec, spin=0, link_index=None):
         tdm1h: ndarray of shape (norb,)
             One-half-particle transition density matrix between cibra and ciket.
     '''
-    try: 
-      use_gpu = param.use_gpu
-      gpu = use_gpu
-    except: 
-      use_gpu = None
+    use_gpu = current_device ()
+    gpu = use_gpu
     try: gpu_debug = param.gpu_debug
     except: gpu_debug = False
     try: custom_fci = param.custom_fci
@@ -98,7 +96,7 @@ def _trans_rdm1hs_o0(cre, cibra, ciket, norb, nelec, spin=0, link_index=None):
 
 def _trans_rdm1hs_o1(cre, cibra, ciket, norb, nelec, spin=0, link_index=None):
     from mrh.my_pyscf.gpu import libgpu
-    gpu=param.use_gpu
+    gpu = current_device ()
     nelec = list (_unpack_nelec (nelec))
     if not cre:
         cibra, ciket = ciket, cibra
@@ -180,11 +178,8 @@ def _trans_rdm13hs (cre, cibra, ciket, norb, nelec, spin=0, link_index=None, reo
             always first and the full electron always second:
             tdm3ha[r,p,q] = <cibra|r'p'q|ciket> or <cibra|p'qr|ciket>
     '''
-    try: 
-      use_gpu = param.use_gpu
-      gpu = use_gpu
-    except: 
-      use_gpu = None
+    use_gpu = current_device ()
+    gpu = use_gpu
     try: gpu_debug = param.gpu_debug
     except: gpu_debug = False
     try: custom_fci = param.custom_fci
@@ -252,7 +247,7 @@ def _trans_rdm13hs_o0(cre, cibra, ciket, norb, nelec, spin=0, link_index=None, r
 def _trans_rdm13hs_o5(cre, cibra, ciket, norb, nelec, spin=0, link_index=None, reorder=True):
     '''GPU accelerated _trand_rdm13hs with custom FCI kernel'''
     from mrh.my_pyscf.gpu import libgpu
-    gpu=param.use_gpu
+    gpu = current_device ()
     nelec = list (_unpack_nelec (nelec))
     if not cre:
         cibra, ciket = ciket, cibra
@@ -293,7 +288,7 @@ def _trans_rdm13hs_o5(cre, cibra, ciket, norb, nelec, spin=0, link_index=None, r
 def _trans_rdm13hs_o6(cre, cibra, ciket, norb, nelec, spin=0, link_index=None, reorder=True):
     '''GPU accelerated _trand_rdm13hs with custom FCI kernel'''
     from mrh.my_pyscf.gpu import libgpu
-    gpu=param.use_gpu
+    gpu = current_device ()
     nelec = list (_unpack_nelec (nelec))
     if not cre:
         cibra, ciket = ciket, cibra
@@ -369,11 +364,8 @@ def trans_sfudm1 (cibra, ciket, norb, nelec, link_index=None):
         sfudm1: ndarray of shape (norb,norb)
             Spin-flip up transition density matrix between cibra and ciket
     '''
-    try: 
-      use_gpu = param.use_gpu
-      gpu = use_gpu
-    except: 
-      use_gpu = None
+    use_gpu = current_device ()
+    gpu = use_gpu
     try: gpu_debug = param.gpu_debug
     except: gpu_debug = False
     try: custom_fci = param.custom_fci
@@ -416,7 +408,7 @@ def _trans_sfudm1_o0(cibra, ciket, norb, nelec, link_index=None):
 
 def _trans_sfudm1_o2(cibra,ciket,norb, nelec, link_index=None):
     from mrh.my_pyscf.gpu import libgpu
-    gpu=param.use_gpu
+    gpu = current_device ()
     nelec_ket = _unpack_nelec (nelec)
     nelec_bra = list (_unpack_nelec (nelec))
     nelec_bra[0] += 1
@@ -496,11 +488,8 @@ def trans_ppdm (cibra, ciket, norb, nelec, spin=0, link_index=None):
         ppdm: ndarray of shape (norb,norb)
             Pair-creation single-electron transition density matrix
     '''
-    try: 
-      use_gpu = param.use_gpu
-      gpu = use_gpu
-    except: 
-      use_gpu = None
+    use_gpu = current_device ()
+    gpu = use_gpu
     try: gpu_debug = param.gpu_debug
     except: gpu_debug = False
     try: custom_fci = param.custom_fci
@@ -553,7 +542,7 @@ def _trans_ppdm_o0(cibra, ciket, norb, nelec, spin = 0, link_index = None):
 
 def _trans_ppdm_o3(cibra, ciket, norb, nelec, spin = 0, link_index = None):
     from mrh.my_pyscf.gpu import libgpu
-    gpu=param.use_gpu
+    gpu = current_device ()
     s1 = int (spin>1)
     s2 = int (spin>0)
     ndum = 2 - (spin%2)

@@ -13,7 +13,7 @@ import time
 import itertools
 
 from tdm12s_performance import performance_checker as tdm12s_pc
-from tppdm_performance import performance_checker as tppdm_pc
+#from tppdm_performance import performance_checker as tppdm_pc
 from sfudm1_performance import performance_checker as sfudm1_pc
 from tdm13h_performance import performance_checker as tdm13h_pc
 
@@ -34,8 +34,7 @@ if __name__ == "__main__":
            K 0 0 10;
            K 0 0 12;'''
   basis = 'def2tzvp'
-  if gpu_run: mol = gto.M(use_gpu = gpu, atom=geom, basis=basis, verbose=1)
-  else: mol = gto.M(atom=geom, basis=basis, verbose=1)
+  mol = gto.M(atom=geom, basis=basis, verbose=1)
 
   mol.output='test.log'
   mol.build()
@@ -59,11 +58,11 @@ if __name__ == "__main__":
   param.use_gpu = gpu
   
   #TPPDM performance runs
-  for spin in range(3):
-    gpu_time, cpu_time = tppdm_pc(n_bra, n_ket, norb, nelec, spin, nruns = nruns)
-    print("For tppdm GPU time: ", round(gpu_time,2), "CPU time: ", round(cpu_time,2))
-    print("Speedup = ", round(cpu_time/gpu_time, 2))
-    param.use_gpu = gpu
+  #for spin in range(3):
+  #  gpu_time, cpu_time = tppdm_pc(n_bra, n_ket, norb, nelec, spin, nruns = nruns)
+  #  print("For tppdm GPU time: ", round(gpu_time,2), "CPU time: ", round(cpu_time,2))
+  #  print("Speedup = ", round(cpu_time/gpu_time, 2))
+  #  param.use_gpu = gpu
   
   #SFUDM performance runs
   gpu_time, cpu_time = sfudm1_pc( n_bra, n_ket, norb, nelec, nruns = nruns)

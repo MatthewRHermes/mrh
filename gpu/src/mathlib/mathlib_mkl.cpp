@@ -16,16 +16,13 @@ MATHLIB::MATHLIB(class PM_NS::PM * pm)
 MATHLIB::~MATHLIB()
 {
 #if defined(_PROFILE_ML)
-  printf("\nLIBGPU :: PROFILE_ML\n");
-  for(int i=0; i<profile_name.size(); ++i) {
-    printf("LIBGPU :: PROFILE_ML :: count= %i  name= %s\n", profile_count[i], profile_name[i].c_str());
-  }
+  profile_.dump();
 #endif
 }
 
 // ----------------------------------------------------------------
 
-void MATHLIB::memset(double * array, const int * num, const int * size)
+void MATHLIB::memset(double * array, const int * val, const int * size)
 {
 #ifdef _DEBUG_ML 
   printf("LIBGPU :: Inside MATHLIB::memset()\n");
@@ -34,9 +31,32 @@ void MATHLIB::memset(double * array, const int * num, const int * size)
   sycl::queue * q = pm_->dev_get_queue();
   
 #if 1
-  q->memset(array, *num, *size);
+  q->memset(array, *val, *size);
 #else
-  q->memset(array, *num, *size).wait();
+  q->memset(array, *val, *size).wait();
+#endif
+
+#ifdef _DEBUG_ML
+  pm_->dev_stream_wait();
+  printf("LIBGPU ::  -- Leaving MATHLIB::memset()\n");
+#endif
+
+}
+
+// ----------------------------------------------------------------
+
+void MATHLIB::memset(double * array, const int * val, const size_t * size)
+{
+#ifdef _DEBUG_ML 
+  printf("LIBGPU :: Inside MATHLIB::memset()\n");
+#endif
+
+  sycl::queue * q = pm_->dev_get_queue();
+  
+#if 1
+  q->memset(array, *val, *size);
+#else
+  q->memset(array, *val, *size).wait();
 #endif
 
 #ifdef _DEBUG_ML
@@ -87,20 +107,8 @@ void MATHLIB::gemv_batch(const char * transa,
 #endif
   
 #if defined(_PROFILE_ML)
-  std::ostringstream name_;
-  name_ << "gemv_batch " << transa << " " << transb << " " << *m << " " << *n << " " << *k << " "
-	<< *lda << " " << *ldb << " " << *ldc << " " << *alpha << " " << *beta << " " << *batchCount;
-  std::string name = name_.str();
-
-  auto it_ = std::find(profile_name.begin(), profile_name.end(), name);
-
-  int indx = it_ - profile_name.begin();
-
-  if(indx < profile_name.size()) profile_count[indx]++;
-  else {
-    profile_name.push_back(name);
-    profile_count.push_back(1);
-  }
+  profile_.record(ProfileML::gemv_batch(transa, *m, *n, *lda, *incx, *incy, *alpha, *beta,
+					*batchCount, *strideA, *strideX, *strideY));
 #endif
   
   sycl::queue * q = pm_->dev_get_queue();
@@ -139,22 +147,8 @@ void MATHLIB::gemv(const char * transa,
   printf("LIBGPU :: Inside MATHLIB::gemv()\n");
 #endif
 
-//#if defined(_PROFILE_ML)
-#if 0
-  std::ostringstream name_;
-  name_ << "gemv " << transa << " "  << *m << " " << *n << " "
-	<< *lda << " " << *ldb << " " << *ldc << " " << *alpha << " " << *beta;
-  std::string name = name_.str();
-
-  auto it_ = std::find(profile_name.begin(), profile_name.end(), name);
-
-  int indx = it_ - profile_name.begin();
-
-  if(indx < profile_name.size()) profile_count[indx]++;
-  else {
-    profile_name.push_back(name);
-    profile_count.push_back(1);
-  }
+#if defined(_PROFILE_ML)
+  profile_.record(ProfileML::gemv(transa, *m, *n, *lda, *incx, *incy, *alpha, *beta));
 #endif
   
   sycl::queue * q = pm_->dev_get_queue();
@@ -191,20 +185,7 @@ void MATHLIB::gemm(const char * transa, const char * transb,
 #endif
 
 #if defined(_PROFILE_ML)
-  std::ostringstream name_;
-  name_ << "gemm " << transa << " " << transb << " " << *m << " " << *n << " " << *k << " "
-	<< *lda << " " << *ldb << " " << *ldc << " " << *alpha << " " << *beta;
-  std::string name = name_.str();
-
-  auto it_ = std::find(profile_name.begin(), profile_name.end(), name);
-
-  int indx = it_ - profile_name.begin();
-
-  if(indx < profile_name.size()) profile_count[indx]++;
-  else {
-    profile_name.push_back(name);
-    profile_count.push_back(1);
-  }
+  profile_.record(ProfileML::gemm(transa, transb, *m, *n, *k, *lda, *ldb, *ldc, *alpha, *beta));
 #endif
   
   sycl::queue * q = pm_->dev_get_queue();
@@ -247,20 +228,8 @@ void MATHLIB::gemm_batch(const char * transa, const char * transb,
 #endif
   
 #if defined(_PROFILE_ML)
-  std::ostringstream name_;
-  name_ << "gemm_batch " << transa << " " << transb << " " << *m << " " << *n << " " << *k << " "
-	<< *lda << " " << *ldb << " " << *ldc << " " << *alpha << " " << *beta << " " << *batchCount;
-  std::string name = name_.str();
-
-  auto it_ = std::find(profile_name.begin(), profile_name.end(), name);
-
-  int indx = it_ - profile_name.begin();
-
-  if(indx < profile_name.size()) profile_count[indx]++;
-  else {
-    profile_name.push_back(name);
-    profile_count.push_back(1);
-  }
+  profile_.record(ProfileML::gemm_batch(transa, transb, *m, *n, *k, *lda, *ldb, *ldc, *alpha, *beta,
+					*batchCount, *strideA, *strideB, *strideC));
 #endif
   
   sycl::queue * q = pm_->dev_get_queue();

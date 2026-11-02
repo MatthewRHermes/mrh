@@ -24,6 +24,7 @@ if gpu_run:
     from gpu4mrh import patch_pyscf
     from mrh.my_pyscf.gpu import libgpu
     gpu=libgpu.init()
+    lib.param.use_gpu = gpu
 
 def impham_cpu_original(self, imporb_coeff, return_4c2eeri):
     mf = self._scf

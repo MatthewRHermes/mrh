@@ -631,8 +631,13 @@ class FragTDMInt (object):
         tdm1s = np.zeros ((bravecs.shape[0],ketvecs.shape[0],2,norb,norb), dtype=self.dtype)
         tdm2s = np.zeros ((bravecs.shape[0],ketvecs.shape[0],4,norb,norb,norb,norb),dtype=self.dtype)
         from pyscf.lib import param
-        try: mgpu_fci = param.mgpu_fci
-        except: mgpu_fci = False
+        from mrh.my_pyscf.gpu.context import current_device
+        # mgpu_fci is a global flag on pyscf.lib.param and can outlive the libgpu
+        # device handle it was set alongside. Only take the GPU path when a
+        # device is actually active: libgpu's bindings dereference the handle
+        # without a null check, so a stale True here segfaults rather than
+        # raising.
+        mgpu_fci = getattr (param, 'mgpu_fci', False) and current_device () is not None
         #try: mgpu_fci_debug = param.mgpu_fci_debug
         #except: mgpu_fci_debug = False
         #if mgpu_fci and mgpu_fci_debug:
@@ -667,8 +672,13 @@ class FragTDMInt (object):
         tdm1h = np.zeros ((bravecs.shape[0],ketvecs.shape[0],norb), dtype=self.dtype)
         tdm3h = np.zeros ((bravecs.shape[0],ketvecs.shape[0],2,norb,norb,norb),dtype=self.dtype)
         from pyscf.lib import param
-        try: mgpu_fci = param.mgpu_fci
-        except: mgpu_fci = False
+        from mrh.my_pyscf.gpu.context import current_device
+        # mgpu_fci is a global flag on pyscf.lib.param and can outlive the libgpu
+        # device handle it was set alongside. Only take the GPU path when a
+        # device is actually active: libgpu's bindings dereference the handle
+        # without a null check, so a stale True here segfaults rather than
+        # raising.
+        mgpu_fci = getattr (param, 'mgpu_fci', False) and current_device () is not None
         #try: mgpu_fci_debug = param.mgpu_fci_debug
         #except: mgpu_fci_debug = False
         #if mgpu_fci and mgpu_fci_debug:
@@ -702,8 +712,13 @@ class FragTDMInt (object):
     def _trans_sfddm_loop(self, bravecs, ketvecs, norb, nelec_ket, linkstr):
         sfddm = np.zeros ((bravecs.shape[0],ketvecs.shape[0],norb,norb), dtype=self.dtype)
         from pyscf.lib import param
-        try: mgpu_fci = param.mgpu_fci
-        except: mgpu_fci = False
+        from mrh.my_pyscf.gpu.context import current_device
+        # mgpu_fci is a global flag on pyscf.lib.param and can outlive the libgpu
+        # device handle it was set alongside. Only take the GPU path when a
+        # device is actually active: libgpu's bindings dereference the handle
+        # without a null check, so a stale True here segfaults rather than
+        # raising.
+        mgpu_fci = getattr (param, 'mgpu_fci', False) and current_device () is not None
         #try: mgpu_fci_debug = param.mgpu_fci_debug
         #except: mgpu_fci_debug = False
         #if mgpu_fci and mgpu_fci_debug:
@@ -731,8 +746,13 @@ class FragTDMInt (object):
     def _trans_hhdm_loop(self, bravecs, ketvecs, norb, nelec_ket, spin, linkstr):
         hhdm = np.zeros ((bravecs.shape[0],ketvecs.shape[0],norb,norb), dtype=self.dtype)
         from pyscf.lib import param
-        try: mgpu_fci = param.mgpu_fci
-        except: mgpu_fci = False
+        from mrh.my_pyscf.gpu.context import current_device
+        # mgpu_fci is a global flag on pyscf.lib.param and can outlive the libgpu
+        # device handle it was set alongside. Only take the GPU path when a
+        # device is actually active: libgpu's bindings dereference the handle
+        # without a null check, so a stale True here segfaults rather than
+        # raising.
+        mgpu_fci = getattr (param, 'mgpu_fci', False) and current_device () is not None
         #try: mgpu_fci_debug = param.mgpu_fci_debug
         #except: mgpu_fci_debug = False
         #if mgpu_fci and mgpu_fci_debug:

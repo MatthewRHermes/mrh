@@ -824,6 +824,12 @@ class LASSI(lib.StreamObject):
         self.stdout, self.verbose, self.chkfile = las.stdout, las.verbose, las.chkfile
         # General config data from las parent
         self.max_memory = las.max_memory
+        # Device handle from las parent. LASSI.__init__ deliberately does not copy
+        # las.__dict__, so without this the parent LASSCF's use_gpu would never be
+        # consulted by resolve_device(self) (e.g. op_o1 hsi) and only mol.use_gpu
+        # would survive. None is stored as-is: object_device treats it the same as
+        # an absent record and falls back to context/global.
+        self.use_gpu = getattr (las, 'use_gpu', None)
         keys = set(('e_roots', 'si', 's2', 'nelec', 'wfnsym', 'rootsym', 'break_symmetry', 'soc', 'opt'))
         self.e_roots = None
         self.si = None

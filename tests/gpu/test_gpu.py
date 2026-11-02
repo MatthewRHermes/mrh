@@ -14,30 +14,31 @@ def tearDownModule():
     del nfrags, basis
 
 def _run_mod (gpu_run):
+    from pyscf.lib import param
     if gpu_run: 
         from mrh.my_pyscf.gpu import libgpu
         from gpu4mrh import patch_pyscf
         gpu = libgpu.init()
-        from pyscf.lib import param
         param.use_gpu = gpu
         outputfile=str(nfrags)+'_'+str(basis)+'_out_gpu_ref.log';
-        mol=gto.M(atom=generator(nfrags),basis=basis,verbose=4,output=outputfile, use_gpu=gpu)
     else: 
+        param.use_gpu = None
         outputfile=str(nfrags)+'_'+str(basis)+'_out_cpu_ref.log';
+    try:
         mol=gto.M(atom=generator(nfrags),basis=basis,verbose=4,output=outputfile)
-    mf=scf.RHF(mol)
-    mf=mf.density_fit()
-    mf.run()
-    if gpu_run: 
-        las=LASSCF(mf, list((2,)*nfrags),list((2,)*nfrags),verbose=4,use_gpu=gpu)
-    else:
+        mf=scf.RHF(mol)
+        mf=mf.density_fit()
+        mf.run()
         las=LASSCF(mf, list((2,)*nfrags),list((2,)*nfrags),verbose=4)
-    frag_atom_list=[list(range(1+4*nfrag,3+4*nfrag)) for nfrag in range(nfrags)]
-    ncas,nelecas,guess_mo_coeff=avas.kernel(mf, ["C 2pz"])
-    mo_coeff=las.set_fragments_(frag_atom_list, guess_mo_coeff)
-    las.kernel(mo_coeff)
-    if gpu_run: libgpu.destroy_device(gpu)
-    return mf, las
+        frag_atom_list=[list(range(1+4*nfrag,3+4*nfrag)) for nfrag in range(nfrags)]
+        ncas,nelecas,guess_mo_coeff=avas.kernel(mf, ["C 2pz"])
+        mo_coeff=las.set_fragments_(frag_atom_list, guess_mo_coeff)
+        las.kernel(mo_coeff)
+        return mf, las
+    finally:
+        if gpu_run:
+            libgpu.destroy_device(gpu)
+            param.use_gpu = None
 
 class KnownValues (unittest.TestCase):
 

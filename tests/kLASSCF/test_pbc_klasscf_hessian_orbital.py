@@ -320,7 +320,8 @@ class KnownValues(unittest.TestCase):
         with patch.object(
                 klasscf.kpts_helper, "get_kconserv",
                 return_value=kconserv), patch.object(
-                klasscf, "_get_casdm2_kpts", side_effect=transform):
+                klasscf, "transform_casdm2_kpts",
+                side_effect=_batch_transform_fixture(transform)):
             actual = operator._get_Horb_diag_external()
 
         expected = _external_diagonal_reference(operator, dm2_blocks)
