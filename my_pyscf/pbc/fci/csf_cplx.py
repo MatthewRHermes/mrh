@@ -300,6 +300,12 @@ def pspace(fci, h1e, eri, norb, nelec, transformer,
     # The C routine stores <bra|H|ket> in the transposed slot [ket,bra], so the lower
     # triangle of the Hermitian H_imag is the transposed upper triangle, with the sign
     # flipped: H_imag is antisymmetric with a zero diagonal.
+    # WARNING: This compensates for a known bug in csf_fci (the C routine
+    # FCICSFpspace_h0tril): it correctly computes the lower-triangular elements
+    # but stores them in the upper-triangular slots. If csf_fci is ever fixed, the pspace tests
+    # (e.g. tests/pbc/test_pbc_csf_pspace.py) will fail in the weekly full test
+    # run; the solution is then just to reverse the sign here, i.e.
+    # h0imag = h0imag - h0imag.T.
     h0imag = h0imag.T - h0imag
 
     h0 = h0real.astype(h1e.dtype)
