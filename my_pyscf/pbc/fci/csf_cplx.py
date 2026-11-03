@@ -282,8 +282,8 @@ def pspace(fci, h1e, eri, norb, nelec, transformer,
     _debug_g2e(fci, eri, eri, norb)
     t0 = lib.logger.timer_debug1(fci, "csf.pspace: index manipulation", *t0)
 
-    def _build_h0_upper(h1e_c, h1e_s, g2e):
-        '''Real CSF-basis matrix elements for real integrals. Only the upper triangle is filled.'''
+    def _build_h0_tril(h1e_c, h1e_s, g2e):
+        '''Real CSF-basis matrix elements for real integrals. Only the strict lower triangle (bra<ket) is filled.'''
         h0 = np.zeros((npsp_csf, npsp_csf), dtype=np.float64)
         h1e_c = np.ascontiguousarray(h1e_c, dtype=np.float64)
         h1e_s = np.ascontiguousarray(h1e_s, dtype=np.float64)
@@ -294,19 +294,13 @@ def pspace(fci, h1e, eri, norb, nelec, transformer,
             ctypes.c_size_t(npsp_csf), ctypes.c_uint(norb), ctypes.c_int(spin))
         return h0
 
-    h0real = _build_h0_upper(h1e_c.real, h1e_s.real, eri.real)
+    h0real = _build_h0_tril(h1e_c.real, h1e_s.real, eri.real)
     h0real += h0real.T
-    h0imag = _build_h0_upper(h1e_c.imag, h1e_s.imag, eri.imag)
-    # The C routine stores <bra|H|ket> in the transposed slot [ket,bra], so the lower
-    # triangle of the Hermitian H_imag is the transposed upper triangle, with the sign
-    # flipped: H_imag is antisymmetric with a zero diagonal.
-    # WARNING: This compensates for a known bug in csf_fci (the C routine
-    # FCICSFpspace_h0tril): it correctly computes the lower-triangular elements
-    # but stores them in the upper-triangular slots. If csf_fci is ever fixed, the pspace tests
-    # (e.g. tests/pbc/test_pbc_csf_pspace.py) will fail in the weekly full test
-    # run; the solution is then just to reverse the sign here, i.e.
-    # h0imag = h0imag - h0imag.T.
-    h0imag = h0imag.T - h0imag
+    h0imag = _build_h0_tril(h1e_c.imag, h1e_s.imag, eri.imag)
+    # The C routine stores <bra|H|ket> for bra<ket in the lower triangle [bra,ket] of h0, so
+    # the upper triangle of the Hermitian H_imag is the transposed lower triangle with the
+    # sign flipped: H_imag is antisymmetric with a zero diagonal.
+    h0imag = h0imag - h0imag.T
 
     h0 = h0real.astype(h1e.dtype)
     h0.imag = h0imag
