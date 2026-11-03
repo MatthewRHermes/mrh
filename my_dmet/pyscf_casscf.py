@@ -80,7 +80,12 @@ def solve (frag, guess_1RDM, chempot_imp):
     else:
         mol.stdout = frag.mol_stdout
         mol.verbose = 0 if frag.mol_output is None else lib.logger.DEBUG
-    if frag.enforce_symmetry: mol.symmetry = True
+    if frag.enforce_symmetry:
+        mol.symmetry = True
+        mol.groupname  = frag.symmetry
+        mol.symm_orb   = get_subspace_symmetry_blocks (frag.loc2imp, frag.loc2symm)
+        mol.irrep_name = frag.ir_names
+        mol.irrep_id   = frag.ir_ids
     #mol.incore_anyway = True
     mf = scf.RHF(mol)
     mf.get_hcore = lambda *args: OEI
