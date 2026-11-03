@@ -2,7 +2,7 @@ import numpy as np
 from pyscf import gto, scf, mcscf
 from pyscf.lib import chkfile
 from pyscf.data import nist
-from mrh.my_pyscf.mcscf.lasscf_o0 import LASSCF
+from mrh.my_pyscf.mcscf.lasscf_sync_o0 import LASSCF
 from mrh.my_pyscf import lassi
 
 au2cm = nist.HARTREE2J / nist.PLANCK / nist.LIGHT_SPEED_SI * 1e-2

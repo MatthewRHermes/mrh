@@ -2,7 +2,7 @@ import numpy as np
 from pyscf import gto, scf, mcscf, lib
 from pyscf.lib import chkfile
 from pyscf.mcscf import avas
-from mrh.my_pyscf.mcscf.lasscf_o0 import LASSCF
+from mrh.my_pyscf.mcscf.lasscf_sync_o0 import LASSCF
 from mrh.my_pyscf import lassi
 
 xyz='''Cr    -1.320780000000   0.000050000000  -0.000070000000

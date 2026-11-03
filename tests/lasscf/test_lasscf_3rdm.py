@@ -10,7 +10,7 @@ import unittest
 
 from pyscf import scf, gto, df, lib, fci
 from pyscf import mcscf
-from mrh.my_pyscf.mcscf.lasscf_o0 import LASSCF
+from mrh.my_pyscf.mcscf.lasscf_sync_o0 import LASSCF
 from mrh.my_pyscf.mcscf.addons import las2cas_civec
 import numpy as np
 

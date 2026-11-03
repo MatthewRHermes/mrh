@@ -20,7 +20,7 @@ import numpy as np
 from pyscf import lib, gto, scf, dft, fci, mcscf, df
 from pyscf.mcscf import newton_casscf
 from me2n2_struct import structure as struct
-from mrh.my_pyscf.mcscf.lasscf_o0 import LASSCF
+from mrh.my_pyscf.mcscf.lasscf_sync_o0 import LASSCF
 
 def setUpModule():
     global mol, mf, mf_df, mc, mc_df, mol_hs, mf_hs, mf_hs_df

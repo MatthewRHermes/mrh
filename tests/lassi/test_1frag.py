@@ -5,7 +5,7 @@ from pyscf import lib, gto, scf, dft, fci, mcscf, df
 from pyscf.mcscf.addons import state_average_mix
 from mrh.my_pyscf.fci import csf_solver
 from mrh.tests.lasscf.me2n2_struct import structure as struct
-from mrh.my_pyscf.mcscf.lasscf_o0 import LASSCF
+from mrh.my_pyscf.mcscf.lasscf_sync_o0 import LASSCF
 from mrh.my_pyscf import lassi
 from mrh.my_pyscf.lassi.sitools import make_sdm1
 from mrh.my_pyscf.lassi.lassi import roots_trans_rdm12s

@@ -3,7 +3,7 @@ import sys
 import unittest
 from pyscf import mcscf
 from pyscf.pbc import gto, scf
-from mrh.my_pyscf.mcscf.lasscf_o0 import LASSCFNoSymm as LASSCF
+from mrh.my_pyscf.mcscf.lasscf_sync_o0 import LASSCFNoSymm as LASSCF
 
 class KnownValues(unittest.TestCase):
     def test_h2(self):

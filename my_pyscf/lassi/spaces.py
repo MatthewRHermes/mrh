@@ -905,7 +905,7 @@ def list_spaces (las):
 
 if __name__=='__main__':
     from mrh.tests.lasscf.c2h4n4_struct import structure as struct
-    from mrh.my_pyscf.mcscf.lasscf_o0 import LASSCF
+    from mrh.my_pyscf.mcscf.lasscf_sync_o0 import LASSCF
     from mrh.my_pyscf.fci import csf_solver
     from pyscf import scf, mcscf
     from pyscf.tools import molden

@@ -1,7 +1,7 @@
 import numpy as np
 from pyscf import gto, scf, lib
 from c2h4n4_struct import structure as struct
-from mrh.my_pyscf.mcscf.lasscf_o0 import LASSCF as LASSCFci
+from mrh.my_pyscf.mcscf.lasscf_sync_o0 import LASSCF as LASSCFci
 from mrh.my_pyscf.mcscf.lasscf_rdm import LASSCF, make_fcibox
 
 mol = struct (3.0, 3.0, '6-31g', symmetry=False)

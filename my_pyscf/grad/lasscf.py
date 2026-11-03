@@ -43,7 +43,7 @@ from pyscf.grad import casci as casci_grad
 from pyscf.grad import rhf as rhf_grad  # noqa
 from pyscf.grad.mp2 import _shell_prange
 from pyscf.mcscf.addons import StateAverageMCSCFSolver
-from mrh.my_pyscf.mcscf.lasscf_o0 import LASSCF
+from mrh.my_pyscf.mcscf.lasscf_sync_o0 import LASSCF
 
 def grad_elec(las_grad, mo_coeff=None, ci=None, atmlst=None, verbose=None):
     las =las_grad.base

@@ -8,7 +8,7 @@ from mrh.my_pyscf.fci import csf_solver
 from mrh.my_pyscf.mcscf import lassi_dms
 from mrh.my_pyscf.mcscf.soc_int import compute_hso, amfi_dm
 from mrh.my_pyscf.lassi.op_o0 import si_soc, ci_outer_product
-from mrh.my_pyscf.mcscf.lasscf_o0 import LASSCF
+from mrh.my_pyscf.mcscf.lasscf_sync_o0 import LASSCF
 from mrh.my_pyscf.lassi.lassi import make_stdm12s, roots_make_rdm12s, ham_2q
 import itertools
 

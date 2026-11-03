@@ -4,7 +4,7 @@ H2 in one full fragment, must be same as CASSCF (2,2)
 '''
 
 from pyscf import gto, scf, lib, geomopt
-from mrh.my_pyscf.mcscf.lasscf_o0 import LASSCF
+from mrh.my_pyscf.mcscf.lasscf_sync_o0 import LASSCF
 
 mol = gto.Mole()
 mol.atom = '''H  0 0 0; H 1 1 1'''

@@ -20,7 +20,7 @@ from scipy import linalg
 from pyscf import lib, gto, scf, mcscf
 from pyscf.fci.direct_spin1 import _unpack_nelec
 from mrh.my_pyscf.fci import csf_solver
-from mrh.my_pyscf.mcscf.lasscf_o0 import LASSCF
+from mrh.my_pyscf.mcscf.lasscf_sync_o0 import LASSCF
 from mrh.my_pyscf.lassi import LASSI, op_o0, op_o1
 from mrh.my_pyscf.lassi.lassi import root_make_rdm12s, make_stdm12s
 from mrh.my_pyscf.lassi.spaces import all_single_excitations

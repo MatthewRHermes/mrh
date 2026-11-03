@@ -20,7 +20,7 @@ from pyscf import gto, scf, mcscf, df
 from pyscf.lib import chkfile
 from pyscf.mcscf import avas
 from pyscf.data import nist
-from mrh.my_pyscf.mcscf.lasscf_o0 import LASSCF
+from mrh.my_pyscf.mcscf.lasscf_sync_o0 import LASSCF
 from mrh.my_pyscf.mcscf import lasscf_async
 from mrh.tests.lasscf.c2h4n4_struct import structure as struct
 from mrh.my_pyscf import lassi

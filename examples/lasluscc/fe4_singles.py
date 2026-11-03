@@ -11,7 +11,7 @@ from pyscf.mcscf import avas
 from mrh.exploratory.luscc import LUSCC
 from mrh.my_pyscf.lassi import LASSI
 from mrh.my_pyscf.lassi.spaces import spin_shuffle, spin_shuffle_ci
-from mrh.my_pyscf.mcscf.lasscf_o0 import LASSCF
+from mrh.my_pyscf.mcscf.lasscf_sync_o0 import LASSCF
 
 
 spins = range(1, 10)  # Use [1] for one spin, or range(10) to include S=0.

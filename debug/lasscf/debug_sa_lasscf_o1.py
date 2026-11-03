@@ -14,7 +14,7 @@ _debug_full_pspace = True
 _debug_o0 = False
 
 mol = struct (2.0, 2.0, '6-31g', symmetry=False)
-mol.output = 'sa_lasscf_o0.log'
+mol.output = 'sa_lasscf_sync_o0.log'
 mol.verbose = lib.logger.DEBUG
 mol.build ()
 mf = scf.RHF (mol).run ()

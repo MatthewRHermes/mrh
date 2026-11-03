@@ -1,6 +1,6 @@
 from pyscf import gto, scf, lib, df
 from c2h4n4_struct import structure as struct
-from mrh.my_pyscf.mcscf.lasscf_o0 import LASSCF
+from mrh.my_pyscf.mcscf.lasscf_sync_o0 import LASSCF
 
 lib.logger.TIMER_LEVEL = lib.logger.INFO
 mol = struct (3.0, 3.0, 'cc-pvtz', symmetry=False)

@@ -1160,7 +1160,7 @@ if __name__=='__main__':
     mol.output = 'lasscf_async_crunch.log'
     mol.build ()
     mf = scf.RHF (mol).run ()
-    from mrh.my_pyscf.mcscf.lasscf_o0 import LASSCF
+    from mrh.my_pyscf.mcscf.lasscf_sync_o0 import LASSCF
     las = LASSCF (mf, (4,4), ((4,0),(0,4)), spin_sub=(5,5))
     mo = las.localize_init_guess ((list (range (3)), list (range (9,12))), mf.mo_coeff)
     las.state_average_(weights=[1,0,0,0,0],

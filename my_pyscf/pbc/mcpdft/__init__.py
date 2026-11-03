@@ -228,7 +228,7 @@ def LASSCFPDFT(mc_or_mf, ot, ncas_sub=None, nelecas_sub=None, ncore=None,
         ncas_sub = getattr(mc_or_mf, "ncas_sub", None)
     if nelecas_sub is None:
         nelecas_sub = getattr(mc_or_mf, "nelecas_sub", None)
-    from mrh.my_pyscf.mcscf.lasscf_o0 import LASSCF as MolecularLASSCF
+    from mrh.my_pyscf.mcscf.lasscf_sync_o0 import LASSCF as MolecularLASSCF
     return _laspdftEnergy(
         MolecularLASSCF,
         mc_or_mf,
