@@ -1,5 +1,5 @@
 from pyscf import gto, scf, mcscf, lib
-from mrh.my_pyscf.fci import csf_solver
+from pyscf.csf_fci import csf_solver
 from mrh.my_pyscf.tools.molcas2pyscf import *
 from mrh.my_pyscf.grad.sacasscf_nacs import NonAdiabaticCouplings
 

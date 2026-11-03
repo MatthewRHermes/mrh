@@ -5,9 +5,9 @@ from pyscf.mcscf import casci, casci_symm, df
 from pyscf.tools import dump_mat
 from pyscf import symm, gto, scf, ao2mo, lib
 from pyscf.fci.direct_spin1 import _unpack_nelec
+from pyscf.csf_fci import csf_solver
 from mrh.my_pyscf.mcscf.addons import state_average_n_mix, get_h1e_zipped_fcisolver, las2cas_civec
 from mrh.my_pyscf.mcscf import _DFLASCI, lasscf_guess, las_ao2mo
-from mrh.my_pyscf.fci import csf_solver
 from mrh.my_pyscf.gpu.context import gpu_scope
 from mrh.my_pyscf.df.sparse_df import sparsedf_array
 from mrh.my_pyscf.mcscf import chkfile

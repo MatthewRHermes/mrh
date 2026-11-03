@@ -4,7 +4,7 @@ from pyscf.fci import cistring
 from pyscf.fci.addons import _unpack_nelec
 from pyscf.fci.direct_spin1 import make_rdm12s
 from mrh.my_pyscf.mcpdft._dms import dm2_cumulant
-from mrh.my_pyscf.fci.csfstring import CSFTransformer
+from pyscf.csf_fci.csfstring import CSFTransformer
 
 def random_ci_vector (norb, nelec, csf=False, csf_off=0):
     neleca, nelecb = _unpack_nelec (nelec)

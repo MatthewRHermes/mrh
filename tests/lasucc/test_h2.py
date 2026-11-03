@@ -1,6 +1,6 @@
 import numpy as np
 from pyscf import gto, scf, mcscf, lib
-from mrh.my_pyscf.fci import csf_solver
+from pyscf.csf_fci import csf_solver
 from mrh.exploratory.unitary_cc import uccsd_sym0
 from mrh.exploratory.unitary_cc import uccsd_sym1
 import unittest, math

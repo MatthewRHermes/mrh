@@ -3,7 +3,7 @@ import numpy as np
 from scipy import linalg
 from pyscf import gto, scf, df
 from pyscf import mcpdft
-#from mrh.my_pyscf.fci import csf_solver
+#from pyscf.csf_fci import csf_solver
 #from mrh.my_pyscf.df.grad import dfmcpdft as mcpdft_grad
 import unittest
 topdir = os.path.abspath (os.path.join (__file__, '..'))

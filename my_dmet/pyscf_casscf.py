@@ -43,7 +43,7 @@ from mrh.util.tensors import symmetrize_tensor
 from mrh.my_dmet.pyscf_rhf import fix_my_RHF_for_nonsinglet_env
 from mrh.my_pyscf import mcscf as my_mcscf
 from mrh.my_pyscf.scf import hf_as
-from mrh.my_pyscf.fci import csf_solver
+from pyscf.csf_fci import csf_solver
 from mrh.my_pyscf.mcscf import fix_ci_response_csf
 from functools import reduce, partial
 

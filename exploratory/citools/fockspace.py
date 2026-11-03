@@ -4,7 +4,7 @@ from pyscf.fci import cistring
 from pyscf.fci.direct_spin1 import _unpack_nelec
 from itertools import product
 from mrh.my_pyscf.lassi.op_o1.utilities import fermion_spin_shuffle as _fss
-from mrh.my_pyscf.fci.csfstring import CSFTransformer
+from pyscf.csf_fci.csfstring import CSFTransformer
 
 MAX_NORB = 24 # for now
 ADDRS_NELEC = np.array ([0], dtype=np.uint8)

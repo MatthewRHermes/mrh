@@ -7,7 +7,7 @@ from pyscf import scf, gto, lib, mcscf, df
 from pyscf import mcpdft
 from pyscf.df.grad import mcpdft as mcpdft_grad
 from mrh.my_pyscf.grad import numeric as numeric_grad
-from mrh.my_pyscf.fci import csf_solver
+from pyscf.csf_fci import csf_solver
 
 def bond_length (carts, i, j):
     return linalg.norm (carts[i] - carts[j])

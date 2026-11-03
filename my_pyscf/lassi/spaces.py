@@ -6,11 +6,11 @@ from pyscf.lib import logger, issequence
 from pyscf.lo.orth import vec_lowdin
 from pyscf import symm, __config__
 from mrh.my_pyscf.lib.logger import select_log_printer
-from mrh.my_pyscf.fci import csf_solver
+from pyscf.csf_fci import csf_solver
 from mrh.my_pyscf.fci.spin_op import contract_sdown, contract_sup, mdown, mup
 from mrh.my_pyscf.fci.spin_op import norm_sdown, norm_sup
-from mrh.my_pyscf.fci.csfstring import CSFTransformer
-from mrh.my_pyscf.fci.csfstring import ImpossibleSpinError
+from pyscf.csf_fci.csfstring import CSFTransformer
+from pyscf.csf_fci.csfstring import ImpossibleSpinError
 from mrh.my_pyscf.mcscf.productstate import ImpureProductStateFCISolver
 import itertools
 
@@ -906,7 +906,7 @@ def list_spaces (las):
 if __name__=='__main__':
     from mrh.tests.lasscf.c2h4n4_struct import structure as struct
     from mrh.my_pyscf.mcscf.lasscf_sync_o0 import LASSCF
-    from mrh.my_pyscf.fci import csf_solver
+    from pyscf.csf_fci import csf_solver
     from pyscf import scf, mcscf
     from pyscf.tools import molden
     mol = struct (2.0, 2.0, '6-31g', symmetry=False)

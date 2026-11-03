@@ -5,7 +5,7 @@ import copy
 from mrh.my_pyscf.mcscf import lasscf_sync_o0
 from mrh.my_pyscf.lassi import lassis, op_o0, op_o1
 from mrh.my_pyscf.lassi.spaces import list_spaces
-from mrh.my_pyscf.fci.csfstring import CSFTransformer
+from pyscf.csf_fci.csfstring import CSFTransformer
 from mrh.my_pyscf.fci.spin_op import mup
 
 op = (op_o0, op_o1)

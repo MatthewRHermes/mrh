@@ -1,7 +1,7 @@
 import pyscf
 from pyscf import scf, gto, mcscf, lib
 import numpy as np
-#from mrh.my_pyscf.fci import csf_solver
+#from pyscf.csf_fci import csf_solver
 from pyscf.mcdcft import mcdcft
 
 '''

@@ -1,6 +1,6 @@
 from pyscf import gto, mcscf, scf, fci, dft
 from mrh.my_pyscf.mcpdft import mcpdft, otfnal
-from mrh.my_pyscf.fci import csf_solver
+from pyscf.csf_fci import csf_solver
 import numpy as np
 from math import sqrt
 from pyscf.fci.spin_op import spin_square0

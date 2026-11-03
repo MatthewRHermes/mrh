@@ -12,7 +12,7 @@ from itertools import combinations
 from mrh.my_pyscf.mcscf import soc_int as soc_int
 from mrh.my_pyscf.lassi import citools
 from mrh.my_pyscf.lassi import dms as lassi_dms
-from mrh.my_pyscf.fci.csf import unpack_h1e_cs
+from pyscf.csf_fci.csf import unpack_h1e_cs
 
 def memcheck (las, ci, soc=None):
     '''Check if the system has enough memory to run these functions! ONLY checks

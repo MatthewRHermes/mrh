@@ -1,6 +1,6 @@
 from pyscf import gto, scf, lib, mcscf
 from pyscf.mcdcft import mcdcft, dcfnal
-#from mrh.my_pyscf.fci import csf_solver
+#from pyscf.csf_fci import csf_solver
 import unittest
 import tempfile
 import os

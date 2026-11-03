@@ -1,7 +1,7 @@
 import numpy as np
 import unittest
 from pyscf import gto, scf, mcscf, lib
-from mrh.my_pyscf.fci import csf_solver
+from pyscf.csf_fci import csf_solver
 from mrh.my_pyscf.mcscf.addons import state_average_n_mix
 
 def setUpModule():

@@ -1,5 +1,5 @@
 from pyscf import gto, scf, lib, mcscf
-from mrh.my_pyscf.fci import csf_solver
+from pyscf.csf_fci import csf_solver
 from mrh.my_pyscf.mcscf.lasscf_sync_o0 import LASSCF
 from mrh.my_pyscf import lassi
 from mrh.my_pyscf import mcpdft

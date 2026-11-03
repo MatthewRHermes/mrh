@@ -205,7 +205,7 @@ if __name__ == '__main__':
         def __exit__(self, etype, value, traceback):
             os.chdir(self.savedPath)
     from mrh.tests.lasscf.me2n2_struct import structure as struct
-    from mrh.my_pyscf.fci import csf_solver
+    from pyscf.csf_fci import csf_solver
     with cd ("/home/herme068/gits/mrh/tests/lasscf"):
         mol = struct (2.0, '6-31g')
     mol.output = 'lasscf_sync_o0.log'

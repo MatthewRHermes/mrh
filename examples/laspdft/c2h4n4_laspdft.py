@@ -1,5 +1,5 @@
 from pyscf import gto, scf, lib, mcscf, mcpdft
-from mrh.my_pyscf.fci import csf_solver
+from pyscf.csf_fci import csf_solver
 from mrh.my_pyscf.mcscf.lasscf_sync_o0 import LASSCF
 from mrh.my_pyscf.tools.molden import from_lasscf
 from c2h4n4_struct import structure as struct

@@ -3,7 +3,7 @@ import unittest
 import numpy as np
 from pyscf import lib, gto, scf, dft, fci, mcscf, df
 from pyscf.mcscf.addons import state_average_mix
-from mrh.my_pyscf.fci import csf_solver
+from pyscf.csf_fci import csf_solver
 from mrh.tests.lasscf.me2n2_struct import structure as struct
 from mrh.my_pyscf.mcscf.lasscf_sync_o0 import LASSCF
 from mrh.my_pyscf import lassi

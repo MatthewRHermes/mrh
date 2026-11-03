@@ -1,6 +1,6 @@
 import numpy as np
 from pyscf import lib, gto, ao2mo
-from mrh.my_pyscf.fci import csf_solver
+from pyscf.csf_fci import csf_solver
 mol = gto.M (atom='Si 0 0 0', spin=14, charge=0, output='1414.log', verbose=lib.logger.DEBUG1)
 fci = csf_solver (mol, smult=1)
 norb = 14

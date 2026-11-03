@@ -4,8 +4,8 @@ from pyscf import lib
 from pyscf.scf.addons import canonical_orth_
 from pyscf.fci import cistring
 from pyscf.mcscf.addons import state_average as state_average_mcscf
-from mrh.my_pyscf.fci.csf import CSFFCISolver
-from mrh.my_pyscf.fci.csfstring import CSFTransformer
+from pyscf.csf_fci.csf import CSFFCISolver
+from pyscf.csf_fci.csfstring import CSFTransformer
 from mrh.my_pyscf.mcscf.addons import StateAverageNMixFCISolver
 from itertools import combinations
 

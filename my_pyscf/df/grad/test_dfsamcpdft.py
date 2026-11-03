@@ -6,7 +6,7 @@ from pyscf import scf, gto, lib, mcscf, df
 from mrh.my_pyscf import mcpdft
 from mrh.my_pyscf.df.grad import dfmcpdft as mcpdft_grad
 from mrh.my_pyscf.grad import numeric as numeric_grad
-from mrh.my_pyscf.fci import csf_solver
+from pyscf.csf_fci import csf_solver
 
 h2co_casscf66_631g_xyz = '''C  0.534004  0.000000  0.000000
 O -0.676110  0.000000  0.000000

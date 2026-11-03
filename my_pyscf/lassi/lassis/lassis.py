@@ -5,8 +5,8 @@ from scipy import linalg
 from pyscf import lib, gto
 from pyscf.lib import logger
 from pyscf.lo.orth import vec_lowdin
-from mrh.my_pyscf.fci import csf_solver
-from mrh.my_pyscf.fci.csfstring import CSFTransformer
+from pyscf.csf_fci import csf_solver
+from pyscf.csf_fci.csfstring import CSFTransformer
 from mrh.my_pyscf.fci.spin_op import contract_sdown, contract_sup, mdown, mup
 from mrh.my_pyscf.fci.spin_op import norm_sdown, norm_sup
 from mrh.my_pyscf.mcscf.lasci import get_space_info

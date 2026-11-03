@@ -4,7 +4,7 @@ import numpy as np
 import h5py
 from scipy import linalg
 from pyscf import gto, scf, lib, mcscf
-from mrh.my_pyscf.fci import csf_solver
+from pyscf.csf_fci import csf_solver
 from mrh.my_pyscf.mcscf.lasscf_sync_o0 import LASSCF
 from mrh.my_pyscf.tools import molden
 from mrh.tests.lasscf.c2h4n4_struct import structure as struct

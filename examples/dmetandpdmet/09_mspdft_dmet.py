@@ -1,6 +1,6 @@
 import numpy as np
 from pyscf import gto, scf, mcscf, mcpdft
-from mrh.my_pyscf.fci import csf_solver
+from pyscf.csf_fci import csf_solver
 from mrh.my_pyscf.dmet import runDMET
 
 '''

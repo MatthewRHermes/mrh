@@ -6,7 +6,7 @@ from pyscf.mcscf.addons import state_average_mix
 from mrh.my_pyscf.mcscf.lasscf_sync_o0 import LASSCF
 from pyscf.mcscf.newton_casscf import gen_g_hop, _pack_ci_get_H
 from c2h6n4_struct import structure as struct
-from mrh.my_pyscf.fci import csf_solver
+from pyscf.csf_fci import csf_solver
 from itertools import product
 import os
 
