@@ -8,7 +8,8 @@ from pyscf.fci import cistring
 from pyscf.fci.direct_spin1 import _unpack_nelec, trans_rdm1s, trans_rdm12s
 from pyscf.scf.addons import canonical_orth_
 from mrh.my_pyscf.mcscf.productstate import ProductStateFCISolver, state_average_fcisolver
-from pyscf.csf_fci import csf_solver, CSFFCISolver, direct_nosym_uhf
+from pyscf.csf_fci import csf_solver, CSFFCISolver
+from mrh.my_pyscf.fci import direct_nosym_uhf
 from mrh.my_pyscf.lassi import op_o0, op_o1
 from mrh.my_pyscf.lassi.citools import get_lroots
 from pyscf import lib
