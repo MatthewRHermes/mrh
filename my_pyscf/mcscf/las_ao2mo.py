@@ -6,7 +6,6 @@ from mrh.my_pyscf.df.sparse_df import sparsedf_array
 def get_h2eff_df (las, mo_coeff):
     # Store intermediate with one contracted ao index for faster calculation of exchange!
     log = lib.logger.new_logger (las, las.verbose)
-    gpu=las.use_gpu
     nao, nmo = mo_coeff.shape
     ncore, ncas = las.ncore, las.ncas
     nocc = ncore + ncas
@@ -59,7 +58,6 @@ def get_h2eff_df (las, mo_coeff):
         eri += lib.pack_tril (eri1.reshape (nmo*ncas, ncas, ncas)).reshape (nmo, -1)
         cderi = bPmn = bmuP1 = buvP = eri1 = None
         #t1 = lib.logger.timer (las, 'rest of the calculation', *t1)
-    #if mem_enough_int and not gpu: eri = lib.tag_array (eri, bmPu=np.concatenate (bmuP, axis=-1).transpose (0,2,1))
     if mem_enough_int : eri = lib.tag_array (eri, bmPu=np.concatenate (bmuP, axis=-1).transpose (0,2,1))
     if las.verbose > lib.logger.DEBUG:
         eri_comp = las.with_df.ao2mo (mo_coeff, compact=True)

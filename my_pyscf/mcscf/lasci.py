@@ -9,7 +9,6 @@ from pyscf.csf_fci import csf_solver
 from mrh.my_pyscf.mcscf.addons import state_average_n_mix, get_h1e_zipped_fcisolver, las2cas_civec
 from mrh.my_pyscf.mcscf import _DFLASCI, lasscf_guess, las_ao2mo
 from mrh.my_pyscf.gpu.context import gpu_scope
-from mrh.my_pyscf.df.sparse_df import sparsedf_array
 from mrh.my_pyscf.mcscf import chkfile
 from mrh.my_pyscf.mcscf.productstate import ImpureProductStateFCISolver, state_average_fcisolver
 from mrh.util.la import matrix_svd_control_options
