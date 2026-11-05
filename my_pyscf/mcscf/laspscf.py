@@ -68,7 +68,7 @@ class LASPSCF_HessianOperator (lasscf_sync_o0.LASSCF_HessianOperator):
         moH = mo.conjugate ().T
         nmo = mo.shape[-1]
         dm1_mo = dm1s_mo.sum (0)
-        if self.las.use_gpu or (getattr(self, 'bPpj', None) is None):
+        if getattr (self.las, 'use_gpu', None) or (getattr(self, 'bPpj', None) is None):
             dm1_ao=np.dot(mo,np.dot(dm1_mo,moH))
             veff_ao=np.squeeze(self.las.get_veff(dm=dm1_ao))
             return np.dot(moH,np.dot(veff_ao,mo))

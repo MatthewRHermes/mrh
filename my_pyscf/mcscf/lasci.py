@@ -8,7 +8,6 @@ from pyscf.fci.direct_spin1 import _unpack_nelec
 from pyscf.csf_fci import csf_solver
 from mrh.my_pyscf.mcscf.addons import state_average_n_mix, get_h1e_zipped_fcisolver, las2cas_civec
 from mrh.my_pyscf.mcscf import _DFLASCI, lasscf_guess, las_ao2mo
-from mrh.my_pyscf.gpu.context import gpu_scope
 from mrh.my_pyscf.mcscf import chkfile
 from mrh.my_pyscf.mcscf.productstate import ImpureProductStateFCISolver, state_average_fcisolver
 from mrh.util.la import matrix_svd_control_options
@@ -939,6 +938,9 @@ class LASCINoSymm (casci.CASCI):
     get_nelec_frs = get_nelec_frs
     get_h1eff = get_h1las = h1e_for_las = h1e_for_las
     get_h2eff = ao2mo = las_ao2mo.get_h2eff
+    def _get_h2eff_df (self, mo_coeff):
+        if self.use_gpu: return las_ao2mo.get_h2eff_gpu_v2 (self, mo_coeff)#the full version is not working yet.
+        return las_ao2mo.get_h2eff_df (self, mo_coeff)
     get_h2cas = las_ao2mo.get_h2cas
     get_h2eff_slice = las_ao2mo.get_h2eff_slice
     '''
@@ -1131,12 +1133,11 @@ class LASCINoSymm (casci.CASCI):
         if ncas_sub is None: ncas_sub = self.ncas_sub
         if nelecas_sub is None: nelecas_sub = self.nelecas_sub
         casdm3 = []
-        with gpu_scope (self.use_gpu):
-            for ci_i, ncas, nel in zip (ci, ncas_sub, nelecas_sub):
-                dm1_not_no, dm2_not_no, dm3_not_no = fci.rdm.make_dm123 (
-                    'FCI3pdm_kern_sf',ci_i,ci_i, ncas, nel) # not normal ordered
-                dm3_no = fci.rdm.reorder_dm123(dm1_not_no, dm2_not_no, dm3_not_no)[-1]
-                casdm3.append (dm3_no)
+        for ci_i, ncas, nel in zip (ci, ncas_sub, nelecas_sub):
+            dm1_not_no, dm2_not_no, dm3_not_no = fci.rdm.make_dm123 (
+                'FCI3pdm_kern_sf',ci_i,ci_i, ncas, nel) # not normal ordered
+            dm3_no = fci.rdm.reorder_dm123(dm1_not_no, dm2_not_no, dm3_not_no)[-1]
+            casdm3.append (dm3_no)
         return casdm3
 
     def make_casdm3s_sub (self, ci=None, ncas_sub=None, nelecas_sub=None, **kwargs):

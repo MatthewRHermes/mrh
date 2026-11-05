@@ -25,7 +25,7 @@ class ImpurityMole (gto.Mole):
         self.spin = None
         self._imporb_coeff = np.array ([0])
         self.build ()
-        add_gpu = {"use_gpu":las.use_gpu}
+        add_gpu = {"use_gpu":getattr (las, 'use_gpu', None)}
         self.__dict__.update(add_gpu)
 
     def _update_space_(self, imporb_coeff, nelec_imp):
@@ -608,7 +608,7 @@ class ImpuritySolver ():
         '''Update the Hamiltonian data contained within this impurity solver and all encapsulated
         impurity objects'''
         las = self.mol._las
-        gpu = las.use_gpu
+        gpu = getattr (las, 'use_gpu', None)
         if gpu:
             from mrh.my_pyscf.gpu import libgpu
         if h2eff_sub is None: h2eff_sub = las.ao2mo (mo_coeff)
@@ -1123,7 +1123,7 @@ def get_pair_laspscf (las, frags, inherit_df=False):
         imf = imf.density_fit ()
     ncas_sub = [las.ncas_sub[i] for i in frags]
     nelecas_sub = [las.nelecas_sub[i] for i in frags]
-    ilas = ImpurityLASPSCF (imf, ncas_sub, nelecas_sub, use_gpu=las.use_gpu)
+    ilas = ImpurityLASPSCF (imf, ncas_sub, nelecas_sub, use_gpu=getattr (las, 'use_gpu', None))
     if inherit_df and isinstance (las, _DFLASCI):
         ilas = laspscf.density_fit (ilas, with_df=imf.with_df)
     charges, spins, smults, wfnsyms = lasci.get_space_info (las)
