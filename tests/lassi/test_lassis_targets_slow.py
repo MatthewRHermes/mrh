@@ -51,6 +51,9 @@ def setUpModule ():
 def tearDownModule():
     pass
 
+class StaleCheckpointError (ValueError):
+    pass
+
 class KnownValues(unittest.TestCase):
 
     def test_c2h4n4_3frag (self):
@@ -385,27 +388,34 @@ class KnownValues(unittest.TestCase):
         mf = mf.density_fit(auxbasis = df.aug_etb (mol))
         mf.max_cycle=100
         mf.kernel()
-        las = LASSCF (mf, (5,5), ((5,1),(5,0)), spin_sub=(5,6))
+        las = LASSCF (mf, (5,5), ((1,5),(5,0)), spin_sub=(5,6))
+        nelec_frs = las.get_nelec_frs ()
         try:
             las.load_chk_()
+            # The previous version of this stored
+            #    las = LASSCF (mf, (5,5), ((5,1),(5,0)), spin_sub=(5,6))
+            # on the checkpoint file and just did LASCI on the ((1,5),(5,0)) configuration. This
+            # turned out to be unstable because the ROHF-like ferromagnetic wave function had an
+            # underdefined doubly-occupied orbital. Now we optimize the antiferromagnetic case
+            # directly and store that instead.
+            if np.any (las.get_nelec_frs () != nelec_frs):
+                raise StaleCheckpointError
             las.kernel ()
-        except (OSError, TypeError, KeyError) as e:
+        except (OSError, TypeError, KeyError, StaleCheckpointError) as e:
+            las = LASSCF (mf, (5,5), ((1,5),(5,0)), spin_sub=(5,6))
             ncas, nelecas, mo_coeff = avas.kernel (mf, ['Fe 3d'], openshell_option=3)
             mo_coeff = las.localize_init_guess (([17],[19]), mo_coeff)
             las.kernel (mo_coeff)
         with self.subTest ('LASSCF convergence'):
             self.assertTrue (las.converged)
         with self.subTest ('same LASSCF result'):
-            self.assertAlmostEqual (las.e_tot, -3955.98148841553, 6)
-        mf.chkfile = None # prevent the spins flips down there from messing things up
-        las2 = LASSCF (mf, (5,5), ((1,5),(5,0)), spin_sub=(5,6))
-        las2.lasci_(las.mo_coeff)
+            self.assertAlmostEqual (las.e_tot, -3955.9805154658, 6)
         for dson in (False, True):
-            lsi = lassi.LASSIS (las2).run (davidson_only=dson, nroots_si=6)
+            lsi = lassi.LASSIS (las).run (davidson_only=dson, nroots_si=6)
             with self.subTest('LASSI convergence', davidson_only=dson):
                 self.assertTrue (lsi.converged)
             with self.subTest(davidson_only=dson):
-                self.assertAlmostEqual (yamaguchi (lsi.e_roots, lsi.s2, 9), -4.885066730567389, 1)
+                self.assertAlmostEqual (yamaguchi (lsi.e_roots, lsi.s2, 9), -6.653196749886927, 1)
         s2 = []
         e = []
         with self.subTest ('lsf solver'):
@@ -422,7 +432,7 @@ class KnownValues(unittest.TestCase):
             s2.append (lsi.s2[0])
             e = np.asarray (e)
             s2 = np.asarray (s2)
-            self.assertAlmostEqual (yamaguchi (e, s2, 9), -4.885066730567389, 1)
+            self.assertAlmostEqual (yamaguchi (e, s2, 9), -6.653196749886927, 1)
 
 if __name__ == "__main__":
     print("Full Tests for SA-LASSI of c2h4n4 molecule")
