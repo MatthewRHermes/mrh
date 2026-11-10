@@ -71,8 +71,10 @@ migration (checked against `~/gits/mrh` at `dfb3c5b7`), none are step-3 regressi
 1. LASCI end-to-end -- `pyscf/mcscf/las/test/test_lasci_kernel.py`. Two H2 50 A apart (LASCI =
    CASCI in the same orbitals, to 1e-8) for no-symmetry, DF, and `LASCI (mol, ...)`; plus LASCI
    above CASCI when the fragments interact.
-   - **Known failure:** `LASCI` on any symmetric `mf`. `LASCISymm.kernel` passes `casdm0_fr` to
-     `LASCINoSymm.kernel`, which doesn't take it (`TypeError`).
+   - **Fixed in Forge:** `LASCI` on any symmetric `mf` raised `TypeError`: `LASCISymm.kernel`
+     passed `casdm0_fr` to `LASCINoSymm.kernel`, which doesn't take it. `LASCISymm.kernel` now has
+     the same signature as `LASCINoSymm.kernel` (`lroots`, `lweights`, `_dry_run`) and passes
+     everything through.
    - Note: `LASCI (mol, ...)` doesn't run the SCF, so `localize_init_guess` needs `mo_coeff`.
 2. Nuclear gradients -- `pyscf/grad/test/test_grad_lasscf_numerical.py`. Two-fragment H4/STO-3G
    against central finite differences: single-state and state-averaged agree to 1e-6.
