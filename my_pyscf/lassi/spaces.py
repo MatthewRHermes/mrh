@@ -609,7 +609,7 @@ def all_single_excitations (las, verbose=None, filter_shuffles=False, mask=None)
     not altered in-place. For orbital optimization, all new states have weight = 0; all weights
     of existing states are unchanged.'''
     from mrh.my_pyscf.mcscf.lasci import get_space_info
-    from mrh.my_pyscf.mcscf.lasci import LASCISymm
+    from pyscf.mcscf.las.lasci import LASCISymm
     if verbose is None: verbose=las.verbose
     log = logger.new_logger (las, verbose)
     if isinstance (las, LASCISymm):
@@ -717,7 +717,7 @@ def spin_shuffle (las, verbose=None, equal_weights=False):
     should never be any reason to call this function more than once. For orbital optimization,
     all new states have weight == 0; all weights of existing states are unchanged.'''
     from mrh.my_pyscf.mcscf.lasci import get_space_info
-    from mrh.my_pyscf.mcscf.lasci import LASCISymm
+    from pyscf.mcscf.las.lasci import LASCISymm
     if verbose is None: verbose=las.verbose
     log = logger.new_logger (las, verbose)
     if isinstance (las, LASCISymm):

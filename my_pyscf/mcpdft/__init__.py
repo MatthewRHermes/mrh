@@ -7,7 +7,7 @@ from pyscf.lib import logger
 from pyscf.mcscf import mc1step, casci
 import mrh
 from mrh.util.io import mcpdft_removal_warn
-from mrh.my_pyscf.mcscf.lasscf_sync_o0 import LASSCFNoSymm, LASSCFSymm
+from pyscf.mcscf.las.lasscf_sync_o0 import LASSCFNoSymm, LASSCFSymm
 from mrh.my_pyscf.mcscf.lasscf_async import LASSCFNoSymm as asyncLASSCFNoSymm, LASSCFSymm as asyncLASSCFSymm
 mcpdft_removal_warn()
 
