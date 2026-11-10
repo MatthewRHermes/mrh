@@ -1,8 +1,8 @@
 # Ohh boy
 from mrh.my_pyscf.mcscf.mc1step_csf import fix_ci_response_csf
 
-class _DFLASCI: # Tag
-    pass
+# The _DFLASCI tag moved to PySCF-Forge; this is the same class object.
+from pyscf.mcscf.las import _DFLASCI
 
 def constrCASSCF(mf, ncas, nelecas, **kwargs):
     from pyscf import scf
