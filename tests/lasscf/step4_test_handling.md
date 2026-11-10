@@ -94,8 +94,14 @@ migration (checked against `~/gits/mrh` at `dfb3c5b7`), none are step-3 regressi
    test asserts the raise).
    - Interface difference from core MC-PDFT: SA LAS-PDFT puts the per-state energies in `e_tot`
      (core: weighted average).
-   - **Known failure:** the `e_states` attribute stays `[0, 0]` after `kernel`;
-     `compute_pdft_energy_ ()` returns the right per-state energies.
+   - **Fixed in Forge:** the `e_states` attribute stayed `[0, 0]` after `kernel` (LAS isn't a
+     `StateAverageMCSCFSolver`, so core MC-PDFT treats it like multi-root CASCI and never sets
+     `e_states`; `_mcscf_env` then restores the pre-LASSCF zeros). The child class's
+     `compute_pdft_energy_` now also stores the per-state energies in `e_states` when
+     `nroots > 1`, except for mrh's LASSI-PDFT (`DoLASSI`), where `e_states` holds LAS rootspace
+     energies. `e_tot` is unchanged (still the per-state list); making it the weighted average,
+     as in core SA-MC-PDFT, is an interface change deferred to step 5 (mrh's
+     `examples/laspdft/c2h4n4_sa_laspdft.py` reads `mc.e_tot[0]`).
 5. Partial `frozen` -- `pyscf/mcscf/las/test/test_lasscf_frozen.py` (one fragment, LASSCF vs
    CASSCF with the same `frozen`, with and without the final canonicalization).
    - **Fixed in Forge:** every macrocycle of `lasscf_sync_o0.kernel` rediagonalized the inactive and
