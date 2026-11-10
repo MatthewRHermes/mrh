@@ -97,11 +97,16 @@ migration (checked against `~/gits/mrh` at `dfb3c5b7`), none are step-3 regressi
    - **Known failure:** the `e_states` attribute stays `[0, 0]` after `kernel`;
      `compute_pdft_energy_ ()` returns the right per-state energies.
 5. Partial `frozen` -- `pyscf/mcscf/las/test/test_lasscf_frozen.py` (one fragment, LASSCF vs
-   CASSCF with the same `frozen`, canonicalization off).
-   - **Known failure, both cases:** every macrocycle of `lasscf_sync_o0.kernel` rediagonalizes the
-     inactive and virtual blocks (`_eig_inactive_virtual`) without regard to `frozen`, so frozen
-     orbitals mix with unfrozen ones and the indices drift. Frozen 1s cores: energy ~1e-7 below
-     CASSCF; frozen virtuals: ~1e-3 below. CASSCF leaves the frozen columns exactly unchanged.
+   CASSCF with the same `frozen`, with and without the final canonicalization).
+   - **Fixed in Forge:** every macrocycle of `lasscf_sync_o0.kernel` rediagonalized the inactive and
+     virtual blocks (`_eig_inactive_virtual`) without regard to `frozen`, so frozen orbitals mixed
+     with unfrozen ones and the indices drifted (frozen 1s cores: energy ~1e-7 below CASSCF; frozen
+     virtuals: ~1e-3 below). Now, as in PySCF's `mcscf.casci.canonicalize`, only the unfrozen
+     inactive and virtual sub-blocks are diagonalized, and the final `canonicalize` sorts only
+     those, so frozen orbitals keep their columns. With `frozen=None` the output is bit-identical.
+     Behavior changes for anything that sets `frozen` on a LAS object: in mrh, that's
+     `lasscf_async/combine.py` (and "freeze everything" in `tests/lasscf/test_lasci.py` and
+     `tests/lassi/test_c2h4n4*.py`, where only the core/virtual ordering can change).
 6. High-spin RDMs -- class `HighSpin` in `test_lasscf_rdm123s.py`: fragments `(2,0),(1,1),(2,0),(1,1)`
    (N_alpha = 6, N_beta = 2), with trace-down factors from the actual counts. aa/bb/aaa/bbb traces
    pass.
@@ -110,8 +115,9 @@ migration (checked against `~/gits/mrh` at `dfb3c5b7`), none are step-3 regressi
      N_alpha N_beta = 12). In `LASCINoSymm.make_casdm2s` the inter-fragment Coulomb ab block (J,I)
      is filled by transposing block (I,J) ("ab = ba"), giving dm1a_I dm1b_J where dm1a_J dm1b_I is
      needed. Spin-summed `make_casdm2`/`make_casdm3` are correct, and uniform-M cases are fine.
-     Nothing in Forge calls these internally; in mrh, `lassi/lassi.py`, `mcpdft/lassipdft.py` and
-     `lasscf_async/crunch.py` mention the names (not yet checked whether they use these methods).
+     Nothing in Forge or mrh calls them: `lassi/lassi.py` defines its own `LASSI.make_casdm3s`,
+     `mcpdft/lassipdft.py` its own file-reading `make_casdm2s`, and `lasscf_async/crunch.py` uses
+     only the per-fragment `states_make_casdm2s_sub`.
    - The original `trace_down_test` would also be wrong for M != 0 (it traces `dm2ab` over its
      beta pair and compares with `dm1b`).
 7. `localize_init_guess` options -- `pyscf/mcscf/las/test/test_lasscf_guess.py` (H4/6-31G; in a
