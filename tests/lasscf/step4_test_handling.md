@@ -107,15 +107,19 @@ migration (checked against `~/gits/mrh` at `dfb3c5b7`), none are step-3 regressi
      Behavior changes for anything that sets `frozen` on a LAS object: in mrh, that's
      `lasscf_async/combine.py` (and "freeze everything" in `tests/lasscf/test_lasci.py` and
      `tests/lassi/test_c2h4n4*.py`, where only the core/virtual ordering can change).
-6. High-spin RDMs -- class `HighSpin` in `test_lasscf_rdm123s.py`: fragments `(2,0),(1,1),(2,0),(1,1)`
-   (N_alpha = 6, N_beta = 2), with trace-down factors from the actual counts. aa/bb/aaa/bbb traces
-   pass.
-   - **Known failure:** the mixed-spin blocks (ab, aab, abb) of `make_casdm2s`/`make_casdm3s` are
-     wrong when fragments have different spin polarizations (`sum dm2ab_iijj` = 16, not
-     N_alpha N_beta = 12). In `LASCINoSymm.make_casdm2s` the inter-fragment Coulomb ab block (J,I)
-     is filled by transposing block (I,J) ("ab = ba"), giving dm1a_I dm1b_J where dm1a_J dm1b_I is
-     needed. Spin-summed `make_casdm2`/`make_casdm3` are correct, and uniform-M cases are fine.
-     Nothing in Forge or mrh calls them: `lassi/lassi.py` defines its own `LASSI.make_casdm3s`,
+6. High-spin RDMs -- in `test_lasscf_rdm123s.py`: class `HighSpin` (H8, fragments
+   `(2,0),(1,1),(2,0),(1,1)`, N_alpha = 6, N_beta = 2, trace-down factors from the actual counts)
+   and class `MixedSpinH6` (spin-separated 2- and 3-RDMs against FCI for all 27 assignments of
+   `(2,0)`, `(1,1)`, `(0,2)` to three fragments; a 3-RDM involves at most three fragments, so this
+   reaches every term; ~15 s with `lasci` instead of a full kernel).
+   - **Fixed in Forge:** the mixed-spin blocks of `make_casdm2s`/`make_casdm3s` were wrong when
+     fragments differed in spin polarization (`sum dm2ab_iijj` = 16, not N_alpha N_beta = 12, in
+     the H8 case). `make_casdm2s` filled the inter-fragment Coulomb ab block (J,I) by transposing
+     block (I,J) ("ab = ba"), giving dm1a_I dm1b_J where dm1a_J dm1b_I is needed; in
+     `make_casdm3s`, the two Term-5 (29e) aab exchange terms (`d5sigma12`, `d5sigma13`) put
+     fragment 2's alpha density in the beta slot and fragment 3's beta density in the alpha slots.
+     Spin-summed `make_casdm2`/`make_casdm3` were always correct. Nothing in Forge or mrh calls
+     the spin-separated ones: `lassi/lassi.py` defines its own `LASSI.make_casdm3s`,
      `mcpdft/lassipdft.py` its own file-reading `make_casdm2s`, and `lasscf_async/crunch.py` uses
      only the per-fragment `states_make_casdm2s_sub`.
    - The original `trace_down_test` would also be wrong for M != 0 (it traces `dm2ab` over its
