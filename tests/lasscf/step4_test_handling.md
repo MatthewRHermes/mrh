@@ -26,10 +26,15 @@ working directory.
   own convergence tolerance; don't inherit `places=4` from the old async comparison in h4.
 - `test_rohf_ref.py`: Supposed to make sure that `localize_init_guess` doesn't deoptimize a
   converged ROHF calculation, so that you can always start from one. Copy; remove the (meaningless,
-  unused) `lasscf_async` import. The two `assertNotEqual (..., mf.e_tot)` checks encode the missing
-  aufbau CI guess and would fail the day it's implemented: in Forge they become `assertAlmostEqual`
-  in separate methods marked `@unittest.expectedFailure`. `test_smallbasis*` are assertion-free smoke
-  tests for mrh issue #187; say so in a comment.
+  unused) `lasscf_async` import. `test_smallbasis*` are assertion-free smoke tests for mrh issue
+  #187; say so in a comment. The TODO on the two `assertNotEqual (..., mf.e_tot)` checks ("implement
+  aufbau guess CI vector and turn this back into Equal") is out of date: the aufbau guess exists
+  (`get_init_guess_ci_aufbau0`) and, after `mo_occ` localization, reproduces E_ROHF to 1e-12. With
+  only `freeze_cas_spaces=True`, each fragment's orbitals mix ROHF doubly- and singly-occupied
+  orbitals (~8e-4 in C2H6N4), so the aufbau product determinant lies above E_ROHF (1e-3 for
+  C2H6N4, 1e-1 for C2H4N4), and no aufbau guess can fix that. In Forge, the `mo_occ` cases assert
+  equality with E_ROHF (was: <= E_ROHF + 1e-6) and the `freeze_cas_spaces` cases assert
+  E >= E_ROHF - 1e-6 (the product is an ROHF-type determinant).
 - `test_lasscf_rdm123s.py`, `test_lasscf_3rdm.py`: `3rdm` is a strict subset of `rdm123s` (same H8
   system, same four `spin_sub` cases, same `make_casdm3` assertion), so copy only `rdm123s`.
   Also, both call `LASSCF (mf, nelesub, norbsub)` with the arguments swapped (harmless only because
