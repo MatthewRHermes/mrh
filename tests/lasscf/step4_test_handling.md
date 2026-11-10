@@ -54,6 +54,13 @@ working directory.
 - `tests/mcpdft/test_laspdft.py`: copy the sync half; drop the `lasscf_async` and `my_dmet` imports.
   Forge has no LAS-PDFT constructor, so build it with `laspdft.get_mcpdft_child_class`.
 - `tests/mcpdft/test_edalaspdft.py`, `tests/mcpdft/test_lassipdft.py`: need LASSI; can't move.
+- `tests/fci/test_sanmix_casscf.py`, `tests/fci/test_h1ezip.py`: test `state_average_n_mix` and
+  `get_h1e_zipped_fcisolver` from `addons.py` directly (missed in the first survey). Copy;
+  `test_h1ezip.py` setup moved to `setUpModule`. `test_sanmix_casscf.py` becomes
+  `test_sanmix_casscf_slow.py` (28 s of SA-CASSCF(8,8) setup); `test_h1ezip.py` (~6 s) still
+  covers `state_average_n_mix` in CI.
+- Other tests that import migrated code (`luscc`, `lasucc`, `lasuscc`) only use LASSCF to set up
+  features that aren't migrating; they stay in mrh.
 
 # Coverage gaps: new Forge tests
 
@@ -104,8 +111,13 @@ migration (checked against `~/gits/mrh` at `dfb3c5b7`), none are step-3 regressi
      `lasscf_async/crunch.py` mention the names (not yet checked whether they use these methods).
    - The original `trace_down_test` would also be wrong for M != 0 (it traces `dm2ab` over its
      beta pair and compares with `dm1b`).
-7. Not done (lower priority): `localize_init_guess` with `frags_by_AOs` and `lo_coeff`;
-   `state_average_n_mix` in `addons.py`.
+7. `localize_init_guess` options -- `pyscf/mcscf/las/test/test_lasscf_guess.py` (H4/6-31G; in a
+   minimal basis Lowdin and meta-Lowdin coincide): atom indices, AO indices with
+   `frags_by_AOs=True`, and AO-label strings give identical orbitals; mixed ints and strings
+   raise; explicit meta-Lowdin `lo_coeff` reproduces the default; Lowdin `lo_coeff` gives a
+   different active space that is still orthonormal and localized (> 0.99 on its fragment).
+   `state_average_n_mix` is used by every LAS object's `fciboxes`, and is tested directly by the
+   two copied `tests/fci` files above.
 
 Sparse DF and `liblas` are exercised whenever the DF tests run (c2h4n4, me2n2); nothing extra needed.
 
