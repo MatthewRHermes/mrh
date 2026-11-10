@@ -78,9 +78,10 @@ migration (checked against `~/gits/mrh` at `dfb3c5b7`), none are step-3 regressi
    - Note: `LASCI (mol, ...)` doesn't run the SCF, so `localize_init_guess` needs `mo_coeff`.
 2. Nuclear gradients -- `pyscf/grad/test/test_grad_lasscf_numerical.py`. Two-fragment H4/STO-3G
    against central finite differences: single-state and state-averaged agree to 1e-6.
-   - **Known failure:** DF. `grad/lasscf.py` doesn't raise for DF LASSCF; it returns a gradient
-     ~1e-5 off finite differences (and not equal to the conventional-integral gradient either).
-     Suggest raising `NotImplementedError` until implemented.
+   - **Guarded in Forge:** DF. `grad/lasscf.py` has no DF support but used to return a gradient
+     ~1e-5 off finite differences (not equal to the conventional-integral gradient either).
+     `grad_elec` now raises `NotImplementedError` if the LAS object is `_DFLASCI` or its mean field
+     has `with_df`. Implementing DF gradients is left for later.
 3. lassqd guards -- `pyscf/mcscf/las/test/test_lasscf_rdm_lassqd.py`: `lasscf_rdm.LASSCF` factory
    (mol, DF -> `_DFLASCI`); capture (h0 = 0, h1s/h2 shapes, fragment 1's Hamiltonian independent
    of fragment 0's result); replay (each fragment solved once, `converged` False because the
