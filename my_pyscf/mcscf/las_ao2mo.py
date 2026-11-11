@@ -3,6 +3,7 @@
 # imports keep working.
 import pyscf.mcscf.las.las_ao2mo as _forge
 globals ().update ({k: v for k, v in vars (_forge).items () if not k.startswith ('__')})
+from mrh.my_pyscf.df.sparse_df import sparsedf_array
 
 #gpu accelerated version 
 def get_h2eff_gpu (las,mo_coeff):
