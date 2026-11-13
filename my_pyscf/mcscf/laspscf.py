@@ -163,15 +163,45 @@ class LASPSCF_HessianOperator (lasscf_sync_o0.LASSCF_HessianOperator):
         # of extra eris (g^aa_ii, g^ai_ai)
         return Horb_diag
 
+# casdm0_frs: the kernel can start from fragment 1-RDMs instead of CI vectors. Only my_dmet uses
+# this, so it lives here rather than in PySCF-Forge. The kernel stores casdm0_frs as
+# self._casdm0_frs only while the PySCF-Forge kernel runs, and only if there are no guess CI
+# vectors; then get_init_guess_ci leaves ci0 as None and _starting_casdm1frs returns casdm0_frs.
+def _kernel_with_casdm0_frs (parent_kernel):
+    def kernel (self, mo_coeff=None, ci0=None, casdm0_frs=None, **kwargs):
+        if ci0 is None: ci0 = self.ci
+        self._casdm0_frs = casdm0_frs if ci0 is None else None
+        try:
+            return parent_kernel (self, mo_coeff=mo_coeff, ci0=ci0, **kwargs)
+        finally:
+            self._casdm0_frs = None
+    return kernel
+
+def get_init_guess_ci (las, mo_coeff=None, h2eff_sub=None, ci0=None, **kwargs):
+    if getattr (las, '_casdm0_frs', None) is not None: return ci0
+    return lasscf_sync_o0.LASSCFNoSymm.get_init_guess_ci (las, mo_coeff=mo_coeff,
+                                                          h2eff_sub=h2eff_sub, ci0=ci0, **kwargs)
+
+def _starting_casdm1frs (las, ci0):
+    casdm0_frs = getattr (las, '_casdm0_frs', None)
+    if casdm0_frs is not None: return casdm0_frs
+    return lasscf_sync_o0.LASSCFNoSymm._starting_casdm1frs (las, ci0)
+
 class LASPSCFNoSymm (lasscf_sync_o0.LASSCFNoSymm):
     _ugg = LASPSCF_UnitaryGroupGenerators
     _hop = LASPSCF_HessianOperator
+    kernel = _kernel_with_casdm0_frs (lasscf_sync_o0.LASSCFNoSymm.kernel)
+    get_init_guess_ci = get_init_guess_ci
+    _starting_casdm1frs = _starting_casdm1frs
     def dump_flags (self, verbose=None, _method_name='LASPSCF'):
         lasscf_sync_o0.LASSCFNoSymm.dump_flags (self, verbose=verbose, _method_name=_method_name)
     
 class LASPSCFSymm (lasscf_sync_o0.LASSCFSymm):
     _ugg = LASPSCFSymm_UnitaryGroupGenerators    
     _hop = LASPSCF_HessianOperator
+    kernel = _kernel_with_casdm0_frs (lasscf_sync_o0.LASSCFSymm.kernel)
+    get_init_guess_ci = get_init_guess_ci
+    _starting_casdm1frs = _starting_casdm1frs
     dump_flags = LASPSCFNoSymm.dump_flags
 
 def LASPSCF (mf_or_mol, ncas_sub, nelecas_sub, **kwargs):
