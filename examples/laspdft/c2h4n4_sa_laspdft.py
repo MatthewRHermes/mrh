@@ -42,6 +42,6 @@ mc.kernel(mo0)
 # Results
 print("\n----Results-------\n")
 print("LASSCF energy for state-0 =", mc.e_mcscf[0])
-print("LASPDFT energy for state-0 =", mc.e_tot[0])
+print("LASPDFT energy for state-0 =", mc.e_states[0])
 
 
