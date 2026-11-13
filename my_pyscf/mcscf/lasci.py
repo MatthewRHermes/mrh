@@ -22,6 +22,12 @@ class _LASCIMixin:
         if self.use_gpu: return _mrh_las_ao2mo.get_h2eff_gpu_v2 (self, mo_coeff)#the full version is not working yet.
         return super ()._get_h2eff_df (mo_coeff)
 
+    def dump_flags (self, verbose=None, **kwargs):
+        super ().dump_flags (verbose=verbose, **kwargs)
+        log = lib.logger.new_logger (self, verbose)
+        log.info ('mrh: this is mrh\'s subclass of the PySCF-Forge LAS class (pyscf.mcscf.las); '
+                  'mrh adds gpu4mrh support (use_gpu = %s) and the lassi () method', self.use_gpu)
+
     def lassi(self, mo_coeff=None, ci=None, veff_c=None, h2eff_sub=None, orbsym=None,
               soc=False, break_symmetry=False, opt=1, **kwargs):
         #import warnings
