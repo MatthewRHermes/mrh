@@ -297,10 +297,11 @@ def pspace(fci, h1e, eri, norb, nelec, transformer,
     h0real = _build_h0_tril(h1e_c.real, h1e_s.real, eri.real)
     h0real += h0real.T
     h0imag = _build_h0_tril(h1e_c.imag, h1e_s.imag, eri.imag)
-    # The C routine stores <bra|H|ket> for bra<ket in the lower triangle [bra,ket] of h0, so
-    # the upper triangle of the Hermitian H_imag is the transposed lower triangle with the
-    # sign flipped: H_imag is antisymmetric with a zero diagonal.
-    h0imag = h0imag - h0imag.T
+    # The C routine (FCICSFpspace_h0tril) fills only the strict lower triangle, and stores
+    # <bra|H|ket> (bra<ket) at [ket,bra]. So h0imag[ket,bra] = H_imag[bra,ket], i.e. the upper
+    # triangle of H_imag is h0imag.T, and since H_imag is antisymmetric with a zero diagonal,
+    # the lower triangle is -h0imag.
+    h0imag = h0imag.T - h0imag
 
     h0 = h0real.astype(h1e.dtype)
     h0.imag = h0imag
