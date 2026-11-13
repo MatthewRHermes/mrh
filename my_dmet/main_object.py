@@ -1440,7 +1440,7 @@ class dmet:
         amo_occ = no_occ[ncore:]
         print (self.ints.nelec_tot, ' electrons total, ', ncore, ' core orbitals w/ occupancy = ',no_occ[:ncore])
         active_frags = [f for f in self.fragments if f.norbs_as]
-        casdm0_fr = []
+        casdm0_frs = []
         ci0 = []
         for f in active_frags:
             amo = loc2amo[:,:f.norbs_as]
@@ -1454,19 +1454,19 @@ class dmet:
             neleca = int (round ((f.active_space[0]/2) + f.target_MS))
             nelecb = int (round ((f.active_space[0]/2) - f.target_MS))
             print ("MATT CHECK THIS: (neleca, nelecb) = ({:.3f}, {:.3f}) vs desired ({},{})".format (np.trace (dma), np.trace (dmb), neleca, nelecb))
-            casdm0_fr.append (np.stack ([dma, dmb], axis=0)[None,:,:,:]) # TODO: generalize for SA-LASSCF
+            casdm0_frs.append (np.stack ([dma, dmb], axis=0)[None,:,:,:]) # TODO: generalize for SA-LASSCF
             if f.ci_as is not None:
                 umat = f.ci_as_orb.conjugate ().T @ amo
                 nel = (neleca, nelecb)
                 if nelecb > neleca: nel = (nelecb, neleca)
                 ci0.append ([transform_ci_for_orbital_rotation (f.ci_as, f.norbs_as, nel, umat)]) # TODO: generalize for SA-LASSCF
         self.las.stdout = self.lasci_log
-        if all ([x is not None] for x in ci0) and len (ci0) == len (casdm0_fr):
-            casdm0_fr = None
+        if all ([x is not None] for x in ci0) and len (ci0) == len (casdm0_frs):
+            casdm0_frs = None
         else:
             ci0 = None
         w0, t0 = time.time (), time.process_time ()
-        e_tot, _, ci_sub, _, _, h2eff_sub, veff = self.las.kernel (mo_coeff = ao2no, ci0 = ci0, casdm0_fr = casdm0_fr)
+        e_tot, _, ci_sub, _, _, h2eff_sub, veff = self.las.kernel (mo_coeff = ao2no, ci0 = ci0, casdm0_frs = casdm0_frs)
         if not self.las.converged:
             raise RuntimeError ("LASPSCF SCF cycle not converged")
         print ("LASPSCF module energy: {:.9f}".format (e_tot))

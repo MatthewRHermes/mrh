@@ -41,6 +41,11 @@ class KnownValues(unittest.TestCase):
                 lsipdft.opt = opt
                 lsipdft.kernel()
                 self.assertAlmostEqual (lsipdft.e_tot[0], mc.e_tot, 7)
+                # LASSI-PDFT must not mark the LAS classes it is built on as LASSI-PDFT, or later
+                # LAS-PDFT calculations would skip LAS-PDFT-only behavior (e.g., averaging e_tot)
+                self.assertTrue (lsipdft.DoLASSI)
+                for cls in (type (las), type (las1), type (lsi._las)):
+                    self.assertFalse (getattr (cls, 'DoLASSI', False))
 
 if __name__ == "__main__":
     print("Full Tests for LASSI-PDFT")

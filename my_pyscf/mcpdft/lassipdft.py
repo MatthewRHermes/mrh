@@ -28,15 +28,15 @@ def get_mcpdft_child_class(mc, ot, states=None, _pdft_class=_LASPDFT, **kwargs):
     '''LASSI-PDFT: the LAS-PDFT class of mrh.my_pyscf.mcpdft.laspdft, evaluated on LASSI states'''
     LASPDFT = _get_mcpdft_child_class(mc, _pdft_class=_pdft_class)
 
-    _mc_class = mc.__class__
-    setattr(_mc_class, 'DoLASSI', True)
-    setattr(_mc_class, 'states', None)
-    setattr(_mc_class, 'statlis', None)
-    setattr(_mc_class, 'rdmstmpfile', None)
-    if states is not None: _mc_class.states = states
-
+    # These are attributes of the LASSI-PDFT class, not of the LAS class it is built on: setting
+    # DoLASSI on the LAS class would make every later LAS-PDFT calculation on that class behave
+    # like LASSI-PDFT (e.g., keep the per-state e_tot).
     class PDFT(LASPDFT):
         __doc__ = LASPDFT.__doc__
+        DoLASSI = True
+        states = None
+        statlis = None
+        rdmstmpfile = None
 
         def analyze(self, state=0, **kwargs):
             log = lib.logger.new_logger(self, self.verbose)
@@ -120,4 +120,6 @@ def get_mcpdft_child_class(mc, ot, states=None, _pdft_class=_LASPDFT, **kwargs):
             if callable (getattr (self.rdmstmpfile, 'close', None)):
                 self.rdmstmpfile.close ()
 
-    return _instantiate(PDFT, mc, ot, **kwargs)
+    pdft = _instantiate(PDFT, mc, ot, **kwargs)
+    if states is not None: pdft.states = states
+    return pdft
