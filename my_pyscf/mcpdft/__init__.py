@@ -79,39 +79,17 @@ CASCI = CASCIPDFT
 
 
 # LAS-PDFT
+# Importing PySCF-Forge's laspdft also adds its LASSCF and LASCI constructors to pyscf.mcpdft, so
+# mrh users get pyscf.mcpdft.LASSCF without importing it themselves. The constructors in this
+# module (LASSCFPDFT etc.) remain mrh's: they add PBC, async LASSCF, gpu4mrh and LASSI-PDFT.
+from pyscf.mcpdft import laspdft as _forge_laspdft
+
 def _laspdftEnergy(mc_class, mc_or_mf_or_mol, ot, ncas_sub, nelecas_sub, DoLASSI=False, ncore=None, spin_sub=None,
                    frozen=None, **kwargs):
-    if isinstance(mc_or_mf_or_mol, (LASSCFNoSymm, LASSCFSymm)) or \
-        isinstance(mc_or_mf_or_mol, (asyncLASSCFNoSymm, asyncLASSCFSymm)):
-        mc0 = mc_or_mf_or_mol
-        mf_or_mol = mc_or_mf_or_mol._scf
-    else:
-        mc0 = None
-        mf_or_mol = mc_or_mf_or_mol
-
-    if isinstance(mf_or_mol, gto.Mole) and mf_or_mol.symmetry:
-        logger.warn(mf_or_mol,
-                    'Initializing MC-SCF with a symmetry-adapted Mole object may not work!')
-
-    if isinstance(mc_or_mf_or_mol, (LASSCFNoSymm, LASSCFSymm)) or \
-        isinstance(mc_or_mf_or_mol, (asyncLASSCFNoSymm, asyncLASSCFSymm)):
-        mc1 = mc_or_mf_or_mol
-        if frozen is not None:
-            mc1.frozen = frozen
-    else:
-        if frozen is not None:
-            mc1 = mc_class(mf_or_mol, ncas_sub, nelecas_sub, ncore=ncore, spin_sub=spin_sub, frozen=frozen)
-        else:
-            mc1 = mc_class(mf_or_mol, ncas_sub, nelecas_sub, ncore=ncore, spin_sub=spin_sub)
-
     from mrh.my_pyscf.mcpdft.laspdft import get_mcpdft_child_class
-    mc2 = get_mcpdft_child_class(mc1, ot, DoLASSI=DoLASSI, **kwargs)
-
-    if mc0 is not None:
-        mc2.mo_coeff = mc_or_mf_or_mol.mo_coeff.copy()
-        mc2.ci = copy.deepcopy(mc_or_mf_or_mol.ci)
-        mc2.converged = mc0.converged
-    return mc2
+    return _forge_laspdft._laspdft(mc_class, mc_or_mf_or_mol, ot, ncas_sub, nelecas_sub, ncore=ncore,
+                                   spin_sub=spin_sub, frozen=frozen, DoLASSI=DoLASSI,
+                                   _get_mcpdft_child_class=get_mcpdft_child_class, **kwargs)
 
 
 def _lassipdftEnergy(mc_class, mc_or_mf_or_mol, ot, ncas_sub, nelecas_sub, DoLASSI=False, ncore=None, spin_sub=None,
