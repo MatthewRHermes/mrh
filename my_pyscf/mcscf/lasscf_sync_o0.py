@@ -1,7 +1,7 @@
 # Moved to PySCF-Forge in the LASSCF migration (see MIGRATION.md). The gpu4mrh parts stay here.
-# This module re-exports all of pyscf.mcscf.las.lasscf_sync_o0 (including private names) so that existing
+# This module re-exports all of pyscf.mcscf.las.lasscf (including private names) so that existing
 # imports keep working.
-import pyscf.mcscf.las.lasscf_sync_o0 as _forge
+import pyscf.mcscf.las.lasscf as _forge
 globals ().update ({k: v for k, v in vars (_forge).items () if not k.startswith ('__')})
 from pyscf import lib
 from mrh.my_pyscf.mcscf import lasci
