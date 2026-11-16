@@ -118,6 +118,19 @@ class KnownValues (unittest.TestCase):
             del mf
             gc.collect()
 
+    def test_untracked_dfobj_raises (self):
+        # libgpu refuses to cache blocks of a DF object nobody tracks (nothing would evict them)
+        from unittest import mock
+        from mrh.my_pyscf.gpu import eri_cache
+        gpu = libgpu.init() # own device: the failed get_jk leaves it mid-call
+        try:
+            mf = _hf(GOH[0], use_gpu=gpu)
+            with mock.patch.object (eri_cache, 'track', lambda dfobj: None):
+                with self.assertRaisesRegex (RuntimeError, 'not registered'):
+                    mf.kernel()
+        finally:
+            libgpu.destroy_device(gpu)
+
 if __name__ == "__main__":
     print("Tests for GPU DF J/K after a geometry change")
     unittest.main()

@@ -169,12 +169,22 @@ void libgpu_get_dfobj_status(void * ptr, size_t addr_dfobj, py::array_t<int> arg
 
 /* ---------------------------------------------------------------------- */
 
-// drop cached ERI blocks of dfobj on every live device; returns # of blocks dropped
+// allow dfobj's blocks to be cached; Python promises to call evict_dfobj when they become invalid
+
+void libgpu_register_dfobj(size_t addr_dfobj)
+{
+  DeviceCache::register_dfobj(addr_dfobj);
+}
+
+/* ---------------------------------------------------------------------- */
+
+// drop cached ERI blocks of dfobj on every live device and unregister it; returns # of blocks dropped
 
 int libgpu_evict_dfobj(size_t addr_dfobj)
 {
   int nevict = 0;
   for(Device * dev : live_devices) nevict += dev->evict_dfobj(addr_dfobj);
+  DeviceCache::unregister_dfobj(addr_dfobj);
   return nevict;
 }
 

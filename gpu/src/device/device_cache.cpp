@@ -7,9 +7,18 @@
 #include <unistd.h>
 #include <string.h>
 #include <sched.h>
+#include <stdexcept>
 #define _MIN(A,B) (A<B)?A:B
 #define _MAX(A,B) (A>B)?A:B
 #define _SIZE_FCI_BATCHES 6
+
+/* ---------------------------------------------------------------------- */
+
+std::set<size_t> DeviceCache::registered_dfobj;
+
+void DeviceCache::register_dfobj(size_t addr_dfobj) { registered_dfobj.insert(addr_dfobj); }
+
+void DeviceCache::unregister_dfobj(size_t addr_dfobj) { registered_dfobj.erase(addr_dfobj); }
 
 /* ---------------------------------------------------------------------- */
 
@@ -274,6 +283,13 @@ double * DeviceCache::insert_eri(my_device_data * dd, double * eri1, int naux, i
     printf("LIBGPU :: dd_fetch_eri() no cached block for dfobj= %p  block= %i and no host data to fill it;"
 	   " the DF object was reset or never ran get_jk on this device\n", (void*) addr_dfobj, count);
     exit(1);
+  }
+
+  if(registered_dfobj.find(addr_dfobj) == registered_dfobj.end()) {
+    char msg[256];
+    snprintf(msg, sizeof(msg), "LIBGPU :: dd_fetch_eri() dfobj= %p is not registered: call"
+	     " mrh.my_pyscf.gpu.eri_cache.track(dfobj) before passing its integrals to libgpu", (void*) addr_dfobj);
+    throw std::runtime_error(msg);
   }
 
   if(eri_addr.empty()) full_dfobj = addr_dfobj;

@@ -4,6 +4,7 @@
 #define DEVICE_CACHE_H
 
 #include <vector>
+#include <set>
 
 #include <pybind11/pybind11.h>
 #include <pybind11/numpy.h>
@@ -42,6 +43,11 @@ public:
   void get_dfobj_status(size_t addr_dfobj, py::array_t<int> _arg);
   int evict_dfobj(size_t addr_dfobj);
 
+  // process-wide registry of dfobjs whose lifetime Python tracks (mrh.my_pyscf.gpu.eri_cache.track);
+  // blocks of an unregistered dfobj are refused, because nothing would evict them when id(dfobj) is reused
+  static void register_dfobj(size_t addr_dfobj);
+  static void unregister_dfobj(size_t addr_dfobj);
+
   int * dd_fetch_pumap(my_device_data *, int, int);
   double * dd_fetch_eri(my_device_data *, double *, int, int, size_t, int);
   double * dd_fetch_eri_debug(my_device_data *, double *, int, int, size_t, int);
@@ -57,6 +63,8 @@ private:
 
   size_t full_dfobj; // first dfobj cached into an empty cache (full molecule in LAS); not refreshed by update_dfobj
   int num_evicted = 0; // # blocks evicted (statistics)
+
+  static std::set<size_t> registered_dfobj;
 
   std::vector<size_t> eri_addr; // key, part 1: addr of dfobj (id(dfobj) in Python)
   std::vector<int> eri_block; // key, part 2: block index within dfobj.loop()
