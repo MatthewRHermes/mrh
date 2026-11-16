@@ -4,7 +4,7 @@ from pyscf import gto, scf, lib, mcscf
 from pyscf.tools import molden
 from pyscf.fci.direct_spin1 import _unpack_nelec
 from mrh.my_pyscf import mcpdft
-from mrh.my_pyscf.fci import csf_solver
+from pyscf.csf_fci import csf_solver
 import unittest
 
 lib.logger.TIMER_LEVEL = lib.logger.INFO

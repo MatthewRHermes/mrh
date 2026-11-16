@@ -17,7 +17,7 @@ import unittest
 import numpy as np
 from scipy import linalg
 from pyscf import lib, gto, scf, mcscf, fci, ao2mo
-from mrh.my_pyscf.mcscf.lasscf_o0 import LASSCF
+from mrh.my_pyscf.mcscf.lasscf_sync_o0 import LASSCF
 from mrh.my_pyscf.lassi import LASSI, LASSIrq, LASSIrqCT
 from mrh.my_pyscf.lassi.lassis import LASSIS
 from mrh.my_pyscf.lassi.lassi import root_make_rdm12s, roots_trans_rdm12s, make_stdm12s

@@ -1,6 +1,6 @@
 import sys
 from pyscf import gto, scf, tools, dft, lib
-from mrh.my_pyscf.mcscf.lasscf_o0 import LASSCF
+from mrh.my_pyscf.mcscf.lasscf_sync_o0 import LASSCF
 from mrh.my_pyscf.mcscf.lasscf_async import LASSCF as asyncLASSCF
 from mrh.my_dmet import localintegrals, dmet, fragments
 from mrh.my_pyscf import mcpdft

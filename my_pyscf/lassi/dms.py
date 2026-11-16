@@ -81,8 +81,8 @@ def make_trans(m, ciket, cibra, norb, nelec_ket, nelec_bra):
 
 if __name__=='__main__':
     from pyscf import gto, scf, mcscf
-    from mrh.my_pyscf.fci import csf_solver
-    from mrh.my_pyscf.mcscf.lasscf_o0 import LASSCF
+    from pyscf.csf_fci import csf_solver
+    from mrh.my_pyscf.mcscf.lasscf_sync_o0 import LASSCF
     molh2o = gto.M (atom="""
         O  0.000000  0.000000  0.000000
         H  0.758602  0.000000  0.504284

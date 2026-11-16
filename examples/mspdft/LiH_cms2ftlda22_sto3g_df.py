@@ -2,7 +2,7 @@ import numpy as np
 from scipy import linalg
 from pyscf import gto, scf, lib, df
 from pyscf.data.nist import BOHR
-from mrh.my_pyscf.fci import csf_solver
+from pyscf.csf_fci import csf_solver
 from pyscf import mcpdft
 from pyscf.df.grad import mspdft as mspdft_grad
 

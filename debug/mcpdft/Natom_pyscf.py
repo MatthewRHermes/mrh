@@ -1,6 +1,6 @@
 from pyscf import gto, mcscf, scf, fci, dft, lib
 from mrh.my_pyscf.mcpdft import mcpdft, otfnal
-from mrh.my_pyscf.fci import csf_solver
+from pyscf.csf_fci import csf_solver
 
 mol_hs = gto.M (atom = 'N 0 0 0', basis='cc-pvtz', spin = 3, symmetry='Dooh', verbose=lib.logger.DEBUG, output='Natom_hs.log')
 mol_ls = gto.M (atom = 'N 0 0 0', basis='cc-pvtz', spin = 1, symmetry='Dooh', verbose=lib.logger.DEBUG, output='Natom_ls.log')

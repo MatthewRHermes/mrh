@@ -3,7 +3,7 @@ import unittest
 from pyscf import gto, scf, mcscf, lib
 from pyscf.lib import logger
 from pyscf.qmmm import add_mm_charges
-from mrh.my_pyscf.fci import csf_solver
+from pyscf.csf_fci import csf_solver
 from mrh.my_pyscf.mcscf.addons import state_average_n_mix, get_h1e_zipped_fcisolver
 import time
 

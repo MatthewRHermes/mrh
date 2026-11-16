@@ -1,6 +1,6 @@
 import unittest
 from pyscf import lib, gto, scf
-from mrh.my_pyscf.mcscf.lasscf_o0 import LASSCF
+from mrh.my_pyscf.mcscf.lasscf_sync_o0 import LASSCF
 from mrh.my_pyscf.lassi import LASSI
 from mrh.my_pyscf.lassi.spaces import all_single_excitations
 from mrh.my_pyscf.mcscf.lasci import get_space_info

@@ -3,7 +3,7 @@ import numpy as np
 
 from pyscf.pbc import gto, scf, dft
 
-from mrh.my_pyscf.fci import csf_solver as mol_csf_solver
+from pyscf.csf_fci import csf_solver as mol_csf_solver
 from mrh.my_pyscf.pbc.fci import csf_solver
 from mrh.my_pyscf.pbc.mcpdft._dms import dm2_cumulant_complex
 from mrh.my_pyscf.pbc.mcscf import avas

@@ -13,7 +13,11 @@ jobs:
   cpu:
     # CPU-only pass. Never builds libgpu, so the suite provably runs with no
     # libgpu.so on disk -- that isolation is what the second pass depends on.
-    runs-on: ubuntu-latest
+    # Pinned to 24.04 because actions/python-versions has no Python 3.9 build
+    # for Ubuntu 26.04, which ubuntu-latest is migrating to (see PR #249).
+    # TODO: revisit when PySCF core hits this problem and chooses a solution.
+    # We drop Python 3.9 support no earlier than PySCF core does.
+    runs-on: ubuntu-24.04
     strategy:
       fail-fast: false
       matrix:

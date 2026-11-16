@@ -4,7 +4,7 @@ from scipy import linalg
 from pyscf import gto, scf, df, fci
 from pyscf.fci.addons import fix_spin_
 from pyscf import mcpdft
-#from mrh.my_pyscf.fci import csf_solver
+#from pyscf.csf_fci import csf_solver
 import unittest
 topdir = os.path.abspath (os.path.join (__file__, '..'))
 

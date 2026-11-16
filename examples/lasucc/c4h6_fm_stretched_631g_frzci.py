@@ -4,8 +4,8 @@ from pyscf import scf, mcscf
 from pyscf.lib import logger
 from c4h6_struct import structure
 from mrh.my_pyscf.tools import molden
-from mrh.my_pyscf.fci import csf_solver
-from mrh.my_pyscf.mcscf.lasscf_o0 import LASSCF
+from pyscf.csf_fci import csf_solver
+from mrh.my_pyscf.mcscf.lasscf_sync_o0 import LASSCF
 from mrh.exploratory.citools.lasci_ominus1 import FCISolver as lasci
 from mrh.exploratory.unitary_cc.lasuccsd import FCISolver as lasucc
 from mrh.exploratory.citools import fockspace

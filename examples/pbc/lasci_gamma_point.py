@@ -1,7 +1,7 @@
 import numpy
 from pyscf import gto, scf
 from pyscf import mcscf
-from mrh.my_pyscf.mcscf.lasscf_o0 import LASSCF
+from mrh.my_pyscf.mcscf.lasscf_sync_o0 import LASSCF
 from mrh.my_pyscf.tools.molden import from_lasscf
 
 '''

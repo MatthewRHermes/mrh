@@ -3,7 +3,7 @@ from scipy import linalg
 from pyscf import lib
 from pyscf.lib import logger, param
 from itertools import product
-from mrh.my_pyscf.fci.csf import unpack_h1e_ab
+from pyscf.csf_fci.csf import unpack_h1e_ab
 from mrh.my_pyscf.lassi import citools
 from mrh.my_pyscf.lassi.op_o1 import frag, stdm, opterm
 from mrh.my_pyscf.lassi.op_o1.utilities import *

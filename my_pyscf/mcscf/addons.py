@@ -6,6 +6,7 @@ from pyscf.mcscf.addons import StateAverageMCSCFSolver, StateAverageMixFCISolver
 from pyscf.mcscf.addons import StateAverageMixFCISolver_state_args as _state_arg
 from pyscf.mcscf.addons import StateAverageMixFCISolver_solver_args as _solver_arg
 from pyscf.fci.direct_spin1 import _unpack_nelec
+from pyscf.fci import cistring
 
 class StateAverageNMixFCISolver (StateAverageMixFCISolver):
     def _get_nelec (self, solver, nelec):
@@ -270,8 +271,217 @@ def get_h1e_zipped_fcisolver (fcisolver):
     h1ezipped_fcisolver.__dict__.update (fcisolver.__dict__)
     return h1ezipped_fcisolver
 
+def addr_outer_product (norb_f, nelec_f):
+    '''Build index arrays for reshaping a direct product of LAS CI
+    vectors into the appropriate orbital ordering for a CAS CI vector'''
+    norb = sum (norb_f)
+    nelec = sum (nelec_f)
+    # Must skip over cases where there are no electrons of a specific spin in a particular subspace
+    norbrange = np.cumsum (norb_f)
+    addrs = []
+    for i in range (0, len (norbrange)):
+        irange = range (norbrange[i]-norb_f[i], norbrange[i])
+        new_addrs = cistring.sub_addrs (norb, nelec, irange, nelec_f[i]) if nelec_f[i] else []
+        if len (addrs) == 0:
+            addrs = new_addrs
+        elif len (new_addrs) > 0:
+            addrs = np.intersect1d (addrs, new_addrs)
+    if not len (addrs): addrs=[0] # No beta electrons edge case
+    return addrs
+
+def _ci_outer_product (ci_f, norb_f, nelec_f):
+    '''Compute outer-product CI vector for one space table from fragment LAS CI vectors.
+    See "ci_outer_product"'''
+    nfrags = len (norb_f)
+    neleca_f = [ne[0] for ne in nelec_f]
+    nelecb_f = [ne[1] for ne in nelec_f]
+    lroots_f = [1 if ci.ndim<3 else ci.shape[0] for ci in ci_f]
+    nprods = np.prod (lroots_f)
+    shape_f = [(lroots, cistring.num_strings (norb, neleca), cistring.num_strings (norb, nelecb))
+              for lroots, norb, neleca, nelecb in zip (lroots_f, norb_f, neleca_f, nelecb_f)]
+    addrs_a = addr_outer_product (norb_f, neleca_f)
+    addrs_b = addr_outer_product (norb_f, nelecb_f)
+    idx = np.ix_(addrs_a,addrs_b)
+    addrs_a = addrs_b = None
+    neleca = sum (neleca_f)
+    nelecb = sum (nelecb_f)
+    nelec = tuple ((neleca, nelecb))
+    ndet_a = cistring.num_strings (sum (norb_f), neleca)
+    ndet_b = cistring.num_strings (sum (norb_f), nelecb)
+    ci_dp = ci_f[-1].reshape (shape_f[-1])
+    for ci_r, shape in zip (ci_f[-2::-1], shape_f[-2::-1]):
+        lroots, ndeta, ndetb = ci_dp.shape
+        ci_dp = np.multiply.outer (ci_dp, ci_r.reshape (shape))
+        ci_dp = ci_dp.transpose (0,3,1,4,2,5).reshape (
+            lroots*shape[0], ndeta*shape[1], ndetb*shape[2]
+        )
+    #norm_dp = linalg.norm (ci_dp.reshape (ci_dp.shape[0],-1), axis=1)
+    #ci_dp /= norm_dp[:,None,None]
+    def gen_ci_dp (buf=None):
+        if buf is None:
+            ci = np.empty ((ndet_a,ndet_b), dtype=ci_f[-1].dtype)
+        else:
+            ci = np.asarray (buf.flat[:ndet_a*ndet_b]).reshape (ndet_a, ndet_b)
+        #ci_dp = ci_f[-1].reshape (shape_f[-1])
+        #for ci_r, shape in zip (ci_f[-2::-1], shape_f[-2::-1]):
+        #    lroots, ndeta, ndetb = ci_dp.shape
+        #    ci_dp = np.multiply.outer (ci_dp, ci_r.reshape (shape))
+        #    ci_dp = ci_dp.transpose (0,3,1,4,2,5).reshape (
+        #        lroots*shape[0], ndeta*shape[1], ndetb*shape[2]
+        #    )
+        #norm_dp = linalg.norm (ci_dp.reshape (ci_dp.shape[0],-1), axis=1)
+        #ci_dp /= norm_dp[:,None,None]
+        for vec in ci_dp:
+            ci[:,:] = 0.0
+            ci[idx] = vec[:,:]
+            yield ci
+    def dotter (c1, nelec1, skip=None):
+        if nelec1 != nelec: return np.zeros (nprods)
+        if skip is None: return np.dot (ci_dp.reshape (nprods, -1),
+                                        c1[idx].ravel ())
+        try:
+            skip = set (skip)
+        except TypeError as e:
+            skip = set ([skip])
+        c1_dp = c1[idx][None,:]
+        skipdims = 1
+        for ifrag, (ci_r, shape) in enumerate (zip (ci_f, shape_f)):
+            new_shape = [x for s,t in zip (c1_dp.shape[skipdims:],shape[1:]) for x in (s//t, t)]
+            new_shape = list(c1_dp.shape[0:skipdims]) + new_shape
+            c1_dp = c1_dp.reshape (*new_shape)
+            if ifrag in skip:
+                dimorder = [0,skipdims+1,skipdims+3,] + list (range(1, skipdims+1)) + [skipdims+2,]
+                c1_dp = c1_dp.transpose (*dimorder)
+                skipdims += 2
+            else:
+                c1_dp = np.tensordot (ci_r.reshape (shape), c1_dp,
+                                      axes=((1,2),(skipdims+1,skipdims+3)))
+                new_shape = [c1_dp.shape[0]*c1_dp.shape[1],] + list (c1_dp.shape[2:])
+                c1_dp = c1_dp.reshape (*new_shape)
+        c1_dp = c1_dp.reshape (c1_dp.shape[0:skipdims])
+        return c1_dp
+    return gen_ci_dp, nprods, dotter
+
+def ci_outer_product_generator (ci_fr, norb_f, nelec_fr):
+    '''Compute outer-product CI vectors from fragment LAS CI vectors and return
+    result as a generator
+
+    Args:
+        ci_fr : nested list of shape (nfrags, nroots)
+            Contains CI vectors; element [i,j] is ndarray of shape
+            (lroots[i,j],ndeta[i,j],ndetb[i,j])
+        norb_f : list of length (nfrags)
+            Number of orbitals in each fragment
+        nelec_fr : ndarray-like of shape (nfrags, nroots, 2)
+            Number of spin-up and spin-down electrons in each fragment
+            and root
+
+    Returns:
+        ci_r_gen : callable that returns a generator of length (nprods)
+            Generates all direct-product CAS CI vectors
+        nelec_p : list of length (nprods) of tuple of length 2
+            (neleca, nelecb) for each product state
+        dotter : callable
+            Performs the dot product in the outer product basis
+            on a CAS CI vector, without explicitly constructing
+            any direct-product CAS CI vectors (again).
+            Args:
+                ket : ndarray
+                    contains CAS-CI vector
+                nelec_ket : tuple of length 2
+                    neleca, nelecb
+            Kwargs:
+                spinless2ss : callable
+                    Converts ci back from the spinless representation
+                    into the (neleca,nelecb) representation. Takes c1
+                    and nelec1 and returns a new ci vector
+                iket : integer
+                    Used to filter zero sectors when passed with oporder
+                oporder: integer
+                    Used to filter zero sectors when passed with oporder
+                    ket is identified as product number iket, acted on by
+                    some operator of up to order oporder. Any rootspace
+                    which differs by more than oporder electron hops
+                    therefore has zero projection onto ket.
+            Returns:
+                ndarray of length (nprods)
+                    Expansion coefficients for c1 in terms of direct-
+                    product states of ci_fr
+    '''
+
+    norb = sum (norb_f)
+    ndet = max ([cistring.num_strings (norb, ne[0]) * cistring.num_strings (norb, ne[1])
+                for ne in np.sum (nelec_fr, axis=0)])
+    gen_ci_r = []
+    nelec_p = []
+    dotter_r = []
+    space_p = []
+    for space in range (len (ci_fr[0])):
+        ci_f = [ci[space] for ci in ci_fr]
+        nelec_f = [nelec[space] for nelec in nelec_fr]
+        nelec = (sum ([ne[0] for ne in nelec_f]), sum ([ne[1] for ne in nelec_f]))
+        gen_ci, nprods, dotter = _ci_outer_product (ci_f, norb_f, nelec_f)
+        gen_ci_r.append (gen_ci)
+        nelec_p.extend ([nelec,]*nprods)
+        space_p.extend ([space,]*nprods)
+        dotter_r.append ([dotter, nelec, nprods])
+    def ci_r_gen (buf=None):
+        if buf is None:
+            buf1 = np.empty (ndet, dtype=ci_fr[-1][0].dtype)
+        else:
+            buf1 = np.asarray (buf.flat[:ndet])
+        for gen_ci in gen_ci_r:
+            for x in gen_ci (buf=buf1):
+                yield x
+    def dotter (ket, nelec_ket, spinless2ss=None, iket=None, oporder=None, skip=None):
+        vec = []
+        if callable (spinless2ss):
+            parse_nelec = lambda nelec: sum(nelec)
+        else:
+            parse_nelec = lambda nelec: nelec
+            spinless2ss = lambda vec, ne: vec
+        filtbra = lambda *args: False
+        if iket is not None and oporder is not None:
+            iket = space_p[iket]
+            nelec_f_ket = nelec_fr[:,iket]
+            def filtbra (ibra):
+                nelec_f_bra = nelec_fr[:,ibra]
+                nhop_f = nelec_f_bra-nelec_f_ket
+                return np.sum (np.abs(nhop_f))>2*oporder
+
+        for ibra, (dot, nelec_bra, nprods) in enumerate (dotter_r):
+            if parse_nelec (nelec_bra) != parse_nelec (nelec_ket) or filtbra (ibra):
+                vec.append (np.zeros (nprods))
+                continue
+            vec.append (dot (spinless2ss (ket, nelec_bra), nelec_bra, skip=skip))
+        if skip is None: return np.concatenate (vec)
+        else: return vec
+    return ci_r_gen, nelec_p, dotter
+
+def ci_outer_product (ci_fr, norb_f, nelec_fr):
+    '''Compute outer-product CI vectors from fragment LAS CI vectors.
+
+    Args:
+        ci_fr : nested list of shape (nfrags, nroots)
+            Contains CI vectors; element [i,j] is ndarray of shape
+            (lroots[i,j],ndeta[i,j],ndetb[i,j])
+        norb_f : list of length (nfrags)
+            Number of orbitals in each fragment
+        nelec_fr : ndarray-like of shape (nfrags, nroots, 2)
+            Number of spin-up and spin-down electrons in each fragment
+            and root
+
+    Returns:
+        ci_r : list of length (nroots)
+            Contains full CAS CI vector
+        nelec_r : list of length (nroots) of tuple of length 2
+            (neleca, nelecb) for each product state
+    '''
+    ci_r_gen, nelec_r, _ = ci_outer_product_generator (ci_fr, norb_f, nelec_fr)
+    ci_r = [x.copy () for x in ci_r_gen ()]
+    return ci_r, nelec_r
+
 def las2cas_civec (las):
-    from mrh.my_pyscf.lassi.op_o0 import ci_outer_product
     norb_f = las.ncas_sub
     nelec_fr = [[_unpack_nelec (fcibox._get_nelec (solver, nelecas)) for solver in fcibox.fcisolvers] for fcibox, nelecas in zip (las.fciboxes, las.nelecas_sub)]
     ci, nelec = ci_outer_product (las.ci, norb_f, nelec_fr)

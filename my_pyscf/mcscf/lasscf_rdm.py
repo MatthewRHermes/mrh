@@ -8,7 +8,7 @@ from scipy import linalg, sparse
 from scipy.sparse import linalg as sparse_linalg
 from mrh.my_pyscf.mcscf import lasscf_sync_o0, _DFLASCI, addons, lasci
 from mrh.my_pyscf.mcscf.lasscf_sync_o0 import MicroIterInstabilityException
-from mrh.my_pyscf.fci import csf_solver
+from pyscf.csf_fci import csf_solver
 from pyscf import lib, gto, scf, ao2mo
 from pyscf.fci.direct_spin1 import _unpack_nelec
 

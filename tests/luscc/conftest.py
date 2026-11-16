@@ -2,7 +2,7 @@ import pytest
 from pyscf import gto, scf
 
 from mrh.my_pyscf.lassi import lassis
-from mrh.my_pyscf.mcscf.lasscf_o0 import LASSCF
+from mrh.my_pyscf.mcscf.lasscf_sync_o0 import LASSCF
 
 
 @pytest.fixture(scope="module")

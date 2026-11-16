@@ -3,7 +3,7 @@ from pyscf import gto, scf, mcscf, dft
 from pyscf import mcpdft
 import unittest
 from pyscf.fci.addons import fix_spin_
-#from mrh.my_pyscf.fci import csf_solver
+#from pyscf.csf_fci import csf_solver
 
 geom_h2o='''
 O  0.00000000   0.08111156   0.00000000

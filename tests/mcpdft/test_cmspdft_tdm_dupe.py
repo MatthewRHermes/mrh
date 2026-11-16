@@ -1,7 +1,7 @@
 import numpy as np
 from pyscf import gto, scf, mcscf, mcpdft
 import unittest
-#from mrh.my_pyscf.fci import csf_solver
+#from pyscf.csf_fci import csf_solver
 from pyscf.fci.addons import fix_spin_
 
 geom_furan= '''

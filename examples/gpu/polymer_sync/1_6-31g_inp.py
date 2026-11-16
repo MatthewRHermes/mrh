@@ -1,7 +1,7 @@
 import pyscf 
 from mrh.tests.gpu.geometry_generator import generator
 from pyscf import gto, scf, tools, mcscf
-from mrh.my_pyscf.mcscf.lasscf_o0 import LASSCF
+from mrh.my_pyscf.mcscf.lasscf_sync_o0 import LASSCF
 from pyscf.mcscf import avas	
 
 nfrags=1

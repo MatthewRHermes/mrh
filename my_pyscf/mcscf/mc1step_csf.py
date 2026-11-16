@@ -3,8 +3,8 @@ from pyscf import lib
 from pyscf.lib import logger
 from pyscf.mcscf import mc1step, mc1step_symm
 from pyscf.fci.direct_spin1 import _unpack_nelec
-from mrh.my_pyscf.fci import csf, csf_symm
-from mrh.my_pyscf.fci.csfstring import transform_civec_det2csf, transform_civec_csf2det
+from pyscf.csf_fci import csf, csf_symm
+from pyscf.csf_fci.csfstring import transform_civec_det2csf, transform_civec_csf2det
 ''' The approximate CI response carried out within microiterations in the 1-step MCSCF algorithm has hitherto been
 carried out in the determinant basis, even if the full CASCI problem is solved in the CSF basis. 
 Usually this wouldn't be a huge problem, but if you know for a fact that S^2 spontaneously breaks

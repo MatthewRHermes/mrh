@@ -20,8 +20,8 @@ from pyscf import lib, gto, scf, dft, fci, mcscf, df
 from pyscf.mcscf import newton_casscf
 from pyscf.mcscf.addons import state_average_mix
 from me2n2_struct import structure as struct
-from mrh.my_pyscf.mcscf.lasscf_o0 import LASSCF
-from mrh.my_pyscf.fci import csf_solver
+from mrh.my_pyscf.mcscf.lasscf_sync_o0 import LASSCF
+from pyscf.csf_fci import csf_solver
 
 r_nn = 3.0
 mol = struct (3.0, '6-31g')

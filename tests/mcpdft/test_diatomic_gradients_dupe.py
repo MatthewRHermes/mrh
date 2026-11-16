@@ -3,7 +3,7 @@ from scipy import linalg
 from pyscf import gto, scf, df, mcscf, lib, dft
 from pyscf.data.nist import BOHR
 from pyscf import mcpdft
-#from mrh.my_pyscf.fci import csf_solver
+#from pyscf.csf_fci import csf_solver
 from pyscf.grad.cmspdft import diab_response, diab_grad, diab_response_o0, diab_grad_o0
 import unittest, math
 

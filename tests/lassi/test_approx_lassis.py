@@ -17,7 +17,7 @@ import numpy as np
 from scipy import linalg
 from pyscf import lib, scf
 from mrh.tests.lasscf.c2h4n4_struct import structure as struct
-from mrh.my_pyscf.mcscf.lasscf_o0 import LASSCF
+from mrh.my_pyscf.mcscf.lasscf_sync_o0 import LASSCF
 from mrh.my_pyscf.lassi import LASSI, LASSIS
 
 def setUpModule ():

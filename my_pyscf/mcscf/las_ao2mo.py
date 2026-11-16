@@ -6,7 +6,6 @@ from mrh.my_pyscf.df.sparse_df import sparsedf_array
 def get_h2eff_df (las, mo_coeff):
     # Store intermediate with one contracted ao index for faster calculation of exchange!
     log = lib.logger.new_logger (las, las.verbose)
-    gpu=las.use_gpu
     nao, nmo = mo_coeff.shape
     ncore, ncas = las.ncore, las.ncas
     nocc = ncore + ncas
@@ -59,7 +58,6 @@ def get_h2eff_df (las, mo_coeff):
         eri += lib.pack_tril (eri1.reshape (nmo*ncas, ncas, ncas)).reshape (nmo, -1)
         cderi = bPmn = bmuP1 = buvP = eri1 = None
         #t1 = lib.logger.timer (las, 'rest of the calculation', *t1)
-    #if mem_enough_int and not gpu: eri = lib.tag_array (eri, bmPu=np.concatenate (bmuP, axis=-1).transpose (0,2,1))
     if mem_enough_int : eri = lib.tag_array (eri, bmPu=np.concatenate (bmuP, axis=-1).transpose (0,2,1))
     if las.verbose > lib.logger.DEBUG:
         eri_comp = las.with_df.ao2mo (mo_coeff, compact=True)
@@ -200,8 +198,7 @@ def get_h2eff (las, mo_coeff=None):
         raise MemoryError ("{} MB of {}/{} MB av/total for ERI array".format (
             mem_eris, mem_remaining, las.max_memory))
     if getattr (las, 'with_df', None) is not None:
-        if las.use_gpu: eri = get_h2eff_gpu_v2 (las,mo_coeff)#the full version is not working yet.
-        else: eri = get_h2eff_df (las, mo_coeff)
+        eri = las._get_h2eff_df (mo_coeff)
     elif getattr (las._scf, '_eri', None) is not None:
         eri = ao2mo.incore.general (las._scf._eri, mo, compact=True)
     else:

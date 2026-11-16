@@ -9,7 +9,7 @@ from pyscf import gto, mcscf, scf
 
 from mrh.exploratory.luscc import LUSCC, get_grad_exact
 from mrh.my_pyscf import lassi
-from mrh.my_pyscf.mcscf.lasscf_o0 import LASSCF
+from mrh.my_pyscf.mcscf.lasscf_sync_o0 import LASSCF
 
 
 def select_largest(a_idxs, i_idxs, gradients, fraction):

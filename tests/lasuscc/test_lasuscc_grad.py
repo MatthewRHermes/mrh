@@ -1,7 +1,7 @@
 import numpy as np
 import pyscf
 from pyscf import gto, scf, lib, mcscf
-from mrh.my_pyscf.mcscf.lasscf_o0 import LASSCF
+from mrh.my_pyscf.mcscf.lasscf_sync_o0 import LASSCF
 from mrh.exploratory.unitary_cc import lasuccsd
 from mrh.exploratory.unitary_cc.uccsd_sym0 import get_uccsd_op
 from mrh.exploratory.citools import fockspace, lasci_ominus1, grad

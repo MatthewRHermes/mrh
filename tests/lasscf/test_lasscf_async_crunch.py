@@ -3,7 +3,7 @@ import numpy as np
 from functools import partial
 from scipy import linalg
 from pyscf import gto, scf, mcscf, lib
-from mrh.my_pyscf.mcscf.lasscf_o0 import LASSCF
+from mrh.my_pyscf.mcscf.lasscf_sync_o0 import LASSCF
 from mrh.my_pyscf.mcscf.lasscf_sync_o0 import get_grad_orb
 from mrh.my_pyscf.mcscf.lasscf_async.split import get_impurity_space_constructor
 from mrh.my_pyscf.mcscf.lasscf_async.crunch import get_impurity_casscf
