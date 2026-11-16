@@ -468,6 +468,7 @@ void Device::set_update_dfobj_(int _val)
 void Device::set_verbose_(int _verbose)
 {
   verbose_level = _verbose; // setting nonzero prints affinity + timing info
+  dev_ctx.verbose_level = _verbose; // subdomains (e.g. DeviceCache stats at teardown) read the context copy
 }
 
 /* ---------------------------------------------------------------------- */
