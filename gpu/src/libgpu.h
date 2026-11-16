@@ -27,6 +27,7 @@ extern "C"
 
   void libgpu_set_update_dfobj_(void *, int);
   void libgpu_get_dfobj_status(void *, size_t, py::array_t<int>);
+  int libgpu_evict_dfobj(size_t);
   
   //JK
   void libgpu_init_get_jk(void *,
@@ -246,6 +247,7 @@ PYBIND11_MODULE(libgpu, m) {
   
   m.def("set_update_dfobj_", &libgpu_set_update_dfobj_, "ensure that eri is updated on device for get_jk");
   m.def("get_dfobj_status", &libgpu_get_dfobj_status, "retrieve info on dfobj and cached eri blocks on device");
+  m.def("evict_dfobj", &libgpu_evict_dfobj, "drop cached eri blocks of dfobj on all live devices; returns # of blocks dropped");
 
   m.def("push_mo_coeff", &libgpu_push_mo_coeff, "pyscf/mcscf/df.py::_ERIS.__init__() part 0.1");
   m.def("extract_mo_cas", &libgpu_extract_mo_cas, "pyscf/mcscf/las_ao2mo.py");

@@ -481,6 +481,15 @@ void Device::get_dfobj_status(size_t addr_dfobj, py::array_t<int> _arg)
 
 /* ---------------------------------------------------------------------- */
 
+// forwarder -> DeviceCache::evict_dfobj
+
+int Device::evict_dfobj(size_t addr_dfobj)
+{
+  return _cache->evict_dfobj(addr_dfobj);
+}
+
+/* ---------------------------------------------------------------------- */
+
 
 /* ---------------------------------------------------------------------- */
 

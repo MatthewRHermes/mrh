@@ -12,6 +12,7 @@ from pyscf.ao2mo import _ao2mo
 from gpu4mrh.lib.utils import patch_cpu_kernel, resolve_use_gpu
 
 from mrh.my_pyscf.gpu import libgpu
+from mrh.my_pyscf.gpu import eri_cache
 
 # Setting DEBUG = True will execute both CPU (original) and GPU (new) paths checking for consistency 
 import math
@@ -539,6 +540,8 @@ def get_j(dfobj, dm, hermi=1, direct_scf_tol=1e-13):
     return numpy.asarray(vj).reshape(dm_shape)
 
 def _get_jk(dfobj, dm, hermi=1, with_j=True, with_k=True, direct_scf_tol=1e-13):
+
+    eri_cache.track(dfobj) # its blocks get cached on the device by id(dfobj)
 
     if dfobj.verbose>=lib.logger.DEBUG1:
         vj, vk = get_jk_debug(dfobj, dm, hermi, with_j, with_k, direct_scf_tol)

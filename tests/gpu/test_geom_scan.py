@@ -1,6 +1,7 @@
+import gc
 import unittest
 import numpy
-from pyscf import gto, dft, lib
+from pyscf import gto, scf, dft, lib
 
 # A geometry step through the GPU DF J/K: SCF at G0, then the gradient scanner at G1 (what geomeTRIC does),
 # against a fresh CPU calculation at G1. libgpu caches the 3-center integrals by id(dfobj); the scanner keeps the
@@ -34,28 +35,42 @@ def _scanned (xc, spin, use_gpu):
     mol1 = mf.mol.set_geom_(gto.M(atom=G1, unit="Angstrom").atom_coords(), unit="Bohr", inplace=False)
     return scan(mol1)
 
+def _hf (atom, use_gpu=None):
+    kwargs = {} if use_gpu is None else {'use_gpu': use_gpu}
+    mf = scf.ROHF(gto.M(atom=atom, basis='cc-pvdz', spin=1, verbose=0, **kwargs)).density_fit()
+    mf.conv_tol = 1e-10
+    return mf
+
+def _nblk_cached (gpu, addr):
+    arg = numpy.array([-1, -1, -1, -1], dtype=numpy.int32)
+    libgpu.get_dfobj_status(gpu, addr, arg)
+    return arg[2] # -1: nothing cached for addr
+
+GOH = ["O 0 0 0; H 0 0.76 0.59", "O 0 0 0.05; H 0 0.80 0.55"]
+
 def setUpModule():
-    global refs, ref_tz
+    global refs, ref_tz, ref_oh
     assert getattr(lib.param, 'use_gpu', None) is None
     refs = {c: _reference(*c) for c in CASES}
     ref_tz = _make(G1, 'pbe0', 0, basis='cc-pvtz').kernel()
+    ref_oh = [_hf(g).kernel() for g in GOH]
 
 def tearDownModule():
-    global refs, ref_tz
-    del refs, ref_tz
+    global refs, ref_tz, ref_oh
+    del refs, ref_tz, ref_oh
 
 class KnownValues (unittest.TestCase):
 
     @classmethod
     def setUpClass (cls):
+        global libgpu
         from mrh.my_pyscf.gpu import libgpu
         from gpu4mrh import patch_pyscf
-        cls.libgpu = libgpu
         cls.gpu = libgpu.init()
 
     @classmethod
     def tearDownClass (cls):
-        cls.libgpu.destroy_device(cls.gpu)
+        libgpu.destroy_device(cls.gpu)
 
     def test_scanner_step (self):
         for c in CASES:
@@ -74,7 +89,35 @@ class KnownValues (unittest.TestCase):
         mf_tz.with_df.reset(mf_tz.mol)
         self.assertAlmostEqual (mf_tz.kernel(), ref_tz, 9)
 
+    def test_reset_evicts (self):
+        mf = _hf(GOH[0], use_gpu=self.gpu)
+        mf.kernel()
+        addr = id(mf.with_df)
+        self.assertGreater (_nblk_cached(self.gpu, addr), 0)
+        mf.with_df.reset()
+        self.assertEqual (_nblk_cached(self.gpu, addr), -1)
+
+    def test_gc_evicts (self):
+        # the blocks of a garbage-collected DF object must not outlive it: its id() can be reused
+        mf = _hf(GOH[0], use_gpu=self.gpu)
+        mf.kernel()
+        addr = id(mf.with_df)
+        self.assertGreater (_nblk_cached(self.gpu, addr), 0)
+        del mf
+        gc.collect()
+        self.assertEqual (_nblk_cached(self.gpu, addr), -1)
+
+    def test_fresh_objects_scan (self):
+        # a scan written with a fresh mol/mf per point never calls DF.reset; when a new DF object
+        # landed on a freed one's address it was handed the old geometry's integrals (|dE| ~ 1.3 Ha)
+        for it in range(30):
+            k = it % 2
+            mf = _hf(GOH[k], use_gpu=self.gpu)
+            with self.subTest (it=it):
+                self.assertAlmostEqual (mf.kernel(), ref_oh[k], 8)
+            del mf
+            gc.collect()
+
 if __name__ == "__main__":
     print("Tests for GPU DF J/K after a geometry change")
     unittest.main()
-
