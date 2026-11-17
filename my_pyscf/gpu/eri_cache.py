@@ -11,6 +11,11 @@ unique among live objects, so a DF object's blocks are dropped (``evict``) when
 libgpu only caches blocks of DF objects registered by ``track``, so a code path that
 forgets it fails loudly (RuntimeError) instead of silently risking stale integrals.
 
+Replacing ``_cderi`` in place is not detected: a DF object that has already run on the
+GPU keeps its old blocks. After assigning a new ``_cderi`` to such an object, call
+``evict(dfobj)`` or ``dfobj.reset()``. (The LAS impurity rebuild in
+``lasscf_async/crunch.py`` refreshes its blocks with ``set_update_dfobj_(gpu, 1)`` instead.)
+
 Kept free of ``gpu4mrh`` imports so CPU-safe callers (e.g. ``las_ao2mo``) can use it;
 ``libgpu`` is only imported when a block actually has to be dropped.
 '''
