@@ -886,15 +886,17 @@ if __name__ == '__main__':
     las = LASSCF (mf, (4,4), (4,4)).set (conv_tol_grad = tol)
     mo = las.localize_init_guess ((list(range(3)),list(range(9,12))), mo_coeff=mf.mo_coeff)
     las.state_average_(weights = [0.5, 0.5], spins=[[0,0],[2,-2]])
-    h2eff_sub, veff = las.kernel (mo)[-2:]
+    las.kernel (mo)
     e_states = las.e_states
 
     ncore, ncas, nocc = las.ncore, las.ncas, las.ncore + las.ncas
     mo_coeff = las.mo_coeff
     mo_core = mo_coeff[:,:ncore]
     mo_cas = mo_coeff[:,ncore:nocc]
-    e0 = las._scf.energy_nuc () + 2 * (((las._scf.get_hcore () + veff.c/2) @ mo_core) * mo_core).sum () 
-    h1 = mo_cas.conj ().T @ (las._scf.get_hcore () + veff.c) @ mo_cas
+    h2eff_sub = las.get_h2eff (mo_coeff)
+    veff_c = las.get_veff (dm=2 * mo_core @ mo_core.conj ().T)
+    e0 = las._scf.energy_nuc () + 2 * (((las._scf.get_hcore () + veff_c/2) @ mo_core) * mo_core).sum () 
+    h1 = mo_cas.conj ().T @ (las._scf.get_hcore () + veff_c) @ mo_cas
     h2 = h2eff_sub[ncore:nocc].reshape (ncas*ncas, ncas * (ncas+1) // 2)
     h2 = lib.numpy_helper.unpack_tril (h2).reshape (ncas, ncas, ncas, ncas)
     nelec_fr = []

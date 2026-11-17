@@ -71,8 +71,8 @@ def cellObject(x):
 
 print(" Energy Comparision with cubic unit cell size ")
 print(f"{'LatticeVector(a)':<20} {'HF':<20} {'CASCI':<15} {'LASCI':<20}")
-print(f"{'Reference':<18} {memf:<18.9f} {mecasci:<18.9f} {melasci[1]:<18.9f}")
+print(f"{'Reference':<18} {memf:<18.9f} {mecasci:<18.9f} {melasci[0]:<18.9f}")
 
 for x in range(7,10,1):
     x, emf, ecasci, elasci = cellObject(x)
-    print(f"{x:<18.1f} {emf:<18.9f} {ecasci:<18.9f} {elasci[1]:<18.9f}")
+    print(f"{x:<18.1f} {emf:<18.9f} {ecasci:<18.9f} {elasci[0]:<18.9f}")
