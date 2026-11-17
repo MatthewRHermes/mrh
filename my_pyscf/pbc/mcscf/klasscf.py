@@ -4015,10 +4015,7 @@ def _klasscf_kernel_method(
         self.mo_coeff, self.e_cas, self.e_lexc, self.ci, h2eff, veff,
     ) = result
     self._finalize(method="k-LASSCF")
-    return (
-        self.e_tot, self.e_cas, self.ci, self.mo_coeff, self.mo_energy,
-        h2eff, veff,
-    )
+    return self.e_tot, self.e_cas, self.ci, self.mo_coeff, self.mo_energy
 
 
 class PBCLASSCFNoSymm(PBCLASCINoSymm):

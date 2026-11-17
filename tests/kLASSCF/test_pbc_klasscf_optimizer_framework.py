@@ -66,7 +66,7 @@ class KnownValuesKLASSCFOptimizerResults(unittest.TestCase):
         self.assertIs(optimizer.mo_coeff, final_mo)
         self.assertIs(optimizer.ci, final_ci)
         self.assertEqual(optimizer.finalize_calls, ["k-LASSCF"])
-        self.assertEqual(len(actual), 7)
+        self.assertEqual(len(actual), 5)
 
 
 class FakeFCIBox:
@@ -559,7 +559,7 @@ class KnownValuesKLASSCFOptimizerIntegration(unittest.TestCase):
     def test_public_optimizer_builds_physical_keyframe(self):
         self.las.max_cycle_macro = 0
         result = self.las.kernel(mo_coeff=self.mo_guess)
-        e_tot, e_cas, ci, mo_coeff, mo_energy, h2eff, veff = result
+        e_tot, e_cas, ci, mo_coeff, mo_energy = result
 
         self.assertIsInstance(self.las, klasscf.PBCLASSCFNoSymm)
         self.assertTrue(np.isfinite(e_tot))
@@ -568,11 +568,6 @@ class KnownValuesKLASSCFOptimizerIntegration(unittest.TestCase):
         self.assertEqual(np.shape(mo_coeff), np.shape(self.mo_guess))
         self.assertEqual(np.shape(mo_energy), (
             self.las.nkpts, mo_coeff.shape[-1],
-        ))
-        ncastot = int(np.sum(self.las.ncas_sub))
-        self.assertEqual(np.shape(h2eff), (ncastot,) * 4)
-        self.assertEqual(np.shape(veff), (
-            2, self.las.nkpts, mo_coeff.shape[-1], mo_coeff.shape[-1],
         ))
 
     def test_physical_optimizer_applies_one_minres_microiteration(self):
