@@ -28,9 +28,8 @@ def get_mcpdft_child_class(mc, ot, states=None, _pdft_class=_LASPDFT, **kwargs):
     '''LASSI-PDFT: the LAS-PDFT class of mrh.my_pyscf.mcpdft.laspdft, evaluated on LASSI states'''
     LASPDFT = _get_mcpdft_child_class(mc, _pdft_class=_pdft_class)
 
-    # These are attributes of the LASSI-PDFT class, not of the LAS class it is built on: setting
-    # DoLASSI on the LAS class would make every later LAS-PDFT calculation on that class behave
-    # like LASSI-PDFT (e.g., keep the per-state e_tot).
+    # These are attributes of the LASSI-PDFT class only, not of the LAS class it is built on
+    # (tests/mcpdft/test_lassipdft.py checks that they don't leak onto it).
     class PDFT(LASPDFT):
         __doc__ = LASPDFT.__doc__
         DoLASSI = True
@@ -46,6 +45,13 @@ def get_mcpdft_child_class(mc, ot, states=None, _pdft_class=_LASPDFT, **kwargs):
 
         def get_energy_decomposition(self, *args, **kwargs):
             return super(LASPDFT, self).get_energy_decomposition(*args, **kwargs)
+
+        def compute_pdft_energy_(self, *args, **kwargs):
+            # Skip LASPDFT's version, which rejects lroots > 1 and averages e_tot over the LAS
+            # states. Neither applies here: local excitations are part of the LASSI model, and
+            # e_tot holds the energy of each LASSI state.
+            kwargs['dump_chk'] = False # dump_chk doesn't work for LAS
+            return _pdft_class.compute_pdft_energy_(self, *args, **kwargs)
 
         '''
         The cost of the RDM build is similar to LASSI diagonalization step. Therefore,
