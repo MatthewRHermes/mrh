@@ -95,6 +95,7 @@ public :
 
   void set_update_dfobj_(int); // forwarder -> DeviceCache
   void get_dfobj_status(size_t, py::array_t<int>); // forwarder -> DeviceCache
+  int evict_dfobj(size_t); // forwarder -> DeviceCache
  
   //AO2MO
   void init_jk_ao2mo (int, int);

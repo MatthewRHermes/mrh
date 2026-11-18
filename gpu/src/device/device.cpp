@@ -468,6 +468,7 @@ void Device::set_update_dfobj_(int _val)
 void Device::set_verbose_(int _verbose)
 {
   verbose_level = _verbose; // setting nonzero prints affinity + timing info
+  dev_ctx.verbose_level = _verbose; // subdomains (e.g. DeviceCache stats at teardown) read the context copy
 }
 
 /* ---------------------------------------------------------------------- */
@@ -477,6 +478,15 @@ void Device::set_verbose_(int _verbose)
 void Device::get_dfobj_status(size_t addr_dfobj, py::array_t<int> _arg)
 {
   _cache->get_dfobj_status(addr_dfobj, _arg);
+}
+
+/* ---------------------------------------------------------------------- */
+
+// forwarder -> DeviceCache::evict_dfobj
+
+int Device::evict_dfobj(size_t addr_dfobj)
+{
+  return _cache->evict_dfobj(addr_dfobj);
 }
 
 /* ---------------------------------------------------------------------- */

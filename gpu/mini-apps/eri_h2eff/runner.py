@@ -63,6 +63,8 @@ def get_h2eff_gpu_v2(las, mo_coeff):
     libgpu.init_eri_h2eff(gpu, nmo, ncas)
     libgpu.extract_mo_cas(gpu, ncas, ncore, nao, nmo)
     blksize = las.with_df.blockdim
+    from mrh.my_pyscf.gpu import eri_cache
+    eri_cache.track(las.with_df) # required before libgpu may cache its blocks
     eri = np.zeros((nmo, int(ncas * ncas * (ncas + 1) / 2)))
     eri1 = np.zeros_like(eri)
     count = 0

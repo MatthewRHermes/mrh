@@ -73,6 +73,9 @@ def get_h2eff_gpu (las,mo_coeff):
     from mrh.my_pyscf.gpu import libgpu
     log = lib.logger.new_logger (las, las.verbose)
     gpu=las.use_gpu
+    if gpu:
+        from mrh.my_pyscf.gpu import eri_cache
+        eri_cache.track (las.with_df) # its blocks get cached on the device by id(las.with_df)
     nao, nmo = mo_coeff.shape
     count = 0
     ncore, ncas = las.ncore, las.ncas
@@ -119,6 +122,9 @@ def get_h2eff_gpu_v2 (las,mo_coeff):
     from mrh.my_pyscf.gpu import libgpu
     log = lib.logger.new_logger (las, las.verbose)
     gpu=las.use_gpu
+    if gpu:
+        from mrh.my_pyscf.gpu import eri_cache
+        eri_cache.track (las.with_df) # its blocks get cached on the device by id(las.with_df)
     nao, nmo = mo_coeff.shape
     count = 0
     ncore, ncas = las.ncore, las.ncas

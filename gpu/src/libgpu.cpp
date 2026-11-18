@@ -3,6 +3,7 @@
 #include <cmath>
 #include <stdexcept>
 #include <string>
+#include <set>
 
 #include "libgpu.h"
 #include "pm/pm.h"
@@ -56,9 +57,14 @@ void * libgpu_init()
 
 /* ---------------------------------------------------------------------- */
 
+// live Device objects: evict_dfobj() is called from Python finalizers that may run after a device was destroyed
+
+static std::set<Device *> live_devices;
+
 void * libgpu_create_device()
 {
   Device * ptr = new Device();
+  live_devices.insert(ptr);
   return (void *) ptr;
 }
 
@@ -67,6 +73,7 @@ void * libgpu_create_device()
 void libgpu_destroy_device(void * ptr)
 {
   LIBGPU_DEVICE(ptr)
+  live_devices.erase(dev);
   delete dev;
 }
 
@@ -158,6 +165,27 @@ void libgpu_get_dfobj_status(void * ptr, size_t addr_dfobj, py::array_t<int> arg
 { 
   LIBGPU_DEVICE(ptr)
   dev->get_dfobj_status(addr_dfobj, arg);
+}
+
+/* ---------------------------------------------------------------------- */
+
+// allow dfobj's blocks to be cached; Python promises to call evict_dfobj when they become invalid
+
+void libgpu_register_dfobj(size_t addr_dfobj)
+{
+  DeviceCache::register_dfobj(addr_dfobj);
+}
+
+/* ---------------------------------------------------------------------- */
+
+// drop cached ERI blocks of dfobj on every live device and unregister it; returns # of blocks dropped
+
+int libgpu_evict_dfobj(size_t addr_dfobj)
+{
+  int nevict = 0;
+  for(Device * dev : live_devices) nevict += dev->evict_dfobj(addr_dfobj);
+  DeviceCache::unregister_dfobj(addr_dfobj);
+  return nevict;
 }
 
 /* ---------------------------------------------------------------------- */
