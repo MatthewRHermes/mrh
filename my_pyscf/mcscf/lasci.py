@@ -10,6 +10,8 @@ class _LASCIMixin:
     '''mrh-only features of the LASCI classes: gpu4mrh support and the lassi method.
     It goes first in the bases, so its methods wrap the Forge ones through super ().'''
 
+    _keys = {'use_gpu'}
+
     def __init__(self, mf, *args, **kwargs):
         mol = getattr(mf, 'mol', None)
         default_use_gpu = getattr(mol, '__dict__', {}).get('use_gpu')
