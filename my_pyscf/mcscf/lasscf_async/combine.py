@@ -162,8 +162,7 @@ def relax (las, kf, freeze_inactive=False, unfrozen_frags=None):
             loc = params.get (tuple (unfrozen_frags), {})
             loc = {key: val for key, val in loc.items () if key not in ('frozen', 'frozen_ci')}
             flas.__dict__.update (loc)
-        e_tot, e_cas, ci, mo_coeff, mo_energy, h2eff_sub, veff = \
-            flas.kernel (kf.mo_coeff, ci0=kf.ci)
+        e_tot, e_cas, ci, mo_coeff, mo_energy = flas.kernel (kf.mo_coeff, ci0=kf.ci)
     ovlp = mo_coeff.conj ().T @ las._scf.get_ovlp () @ mo_coeff
     errmat = ovlp - np.eye (ovlp.shape[0])
     errmax = np.amax (np.abs (errmat))

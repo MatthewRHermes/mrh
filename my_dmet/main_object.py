@@ -37,7 +37,7 @@ from pyscf.tools import molden
 from pyscf.symm.addons import symmetrize_space
 from pyscf.scf.addons import project_mo_nr2nr, project_dm_nr2nr
 from pyscf.fci.addons import transform_ci_for_orbital_rotation
-from pyscf.lib.numpy_helper import unpack_tril
+from pyscf.lib.numpy_helper import unpack_tril, tag_array
 from mrh.util import params
 from mrh.util.io import prettyprint_ndarray as prettyprint
 from mrh.util.la import matrix_eigen_control_options, matrix_svd_control_options, assign_blocks_weakly
@@ -1440,7 +1440,7 @@ class dmet:
         amo_occ = no_occ[ncore:]
         print (self.ints.nelec_tot, ' electrons total, ', ncore, ' core orbitals w/ occupancy = ',no_occ[:ncore])
         active_frags = [f for f in self.fragments if f.norbs_as]
-        casdm0_fr = []
+        casdm0_frs = []
         ci0 = []
         for f in active_frags:
             amo = loc2amo[:,:f.norbs_as]
@@ -1454,21 +1454,28 @@ class dmet:
             neleca = int (round ((f.active_space[0]/2) + f.target_MS))
             nelecb = int (round ((f.active_space[0]/2) - f.target_MS))
             print ("MATT CHECK THIS: (neleca, nelecb) = ({:.3f}, {:.3f}) vs desired ({},{})".format (np.trace (dma), np.trace (dmb), neleca, nelecb))
-            casdm0_fr.append (np.stack ([dma, dmb], axis=0)[None,:,:,:]) # TODO: generalize for SA-LASSCF
+            casdm0_frs.append (np.stack ([dma, dmb], axis=0)[None,:,:,:]) # TODO: generalize for SA-LASSCF
             if f.ci_as is not None:
                 umat = f.ci_as_orb.conjugate ().T @ amo
                 nel = (neleca, nelecb)
                 if nelecb > neleca: nel = (nelecb, neleca)
                 ci0.append ([transform_ci_for_orbital_rotation (f.ci_as, f.norbs_as, nel, umat)]) # TODO: generalize for SA-LASSCF
         self.las.stdout = self.lasci_log
-        if all ([x is not None] for x in ci0) and len (ci0) == len (casdm0_fr):
-            casdm0_fr = None
+        if all ([x is not None] for x in ci0) and len (ci0) == len (casdm0_frs):
+            casdm0_frs = None
         else:
             ci0 = None
         w0, t0 = time.time (), time.process_time ()
-        e_tot, _, ci_sub, _, _, h2eff_sub, veff = self.las.kernel (mo_coeff = ao2no, ci0 = ci0, casdm0_fr = casdm0_fr)
+        e_tot = self.las.kernel (mo_coeff = ao2no, ci0 = ci0, casdm0_frs = casdm0_frs)[0]
         if not self.las.converged:
             raise RuntimeError ("LASPSCF SCF cycle not converged")
+        # The LAS kernel no longer returns h2eff_sub and veff, so build them here. Only veff.c
+        # (core) and veff.sa (state-averaged, spin-separated) are used below.
+        mo_core = self.las.mo_coeff[:,:self.las.ncore]
+        h2eff_sub = self.las.get_h2eff (self.las.mo_coeff)
+        veff_c = self.las.get_veff (dm=2 * mo_core @ mo_core.conj ().T)
+        veff_sa = self.las.get_veff (dm=self.las.make_rdm1s ())
+        veff = tag_array (veff_sa, c=veff_c, sa=veff_sa)
         print ("LASPSCF module energy: {:.9f}".format (e_tot))
         print ("Time in LASPSCF module: {:.8f} wall, {:.8f} clock".format (time.time () - w0, time.process_time () - t0))
         return self.las, h2eff_sub, veff

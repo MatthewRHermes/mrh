@@ -803,7 +803,7 @@ class LASSI(lib.StreamObject):
     '''
     def __init__(self, las, mo_coeff=None, ci=None, soc=False, break_symmetry=False, opt=1,
                  davidson_only=False, nroots_si=None, chkfile=None, do_o1_chk=None, **kwargs):
-        from mrh.my_pyscf.mcscf.lasci import LASCINoSymm
+        from pyscf.mcscf.las.lasci import LASCINoSymm
         if isinstance(las, LASCINoSymm): self._las = las
         else: raise RuntimeError("LASSI requires las instance")
         if mo_coeff is None: mo_coeff = las.mo_coeff

@@ -26,7 +26,7 @@ class KnownValues(unittest.TestCase):
 
         las = LASSCF(mf, (2,), (2,))
         mo0 = las.localize_init_guess((list(range(2)), ))
-        elasci = las.lasci(mo0)[1]
+        elasci = las.lasci(mo0)[0]
 
         self.assertAlmostEqual (elasci, ecasci, 7)
 

@@ -28,15 +28,14 @@ def get_mcpdft_child_class(mc, ot, states=None, _pdft_class=_LASPDFT, **kwargs):
     '''LASSI-PDFT: the LAS-PDFT class of mrh.my_pyscf.mcpdft.laspdft, evaluated on LASSI states'''
     LASPDFT = _get_mcpdft_child_class(mc, _pdft_class=_pdft_class)
 
-    _mc_class = mc.__class__
-    setattr(_mc_class, 'DoLASSI', True)
-    setattr(_mc_class, 'states', None)
-    setattr(_mc_class, 'statlis', None)
-    setattr(_mc_class, 'rdmstmpfile', None)
-    if states is not None: _mc_class.states = states
-
+    # These are attributes of the LASSI-PDFT class only, not of the LAS class it is built on
+    # (tests/mcpdft/test_lassipdft.py checks that they don't leak onto it).
     class PDFT(LASPDFT):
         __doc__ = LASPDFT.__doc__
+        DoLASSI = True
+        states = None
+        statlis = None
+        rdmstmpfile = None
 
         def analyze(self, state=0, **kwargs):
             log = lib.logger.new_logger(self, self.verbose)
@@ -46,6 +45,13 @@ def get_mcpdft_child_class(mc, ot, states=None, _pdft_class=_LASPDFT, **kwargs):
 
         def get_energy_decomposition(self, *args, **kwargs):
             return super(LASPDFT, self).get_energy_decomposition(*args, **kwargs)
+
+        def compute_pdft_energy_(self, *args, **kwargs):
+            # Skip LASPDFT's version, which rejects lroots > 1 and averages e_tot over the LAS
+            # states. Neither applies here: local excitations are part of the LASSI model, and
+            # e_tot holds the energy of each LASSI state.
+            kwargs['dump_chk'] = False # dump_chk doesn't work for LAS
+            return _pdft_class.compute_pdft_energy_(self, *args, **kwargs)
 
         '''
         The cost of the RDM build is similar to LASSI diagonalization step. Therefore,
@@ -120,4 +126,6 @@ def get_mcpdft_child_class(mc, ot, states=None, _pdft_class=_LASPDFT, **kwargs):
             if callable (getattr (self.rdmstmpfile, 'close', None)):
                 self.rdmstmpfile.close ()
 
-    return _instantiate(PDFT, mc, ot, **kwargs)
+    pdft = _instantiate(PDFT, mc, ot, **kwargs)
+    if states is not None: pdft.states = states
+    return pdft

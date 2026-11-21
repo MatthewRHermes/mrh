@@ -590,10 +590,13 @@ class ComplexCSFFCIKernelMixin:
     check_transformer_cache = realFCISolver.check_transformer_cache
 
 
+# realCSFFCISolver comes last so that isinstance (solver, CSFFCISolver) recognizes the complex CSF
+# solvers too. All of its methods are overridden by the earlier bases.
 class FCISolver(
     ComplexCSFFCIKernelMixin,
     cplxCSFFCISolver,
-    direct_spin1_cplx_opt.FCISolver,):
+    direct_spin1_cplx_opt.FCISolver,
+    realCSFFCISolver,):
     '''
     direct_spin1 FCI in CSF basis.
     '''
@@ -603,6 +606,7 @@ class FCISolverSpin0(
     ComplexCSFFCIKernelMixin,
     cplxCSFFCISolver,
     direct_spin0_cplx.FCISolver,
+    realCSFFCISolver,
 ):
     '''
     direct_spin0 FCI in CSF basis.

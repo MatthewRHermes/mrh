@@ -62,10 +62,10 @@ mo_coeff = np.array(mo_coeff)
 # the active space of (40e, 70o)
 klas_no_trans = mcscf.KLASCI(kmf, 8, (8, 6), kmesh=kmesh1D, trans_sym=False,)
 lo_coeff = klas_no_trans.localize_init_guess(['Ni 3d', '^1 O 2p'], mo_coeff=mo_coeff,)
-e_klas_no_trans = klas_no_trans.kernel(np.array(lo_coeff, copy=True),)[1]
+e_klas_no_trans = klas_no_trans.kernel(np.array(lo_coeff, copy=True),)[0]
 
 klas_trans = mcscf.KLASCI(kmf, 8, (8, 6), kmesh=kmesh1D, trans_sym=True,)
-e_klas_trans = klas_trans.kernel(np.array(lo_coeff, copy=True),)[1]
+e_klas_trans = klas_trans.kernel(np.array(lo_coeff, copy=True),)[0]
 
 print("k-RHF energy  : ", kmf.e_tot.real)
 print("k-LASCI energy (without translation symmetry): ", e_klas_no_trans.real)

@@ -798,8 +798,7 @@ class PBCLASCINoSymm(casci.PBCCASCI, LASCINoSymm):
         elif getattr (self, 'chkfile', None) is not None:
             lib.logger.warn (self, 'orbitals changed; chkfile not dumped!')
         self._finalize (method='LASCI')
-        return (self.converged, self.e_tot, self.e_states, self.e_cas,
-                self.e_lexc, self.ci)
+        return self.e_tot, self.e_cas, self.ci, self.mo_coeff, self.mo_energy
 
     def _finalize(self, method='LASCI'):
         log = lib.logger.new_logger (self, self.verbose)

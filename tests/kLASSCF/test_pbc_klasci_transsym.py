@@ -173,8 +173,8 @@ class KnownValues(unittest.TestCase):
         mo_loc = plain_klas.localize_init_guess(
             ["H 1s"], mo_coeff=mo_coeff,
         )
-        energy_plain = plain_klas.kernel(np.array(mo_loc, copy=True))[1]
-        energy_trans = trans_klas.kernel(np.array(mo_loc, copy=True))[1]
+        energy_plain = plain_klas.kernel(np.array(mo_loc, copy=True))[0]
+        energy_trans = trans_klas.kernel(np.array(mo_loc, copy=True))[0]
 
         self.assertAlmostEqual(energy_plain.real, energy_trans.real, places=10)
         self.assertAlmostEqual(energy_plain.imag, energy_trans.imag, places=10)
